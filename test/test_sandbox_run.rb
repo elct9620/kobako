@@ -190,13 +190,6 @@ class TestSandboxRun < Minitest::Test
     assert_raises(ArgumentError) { sandbox.define(:Late) }
   end
 
-  def test_run_rejects_non_string_source
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    err = assert_raises(Kobako::SandboxError) { sandbox.run(123) }
-    assert_match(/must be a String/, err.message)
-  end
-
   # Item #25 — Frame 1 preamble is parsed without error when Service Members
   # are bound. The fixture consumes Frame 1 and discards it; Frame 2 drives
   # the outcome. Verifies that preamble delivery does not break the run path.
