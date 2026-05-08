@@ -23,7 +23,7 @@ kobako provides Ruby applications with an in-process, low-cold-start sandbox for
 
 ### Impacts
 
-When kobako is working correctly:
+kobako delivers the following observable behaviors:
 
 - A Host App can execute arbitrary mruby code supplied at runtime and receive a structured result or a categorized error — without any guest code affecting host memory, I/O, or credentials.
 - A Host App can inject named Ruby service objects that guest code can call via RPC; those objects are the only mechanism by which guest code can interact with external resources.
@@ -34,12 +34,12 @@ When kobako is working correctly:
 
 The following are explicitly outside the scope of kobako:
 
-- LLM integration, agent frameworks, or prompt engineering (kobako provides the execution substrate; connecting it to an LLM is the Host App's responsibility)
-- A general-purpose wasmtime Ruby gem — the native extension is a private implementation detail, not a reusable wasmtime wrapper
-- mruby upstream development or distribution — kobako consumes a pinned mruby release tarball
+- LLM integration, agent frameworks, or prompt engineering
+- A general-purpose wasmtime Ruby gem
+- mruby upstream development or distribution
 - Multi-tenant billing, SLA management, or deployment/operations tooling
 - Async or yield-resume execution models and interpreter state snapshot/resume
-- Passing guest-side blocks to Service methods — guest closures cannot be executed on the host side; iteration is handled by returning collections from Service methods
+- Passing guest-side blocks to Service methods
 
 ### Core Abstractions
 
@@ -56,9 +56,7 @@ These five roles describe the system. All design and behavior content in later l
 **Key internal concepts** (refined in later layers):
 
 - **Sandbox** (`Kobako::Sandbox`): the runtime unit that instantiates the Guest Binary, injects Services, executes a mruby script, and returns a structured outcome or raises a typed error.
-- **Registry**: the Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable.
-- **Handle**: an opaque integer token the guest holds to reference a host-side object returned by a Service call; the guest can use it in subsequent RPC calls but cannot dereference it directly.
-- **HandleTable**: the host-side mapping from Handle IDs to Ruby objects; owned by Registry and not exposed to Host App.
+- **Handle**: an opaque integer token the guest holds to reference a host-side object returned by a Service call; the guest can use it in subsequent RPC calls but cannot dereference it directly. Handle lifecycle is fully managed by the Host Gem; the guest holds only an opaque integer ID and cannot dereference it.
 - **Service Group / Member**: `Group` is a declared namespace visible to guest as a Ruby module; `Member` is a named binding within the group visible to guest as a module constant.
 - **Three-layer error taxonomy**: `Kobako::TrapError` (Wasm trap), `Kobako::SandboxError` (wire or runtime fault), `Kobako::ServiceError` (guest application error) — each with distinct attribution and handling semantics.
 
@@ -254,7 +252,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
 | **Result / Final State** | The Guest Binary is booted from cold for this invocation. The script is compiled and executed within the isolated Wasm boundary. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. The Guest Binary instance used for this run is fully retired after the outcome is retrieved. |
-| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. |
+| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
 
@@ -276,7 +274,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | A Sandbox instance on which `#run` has been called and has returned (either with a value or by raising an error). |
 | **Operation** | `sandbox.stdout` or `sandbox.stderr` — either or both, in any order, any number of times. |
 | **Result / Final State** | Each reader returns the complete byte content (as a UTF-8 String) that the guest script wrote to its respective output channel during the most recent `#run` invocation. The buffers do not change between successive reads. The content contains no kobako protocol bytes. If the accumulated output exceeded the configured limit, the buffer contains the captured bytes up to that limit followed by a `[truncated]` marker; this truncation does not cause `#run` to raise an error. |
-| **Notes** | The buffers remain readable after an error-raising `#run`; the Host App reads them after catching the error. A script may have written diagnostic output before the point of failure. Buffer limits are set at construction time (B-01). |
+| **Notes** | The buffers remain readable after an error-raising `#run`; the Host App reads them after catching the error. Buffer limits are set at construction time (B-01). |
 
 ---
 
@@ -287,7 +285,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | A Sandbox instance on which `#run` has never been called. |
 | **Operation** | `sandbox.stdout` or `sandbox.stderr`. |
 | **Result / Final State** | Each reader returns an empty String (`""`). No error is raised. |
-| **Notes** | This behavior defines the initial buffer state and allows Host Apps to read observation channels unconditionally without guarding against nil. |
+| **Notes** | Reading either buffer before `#run` is always safe and returns an empty String. |
 
 ---
 
@@ -311,7 +309,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance on which `#run` has not yet been called. No Service Group named `GroupName` exists on this Sandbox. |
 | **Operation** | `sandbox.define(:GroupName)` where `:GroupName` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
 | **Result / Final State** | A `Kobako::Service::Group` instance is created and associated with this Sandbox under the name `GroupName`. The group has no members yet. The method returns the new `Kobako::Service::Group` instance. The Sandbox registry now contains one additional group entry. |
-| **Notes** | `GroupName` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in Item #7). Declarations are design-time operations: they must be made before `#run` is first called. A group may have zero members at declaration time; members are added via B-08. |
+| **Notes** | `GroupName` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. A group may have zero members at declaration time; members are added via B-08. |
 
 ---
 
@@ -322,7 +320,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `Kobako::Service::Group` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. |
 | **Operation** | `group.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
 | **Result / Final State** | `object` is registered as the member named `MemberName` within the group. Guest code can now reach this object via the two-level path `GroupName::MemberName`. The method returns the `Kobako::Service::Group` instance (`self`) to allow chaining. |
-| **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object's lifecycle is owned by the Host App; the Sandbox registry holds a reference until the Sandbox is garbage-collected. |
+| **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). |
 
 ---
 
@@ -355,7 +353,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `Kobako::Service::Group` instance with a member already bound under the name `MemberName`. |
 | **Operation** | `group.bind(:MemberName, new_object)` — same member name as an already-bound member. |
 | **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten. The group's member registry is unchanged. |
-| **Notes** | Duplicate binding raises `ArgumentError`; the existing binding is preserved. Error scenarios are covered in full in Item #7. |
+| **Notes** | Duplicate binding raises `ArgumentError`; the existing binding is preserved. Error scenarios are covered in full in the Error Scenarios subsection. |
 
 ---
 
@@ -366,7 +364,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox executing a mruby script. A Service Member is bound at `GroupName::MemberName`. The guest script holds a reference to the constant `GroupName::MemberName` and calls a method on it. |
 | **Operation** | Guest code executes `GroupName::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
 | **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `GroupName::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest script's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
-| **Notes** | The dispatch is always a single `public_send` — no multi-step traversal occurs within one RPC. Bound Ruby objects receive keyword arguments as Ruby symbols, matching standard Ruby keyword argument conventions. If the target path is not found in the registry, a `ServiceError` is returned to the guest (covered in Item #7). |
+| **Notes** | Each RPC call invokes the bound object's method exactly once. Bound Ruby objects receive keyword arguments as Ruby symbols, matching standard Ruby keyword argument conventions. If the target path is not found in the registry, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
 
 ---
 
@@ -377,7 +375,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that has a wire representation: `nil`, Boolean, Integer, Float, String, binary string, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the RPC response. |
 | **Result / Final State** | The guest script receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
-| **Notes** | The wire codec is the same codec used for `#run` return values (B-06). Values that have no wire representation cause a `Kobako::SandboxError` (see Item #7). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
+| **Notes** | The wire codec is the same codec used for `#run` return values (B-06). Values that have no wire representation cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
 
 ---
 
@@ -388,7 +386,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a Ruby object that is not a primitive wire type — for example, a session object, a connection, or any stateful host resource. |
 | **Operation** | The Host Gem's wire layer detects that the return value is not a primitive wire type and automatically registers it in the Sandbox's HandleTable. |
 | **Result / Final State** | The host-side object is stored in the HandleTable under a new opaque u32 Handle ID. The guest receives a Capability Handle (an opaque integer token) as the RPC response value, not the object itself. The guest can pass this Handle as the `target` in subsequent RPC calls to invoke methods on the same host-side object. The Host App has no API to create or inspect Handles directly — Handle allocation is an internal wire-layer operation. |
-| **Notes** | Handle lifecycle (per-`#run` scope, ABA protection, ID limits) is specified in Item #6. The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
+| **Notes** | Handle lifecycle (per-`#run` scope, ABA protection, ID limits) is specified in the Handle lifecycle behaviors (B-15–B-21). The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
 
 ---
 
@@ -410,7 +408,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `#run` invocation is in progress. The guest holds a `Kobako::Handle` (mruby object) obtained from a prior RPC response in the same run. The Handle's internal ID resolves to a live entry in the HandleTable. |
 | **Operation** | Guest code invokes a method on a `Kobako::RPC` Service member and passes the `Kobako::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
 | **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the HandleTable, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. |
-| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in Item #7. |
+| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in the Error Scenarios subsection. |
 
 ---
 
@@ -431,7 +429,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | Run N has completed. The guest (or a script) attempts to retain a Handle ID from run N and presents it as the `target` in a new `#run` invocation (run N+1). At the start of run N+1 the HandleTable has been fully reset: all entries from run N are cleared and the counter restarted. |
 | **Operation** | Guest code in run N+1 calls a method using the stale Handle ID as the RPC target. |
-| **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (Item #7) is triggered. Run N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
+| **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Run N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
 | **Notes** | This outcome is unconditional: even if run N and run N+1 execute the same script with the same Service bindings, no Handle survives the `#run` boundary. The reset happens before the Guest Binary is instantiated for run N+1, so there is no window in which a stale ID could coincidentally match a new entry. |
 
 ---
@@ -453,7 +451,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A `#run` invocation is in progress. The guest mruby script has access to an arbitrary integer value (e.g., `42` or any computed integer). |
 | **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
-| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the guest-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in Item #7. |
+| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the guest-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
 | **Notes** | The `Kobako::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
 
 ---
@@ -465,7 +463,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `#run` invocation is in progress. The HandleTable counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
 | **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
-| **Notes** | The cap exists because mruby on wasm32 uses `MRB_INT32` (signed 32-bit integers): IDs above `0x7fff_ffff` would arrive at the guest as negative integers, silently corrupting capability references. The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in Item #7. |
+| **Notes** | The cap exists because mruby on wasm32 uses `MRB_INT32` (signed 32-bit integers): IDs above `0x7fff_ffff` would arrive at the guest as negative integers, silently corrupting capability references. The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
 
 ---
 
@@ -618,7 +616,7 @@ These terms describe the two-level Service injection model used to expose host c
 
 ### Wire Contract
 
-This section specifies the abstract logical shape of every message exchanged between the Host Gem and the Guest Binary during a `#run` invocation. It is a **Consistency-layer contract**: both sides implement it independently, and a kobako gem release ships exactly one version of it. Byte-level encoding (msgpack type mapping, ext code numbers, binary layout) is specified in the Wire Codec section (Item #10).
+This section specifies the abstract logical shape of every message exchanged between the Host Gem and the Guest Binary during a `#run` invocation. It is a **Consistency-layer contract**: both sides implement it independently, and a kobako gem release ships exactly one version of it. Byte-level encoding (msgpack type mapping, ext code numbers, binary layout) is specified in the Wire Codec section (the Wire Codec subsection).
 
 ---
 
@@ -669,7 +667,7 @@ A **Capability Handle** is an opaque token the guest holds to reference a statef
 - **Not constructible by the guest**: the guest mruby API does not expose a constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable.
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound). The bound exists because mruby on wasm32 uses signed 32-bit integers; an ID above the cap would arrive as a negative integer at the guest, silently corrupting capability references.
 
-Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in the Wire Codec section (Item #10).
+Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in the Wire Codec section (the Wire Codec subsection).
 
 ---
 
@@ -931,7 +929,7 @@ Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec i
 - **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
 - **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
 
-Both directions are required. Coverage must include all 11 wire types (→ Type Mapping), both ext types (0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to Item #11.
+Both directions are required. Coverage must include all 11 wire types (→ Type Mapping), both ext types (0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to the Implementation Standards subsection.
 
 ---
 
