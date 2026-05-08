@@ -171,7 +171,159 @@ class TestRpcDispatcherUnit < Minitest::Test
     assert_equal "argument", resp.payload.type
   end
 
+  # ---------- B-14 — host wraps stateful return values as Handles ----------
+
+  # SPEC B-14: a Service method whose return value falls outside the wire
+  # type set (B-13) is automatically allocated a HandleTable entry, and
+  # the guest sees a Wire::Handle in the Response.ok payload.
+  def test_non_wire_return_value_is_wrapped_as_handle
+    greeter = Class.new do
+      def initialize(name) = (@name = name)
+      def greet(prefix = "hi") = "#{prefix},#{@name}"
+    end
+    @registry.define(:Factory).bind(:Make, ->(name) { greeter.new(name) })
+    req = encode_request("Factory::Make", "call", ["Alice"], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_kind_of Kobako::Wire::Handle, resp.payload
+    bound = @handle_table.fetch(resp.payload.id)
+
+    assert_equal "hi,Alice", bound.greet
+  end
+
+  def test_primitive_return_value_is_not_wrapped
+    @registry.define(:Logger).bind(:Echo, ->(arg) { arg })
+    req = encode_request("Logger::Echo", "call", ["plain"], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "plain", resp.payload
+    assert_equal 0, @handle_table.size
+  end
+
+  # ---------- B-16 — guest passes Handle as argument ----------
+
+  # SPEC B-16: a Wire::Handle arriving as an argument is resolved against
+  # the HandleTable before dispatch, and the bound Service method receives
+  # the live Ruby object.
+  def test_handle_arg_is_resolved_to_bound_object_before_dispatch
+    greeter = Class.new do
+      def initialize(name) = (@name = name)
+      def greet = "hello,#{@name}"
+    end.new("Alice")
+    handle_id = @handle_table.alloc(greeter)
+    @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
+    req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id)], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "wrapped:hello,Alice", resp.payload
+  end
+
+  def test_handle_kwarg_is_resolved_to_bound_object_before_dispatch
+    obj = Object.new
+    def obj.greet = "kw_ok"
+    handle_id = @handle_table.alloc(obj)
+
+    capture = []
+    klass = Class.new do
+      define_method(:run) do |target:|
+        capture << target.greet
+        "done"
+      end
+    end
+    @registry.define(:K).bind(:Run, klass.new)
+    req = encode_request("K::Run", "run", [], { "target" => Kobako::Wire::Handle.new(handle_id) })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "done", resp.payload
+    assert_equal ["kw_ok"], capture
+  end
+
+  def test_unknown_handle_arg_returns_undefined_exception
+    req = encode_request("Logger::Echo", "call", [Kobako::Wire::Handle.new(999)], {})
+    @registry.define(:Logger).bind(:Echo, ->(x) { x })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "undefined", resp.payload.type
+  end
+
+  # ---------- B-17 — guest passes Handle as target (chained composition) -
+
+  # SPEC B-17: a Wire::Handle target resolves to the bound object directly;
+  # the Registry is bypassed and dispatch goes straight to public_send.
+  def test_handle_target_is_dispatched_to_bound_object
+    obj = Class.new do
+      def find(id) = "row:#{id}"
+    end.new
+    handle_id = @handle_table.alloc(obj)
+    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "find", [42], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "row:42", resp.payload
+  end
+
+  def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
+    # B-17 + B-14 chained: invoking a Handle target whose method returns
+    # another non-primitive object yields a fresh Handle in the response.
+    leaf = Class.new do
+      def kind = "leaf"
+    end
+    factory = Class.new do
+      define_method(:make) { leaf.new }
+    end.new
+    parent_id = @handle_table.alloc(factory)
+    req = encode_request_with_target(Kobako::Wire::Handle.new(parent_id), "make", [], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_kind_of Kobako::Wire::Handle, resp.payload
+    refute_equal parent_id, resp.payload.id
+    assert_equal "leaf", @handle_table.fetch(resp.payload.id).kind
+  end
+
+  def test_unknown_handle_target_returns_undefined_exception
+    req = encode_request_with_target(Kobako::Wire::Handle.new(7), "any", [], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "undefined", resp.payload.type
+  end
+
+  # ---------- Cross-run invalidity (B-19 via HandleTable#reset!) ----------
+
+  def test_handle_invalid_after_table_reset
+    obj = Object.new
+    def obj.tag = "t"
+    handle_id = @handle_table.alloc(obj)
+    @handle_table.reset!
+
+    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "tag", [], {})
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "undefined", resp.payload.type
+  end
+
   private
+
+  def encode_request_with_target(target, method, args, kwargs)
+    Kobako::Wire::Envelope.encode_request(
+      Kobako::Wire::Envelope::Request.new(target: target, method: method, args: args, kwargs: kwargs)
+    )
+  end
 
   def encode_request(target, method, args, kwargs)
     Kobako::Wire::Envelope.encode_request(target, method, args, kwargs)
