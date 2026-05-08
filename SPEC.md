@@ -467,4 +467,80 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
 | **Notes** | The cap exists because mruby on wasm32 uses `MRB_INT32` (signed 32-bit integers): IDs above `0x7fff_ffff` would arrive at the guest as negative integers, silently corrupting capability references. The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in Item #7. |
 
+---
+
+### Error Scenarios
+
+Every `Sandbox#run` invocation terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after `__kobako_run` returns:
+
+**Step 1 — Trap detection (highest priority).**
+If the Wasm engine reports a trap (e.g., wasmtime raises a native trap exception), the outcome is `Kobako::TrapError` regardless of any other state. No outcome bytes are inspected.
+
+**Step 2 — Outcome envelope tag (non-trap outcomes only).**
+If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_take_outcome` and dispatches on the first-byte tag:
+
+| First-byte tag | Outcome bytes state | Raised class |
+|---------------|---------------------|--------------|
+| — | Zero-length (`len == 0`) | `Kobako::TrapError` — wire violation fallback |
+| `0x01` (result) | Decode succeeds | Return value (no error raised) |
+| `0x01` (result) | Decode fails (malformed MessagePack or unrepresentable value) | `Kobako::SandboxError` |
+| `0x02` (panic) | Decode succeeds + `origin == "service"` | `Kobako::ServiceError` |
+| `0x02` (panic) | Decode succeeds + `origin == "sandbox"` or missing | `Kobako::SandboxError` |
+| `0x02` (panic) | Decode fails (malformed envelope) | `Kobako::SandboxError` |
+| Any other tag | — | `Kobako::TrapError` — wire violation fallback |
+
+`stdout` and `stderr` bytes do not participate in attribution dispatch. They are always available via `Sandbox#stdout` / `Sandbox#stderr` after a rescue, including after error-raising runs.
+
+---
+
+#### `Kobako::TrapError`
+
+Raised when the Wasm execution engine crashes or when the wire layer detects a structural violation that signals a corrupted guest execution environment. After a `TrapError`, the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next execution.
+
+| # | Trigger | Detection point |
+|---|---------|-----------------|
+| E-01 | Wasm engine trap: OOM, `unreachable` instruction, stack overflow, or import signature mismatch | wasmtime raises a native trap exception; Step 1 fires |
+| E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback |
+| E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback |
+
+**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (HandleTable exhaustion) raises `Kobako::SandboxError`, not `TrapError`, because the failure is detected before the guest runtime crashes.
+
+---
+
+#### `Kobako::SandboxError`
+
+Raised when the guest execution environment ran to completion but the overall execution failed due to a protocol fault, a mruby runtime error, or a Host Gem–side wire decode failure. The guest Wasm instance is retired normally; the sandbox infrastructure itself is intact.
+
+| # | Trigger | Behavior cross-reference |
+|---|---------|--------------------------|
+| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of `__kobako_run` | B-02, B-03 — script execution |
+| E-05 | Guest boot script fails to load or compile the user script (`mrb_load_string` error before execution begins) | B-02 — fresh run |
+| E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
+| E-07 | Service method return value is not a primitive wire type and HandleTable allocation fails because the counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — HandleTable exhaustion |
+| E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution; E-04 fallback |
+| E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
+| E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
+
+`sandbox.define(:name)` where `:name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07). `group.bind(:MemberName, obj)` when `MemberName` is already bound raises `ArgumentError` (B-11). Both are Host App programming errors detected at setup time before any guest execution; they do not go through the attribution pipeline and are not classified as `SandboxError`.
+
+---
+
+#### `Kobako::ServiceError`
+
+Raised when the guest execution environment ran to completion, the mruby script itself did not crash, but a Service capability call reported an application-level failure. The error originates in host Service code or in the capability routing layer, not in mruby script logic or the Wasm engine.
+
+`ServiceError` is raised when a panic envelope with `origin == "service"` reaches the host — meaning the mruby script executed a Service RPC that failed and the failure was not rescued within the script.
+
+| # | Trigger | Behavior cross-reference |
+|---|---------|--------------------------|
+| E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the RPC response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — RPC dispatch |
+| E-12 | The RPC `target` path (e.g., `"GroupName::MemberName"`) does not match any registered Service Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
+| E-13 | The RPC `target` is a Handle ID that does not exist in the current run's HandleTable (stale Handle from a prior run presented as target in a new run); error `type="undefined"` | B-18 — stale Handle cross-run |
+| E-14 | The RPC `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable; error `type="disconnected"` | B-16 — Handle referencing |
+| E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby script does not rescue it | B-12 — RPC dispatch |
+
+A Handle ID from run N presented as an RPC target in run N+1 produces `type="undefined"` because the HandleTable is fully reset at the start of each `#run`; this reaches the host as `Kobako::ServiceError` if the script does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
+
+When a guest script wraps a Service call in `begin/rescue`, the RPC failure is handled within the script; no `ServiceError` reaches the host and `#run` returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the script.
+
 <!-- Refinement layer: append after Behavior -->
