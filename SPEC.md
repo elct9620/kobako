@@ -114,9 +114,9 @@ These five roles describe the system. All design and behavior content in later l
 - Error attribution: the decision logic that maps execution outcomes to the three error classes
 
 **Depends on:**
-- `wasmtime` crate (via the private native extension) as the Wasm execution engine
+- A Wasm execution engine (via the private native extension)
 - A pinned mruby release tarball as the guest language runtime embedded in `kobako.wasm`
-- `wasi-sdk` toolchain to produce the `wasm32-wasip1` binary at build time
+- A WASI-compatible toolchain available on Linux and macOS to build kobako.wasm
 - Host-side and guest-side codec implementations maintained independently; round-trip fuzz tests are the consistency guarantee
 - Host App to define and inject Service objects; kobako does not constrain Service shape or method signatures
 
@@ -971,26 +971,26 @@ The following patterns are enforced project-wide and apply at every layer:
 - **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
-- **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, wire spec field, HandleTable guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
+- **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, Wire Spec field, HandleTable guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
 
 ##### Invariants
 
 The following invariants hold across every layer of the system. Each is a hard rule; no layer may violate them.
 
-| Invariant | Applies to |
-|-----------|-----------|
-| The terms `Service Group` and `Service Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers |
-| Wire `target` for Service calls uses the Ruby constant-path form `"Group::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations |
-| Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling |
-| stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem |
-| `Sandbox#run` returns the last mruby expression value via the Result envelope path; objects without a wire representation take the Panic envelope path — no implicit `inspect` or `to_h` conversion | Guest Binary, Wire Spec |
-| `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts |
-| mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build |
-| Guest Binary target is `wasm32-wasip1`; wasi-preview2 and component model are out of scope | Guest Binary build, Host Gem |
-| HandleTable IDs are bounded by `0x7fff_ffff` (2³¹ − 1); exceeding the cap raises `Kobako::SandboxError` immediately — no silent wraparound or truncation | Host Gem, wire layer |
-| `ext/kobako/` is a private binding for the kobako gem only; no downstream gem may depend on it directly | Architecture |
-| Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1; Handles are never individually released by the guest and never cleaned up by Ruby finalizers | Host Gem, Wire Spec |
-| Wire ABI has exactly one host import (`__kobako_rpc_call`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations |
+| Invariant | Applies to | Enforcement |
+|-----------|-----------|-------------|
+| The terms `Service Group` and `Service Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers | Documentation |
+| Wire `target` for Service calls uses the Ruby constant-path form `"Group::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
+| Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling | Test-time |
+| stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem | Test-time |
+| `Sandbox#run` returns the last mruby expression value via the Result envelope path; objects without a wire representation take the Panic envelope path — no implicit `inspect` or `to_h` conversion | Guest Binary, Wire Spec | Test-time |
+| `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts | Build-time |
+| mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build | Build-time |
+| Guest Binary target is `wasm32-wasip1`; wasi-preview2 and component model are out of scope | Guest Binary build, Host Gem | Build-time |
+| HandleTable IDs are bounded by `0x7fff_ffff` (2³¹ − 1); exceeding the cap raises `Kobako::SandboxError` immediately — no silent wraparound or truncation | Host Gem, wire layer | Runtime |
+| `ext/kobako/` is a private binding for the kobako gem only; no downstream gem may depend on it directly | Architecture | Documentation |
+| Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1; Handles are never individually released by the guest and never cleaned up by Ruby finalizers | Host Gem, Wire Spec | Documentation |
+| Wire ABI has exactly one host import (`__kobako_rpc_call`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
 
 #### Testing Style
 
@@ -1054,9 +1054,9 @@ Each task in `tasks/*.rake` must be idempotent: the presence of target files (e.
 |---|----------|----------|
 | 1 | `README.md` | Quickstart (5-line runnable example), API overview, install flow including MSRV |
 | 2 | Development guide (`docs/`) | Complete design specification (this document) |
-| 3 | Wire spec | Normative codec contract for implementers who want to build alternative hosts or codecs |
+| 3 | Wire Spec | Normative codec contract for implementers who want to build alternative hosts or codecs |
 | 4 | Build guide | Rake task reference, vendor version table, common build error troubleshooting |
 | 5 | `CHANGELOG.md` | Keep a Changelog format; each release includes Added / Changed / Fixed / Breaking Changes sections (empty sections may be omitted) |
 | 6 | `LICENSE` | License file |
 
-The wire spec (artifact #3) is the only one that forms an external stability promise. Its version is `1.0`; any change that breaks round-trip compatibility requires a version increment and a CHANGELOG entry marked as Breaking Changes. MSRV changes are treated as breaking changes and must appear in CHANGELOG.
+The Wire Spec (artifact #3) is the only one that forms an external stability promise. Its version is `1.0`; any change that breaks round-trip compatibility requires a version increment and a CHANGELOG entry marked as Breaking Changes. MSRV changes are treated as breaking changes and must appear in CHANGELOG.
