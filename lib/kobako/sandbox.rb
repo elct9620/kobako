@@ -98,6 +98,24 @@ module Kobako
                 :stdout_buffer, :stderr_buffer,
                 :stdout_limit, :stderr_limit, :services
 
+    # Return the complete byte content guest wrote to stdout during the most
+    # recent `#run`. Returns an empty String before any `#run` call.
+    # SPEC.md §B-04: may contain a `[truncated]` marker when the cap was hit.
+    #
+    # @return [String] UTF-8 encoded stdout capture.
+    def stdout
+      @stdout_buffer.to_s
+    end
+
+    # Return the complete byte content guest wrote to stderr during the most
+    # recent `#run`. Returns an empty String before any `#run` call.
+    # SPEC.md §B-04: may contain a `[truncated]` marker when the cap was hit.
+    #
+    # @return [String] UTF-8 encoded stderr capture.
+    def stderr
+      @stderr_buffer.to_s
+    end
+
     # Build a fresh Sandbox.
     #
     # @param wasm_path [String, nil] absolute path to the Guest Binary.
@@ -146,9 +164,11 @@ module Kobako
 
       @services.seal!
       reset_run_state!
+      @instance.setup_wasi_pipes(@stdout_limit, @stderr_limit)
 
       ptr, len = inject_source(source)
       invoke_guest_run(ptr, len)
+      drain_wasi_output
       outcome_bytes = read_outcome_bytes
       decode_outcome(outcome_bytes)
     end
@@ -161,6 +181,16 @@ module Kobako
       @services.reset_handles!
       @stdout_buffer.clear
       @stderr_buffer.clear
+    end
+
+    # Drain the WASI stdout/stderr pipes populated during the most recent
+    # guest execution into the bounded OutputBuffers (SPEC.md §B-04).
+    # Must be called after `invoke_guest_run` and before the next reset.
+    def drain_wasi_output
+      stdout_bytes = @instance.take_stdout
+      stderr_bytes = @instance.take_stderr
+      @stdout_buffer << stdout_bytes unless stdout_bytes.empty?
+      @stderr_buffer << stderr_bytes unless stderr_bytes.empty?
     end
 
     # Allocate a buffer in the guest and copy +source+ bytes into it.

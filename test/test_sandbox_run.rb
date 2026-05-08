@@ -90,12 +90,17 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     sandbox.run("1")
+    # Inject a sentinel that must NOT survive across the run boundary.
     sandbox.stdout_buffer << "from-between-runs"
-    refute_empty sandbox.stdout_buffer.to_s
+    assert_includes sandbox.stdout_buffer.to_s, "from-between-runs"
 
     sandbox.run("2")
 
-    assert_equal "", sandbox.stdout_buffer.to_s
+    # After the second run the per-run reset cleared the sentinel; the buffer
+    # now holds only what the guest wrote during run #2 (WASI capture, B-04).
+    # Stderr must be empty since the fixture only writes to stdout.
+    refute_includes sandbox.stdout_buffer.to_s, "from-between-runs",
+                    "stdout must not retain data injected between runs"
     assert_equal "", sandbox.stderr_buffer.to_s
   end
 
@@ -156,10 +161,12 @@ class TestSandboxRun < Minitest::Test
 
     sandbox.run("7")
 
-    # The current test fixture does not exercise WASI stdout/stderr —
-    # real WASI capture lands later. We only assert the per-run reset
-    # invariant from B-03/B-04.
-    assert_equal "", sandbox.stdout_buffer.to_s
+    # The per-run reset clears "leftover" before the guest runs. The buffer
+    # afterwards holds only what the guest wrote via WASI stdout (B-04).
+    # We assert the sentinel is gone; we do NOT assert the buffer is empty
+    # because the test-guest fixture now writes a marker to stdout on every run.
+    refute_includes sandbox.stdout_buffer.to_s, "leftover",
+                    "stdout must not retain pre-run leftover data"
     assert_equal "", sandbox.stderr_buffer.to_s
   end
 

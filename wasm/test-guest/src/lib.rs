@@ -76,6 +76,10 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 /// stdin frame mechanism is a later item.
 #[no_mangle]
 pub extern "C" fn __kobako_run(ptr: u32, len: u32) {
+    // Write a fixed marker to stdout so the host can assert non-empty capture
+    // (SPEC.md §B-04 — stdout/stderr capture E2E verification).
+    println!("hello from test-guest");
+
     // Read source bytes from linear memory. On wasm32 the host wrote
     // `len` bytes starting at `ptr`; we re-borrow them as a slice.
     let source: &[u8] = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };

@@ -5,10 +5,12 @@
 //   Kobako::Wasm::Store      - wraps wasmtime::Store<HostState>
 //   Kobako::Wasm::Instance   - wraps wasmtime::Instance + cached TypedFuncs
 //
-// This is the foundational binding layer for items #14 (Sandbox), #16
-// (run path) and #18 (RPC dispatch). The `__kobako_rpc_call` host import
-// is wired here as a stub that records (req_bytes, return_bytes) pairs in
-// HostState; later items replace the body with real Registry dispatch.
+// WASI stdout/stderr capture (SPEC.md §B-04): wasmtime-wasi p1 bindings route
+// guest fd 1 and fd 2 into per-run MemoryOutputPipe instances. After each run
+// the host drains the pipes via Instance#take_stdout / #take_stderr and pushes
+// the raw bytes through Ruby's OutputBuffer (which enforces the cap and
+// `[truncated]` marker). Stdin is wired as a MemoryInputPipe (preparation for
+// the dual-frame stdin mechanism — currently empty, populated by a later item).
 
 use std::cell::RefCell;
 use std::fs;
@@ -24,6 +26,10 @@ use wasmtime::{
     AsContextMut, Caller, Engine as WtEngine, Extern, Instance as WtInstance, Linker,
     Memory, Module as WtModule, Store as WtStore, TypedFunc,
 };
+use wasmtime_wasi::p1;
+use wasmtime_wasi::p1::WasiP1Ctx;
+use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+use wasmtime_wasi::WasiCtxBuilder;
 
 // ---------------------------------------------------------------------------
 // Error classes (lazy-resolved from Ruby once Kobako::Wasm is defined)
@@ -49,19 +55,27 @@ fn wasm_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 // HostState — context carried inside wasmtime::Store<T>.
 // ---------------------------------------------------------------------------
 
-/// Per-Store host state. Item #12 only needs placeholder buffers and an
-/// import-call recorder; real wiring (Registry handle, outcome decoding)
-/// arrives in items #14/#16/#18.
-#[derive(Default)]
-#[allow(dead_code)] // Buffers reserved for items #16/#18; populated then.
+/// Per-Store host state threaded through every host import callback.
+///
+/// WASI p1 state is embedded as `Option<WasiP1Ctx>` so it can be replaced
+/// fresh before each `#run` without rebuilding the Store. The `stdout_pipe`
+/// and `stderr_pipe` clones are kept alongside so the Ruby layer can drain
+/// captured bytes after execution without touching the WASI internals.
 pub struct HostState {
     /// Buffer mirror of guest's OUTCOME_BUFFER. Filled by `__kobako_take_outcome`
-    /// post-execution in #16; unused at #12 but reserved here so signatures stay
-    /// stable.
+    /// post-execution. Reserved for a future streaming-outcome path; not yet
+    /// consumed on the Rust side (the Ruby layer reads outcome via read_memory).
+    #[allow(dead_code)]
     pub outcome: Vec<u8>,
-    /// stdout/stderr collectors (item #16 wires WASI here).
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
+    /// WASI p1 context for the current (or most-recent) run. Replaced before
+    /// each `#run` so stdin/stdout/stderr pipes are always fresh (SPEC.md §B-03).
+    pub wasi: Option<WasiP1Ctx>,
+    /// Clone of the MemoryOutputPipe wired to guest fd 1 (stdout). Retained
+    /// here so `take_stdout` can call `contents()` after execution without
+    /// having to dig into the WASI ctx internals.
+    pub stdout_pipe: Option<MemoryOutputPipe>,
+    /// Clone of the MemoryOutputPipe wired to guest fd 2 (stderr).
+    pub stderr_pipe: Option<MemoryOutputPipe>,
     /// Recorded `__kobako_rpc_call` invocations from the stub import.
     /// Each entry is (request_bytes_received, response_bytes_returned).
     pub rpc_calls: Vec<(Vec<u8>, Vec<u8>)>,
@@ -71,6 +85,19 @@ pub struct HostState {
     /// calling `get_inner` requires a `Ruby` handle, which we obtain on
     /// every Ruby thread entry via `Ruby::get()`.
     pub registry: Option<Opaque<Value>>,
+}
+
+impl Default for HostState {
+    fn default() -> Self {
+        Self {
+            outcome: Vec::new(),
+            wasi: None,
+            stdout_pipe: None,
+            stderr_pipe: None,
+            rpc_calls: Vec::new(),
+            registry: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +226,17 @@ impl Instance {
         let ruby = Ruby::get().expect("Ruby thread");
         let mut linker: Linker<HostState> = Linker::new(engine.raw());
 
+        // Wire the wasmtime-wasi preview1 WASI imports. This replaces the
+        // manual no-op stubs and routes guest fd 1/2 to the MemoryOutputPipes
+        // set up before each run via `setup_wasi_pipes`. The closure extracts
+        // `&mut WasiP1Ctx` from HostState; if none is set (e.g. a test module
+        // that never invokes WASI functions), the Option unwrap will panic —
+        // but `setup_wasi_pipes` is always called before any WASI-enabled run.
+        p1::add_to_linker_sync(&mut linker, |state: &mut HostState| {
+            state.wasi.as_mut().expect("WASI context not initialised — call setup_wasi_pipes before run")
+        })
+        .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
+
         // `__kobako_rpc_call` host import. Signature per SPEC § Wire ABI:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
@@ -216,16 +254,6 @@ impl Instance {
                 },
             )
             .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
-
-        // Minimal WASI preview1 stubs. The production Guest Binary will
-        // ship with `wasmtime-wasi` wired to real pipes (item #16's WASI
-        // capture path is a separate iteration). For now we satisfy the
-        // imports the test fixture's `std` brings in (panic-on-error
-        // formatting touches `fd_write` on the wasm32-wasip1 target) so
-        // the module instantiates. Each stub is a no-op or returns the
-        // SUCCESS errno (0).
-        register_wasi_stubs(&mut linker)
-            .map_err(|e| wasm_err(&ruby, format!("define WASI stubs: {}", e)))?;
 
         let cell = store.cell();
         let instance = {
@@ -414,97 +442,84 @@ impl Instance {
         take.call(store_ref.as_context_mut(), ())
             .map_err(|e| wasm_err(&ruby, format!("__kobako_take_outcome(): {}", e)))
     }
-}
 
-// Register no-op stubs for the wasi_snapshot_preview1 imports that
-// `std`-built wasm32-wasip1 modules pull in implicitly. These stubs are
-// scoped to host-side test fixtures; the production Guest Binary ships
-// with real WASI in a later iteration, replacing these stubs with
-// `wasmtime-wasi` (or wasi-common) bindings that route stdout/stderr
-// into the Sandbox's bounded buffers per SPEC §B-04.
-fn register_wasi_stubs(linker: &mut Linker<HostState>) -> Result<(), wasmtime::Error> {
-    // fd_write(fd: i32, iovs_ptr: i32, iovs_len: i32, nwritten_ptr: i32) -> errno (i32).
-    // We accept the call, claim 0 bytes written (success), and ignore
-    // the buffers. SPEC §B-04 capture lands in a later item.
-    linker.func_wrap(
-        "wasi_snapshot_preview1",
-        "fd_write",
-        |mut caller: Caller<'_, HostState>,
-         _fd: i32,
-         _iovs_ptr: i32,
-         _iovs_len: i32,
-         nwritten_ptr: i32|
-         -> i32 {
-            // Write 0 to *nwritten so the caller sees a successful 0-byte
-            // write; this is enough for `std::panicking` paths that
-            // probe before formatting.
-            if let Some(Extern::Memory(mem)) = caller.get_export("memory") {
-                let zero = [0u8; 4];
-                let _ = mem.write(&mut caller, nwritten_ptr as usize, &zero);
-            }
-            0
-        },
-    )?;
+    // -----------------------------------------------------------------
+    // WASI capture path (SPEC.md §B-04). Called by Ruby's Sandbox#run.
+    // -----------------------------------------------------------------
 
-    // proc_exit(code: i32) — terminates the guest. Trapping is the
-    // simplest semantics; the host turns the trap into TrapError.
-    linker.func_wrap(
-        "wasi_snapshot_preview1",
-        "proc_exit",
-        |_caller: Caller<'_, HostState>, _code: i32| {
-            // Returning normally lets the wasm module continue, which is
-            // wrong; instead we return so wasmtime sees no error. proc_exit
-            // is rarely reached by the test fixture (no exit calls), but
-            // we keep the import satisfied either way.
-        },
-    )?;
+    /// Initialise fresh WASI pipes for the upcoming run (SPEC.md §B-03).
+    ///
+    /// Must be called before each `run` invocation. Creates:
+    ///   * A MemoryInputPipe for stdin (empty; a later item writes source frames)
+    ///   * A MemoryOutputPipe for fd 1 (stdout) — transport-layer pipe
+    ///   * A MemoryOutputPipe for fd 2 (stderr) — transport-layer pipe
+    ///
+    /// The pipe clones are stashed in HostState so `take_stdout` /
+    /// `take_stderr` can drain them after execution. The Ruby OutputBuffer
+    /// enforces the user-visible cap with the `[truncated]` marker.
+    ///
+    /// `stdout_cap` and `stderr_cap` are accepted for future streaming use
+    /// but the transport pipes are uncapped: SPEC.md §B-04 requires that
+    /// overflowing the OutputBuffer limit is a non-error outcome. Using a
+    /// small WASI pipe cap would cause `MemoryOutputPipe` to return
+    /// `StreamError::Trap` on overflow — which wasmtime converts to a real
+    /// trap, violating the SPEC invariant.
+    fn setup_wasi_pipes(&self, stdout_cap: i64, stderr_cap: i64) -> Result<(), MagnusError> {
+        let _ = (stdout_cap, stderr_cap);
+        // Empty stdin pipe — preparation for the dual-frame mechanism where a
+        // later item writes preamble + source frames before each run.
+        let stdin_pipe = MemoryInputPipe::new(Vec::<u8>::new());
+        let stdout_pipe = MemoryOutputPipe::new(usize::MAX);
+        let stderr_pipe = MemoryOutputPipe::new(usize::MAX);
 
-    // fd_close, fd_seek, environ_get, environ_sizes_get, args_get, args_sizes_get —
-    // all return SUCCESS without observable side effects. Sized as a
-    // single sweep so future SPEC-compliance work doesn't have to grow
-    // this list one symbol at a time.
-    for (name, arity) in [
-        ("fd_close", 1),
-        ("fd_seek", 4),
-        ("fd_fdstat_get", 2),
-        ("fd_prestat_get", 2),
-        ("fd_prestat_dir_name", 3),
-        ("environ_get", 2),
-        ("environ_sizes_get", 2),
-        ("args_get", 2),
-        ("args_sizes_get", 2),
-        ("clock_time_get", 4),
-        ("random_get", 2),
-    ] {
-        wasi_stub(linker, name, arity)?;
+        let mut builder = WasiCtxBuilder::new();
+        builder.stdin(stdin_pipe);
+        builder.stdout(stdout_pipe.clone());
+        builder.stderr(stderr_pipe.clone());
+        let wasi = builder.build_p1();
+
+        {
+            let mut store_ref = self.store.0.borrow_mut();
+            let data = store_ref.data_mut();
+            data.wasi = Some(wasi);
+            data.stdout_pipe = Some(stdout_pipe);
+            data.stderr_pipe = Some(stderr_pipe);
+        }
+
+        Ok(())
     }
 
-    Ok(())
-}
-
-fn wasi_stub(
-    linker: &mut Linker<HostState>,
-    name: &str,
-    arity: usize,
-) -> Result<(), wasmtime::Error> {
-    match arity {
-        1 => linker.func_wrap("wasi_snapshot_preview1", name, |_a: i32| -> i32 { 0 }),
-        2 => linker.func_wrap("wasi_snapshot_preview1", name, |_a: i32, _b: i32| -> i32 {
-            0
-        }),
-        3 => linker.func_wrap(
-            "wasi_snapshot_preview1",
-            name,
-            |_a: i32, _b: i32, _c: i32| -> i32 { 0 },
-        ),
-        4 => linker.func_wrap(
-            "wasi_snapshot_preview1",
-            name,
-            |_a: i32, _b: i32, _c: i32, _d: i32| -> i32 { 0 },
-        ),
-        _ => unreachable!("unsupported WASI stub arity {}", arity),
+    /// Drain the stdout bytes captured during the most recent run.
+    ///
+    /// Returns a binary Ruby String containing raw bytes from guest fd 1.
+    /// The MemoryOutputPipe clone in HostState retains its contents between
+    /// calls — it is replaced on the next `setup_wasi_pipes`.
+    fn take_stdout(&self) -> Result<RString, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let store_ref = self.store.0.borrow();
+        let bytes = store_ref
+            .data()
+            .stdout_pipe
+            .as_ref()
+            .map(|p| p.contents())
+            .unwrap_or_default();
+        Ok(ruby.str_from_slice(&bytes))
     }
-    .map(|_| ())
+
+    /// Drain the stderr bytes captured during the most recent run.
+    ///
+    /// Returns a binary Ruby String containing raw bytes from guest fd 2.
+    fn take_stderr(&self) -> Result<RString, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let store_ref = self.store.0.borrow();
+        let bytes = store_ref
+            .data()
+            .stderr_pipe
+            .as_ref()
+            .map(|p| p.contents())
+            .unwrap_or_default();
+        Ok(ruby.str_from_slice(&bytes))
+    }
 }
 
 /// Drive a single `__kobako_rpc_call` invocation end-to-end.
@@ -642,6 +657,9 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     instance.define_method("run", method!(Instance::run_call, 2))?;
     instance.define_method("take_outcome", method!(Instance::take_outcome, 0))?;
     instance.define_method("set_registry", method!(Instance::set_registry, 1))?;
+    instance.define_method("setup_wasi_pipes", method!(Instance::setup_wasi_pipes, 2))?;
+    instance.define_method("take_stdout", method!(Instance::take_stdout, 0))?;
+    instance.define_method("take_stderr", method!(Instance::take_stderr, 0))?;
 
     Ok(())
 }

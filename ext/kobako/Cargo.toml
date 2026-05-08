@@ -28,3 +28,9 @@ wasmtime = { version = "44.0.1", default-features = false, features = [
     "demangle",
     "wat",
 ] }
+# wasmtime-wasi provides WASI preview1 support for routing guest stdout/stderr
+# into in-memory buffers (SPEC.md §B-04). The `p1` feature enables the
+# WasiCtxBuilder + preview1 adapter which wires fd 1/2 to pipes. We omit
+# `p2` (component-model) and `p0`/`p3` (async) because kobako runs
+# synchronous sandboxes only.
+wasmtime-wasi = { version = "44.0.1", default-features = false, features = ["p1"] }
