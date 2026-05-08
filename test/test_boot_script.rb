@@ -4,141 +4,137 @@
 # this test inspects build-time artifacts and does not load the Ruby
 # Kobako module.
 require "minitest/autorun"
-require "ripper"
 
-# E2E test for item #10 (Guest Binary boot script).
+# Boot mechanism alignment test (item #29).
 #
-# Two tiers:
+# REFERENCE Ch.5 §Boot Script 預載 (lines 944–985) pins the Guest
+# Binary boot mechanism to direct mruby C API registrations performed
+# from Rust — no `mrb_load_string` of Ruby boot source, no embedded
+# `boot.rb` / `include_str!`. This test guards that contract:
 #
-#   * Fast tier (always runs): syntactic structural assertions on the
-#     embedded mruby boot script source. Verifies the file parses as
-#     valid Ruby (Ripper.sexp returns non-nil), that no Ruby 3.x-only
-#     features mruby 3.2 cannot accept are present (pattern matching,
-#     rightward assignment, endless methods), and that the three boot
-#     responsibilities (Service::Group::Member proxy install, stdout/
-#     stderr drain hook, error handler) appear in the source.
+#   1. `wasm/kobako-wasm/src/boot.rb` does not exist.
+#   2. `wasm/kobako-wasm/src/rpc_client.rs` no longer references
+#      `BOOT_SCRIPT` or `include_str!("boot.rb")`.
+#   3. The Rust-side boot module exists at
+#      `wasm/kobako-wasm/src/boot.rs` and exposes the documented
+#      `mrb_kobako_init` entry point.
+#   4. The mruby_sys FFI module exists at
+#      `wasm/kobako-wasm/src/mruby_sys.rs` and declares the
+#      registration C API functions REFERENCE Ch.5 names.
 #
-#   * Real tier (gated KOBAKO_E2E_BUILD=1): would evaluate the boot
-#     script inside a real mruby VM. Skipped today — the in-VM run is
-#     covered by item #11 (build pipeline) once libmruby.a is in the
-#     link graph. The skip message documents this so reviewers see the
-#     gap is scoped, not forgotten.
-#
-# tmp/REFERENCE.md Ch.5 §Boot Script 三職責 enumerates the three
-# responsibilities; this test mirrors that breakdown so any drift in
-# the boot script forces a corresponding update here.
+# The deeper Rust-level assertions (signature checks, NUL-termination
+# of C-string constants, mrb_func_t coercion) live in the cargo-test
+# harness in `mruby_sys.rs` / `boot.rs` and run via
+# `test_wasm_crate.rb`'s `cargo test --lib` invocation. This file's
+# job is the high-level structural guard that REFERENCE alignment is
+# intact — a missing file or a stray `BOOT_SCRIPT` reference fails
+# here loudly and immediately.
 class TestBootScript < Minitest::Test
   PROJECT_ROOT = File.expand_path("..", __dir__)
-  BOOT_RB = File.join(PROJECT_ROOT, "wasm", "kobako-wasm", "src", "boot.rb")
+  WASM_SRC_DIR = File.join(PROJECT_ROOT, "wasm", "kobako-wasm", "src")
+  BOOT_RB = File.join(WASM_SRC_DIR, "boot.rb")
+  RPC_CLIENT_RS = File.join(WASM_SRC_DIR, "rpc_client.rs")
+  BOOT_RS = File.join(WASM_SRC_DIR, "boot.rs")
+  MRUBY_SYS_RS = File.join(WASM_SRC_DIR, "mruby_sys.rs")
 
-  def setup
-    @source = File.read(BOOT_RB)
-    # Strip line comments before applying the mruby-compatibility regex
-    # guards. Comments may legitimately mention forbidden features (e.g.
-    # the file's own preamble lists what it does not use), and matching
-    # them would generate false positives. Line-by-line strip preserves
-    # line numbers so failures still point to the right place.
-    @code = @source.lines.map { |l| l.sub(/(?<!\\)#.*$/, "") }.join
+  # ----- Negative guards: previous Ruby boot mechanism is gone. -----
+
+  def test_boot_rb_no_longer_exists
+    refute File.exist?(BOOT_RB),
+           "wasm/kobako-wasm/src/boot.rb must NOT exist — REFERENCE Ch.5 " \
+           "§Boot Script 預載 (line 946) pins the boot mechanism to mruby " \
+           "C API registrations performed from Rust, with no Ruby boot " \
+           "text loaded into the VM."
   end
 
-  def test_boot_rb_exists_and_non_empty
-    assert File.file?(BOOT_RB), "wasm/kobako-wasm/src/boot.rb must exist (item #10)"
-    refute_empty @source.strip, "boot.rb must not be empty"
+  def test_rpc_client_does_not_reference_boot_script_const
+    src = File.read(RPC_CLIENT_RS)
+    refute_match(/\bBOOT_SCRIPT\b/, src,
+                 "rpc_client.rs must not declare or export BOOT_SCRIPT — " \
+                 "the Ruby-text boot mechanism is replaced by " \
+                 "boot.rs::mrb_kobako_init (REFERENCE Ch.5 line 946).")
+    refute_match(/include_str!\s*\(\s*"boot\.rb"\s*\)/, src,
+                 "rpc_client.rs must not embed boot.rb via include_str! — " \
+                 "see REFERENCE Ch.5 §Boot Script 預載.")
   end
 
-  def test_boot_rb_parses_as_valid_ruby
-    sexp = Ripper.sexp(@source)
-    refute_nil sexp,
-               "boot.rb must parse as valid Ruby (Ripper.sexp returned nil) — " \
-               "this also catches mruby-incompatible Ruby 3.x syntax that the " \
-               "host parser would still accept; the more specific feature " \
-               "guards below cover the cases Ripper does not flag."
+  # ----- Positive guards: new C API boot mechanism is in place. -----
+
+  def test_boot_rs_exists_and_exposes_mrb_kobako_init
+    assert File.file?(BOOT_RS),
+           "wasm/kobako-wasm/src/boot.rs must exist (item #29) — " \
+           "REFERENCE Ch.5 §Boot Script 預載 places the mruby C API " \
+           "registrations on the Rust side."
+    src = File.read(BOOT_RS)
+    assert_match(/pub\s+unsafe\s+fn\s+mrb_kobako_init\b/, src,
+                 "boot.rs must expose `pub unsafe fn mrb_kobako_init(...)` — " \
+                 "the entry point invoked by __kobako_run during instance " \
+                 "setup (item #16 wires this).")
   end
 
-  # ----- Mruby 3.2 compatibility guards -----
-  #
-  # These are conservative regex guards — they reject obvious uses of
-  # Ruby features mruby 3.2 does not accept. They are not full parser-
-  # level guards; the ground truth is mruby actually compiling the
-  # string, which is gated to KOBAKO_E2E_BUILD=1 + item #11.
-
-  def test_boot_rb_has_no_pattern_matching
-    refute_match(/^\s*case\b.*\bin\b/, @code,
-                 "mruby 3.2 does not support `case ... in` pattern matching")
-    refute_match(/=>\s*\{/, @code,
-                 "mruby 3.2 does not support hash pattern matching with `=> {}`")
+  def test_boot_rs_uses_required_mruby_c_api_functions
+    src = File.read(BOOT_RS)
+    # REFERENCE Ch.5 lines 948 / 950 / 952 / 959 enumerate the C API
+    # functions that perform the three registrations. Each must appear
+    # at least once in boot.rs.
+    %w[
+      mrb_define_module
+      mrb_define_class_under
+      mrb_define_module_function
+      mrb_define_singleton_method
+    ].each do |fn|
+      assert_includes src, fn,
+                      "boot.rs must call #{fn} (REFERENCE Ch.5 §Boot Script " \
+                      "預載 lines 944–985)"
+    end
   end
 
-  def test_boot_rb_has_no_rightward_assignment
-    # Rightward assignment: `expr => var`. The strict form `=> [bareword]`
-    # is the unambiguous case mruby 3.2 cannot parse.
-    refute_match(/^\s*\S.*=>\s*[a-z_][a-z0-9_]*\s*$/m, @code,
-                 "mruby 3.2 does not support rightward assignment (`expr => var`)")
+  def test_mruby_sys_rs_declares_ffi_block
+    assert File.file?(MRUBY_SYS_RS),
+           "wasm/kobako-wasm/src/mruby_sys.rs must exist — REFERENCE " \
+           "Ch.5 line 979 names this module as the location of the " \
+           "extern \"C\" shim wrappers around mruby C API."
+    src = File.read(MRUBY_SYS_RS)
+    assert_match(/extern\s+"C"\s*\{/, src,
+                 "mruby_sys.rs must declare an extern \"C\" FFI block")
+    %w[
+      mrb_define_module
+      mrb_define_class_under
+      mrb_define_module_function
+      mrb_define_singleton_method
+      mrb_class_ptr
+      mrb_class_name
+    ].each do |fn|
+      assert_includes src, fn,
+                      "mruby_sys.rs must declare an FFI binding for #{fn} " \
+                      "(REFERENCE Ch.5 §Boot Script 預載)"
+    end
   end
 
-  def test_boot_rb_has_no_endless_methods
-    refute_match(/^\s*def\s+\w+(?:\([^)]*\))?\s*=/, @code,
-                 "mruby 3.2 does not support endless method syntax (`def f = expr`)")
+  def test_lib_rs_wires_boot_and_mruby_sys_modules
+    lib_rs = File.join(WASM_SRC_DIR, "lib.rs")
+    src = File.read(lib_rs)
+    assert_match(/pub\s+mod\s+boot\b/, src,
+                 "lib.rs must declare `pub mod boot;`")
+    assert_match(/pub\s+mod\s+mruby_sys\b/, src,
+                 "lib.rs must declare `pub mod mruby_sys;`")
+    assert_match(/pub\s+use\s+boot::mrb_kobako_init\b/, src,
+                 "lib.rs must re-export `boot::mrb_kobako_init` so the " \
+                 "host-side ext (or item #16's __kobako_run wiring) can " \
+                 "reach it without hand-typing the path.")
   end
 
-  def test_boot_rb_has_no_data_define
-    refute_match(/Data\.define\b/, @code,
-                 "mruby 3.2 does not have `Data.define` (Ruby 3.2+ stdlib)")
-  end
+  # ----- Real tier (gated KOBAKO_E2E_BUILD=1) -----
 
-  # ----- Three responsibilities (REFERENCE Ch.5 §Boot Script 三職責) -----
+  def test_real_tier_wasm_crate_still_compiles
+    unless ENV["KOBAKO_E2E_BUILD"] == "1"
+      skip "needs KOBAKO_E2E_BUILD=1 to build the wasm crate against " \
+           "wasm32-wasip1 with libmruby.a in the link graph"
+    end
 
-  def test_boot_rb_responsibility_1_state_init
-    # Responsibility 1: capture $stdout / $stderr handles and ensure
-    # Kobako module reachable.
-    assert_match(/STDOUT_REF\s*=\s*\$stdout/, @source,
-                 "boot.rb must stash a stable $stdout reference (responsibility 1)")
-    assert_match(/STDERR_REF\s*=\s*\$stderr/, @source,
-                 "boot.rb must stash a stable $stderr reference (responsibility 1)")
-    assert_match(/^module Kobako\b/, @source,
-                 "boot.rb must define / reopen module Kobako")
-  end
-
-  def test_boot_rb_responsibility_2_service_member_proxy
-    # Responsibility 2: install Service::Group::Member proxy. The base
-    # class is `Kobako::RPC` whose singleton-class `method_missing`
-    # routes calls through the Guest RPC Client (REFERENCE Ch.5 §Boot
-    # Script 預載).
-    assert_match(/class\s+RPC\b/, @source,
-                 "boot.rb must define Kobako::RPC base class")
-    assert_match(/def\s+method_missing\b/, @source,
-                 "boot.rb must define method_missing on Kobako::RPC singleton")
-    assert_match(/def\s+respond_to_missing\?/, @source,
-                 "boot.rb must pair method_missing with respond_to_missing?")
-    assert_match(/Kobako\.__rpc_call__/, @source,
-                 "method_missing must dispatch through Kobako.__rpc_call__ (the " \
-                 "mruby C-bridge entry point declared in rpc_client.rs)")
-    assert_match(/class\s+Handle\b/, @source,
-                 "boot.rb must define Kobako::Handle for ext 0x01 wire form")
-  end
-
-  def test_boot_rb_responsibility_3_io_drain_hook
-    # Responsibility 3: stdout / stderr drain hook. WASI delivers fd 1
-    # / fd 2 directly to host buffers; this method exists so the Rust
-    # outer driver can flush before writing the outcome envelope.
-    assert_match(/def\s+self\.flush_io\b/, @source,
-                 "boot.rb must expose Kobako::Boot.flush_io for the Rust driver " \
-                 "to call before writing the outcome envelope (responsibility 3)")
-    assert_match(/STDOUT_REF\.flush/, @source,
-                 "flush_io must flush the stable $stdout handle")
-    assert_match(/STDERR_REF\.flush/, @source,
-                 "flush_io must flush the stable $stderr handle")
-  end
-
-  # ----- Real tier (gated) -----
-
-  def test_real_tier_boot_script_runs_in_mruby_vm
-    skip "needs item #11 build pipeline (libmruby.a) to evaluate the boot " \
-         "script inside a real mruby VM; gated KOBAKO_E2E_BUILD=1 once " \
-         "item #11 lands" unless ENV["KOBAKO_E2E_BUILD"] == "1"
-
-    skip "item #11 has not landed yet — the wasm32-wasip1 build does not " \
-         "yet link libmruby.a; this skip is intentional and documented in " \
-         "the test's preamble."
+    skip "wasm32-wasip1 build of the new boot mechanism is exercised " \
+         "by test_wasm_guest_build.rb / test_wasm_guest_pipeline.rb when " \
+         "KOBAKO_E2E_BUILD=1; this slot is reserved for a focused " \
+         "boot-mechanism-only check once item #16 wires the bodies."
   end
 end

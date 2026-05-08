@@ -1,10 +1,11 @@
 //! Guest RPC Client — Rust+mruby bridge.
 //!
-//! This module is the glue between the in-VM mruby proxy installed by
-//! `boot.rb` and the wasm-level `__kobako_rpc_call` host import declared
-//! in `abi.rs`. SPEC.md "Wire Contract" → Request / Response and
-//! tmp/REFERENCE.md Ch.5 §Guest RPC Client 與 wire codec 整合 pin the
-//! contract this module implements.
+//! This module is the glue between the in-VM mruby proxy installed
+//! by `crate::boot::mrb_kobako_init` (mruby C API registrations,
+//! REFERENCE Ch.5 §Boot Script 預載 lines 944–985) and the wasm-level
+//! `__kobako_rpc_call` host import declared in `abi.rs`. SPEC.md "Wire
+//! Contract" → Request / Response and REFERENCE Ch.5 §Guest RPC Client
+//! 與 wire codec 整合 pin the contract this module implements.
 //!
 //! ## Layered responsibilities
 //!
@@ -21,13 +22,6 @@
 //!    integration-style tests can drive the full RPC path without a
 //!    real wasm runtime.
 //!
-//! 3. [`mrb_kobako_send`] — mruby C-API entry point referenced by
-//!    [`BOOT_SCRIPT`] / item #11's class-level `method_missing`. The
-//!    body is a stub today: it will be filled in by item #11 when
-//!    libmruby.a is in the link graph. The signature is pinned so that
-//!    item #11 can wire the boot-script call-site without touching this
-//!    module's contract.
-//!
 //! ## Why the loopback indirection on host
 //!
 //! The codec and envelope layers are exhaustively tested on the host
@@ -36,6 +30,16 @@
 //! into a returnable mruby value, and a `Response::Err(payload)` into
 //! an mruby exception. We test that demux without a real wasm runtime
 //! by feeding the function a canned response via the loopback hook.
+//!
+//! ## Where the mruby C-side bridge lives
+//!
+//! REFERENCE Ch.5 line 959 specifies that user-script RPC calls land
+//! in C via `Kobako.__rpc_call__`, registered by
+//! `mrb_define_module_function`. That C function body, plus the
+//! `Kobako::RPC` singleton-class `method_missing` shim, lives in
+//! `crate::boot` — not here. This module's role is the
+//! Rust-level encode/transport/decode pipeline that the C bridge
+//! delegates to once item #16 wires the argument unpack.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_rpc_call;
@@ -46,19 +50,6 @@ use crate::codec::{Decoder, Value, WireError};
 use crate::envelope::{
     encode_request, EnvelopeError, Request, Response, Target,
 };
-
-// ---------------------------------------------------------------------
-// Boot script — embedded as a static string.
-// ---------------------------------------------------------------------
-
-/// The mruby-side boot script (REFERENCE Ch.5 §Boot Script 三職責).
-///
-/// The Rust outer driver evaluates this with `mrb_load_string` after
-/// the Frame 1 preamble has populated the Service Member subclasses.
-/// Item #11 wires the actual `mrb_load_string` call site; today this
-/// constant exists so reviewers and downstream items can reference the
-/// canonical embedded source.
-pub const BOOT_SCRIPT: &str = include_str!("boot.rb");
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -280,75 +271,15 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 const _PACK_U64_REACHABLE: fn(u32, u32) -> u64 = pack_u64;
 
 // ---------------------------------------------------------------------
-// mruby C-bridge — declared today, body lands with item #11.
+// mruby C-bridge — see `crate::boot`.
 // ---------------------------------------------------------------------
 //
-// `mrb_kobako_send` is the C entry point referenced by the boot
-// script's `Kobako.__rpc_call__` module function (REFERENCE Ch.5
-// §Boot Script 預載: `mrb_define_module_function(mrb, kobako_mod,
-// "__rpc_call__", c_fn, MRB_ARGS_REQ(4))`). Signature contract:
-//
-//   * mrb        — the mruby state pointer
-//   * target     — first positional arg, mruby Value (str or Handle)
-//   * method     — second positional arg, mruby Value (str)
-//   * args       — third positional arg, mruby Value (Array)
-//   * kwargs     — fourth positional arg, mruby Value (Hash, str keys)
-//
-// Returns an `mrb_value`. On success: the decoded `Response::Ok` value
-// converted to mruby. On error: raises a mruby exception of the
-// appropriate class (`Kobako::ServiceError` for Response.err with the
-// embedded payload; `Kobako::WireError` for wire faults) using mruby's
-// raise C API and returns `mrb_nil_value()` for the unreachable path.
-//
-// The `extern "C"` declaration here is opaque pointer-size to keep this
-// crate compilable without bindgen's mruby header binding. Item #11
-// replaces this with a typed signature against the bindgen-emitted
-// `mrb_state` and `mrb_value` types and supplies the body.
-
-/// Opaque pointer to mruby state. Item #11 replaces with the bindgen
-/// `mrb_state` type.
-#[allow(non_camel_case_types)]
-pub type MrbStatePtr = *mut core::ffi::c_void;
-
-/// Opaque mruby value. Item #11 replaces with the bindgen `mrb_value`
-/// type. Sized to fit any mruby word-box layout (16 bytes accommodates
-/// the largest variant: `MRB_NAN_BOXING` on 64-bit targets).
-#[allow(non_camel_case_types)]
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct MrbValueOpaque {
-    _payload: [u64; 2],
-}
-
-/// mruby C-bridge entry point. **Stub**: body lands with item #11; the
-/// signature is pinned today so item #11 can wire the boot-script call
-/// site without touching this module's contract.
-///
-/// # Safety
-///
-/// Caller must pass a valid `mrb_state` pointer and four well-formed
-/// `mrb_value`s matching the documented arg shape. Item #11's C-side
-/// callers (boot script `Kobako.__rpc_call__`) satisfy this by
-/// construction.
-#[no_mangle]
-pub unsafe extern "C" fn mrb_kobako_send(
-    _mrb: MrbStatePtr,
-    _target: MrbValueOpaque,
-    _method: MrbValueOpaque,
-    _args: MrbValueOpaque,
-    _kwargs: MrbValueOpaque,
-) -> MrbValueOpaque {
-    // Item #11 fills this in. The body will:
-    //   1. Convert the four mruby values into Rust (`Target`, `&str`,
-    //      `Vec<Value>`, `Vec<(String, Value)>`).
-    //   2. Call `invoke_rpc(...)`.
-    //   3. On Ok → convert `Value` back to `mrb_value`.
-    //   4. On `InvokeError::ServiceErr` → mruby `mrb_raise` with
-    //      `Kobako::ServiceError`.
-    //   5. On `InvokeError::Wire` → mruby `mrb_raise` with
-    //      `Kobako::WireError`.
-    unimplemented!("mrb_kobako_send body lands with item #11 (mruby link)")
-}
+// REFERENCE Ch.5 §Boot Script 預載 (lines 944–985) pins the C-side
+// dispatch entry as `Kobako.__rpc_call__`, registered via
+// `mrb_define_module_function` with `MRB_ARGS_REQ(4)`. That C bridge
+// (and the `Kobako::RPC` singleton-class `method_missing` shim that
+// forwards to it) lives in `crate::boot::mrb_kobako_init` —
+// the previous `mrb_kobako_send` shim is no longer used.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).
@@ -564,16 +495,4 @@ mod tests {
         }
     }
 
-    // ---- BOOT_SCRIPT smoke ----
-
-    #[test]
-    fn boot_script_is_non_empty_and_mentions_required_constructs() {
-        // The Ruby-side test in test/test_boot_script.rb does the
-        // structural assertions; this one just guards against accidental
-        // truncation when boot.rb is regenerated.
-        assert!(BOOT_SCRIPT.len() > 500);
-        assert!(BOOT_SCRIPT.contains("Kobako::RPC"));
-        assert!(BOOT_SCRIPT.contains("method_missing"));
-        assert!(BOOT_SCRIPT.contains("flush_io"));
-    }
 }
