@@ -11,3 +11,20 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.8.2" }
+# wasmtime — host-side embedder for kobako.wasm. We disable default-features
+# and opt back in only what kobako needs (see tmp/REFERENCE.md Ch.6 §wasmtime
+# crate 最小 binding 範圍): a Cranelift-backed runtime that can compile a
+# pre-built wasm32-wasip1 module on the host triple, plus the `wat` feature
+# so test fixtures can be expressed as text. WASI integration is layered on
+# later via `wasmtime-wasi` once stdin/stdout wiring is needed (item #16).
+# `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
+# are intentionally off — kobako runs short-lived synchronous sandboxes.
+wasmtime = { version = "44.0.1", default-features = false, features = [
+    "cranelift",
+    "runtime",
+    "gc",
+    "gc-drc",
+    "addr2line",
+    "demangle",
+    "wat",
+] }
