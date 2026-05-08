@@ -1,5 +1,4 @@
-// Host-side wasmtime wrapper. Exposes a minimal binding surface to Ruby
-// per tmp/REFERENCE.md Ch.6 §wasmtime crate 最小 binding 範圍:
+// Host-side wasmtime wrapper. Exposes a minimal binding surface to Ruby:
 //
 //   Kobako::Wasm::Engine     - wraps wasmtime::Engine
 //   Kobako::Wasm::Module     - wraps wasmtime::Module (file-loaded)

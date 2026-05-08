@@ -2,8 +2,7 @@
 
 # Kobako::HandleTable — host-side mapping from opaque integer Handle IDs to
 # Ruby objects (capability proxies). One table is owned per Kobako::Sandbox
-# instance (SPEC § "Handle Lifecycle"; REFERENCE.md Ch.6 "HandleTable
-# 實作要點").
+# instance (SPEC.md "Capability Handle" / "ext 0x01 — Capability Handle").
 #
 # This is a pure-Ruby implementation: HandleTable is a hash-plus-counter and
 # is not on a performance hotspot, so it does not require a Rust ext.

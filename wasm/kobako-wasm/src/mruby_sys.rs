@@ -3,19 +3,15 @@
 //!
 //! ## Why hand-rolled and not bindgen
 //!
-//! REFERENCE Ch.5 §bindgen cross-target 設定 (lines 863–872) describes
-//! a future bindgen-driven binding generated from `vendor/mruby/include/`
-//! at build time. That path is not yet wired in `build.rs` (the file
-//! comment in `build.rs` itself documents this: "It does not run
-//! bindgen"). REFERENCE Ch.5 §Boot Script 預載 also explicitly
-//! anticipates `extern "C"` shim wrappers for any C API that is exposed
-//! as a `static inline` macro in mruby headers — these shims would live
-//! at `crates/mruby-sys/wrapper.h` per REFERENCE line 979.
+//! A future bindgen-driven binding generated from `vendor/mruby/include/`
+//! at build time is anticipated, with `extern "C"` shim wrappers for any
+//! C API exposed as a `static inline` macro in mruby headers. That path
+//! is not yet wired in `build.rs` (the file comment in `build.rs` itself
+//! documents this: "It does not run bindgen").
 //!
 //! For the boot mechanism the surface we actually call is small and
 //! stable across mruby 3.x — the half-dozen registration functions
-//! enumerated in REFERENCE Ch.5 lines 946–977. Hand-declaring them as
-//! `extern "C"` gives us:
+//! used by `boot.rs`. Hand-declaring them as `extern "C"` gives us:
 //!
 //!   * A wasm32 build that links against `libmruby.a` (host-side build
 //!     pipeline already stages the archive — see `build.rs` and
@@ -26,7 +22,7 @@
 //!
 //! When bindgen lands (item tracked in `build.rs` TODO), this module
 //! migrates to using the bindgen-emitted types and the C-side shims for
-//! the `static inline` boxing macros listed in REFERENCE Ch.5 line 977.
+//! the `static inline` boxing macros.
 //!
 //! ## What is bound
 //!
@@ -42,9 +38,9 @@
 //!   * `mrb_get_args`
 //!   * `mrb_str_new` / `mrb_str_to_cstr` (string round-trip)
 //!   * `mrb_raise` / `mrb_class_get_under` (exception path)
-//!   * The `mrb_value` boxing helpers REFERENCE line 967–977 lists
-//!     (as opaque `extern "C"` to side-step the static-inline issue —
-//!     this is the documented `crates/mruby-sys/wrapper.h` shim path).
+//!   * The `mrb_value` boxing helpers (declared as opaque `extern "C"`
+//!     to side-step the static-inline issue — the future
+//!     `crates/mruby-sys/wrapper.h` shim path).
 //!
 //! No other mruby C API is touched here.
 //!
@@ -53,11 +49,10 @@
 //! `mrb_value` layout depends on mruby compile-time configuration. For
 //! wasm32 with `MRB_INT32` and `MRB_WORDBOX_NO_INLINE_FLOAT` the value
 //! is a 64-bit word-box. We treat `mrb_value` as opaque (16 bytes to be
-//! safe across all configurations REFERENCE acknowledges) and never
-//! inspect its bits — the boxing helpers above are the only way we
-//! construct or destructure values. This is exactly the discipline
-//! REFERENCE Ch.5 line 977 mandates: hand-rolled bit patterns are an
-//! ABI assumption violation; macro-routed values are not.
+//! safe across all documented mruby configurations) and never inspect
+//! its bits — the boxing helpers above are the only way we construct or
+//! destructure values. Hand-rolled bit patterns would be an ABI
+//! assumption violation; macro-routed values are not.
 
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
@@ -66,14 +61,13 @@ use core::ffi::c_void;
 #[cfg(target_arch = "wasm32")]
 use core::ffi::{c_char, c_int};
 
-/// Opaque pointer to mruby state (`mrb_state *`). REFERENCE Ch.5 line
-/// 950 et al.
+/// Opaque pointer to mruby state (`mrb_state *`).
 pub type mrb_state = c_void;
 
 /// Opaque mruby value. Sized at 16 bytes to fit any documented mruby
-/// word-box layout (REFERENCE Ch.5 line 977 lists the layouts: wasm32
-/// `MRB_WORDBOX_NO_INLINE_FLOAT` is 8 bytes; 64-bit no-inline-float and
-/// NaN-boxing variants are 8 bytes; a 16-byte slot covers all).
+/// word-box layout (wasm32 `MRB_WORDBOX_NO_INLINE_FLOAT` is 8 bytes;
+/// 64-bit no-inline-float and NaN-boxing variants are 8 bytes; a
+/// 16-byte slot covers all).
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct mrb_value {
@@ -137,12 +131,11 @@ pub const fn mrb_args_req(n: u32) -> mrb_aspec {
 #[cfg(target_arch = "wasm32")]
 extern "C" {
     /// `mrb_define_module(mrb, name)` — defines or returns the module
-    /// named `name` at top level. REFERENCE Ch.5 line 948.
+    /// named `name` at top level.
     pub fn mrb_define_module(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
 
     /// `mrb_define_class_under(mrb, outer, name, super_)` — defines a
     /// class `name` under `outer`, inheriting from `super_`.
-    /// REFERENCE Ch.5 line 950 / line 1003.
     pub fn mrb_define_class_under(
         mrb: *mut mrb_state,
         outer: *mut RClass,
@@ -151,7 +144,7 @@ extern "C" {
     ) -> *mut RClass;
 
     /// `mrb_define_module_function(mrb, mod_, name, func, aspec)` —
-    /// defines a module function on `mod_`. REFERENCE Ch.5 line 959.
+    /// defines a module function on `mod_`.
     pub fn mrb_define_module_function(
         mrb: *mut mrb_state,
         mod_: *mut RClass,
@@ -161,8 +154,7 @@ extern "C" {
     );
 
     /// `mrb_define_singleton_method(mrb, obj, name, func, aspec)` —
-    /// defines a singleton-class method on `obj`. REFERENCE Ch.5
-    /// line 952 quotes this exact signature.
+    /// defines a singleton-class method on `obj`.
     pub fn mrb_define_singleton_method(
         mrb: *mut mrb_state,
         obj: *mut RObject,
@@ -173,11 +165,10 @@ extern "C" {
 
     /// `mrb_class_ptr(val)` — the singleton-method `self` is the class
     /// object itself; `mrb_class_ptr` extracts the `RClass*` from it.
-    /// REFERENCE Ch.5 line 952.
     pub fn mrb_class_ptr(val: mrb_value) -> *mut RClass;
 
     /// `mrb_class_name(mrb, c)` — returns the class's full Ruby name
-    /// (e.g. `"MyService::KV"`). REFERENCE Ch.5 line 952.
+    /// (e.g. `"MyService::KV"`).
     pub fn mrb_class_name(mrb: *mut mrb_state, c: *mut RClass) -> *const c_char;
 
     /// `mrb_get_args(mrb, format, ...)` — variadic argument unpack.
@@ -217,8 +208,8 @@ extern "C" {
 // On the host target the FFI block is absent, so we cannot link-check
 // the symbols. We *can* however verify the type aliases and constants
 // resolve and that constructed function pointers have the expected
-// shape — this catches accidental signature drift in the FFI block when
-// REFERENCE updates land. Cheap regression net.
+// shape — this catches accidental signature drift in the FFI block.
+// Cheap regression net.
 
 #[cfg(test)]
 mod tests {
@@ -236,8 +227,8 @@ mod tests {
 
     #[test]
     fn mrb_value_size_covers_known_layouts() {
-        // REFERENCE Ch.5 line 977 enumerates the documented word-box
-        // layouts. The largest is 8 bytes (NaN-boxing on 64-bit), but
+        // The documented word-box layouts top out at 8 bytes
+        // (NaN-boxing on 64-bit), but
         // we reserve 16 bytes so future layouts (e.g. an experimental
         // 128-bit Capn-style boxing) do not require an ABI break.
         assert!(core::mem::size_of::<mrb_value>() >= 8);
@@ -248,8 +239,8 @@ mod tests {
     fn mrb_func_t_is_a_valid_extern_c_fn_pointer() {
         // Compile-time check: building a function with the expected
         // signature must coerce to `mrb_func_t` without an explicit
-        // cast. If REFERENCE's `mrb_func_t` shape ever drifts, this
-        // function definition fails to compile.
+        // cast. If the `mrb_func_t` shape ever drifts, this function
+        // definition fails to compile.
         unsafe extern "C" fn _stub(_mrb: *mut mrb_state, _self_: mrb_value) -> mrb_value {
             mrb_value::zeroed()
         }

@@ -5,7 +5,7 @@ require_relative "group"
 module Kobako
   module Service
     # Kobako::Service::Registry — per-Sandbox container of Service Groups
-    # (SPEC §B-07..B-11; REFERENCE Ch.6 §Registry 實作要點).
+    # (SPEC §B-07..B-11).
     #
     # Exposes `#define(:GroupName)` to declare or retrieve a {Group}, and
     # `#lookup("GroupName::MemberName")` to resolve a two-level path to the
@@ -85,7 +85,7 @@ module Kobako
         @groups.empty?
       end
 
-      # Structured Frame 1 description (REFERENCE Ch.6 §Registry `#guest_preamble`).
+      # Structured Frame 1 description.
       # Returns the unencoded array; msgpack encoding lives at the wire layer.
       #
       # @return [Array<Array(String, Array<String>)>]

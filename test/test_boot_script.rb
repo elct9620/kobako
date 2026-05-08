@@ -7,10 +7,10 @@ require "minitest/autorun"
 
 # Boot mechanism alignment test (item #29).
 #
-# REFERENCE Ch.5 §Boot Script 預載 (lines 944–985) pins the Guest
-# Binary boot mechanism to direct mruby C API registrations performed
-# from Rust — no `mrb_load_string` of Ruby boot source, no embedded
-# `boot.rb` / `include_str!`. This test guards that contract:
+# The Guest Binary boot mechanism is pinned to direct mruby C API
+# registrations performed from Rust — no `mrb_load_string` of Ruby boot
+# source, no embedded `boot.rb` / `include_str!`. This test guards that
+# contract:
 #
 #   1. `wasm/kobako-wasm/src/boot.rb` does not exist.
 #   2. `wasm/kobako-wasm/src/rpc_client.rs` no longer references
@@ -20,15 +20,14 @@ require "minitest/autorun"
 #      `mrb_kobako_init` entry point.
 #   4. The mruby_sys FFI module exists at
 #      `wasm/kobako-wasm/src/mruby_sys.rs` and declares the
-#      registration C API functions REFERENCE Ch.5 names.
+#      registration C API functions used by `boot.rs`.
 #
 # The deeper Rust-level assertions (signature checks, NUL-termination
 # of C-string constants, mrb_func_t coercion) live in the cargo-test
 # harness in `mruby_sys.rs` / `boot.rs` and run via
 # `test_wasm_crate.rb`'s `cargo test --lib` invocation. This file's
-# job is the high-level structural guard that REFERENCE alignment is
-# intact — a missing file or a stray `BOOT_SCRIPT` reference fails
-# here loudly and immediately.
+# job is the high-level structural guard — a missing file or a stray
+# `BOOT_SCRIPT` reference fails here loudly and immediately.
 class TestBootScript < Minitest::Test
   PROJECT_ROOT = File.expand_path("..", __dir__)
   WASM_SRC_DIR = File.join(PROJECT_ROOT, "wasm", "kobako-wasm", "src")
@@ -41,10 +40,9 @@ class TestBootScript < Minitest::Test
 
   def test_boot_rb_no_longer_exists
     refute File.exist?(BOOT_RB),
-           "wasm/kobako-wasm/src/boot.rb must NOT exist — REFERENCE Ch.5 " \
-           "§Boot Script 預載 (line 946) pins the boot mechanism to mruby " \
-           "C API registrations performed from Rust, with no Ruby boot " \
-           "text loaded into the VM."
+           "wasm/kobako-wasm/src/boot.rb must NOT exist — the boot " \
+           "mechanism is pinned to mruby C API registrations performed " \
+           "from Rust, with no Ruby boot text loaded into the VM."
   end
 
   def test_rpc_client_does_not_reference_boot_script_const
@@ -52,10 +50,9 @@ class TestBootScript < Minitest::Test
     refute_match(/\bBOOT_SCRIPT\b/, src,
                  "rpc_client.rs must not declare or export BOOT_SCRIPT — " \
                  "the Ruby-text boot mechanism is replaced by " \
-                 "boot.rs::mrb_kobako_init (REFERENCE Ch.5 line 946).")
+                 "boot.rs::mrb_kobako_init.")
     refute_match(/include_str!\s*\(\s*"boot\.rb"\s*\)/, src,
-                 "rpc_client.rs must not embed boot.rb via include_str! — " \
-                 "see REFERENCE Ch.5 §Boot Script 預載.")
+                 "rpc_client.rs must not embed boot.rb via include_str!.")
   end
 
   # ----- Positive guards: new C API boot mechanism is in place. -----
@@ -63,8 +60,7 @@ class TestBootScript < Minitest::Test
   def test_boot_rs_exists_and_exposes_mrb_kobako_init
     assert File.file?(BOOT_RS),
            "wasm/kobako-wasm/src/boot.rs must exist (item #29) — " \
-           "REFERENCE Ch.5 §Boot Script 預載 places the mruby C API " \
-           "registrations on the Rust side."
+           "the mruby C API registrations live on the Rust side."
     src = File.read(BOOT_RS)
     assert_match(/pub\s+unsafe\s+fn\s+mrb_kobako_init\b/, src,
                  "boot.rs must expose `pub unsafe fn mrb_kobako_init(...)` — " \
@@ -74,9 +70,8 @@ class TestBootScript < Minitest::Test
 
   def test_boot_rs_uses_required_mruby_c_api_functions
     src = File.read(BOOT_RS)
-    # REFERENCE Ch.5 lines 948 / 950 / 952 / 959 enumerate the C API
-    # functions that perform the three registrations. Each must appear
-    # at least once in boot.rs.
+    # The three registrations require these C API functions; each must
+    # appear at least once in boot.rs.
     %w[
       mrb_define_module
       mrb_define_class_under
@@ -84,16 +79,14 @@ class TestBootScript < Minitest::Test
       mrb_define_singleton_method
     ].each do |fn|
       assert_includes src, fn,
-                      "boot.rs must call #{fn} (REFERENCE Ch.5 §Boot Script " \
-                      "預載 lines 944–985)"
+                      "boot.rs must call #{fn} as part of the boot mechanism"
     end
   end
 
   def test_mruby_sys_rs_declares_ffi_block
     assert File.file?(MRUBY_SYS_RS),
-           "wasm/kobako-wasm/src/mruby_sys.rs must exist — REFERENCE " \
-           "Ch.5 line 979 names this module as the location of the " \
-           "extern \"C\" shim wrappers around mruby C API."
+           "wasm/kobako-wasm/src/mruby_sys.rs must exist — this module " \
+           "houses the extern \"C\" shim wrappers around the mruby C API."
     src = File.read(MRUBY_SYS_RS)
     assert_match(/extern\s+"C"\s*\{/, src,
                  "mruby_sys.rs must declare an extern \"C\" FFI block")
@@ -106,8 +99,7 @@ class TestBootScript < Minitest::Test
       mrb_class_name
     ].each do |fn|
       assert_includes src, fn,
-                      "mruby_sys.rs must declare an FFI binding for #{fn} " \
-                      "(REFERENCE Ch.5 §Boot Script 預載)"
+                      "mruby_sys.rs must declare an FFI binding for #{fn}"
     end
   end
 

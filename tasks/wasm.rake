@@ -3,8 +3,8 @@
 # wasm/ Rust crate (kobako-wasm) tasks.
 # ====================================
 #
-# kobako-wasm is the Guest Binary source; see SPEC.md "Wire Codec" and
-# tmp/REFERENCE.md Ch.5. Tasks here:
+# kobako-wasm is the Guest Binary source; see SPEC.md "Wire Codec".
+# Tasks here:
 #
 #   * `rake wasm:check` — compile-only check. Targets wasm32-wasip1 if the
 #                         toolchain target is installed (cargo handles
@@ -14,9 +14,8 @@
 #   * `rake wasm:test`  — runs `cargo test` on the host. wasm32 has no test
 #                         runner, so codec unit tests must run on the host
 #                         build of the same code.
-#   * `rake wasm:guest` — Stage C of the Build Pipeline (REFERENCE Ch.5
-#                         §Build Pipeline 三段). Cross-compiles the kobako-
-#                         wasm crate against the vendored wasi-sdk +
+#   * `rake wasm:guest` — Stage C of the Build Pipeline. Cross-compiles
+#                         the kobako-wasm crate against the vendored wasi-sdk +
 #                         libmruby.a and writes the resulting Guest Binary
 #                         to `data/kobako.wasm`. Depends on `vendor:setup`
 #                         and `mruby:build` so the full three-stage pipeline
@@ -41,7 +40,7 @@ module KobakoWasm
   MANIFEST   = File.join(CRATE_DIR, "Cargo.toml").freeze
   WASM_TARGET = "wasm32-wasip1"
 
-  # Stage C inputs / outputs (REFERENCE Ch.5 §Build Pipeline 三段).
+  # Stage C inputs / outputs.
   CRATE_SRC_DIR     = File.join(CRATE_DIR, "src").freeze
   CRATE_BUILD_RS    = File.join(CRATE_DIR, "build.rs").freeze
   CRATE_TARGET_DIR  = File.join(CRATE_DIR, "target").freeze
@@ -108,8 +107,8 @@ module KobakoWasm
   end
 
   # Build the env hash passed to `cargo build` for Stage C. Pins CC / AR to
-  # wasi-sdk's clang + llvm-ar (REFERENCE Ch.5 rule #2 — the wasm crate
-  # links via the same toolchain mruby was compiled with) and exports
+  # wasi-sdk's clang + llvm-ar (the wasm crate links via the same
+  # toolchain mruby was compiled with) and exports
   # `MRUBY_LIB_DIR` so build.rs can wire the libmruby.a search path.
   def cargo_build_env
     clang   = File.join(WASI_SDK_DIR, "bin", "clang")

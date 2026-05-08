@@ -7,9 +7,9 @@
 //!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
 //! * (future) ABI exports `__kobako_run`, `__kobako_alloc`,
 //!   `__kobako_take_outcome` — added by item #9.
-//! * `boot` — Rust-side mruby C API registrations that REFERENCE
-//!   Ch.5 §Boot Script 預載 specifies (Kobako module / Kobako::RPC
-//!   class / Kobako.__rpc_call__ module function). No Ruby boot text.
+//! * `boot` — Rust-side mruby C API registrations (Kobako module /
+//!   Kobako::RPC class / Kobako.__rpc_call__ module function). No Ruby
+//!   boot text.
 //! * `mruby_sys` — hand-rolled FFI declarations for the mruby C API
 //!   subset the boot mechanism calls.
 //!

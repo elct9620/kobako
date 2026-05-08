@@ -5,10 +5,10 @@
 # Two-tier pattern (mirrors test_vendor_task.rb's design):
 #
 #   * Fast tier — always runs. Loads `build_config/wasi.rb` with a stubbed
-#     MRuby::Build shim and asserts that the five customisation rules from
-#     REFERENCE.md Ch.5 §mruby 客製化五條 are enforced: pinned wasi-sdk
-#     toolchain, three setjmp/longjmp flags, MRB_WORDBOX_NO_INLINE_FLOAT
-#     and MRB_INT32 defines, and the mrbgem allowlist.
+#     MRuby::Build shim and asserts that the five customisation rules are
+#     enforced: pinned wasi-sdk toolchain, three setjmp/longjmp flags,
+#     MRB_WORDBOX_NO_INLINE_FLOAT and MRB_INT32 defines, and the mrbgem
+#     allowlist.
 #
 #   * Real tier — gated by `KOBAKO_E2E_BUILD=1`. Actually invokes
 #     `rake mruby:build` against a real vendored toolchain and asserts the
@@ -166,9 +166,9 @@ class TestMrubyBuildConfig < Minitest::Test
 
     # The two `-mllvm` paired flags must appear as adjacent pairs.
     assert build.cc.flags.include_sequence?(["-mllvm", "-wasm-enable-sjlj"]),
-           "cc flags must include `-mllvm -wasm-enable-sjlj` (REFERENCE Ch.5)"
+           "cc flags must include `-mllvm -wasm-enable-sjlj`"
     assert build.cc.flags.include_sequence?(["-mllvm", "-wasm-use-legacy-eh=false"]),
-           "cc flags must include `-mllvm -wasm-use-legacy-eh=false` (REFERENCE Ch.5)"
+           "cc flags must include `-mllvm -wasm-use-legacy-eh=false`"
     assert build.linker.flags.include_sequence?(["-mllvm", "-wasm-enable-sjlj"]),
            "linker flags must also include `-mllvm -wasm-enable-sjlj` (3-flag set is compile+link)"
     assert build.linker.flags.include_sequence?(["-mllvm", "-wasm-use-legacy-eh=false"]),
@@ -191,7 +191,7 @@ class TestMrubyBuildConfig < Minitest::Test
   def test_mrb_int32_define
     build = load_config
     assert build.cc.defines.include?("MRB_INT32"),
-           "MRB_INT32 must be defined (REFERENCE Ch.5 整數寬度)"
+           "MRB_INT32 must be defined (rule #4 — pinned integer width)"
   end
 
   def test_does_not_set_vm_switch_dispatch
@@ -204,7 +204,7 @@ class TestMrubyBuildConfig < Minitest::Test
     build = load_config
     gem_names = build.gems.map { |g| g[:core] || g["core"] }.compact
 
-    # REFERENCE Ch.5 explicitly names these as required core gems.
+    # These are the required core extension gems.
     %w[mruby-string-ext mruby-array-ext mruby-hash-ext].each do |required|
       assert_includes gem_names, required,
                       "allowlist must include core extension gem #{required.inspect}"
@@ -215,8 +215,8 @@ class TestMrubyBuildConfig < Minitest::Test
     build = load_config
     gem_names = build.gems.map { |g| g[:core] || g["core"] }.compact
 
-    # Allowlist == strict opt-in; REFERENCE Ch.5 explicitly forbids I/O,
-    # network, sleep, random-seed gems.
+    # Allowlist == strict opt-in; I/O, network, sleep, and random-seed
+    # gems are explicitly forbidden in the guest.
     forbidden = %w[
       mruby-io
       mruby-socket

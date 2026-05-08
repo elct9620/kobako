@@ -4,10 +4,9 @@ require "test_helper"
 
 # Item #15: Kobako::Service::Registry + Kobako::Service::Group + bind/define API.
 #
-# This is an integration-flavored Minitest covering SPEC §B-07..B-11 plus the
-# REFERENCE Ch.6 §Registry/§Service-注入-API contract on the Sandbox surface.
-# The native ext is required only because Sandbox itself constructs the
-# wasmtime pipeline; tests skip when it is absent.
+# This is an integration-flavored Minitest covering SPEC §B-07..B-11 on the
+# Sandbox surface. The native ext is required only because Sandbox itself
+# constructs the wasmtime pipeline; tests skip when it is absent.
 class TestServiceRegistry < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
@@ -151,8 +150,8 @@ class TestServiceRegistry < Minitest::Test
     assert_equal :before_run, @sandbox.services.lookup("Early::Member")
   end
 
-  # REFERENCE Ch.6 §ServiceGroup `#to_preamble`: structured Frame 1 shape.
-  def test_to_preamble_shape_matches_reference
+  # `Group#to_preamble` returns the structured Frame 1 shape.
+  def test_to_preamble_shape_matches_spec
     @sandbox.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
     @sandbox.define(:Auth).bind(:Token, :tk)
 
@@ -169,7 +168,7 @@ class TestServiceRegistry < Minitest::Test
            "ServicesPlaceholder must be gone after item #15"
   end
 
-  # Group string-name form is also accepted (REFERENCE accepts symbol-or-string;
+  # Group string-name form is also accepted (symbol-or-string is accepted;
   # the user-facing form is symbol per SPEC examples but to_s is documented).
   def test_define_accepts_string_name_form
     group = @sandbox.define("Logger")

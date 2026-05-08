@@ -121,8 +121,8 @@ module Kobako
     end
 
     # Declare or retrieve a Service Group on this Sandbox (SPEC §B-07,
-    # B-09, B-10; REFERENCE Ch.6 §Service 注入 API). Idempotent — repeat
-    # calls with the same name return the same Group instance.
+    # B-09, B-10). Idempotent — repeat calls with the same name return
+    # the same Group instance.
     #
     # @param name [Symbol, String] constant-form group name.
     # @return [Kobako::Service::Group]

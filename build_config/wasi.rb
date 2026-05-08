@@ -3,12 +3,11 @@
 # mruby build configuration for the kobako Guest Binary.
 # =====================================================
 #
-# Drives mruby's build system (Stage B in tmp/REFERENCE.md Ch.5 §Build Pipeline)
-# to produce `vendor/mruby/build/wasi/lib/libmruby.a`, cross-compiled for
+# Drives mruby's build system (Stage B of the Build Pipeline) to produce
+# `vendor/mruby/build/wasi/lib/libmruby.a`, cross-compiled for
 # `wasm32-wasip1` against the vendored wasi-sdk toolchain.
 #
-# This file encodes the five customisation rules from REFERENCE.md Ch.5
-# §mruby 客製化五條 verbatim:
+# This file encodes the five customisation rules:
 #
 #   1. mrbgem allowlist — no I/O / network / sleep / random-seed gems leak
 #      into the guest binary; only the core extension gems listed below.
@@ -41,20 +40,20 @@ unless defined?(KobakoBuildConfig)
     WASI_SDK     = (ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")).freeze
     WASI_SYSROOT = File.join(WASI_SDK, "share", "wasi-sysroot").freeze
 
-    # The three setjmp/longjmp flags from REFERENCE Ch.5 §setjmp/longjmp 啟用.
-    # All three must be present at *both* compile and link stages; missing
-    # any one trips wasi-libc's `<setjmp.h>` build-time `#error`.
+    # The three setjmp/longjmp flags. All three must be present at *both*
+    # compile and link stages; missing any one trips wasi-libc's
+    # `<setjmp.h>` build-time `#error`.
     SJLJ_FLAGS = [
       "-mllvm", "-wasm-enable-sjlj",
       "-mllvm", "-wasm-use-legacy-eh=false"
     ].freeze
 
-    # Cross-compile target. REFERENCE Ch.5 documents `wasm32-wasi` as the
-    # LLVM triple (same ABI as Rust's `wasm32-wasip1` target); the LLVM-
-    # triple form is what clang accepts on the command line.
+    # Cross-compile target. `wasm32-wasi` is the LLVM triple (same ABI
+    # as Rust's `wasm32-wasip1` target); the LLVM-triple form is what
+    # clang accepts on the command line.
     WASI_TARGET = "wasm32-wasi"
 
-    # The kobako mrbgem allowlist (REFERENCE Ch.5 §mruby 客製化五條 rule #1).
+    # The kobako mrbgem allowlist (rule #1).
     # Strict allowlist: anything not enumerated here MUST NOT enter the
     # guest binary. I/O, network, sleep, random-seed gems are deliberately
     # excluded to shrink the attack surface. Bumping this list is a wire- /
@@ -102,14 +101,14 @@ MRuby::Build.new("wasi") do |conf|
   conf.linker.libraries << "setjmp" # expands to `-lsetjmp` (wasi-libc libsetjmp.a)
 
   # ---- `-D` flags (rule #4) ---------------------------------------------
-  # MRB_WORDBOX_NO_INLINE_FLOAT — pin mrb_value layout to the wasm32 default
-  # documented in REFERENCE Ch.5 §mrb_value layout. This is the layout the
-  # host-side wire codec assumes; changing it breaks the ABI.
+  # MRB_WORDBOX_NO_INLINE_FLOAT — pin mrb_value layout to the wasm32
+  # default. This is the layout the host-side wire codec assumes;
+  # changing it breaks the ABI.
   conf.cc.defines  << "MRB_WORDBOX_NO_INLINE_FLOAT"
   conf.cxx.defines << "MRB_WORDBOX_NO_INLINE_FLOAT"
 
-  # MRB_INT32 — REFERENCE Ch.5 §mruby 客製化五條 整數寬度. Pinned because
-  # MRB_INT64 would force 64-bit int wire alignment work.
+  # MRB_INT32 — pinned integer width. MRB_INT64 would force 64-bit int
+  # wire alignment work.
   conf.cc.defines  << "MRB_INT32"
   conf.cxx.defines << "MRB_INT32"
 

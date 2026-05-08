@@ -1,11 +1,10 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) and houses
-# the MessagePack wire codec. Per SPEC.md "Implementation
-# Standards" and tmp/REFERENCE.md Ch.2, this crate declares itself as its own
-# workspace root so that `cargo` does not collapse it into the repo-root
-# workspace (which would force wasmtime — a host-only crate — into the
-# wasm32-wasip1 dependency graph).
+# the MessagePack wire codec. Per SPEC.md "Implementation Standards", this
+# crate declares itself as its own workspace root so that `cargo` does not
+# collapse it into the repo-root workspace (which would force wasmtime — a
+# host-only crate — into the wasm32-wasip1 dependency graph).
 #
 # Wire codec backbone is the `rmp` crate — the Rust counterpart of the
 # msgpack-ruby gem used on the host side. This gives the guest a thin glue

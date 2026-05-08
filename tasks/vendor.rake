@@ -7,8 +7,8 @@
 #
 #   * wasi-sdk  — Clang + wasi-sysroot + libsetjmp, used to cross-compile both
 #                 mruby (Stage B) and the wasm crate (Stage C). Version must be
-#                 >= 26 (see SPEC.md "Implementation Standards" §setjmp/longjmp,
-#                 and tmp/REFERENCE.md Ch.5 §setjmp/longjmp 啟用).
+#                 >= 26 (see SPEC.md "Implementation Standards"
+#                 §setjmp/longjmp).
 #   * mruby     — pinned release tarball used as the guest VM source tree.
 #
 # Versions are pinned as constants in `KobakoVendor` below. Bumping a version

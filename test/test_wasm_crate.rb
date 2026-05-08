@@ -72,7 +72,7 @@ class TestWasmCrate < Minitest::Test
     assert_match(/^\[workspace\]\s*$/, contents,
                  "wasm/kobako-wasm/Cargo.toml must declare itself a workspace " \
                  "root so the host (ext/) and guest (wasm/) build graphs stay " \
-                 "separate (tmp/REFERENCE.md Ch.2 §Root Cargo.toml 與 wasm crate 隔離策略)")
+                 "separate")
   end
 
   def test_root_cargo_toml_excludes_wasm

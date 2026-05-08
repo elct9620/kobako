@@ -18,8 +18,7 @@ require "kobako/abi"
 
 class TestAbi < Minitest::Test
   def test_import_module_is_env
-    # SPEC pins host import to the `env` wasm namespace
-    # (REFERENCE Ch.5 wat-level shape).
+    # SPEC pins host import to the `env` wasm namespace.
     assert_equal "env", Kobako::ABI::IMPORT_MODULE
   end
 
@@ -30,7 +29,7 @@ class TestAbi < Minitest::Test
   def test_exactly_three_export_names_in_spec_order
     assert_equal(
       %w[__kobako_run __kobako_alloc __kobako_take_outcome],
-      Kobako::ABI::EXPORT_NAMES,
+      Kobako::ABI::EXPORT_NAMES
     )
     assert_equal 3, Kobako::ABI::EXPORT_NAMES.size,
                  "SPEC pins exactly 3 guest exports; no more, no less"
@@ -63,7 +62,7 @@ class TestAbi < Minitest::Test
       [0x0001_0000, 4],
       [0x7fff_ffff, 0xffff],
       [1, 0xffff_ffff],
-      [0xffff_ffff, 1],
+      [0xffff_ffff, 1]
     ].each do |ptr, len|
       packed = Kobako::ABI.pack_u64(ptr, len)
       assert_equal [ptr, len], Kobako::ABI.unpack_u64(packed),

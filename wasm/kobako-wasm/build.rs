@@ -1,4 +1,4 @@
-// build.rs — kobako-wasm Stage C wiring (REFERENCE Ch.5 §Build Pipeline).
+// build.rs — kobako-wasm Stage C wiring of the Build Pipeline.
 //
 // Purpose
 // -------

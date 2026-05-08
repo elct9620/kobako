@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-# mruby static-library build task (Stage B in tmp/REFERENCE.md Ch.5
-# §Build Pipeline 三段).
+# mruby static-library build task (Stage B of the Build Pipeline).
 #
 # Drives mruby's bundled `minirake` against `build_config/wasi.rb`, producing
 # the cross-compiled `libmruby.a` that the wasm crate (Stage C) links into

@@ -1,13 +1,11 @@
 //! Wire ABI surface — host import + guest exports.
 //!
 //! This module declares the wasm import/export contract pinned by SPEC.md
-//! "ABI Signatures" and tmp/REFERENCE.md Ch.5 §Wire ABI exports / Ch.4 §Wire
-//! ABI imports. The contract is:
+//! "ABI Signatures". The contract is:
 //!
 //! * **Exactly 1 host import**: `__kobako_rpc_call` — the RPC bridge guest
 //!   uses to dispatch a Service call to the host. Lives in the `env`
-//!   wasm namespace (per REFERENCE Ch.5 §wat-level shape:
-//!   `(import "env" "__kobako_rpc_call" ...)`).
+//!   wasm namespace (`(import "env" "__kobako_rpc_call" ...)`).
 //! * **Exactly 3 guest exports**:
 //!   - `__kobako_run`             — reactor entry; runs boot script
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
@@ -37,7 +35,8 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
-/// Wasm namespace the host import lives in (`env` per REFERENCE Ch.5).
+/// Wasm namespace the host import lives in (`env`, per SPEC.md "ABI
+/// Signatures").
 pub const IMPORT_MODULE: &str = "env";
 
 /// Sole host-provided import function name.
@@ -146,8 +145,8 @@ mod tests {
 
     #[test]
     fn import_module_name_is_env() {
-        // SPEC pins host import to the `env` namespace (REFERENCE Ch.5
-        // wat-level shape). Changing this is a wire-breaking change.
+        // SPEC pins host import to the `env` namespace. Changing this
+        // is a wire-breaking change.
         assert_eq!(IMPORT_MODULE, "env");
     }
 

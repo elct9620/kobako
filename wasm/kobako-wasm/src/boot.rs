@@ -1,31 +1,28 @@
 //! Guest Binary boot — Rust-side mruby C API registrations.
 //!
 //! This module replaces the previous `boot.rb` + `include_str!`
-//! mechanism with the **mruby C API path** REFERENCE Ch.5 §Boot Script
-//! 預載 (lines 944–985) specifies. No Ruby text is loaded into the
-//! mruby VM at boot time; instead, the three foundational entities are
-//! registered directly via C API calls:
+//! mechanism with the **mruby C API path**. No Ruby text is loaded into
+//! the mruby VM at boot time; instead, the three foundational entities
+//! are registered directly via C API calls:
 //!
-//!   1. `Kobako` module — `mrb_define_module(mrb, "Kobako")`
-//!      (REFERENCE line 948).
+//!   1. `Kobako` module — `mrb_define_module(mrb, "Kobako")`.
 //!   2. `Kobako::RPC` base class — `mrb_define_class_under(mrb,
 //!      kobako_mod, "RPC", mrb->object_class)`. Each Service Member
 //!      (e.g. `MyService::KV`) is, at runtime, a *subclass* of
 //!      `Kobako::RPC` created by the Frame 1 preamble — they inherit
-//!      the singleton-class `method_missing` installed here
-//!      (REFERENCE lines 950–957).
+//!      the singleton-class `method_missing` installed here.
 //!   3. `Kobako.__rpc_call__(target, method, args, kwargs)` —
 //!      `mrb_define_module_function(mrb, kobako_mod, "__rpc_call__",
-//!      c_fn, MRB_ARGS_REQ(4))` (REFERENCE line 959). The four-arg
-//!      module function is the single dispatch entry point shared by
-//!      both `Kobako::RPC` subclasses (path target) and `Kobako::Handle`
-//!      instances (handle target — wire ext 0x01).
+//!      c_fn, MRB_ARGS_REQ(4))`. The four-arg module function is the
+//!      single dispatch entry point shared by both `Kobako::RPC`
+//!      subclasses (path target) and `Kobako::Handle` instances (handle
+//!      target — wire ext 0x01, see SPEC.md "ext 0x01 — Capability
+//!      Handle").
 //!
-//! REFERENCE Ch.5 line 946 explicitly forbids `mrb_load_string` for
-//! the boot/preload phase — every entity is defined via C API. Line
-//! 977 forbids hand-rolled `mrb_value` bit construction; this file
-//! never inspects or constructs `mrb_value` payloads — it forwards
-//! them through the FFI shims in `mruby_sys.rs`.
+//! `mrb_load_string` is intentionally not used for the boot/preload
+//! phase — every entity is defined via C API. This file never inspects
+//! or constructs `mrb_value` payloads; it forwards them through the FFI
+//! shims in `mruby_sys.rs`.
 //!
 //! ## Lifecycle
 //!
@@ -39,12 +36,12 @@
 //! ## What this module is NOT responsible for
 //!
 //! The original `boot.rb` had three responsibilities — those have all
-//! moved per REFERENCE Ch.5 §Boot Script 三職責 (lines 989–1033):
+//! moved:
 //!
-//!   * "State init / capture $stdout/$stderr" — REFERENCE line 1027
-//!     pins stdout/stderr as **user-observable channels** delivered by
-//!     wasi fds 1/2. The host side reads them through `Sandbox#stdout`
-//!     / `Sandbox#stderr`. No mruby-side capture is needed.
+//!   * "State init / capture $stdout/$stderr" — stdout/stderr are
+//!     **user-observable channels** delivered by wasi fds 1/2. The host
+//!     side reads them through `Sandbox#stdout` / `Sandbox#stderr`. No
+//!     mruby-side capture is needed.
 //!   * "Service::Group::Member proxy install" — that proxy *is* the
 //!     `Kobako::RPC` subclass mechanism this module registers; the
 //!     Frame 1 preamble (item #11 / future) creates the subclasses.
@@ -81,9 +78,6 @@ const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
 /// Register `Kobako` module, `Kobako::RPC` base class, and
 /// `Kobako.__rpc_call__` module function on the given mruby state.
 ///
-/// REFERENCE Ch.5 §Boot Script 預載 (lines 946–977) is the normative
-/// spec — this function is the Rust mirror of every step listed there.
-///
 /// # Safety
 ///
 /// `mrb` must be a valid `mrb_state *` returned by `mrb_open` (or
@@ -100,18 +94,18 @@ const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
 pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
     #[cfg(target_arch = "wasm32")]
     {
-        // (1) `mrb_define_module(mrb, "Kobako")` — REFERENCE line 948.
+        // (1) `mrb_define_module(mrb, "Kobako")`.
         let kobako_mod = sys::mrb_define_module(
             mrb,
             KOBAKO_NAME.as_ptr() as *const core::ffi::c_char,
         );
 
-        // (2) `Kobako::RPC` base class — REFERENCE line 950.
+        // (2) `Kobako::RPC` base class.
         //
-        // The super-class is `mrb->object_class`. Per REFERENCE the
-        // standard idiom is `mrb_define_class_under(mrb, kobako_mod,
-        // "RPC", mrb->object_class)`. We pass `core::ptr::null_mut()`
-        // for `super_` here: mruby's `mrb_define_class_under` accepts
+        // The super-class is `mrb->object_class`. The standard idiom is
+        // `mrb_define_class_under(mrb, kobako_mod, "RPC",
+        // mrb->object_class)`. We pass `core::ptr::null_mut()` for
+        // `super_` here: mruby's `mrb_define_class_under` accepts
         // a `NULL` super-class as a request to inherit from
         // `mrb->object_class` in current mruby releases. The Frame 1
         // preamble (item #11+) inherits Service Members directly from
@@ -130,13 +124,13 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         );
 
         // (3) Singleton-class `method_missing` and `respond_to_missing?`
-        //     on `Kobako::RPC` — REFERENCE lines 952–953.
+        //     on `Kobako::RPC`.
         //
         // `mrb_define_singleton_method` takes the *object* whose
         // singleton-class receives the method. For class-level
         // `method_missing` the object is the class itself, cast to
         // `RObject*`. Subclasses inherit through metaclass-chain
-        // dispatch (REFERENCE line 954).
+        // dispatch.
         sys::mrb_define_singleton_method(
             mrb,
             rpc_class as *mut sys::RObject,
@@ -153,7 +147,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         );
 
         // (4) `Kobako.__rpc_call__` module function with 4 required
-        //     args — REFERENCE line 959.
+        //     args.
         sys::mrb_define_module_function(
             mrb,
             kobako_mod,
@@ -237,11 +231,11 @@ unsafe extern "C" fn kobako_rpc_call(
 
 /// `Kobako::RPC.method_missing(name, *args, &block)` C bridge.
 ///
-/// REFERENCE Ch.5 lines 952, 955–956 specify the contract: the
-/// receiver `self` is the calling class object (e.g. `MyService::KV`),
-/// the method symbol becomes the wire-level `method` field, and
-/// trailing Hash args are extracted as kwargs. Item #16 fills the
-/// body using the same dispatch pipeline as `kobako_rpc_call`.
+/// Contract: the receiver `self` is the calling class object (e.g.
+/// `MyService::KV`), the method symbol becomes the wire-level `method`
+/// field, and trailing Hash args are extracted as kwargs (see SPEC.md
+/// "Request Shape"). Item #16 fills the body using the same dispatch
+/// pipeline as `kobako_rpc_call`.
 #[allow(unused_variables)]
 unsafe extern "C" fn rpc_method_missing(
     mrb: *mut sys::mrb_state,
@@ -259,7 +253,7 @@ unsafe extern "C" fn rpc_method_missing(
 
 /// `Kobako::RPC.respond_to_missing?(name, include_private)` C bridge.
 ///
-/// Always returns `true` per REFERENCE line 953. Item #16 wires the
+/// Always returns `true`. Item #16 wires the
 /// body using `mrb_true_value()` from the boxing-macro shim; today the
 /// body raises `Kobako::WireError` to keep behaviour uniformly
 /// "not yet wired" until the boxing shims are bound. Calls in user
@@ -315,9 +309,9 @@ unsafe fn raise_wire_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
 // On host the FFI calls are absent (`#[cfg(target_arch = "wasm32")]`).
 // What we *can* test cheaply is that the function items compile with
 // the documented signatures and that the C-string constants are well
-// formed (NUL-terminated, ASCII). REFERENCE alignment regressions
-// surface as compile errors in `mruby_sys.rs` — we don't need
-// duplicate runtime asserts.
+// formed (NUL-terminated, ASCII). C API signature regressions surface
+// as compile errors in `mruby_sys.rs` — we don't need duplicate runtime
+// asserts.
 
 #[cfg(test)]
 mod tests {
@@ -346,8 +340,8 @@ mod tests {
     }
 
     #[test]
-    fn ruby_names_match_reference_ch5() {
-        // REFERENCE line 946–959 fixes these names exactly.
+    fn ruby_names_match_boot_contract() {
+        // The boot contract fixes these names exactly.
         assert_eq!(&KOBAKO_NAME[..KOBAKO_NAME.len() - 1], b"Kobako");
         assert_eq!(&RPC_NAME[..RPC_NAME.len() - 1], b"RPC");
         assert_eq!(&RPC_CALL_NAME[..RPC_CALL_NAME.len() - 1], b"__rpc_call__");

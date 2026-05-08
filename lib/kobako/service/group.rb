@@ -3,7 +3,7 @@
 module Kobako
   module Service
     # Kobako::Service::Group — a named namespace of Service Members for one
-    # Sandbox (SPEC §B-07..B-11; REFERENCE Ch.6 §Registry 實作要點).
+    # Sandbox (SPEC §B-07..B-11).
     #
     # A Group is created by `Kobako::Service::Registry#define(:GroupName)`
     # and exposes `#bind(:MemberName, object)` to attach Host objects under
@@ -13,7 +13,7 @@ module Kobako
     # the wire-level dispatch layer calls `object.public_send(method, ...)`
     # and does not care about the binding shape.
     class Group
-      # Ruby constant-name pattern (SPEC §B-07/B-08 Notes; REFERENCE Ch.6).
+      # Ruby constant-name pattern (SPEC §B-07/B-08 Notes).
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
       attr_reader :name, :members
@@ -40,10 +40,10 @@ module Kobako
         self
       end
 
-      # Member lookup. Returns the bound object or +nil+ when missing
-      # (REFERENCE Ch.6 §ServiceGroup `#[]`). The Registry dispatcher turns
-      # +nil+ into the `:undefined` ServiceError envelope; direct callers
-      # use {#fetch} when they want a raise on miss.
+      # Member lookup. Returns the bound object or +nil+ when missing.
+      # The Registry dispatcher turns +nil+ into the `:undefined`
+      # ServiceError envelope; direct callers use {#fetch} when they
+      # want a raise on miss.
       def [](member)
         @members[member.to_s]
       end
@@ -61,7 +61,6 @@ module Kobako
       end
 
       # Structured description for the guest preamble (Frame 1).
-      # REFERENCE Ch.6 §ServiceGroup `#to_preamble`.
       #
       # @return [Array(String, Array<String>)]
       def to_preamble
