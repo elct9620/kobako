@@ -723,6 +723,218 @@ Consequently:
 
 ---
 
+### Wire Codec
+
+This section pins the binary encoding of the Wire Contract (→ Wire Contract). Both the Host Gem and the Guest Binary implement this encoding independently; the codec form is a public cross-implementer contract. Byte values, ext type codes, ABI function names, and packed return conventions stated here are fixed for the life of a kobako gem release and may only change in a release that simultaneously updates both sides.
+
+---
+
+#### Codec Choice
+
+MessagePack is the wire codec. It is the only codec used on either side of the Wasm boundary; no fallback or alternative codec is permitted. All messages — Requests, Responses, and Outcome envelopes — are MessagePack-encoded byte sequences.
+
+---
+
+#### Type Mapping
+
+The following 11 entries constitute the complete set of MessagePack types recognized on the kobako wire. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode the payload.
+
+| # | msgpack family | Wire use | Host Gem Ruby type | Guest Binary mruby / Rust type |
+|---|----------------|----------|--------------------|-------------------------------|
+| 1 | nil | Absent optional fields; explicit `nil` values | `nil` | `nil` (mruby) / `Option::None` |
+| 2 | bool | Boolean values | `true` / `false` | `TrueClass` / `FalseClass` (mruby) / `bool` |
+| 3 | int (all widths: fixint, int 8/16/32/64, uint 8/16/32/64) | Integer values; `status` field (0 / 1) | `Integer` | `Integer` (mruby) / `i64` or `u64` |
+| 4 | float (float 32 / float 64) | Floating-point values | `Float` | `Float` (mruby) / `f64` |
+| 5 | str (fixstr / str 8 / str 16 / str 32) | UTF-8 text strings (see str/bin rules below) | `String` (UTF-8 encoding) | `String` (mruby) / `&str` / `String` |
+| 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
+| 7 | array (fixarray / array 16 / array 32) | Ordered sequences; all envelope frames | `Array` | `Array` (mruby) / `Vec<T>` |
+| 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs`; Panic envelope payload | `Hash` | `Hash` (mruby) / struct or `HashMap` |
+| 9 | ext (general channel) | Dispatch point; kobako uses only ext codes 0x01 and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
+| 10 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
+| 11 | ext 0x02 | Exception envelope (see Ext Types below) | deserialized per error type (→ Error Classes) | `Errenv` struct |
+
+---
+
+#### str / bin Encoding Rules
+
+msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following rules govern which family is used at each wire position. A violation of a "str only" rule is a wire violation and the receiving side rejects the message.
+
+| Wire position | Accepted family | Violation handling |
+|---|---|---|
+| Request `target` field (Service Member constant path form, e.g. `"Group::Member"`) | str only | bin → wire violation, reject |
+| Request `method` field | str only | bin → wire violation, reject |
+| Request `kwargs` map keys | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+| Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
+| Response Error Envelope `type` field value | str only | bin → wire violation, reject |
+| Response Error Envelope `message` field value | str only | bin → wire violation, reject |
+| Error Envelope map keys (`type`, `message`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+| Panic Envelope `origin`, `class`, `message` field values | str only | bin → wire violation, reject |
+| Panic Envelope map keys (`origin`, `class`, `message`, `backtrace`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+
+Symbols that appear in Ruby or mruby values do not survive the wire as symbols. After deserialization, values that were symbols on the originating side arrive as strings. The single exception is `kwargs` map keys: the Host Gem converts them to Ruby symbols via `transform_keys(&:to_sym)` before dispatching to Service methods, to satisfy standard Ruby keyword argument conventions (→ Wire Contract → Request Shape).
+
+---
+
+#### Ext Types
+
+##### ext 0x01 — Capability Handle
+
+**Binary layout:** fixed 4-byte payload, big-endian u32 Handle ID. The msgpack framing is `fixext 4`: format byte `0xd6`, type byte `0x01`, followed by 4 bytes of big-endian u32 data. Total wire size: 6 bytes.
+
+| Byte offset | Content |
+|-------------|---------|
+| 0 | `0xd6` — msgpack `fixext 4` marker |
+| 1 | `0x01` — kobako ext type code |
+| 2–5 | Handle ID as big-endian u32 |
+
+The Handle ID field carries the opaque identifier allocated by the HandleTable (→ Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
+
+ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field. It must not appear in any other position.
+
+##### ext 0x02 — Exception Envelope
+
+**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x02`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x02`, payload) depending on payload size. The payload is an embedded msgpack **map** with exactly three keys:
+
+| Map key | Value type | Meaning |
+|---------|-----------|---------|
+| `"type"` | str | One of the four reserved error type names: `"runtime"`, `"argument"`, `"disconnected"`, `"undefined"` (→ Wire Contract → Error Envelope) |
+| `"message"` | str | Human-readable description |
+| `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
+
+ext 0x02 may appear only in the Response error variant's envelope field. It must not appear in Request `args` or any other position.
+
+---
+
+#### Envelope Encoding
+
+All envelope frames — Request, Response, Result envelope, Panic envelope, Outcome envelope — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release.
+
+##### Request
+
+A 4-element msgpack array with fixed field positions:
+
+| Index | Field | Type |
+|-------|-------|------|
+| 0 | `target` | str (Service Member constant path, e.g. `"Group::Member"`) or ext 0x01 (Capability Handle reference) |
+| 1 | `method` | str |
+| 2 | `args` | array (elements may include ext 0x01 Handles) |
+| 3 | `kwargs` | map (str keys; empty kwargs is encoded as empty map `0x80`, never absent) |
+
+The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Service Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
+
+##### Response
+
+A 2-element msgpack array with fixed field positions:
+
+| Index | Field | Type |
+|-------|-------|------|
+| 0 | `status` | int — `0` (success) or `1` (error) |
+| 1 | `value` (status=0) or error envelope (status=1) | any wire-legal type including ext 0x01, or ext 0x02 |
+
+##### Result Envelope (Outcome payload — success)
+
+A 1-element msgpack array. The single element carries the last mruby expression value of the user script:
+
+| Index | Field | Type |
+|-------|-------|------|
+| 0 | `value` | any wire-legal type including ext 0x01 (if the script returned a stateful host object) |
+
+##### Panic Envelope (Outcome payload — failure)
+
+A msgpack **map** (not array) with the following fields:
+
+| Key | Value type | Meaning |
+|-----|-----------|---------|
+| `"origin"` | str | `"sandbox"` (mruby script error or boot fault) or `"service"` (unrescued Service failure) |
+| `"class"` | str | Exception class name (e.g. `"RuntimeError"`, `"Kobako::ServiceError"`) |
+| `"message"` | str | Exception message |
+| `"backtrace"` | array of str | mruby backtrace; each element is one line |
+| `"details"` | any wire-legal type, or nil | Optional structured data; nil or absent when not present |
+
+Unknown map keys are silently ignored (forward-compatibility). Missing any of `"origin"`, `"class"`, or `"message"` is a wire violation; the Host Gem raises `Kobako::SandboxError` using a synthesized unknown-class fallback.
+
+##### Outcome Envelope
+
+The Outcome envelope is the binary layout of OUTCOME_BUFFER — the shared memory region the Guest Binary writes at the end of `__kobako_run` and the Host Gem reads via `__kobako_take_outcome`. It wraps either a Result envelope or a Panic envelope under a one-byte tag:
+
+| Byte offset | Content |
+|-------------|---------|
+| 0 | Tag byte: `0x01` = Result envelope follows; `0x02` = Panic envelope follows |
+| 1 onwards | msgpack payload of the corresponding envelope |
+
+Tag `0x01` example (script returns integer 42):
+
+```
+01 91 2a
+│  │  └─ msgpack positive fixint 42
+│  └─ msgpack fixarray len=1
+└─ outcome tag 0x01 (result)
+```
+
+Tag `0x02` example (script raises `"boom"`):
+
+```
+02 84 a6 6f 72 69 67 69 6e ...
+│  │
+│  └─ msgpack fixmap len=4
+└─ outcome tag 0x02 (panic)
+```
+
+Zero-length OUTCOME_BUFFER (`len == 0`) or any tag byte outside `{0x01, 0x02}` is a wire violation; the Host Gem raises `Kobako::TrapError` (wire-violation fallback, → Error Scenarios → `Kobako::TrapError`).
+
+---
+
+#### ABI Signatures
+
+The following function names and byte-level signatures are fixed cross-implementer contracts. Implementers must not rename these functions or change their parameter or return types within a release.
+
+##### Host-provided import
+
+| Function name | Wasm signature | Return convention |
+|---|---|---|
+| `__kobako_rpc_call` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = response buffer ptr (zero-extended u32 wasm linear memory offset); low 32 bits = response byte length (u32) |
+
+The Guest Binary calls `__kobako_rpc_call` after writing a Request payload into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the Request, dispatches it, serializes the Response, allocates a response buffer via `__kobako_alloc`, writes the Response bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Response error-variant path), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
+
+Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding this limit are a wire violation; the Host Gem walks the trap path.
+
+##### Guest-provided exports
+
+| Export name | Wasm signature | Return convention |
+|---|---|---|
+| `__kobako_run` | `() -> ()` | None — outcome is written to OUTCOME_BUFFER before return |
+| `__kobako_alloc` | `(size: i32) -> i32` | wasm linear memory offset (u32, unsigned); 0 indicates allocation failure (trap path) |
+| `__kobako_take_outcome` | `() -> i64` | Packed u64: high 32 bits = OUTCOME_BUFFER ptr; low 32 bits = byte length. `len == 0` is a wire violation. |
+
+##### Packed u64 return layout
+
+Both `__kobako_rpc_call` and `__kobako_take_outcome` return a packed i64 (Wasm type) carrying two u32 values:
+
+```
+ 63        32 31         0
+ ┌──────────┬────────────┐
+ │   ptr    │    len     │
+ └──────────┴────────────┘
+ high 32 bits  low 32 bits
+```
+
+Extraction: `ptr = (result >> 32) & 0xffff_ffff`; `len = result & 0xffff_ffff`. The Wasm i64 is little-endian; the bit-shift extraction is portable across host environments.
+
+Memory ownership: all buffer pointers refer to wasm linear memory owned by the Guest Binary Wasm instance. The Host Gem reads through a memory view provided by the Wasm engine during the call frame. After the call frame exits, the Host Gem holds no references to guest memory. Buffers are not individually freed; the entire wasm linear memory is released when the Wasm instance is dropped at the end of the `#run` invocation.
+
+---
+
+#### Consistency Guarantee
+
+Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec implementations are verified to agree. The two sides implement the codec independently (in Ruby and in Rust/mruby respectively) with no shared codec source. The fuzz contract is bidirectional:
+
+- **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
+- **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
+
+Both directions are required. Coverage must include all 11 wire types (→ Type Mapping), both ext types (0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to Item #11.
+
+---
+
 ### Naming Principles
 
 The following principles govern how all names in this specification and in the `kobako` public surface are formed. They are declarative rules, not rationale.
