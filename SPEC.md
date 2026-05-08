@@ -544,3 +544,88 @@ A Handle ID from run N presented as an RPC target in run N+1 produces `type="und
 When a guest script wraps a Service call in `begin/rescue`, the RPC failure is handled within the script; no `ServiceError` reaches the host and `#run` returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the script.
 
 <!-- Refinement layer: append after Behavior -->
+
+---
+
+## Refinement
+
+### Terminology
+
+This section defines every term used in this specification. Each term has exactly one canonical name; no synonyms are permitted within this document or the kobako codebase public surface.
+
+---
+
+#### Roles
+
+These five roles describe every actor and artifact in the system. All sections of this specification use these names exclusively.
+
+| Term | Definition | Layer |
+|------|-----------|-------|
+| **Host App** | The Ruby application (Rails / Rack / Sidekiq / CLI) that uses kobako; holds all credentials, policy, and Service objects. Out of scope for design but referenced throughout. | External |
+| **Host Gem** | The `kobako` gem itself: the Ruby API layer (`lib/`) plus the private native extension (`ext/`). Exposes the sandbox interface to the Host App, routes RPC calls, and manages Handle lifecycle. | In scope |
+| **Guest Binary** | The file `kobako.wasm`, compiled from the `wasm/` Rust crate. Contains the mruby interpreter and RPC client. Is the isolation boundary between host and guest execution environments. | In scope |
+| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Group::Member`). The only mechanism by which guest code can access host resources. | In scope |
+| **Wire Spec** | The MessagePack contract governing all host↔guest RPC messages. Not a runtime object — it is a protocol that both Host Gem and Guest Binary implement independently. | In scope |
+
+---
+
+#### Internal Concepts
+
+These are sub-components and runtime concepts owned by the Host Gem. They are not exposed as a public API to the Host App unless explicitly stated.
+
+| Term | Definition | Public? |
+|------|-----------|---------|
+| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
+| **Registry** | The Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable. Not exposed to the Host App. | No |
+| **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
+| **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to the Ruby class `Kobako::Handle` (host side) and the `Kobako::Handle` mruby class (guest side). | Partially — `Kobako::Handle` appears in Host App error handling and output, but the Host App has no API to create or inspect Handles directly |
+| **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No distinct class — see Handle |
+| **Stub** | The mruby VM-internal base class (`Kobako::RPC`) that represents a remote Service Member inside the guest. Guest scripts do not reference Stub directly; they see module constants. All method calls on a Stub are forwarded as RPC calls to the host. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
+
+---
+
+#### Error Classes
+
+Three error classes cover every failure outcome of `Sandbox#run`. These class names are stable public API and must not be renamed or aliased.
+
+| Term | Ruby Class | Layer it represents | When raised |
+|------|-----------|--------------------|----|
+| **TrapError** | `Kobako::TrapError` | Wasm engine layer | The Wasm execution engine crashed (OOM, `unreachable`, stack overflow, import signature mismatch) or the wire layer detected a structural violation indicating a corrupted guest runtime (zero-length outcome, unknown outcome tag) |
+| **SandboxError** | `Kobako::SandboxError` | Sandbox / wire layer | The guest ran to completion but execution failed due to a protocol fault, a mruby runtime error, or a host-side wire decode failure. The Wasm instance is retired normally; the sandbox infrastructure is intact |
+| **ServiceError** | `Kobako::ServiceError` | Service / capability layer | The guest ran to completion, the mruby script itself did not crash, but a Service capability call reported an application-level failure that was not rescued within the script |
+
+**Named subclasses (stable public API):**
+
+| Term | Ruby Class | Superclass | Meaning |
+|------|-----------|-----------|---------|
+| **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
+| **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
+
+**Wire-level error string (not a Ruby class):** The string `"Kobako::WireError"` appears only as the `class` field value in a Panic envelope to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::WireError` Ruby class.
+
+---
+
+#### Service Concepts
+
+These terms describe the two-level Service injection model used to expose host capabilities to guest scripts.
+
+| Term | Definition | Guest-visible form |
+|------|-----------|-------------------|
+| **Service Group** | A named namespace declared by the Host App via `sandbox.define(:Name)`. Groups are declared at setup time before the first `#run`. The group itself holds no state — it is a container for Service Members. | Ruby module (e.g., `MyService`) |
+| **Service Member** | A Host Ruby object bound into a Service Group via `group.bind(:Name, object)`. The Member is the object that receives RPC calls dispatched from guest scripts. | Module constant (e.g., `MyService::KV`) |
+
+---
+
+### Naming Principles
+
+The following principles govern how all names in this specification and in the `kobako` public surface are formed. They are declarative rules, not rationale.
+
+| # | Principle | Applies to |
+|---|----------|-----------|
+| N-1 | Role names are PascalCase with every word capitalized: `Host App`, `Host Gem`, `Guest Binary`, `Wire Spec` | All role names in this document and in code comments |
+| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle`, `Kobako::Service::Group` |
+| N-3 | The gem name is always lowercase: `kobako` | Gemspec, `require` statements, Bundler references |
+| N-4 | The Wasm artifact name is fixed: `kobako.wasm` | Build output, gem packaging, documentation |
+| N-5 | Internal Rust crates are named with a hyphen prefix matching the gem: `kobako-wasm` (Guest Binary crate), `kobako-ext` (native extension crate) | `Cargo.toml` package names; not exposed to Ruby |
+| N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface | All layers of this specification |
+| N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |
