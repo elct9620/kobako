@@ -227,4 +227,79 @@ A Host App developer is adding error handling to an existing kobako integration.
 The developer can route each failure class through the Host App's existing error-handling infrastructure without inspecting error messages. The three-class taxonomy gives the developer a reliable signal for triage: infrastructure fault (TrapError), authored-code fault (SandboxError), or downstream-service fault (ServiceError). This attribution is guaranteed by kobako regardless of what the guest script does.
 
 <!-- Behavior layer: append after Scope -->
+
+---
+
+## Behavior
+
+The behaviors below specify observable outcomes for the Sandbox object and its execution contract. Each behavior uses the form **Initial State → Operation → Result / Final State**. Error attribution (TrapError, SandboxError, ServiceError) is covered in a later subsection; where an error branch is noted below, refer to that subsection for full semantics.
+
+---
+
+### B-01 — Construct a new Sandbox
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
+| **Operation** | `Kobako::Sandbox.new` — optionally with `stdout_limit:` and/or `stderr_limit:` keyword arguments (each defaults to 1 MiB). |
+| **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
+| **Notes** | `stdout_limit` and `stderr_limit` control the per-run capture ceiling (see B-04). Service declarations and bindings may be made on the Sandbox before or after construction and before the first `#run`. |
+
+---
+
+### B-02 — Invoke `#run(script)` from a fresh Sandbox
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
+| **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
+| **Result / Final State** | The Guest Binary is booted from cold for this invocation. The script is compiled and executed within the isolated Wasm boundary. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. The Guest Binary instance used for this run is fully retired after the outcome is retrieved. |
+| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. |
+
+---
+
+### B-03 — Invoke `#run(script)` on a Sandbox that has already run
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Service members bound before the first `#run` remain registered. |
+| **Operation** | `sandbox.run(script_string)` — any invocation after the first. |
+| **Result / Final State** | A fresh Guest Binary instance is booted for this invocation, independent of all prior instances. All capability state (HandleTable contents) from previous runs is fully discarded before the new run begins. Service bindings declared on the Sandbox before the first run remain active and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation. |
+| **Notes** | A Handle issued during run N is not reachable during run N+1. This isolation guarantee is unconditional — it holds whether the previous run succeeded or raised an error. Service bindings are never cleared between runs; only capability state is reset. |
+
+---
+
+### B-04 — Read `#stdout` / `#stderr` after `#run` returns
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance on which `#run` has been called and has returned (either with a value or by raising an error). |
+| **Operation** | `sandbox.stdout` or `sandbox.stderr` — either or both, in any order, any number of times. |
+| **Result / Final State** | Each reader returns the complete byte content (as a UTF-8 String) that the guest script wrote to its respective output channel during the most recent `#run` invocation. The buffers do not change between successive reads. The content contains no kobako protocol bytes. If the accumulated output exceeded the configured limit, the buffer contains the captured bytes up to that limit followed by a `[truncated]` marker; this truncation does not cause `#run` to raise an error. |
+| **Notes** | The buffers remain readable after an error-raising `#run`; the Host App reads them after catching the error. A script may have written diagnostic output before the point of failure. Buffer limits are set at construction time (B-01). |
+
+---
+
+### B-05 — Read `#stdout` / `#stderr` before any `#run` call
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance on which `#run` has never been called. |
+| **Operation** | `sandbox.stdout` or `sandbox.stderr`. |
+| **Result / Final State** | Each reader returns an empty String (`""`). No error is raised. |
+| **Notes** | This behavior defines the initial buffer state and allows Host Apps to read observation channels unconditionally without guarding against nil. |
+
+---
+
+### B-06 — Return value semantics of `#run`
+
+This behavior refines the Result of B-02 / B-03 by specifying the exact value `#run` produces.
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Service members bound. |
+| **Operation** | `sandbox.run(script_string)` — same invocation as B-02 / B-03. |
+| **Result / Final State** | When the guest script completes execution without a Wasm trap, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the last expression produces a mruby object that has no wire representation (i.e. it cannot be encoded through the host↔guest message codec), `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in a later subsection. |
+| **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. The wire-violation path (unrepresentable object) is attributed to the sandbox, not the Wasm engine or a Service call. |
+
 <!-- Refinement layer: append after Behavior -->
