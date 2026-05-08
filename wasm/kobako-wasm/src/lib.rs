@@ -20,9 +20,11 @@
 //! custom panic handler) without buying anything for the Guest Binary,
 //! which already pays for `std` through the embedded mruby interpreter.
 
+pub mod abi;
 pub mod codec;
 pub mod envelope;
 
+pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
 pub use codec::{Decoder, Encoder, Value, WireError};
 pub use envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
