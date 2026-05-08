@@ -397,8 +397,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A `#run` invocation has just begun. The HandleTable counter is reset to 1. No entries exist in the table. |
 | **Operation** | The Host Gem's wire layer allocates a new Handle for a stateful return value (B-14). |
-| **Result / Final State** | The first Handle issued in this run receives ID 1, the second ID 2, and so on. Each ID is unique within the run. The counter never wraps or reuses an ID during a single `#run`. IDs are assigned in allocation order and no ID is skipped unless the exhaustion cap is reached (B-21). |
-| **Notes** | ID 0 is reserved as an invalid sentinel; the guest can use `id == 0` as a fast-fail guard. Counter and IDs are reset at the start of every `#run` — IDs from run N are not carried into run N+1 (see B-18). |
+| **Result / Final State** | The first Handle issued in this run receives ID 1, the second ID 2, and so on. Each ID is unique within the run. The counter never wraps or reuses an ID during a single `#run`. IDs are assigned in allocation order. The counter never wraps or reuses an ID; when the cap is reached, allocation fails (see B-21). ID 0 is reserved as the invalid sentinel; allocation never returns 0. |
+| **Notes** | Counter and IDs are reset at the start of every `#run` — IDs from run N are not carried into run N+1 (see B-18). |
 
 ---
 
@@ -431,7 +431,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | Run N has completed. The guest (or a script) attempts to retain a Handle ID from run N and presents it as the `target` in a new `#run` invocation (run N+1). At the start of run N+1 the HandleTable has been fully reset: all entries from run N are cleared and the counter restarted. |
 | **Operation** | Guest code in run N+1 calls a method using the stale Handle ID as the RPC target. |
 | **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Run N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
-| **Notes** | This outcome is unconditional: even if run N and run N+1 execute the same script with the same Service bindings, no Handle survives the `#run` boundary. The reset happens before the Guest Binary is instantiated for run N+1, so there is no window in which a stale ID could coincidentally match a new entry. |
+| **Notes** | This outcome is unconditional: even if run N and run N+1 execute the same script with the same Service bindings, no Handle survives the `#run` boundary. The HandleTable is reset before the Guest Binary is instantiated for run N+1. |
 
 ---
 
@@ -452,7 +452,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A `#run` invocation is in progress. The guest mruby script has access to an arbitrary integer value (e.g., `42` or any computed integer). |
 | **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
-| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the guest-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
+| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the host-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
 | **Notes** | The `Kobako::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
 
 ---
@@ -464,7 +464,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `#run` invocation is in progress. The HandleTable counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
 | **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
-| **Notes** | The cap exists because mruby on wasm32 uses `MRB_INT32` (signed 32-bit integers): IDs above `0x7fff_ffff` would arrive at the guest as negative integers, silently corrupting capability references. The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
+| **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
 
 ---
 
