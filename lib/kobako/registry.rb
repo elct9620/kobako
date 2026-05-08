@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "msgpack"
 require_relative "errors"
 require_relative "wire/encoder"
 require_relative "wire/envelope"
@@ -99,6 +100,18 @@ module Kobako
     # @return [Array<Array(String, Array<String>)>] unencoded preamble array.
     def to_preamble
       @groups.values.map(&:to_preamble)
+    end
+
+    # Encode the preamble as msgpack bytes for stdin Frame 1 delivery.
+    #
+    # Uses plain MessagePack (no kobako ext types) because the preamble
+    # contains only strings — no Handles or Exception envelopes. Structure:
+    # `[["GroupName", ["MemberA", "MemberB"]], ...]` (SPEC.md §Sandbox#run
+    # 實作要點, step 1).
+    #
+    # @return [String] binary msgpack bytes.
+    def guest_preamble
+      MessagePack.pack(to_preamble)
     end
 
     # Mark the Registry as sealed. Called by `Sandbox#run` on first run.

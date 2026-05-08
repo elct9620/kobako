@@ -2,21 +2,21 @@
 
 require "test_helper"
 
-# Item #16 — Sandbox#run E2E coverage against the test-guest wasm fixture.
+# Item #25 — Sandbox#run E2E coverage against the test-guest wasm fixture.
 #
 # `test/fixtures/test-guest.wasm` is built from `wasm/test-guest/` (see
-# `rake fixtures:test_guest`). It implements the SPEC ABI surface with
-# stub bodies that:
-#   * accept the source bytes via `__kobako_run(ptr, len)` (a deliberate
-#     deviation from SPEC `() -> ()`; the WASI-stdin path lands later),
-#   * decode the bytes as a decimal integer and emit a Result envelope
-#     carrying that integer — except when the source is the literal
-#     string "panic", which emits a Panic envelope.
+# `rake fixtures:test_guest`). It implements the SPEC ABI shape exactly:
+#   * `__kobako_run() -> ()` — reads Frame 1 (preamble) and Frame 2 (source)
+#     from WASI stdin using the 4-byte BE u32 length-prefix protocol
+#     (SPEC.md §ABI Signatures). Frame 2 bytes are decoded as a decimal
+#     integer or a special keyword to drive outcome branches.
+#   * `__kobako_alloc`, `__kobako_take_outcome` — as SPEC ABI.
+#   * Imports `env::__kobako_rpc_call` — used by the `rpc:` source branch.
 #
-# These tests verify the host-side flow: alloc → write source → run →
-# take_outcome → decode envelope → return value (or raise the right
-# error). They are the only place outside the production Guest Binary
-# that exercises the full run-path round-trip.
+# These tests verify the host-side flow: preamble→source delivery via stdin
+# frames → run → take_outcome → decode envelope → return value or raise.
+# They are the only place outside the production Guest Binary that exercises
+# the full run-path round-trip.
 class TestSandboxRun < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/test-guest.wasm", __dir__)
 
@@ -195,6 +195,36 @@ class TestSandboxRun < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(123) }
     assert_match(/must be a String/, err.message)
+  end
+
+  # Item #25 — Frame 1 preamble is parsed without error when Service Members
+  # are bound. The fixture consumes Frame 1 and discards it; Frame 2 drives
+  # the outcome. Verifies that preamble delivery does not break the run path.
+  def test_run_with_bound_service_members_still_returns_correct_value
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    grp = sandbox.define(:MyService)
+    grp.bind(:KV, Object.new)
+    grp.bind(:Logger, Object.new)
+
+    assert_equal 42, sandbox.run("42")
+  end
+
+  # Item #25 — An empty registry (no groups) produces a valid empty Frame 1
+  # payload (`[]` msgpack array). Frame 2 delivery and outcome still work.
+  def test_run_with_empty_registry_produces_valid_frame1
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
+    assert_equal 7, sandbox.run("7")
+  end
+
+  # Item #25 — Repeated runs with a sealed registry reuse the same preamble
+  # bytes per run. Verifies multi-run isolation holds under the new stdin path.
+  def test_run_with_preamble_survives_multiple_runs
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    sandbox.define(:Auth).bind(:Token, Object.new)
+
+    assert_equal 1, sandbox.run("1")
+    assert_equal 2, sandbox.run("2")
   end
 end
 

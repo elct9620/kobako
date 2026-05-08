@@ -104,14 +104,15 @@ class TestSandbox < Minitest::Test
     assert_equal "", sandbox.stdout_buffer.to_s
   end
 
-  def test_run_against_minimal_fixture_raises_trap_error_when_alloc_missing
+  def test_run_against_minimal_fixture_raises_trap_error_when_run_missing
     # The minimal.wasm fixture has none of the SPEC ABI exports, so the
-    # alloc step raises Kobako::Wasm::Error which `#run` re-wraps as a
-    # TrapError. Real fixture-based E2E coverage lives in
-    # test/test_sandbox_run.rb.
+    # run step raises Kobako::Wasm::Error which `#run` re-wraps as a
+    # TrapError. Source delivery is via WASI stdin frames now, so the first
+    # ext call is `__kobako_run` (not alloc). Real fixture-based E2E coverage
+    # lives in test/test_sandbox_run.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.run("nil") }
-    assert_match(/__kobako_alloc/, err.message)
+    assert_match(/__kobako_run/, err.message)
   end
 
   def test_run_rejects_non_string_source

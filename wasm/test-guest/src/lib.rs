@@ -1,9 +1,13 @@
 //! test-guest — minimal wasm fixture for host-side Sandbox#run E2E tests.
 //!
-//! Does NOT embed mruby; the source bytes are interpreted as a decimal
-//! integer (or the literal string `panic` to exercise the failure branch).
-//! This fixture exists so host-side flow can be tested without standing up
-//! the full mruby+wasi-sdk toolchain.
+//! Does NOT embed mruby; Frame 2 (user script) bytes from WASI stdin are
+//! interpreted as a decimal integer (or special keywords) to drive outcome
+//! branches. Frame 1 (preamble) is consumed and discarded — its shape is
+//! validated only to confirm framing is intact.
+//!
+//! Stdin protocol (SPEC.md §ABI Signatures): two length-prefixed frames, each
+//! headed by a 4-byte big-endian u32 length followed by that many payload
+//! bytes. Frame 1 = preamble msgpack; Frame 2 = user script UTF-8.
 
 #![allow(unsafe_code)]
 
@@ -68,29 +72,51 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// __kobako_run — read source from the passed pointer/length, build outcome.
+// __kobako_run — read stdin two-frame protocol, build outcome from Frame 2.
 // ---------------------------------------------------------------------------
 
-/// Deliberately deviates from SPEC's `() -> ()` shape. For #16, the host
-/// passes the source bytes via the alloc/write/run path. The full WASI-
-/// stdin frame mechanism is a later item.
+/// SPEC ABI `() -> ()` shape. Source arrives via WASI stdin two-frame
+/// protocol (SPEC.md §ABI Signatures): Frame 1 (preamble msgpack) is read
+/// and discarded; Frame 2 (user script UTF-8) drives the outcome.
 #[no_mangle]
-pub extern "C" fn __kobako_run(ptr: u32, len: u32) {
+pub extern "C" fn __kobako_run() {
     // Write a fixed marker to stdout so the host can assert non-empty capture
     // (SPEC.md §B-04 — stdout/stderr capture E2E verification).
     println!("hello from test-guest");
 
-    // Read source bytes from linear memory. On wasm32 the host wrote
-    // `len` bytes starting at `ptr`; we re-borrow them as a slice.
-    let source: &[u8] = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    // Read both frames from stdin. Frame 1 is consumed and discarded;
+    // Frame 2 is the source bytes this fixture acts on.
+    let _frame1 = read_stdin_frame().unwrap_or_default();
+    let source = read_stdin_frame().unwrap_or_default();
 
-    let outcome = build_outcome(source);
+    let outcome = build_outcome(&source);
     let bytes = encode_outcome(&outcome).expect("encode outcome");
 
     OUTCOME_BUFFER.with(|b| {
         let mut buf = b.borrow_mut();
         *buf = bytes;
     });
+}
+
+/// Read one length-prefixed frame from WASI stdin. Frame format:
+/// 4-byte big-endian u32 length prefix + that many payload bytes.
+/// Returns `None` on EOF or read error.
+#[cfg(target_arch = "wasm32")]
+fn read_stdin_frame() -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut len_buf = [0u8; 4];
+    std::io::stdin().read_exact(&mut len_buf).ok()?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    let mut payload = vec![0u8; len];
+    std::io::stdin().read_exact(&mut payload).ok()?;
+    Some(payload)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_stdin_frame() -> Option<Vec<u8>> {
+    // On the host (cargo test) there is no WASI stdin; return an empty
+    // payload so unit tests that call this path get a deterministic result.
+    Some(Vec::new())
 }
 
 fn build_outcome(source: &[u8]) -> Outcome {

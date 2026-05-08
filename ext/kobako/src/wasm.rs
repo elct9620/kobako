@@ -9,8 +9,10 @@
 // guest fd 1 and fd 2 into per-run MemoryOutputPipe instances. After each run
 // the host drains the pipes via Instance#take_stdout / #take_stderr and pushes
 // the raw bytes through Ruby's OutputBuffer (which enforces the cap and
-// `[truncated]` marker). Stdin is wired as a MemoryInputPipe (preparation for
-// the dual-frame stdin mechanism — currently empty, populated by a later item).
+// `[truncated]` marker). Stdin carries the two-frame length-prefixed protocol:
+// Frame 1 (preamble msgpack) followed by Frame 2 (user script UTF-8), each
+// prefixed by a 4-byte big-endian u32 length. Written via `setup_wasi_frames`
+// before each run (SPEC.md §ABI Signatures).
 
 use std::cell::RefCell;
 use std::fs;
@@ -207,16 +209,11 @@ pub struct Instance {
     store: Arc<StoreCell>,
     // Cached TypedFunc handles for the three guest exports. Optional because
     // test fixtures (a minimal "ping" module) need not provide them; real
-    // kobako.wasm always does, and #16 enforces presence at run time.
+    // kobako.wasm always does, and the host enforces presence at run time.
     //
-    // Two `run` shapes are cached because the production Guest Binary
-    // exports `__kobako_run() -> ()` (SPEC) but the host-side test fixture
-    // (`wasm/test-guest`) exports `__kobako_run(ptr, len) -> ()` so the
-    // host can hand it the source bytes directly. Both shapes are looked
-    // up; the Ruby `Sandbox` picks which to call based on which one
-    // resolved successfully.
+    // Exactly the SPEC ABI shape: `__kobako_run() -> ()`. Source delivery
+    // uses the WASI stdin two-frame protocol (see `setup_wasi_frames`).
     run: Option<TypedFunc<(), ()>>,
-    run_with_source: Option<TypedFunc<(i32, i32), ()>>,
     take_outcome: Option<TypedFunc<(), u64>>,
     alloc: Option<TypedFunc<i32, i32>>,
 }
@@ -264,16 +261,14 @@ impl Instance {
         };
 
         // Best-effort export lookup. Missing exports are not an error here
-        // (test fixture is a bare module); #16 will assert their presence
-        // before invocation.
-        let (run, run_with_source, take_outcome, alloc) = {
+        // (test fixture is a bare module); the host enforces presence before
+        // invocation. Only the SPEC ABI `() -> ()` shape is accepted for
+        // `__kobako_run` — the transitional `(ptr, len) -> ()` shape is gone.
+        let (run, take_outcome, alloc) = {
             let mut store_ref = cell.0.borrow_mut();
             let mut ctx = store_ref.as_context_mut();
             let run = instance
                 .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
-                .ok();
-            let run_with_source = instance
-                .get_typed_func::<(i32, i32), ()>(&mut ctx, "__kobako_run")
                 .ok();
             let take_outcome = instance
                 .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
@@ -281,14 +276,13 @@ impl Instance {
             let alloc = instance
                 .get_typed_func::<i32, i32>(&mut ctx, "__kobako_alloc")
                 .ok();
-            (run, run_with_source, take_outcome, alloc)
+            (run, take_outcome, alloc)
         };
 
         Ok(Self {
             inner: instance,
             store: cell,
             run,
-            run_with_source,
             take_outcome,
             alloc,
         })
@@ -317,7 +311,7 @@ impl Instance {
     /// surface is intact.
     fn known_export_count(&self) -> usize {
         [
-            self.run.is_some() || self.run_with_source.is_some(),
+            self.run.is_some(),
             self.take_outcome.is_some(),
             self.alloc.is_some(),
         ]
@@ -411,23 +405,18 @@ impl Instance {
         Ok(ruby.str_from_slice(&data[start..end]))
     }
 
-    /// Invoke `__kobako_run`. Tries the SPEC `() -> ()` shape first; if
-    /// the guest exports the `(ptr, len) -> ()` shape (test fixture),
-    /// passes the supplied +ptr+/+len+ instead.
-    fn run_call(&self, ptr: i32, len: i32) -> Result<(), MagnusError> {
+    /// Invoke `__kobako_run` with the SPEC `() -> ()` shape. Source is
+    /// delivered via the WASI stdin two-frame protocol written by
+    /// `setup_wasi_frames` before this call.
+    fn run_call(&self) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        let run = self
+            .run
+            .as_ref()
+            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
         let mut store_ref = self.store.0.borrow_mut();
-        if let Some(run) = &self.run_with_source {
-            return run
-                .call(store_ref.as_context_mut(), (ptr, len))
-                .map_err(|e| wasm_err(&ruby, format!("__kobako_run(ptr, len): {}", e)));
-        }
-        if let Some(run) = &self.run {
-            return run
-                .call(store_ref.as_context_mut(), ())
-                .map_err(|e| wasm_err(&ruby, format!("__kobako_run(): {}", e)));
-        }
-        Err(wasm_err(&ruby, "guest does not export __kobako_run"))
+        run.call(store_ref.as_context_mut(), ())
+            .map_err(|e| wasm_err(&ruby, format!("__kobako_run(): {}", e)))
     }
 
     /// Invoke `__kobako_take_outcome`. Returns the packed u64
@@ -447,28 +436,43 @@ impl Instance {
     // WASI capture path (SPEC.md §B-04). Called by Ruby's Sandbox#run.
     // -----------------------------------------------------------------
 
-    /// Initialise fresh WASI pipes for the upcoming run (SPEC.md §B-03).
+    /// Initialise fresh WASI pipes with the two-frame stdin content.
     ///
     /// Must be called before each `run` invocation. Creates:
-    ///   * A MemoryInputPipe for stdin (empty; a later item writes source frames)
-    ///   * A MemoryOutputPipe for fd 1 (stdout) — transport-layer pipe
-    ///   * A MemoryOutputPipe for fd 2 (stderr) — transport-layer pipe
+    ///   * A MemoryInputPipe for stdin with Frame 1 (preamble) + Frame 2
+    ///     (user script) encoded as length-prefixed frames: each frame is a
+    ///     4-byte big-endian u32 length prefix followed by the payload bytes.
+    ///     The guest reads both frames from WASI stdin (SPEC.md §ABI Signatures).
+    ///   * A MemoryOutputPipe for fd 1 (stdout) — transport-layer pipe.
+    ///   * A MemoryOutputPipe for fd 2 (stderr) — transport-layer pipe.
     ///
-    /// The pipe clones are stashed in HostState so `take_stdout` /
-    /// `take_stderr` can drain them after execution. The Ruby OutputBuffer
-    /// enforces the user-visible cap with the `[truncated]` marker.
-    ///
-    /// `stdout_cap` and `stderr_cap` are accepted for future streaming use
-    /// but the transport pipes are uncapped: SPEC.md §B-04 requires that
-    /// overflowing the OutputBuffer limit is a non-error outcome. Using a
-    /// small WASI pipe cap would cause `MemoryOutputPipe` to return
-    /// `StreamError::Trap` on overflow — which wasmtime converts to a real
-    /// trap, violating the SPEC invariant.
-    fn setup_wasi_pipes(&self, stdout_cap: i64, stderr_cap: i64) -> Result<(), MagnusError> {
+    /// `stdout_cap` and `stderr_cap` are accepted but the transport pipes are
+    /// uncapped: SPEC.md §B-04 requires that overflowing the OutputBuffer limit
+    /// is a non-error outcome. A capped WASI pipe would produce a real trap.
+    fn setup_wasi_pipes(
+        &self,
+        stdout_cap: i64,
+        stderr_cap: i64,
+        preamble_bytes: RString,
+        source_bytes: RString,
+    ) -> Result<(), MagnusError> {
         let _ = (stdout_cap, stderr_cap);
-        // Empty stdin pipe — preparation for the dual-frame mechanism where a
-        // later item writes preamble + source frames before each run.
-        let stdin_pipe = MemoryInputPipe::new(Vec::<u8>::new());
+
+        // Build the two-frame stdin content. Each frame: 4-byte BE u32 length
+        // prefix + payload bytes (SPEC.md §ABI Signatures — two-frame protocol).
+        let preamble: &[u8] = unsafe { preamble_bytes.as_slice() };
+        let source: &[u8] = unsafe { source_bytes.as_slice() };
+
+        let mut stdin_content: Vec<u8> =
+            Vec::with_capacity(4 + preamble.len() + 4 + source.len());
+        // Frame 1 — preamble
+        stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
+        stdin_content.extend_from_slice(preamble);
+        // Frame 2 — user script
+        stdin_content.extend_from_slice(&(source.len() as u32).to_be_bytes());
+        stdin_content.extend_from_slice(source);
+
+        let stdin_pipe = MemoryInputPipe::new(stdin_content);
         let stdout_pipe = MemoryOutputPipe::new(usize::MAX);
         let stderr_pipe = MemoryOutputPipe::new(usize::MAX);
 
@@ -654,10 +658,10 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     instance.define_method("alloc", method!(Instance::alloc, 1))?;
     instance.define_method("write_memory", method!(Instance::write_memory, 2))?;
     instance.define_method("read_memory", method!(Instance::read_memory, 2))?;
-    instance.define_method("run", method!(Instance::run_call, 2))?;
+    instance.define_method("run", method!(Instance::run_call, 0))?;
     instance.define_method("take_outcome", method!(Instance::take_outcome, 0))?;
     instance.define_method("set_registry", method!(Instance::set_registry, 1))?;
-    instance.define_method("setup_wasi_pipes", method!(Instance::setup_wasi_pipes, 2))?;
+    instance.define_method("setup_wasi_pipes", method!(Instance::setup_wasi_pipes, 4))?;
     instance.define_method("take_stdout", method!(Instance::take_stdout, 0))?;
     instance.define_method("take_stderr", method!(Instance::take_stderr, 0))?;
 

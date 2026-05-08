@@ -154,6 +154,11 @@ module Kobako
 
     # Execute a guest mruby script (SPEC.md §B-02 / §B-03).
     #
+    # Source delivery uses the WASI stdin two-frame protocol (SPEC.md
+    # §ABI Signatures): Frame 1 carries the msgpack-encoded preamble (Service
+    # Group registry snapshot) and Frame 2 carries the user script UTF-8
+    # bytes. Each frame is prefixed by a 4-byte big-endian u32 length.
+    #
     # @param source [String] mruby source code (UTF-8).
     # @return [Object] the deserialized last expression of the script.
     # @raise [Kobako::TrapError]    Wasm trap or wire-violation fallback.
@@ -164,10 +169,10 @@ module Kobako
 
       @services.seal!
       reset_run_state!
-      @instance.setup_wasi_pipes(@stdout_limit, @stderr_limit)
+      preamble = @services.guest_preamble
+      @instance.setup_wasi_pipes(@stdout_limit, @stderr_limit, preamble, source.b)
 
-      ptr, len = inject_source(source)
-      invoke_guest_run(ptr, len)
+      invoke_guest_run
       drain_wasi_output
       outcome_bytes = read_outcome_bytes
       decode_outcome(outcome_bytes)
@@ -193,22 +198,11 @@ module Kobako
       @stderr_buffer << stderr_bytes unless stderr_bytes.empty?
     end
 
-    # Allocate a buffer in the guest and copy +source+ bytes into it.
-    def inject_source(source)
-      bytes = source.b
-      len = bytes.bytesize
-      ptr = @instance.alloc(len)
-      raise TrapError, "guest __kobako_alloc returned 0 (allocation failure)" if ptr.zero?
-
-      @instance.write_memory(ptr, bytes)
-      [ptr, len]
-    rescue Kobako::Wasm::Error => e
-      raise TrapError, "failed to inject source into guest: #{e.message}"
-    end
-
     # Invoke `__kobako_run`. Wraps wasmtime / wire errors in TrapError.
-    def invoke_guest_run(ptr, len)
-      @instance.run(ptr, len)
+    # Source was already delivered via the stdin two-frame protocol in
+    # `setup_wasi_pipes` before this call (SPEC.md §ABI Signatures).
+    def invoke_guest_run
+      @instance.run
     rescue Kobako::Wasm::Error => e
       raise TrapError, "guest __kobako_run trapped: #{e.message}"
     end

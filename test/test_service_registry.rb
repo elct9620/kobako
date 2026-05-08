@@ -176,4 +176,27 @@ class TestServiceRegistry < Minitest::Test
     group.bind("Info", :v)
     assert_equal :v, @sandbox.services.lookup("Logger::Info")
   end
+
+  # Item #25 — `guest_preamble` returns msgpack-encoded bytes matching the
+  # two-level preamble array structure (SPEC.md §Sandbox#run 實作要點 step 1).
+  def test_guest_preamble_returns_msgpack_encoded_preamble
+    require "msgpack"
+    @sandbox.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
+    @sandbox.define(:Auth).bind(:Token, :tk)
+
+    bytes = @sandbox.services.guest_preamble
+    assert_kind_of String, bytes
+    assert_equal Encoding::ASCII_8BIT, bytes.encoding
+
+    decoded = MessagePack.unpack(bytes)
+    assert_equal [["MyService", %w[KV Logger]], ["Auth", %w[Token]]], decoded
+  end
+
+  # Item #25 — empty registry produces a valid `[]` msgpack array as Frame 1.
+  def test_guest_preamble_empty_registry_is_valid_msgpack_array
+    require "msgpack"
+    bytes = @sandbox.services.guest_preamble
+    decoded = MessagePack.unpack(bytes)
+    assert_equal [], decoded
+  end
 end
