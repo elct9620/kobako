@@ -317,6 +317,157 @@ class TestRpcDispatcherUnit < Minitest::Test
     assert_equal "undefined", resp.payload.type
   end
 
+  # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
+
+  # SPEC §B-19: HandleTable ownership is per-Sandbox. A Handle ID issued
+  # by Sandbox A's HandleTable has no meaning in Sandbox B's HandleTable;
+  # presenting it there resolves to "ID not found" and surfaces as a
+  # Response.err with type="undefined". This is distinct from B-18
+  # (cross-#run within the same Sandbox via #reset!): here we exercise
+  # two physically separate HandleTable instances backing two separate
+  # dispatchers, mirroring two live Sandbox instances.
+  def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
+    table_a = Kobako::HandleTable.new
+    table_b = Kobako::HandleTable.new
+    dispatcher_b = Kobako::RpcDispatcher.new(
+      registry: Kobako::Service::Registry.new,
+      handle_table: table_b
+    )
+
+    obj = Object.new
+    def obj.ping = "pong"
+    handle_id_in_a = table_a.alloc(obj)
+
+    # Sanity: the integer id has meaning in A.
+    assert_equal "pong", table_a.fetch(handle_id_in_a).ping
+
+    # The integer id presented as a Handle target against B's dispatcher
+    # must NOT cross over: B's HandleTable does not contain that id.
+    req = encode_request_with_target(
+      Kobako::Wire::Handle.new(handle_id_in_a), "ping", [], {}
+    )
+    resp = decode_response(dispatcher_b.call(req))
+
+    assert resp.err?
+    assert_equal "undefined", resp.payload.type
+    assert_equal 0, table_b.size
+  end
+
+  def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
+    # Same B-19 boundary, but the cross-Sandbox handle arrives as a
+    # positional arg rather than the target. The Registry path resolves;
+    # arg resolution fails when the id misses B's HandleTable.
+    table_a = Kobako::HandleTable.new
+    table_b = Kobako::HandleTable.new
+    registry_b = Kobako::Service::Registry.new
+    registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
+    dispatcher_b = Kobako::RpcDispatcher.new(registry: registry_b, handle_table: table_b)
+
+    obj = Object.new
+    handle_id_in_a = table_a.alloc(obj)
+
+    req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id_in_a)], {})
+    resp = decode_response(dispatcher_b.call(req))
+
+    assert resp.err?
+    assert_equal "undefined", resp.payload.type
+  end
+
+  # ---------- Raw-int Handle rejection (SPEC B-20) ----------
+
+  # SPEC §B-20: a guest cannot forge a Capability Handle from a bare
+  # integer. The host-side wire decoder rejects the malformed encoding
+  # before the value reaches the HandleTable. Operationally, a Request
+  # whose target slot carries a raw msgpack int (no ext 0x01 framing)
+  # fails Envelope.decode_request's type validation and the dispatcher
+  # surfaces it as a Response.err. The integer never reaches resolve_target
+  # or HandleTable#fetch — see the assertion on table size below.
+  #
+  # The test seam: we cannot construct such a Request via Request.new
+  # (its constructor rejects non-String/Handle target types). We hand-roll
+  # the msgpack bytes via Wire::Encoder so the malformed payload reaches
+  # the dispatcher exactly as a misbehaving guest would emit it.
+  def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
+    bad_request_bytes = Kobako::Wire::Encoder.encode([42, "call", ["x"], {}])
+
+    resp = decode_response(@dispatcher.call(bad_request_bytes))
+
+    assert resp.err?
+    # Wire::Error rescues to type="runtime" with a "wire decode failed"
+    # prefix; the dispatcher's contract pins this taxonomy and the guest
+    # observes a normal RPC error rather than a wasm trap.
+    assert_equal "runtime", resp.payload.type
+    assert_match(/wire decode failed/, resp.payload.message)
+    # The malformed int never made it into the HandleTable.
+    assert_equal 0, @handle_table.size
+  end
+
+  def test_raw_integer_target_does_not_reach_handle_table_lookup
+    # Defense-in-depth check: even if a raw integer somehow reached
+    # resolve_target (it cannot today, because decode_request rejects it
+    # first), the unsupported-type branch raises UndefinedTargetError
+    # rather than silently coercing the int as a Handle id. This test
+    # bypasses #call's decode and exercises resolve_target directly via
+    # send to pin the policy at the resolver level too.
+    obj = Object.new
+    @handle_table.alloc(obj) # id 1 — proves the table is not empty
+
+    error = assert_raises(Kobako::RpcDispatcher::UndefinedTargetError) do
+      @dispatcher.send(:resolve_target, 1)
+    end
+    assert_match(/unsupported target type Integer/, error.message)
+  end
+
+  # ---------- HandleTable exhaustion (SPEC B-21 / E-07) ----------
+
+  # SPEC §B-21 / §E-07: when the per-#run HandleTable counter reaches
+  # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
+  # Kobako::HandleTableExhausted (a SandboxError subclass). The
+  # dispatcher's wrap_return path is the call site that triggers this
+  # during normal RPC: a Service method returns a non-wire-representable
+  # value, the codec raises UnsupportedType, wrap_return falls through to
+  # @handle_table.alloc, and the cap raise surfaces via the dispatcher's
+  # rescue chain as a Response.err the guest observes.
+  def test_handle_table_exhaustion_during_wrap_return_is_response_err
+    # Test seam: HandleTable.new(next_id:) lets us pin the counter at
+    # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
+    # HandleTable § "Build a fresh, empty HandleTable" — the parameter is
+    # explicitly intended for cap-exhaustion testing.
+    exhausted_table = Kobako::HandleTable.new(next_id: Kobako::HandleTable::MAX_ID + 1)
+    registry = Kobako::Service::Registry.new
+    dispatcher = Kobako::RpcDispatcher.new(registry: registry, handle_table: exhausted_table)
+
+    factory = Class.new do
+      # non-wire-representable -> wrap_return -> alloc
+      def make = Object.new
+    end.new
+    registry.define(:Factory).bind(:Make, factory)
+
+    req = encode_request("Factory::Make", "make", [], {})
+    resp = decode_response(dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "runtime", resp.payload.type
+    assert_match(/Kobako::HandleTableExhausted/, resp.payload.message)
+  end
+
+  def test_handle_table_exhaustion_propagates_as_sandbox_error_class
+    # Pin the class hierarchy: HandleTableExhausted < HandleTableError <
+    # SandboxError (per Kobako::errors). This matters because
+    # Sandbox#run-level callers rescuing SandboxError must catch the
+    # exhaustion path; the dispatcher's rescue StandardError branch
+    # turns the raise into a Response.err so the guest can observe it,
+    # but the underlying class identity is what SPEC §B-21 pins.
+    assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
+    assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
+
+    table = Kobako::HandleTable.new(next_id: Kobako::HandleTable::MAX_ID + 1)
+    error = assert_raises(Kobako::SandboxError) do
+      table.alloc(Object.new)
+    end
+    assert_kind_of Kobako::HandleTableExhausted, error
+  end
+
   private
 
   def encode_request_with_target(target, method, args, kwargs)
