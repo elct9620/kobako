@@ -31,6 +31,7 @@ use kobako_wasm::envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
     encode_panic, encode_request, encode_response, encode_result, EnvelopeError,
 };
+use kobako_wasm::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
 const ERROR_FLAG: u32 = 0x8000_0000;
@@ -49,7 +50,7 @@ fn run() -> io::Result<()> {
     let mut output = stdout.lock();
 
     loop {
-        let mut hdr = [0u8; 4];
+        let mut hdr = [0u8; FRAME_LEN_SIZE];
         match input.read_exact(&mut hdr) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),

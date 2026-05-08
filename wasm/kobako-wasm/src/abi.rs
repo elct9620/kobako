@@ -138,7 +138,7 @@ pub extern "C" fn __kobako_run() {
         // --- helpers ---
 
         fn read_frame() -> Option<Vec<u8>> {
-            let mut len_buf = [0u8; 4];
+            let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
             let mut stdin = std::io::stdin().lock();
             stdin.read_exact(&mut len_buf).ok()?;
             let len = u32::from_be_bytes(len_buf) as usize;

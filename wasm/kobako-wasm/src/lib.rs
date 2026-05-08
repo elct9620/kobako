@@ -24,6 +24,10 @@
 //! custom panic handler) without buying anything for the Guest Binary,
 //! which already pays for `std` through the embedded mruby interpreter.
 
+/// Width in bytes of the wire-protocol length prefix that precedes each
+/// stdin frame and outcome buffer (per SPEC.md frame protocol).
+pub const FRAME_LEN_SIZE: usize = 4;
+
 pub mod abi;
 pub mod boot;
 pub mod codec;
