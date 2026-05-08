@@ -35,10 +35,10 @@ When kobako is working correctly:
 The following are explicitly outside the scope of kobako:
 
 - LLM integration, agent frameworks, or prompt engineering (kobako provides the execution substrate; connecting it to an LLM is the Host App's responsibility)
-- A general-purpose wasmtime Ruby gem — `ext/` is a private binding, not a reusable wasmtime wrapper
+- A general-purpose wasmtime Ruby gem — the native extension is a private implementation detail, not a reusable wasmtime wrapper
 - mruby upstream development or distribution — kobako consumes a pinned mruby release tarball
 - Multi-tenant billing, SLA management, or deployment/operations tooling
-- Async / yield-resume execution models or interpreter state snapshot/resume (kobako uses synchronous blocking RPC; Monty-style `start()`/`resume()` and `dump()`/`load_snapshot()` are not provided)
+- Async or yield-resume execution models and interpreter state snapshot/resume
 - Passing guest-side blocks to Service methods — guest closures cannot be executed on the host side; iteration is handled by returning collections from Service methods
 
 ### Core Abstractions
