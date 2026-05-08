@@ -399,6 +399,18 @@ module Kobako
         # Float::INFINITY and -0.0 compare equal under == so plain assert_equal works
         assert_equal value, decoded
       end
+
+      # Migration check: codec backbone is the official `msgpack` gem.
+      # If someone quietly reverts to a hand-rolled implementation, this
+      # test catches the drift via the gem's class hierarchy.
+      def test_msgpack_factory_is_the_codec_backbone
+        require "msgpack"
+        assert defined?(::MessagePack::Factory),
+               "msgpack gem must be loaded — wire codec is built on MessagePack::Factory"
+        factory = Kobako::Wire::Factory.instance
+        assert_kind_of ::MessagePack::Factory, factory,
+                       "Kobako::Wire::Factory.instance must be a MessagePack::Factory"
+      end
     end
   end
 end

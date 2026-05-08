@@ -41,8 +41,11 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.extensions = ["ext/kobako/extconf.rb"]
 
-  # Uncomment to register a new dependency of your gem
-  # spec.add_dependency "example-gem", "~> 1.0"
+  # MessagePack codec backbone for the host side of the kobako wire (SPEC.md
+  # "Wire Codec"). The Host Gem registers ext type 0x01 (Capability Handle)
+  # and ext type 0x02 (Exception envelope) on a `MessagePack::Factory`; the
+  # gem's hand-written byte-level encoder/decoder has been retired.
+  spec.add_dependency "msgpack", "~> 1.7"
   spec.add_dependency "rb_sys", "~> 0.9.91"
 
   # For more information and examples about making a new gem, check out our

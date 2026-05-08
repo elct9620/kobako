@@ -17,11 +17,11 @@ require "open3"
 #     wasm32-wasip1`. Skips otherwise. Designed to gain teeth once
 #     wasi-sdk is vendored and item #6 supplies real codec bodies.
 #
-# This test enforces the dependency-free invariant by parsing the crate's
-# Cargo.toml and asserting no `[dependencies]` table, in addition to
-# compiling the code. SPEC.md "Wire Codec" §Codec Choice forbids importing
-# a third-party encoder; this test is the gate that keeps the invariant
-# from drifting in code review.
+# This test pins the wire-codec backbone to the `rmp` crate (the Rust
+# counterpart of the host-side `msgpack` gem) by asserting `rmp` is the
+# sole runtime dependency. A hand-rolled byte-level codec is no longer
+# acceptable; the codec is a thin shim over `rmp::encode` / `rmp::decode`
+# plus kobako-specific ext-type wiring.
 class TestWasmCrate < Minitest::Test
   PROJECT_ROOT = File.expand_path("..", __dir__)
   CRATE_DIR    = File.join(PROJECT_ROOT, "wasm", "kobako-wasm")
@@ -53,13 +53,18 @@ class TestWasmCrate < Minitest::Test
                  "[lib] crate-type must include `rlib` so codec tests run on the host")
   end
 
-  def test_cargo_toml_has_no_runtime_dependencies
+  def test_cargo_toml_pins_rmp_as_codec_backbone
     contents = File.read(CARGO_TOML)
     deps_section = extract_section(contents, "dependencies")
-    assert_nil deps_section,
-               "kobako-wasm must be dependency-free per SPEC.md 'Wire Codec' " \
-               "§Codec Choice; found a [dependencies] section in Cargo.toml: " \
-               "#{deps_section.inspect}"
+    refute_nil deps_section,
+               "kobako-wasm must declare a [dependencies] table that pins " \
+               "the `rmp` crate as the wire-codec backbone"
+    assert_match(/^\s*rmp\s*=/, deps_section,
+                 "[dependencies] must include `rmp`; the guest-side codec " \
+                 "is a thin shim over rmp::encode / rmp::decode")
+    assert_match(/default-features\s*=\s*false/, deps_section,
+                 "`rmp` must be declared with default-features = false to " \
+                 "minimise the wasm32-wasip1 dependency footprint")
   end
 
   def test_cargo_toml_declares_self_workspace

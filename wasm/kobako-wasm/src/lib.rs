@@ -3,7 +3,8 @@
 //! This crate is the source of `kobako.wasm`, the Guest Binary artifact
 //! described in SPEC.md "Core Abstractions". It hosts:
 //!
-//! * `codec` — the hand-written MessagePack wire codec (SPEC.md "Wire Codec").
+//! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
+//!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
 //! * (future) ABI exports `__kobako_run`, `__kobako_alloc`,
 //!   `__kobako_take_outcome` — added by item #9.
 //! * `boot` — Rust-side mruby C API registrations that REFERENCE
