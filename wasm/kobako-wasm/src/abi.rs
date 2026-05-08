@@ -359,43 +359,26 @@ end
         // for catching exceptions from `mrb_load_nstring`: the exception is
         // consumed internally by the VM before it reaches the outer protect frame.
         //
-        // Correct pattern: call `mrb_load_nstring` directly, then inspect
-        // `mrb->exc`. We read the exc pointer at the known struct offset (16 bytes
-        // on wasm32: jmp+c+root_c+globals = 4×4 bytes, all unconditional fields).
-        //
-        // mrb_state layout (mruby.h, unconditional top fields on wasm32):
-        //   offset  0: struct mrb_jmpbuf *jmp       (4 bytes)
-        //   offset  4: struct mrb_context *c        (4 bytes)
-        //   offset  8: struct mrb_context *root_c   (4 bytes)
-        //   offset 12: struct iv_tbl *globals        (4 bytes)
-        //   offset 16: struct RObject *exc           (4 bytes) ← we read this
+        // Correct pattern: call `mrb_load_nstring` directly, then retrieve the
+        // pending exception via `kobako_get_exc` (src/mrb_exc_helper.c). That
+        // shim accesses `mrb->exc` through mruby's own headers, so the field
+        // offset is always correct for the compiler and mruby version in use.
 
         let result_val = unsafe {
             sys::mrb_load_nstring(mrb, frame2.as_ptr() as *const core::ffi::c_char, frame2.len())
         };
 
-        // Enforce the layout assumption: on wasm32, pointer size is 4 bytes.
-        const _: () = assert!(
-            core::mem::size_of::<usize>() == 4,
-            "mrb->exc offset assumes 4-byte pointers (wasm32 only)"
-        );
-
-        // Read mrb->exc at offset 16 (wasm32 layout: 4 pointer fields × 4 bytes).
-        // A non-null exc pointer means an exception occurred. The pointer value
-        // is also the lower 32 bits of the mrb_value (MRB_WORDBOX_NO_INLINE_FLOAT
-        // + MRB_INT32: mrb_value.w == (u32)mrb_ptr(obj_val)).
-        let exc_ptr_u32: u32 = unsafe {
-            let mrb_as_u32_ptr = mrb as *const u32;
-            *mrb_as_u32_ptr.add(4) // offset 16 = index 4 in u32 array
-        };
-        let has_exception = exc_ptr_u32 != 0;
+        // Retrieve the pending exception (if any) via the layout-safe C shim.
+        // `kobako_get_exc` returns `mrb_nil_value()` (w == 0 on wasm32) when
+        // no exception is pending, or `mrb_obj_value(mrb->exc)` otherwise.
+        // Does NOT clear `mrb->exc` — we call `mrb_check_error` below after
+        // consuming the exception object.
+        let exc_val = unsafe { sys::kobako_get_exc(mrb) };
+        let has_exception = exc_val.w != 0;
 
         // --- Outcome serialization ---
 
         if has_exception {
-            // Build the exception mrb_value from the raw pointer (MRB_WORDBOX layout).
-            let exc_val = sys::mrb_value { w: exc_ptr_u32 };
-
             // Extract class name from the exception object.
             let class_name = unsafe {
                 let ptr = sys::mrb_obj_classname(mrb, exc_val);

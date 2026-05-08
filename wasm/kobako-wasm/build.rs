@@ -42,6 +42,7 @@
 // explicitly keeps incremental rebuilds cheap.
 
 use std::env;
+use std::path::PathBuf;
 
 fn main() {
     // Always re-run when the build-script-relevant env vars change. Without
@@ -51,6 +52,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MRUBY_LIB_DIR");
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/mrb_exc_helper.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -60,6 +62,62 @@ fn main() {
     // host-target tests do not exercise the mruby C-bridge anyway. Bail out.
     if target_arch != "wasm32" {
         return;
+    }
+
+    // Locate vendor/mruby/include relative to the crate root. CARGO_MANIFEST_DIR
+    // is always set by cargo; the crate lives at wasm/kobako-wasm/ so
+    // ../../vendor/mruby/include resolves to the project-level vendor tree.
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let mruby_include = manifest_dir
+        .join("..")
+        .join("..")
+        .join("vendor")
+        .join("mruby")
+        .join("include");
+
+    // Compile the layout-safe C shim that exposes `mrb->exc` via a clean
+    // FFI function (`kobako_get_exc`). Delegating field-offset knowledge to
+    // mruby's own headers means a minor-version bump that reorders struct
+    // fields is caught at compile time rather than silently shifting the
+    // target word at runtime.
+    //
+    // Guard: only compile when WASI_SDK_PATH or CC_wasm32_wasip1 is set
+    // (i.e. the full wasm:guest pipeline). Bare `cargo check` without the
+    // wasi-sdk toolchain would use the host clang which lacks the WASI
+    // sysroot — mruby.h includes <stdio.h> and would fail. This mirrors
+    // the existing link-wiring guard below. The `kobako_get_exc` symbol is
+    // still declared in `mruby_sys.rs` under `#[cfg(target_arch = "wasm32")]`
+    // which is sufficient for `cargo check` type-checking without a linked
+    // object.
+    let wasi_sdk = env::var("WASI_SDK_PATH")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let cc_override = env::var("CC_wasm32_wasip1")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    if (wasi_sdk.is_some() || cc_override.is_some()) && mruby_include.exists() {
+        // The mruby build process generates some headers (e.g.
+        // `mruby/presym/id.h`) into the target-specific build directory.
+        // We need both the source headers AND the generated build headers
+        // in the include path, mirroring how mruby's own build system
+        // sets up include dirs for C files that include <mruby.h>.
+        let mut build = cc::Build::new();
+        build.file("src/mrb_exc_helper.c").include(&mruby_include);
+
+        // Add the wasi build's generated include dir if we can locate it.
+        // MRUBY_LIB_DIR is `vendor/mruby/build/wasi/lib`; the generated
+        // headers are one level up at `vendor/mruby/build/wasi/include`.
+        if let Ok(lib_dir) = env::var("MRUBY_LIB_DIR") {
+            if !lib_dir.is_empty() {
+                let build_include = PathBuf::from(&lib_dir).join("..").join("include");
+                if build_include.exists() {
+                    build.include(&build_include);
+                }
+            }
+        }
+
+        build.compile("kobako_exc_helper");
     }
 
     // wasm32 path: emit link directives only when the Rake driver has staged

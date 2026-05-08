@@ -100,7 +100,7 @@ module KobakoWasm
   # Used to short-circuit `wasm:guest` when `data/kobako.wasm` already
   # reflects the current source tree (idempotency contract from item #11).
   def newest_source_mtime
-    files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb}"))
+    files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
     files << CRATE_BUILD_RS if File.exist?(CRATE_BUILD_RS)
     files << MANIFEST
     files << LIBMRUBY_PATH if File.exist?(LIBMRUBY_PATH)

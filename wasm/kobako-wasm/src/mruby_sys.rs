@@ -370,6 +370,18 @@ extern "C" {
     /// `mrb_iv_get(mrb, obj, sym)` — returns the instance variable identified
     /// by `sym` on `obj`, or `mrb_nil_value()` if not set.
     pub fn mrb_iv_get(mrb: *mut mrb_state, obj: mrb_value, sym: mrb_sym) -> mrb_value;
+
+    /// `kobako_get_exc(mrb)` — layout-safe accessor for `mrb->exc`.
+    ///
+    /// Returns `mrb_obj_value(mrb->exc)` if an exception is pending, or
+    /// `mrb_nil_value()` if `mrb->exc` is NULL. Implemented in
+    /// `src/mrb_exc_helper.c` using mruby's own headers so that the
+    /// struct field offset is always correct for the compiler and mruby
+    /// version in use — no Rust-side byte-offset arithmetic required.
+    ///
+    /// Does NOT clear the exception. Callers must invoke `mrb_check_error`
+    /// after consuming the returned value to reset `mrb->exc`.
+    pub fn kobako_get_exc(mrb: *mut mrb_state) -> mrb_value;
 }
 
 // --------------------------------------------------------------------

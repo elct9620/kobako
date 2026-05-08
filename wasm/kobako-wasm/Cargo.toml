@@ -45,6 +45,12 @@ abi-exports = []
 # wasm32-wasip1 target, which already pays for `std` through mruby.
 rmp = { version = "0.8", default-features = false }
 
+[build-dependencies]
+# `cc` compiles the layout-safe C shim (`src/mrb_exc_helper.c`) that exposes
+# `mrb->exc` through mruby's own headers rather than Rust-side offset arithmetic.
+# Only active on wasm32 (build.rs gates compilation behind target_arch check).
+cc = "1"
+
 [profile.release]
 # wasm size hygiene. These are not load-bearing for the skeleton, but pin
 # the intent so item #6 / #9 inherit a sensible baseline.
