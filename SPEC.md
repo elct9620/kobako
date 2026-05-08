@@ -480,7 +480,7 @@ If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_
 
 | First-byte tag | Outcome bytes state | Raised class |
 |---------------|---------------------|--------------|
-| — | Zero-length (`len == 0`) | `Kobako::TrapError` — wire violation fallback |
+| — | Zero-length (`len == 0`) | `Kobako::TrapError` — wire violation fallback (a *wire violation* is any guest binary output that does not conform to the Wire Codec; → Wire Codec — Type Mapping) |
 | `0x01` (result) | Decode succeeds | Return value (no error raised) |
 | `0x01` (result) | Decode fails (malformed MessagePack or unrepresentable value) | `Kobako::SandboxError` |
 | `0x02` (panic) | Decode succeeds + `origin == "service"` | `Kobako::ServiceError` |
@@ -498,7 +498,7 @@ Raised when the Wasm execution engine crashes or when the wire layer detects a s
 
 | # | Trigger | Detection point |
 |---|---------|-----------------|
-| E-01 | Wasm engine trap: OOM, `unreachable` instruction, stack overflow, or import signature mismatch | wasmtime raises a native trap exception; Step 1 fires |
+| E-01 | Wasm engine trap: OOM, `unreachable` instruction, stack overflow, or import signature mismatch | Wasm engine reports a native trap; Step 1 fires |
 | E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback |
 | E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback |
 
