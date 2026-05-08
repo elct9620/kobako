@@ -584,7 +584,7 @@ These are sub-components and runtime concepts owned by the Host Gem. They are no
 | **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
 | **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::Handle` runs in the host process; the `Kobako::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
 | **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No — same visibility as Handle; no distinct class exists |
-| **Stub** | The mruby VM-internal base class (`Kobako::RPC`) that represents a remote Service Member inside the guest. Guest scripts do not reference Stub directly; they see module constants. All method calls on a Stub are forwarded as RPC calls to the host. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
+| **Stub** | `Stub` is the canonical term. Its Ruby class name inside the Guest Binary is `Kobako::RPC`; both names refer to the same concept. The base class represents a remote Service Member inside the guest. Guest scripts do not reference Stub directly; they see module constants under their declared Service Group. All method calls on a Stub are forwarded as RPC calls to the host. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
 
 ---
 
@@ -605,7 +605,7 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
 
-**Wire-level error string (not a Ruby class):** The string `"Kobako::WireError"` appears only as the `class` field value in a Panic envelope to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::WireError` Ruby class.
+**Wire-level error string (not a Ruby class):** The string `"Kobako::WireError"` appears only as the `class` field value in a Panic envelope (defined in `### Wire Contract` → Outcome Envelope below) to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::WireError` Ruby class.
 
 ---
 
