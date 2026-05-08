@@ -116,6 +116,17 @@ fn build_outcome(source: &[u8]) -> Outcome {
         });
     }
 
+    // `handle:N` — emit a Result envelope carrying ext 0x01 Handle(N).
+    // Used by host tests to stage a Handle id whose validity must NOT
+    // survive into the next #run (cross-run Handle invalidity).
+    if let Some(rest) = text.strip_prefix("handle:") {
+        if let Ok(id) = rest.parse::<u32>() {
+            return Outcome::Result(ResultEnv {
+                value: Value::Handle(id),
+            });
+        }
+    }
+
     // Default: parse as i64 and wrap in a Result envelope.
     match text.parse::<i64>() {
         Ok(n) => Outcome::Result(ResultEnv {

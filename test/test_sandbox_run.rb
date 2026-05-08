@@ -42,11 +42,103 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     # Two consecutive #run calls on the same Sandbox both return correct
-    # values. (Full multi-run state isolation — capability state, fresh
-    # instance — lands with item #17; this asserts the lighter property
-    # that the existing instance survives a second invocation.)
+    # values — the cached wasm pipeline is reused across runs (SPEC §B-03
+    # multi-run isolation is *within* a single Sandbox lifetime; the
+    # Engine/Module/Store/Instance are NOT recreated, only per-run state
+    # resets).
     assert_equal 1, sandbox.run("1")
     assert_equal 2, sandbox.run("2")
+  end
+
+  def test_run_reuses_engine_module_store_instance_across_runs
+    # SPEC §B-03 / REFERENCE Ch.6 §Sandbox#run 實作要點: multi-run isolation
+    # happens within a single Sandbox lifetime. Engine / Module / Store /
+    # Instance are reused across runs (rebuilding them is a separate use
+    # case — sandbox discard, B-19). Only per-run state (HandleTable,
+    # capture buffers) is reset.
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
+    sandbox.run("1")
+    engine_before  = sandbox.engine
+    module_before  = sandbox.module_
+    store_before   = sandbox.store
+    instance_before = sandbox.instance
+
+    sandbox.run("2")
+
+    assert_same engine_before,   sandbox.engine
+    assert_same module_before,   sandbox.module_
+    assert_same store_before,    sandbox.store
+    assert_same instance_before, sandbox.instance
+  end
+
+  def test_run_resets_handle_table_counter_to_one_between_runs
+    # SPEC §B-15: Handle id counter resets to 1 at the start of every
+    # #run. Run #1 burns through ids 1..N; run #2's first alloc must
+    # return id 1 (not N+1).
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    sandbox.run("1")
+    sandbox.handle_table.alloc(:from_run_one) # id = 1 within run-1 scope
+    sandbox.handle_table.alloc(:from_run_one_again) # id = 2
+
+    sandbox.run("2")
+
+    # After run #2's per-run reset, the next alloc must hand out id=1.
+    assert_equal 1, sandbox.handle_table.alloc(:fresh_from_run_two)
+  end
+
+  def test_run_clears_stdout_buffer_between_runs
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
+    sandbox.run("1")
+    sandbox.stdout_buffer << "from-between-runs"
+    refute_empty sandbox.stdout_buffer.to_s
+
+    sandbox.run("2")
+
+    assert_equal "", sandbox.stdout_buffer.to_s
+    assert_equal "", sandbox.stderr_buffer.to_s
+  end
+
+  def test_run_one_returned_handle_is_invalid_after_run_two
+    # SPEC §B-19: Handle ids issued during run N are invalid in run N+1.
+    # The fixture's "handle:7" source emits a Result envelope carrying
+    # ext 0x01 Handle(7). Run #1 surfaces that to the host as a
+    # `Kobako::Wire::Handle`; the per-run reset on run #2 clears the
+    # HandleTable, so attempting to fetch id=7 raises.
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
+    handle_value = sandbox.run("handle:7")
+    assert_kind_of Kobako::Wire::Handle, handle_value
+    assert_equal 7, handle_value.id
+
+    # Stage id=7 in the HandleTable as if the wire layer had registered
+    # it during run #1. Run #2 must invalidate it.
+    sandbox.handle_table.instance_variable_get(:@entries)[7] = :run_one_capability
+    assert sandbox.handle_table.include?(7)
+
+    sandbox.run("2")
+
+    refute sandbox.handle_table.include?(7),
+           "HandleTable still bound id=7 from run #1 after run #2 reset"
+    assert_raises(Kobako::HandleTableError) { sandbox.handle_table.fetch(7) }
+  end
+
+  def test_run_does_not_reset_service_registry_bindings_across_runs
+    # REFERENCE Ch.6 §Registry: Registry is sealed after first #run, but
+    # binding entries (host-side capability declarations) persist across
+    # runs — they are not "per-run state" in the multi-run isolation
+    # sense. Verify both seal and persistence.
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    sandbox.define(:Persistent).bind(:KV, :a_capability)
+
+    sandbox.run("1")
+    sandbox.run("2")
+
+    assert sandbox.services.sealed?, "registry must remain sealed across runs"
+    assert sandbox.services.bound?("Persistent::KV"),
+           "binding declared before first #run must survive subsequent runs"
+    assert_equal :a_capability, sandbox.services.lookup("Persistent::KV")
   end
 
   def test_run_raises_sandbox_error_for_panic_with_sandbox_origin
