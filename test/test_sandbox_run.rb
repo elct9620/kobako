@@ -145,16 +145,6 @@ class TestSandboxRun < Minitest::Test
     assert_equal :a_capability, sandbox.services.lookup("Persistent::KV")
   end
 
-  def test_run_raises_sandbox_error_for_panic_with_sandbox_origin
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    err = assert_raises(Kobako::SandboxError) { sandbox.run("panic") }
-    assert_equal "boom", err.message
-    assert_equal "sandbox", err.origin
-    assert_equal "RuntimeError", err.klass
-    assert_equal ["test-guest:1"], err.backtrace_lines
-  end
-
   def test_run_clears_buffers_between_invocations
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     sandbox.stdout_buffer << "leftover"

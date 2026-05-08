@@ -62,6 +62,7 @@ class TestSandboxErrorAttribution < Minitest::Test
     assert_equal "boom", err.message
     assert_equal "sandbox", err.origin
     assert_equal "RuntimeError", err.klass
+    assert_equal ["test-guest:1"], err.backtrace_lines
     refute_kind_of Kobako::ServiceError, err,
                    "SandboxError(origin=sandbox) must not be confused with ServiceError"
     refute_kind_of Kobako::TrapError, err,
