@@ -38,6 +38,7 @@ The following are explicitly outside the scope of kobako:
 - A general-purpose wasmtime Ruby gem
 - mruby upstream development or distribution
 - Multi-tenant billing, SLA management, or deployment/operations tooling
+- Per-run resource usage metrics or quota enforcement instrumentation (e.g., CPU instruction counts, memory consumption per `#run`)
 - Async or yield-resume execution models and interpreter state snapshot/resume
 - Passing guest-side blocks to Service methods
 
@@ -309,7 +310,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance on which `#run` has not yet been called. No Service Group named `GroupName` exists on this Sandbox. |
 | **Operation** | `sandbox.define(:GroupName)` where `:GroupName` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
 | **Result / Final State** | A `Kobako::Service::Group` instance is created and associated with this Sandbox under the name `GroupName`. The group has no members yet. The method returns the new `Kobako::Service::Group` instance. The Sandbox registry now contains one additional group entry. |
-| **Notes** | `GroupName` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. A group may have zero members at declaration time; members are added via B-08. |
+| **Notes** | `GroupName` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. Calling `sandbox.define` after `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent `#run` calls with the bindings that existed at the time of the first `#run`. A group may have zero members at declaration time; members are added via B-08. |
 
 ---
 
@@ -341,7 +342,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Sandbox instance with a Service Group already declared under the name `GroupName`. |
 | **Operation** | `sandbox.define(:GroupName)` — same name as an existing group. |
-| **Result / Final State** | No new group is created. The existing `Kobako::Service::Group` instance is returned unchanged, with all previously bound members still in place. The Sandbox registry is not modified. |
+| **Result / Final State** | No new group is created. `sandbox.define(:GroupName)` returns the identical `Kobako::Service::Group` object previously created — the same object identity (Ruby `equal?`), not a new instance wrapping the same registry entry. All previously bound members remain in place. The Sandbox registry is not modified. |
 | **Notes** | Idempotent re-declaration allows Host Apps to retrieve an existing group handle without tracking it externally (e.g., in configuration code spread across multiple files). |
 
 ---
@@ -372,10 +373,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that has a wire representation: `nil`, Boolean, Integer, Float, String, binary string, Array, or Hash. |
+| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the RPC response. |
 | **Result / Final State** | The guest script receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
-| **Notes** | The wire codec is the same codec used for `#run` return values (B-06). Values that have no wire representation cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
+| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
 
 ---
 
@@ -383,8 +384,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a Ruby object that is not a primitive wire type — for example, a session object, a connection, or any stateful host resource. |
-| **Operation** | The Host Gem's wire layer detects that the return value is not a primitive wire type and automatically registers it in the Sandbox's HandleTable. |
+| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a Ruby object that is not wire-representable — for example, a session object, a connection, or any stateful host resource. |
+| **Operation** | A return value is routed through the Handle allocation path if and only if its type is not wire-representable per the definition in B-13. The wire layer determines this by explicit type check (Ruby class), not by attempting serialization. The wire layer then automatically registers the object in the Sandbox's HandleTable. |
 | **Result / Final State** | The host-side object is stored in the HandleTable under a new opaque u32 Handle ID. The guest receives a Capability Handle (an opaque integer token) as the RPC response value, not the object itself. The guest can pass this Handle as the `target` in subsequent RPC calls to invoke methods on the same host-side object. The Host App has no API to create or inspect Handles directly — Handle allocation is an internal wire-layer operation. |
 | **Notes** | Handle lifecycle (per-`#run` scope, ABA protection, ID limits) is specified in the Handle lifecycle behaviors (B-15–B-21). The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
 
@@ -518,8 +519,11 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
+| E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid GroupName |
+| E-17 | Host App calls `group.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
+| E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
 
-`sandbox.define(:name)` where `:name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07). `group.bind(:MemberName, obj)` when `MemberName` is already bound raises `ArgumentError` (B-11). Both are Host App programming errors detected at setup time before any guest execution; they do not go through the attribution pipeline and are not classified as `SandboxError`.
+`sandbox.define(:name)` where `:name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `group.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
 ---
 
