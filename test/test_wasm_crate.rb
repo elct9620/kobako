@@ -113,6 +113,30 @@ class TestWasmCrate < Minitest::Test
                  "cargo test output must report at least one passing test result")
   end
 
+  # E2E gate for item #6 (Wire codec — Guest Rust implementation). This is
+  # the Ruby-side hook that gives `bundle exec rake test` teeth for the
+  # Rust codec: it spawns `cargo test`, parses the summary line, and
+  # asserts the codec test count is non-trivial (>= 20) and every test
+  # passed. SPEC.md "Testing Style" Layer 1 (Codec round-trip fuzz) lists
+  # this as a release gate.
+  def test_wasm_codec_e2e_runs_and_passes
+    skip_unless_cargo
+    out, status = Open3.capture2e(
+      "cargo", "test", "--manifest-path", CARGO_TOML, "--lib", "codec::"
+    )
+    assert status.success?, "cargo test (codec::) failed:\n#{out}"
+
+    # Parse `test result: ok. N passed; M failed; ...` from the output.
+    summary = out[/test result: ok\. (\d+) passed; (\d+) failed/]
+    refute_nil summary, "cargo test output missing summary line:\n#{out}"
+    passed, failed = out.match(/test result: ok\. (\d+) passed; (\d+) failed/).captures.map(&:to_i)
+
+    assert_equal 0, failed, "codec::* tests reported failures:\n#{out}"
+    assert_operator passed, :>=, 20,
+                    "expected at least 20 codec test cases (round-trip + golden + " \
+                    "narrowest-encoding + decoder error variants); saw #{passed}:\n#{out}"
+  end
+
   def test_real_tier_wasm32_wasip1_build
     skip "set KOBAKO_E2E_BUILD=1 to enable the real wasm32-wasip1 build tier" unless ENV["KOBAKO_E2E_BUILD"] == "1"
     skip_unless_cargo
