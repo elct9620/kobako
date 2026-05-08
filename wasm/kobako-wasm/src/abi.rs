@@ -11,10 +11,9 @@
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
 //!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
-//! This item delivers the **ABI shape** only. Bodies are stubs marked
-//! `unimplemented!()`; later items (#10 boot script, #11 allocator, #12 host
-//! linker) fill them in. The build-pipeline guard (item #26) inspects the
-//! emitted wasm and verifies exactly these names appear.
+//! This item delivers the **ABI shape** and full implementations. The
+//! build-pipeline guard (item #26) inspects the emitted wasm and verifies
+//! exactly these names appear.
 //!
 //! ## Packed u64 layout
 //!

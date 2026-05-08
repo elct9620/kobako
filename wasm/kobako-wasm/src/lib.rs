@@ -15,8 +15,7 @@
 //!
 //! This is the **skeleton** delivered by item #4: module layout, error type,
 //! and the `Value` enum covering the 11 wire types per SPEC.md "Type
-//! Mapping". Encode/decode bodies are placeholders (`unimplemented!()`) and
-//! will be filled in by item #6.
+//! Mapping". Encode/decode bodies use `rmp::encode` / `rmp::decode` as the codec backbone.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
 //! target — see SPEC.md "Implementation Standards" §Architecture) ships a
