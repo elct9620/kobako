@@ -769,7 +769,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | Panic Envelope `origin`, `class`, `message` field values | str only | bin → wire violation, reject |
 | Panic Envelope map keys (`origin`, `class`, `message`, `backtrace`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
-Symbols that appear in Ruby or mruby values do not survive the wire as symbols. After deserialization, values that were symbols on the originating side arrive as strings. The single exception is `kwargs` map keys: the Host Gem converts them to Ruby symbols via `transform_keys(&:to_sym)` before dispatching to Service methods, to satisfy standard Ruby keyword argument conventions (→ Wire Contract → Request Shape).
+Symbols that appear in Ruby or mruby values do not survive the wire as symbols. After deserialization, values that were symbols on the originating side arrive as strings. The single exception is `kwargs` map keys: `kwargs` map keys received as `bin` are decoded as UTF-8 strings and treated as symbol-equivalent identifiers by the receiving implementation. Both `str`- and `bin`-encoded `kwargs` keys are wire-legal (→ Wire Contract → Request Shape).
 
 ---
 
