@@ -329,15 +329,7 @@ unsafe extern "C" fn kobako_rpc_call(
         };
 
         // Decode positional args from the Array.
-        let args_len_val = sys::mrb_funcall(
-            mrb, args_ary, b"length\0".as_ptr() as *const core::ffi::c_char, 0
-        );
-        let args_len_str = sys::mrb_str_to_cstr(mrb,
-            sys::mrb_funcall(mrb, args_len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0)
-        );
-        let args_len: usize = if args_len_str.is_null() { 0 } else {
-            core::ffi::CStr::from_ptr(args_len_str).to_str().unwrap_or("0").parse().unwrap_or(0)
-        };
+        let args_len = mrb_collection_len(mrb, args_ary);
         let mut wire_args = Vec::with_capacity(args_len);
         for i in 0..args_len {
             let elem = sys::mrb_ary_entry(args_ary, i as i32);
@@ -353,23 +345,7 @@ unsafe extern "C" fn kobako_rpc_call(
                 core::ffi::CStr::from_ptr(kh_classname_ptr).to_str().unwrap_or("")
             };
             if kh_classname == "Hash" {
-                let keys_ary = sys::mrb_hash_keys(mrb, kwargs_hash);
-                let keys_len_val = sys::mrb_funcall(
-                    mrb, keys_ary, b"length\0".as_ptr() as *const core::ffi::c_char, 0
-                );
-                let keys_len_str = sys::mrb_str_to_cstr(mrb,
-                    sys::mrb_funcall(mrb, keys_len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0)
-                );
-                let keys_len: usize = if keys_len_str.is_null() { 0 } else {
-                    core::ffi::CStr::from_ptr(keys_len_str).to_str().unwrap_or("0").parse().unwrap_or(0)
-                };
-                for i in 0..keys_len {
-                    let key_val = sys::mrb_ary_entry(keys_ary, i as i32);
-                    let val = sys::mrb_hash_get(mrb, kwargs_hash, key_val);
-                    // Key should be a Symbol; convert to String.
-                    let key_str = mrb_sym_or_str_to_string(mrb, key_val);
-                    wire_kwargs.push((key_str, mrb_value_to_wire_value(mrb, val)));
-                }
+                decode_hash_kwargs(mrb, kwargs_hash, &mut wire_kwargs);
             }
         }
 
@@ -377,15 +353,7 @@ unsafe extern "C" fn kobako_rpc_call(
         match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
             Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
             Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                // Raise ServiceError with the exception message.
-                let kobako_mod = sys::mrb_define_module(
-                    mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char
-                );
-                let svc_err_cls = sys::mrb_class_get_under(
-                    mrb, kobako_mod, b"ServiceError\0".as_ptr() as *const core::ffi::c_char
-                );
-                let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-                sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
+                raise_service_error(mrb, &ex);
             }
             Err(_) => {
                 raise_wire_error(mrb, b"RPC wire error during invoke_rpc\0");
@@ -477,22 +445,7 @@ unsafe extern "C" fn rpc_method_missing(
             };
             // If the last argument is a Hash, treat it as kwargs.
             if classname == "Hash" && idx == rest.len() - 1 {
-                let keys_ary = sys::mrb_hash_keys(mrb, mrb_val);
-                let keys_len_val = sys::mrb_funcall(
-                    mrb, keys_ary, b"length\0".as_ptr() as *const core::ffi::c_char, 0
-                );
-                let keys_len_str = sys::mrb_str_to_cstr(mrb,
-                    sys::mrb_funcall(mrb, keys_len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0)
-                );
-                let keys_len: usize = if keys_len_str.is_null() { 0 } else {
-                    core::ffi::CStr::from_ptr(keys_len_str).to_str().unwrap_or("0").parse().unwrap_or(0)
-                };
-                for i in 0..keys_len {
-                    let key = sys::mrb_ary_entry(keys_ary, i as i32);
-                    let val = sys::mrb_hash_get(mrb, mrb_val, key);
-                    let key_str = mrb_sym_or_str_to_string(mrb, key);
-                    wire_kwargs.push((key_str, mrb_value_to_wire_value(mrb, val)));
-                }
+                decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
             } else {
                 wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
             }
@@ -503,14 +456,7 @@ unsafe extern "C" fn rpc_method_missing(
         match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
             Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
             Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                let kobako_mod = sys::mrb_define_module(
-                    mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char
-                );
-                let svc_err_cls = sys::mrb_class_get_under(
-                    mrb, kobako_mod, b"ServiceError\0".as_ptr() as *const core::ffi::c_char
-                );
-                let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-                sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
+                raise_service_error(mrb, &ex);
             }
             Err(_) => {
                 raise_wire_error(mrb, b"RPC wire error\0");
@@ -613,22 +559,7 @@ unsafe extern "C" fn handle_method_missing(
                 core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
             };
             if classname == "Hash" && idx == rest.len() - 1 {
-                let keys_ary = sys::mrb_hash_keys(mrb, mrb_val);
-                let keys_len_val = sys::mrb_funcall(
-                    mrb, keys_ary, b"length\0".as_ptr() as *const core::ffi::c_char, 0
-                );
-                let keys_len_str = sys::mrb_str_to_cstr(mrb,
-                    sys::mrb_funcall(mrb, keys_len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0)
-                );
-                let keys_len: usize = if keys_len_str.is_null() { 0 } else {
-                    core::ffi::CStr::from_ptr(keys_len_str).to_str().unwrap_or("0").parse().unwrap_or(0)
-                };
-                for i in 0..keys_len {
-                    let key = sys::mrb_ary_entry(keys_ary, i as i32);
-                    let val = sys::mrb_hash_get(mrb, mrb_val, key);
-                    let key_str = mrb_sym_or_str_to_string(mrb, key);
-                    wire_kwargs.push((key_str, mrb_value_to_wire_value(mrb, val)));
-                }
+                decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
             } else {
                 wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
             }
@@ -639,14 +570,7 @@ unsafe extern "C" fn handle_method_missing(
         match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
             Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
             Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                let kobako_mod = sys::mrb_define_module(
-                    mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char
-                );
-                let svc_err_cls = sys::mrb_class_get_under(
-                    mrb, kobako_mod, b"ServiceError\0".as_ptr() as *const core::ffi::c_char
-                );
-                let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-                sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
+                raise_service_error(mrb, &ex);
             }
             Err(_) => {
                 raise_wire_error(mrb, b"RPC wire error (Handle dispatch)\0");
@@ -855,6 +779,66 @@ unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value
     } else {
         core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string()
     }
+}
+
+/// Return the number of elements in an mruby Array or Hash by calling
+/// `.length` and parsing the result string. Used wherever a collection
+/// length is needed without a direct FFI binding for `mrb_ary_len`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn mrb_collection_len(mrb: *mut sys::mrb_state, col: sys::mrb_value) -> usize {
+    let len_val = sys::mrb_funcall(
+        mrb, col, b"length\0".as_ptr() as *const core::ffi::c_char, 0
+    );
+    let len_str = sys::mrb_str_to_cstr(
+        mrb,
+        sys::mrb_funcall(mrb, len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0),
+    );
+    if len_str.is_null() {
+        return 0;
+    }
+    core::ffi::CStr::from_ptr(len_str)
+        .to_str()
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0)
+}
+
+/// Decode every key/value pair from an mruby Hash into `out` as
+/// `(String, Value)` pairs. Keys are converted via `mrb_sym_or_str_to_string`;
+/// values via `mrb_value_to_wire_value`. Used at the three kwargs-decoding
+/// call sites in the RPC bridges.
+#[cfg(target_arch = "wasm32")]
+unsafe fn decode_hash_kwargs(
+    mrb: *mut sys::mrb_state,
+    hash: sys::mrb_value,
+    out: &mut Vec<(String, crate::codec::Value)>,
+) {
+    let keys_ary = sys::mrb_hash_keys(mrb, hash);
+    let keys_len = mrb_collection_len(mrb, keys_ary);
+    for i in 0..keys_len {
+        let key_val = sys::mrb_ary_entry(keys_ary, i as i32);
+        let val = sys::mrb_hash_get(mrb, hash, key_val);
+        let key_str = mrb_sym_or_str_to_string(mrb, key_val);
+        out.push((key_str, mrb_value_to_wire_value(mrb, val)));
+    }
+}
+
+/// Raise `Kobako::ServiceError` with the message from `ex`. Diverges
+/// (`-> !`) — `mrb_raise` does not return.
+#[cfg(target_arch = "wasm32")]
+unsafe fn raise_service_error(
+    mrb: *mut sys::mrb_state,
+    ex: &crate::rpc_client::ExceptionPayload,
+) -> ! {
+    let kobako_mod =
+        sys::mrb_define_module(mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char);
+    let svc_err_cls = sys::mrb_class_get_under(
+        mrb,
+        kobako_mod,
+        b"ServiceError\0".as_ptr() as *const core::ffi::c_char,
+    );
+    let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
+    sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
 }
 
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
