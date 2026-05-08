@@ -378,6 +378,68 @@ module Kobako
         assert_bytes expected, Exc.new(type: "runtime", message: "boom")
       end
 
+      # ---------- golden vectors: narrow zero-length tags (SPEC Wire Codec §Type Mapping) ----------
+      #
+      # Each empty container must encode to its narrowest possible tag — the
+      # single-byte "fix" form.  These vectors prevent silent drift toward a
+      # wider format (e.g. str8 for empty string) that would break the Rust
+      # guest codec's decoder expectations.
+
+      def test_golden_vector_empty_str
+        # "" -> fixstr len=0 -> 0xa0 (no payload bytes)
+        assert_bytes "a0", ""
+      end
+
+      def test_golden_vector_empty_bin
+        # "".b -> bin8 len=0 -> 0xc4 0x00
+        assert_bytes "c400", "".b
+      end
+
+      def test_golden_vector_empty_array
+        # [] -> fixarray len=0 -> 0x90
+        assert_bytes "90", []
+      end
+
+      def test_golden_vector_empty_map
+        # {} -> fixmap len=0 -> 0x80
+        assert_bytes "80", {}
+      end
+
+      # ---------- golden vectors: integer boundary tags (SPEC Wire Codec §Type Mapping) ----------
+      #
+      # These pin the exact tag byte at each encoding tier boundary so a
+      # future encoder change that silently promotes to a wider format is
+      # caught as a golden-vector mismatch.
+
+      def test_golden_vector_zero_positive_fixint
+        # 0 -> positive fixint -> 0x00
+        assert_bytes "00", 0
+      end
+
+      def test_golden_vector_max_positive_fixint
+        # 127 -> positive fixint -> 0x7f (last positive-fixint value)
+        assert_bytes "7f", 127
+      end
+
+      def test_golden_vector_min_negative_fixint
+        # -32 -> negative fixint -> 0xe0 (first negative-fixint value = 0b111_00000)
+        assert_bytes "e0", -32
+      end
+
+      # ---------- Handle ext wrong payload length (SPEC Wire Codec §Ext Types) ----------
+      #
+      # The factory's decode_handle validates that the ext 0x01 payload is
+      # exactly 4 bytes.  A fixext1 (0xd4 type=0x01, 1-byte payload) is a
+      # deliberate wire violation that must raise InvalidType, not silently
+      # decode as a Handle with a truncated id.
+
+      def test_handle_wrong_payload_length_on_wire_rejected
+        # fixext1: 0xd4  type=0x01  payload=0x01 (1 byte instead of 4)
+        bytes = "\xd4\x01\x01".b
+        err = assert_raises(InvalidType) { Decoder.new(bytes).read }
+        assert_match(/4 bytes/, err.message)
+      end
+
       # ---------- self-consistency: every type goes through one big fuzz-ish list ----------
 
       def test_combined_payload_roundtrip
