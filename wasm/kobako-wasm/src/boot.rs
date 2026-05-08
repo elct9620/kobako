@@ -857,6 +857,15 @@ unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value
     }
 }
 
+// mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
+// These bit-pattern values come from mruby.h and must not be changed without
+// verifying the mruby header for the targeted mruby version and build config.
+const MRB_QNIL: u32   = 0;   // mruby.h: MRB_Qnil  (MRB_WORDBOX, wasm32)
+const MRB_QTRUE: u32  = 12;  // mruby.h: MRB_Qtrue
+const MRB_QFALSE: u32 = 4;   // mruby.h: MRB_Qfalse
+// MRB_Qnil must be zero so that `mrb_value::zeroed()` produces a nil value.
+const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
+
 /// Construct an mruby `nil` value.
 ///
 /// In mruby's word-boxing ABI on wasm32, `mrb_value.w = 0` is nil
@@ -864,19 +873,19 @@ unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value
 /// `mrb_value::zeroed()` gives the right representation.
 #[cfg(target_arch = "wasm32")]
 fn mrb_nil_value() -> sys::mrb_value {
-    sys::mrb_value { w: 0 } // MRB_Qnil = 0
+    sys::mrb_value { w: MRB_QNIL } // MRB_Qnil = 0
 }
 
 /// Construct an mruby `true` value (MRB_Qtrue = 12).
 #[cfg(target_arch = "wasm32")]
 fn mrb_true_value() -> sys::mrb_value {
-    sys::mrb_value { w: 12 } // MRB_Qtrue = 12
+    sys::mrb_value { w: MRB_QTRUE } // MRB_Qtrue = 12
 }
 
 /// Construct an mruby `false` value (MRB_Qfalse = 4).
 #[cfg(target_arch = "wasm32")]
 fn mrb_false_value() -> sys::mrb_value {
-    sys::mrb_value { w: 4 } // MRB_Qfalse = 4
+    sys::mrb_value { w: MRB_QFALSE } // MRB_Qfalse = 4
 }
 
 // --------------------------------------------------------------------

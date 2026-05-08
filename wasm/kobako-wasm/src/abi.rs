@@ -374,6 +374,12 @@ end
             sys::mrb_load_nstring(mrb, frame2.as_ptr() as *const core::ffi::c_char, frame2.len())
         };
 
+        // Enforce the layout assumption: on wasm32, pointer size is 4 bytes.
+        const _: () = assert!(
+            core::mem::size_of::<usize>() == 4,
+            "mrb->exc offset assumes 4-byte pointers (wasm32 only)"
+        );
+
         // Read mrb->exc at offset 16 (wasm32 layout: 4 pointer fields × 4 bytes).
         // A non-null exc pointer means an exception occurred. The pointer value
         // is also the lower 32 bits of the mrb_value (MRB_WORDBOX_NO_INLINE_FLOAT
