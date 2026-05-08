@@ -309,6 +309,15 @@ end
 
         // --- Install Service Group modules + Member subclasses (Frame 1) ---
 
+        // Kobako module + RPC base class are installed by mrb_kobako_init above;
+        // look them up once here so each iteration can use rpc_class directly.
+        let kobako_mod = unsafe {
+            sys::mrb_define_module(mrb, b"Kobako\0".as_ptr() as *const core::ffi::c_char)
+        };
+        let rpc_class = unsafe {
+            sys::mrb_class_get_under(mrb, kobako_mod, b"RPC\0".as_ptr() as *const core::ffi::c_char)
+        };
+
         for (group_name, members) in &preamble {
             // NUL-terminate for the C API.
             let group_cstr = match std::ffi::CString::new(group_name.as_str()) {
@@ -324,12 +333,6 @@ end
 
             // Retrieve Kobako::RPC class pointer to use as the parent for
             // each Member subclass.
-            let kobako_mod = unsafe {
-                sys::mrb_define_module(mrb, b"Kobako\0".as_ptr() as *const core::ffi::c_char)
-            };
-            let rpc_class = unsafe {
-                sys::mrb_class_get_under(mrb, kobako_mod, b"RPC\0".as_ptr() as *const core::ffi::c_char)
-            };
 
             for member_name in members {
                 let member_cstr = match std::ffi::CString::new(member_name.as_str()) {
