@@ -74,7 +74,7 @@ module KobakoVendor
   # base URL (test fixture). The base URL must serve files named exactly
   # `WASI_SDK_TARBALL_NAME` and `MRUBY_TARBALL_NAME`.
   def self.base_url_for(default)
-    override = ENV["KOBAKO_VENDOR_BASE_URL"]
+    override = ENV.fetch("KOBAKO_VENDOR_BASE_URL", nil)
     return default if override.nil? || override.empty?
 
     override.chomp("/")

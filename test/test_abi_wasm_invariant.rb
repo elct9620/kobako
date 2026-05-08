@@ -68,9 +68,9 @@ class TestAbiWasmInvariant < Minitest::Test
                  "SPEC pins exactly 3 guest exports (kobako-namespaced); saw: #{exported_names.inspect}"
 
     expected_sigs = {
-      "__kobako_run"           => { params: [],          results: [] },
-      "__kobako_alloc"         => { params: [:i32],      results: [:i32] },
-      "__kobako_take_outcome"  => { params: [],          results: [:i64] },
+      "__kobako_run" => { params: [], results: [] },
+      "__kobako_alloc" => { params: [:i32], results: [:i32] },
+      "__kobako_take_outcome" => { params: [], results: [:i64] }
     }
 
     kobako_exports.each do |exp|
@@ -119,7 +119,7 @@ class TestAbiWasmInvariant < Minitest::Test
       when 1  then types          = parse_type_section(bytes, pos)
       when 2  then imports        = parse_import_section(bytes, pos)
       when 3  then func_type_indices = parse_function_section(bytes, pos)
-      when 7  then exports        = parse_export_section(bytes, pos)
+      when 7  then exports = parse_export_section(bytes, pos)
       end
 
       pos = section_end
@@ -146,6 +146,7 @@ class TestAbiWasmInvariant < Minitest::Test
   # Cursor wrapper so nested helpers can advance a shared position.
   class Cursor
     attr_accessor :pos
+
     def initialize(bytes, pos)
       @bytes = bytes
       @pos = pos
@@ -163,7 +164,8 @@ class TestAbiWasmInvariant < Minitest::Test
       loop do
         b = byte!
         result |= (b & 0x7f) << shift
-        break if (b & 0x80).zero?
+        break if b.nobits?(0x80)
+
         shift += 7
       end
       result
@@ -182,8 +184,9 @@ class TestAbiWasmInvariant < Minitest::Test
     count = cur.uleb128!
     Array.new(count) do
       raise "type form mismatch" unless cur.byte! == 0x60
+
       n_params = cur.uleb128!
-      params = Array.new(n_params)  { VAL_TYPES.fetch(cur.byte!) }
+      params = Array.new(n_params) { VAL_TYPES.fetch(cur.byte!) }
       n_results = cur.uleb128!
       results = Array.new(n_results) { VAL_TYPES.fetch(cur.byte!) }
       { params: params, results: results }
@@ -239,5 +242,4 @@ class TestAbiWasmInvariant < Minitest::Test
       { name: name, kind: kind, index: idx }
     end
   end
-
 end

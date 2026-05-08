@@ -65,9 +65,7 @@ module Kobako
     # @return [Array(Integer, Integer)] +(ptr, len)+
     # @raise [ArgumentError] if +packed+ is outside the u64 range
     def unpack_u64(packed)
-      unless packed.between?(0, (1 << 64) - 1)
-        raise ArgumentError, "packed out of u64 range: #{packed}"
-      end
+      raise ArgumentError, "packed out of u64 range: #{packed}" unless packed.between?(0, (1 << 64) - 1)
 
       [(packed >> 32) & U32_MASK, packed & U32_MASK]
     end

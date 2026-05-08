@@ -36,6 +36,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
 
   def self.ensure_oracle_built
     return @@build_status if @@build_status
+
     if `which cargo 2>/dev/null`.strip.empty?
       @@build_status = :no_cargo
       return @@build_status
@@ -85,7 +86,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
 
     hdr = @stdout.read(4) or flunk "oracle stdout closed; no header"
     hdr_word = hdr.unpack1("N")
-    is_error = (hdr_word & ERROR_FLAG) != 0
+    is_error = hdr_word.anybits?(ERROR_FLAG)
     len = hdr_word & 0x7fff_ffff
     body = len.zero? ? "".b : @stdout.read(len)
     flunk "oracle stdout truncated (expected #{len} bytes)" if body.nil? || body.bytesize != len

@@ -126,8 +126,8 @@ module KobakoWasm
       # honest without requiring another env-var pass.
       "CC_wasm32_wasip1" => clang,
       "AR_wasm32_wasip1" => llvm_ar,
-      "WASI_SDK_PATH"    => WASI_SDK_DIR,
-      "MRUBY_LIB_DIR"    => MRUBY_LIB_DIR
+      "WASI_SDK_PATH" => WASI_SDK_DIR,
+      "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
     }
   end
 end

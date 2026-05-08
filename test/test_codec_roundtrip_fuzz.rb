@@ -39,7 +39,6 @@
 
 require "minitest/autorun"
 require "open3"
-require "set"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/wire"
@@ -181,11 +180,9 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   def read_frame(io, iter, value)
     hdr = io.read(4)
-    if hdr.nil? || hdr.bytesize < 4
-      flunk fuzz_failure(iter, value, "oracle stdout closed unexpectedly (no header)")
-    end
+    flunk fuzz_failure(iter, value, "oracle stdout closed unexpectedly (no header)") if hdr.nil? || hdr.bytesize < 4
     word = hdr.unpack1("N")
-    is_error = (word & ERROR_FLAG) != 0
+    is_error = word.anybits?(ERROR_FLAG)
     len = word & ~ERROR_FLAG
     payload = len.zero? ? "".b : io.read(len)
     if payload.nil? || payload.bytesize < len
@@ -266,9 +263,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
   MAX_DEPTH = 4
 
   def generate_value(depth:)
-    if depth >= MAX_DEPTH
-      return generate_scalar
-    end
+    return generate_scalar if depth >= MAX_DEPTH
 
     # Bias toward scalars so tests don't blow up from runaway recursion;
     # containers still get plenty of coverage at depth 0/1/2.
@@ -290,7 +285,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
     when 3 then generate_float
     when 4, 5 then generate_string
     when 6 then generate_binary
-    else nil
     end
   end
 
@@ -377,9 +371,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
     # occasionally splice in a small UTF-8 token, then re-trim to the
     # requested length.
     s = String.new(encoding: Encoding::UTF_8)
-    while s.bytesize < byte_len
-      s << ASCII_PRINTABLE.sample(random: @rng).chr(Encoding::UTF_8)
-    end
+    s << ASCII_PRINTABLE.sample(random: @rng).chr(Encoding::UTF_8) while s.bytesize < byte_len
 
     # Multibyte sprinkle: 25% of the time, replace a tail slice with
     # multibyte chars (only when there's room).
@@ -389,9 +381,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
       # Replace the last `pick.bytesize` bytes with the multibyte char,
       # preserving the total byte length.
       cut = pick.bytesize
-      if s.bytesize > cut
-        s = s.byteslice(0, s.bytesize - cut).force_encoding(Encoding::UTF_8) + pick
-      end
+      s = s.byteslice(0, s.bytesize - cut).force_encoding(Encoding::UTF_8) + pick if s.bytesize > cut
     end
     s.force_encoding(Encoding::UTF_8)
   end
@@ -400,22 +390,20 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   def generate_binary
     pick = @rng.rand(20)
-    bytes =
-      if pick.zero?
-        @coverage[:bin_empty] += 1
-        "".b
-      elsif pick < 14
-        # bin 8: 1..255
-        len = @rng.rand(1..255)
-        @coverage[:bin_8] += 1
-        random_bytes(len)
-      else
-        # bin 16: 256..2048
-        len = @rng.rand(256..2048)
-        @coverage[:bin_16] += 1
-        random_bytes(len)
-      end
-    bytes
+    if pick.zero?
+      @coverage[:bin_empty] += 1
+      "".b
+    elsif pick < 14
+      # bin 8: 1..255
+      len = @rng.rand(1..255)
+      @coverage[:bin_8] += 1
+      random_bytes(len)
+    else
+      # bin 16: 256..2048
+      len = @rng.rand(256..2048)
+      @coverage[:bin_16] += 1
+      random_bytes(len)
+    end
   end
 
   def random_bytes(n)
@@ -457,9 +445,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
     h = {}
     # Use unique scalar keys to avoid accidental collisions that would
     # shrink the map and skew the boundary coverage.
-    while h.size < len
-      h[generate_map_key] = generate_value(depth: depth)
-    end
+    h[generate_map_key] = generate_value(depth: depth) while h.size < len
     @coverage[:nesting] += 1 if depth > 1
     h
   end

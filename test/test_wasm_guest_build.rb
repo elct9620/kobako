@@ -43,9 +43,9 @@ class TestWasmGuestBuild < Minitest::Test
     skip "set KOBAKO_E2E_BUILD=1 to enable the wasm:guest real-tier build" \
       unless ENV["KOBAKO_E2E_BUILD"] == "1"
     skip_unless_cargo
-    unless File.exist?(WASI_SDK) && File.exist?(MRUBY_DIR)
-      skip "vendored toolchain missing (run `rake vendor:setup` first to enable this test)"
-    end
+    return if File.exist?(WASI_SDK) && File.exist?(MRUBY_DIR)
+
+    skip "vendored toolchain missing (run `rake vendor:setup` first to enable this test)"
   end
 
   def test_wasm_guest_produces_valid_kobako_wasm

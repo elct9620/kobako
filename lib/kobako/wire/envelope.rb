@@ -295,9 +295,7 @@ module Kobako
         when STATUS_OK
           Response.new(status: STATUS_OK, payload: payload)
         when STATUS_ERROR
-          unless payload.is_a?(Exception)
-            raise InvalidType, "Response status=1 payload must be ext 0x02 Exception"
-          end
+          raise InvalidType, "Response status=1 payload must be ext 0x02 Exception" unless payload.is_a?(Exception)
 
           Response.new(status: STATUS_ERROR, payload: payload)
         else
@@ -354,7 +352,7 @@ module Kobako
         raise InvalidType, "Panic envelope missing 'message' (str)" unless message.is_a?(String)
 
         backtrace = map["backtrace"] || []
-        unless backtrace.is_a?(Array) && backtrace.all? { |line| line.is_a?(String) }
+        unless backtrace.is_a?(Array) && backtrace.all?(String)
           raise InvalidType, "Panic backtrace must be array of str"
         end
 

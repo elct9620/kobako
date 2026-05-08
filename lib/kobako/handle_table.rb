@@ -40,6 +40,10 @@ module Kobako
   # `Kobako::HandleTableExhausted` / `Kobako::SandboxError` as appropriate.
   class HandleTableError < StandardError; end
 
+  # Allocates and tracks opaque integer Handles for guest-side resources
+  # (sockets, files, queues) so the host can refer to them across the wire
+  # without exposing pointers. SPEC.md B-21 / "Wire Contract → Capability
+  # Handle". IDs are u31 (0..MAX_ID); 0 is reserved as the null sentinel.
   class HandleTable
     # Maximum valid Handle ID. Wire-format invariant: SPEC.md B-21 and
     # "Wire Contract → Capability Handle". 0x7fff_ffff == 2³¹ − 1.

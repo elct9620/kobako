@@ -118,7 +118,7 @@ module Kobako
       # SPEC B-21 + Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
       # 0x7fff_ffff is the maximum valid Handle ID.
       assert_equal 0x7fff_ffff, Table::MAX_ID
-      assert_equal 2**31 - 1, Table::MAX_ID
+      assert_equal (2**31) - 1, Table::MAX_ID
     end
 
     # ---------- Cross-run Handle invalidity (SPEC B-19) ----------

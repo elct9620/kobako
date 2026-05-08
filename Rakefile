@@ -21,6 +21,6 @@ end
 
 # Load tasks/*.rake (vendor toolchain, build pipeline). Each .rake file is
 # self-contained; see tasks/vendor.rake for the wasi-sdk / mruby fetch flow.
-Dir.glob("tasks/*.rake").sort.each { |t| load t }
+Dir.glob("tasks/*.rake").each { |t| load t }
 
 task default: %i[compile test rubocop]
