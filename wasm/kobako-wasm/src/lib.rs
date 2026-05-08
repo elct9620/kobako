@@ -23,6 +23,7 @@
 pub mod abi;
 pub mod codec;
 pub mod envelope;
+pub mod rpc_client;
 
 pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
 pub use codec::{Decoder, Encoder, Value, WireError};
@@ -30,4 +31,7 @@ pub use envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
     encode_panic, encode_request, encode_response, encode_result, EnvelopeError, Outcome, Panic,
     Request, Response, ResultEnv, Target, STATUS_ERROR, STATUS_OK,
+};
+pub use rpc_client::{
+    build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError, BOOT_SCRIPT,
 };
