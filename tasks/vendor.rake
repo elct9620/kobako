@@ -40,7 +40,7 @@ module KobakoVendor
   WASI_SDK_FULL_VERSION = "#{WASI_SDK_VERSION}.#{WASI_SDK_MINOR}".freeze
 
   # mruby: pinned release tarball.
-  MRUBY_VERSION = "3.3.0"
+  MRUBY_VERSION = "4.0.0"
 
   # ---- Platform detection (wasi-sdk only; mruby tarball is host-agnostic).
   WASI_SDK_PLATFORM =
@@ -55,7 +55,10 @@ module KobakoVendor
   WASI_SDK_TARBALL_NAME = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz".freeze
   WASI_SDK_UNPACKED_DIR = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}".freeze
 
-  MRUBY_TARBALL_NAME = "mruby-#{MRUBY_VERSION}.tar.gz".freeze
+  # GitHub archive tarballs for mruby are served at
+  # refs/tags/{VERSION}.tar.gz (no "mruby-" prefix in the URL filename).
+  # The extracted top-level directory inside the tarball is mruby-{VERSION}/.
+  MRUBY_TARBALL_NAME = "#{MRUBY_VERSION}.tar.gz".freeze
   MRUBY_UNPACKED_DIR = "mruby-#{MRUBY_VERSION}".freeze
 
   DEFAULT_WASI_SDK_BASE =

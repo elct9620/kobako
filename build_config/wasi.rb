@@ -23,8 +23,10 @@
 #
 # This file is `load`ed by mruby's minirake when the wrapping rake task
 # (tasks/mruby.rake) sets `MRUBY_CONFIG=$PWD/build_config/wasi.rb`. The
-# top-level `MRuby::Build.new("wasi") do |conf| ... end` block is the
-# documented entry point of the mruby build DSL.
+# top-level `MRuby::CrossBuild.new("wasi") do |conf| ... end` block is the
+# documented entry point of the mruby build DSL. CrossBuild (rather than
+# Build) is used because mruby 4.0 requires a host-side mrbc to compile the
+# mrblib; CrossBuild auto-creates a minimal host target for that purpose.
 
 # Resolve vendor toolchain paths relative to this file. mruby's build system
 # `instance_eval`s this file in the context of MRuby::RakeFile (which has no
@@ -74,7 +76,7 @@ unless defined?(KobakoBuildConfig)
   end
 end
 
-MRuby::Build.new("wasi") do |conf|
+MRuby::CrossBuild.new("wasi") do |conf|
   # ---- Toolchain (rule #2: CC / AR / LD all pinned to vendor/wasi-sdk) ---
   conf.toolchain :clang
 
