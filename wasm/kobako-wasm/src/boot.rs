@@ -297,17 +297,7 @@ unsafe extern "C" fn kobako_rpc_call(
             match classname {
                 "Kobako::Handle" => {
                     // Handle target: extract id from @__kobako_id__ ivar.
-                    let id_sym = sys::mrb_intern_cstr(
-                        mrb, HANDLE_ID_IVAR.as_ptr() as *const core::ffi::c_char
-                    );
-                    let id_val = sys::mrb_iv_get(mrb, target_val, id_sym);
-                    let id_str_val = sys::mrb_funcall(
-                        mrb, id_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-                    );
-                    let ptr = sys::mrb_str_to_cstr(mrb, id_str_val);
-                    let id: u32 = if ptr.is_null() { 0 } else {
-                        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("0").parse().unwrap_or(0)
-                    };
+                    let id = extract_handle_id(mrb, target_val);
                     Target::Handle(id)
                 }
                 _ => {
@@ -493,16 +483,7 @@ unsafe extern "C" fn handle_method_missing(
         );
 
         // Retrieve the Handle id from @__kobako_id__.
-        let id_sym = sys::mrb_intern_cstr(mrb, HANDLE_ID_IVAR.as_ptr() as *const core::ffi::c_char);
-        let id_val = sys::mrb_iv_get(mrb, self_, id_sym);
-        // Extract the integer id via to_s + parse.
-        let id_str_val = sys::mrb_funcall(
-            mrb, id_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-        );
-        let id_ptr = sys::mrb_str_to_cstr(mrb, id_str_val);
-        let handle_id: u32 = if id_ptr.is_null() { 0 } else {
-            core::ffi::CStr::from_ptr(id_ptr).to_str().unwrap_or("0").parse().unwrap_or(0)
-        };
+        let handle_id = extract_handle_id(mrb, self_);
 
         // Get the method name string from the symbol.
         let method_name_ptr = sys::mrb_sym_name(mrb, method_sym);
@@ -725,6 +706,23 @@ unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value
         String::new()
     } else {
         core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string()
+    }
+}
+
+/// Read the u32 id stored in a `Kobako::Handle` instance's `@__kobako_id__` ivar.
+///
+/// Returns 0 if the ivar is missing or its `.to_s` is non-numeric — the resolver
+/// downstream treats id 0 as undefined per SPEC §B-19.
+#[cfg(target_arch = "wasm32")]
+unsafe fn extract_handle_id(mrb: *mut sys::mrb_state, handle_val: sys::mrb_value) -> u32 {
+    let id_sym = sys::mrb_intern_cstr(mrb, HANDLE_ID_IVAR.as_ptr() as *const core::ffi::c_char);
+    let id_val = sys::mrb_iv_get(mrb, handle_val, id_sym);
+    let id_str_val = sys::mrb_funcall(mrb, id_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0);
+    let ptr = sys::mrb_str_to_cstr(mrb, id_str_val);
+    if ptr.is_null() {
+        0
+    } else {
+        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("0").parse().unwrap_or(0)
     }
 }
 
