@@ -1,11 +1,5 @@
 # SPEC.md — kobako
 
-> This document is the authoritative specification for the kobako gem.
-> It is written in progressive layers. This file currently contains the **Intent** and **Scope** layers.
-> Behavior and Refinement layers will be appended in subsequent cycles.
-
----
-
 ## Intent
 
 ### Purpose
@@ -224,8 +218,6 @@ A Host App developer is adding error handling to an existing kobako integration.
 
 **Outcome**
 The developer can route each failure class through the Host App's existing error-handling infrastructure without inspecting error messages. The three-class taxonomy gives the developer a reliable signal for triage: infrastructure fault (TrapError), authored-code fault (SandboxError), or downstream-service fault (ServiceError). This attribution is guaranteed by kobako regardless of what the guest script does.
-
-<!-- Behavior layer: append after Scope -->
 
 ---
 
@@ -544,8 +536,6 @@ Raised when the guest execution environment ran to completion, the mruby script 
 A Handle ID from run N presented as an RPC target in run N+1 produces `type="undefined"` because the Handle table is fully reset at the start of each `#run`; this reaches the host as `Kobako::ServiceError` if the script does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
 When a guest script wraps a Service call in `begin/rescue`, the RPC failure is handled within the script; no `ServiceError` reaches the host and `#run` returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the script.
-
-<!-- Refinement layer: append after Behavior -->
 
 ---
 
