@@ -383,9 +383,7 @@ unsafe extern "C" fn rpc_method_missing(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::codec::Value;
         use crate::envelope::Target;
-        use crate::rpc_client::invoke_rpc;
 
         // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
@@ -433,35 +431,10 @@ unsafe extern "C" fn rpc_method_missing(
             &[]
         };
 
-        let mut wire_args: Vec<Value> = Vec::new();
-        let mut wire_kwargs: Vec<(String, Value)> = Vec::new();
-
-        for (idx, &mrb_val) in rest.iter().enumerate() {
-            let classname_ptr = sys::mrb_obj_classname(mrb, mrb_val);
-            let classname = if classname_ptr.is_null() {
-                ""
-            } else {
-                core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-            };
-            // If the last argument is a Hash, treat it as kwargs.
-            if classname == "Hash" && idx == rest.len() - 1 {
-                decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
-            } else {
-                wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
-            }
-        }
-
+        let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
         let target = Target::Path(target_str.to_string());
 
-        match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
-            Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
-            Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                raise_service_error(mrb, &ex);
-            }
-            Err(_) => {
-                raise_wire_error(mrb, b"RPC wire error\0");
-            }
-        }
+        dispatch_invoke(mrb, target, method_name, &wire_args, &wire_kwargs, b"RPC wire error\0")
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -504,9 +477,7 @@ unsafe extern "C" fn handle_method_missing(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::codec::Value;
         use crate::envelope::Target;
-        use crate::rpc_client::invoke_rpc;
 
         // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
@@ -548,34 +519,10 @@ unsafe extern "C" fn handle_method_missing(
             &[]
         };
 
-        let mut wire_args: Vec<Value> = Vec::new();
-        let mut wire_kwargs: Vec<(String, Value)> = Vec::new();
-
-        for (idx, &mrb_val) in rest.iter().enumerate() {
-            let classname_ptr = sys::mrb_obj_classname(mrb, mrb_val);
-            let classname = if classname_ptr.is_null() {
-                ""
-            } else {
-                core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-            };
-            if classname == "Hash" && idx == rest.len() - 1 {
-                decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
-            } else {
-                wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
-            }
-        }
-
+        let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
         let target = Target::Handle(handle_id);
 
-        match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
-            Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
-            Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                raise_service_error(mrb, &ex);
-            }
-            Err(_) => {
-                raise_wire_error(mrb, b"RPC wire error (Handle dispatch)\0");
-            }
-        }
+        dispatch_invoke(mrb, target, method_name, &wire_args, &wire_kwargs, b"RPC wire error (Handle dispatch)\0")
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -820,6 +767,71 @@ unsafe fn decode_hash_kwargs(
         let val = sys::mrb_hash_get(mrb, hash, key_val);
         let key_str = mrb_sym_or_str_to_string(mrb, key_val);
         out.push((key_str, mrb_value_to_wire_value(mrb, val)));
+    }
+}
+
+/// Split a `rest` slice (from `mrb_get_args` `"n*"`) into positional wire args
+/// and keyword wire kwargs. The last element is absorbed into kwargs when it is
+/// a Hash; all other elements become positional args.
+///
+/// Extracted from the identical args/kwargs split loop shared by
+/// `rpc_method_missing` and `handle_method_missing`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn unpack_args_kwargs(
+    mrb: *mut sys::mrb_state,
+    rest: &[sys::mrb_value],
+) -> (Vec<crate::codec::Value>, Vec<(String, crate::codec::Value)>) {
+    let mut wire_args: Vec<crate::codec::Value> = Vec::new();
+    let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
+
+    for (idx, &mrb_val) in rest.iter().enumerate() {
+        let classname_ptr = sys::mrb_obj_classname(mrb, mrb_val);
+        let classname = if classname_ptr.is_null() {
+            ""
+        } else {
+            core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
+        };
+        // If the last argument is a Hash, treat it as kwargs.
+        if classname == "Hash" && idx == rest.len() - 1 {
+            decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
+        } else {
+            wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
+        }
+    }
+
+    (wire_args, wire_kwargs)
+}
+
+/// Invoke `invoke_rpc` and convert the result to an `mrb_value`.
+///
+/// On success, boxes the wire value back into the mruby VM.
+/// On `ServiceErr`, raises `Kobako::ServiceError` (diverges).
+/// On any other error, raises `Kobako::WireError` with `wire_err_msg` (diverges).
+///
+/// The `wire_err_msg` parameter is call-site-specific so that diagnostic
+/// strings remain distinct between `rpc_method_missing` and
+/// `handle_method_missing` (both callers preserve their original messages).
+///
+/// Extracted from the identical `invoke_rpc` match block shared by
+/// `rpc_method_missing` and `handle_method_missing`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn dispatch_invoke(
+    mrb: *mut sys::mrb_state,
+    target: crate::envelope::Target,
+    method_name: &str,
+    wire_args: &[crate::codec::Value],
+    wire_kwargs: &[(String, crate::codec::Value)],
+    wire_err_msg: &[u8],
+) -> sys::mrb_value {
+    use crate::rpc_client::invoke_rpc;
+    match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
+        Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
+        Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
+            raise_service_error(mrb, &ex);
+        }
+        Err(_) => {
+            raise_wire_error(mrb, wire_err_msg);
+        }
     }
 }
 
