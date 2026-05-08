@@ -104,20 +104,19 @@ class TestRpcDispatch < Minitest::Test
   end
 end
 
-# Unit-level coverage of the dispatcher itself, free of the wasm fixture —
+# Unit-level coverage of Registry#dispatch, free of the wasm fixture —
 # fast and deterministic, exercises the Registry/Wire integration directly.
-class TestRpcDispatcherUnit < Minitest::Test
+class TestRegistryDispatchUnit < Minitest::Test
   def setup
-    @registry = Kobako::Service::Registry.new
-    @handle_table = Kobako::HandleTable.new
-    @dispatcher = Kobako::RpcDispatcher.new(registry: @registry, handle_table: @handle_table)
+    @registry = Kobako::Registry.new
+    @handle_table = @registry.handle_table
   end
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
     @registry.define(:Logger).bind(:Echo, lambda(&:upcase))
     req = encode_request("Logger::Echo", "call", ["hi"], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "HI", resp.payload
@@ -134,7 +133,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Logger).bind(:Tag, klass.new)
     req = encode_request("Logger::Tag", "tag", ["x"], { "key" => "value" })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal [%w[x value]], capture
@@ -143,7 +142,7 @@ class TestRpcDispatcherUnit < Minitest::Test
   def test_unknown_target_returns_undefined_exception
     req = encode_request("Missing::Method", "call", ["x"], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -153,7 +152,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Boom).bind(:Bang, ->(_) { raise "boom" })
     req = encode_request("Boom::Bang", "call", ["x"], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "runtime", resp.payload.type
@@ -165,7 +164,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     # Missing argument — Ruby ArgumentError on dispatch.
     req = encode_request("Service::M", "call", [], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "argument", resp.payload.type
@@ -174,9 +173,8 @@ class TestRpcDispatcherUnit < Minitest::Test
   # ---------- E-15 — kwargs dispatch (Testing Layer 4) -------------------
 
   # SPEC E-15 (line 534) + Wire Contract Request kwargs (line 637) +
-  # str/bin Encoding Rules (line 768) + REFERENCE Ch.6 dispatch step 3
-  # (line 1162). The dispatcher symbolizes string keys before public_send
-  # to align with Ruby keyword-arg conventions.
+  # str/bin Encoding Rules (line 768). The dispatcher symbolizes string
+  # keys before public_send to align with Ruby keyword-arg conventions.
 
   # SPEC line 815: empty kwargs is encoded as empty map `0x80`, never
   # absent. Methods whose signature accepts no keyword arguments must
@@ -186,7 +184,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal 5, resp.payload
@@ -200,7 +198,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], { "extra" => 1 })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "argument", resp.payload.type
@@ -214,7 +212,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Hello).bind(:Greet, klass.new)
     req = encode_request("Hello::Greet", "greet", [], { "name" => "alice", "bogus" => "x" })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "argument", resp.payload.type
@@ -235,7 +233,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     # family payloads, which is the shape the dispatcher must accept.
     req = encode_request("Hello::Greet", "greet", [], { bin_key => "alice" })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "hi,alice", resp.payload
@@ -249,7 +247,7 @@ class TestRpcDispatcherUnit < Minitest::Test
       ["Logger::Echo", "call", [], { 42 => "v" }]
     )
 
-    resp = decode_response(@dispatcher.call(bad_request_bytes))
+    resp = decode_response(@registry.dispatch(bad_request_bytes))
 
     assert resp.err?
     assert_equal "runtime", resp.payload.type
@@ -265,7 +263,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:KV).bind(:Set, klass.new)
     req = encode_request("KV::Set", "set", ["k"], { "value" => "v" })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "k=v", resp.payload
@@ -286,7 +284,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:K).bind(:Cap, obj)
     req = encode_request("K::Cap", "capture", [], { "a" => 1, "b" => 2 })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "ok", resp.payload
@@ -306,7 +304,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Factory).bind(:Make, ->(name) { greeter.new(name) })
     req = encode_request("Factory::Make", "call", ["Alice"], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_kind_of Kobako::Wire::Handle, resp.payload
@@ -319,7 +317,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Logger).bind(:Echo, ->(arg) { arg })
     req = encode_request("Logger::Echo", "call", ["plain"], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "plain", resp.payload
@@ -340,7 +338,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
     req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id)], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "wrapped:hello,Alice", resp.payload
@@ -361,7 +359,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @registry.define(:K).bind(:Run, klass.new)
     req = encode_request("K::Run", "run", [], { "target" => Kobako::Wire::Handle.new(handle_id) })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "done", resp.payload
@@ -372,7 +370,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     req = encode_request("Logger::Echo", "call", [Kobako::Wire::Handle.new(999)], {})
     @registry.define(:Logger).bind(:Echo, ->(x) { x })
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -389,7 +387,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "find", [42], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_equal "row:42", resp.payload
@@ -407,7 +405,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     parent_id = @handle_table.alloc(factory)
     req = encode_request_with_target(Kobako::Wire::Handle.new(parent_id), "make", [], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
     assert_kind_of Kobako::Wire::Handle, resp.payload
@@ -418,7 +416,7 @@ class TestRpcDispatcherUnit < Minitest::Test
   def test_unknown_handle_target_returns_undefined_exception
     req = encode_request_with_target(Kobako::Wire::Handle.new(7), "any", [], {})
 
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -433,7 +431,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     @handle_table.reset!
 
     req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "tag", [], {})
-    resp = decode_response(@dispatcher.call(req))
+    resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -449,12 +447,10 @@ class TestRpcDispatcherUnit < Minitest::Test
   # two physically separate HandleTable instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
-    table_a = Kobako::HandleTable.new
-    table_b = Kobako::HandleTable.new
-    dispatcher_b = Kobako::RpcDispatcher.new(
-      registry: Kobako::Service::Registry.new,
-      handle_table: table_b
-    )
+    registry_a = Kobako::Registry.new
+    registry_b = Kobako::Registry.new
+    table_a = registry_a.handle_table
+    table_b = registry_b.handle_table
 
     obj = Object.new
     def obj.ping = "pong"
@@ -463,12 +459,12 @@ class TestRpcDispatcherUnit < Minitest::Test
     # Sanity: the integer id has meaning in A.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
 
-    # The integer id presented as a Handle target against B's dispatcher
+    # The integer id presented as a Handle target against B's registry
     # must NOT cross over: B's HandleTable does not contain that id.
     req = encode_request_with_target(
       Kobako::Wire::Handle.new(handle_id_in_a), "ping", [], {}
     )
-    resp = decode_response(dispatcher_b.call(req))
+    resp = decode_response(registry_b.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -479,17 +475,16 @@ class TestRpcDispatcherUnit < Minitest::Test
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Registry path resolves;
     # arg resolution fails when the id misses B's HandleTable.
-    table_a = Kobako::HandleTable.new
-    table_b = Kobako::HandleTable.new
-    registry_b = Kobako::Service::Registry.new
+    registry_a = Kobako::Registry.new
+    registry_b = Kobako::Registry.new
     registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
-    dispatcher_b = Kobako::RpcDispatcher.new(registry: registry_b, handle_table: table_b)
+    table_a = registry_a.handle_table
 
     obj = Object.new
     handle_id_in_a = table_a.alloc(obj)
 
     req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id_in_a)], {})
-    resp = decode_response(dispatcher_b.call(req))
+    resp = decode_response(registry_b.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
@@ -512,7 +507,7 @@ class TestRpcDispatcherUnit < Minitest::Test
   def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
     bad_request_bytes = Kobako::Wire::Encoder.encode([42, "call", ["x"], {}])
 
-    resp = decode_response(@dispatcher.call(bad_request_bytes))
+    resp = decode_response(@registry.dispatch(bad_request_bytes))
 
     assert resp.err?
     # Wire::Error rescues to type="runtime" with a "wire decode failed"
@@ -534,8 +529,8 @@ class TestRpcDispatcherUnit < Minitest::Test
     obj = Object.new
     @handle_table.alloc(obj) # id 1 — proves the table is not empty
 
-    error = assert_raises(Kobako::RpcDispatcher::UndefinedTargetError) do
-      @dispatcher.send(:resolve_target, 1)
+    error = assert_raises(Kobako::Registry::UndefinedTargetError) do
+      @registry.send(:resolve_target, 1)
     end
     assert_match(/unsupported target type Integer/, error.message)
   end
@@ -554,10 +549,14 @@ class TestRpcDispatcherUnit < Minitest::Test
     # Test seam: HandleTable.new(next_id:) lets us pin the counter at
     # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
     # HandleTable § "Build a fresh, empty HandleTable" — the parameter is
-    # explicitly intended for cap-exhaustion testing.
-    exhausted_table = Kobako::HandleTable.new(next_id: Kobako::HandleTable::MAX_ID + 1)
-    registry = Kobako::Service::Registry.new
-    dispatcher = Kobako::RpcDispatcher.new(registry: registry, handle_table: exhausted_table)
+    # explicitly intended for cap-exhaustion testing. We swap the
+    # registry's HandleTable via instance_variable_set since Registry
+    # constructs its own HandleTable in #initialize.
+    registry = Kobako::Registry.new
+    exhausted_table = Kobako::Registry::HandleTable.new(
+      next_id: Kobako::Registry::HandleTable::MAX_ID + 1
+    )
+    registry.instance_variable_set(:@handle_table, exhausted_table)
 
     factory = Class.new do
       # non-wire-representable -> wrap_return -> alloc
@@ -566,7 +565,7 @@ class TestRpcDispatcherUnit < Minitest::Test
     registry.define(:Factory).bind(:Make, factory)
 
     req = encode_request("Factory::Make", "make", [], {})
-    resp = decode_response(dispatcher.call(req))
+    resp = decode_response(registry.dispatch(req))
 
     assert resp.err?
     assert_equal "runtime", resp.payload.type
@@ -583,7 +582,9 @@ class TestRpcDispatcherUnit < Minitest::Test
     assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
 
-    table = Kobako::HandleTable.new(next_id: Kobako::HandleTable::MAX_ID + 1)
+    table = Kobako::Registry::HandleTable.new(
+      next_id: Kobako::Registry::HandleTable::MAX_ID + 1
+    )
     error = assert_raises(Kobako::SandboxError) do
       table.alloc(Object.new)
     end

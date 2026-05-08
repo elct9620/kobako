@@ -69,14 +69,21 @@ class TestSandboxErrorAttribution < Minitest::Test
   end
 end
 
-# OutcomeAttribution unit-level coverage for branches that don't need a
-# full wasm fixture: zero-length / unknown-tag / decode-failure paths.
-class TestOutcomeAttribution < Minitest::Test
+# Outcome-attribution unit coverage for branches that don't need a full
+# wasm fixture: zero-length / unknown-tag / decode-failure paths. The
+# decode logic lives as private methods on Kobako::Sandbox per SPEC.md
+# §Architecture; we exercise it via Sandbox.allocate + send to avoid
+# constructing a wasmtime pipeline for pure byte-decoding tests.
+class TestSandboxOutcomeDecoding < Minitest::Test
+  def decode(bytes)
+    Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
+  end
+
   def test_unknown_outcome_tag_raises_trap_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
     bytes << 0xff.chr(Encoding::ASCII_8BIT)
 
-    err = assert_raises(Kobako::TrapError) { Kobako::OutcomeAttribution.decode(bytes) }
+    err = assert_raises(Kobako::TrapError) { decode(bytes) }
     assert_match(/unknown outcome tag/, err.message)
   end
 
@@ -86,7 +93,7 @@ class TestOutcomeAttribution < Minitest::Test
     # Garbage payload that is not a valid 1-element msgpack array.
     bytes << "\xff\xff\xff".b
 
-    err = assert_raises(Kobako::SandboxError) { Kobako::OutcomeAttribution.decode(bytes) }
+    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
     assert_equal "Kobako::WireError", err.klass
     assert_equal "sandbox", err.origin
@@ -98,7 +105,7 @@ class TestOutcomeAttribution < Minitest::Test
     # Garbage payload that is not a valid panic-shaped msgpack map.
     bytes << "\xff\xff\xff".b
 
-    err = assert_raises(Kobako::SandboxError) { Kobako::OutcomeAttribution.decode(bytes) }
+    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
     assert_equal "Kobako::WireError", err.klass
   end
@@ -113,7 +120,7 @@ class TestOutcomeAttribution < Minitest::Test
     bytes << Kobako::Wire::Envelope::OUTCOME_TAG_PANIC.chr(Encoding::ASCII_8BIT)
     bytes << body
 
-    err = assert_raises(Kobako::ServiceError) { Kobako::OutcomeAttribution.decode(bytes) }
+    err = assert_raises(Kobako::ServiceError) { decode(bytes) }
     assert_equal "boom", err.message
     assert_equal "service", err.origin
   end
@@ -124,7 +131,7 @@ class TestOutcomeAttribution < Minitest::Test
     bytes << Kobako::Wire::Envelope::OUTCOME_TAG_RESULT.chr(Encoding::ASCII_8BIT)
     bytes << body
 
-    assert_equal 42, Kobako::OutcomeAttribution.decode(bytes)
+    assert_equal 42, decode(bytes)
   end
 end
 

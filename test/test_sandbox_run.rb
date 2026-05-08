@@ -51,11 +51,10 @@ class TestSandboxRun < Minitest::Test
   end
 
   def test_run_reuses_engine_module_store_instance_across_runs
-    # SPEC §B-03 / REFERENCE Ch.6 §Sandbox#run 實作要點: multi-run isolation
-    # happens within a single Sandbox lifetime. Engine / Module / Store /
-    # Instance are reused across runs (rebuilding them is a separate use
-    # case — sandbox discard, B-19). Only per-run state (HandleTable,
-    # capture buffers) is reset.
+    # SPEC §B-03: multi-run isolation happens within a single Sandbox
+    # lifetime. Engine / Module / Store / Instance are reused across runs
+    # (rebuilding them is a separate use case — sandbox discard, B-19).
+    # Only per-run state (HandleTable, capture buffers) is reset.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     sandbox.run("1")
@@ -125,7 +124,7 @@ class TestSandboxRun < Minitest::Test
   end
 
   def test_run_does_not_reset_service_registry_bindings_across_runs
-    # REFERENCE Ch.6 §Registry: Registry is sealed after first #run, but
+    # SPEC.md §Architecture: Registry is sealed after first #run, but
     # binding entries (host-side capability declarations) persist across
     # runs — they are not "per-run state" in the multi-run isolation
     # sense. Verify both seal and persistence.

@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
-# E2E + integration test for the pure-Ruby host HandleTable (SPEC item #13).
+# E2E + integration test for the pure-Ruby host HandleTable.
 #
 # Intentionally does NOT require "test_helper" — HandleTable is pure Ruby and
 # must be exercisable without the native extension being compiled. We require
-# lib/kobako/handle_table.rb directly.
+# lib/kobako/registry.rb directly (HandleTable is an internal class of
+# Kobako::Registry per SPEC.md §Architecture).
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
@@ -15,11 +16,11 @@
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/handle_table"
+require "kobako/registry"
 
 module Kobako
   class HandleTableTest < Minitest::Test
-    Table = Kobako::HandleTable
+    Table = Kobako::Registry::HandleTable
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 

@@ -65,12 +65,12 @@ pub struct HostState {
     /// Recorded `__kobako_rpc_call` invocations from the stub import.
     /// Each entry is (request_bytes_received, response_bytes_returned).
     pub rpc_calls: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Ruby-side RPC dispatcher (item #18). When set, the
-    /// `__kobako_rpc_call` import calls `dispatcher.call(req_bytes)` and
-    /// hands the returned Response bytes back to the guest. `Opaque<Value>`
-    /// is `Send + Sync`; calling `get_inner` requires a `Ruby` handle,
-    /// which we obtain on every Ruby thread entry via `Ruby::get()`.
-    pub dispatcher: Option<Opaque<Value>>,
+    /// Ruby-side `Kobako::Registry`. When set, the `__kobako_rpc_call`
+    /// import calls `registry.dispatch(req_bytes)` and hands the returned
+    /// Response bytes back to the guest. `Opaque<Value>` is `Send + Sync`;
+    /// calling `get_inner` requires a `Ruby` handle, which we obtain on
+    /// every Ruby thread entry via `Ruby::get()`.
+    pub registry: Option<Opaque<Value>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -202,17 +202,17 @@ impl Instance {
         // `__kobako_rpc_call` host import. Signature per SPEC § Wire ABI:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::RpcDispatcher` (set per-run via `set_rpc_dispatcher`),
-        // allocates a guest buffer through `__kobako_alloc`, writes the
-        // Response bytes there, and returns the packed `(ptr<<32)|len`.
-        // When no dispatcher is set (test scenarios that never RPC), the
-        // legacy recorder behaviour is preserved.
+        // `Kobako::Registry` (set per-run via `set_registry`), allocates a
+        // guest buffer through `__kobako_alloc`, writes the Response bytes
+        // there, and returns the packed `(ptr<<32)|len`. When no Registry
+        // is set (test scenarios that never RPC), the legacy recorder
+        // behaviour is preserved.
         linker
             .func_wrap(
                 "env",
                 "__kobako_rpc_call",
                 |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
-                    dispatch_rpc_call(&mut caller, req_ptr, req_len)
+                    dispatch_rpc(&mut caller, req_ptr, req_len)
                 },
             )
             .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
@@ -266,13 +266,13 @@ impl Instance {
         })
     }
 
-    /// Install the Ruby-side RPC dispatcher into HostState. Called by
-    /// `Kobako::Sandbox` after constructing the dispatcher; from this
-    /// point on, every `__kobako_rpc_call` import invocation routes
-    /// through `dispatcher.call(req_bytes)`.
-    fn set_rpc_dispatcher(&self, dispatcher: Value) -> Result<(), MagnusError> {
+    /// Install the Ruby-side `Kobako::Registry` into HostState. Called by
+    /// `Kobako::Sandbox` after constructing the Registry; from this point
+    /// on, every `__kobako_rpc_call` import invocation routes through
+    /// `registry.dispatch(req_bytes)`.
+    fn set_registry(&self, registry: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.0.borrow_mut();
-        store_ref.data_mut().dispatcher = Some(Opaque::from(dispatcher));
+        store_ref.data_mut().registry = Some(Opaque::from(registry));
         Ok(())
     }
 
@@ -509,29 +509,28 @@ fn wasi_stub(
 
 /// Drive a single `__kobako_rpc_call` invocation end-to-end.
 ///
-/// Steps (SPEC § B-12 / B-13, REFERENCE Ch.6 §wasmtime crate 最小 binding 範圍
-/// `Caller<'_, T>` row):
+/// Steps (SPEC § B-12 / B-13):
 ///
 ///   1. Read the Request bytes from guest linear memory.
-///   2. Hand them to the Ruby-side dispatcher and recover Response bytes.
+///   2. Hand them to the Ruby-side `Kobako::Registry` and recover Response bytes.
 ///   3. Allocate a guest buffer via `__kobako_alloc(len)` invoked through
 ///      `Caller::get_export`.
 ///   4. Write the Response bytes into the guest buffer.
 ///   5. Return packed `(ptr<<32)|len` for the guest to decode.
 ///
-/// Returns 0 when no dispatcher is bound (legacy recorder path) or when
+/// Returns 0 when no Registry is bound (legacy recorder path) or when
 /// any step fails — failures during dispatch surface as Response.err
-/// envelopes from the dispatcher itself, so a 0 return is reserved for
+/// envelopes from the Registry itself, so a 0 return is reserved for
 /// genuine wire-layer breakage and is mapped by the guest to a trap.
-fn dispatch_rpc_call(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
+fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
     let req_bytes = match read_memory(caller, req_ptr, req_len) {
         Some(b) => b,
         None => return 0,
     };
 
-    // No dispatcher bound — preserve the legacy recorder behaviour so the
-    // pre-#18 tests that exercise the import-table shape still pass.
-    let dispatcher = match caller.data().dispatcher {
+    // No Registry bound — preserve the legacy recorder behaviour so tests
+    // that exercise the import-table shape without a Registry still pass.
+    let registry = match caller.data().registry {
         Some(d) => d,
         None => {
             caller.data_mut().rpc_calls.push((req_bytes, Vec::new()));
@@ -539,7 +538,7 @@ fn dispatch_rpc_call(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
         }
     };
 
-    let resp_bytes = match invoke_dispatcher(dispatcher, &req_bytes) {
+    let resp_bytes = match invoke_registry(registry, &req_bytes) {
         Ok(b) => b,
         Err(_) => return 0,
     };
@@ -552,20 +551,20 @@ fn dispatch_rpc_call(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
     write_response(caller, &resp_bytes).unwrap_or(0)
 }
 
-/// Call the Ruby dispatcher's `#call(request_bytes)` method and return
-/// the encoded Response bytes. Errors here mean the dispatcher itself
-/// failed (it is contracted never to raise — see `Kobako::RpcDispatcher#call`),
+/// Call the Ruby Registry's `#dispatch(request_bytes)` method and return
+/// the encoded Response bytes. Errors here mean the Registry itself
+/// failed (it is contracted never to raise — see `Kobako::Registry#dispatch`),
 /// which we treat as a wire-layer fault.
-fn invoke_dispatcher(dispatcher: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
+fn invoke_registry(registry: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called
     // Sandbox#run — the invariant SPEC § Implementation Standards
     // §Architecture pins for the host gem — so `Ruby::get()` is always
     // available here. Panicking with `expect` localises the violation
     // rather than letting a nonsense error propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_rpc_call");
-    let dispatcher_value: Value = ruby.get_inner(dispatcher);
+    let registry_value: Value = ruby.get_inner(registry);
     let req_str = ruby.str_from_slice(req_bytes);
-    let resp: RString = dispatcher_value.funcall("call", (req_str,))?;
+    let resp: RString = registry_value.funcall("dispatch", (req_str,))?;
     // SAFETY: the returned RString is held by the Ruby VM for the duration of
     // this scope; copying its bytes into a Vec is a defensive standard pattern.
     let bytes = unsafe { resp.as_slice() }.to_vec();
@@ -642,7 +641,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     instance.define_method("read_memory", method!(Instance::read_memory, 2))?;
     instance.define_method("run", method!(Instance::run_call, 2))?;
     instance.define_method("take_outcome", method!(Instance::take_outcome, 0))?;
-    instance.define_method("set_rpc_dispatcher", method!(Instance::set_rpc_dispatcher, 1))?;
+    instance.define_method("set_registry", method!(Instance::set_registry, 1))?;
 
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Item #15: Kobako::Service::Registry + Kobako::Service::Group + bind/define API.
+# Kobako::Registry + Kobako::Registry::ServiceGroup + bind/define API.
 #
 # This is an integration-flavored Minitest covering SPEC §B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
@@ -17,14 +17,14 @@ class TestServiceRegistry < Minitest::Test
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
-  # B-07: define returns a Kobako::Service::Group; bind happy path resolves
-  # via the two-level path on the Sandbox-owned Registry.
+  # B-07: define returns a Kobako::Registry::ServiceGroup; bind happy path
+  # resolves via the two-level path on the Sandbox-owned Registry.
   def test_b07_define_returns_group_and_bind_resolves_member
     logger = Object.new
     def logger.info(msg) = "logged:#{msg}"
 
     group = @sandbox.define(:Logger)
-    assert_instance_of Kobako::Service::Group, group
+    assert_instance_of Kobako::Registry::ServiceGroup, group
 
     chain_target = group.bind(:Info, logger)
     assert_same group, chain_target, "bind must return self for chaining (B-08)"
@@ -163,7 +163,7 @@ class TestServiceRegistry < Minitest::Test
 
   # Sandbox#services replacement check — no longer the placeholder.
   def test_services_is_no_longer_placeholder
-    assert_instance_of Kobako::Service::Registry, @sandbox.services
+    assert_instance_of Kobako::Registry, @sandbox.services
     refute @sandbox.services.class.name.include?("Placeholder"),
            "ServicesPlaceholder must be gone after item #15"
   end
