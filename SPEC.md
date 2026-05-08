@@ -241,7 +241,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
 | **Operation** | `Kobako::Sandbox.new` — optionally with `stdout_limit:` and/or `stderr_limit:` keyword arguments (each defaults to 1 MiB). |
 | **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
-| **Notes** | `stdout_limit` and `stderr_limit` control the per-run capture ceiling (see B-04). Service declarations and bindings may be made on the Sandbox before or after construction and before the first `#run`. |
+| **Notes** | `stdout_limit` and `stderr_limit` control the per-run capture ceiling (see B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
 
 ---
 
@@ -251,7 +251,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
-| **Result / Final State** | The Guest Binary is booted from cold for this invocation. The script is compiled and executed within the isolated Wasm boundary. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. The Guest Binary instance used for this run is fully retired after the outcome is retrieved. |
+| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. The script is compiled and executed within the isolated Wasm boundary. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. |
 | **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
@@ -262,7 +262,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Service members bound before the first `#run` remain registered. |
 | **Operation** | `sandbox.run(script_string)` — any invocation after the first. |
-| **Result / Final State** | A fresh Guest Binary instance is booted for this invocation, independent of all prior instances. All capability state (HandleTable contents) from previous runs is fully discarded before the new run begins. Service bindings declared on the Sandbox before the first run remain active and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation. |
+| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior runs) from previous runs is fully discarded before the new run begins. All Service bindings registered on this Sandbox at any point remain active across runs and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation. |
 | **Notes** | A Handle issued during run N is not reachable during run N+1. This isolation guarantee is unconditional — it holds whether the previous run succeeded or raised an error. Service bindings are never cleared between runs; only capability state is reset. |
 
 ---
