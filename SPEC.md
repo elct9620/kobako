@@ -665,7 +665,7 @@ A **Capability Handle** is an opaque token the guest holds to reference a statef
 - **Host-allocated**: the wire layer on the host side allocates a Handle automatically whenever a Service method returns a stateful object. The Host App has no API to create or inspect Handles directly.
 - **Scoped to a single `#run`**: a Handle token issued during run N is invalid in run N+1. The HandleTable is fully reset at the start of every `#run`.
 - **Not constructible by the guest**: the guest mruby API does not expose a constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable.
-- **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound). The bound exists because mruby on wasm32 uses signed 32-bit integers; an ID above the cap would arrive as a negative integer at the guest, silently corrupting capability references.
+- **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound).
 
 Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in the Wire Codec section (the Wire Codec subsection).
 
