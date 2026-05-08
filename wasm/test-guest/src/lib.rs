@@ -105,6 +105,31 @@ fn build_outcome(source: &[u8]) -> Outcome {
         });
     }
 
+    // `panic:service` — emit a Panic envelope with origin="service" so the
+    // host's two-step error attribution maps the outcome to
+    // `Kobako::ServiceError`.
+    if text == "panic:service" {
+        return Outcome::Panic(Panic {
+            origin: "service".into(),
+            class: "Kobako::ServiceError".into(),
+            message: "service exploded".into(),
+            backtrace: vec!["test-guest:1".into()],
+            details: None,
+        });
+    }
+
+    // `trap` — execute the wasm `unreachable` instruction. Wasmtime sees a
+    // native trap and the host attributes the run to `Kobako::TrapError`
+    // (SPEC §"Step 1 — Wasm trap").
+    if text == "trap" {
+        #[cfg(target_arch = "wasm32")]
+        {
+            core::arch::wasm32::unreachable();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        unreachable!();
+    }
+
     // `rpc:Group::Member:method:argument` — exercise the host-side RPC
     // dispatch path (item #18). Build a Request envelope, hand it to
     // `__kobako_rpc_call`, decode the Response, and embed the outcome

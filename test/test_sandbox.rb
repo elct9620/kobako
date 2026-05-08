@@ -61,29 +61,35 @@ class TestSandbox < Minitest::Test
     assert_equal 0, b.handle_table.size, "alloc on one Sandbox must not leak to another"
   end
 
-  def test_output_buffer_enforces_limit_on_stdout
+  def test_output_buffer_truncates_with_marker_on_stdout
+    # SPEC §B-04: when an append would exceed the per-channel limit, the
+    # buffer keeps the leading bytes that fit and seals itself; subsequent
+    # reads see a `[truncated]` marker. Truncation does NOT raise.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stdout_limit: 8, stderr_limit: 8)
 
     sandbox.stdout_buffer << "1234567" # 7 bytes, under limit
     assert_equal 7, sandbox.stdout_buffer.bytesize
 
-    sandbox.stdout_buffer << "8" # at limit (8 bytes total)
+    sandbox.stdout_buffer << "89AB" # would exceed by 3 bytes
+    assert sandbox.stdout_buffer.truncated?, "buffer must seal once limit is hit"
     assert_equal 8, sandbox.stdout_buffer.bytesize
+    assert_equal "12345678[truncated]", sandbox.stdout_buffer.to_s
 
-    err = assert_raises(Kobako::Sandbox::OutputLimitExceeded) do
-      sandbox.stdout_buffer << "9"
-    end
-    assert_match(/output limit exceeded/, err.message)
-    assert_equal 8, sandbox.stdout_buffer.bytesize, "buffer must not grow on overflow"
+    # Subsequent appends are silently discarded once sealed.
+    sandbox.stdout_buffer << "more"
+    assert_equal 8, sandbox.stdout_buffer.bytesize
+    assert_equal "12345678[truncated]", sandbox.stdout_buffer.to_s
   end
 
-  def test_output_buffer_enforces_limit_on_stderr
+  def test_output_buffer_truncates_on_stderr_without_raising
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stderr_limit: 4)
 
     sandbox.stderr_buffer << "abcd"
-    assert_raises(Kobako::Sandbox::OutputLimitExceeded) do
-      sandbox.stderr_buffer << "e"
-    end
+    refute sandbox.stderr_buffer.truncated?
+
+    sandbox.stderr_buffer << "e"
+    assert sandbox.stderr_buffer.truncated?
+    assert_equal "abcd[truncated]", sandbox.stderr_buffer.to_s
   end
 
   def test_output_buffer_clear_resets_to_empty

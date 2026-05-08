@@ -111,7 +111,11 @@ module Kobako
       assert_equal Table::MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
-      assert_raises(Kobako::HandleTableError) { table.alloc(Object.new) }
+      # SPEC §"Error Class Hierarchy": cap-exhaustion raises the canonical
+      # HandleTableExhausted < HandleTableError < SandboxError chain.
+      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
+      assert_kind_of Kobako::HandleTableError, err
+      assert_kind_of Kobako::SandboxError, err
     end
 
     def test_max_id_constant_is_wire_invariant
@@ -172,9 +176,12 @@ module Kobako
 
     # ---------- Error class hierarchy sanity ----------
 
-    def test_handle_table_error_is_standard_error_subclass
-      # Placeholder until item #20 wires the error class hierarchy.
-      assert Kobako::HandleTableError < StandardError
+    def test_handle_table_error_is_sandbox_error_subclass
+      # SPEC §"Error Class Hierarchy" (Item #20):
+      #   HandleTableExhausted < HandleTableError < SandboxError < Error.
+      assert Kobako::HandleTableError < Kobako::SandboxError
+      assert Kobako::HandleTableExhausted < Kobako::HandleTableError
+      assert Kobako::HandleTableExhausted < Kobako::SandboxError
     end
   end
 end

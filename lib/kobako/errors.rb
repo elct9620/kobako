@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+# Top-level Kobako namespace.
 module Kobako
   # Three-class error taxonomy (SPEC.md → Error Scenarios).
   #
@@ -8,11 +9,22 @@ module Kobako
   # guest binary returns control to the host (SPEC §"Step 1 — Wasm trap"
   # then §"Step 2 — Outcome envelope tag").
   #
-  # Item #20 will flesh out the public surface of these classes
-  # (rich attributes — `class`, `origin`, `backtrace`, `details` — plus
-  # the canonical `Kobako::HandleTableExhausted < SandboxError` subclass).
-  # For #16 we only need them to (a) exist as distinct classes the Host
-  # App can rescue separately and (b) carry a message for debugging.
+  # Three top-level branches:
+  #
+  #   * {TrapError}     — Wasm engine layer (trap, OOM, unreachable, or a
+  #                       wire-violation fallback signalling a corrupted
+  #                       guest runtime).
+  #   * {SandboxError}  — sandbox / wire layer (mruby script error,
+  #                       wire-decode failure on an otherwise valid tag,
+  #                       HandleTable exhaustion, output buffer overrun).
+  #   * {ServiceError}  — service / capability layer (a Service RPC that
+  #                       failed and was not rescued inside the script).
+  #
+  # Subclasses pinned by SPEC §"Error Class Hierarchy":
+  #
+  #   * {HandleTableExhausted} < {SandboxError}    — id cap hit (B-21).
+  #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
+  #                       sentinel hit on the HandleTable (E-14).
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
@@ -20,12 +32,13 @@ module Kobako
 
   # Wasm engine layer. Raised when the Wasm execution engine crashed
   # (trap, OOM, unreachable) or when the wire layer detected a structural
-  # violation that signals a corrupted guest execution environment.
+  # violation that signals a corrupted guest execution environment
+  # (zero-length OUTCOME_BUFFER, unknown outcome tag — SPEC E-02 / E-03).
   class TrapError < Error; end
 
   # Sandbox / wire layer. Raised when the guest ran to completion but
-  # execution failed due to a mruby script error, protocol fault, or a
-  # host-side wire decode failure.
+  # execution failed due to a mruby script error, a protocol fault, or a
+  # host-side wire decode failure on an otherwise valid outcome tag.
   class SandboxError < Error
     attr_reader :origin, :klass, :backtrace_lines, :details
 
@@ -51,5 +64,25 @@ module Kobako
       @backtrace_lines = backtrace_lines
       @details = details
     end
+
+    # SPEC §"Error Class Hierarchy": ServiceError::Disconnected is raised
+    # when the RPC target Handle resolves to the `:disconnected` sentinel
+    # in the HandleTable (ABA protection rule — id exists but entry was
+    # invalidated). E-14.
+    class Disconnected < ServiceError; end
   end
+
+  # HandleTable lookup-failure error (unknown id passed to #fetch /
+  # #release). A SandboxError subclass: per the wire-layer rule, an
+  # unknown Handle id surfaces as a `type="undefined"` Response.err
+  # envelope inside RpcDispatcher and never reaches the Host App
+  # directly; outside that path (e.g. tests poking the HandleTable
+  # directly), it surfaces as a SandboxError.
+  class HandleTableError < SandboxError; end
+
+  # SPEC §"Error Class Hierarchy": HandleTableExhausted is the canonical
+  # SandboxError subclass for the id-cap-hit path (B-21). Inherits from
+  # HandleTableError so a single `rescue Kobako::HandleTableError` covers
+  # both lookup-failure and cap-exhaustion paths.
+  class HandleTableExhausted < HandleTableError; end
 end

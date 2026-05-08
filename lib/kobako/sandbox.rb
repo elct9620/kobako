@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "handle_table"
+require_relative "outcome_attribution"
 require_relative "rpc_dispatcher"
 require_relative "service"
 require_relative "wire/envelope"
@@ -25,27 +26,25 @@ module Kobako
   # Engine per Sandbox is fine for ad-hoc scripts and tests but wasteful in
   # a hot loop.
   #
-  # Buffer overflow policy (placeholder): per task #14 instructions the
-  # OutputBuffer raises `Kobako::Sandbox::OutputLimitExceeded` when an
-  # append would exceed the configured limit. SPEC §B-04 specifies that the
-  # final user-visible behavior is truncation with a `[truncated]` marker;
-  # the truncation policy will be applied at the capture boundary in item
-  # #16 (the run path) by catching this error and finalizing the buffer.
-  # Item #20 will rewire OutputLimitExceeded into the canonical
-  # `Kobako::SandboxError` hierarchy.
+  # Buffer overflow policy (SPEC §B-04): once an append would push the
+  # cumulative byte count past the per-channel `*_limit`, the OutputBuffer
+  # truncates — it stores a prefix that fits under the cap and appends a
+  # `[truncated]` marker on the next read. Truncation does NOT raise; B-04
+  # explicitly pins this as a non-error outcome. The marker becomes part
+  # of `#to_s` so the Host App sees the limit was hit without having to
+  # inspect the raised-error path.
   class Sandbox
     # Default per-channel capture ceiling: 1 MiB (SPEC §B-01 footnote).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
-    # Raised by OutputBuffer#<< when an append would exceed the buffer's
-    # configured limit. Placeholder — item #20 rewires raise sites into the
-    # canonical Kobako::SandboxError hierarchy.
-    class OutputLimitExceeded < StandardError; end
+    # Marker appended to a buffer that hit its capture limit (SPEC §B-04).
+    OUTPUT_TRUNCATION_MARKER = "[truncated]"
 
     # In-memory bounded byte buffer for one of the guest's output channels.
-    # Tracks accumulated bytes (binary-encoded), enforces a hard cap, and
-    # exposes #to_s / #clear for the host. `<<` raises OutputLimitExceeded
-    # when an append would push the byte count past the limit.
+    # Tracks accumulated bytes (binary-encoded) and enforces the per-channel
+    # cap by truncating-with-marker (SPEC §B-04). Once truncated, further
+    # appends are discarded silently — the marker is appended exactly once
+    # on the first overflow and the buffer is sealed.
     class OutputBuffer
       attr_reader :limit
 
@@ -54,20 +53,31 @@ module Kobako
 
         @limit = limit
         @bytes = String.new(encoding: Encoding::ASCII_8BIT)
+        @truncated = false
       end
 
-      # Append +bytes+ to the buffer. Raises OutputLimitExceeded if doing so
-      # would push the cumulative byte count above the limit; the buffer is
-      # left unchanged when this happens (atomic-on-error).
+      # Append +bytes+ to the buffer. If the append would push the
+      # cumulative byte count past the limit, the buffer keeps as many
+      # leading bytes as fit and seals itself; subsequent appends are
+      # discarded. The truncation marker is added at read time. SPEC §B-04
+      # — truncation is a non-error outcome.
       def <<(bytes)
-        appended = bytes.to_s.b
-        if @bytes.bytesize + appended.bytesize > @limit
-          raise OutputLimitExceeded,
-                "output limit exceeded: #{@bytes.bytesize + appended.bytesize} > #{@limit}"
-        end
+        return self if @truncated
 
-        @bytes << appended
+        appended = bytes.to_s.b
+        room = @limit - @bytes.bytesize
+        if appended.bytesize <= room
+          @bytes << appended
+        else
+          @bytes << appended.byteslice(0, room) if room.positive?
+          @truncated = true
+        end
         self
+      end
+
+      # @return [Boolean] whether the buffer was sealed by an overflow.
+      def truncated?
+        @truncated
       end
 
       # @return [Integer] number of bytes currently stored.
@@ -80,18 +90,22 @@ module Kobako
         @bytes.empty?
       end
 
-      # @return [String] accumulated bytes as a UTF-8 String. Bytes that are
-      #   not valid UTF-8 are returned with the original BINARY encoding —
-      #   the host is responsible for downstream re-encoding decisions.
+      # @return [String] accumulated bytes as a UTF-8 String, with the
+      #   `[truncated]` marker appended when the buffer overflowed (SPEC
+      #   §B-04). Bytes that are not valid UTF-8 (after the marker is
+      #   added) fall back to the original BINARY encoding — the host is
+      #   responsible for downstream re-encoding decisions.
       def to_s
         copy = @bytes.dup
+        copy << OUTPUT_TRUNCATION_MARKER.b if @truncated
         copy.force_encoding(Encoding::UTF_8)
-        copy.valid_encoding? ? copy : @bytes.dup
+        copy.valid_encoding? ? copy : copy.dup.force_encoding(Encoding::ASCII_8BIT)
       end
 
       # Reset the buffer to empty. Used at the per-`#run` boundary (item #16).
       def clear
         @bytes.clear
+        @truncated = false
         self
       end
     end
@@ -228,36 +242,11 @@ module Kobako
       [ptr, len]
     end
 
-    # Decode the OUTCOME envelope and dispatch on the tag (SPEC §"Step 2
-    # — Outcome envelope tag"). Result → return value; Panic → raise
-    # SandboxError or ServiceError; anything else → TrapError.
+    # Decode the OUTCOME envelope and dispatch per SPEC §"Step 2 —
+    # Outcome envelope tag". Delegates to {OutcomeAttribution.decode},
+    # which owns the full attribution table.
     def decode_outcome_value(bytes)
-      outcome = Kobako::Wire::Envelope.decode_outcome(bytes)
-      case outcome.payload
-      when Kobako::Wire::Envelope::Result
-        outcome.payload.value
-      when Kobako::Wire::Envelope::Panic
-        raise build_panic_error(outcome.payload)
-      end
-    rescue Kobako::Wire::Error => e
-      # Malformed envelope: per SPEC, an unknown outcome tag or a
-      # truncated payload is a wire-violation fallback to TrapError.
-      raise TrapError, "outcome envelope decode failed: #{e.message}"
-    end
-
-    # Map a decoded {Kobako::Wire::Envelope::Panic} into the
-    # corresponding three-layer Ruby exception. `origin == "service"`
-    # → ServiceError; everything else → SandboxError (SPEC §"Step 2"
-    # attribution table).
-    def build_panic_error(panic)
-      target_class = panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE ? ServiceError : SandboxError
-      target_class.new(
-        panic.message,
-        origin: panic.origin,
-        klass: panic.klass,
-        backtrace_lines: panic.backtrace,
-        details: panic.details
-      )
+      OutcomeAttribution.decode(bytes)
     end
 
     def build_wasm_pipeline(engine)

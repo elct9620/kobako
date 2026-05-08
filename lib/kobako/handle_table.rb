@@ -30,16 +30,16 @@
 # entries. Handle release is not driven by host-side Ruby GC. Lifecycle is
 # bound to the `#run` boundary via `#reset!`.
 #
-# Error class: a placeholder `Kobako::HandleTableError < StandardError` is
-# defined here. SPEC item #20 is responsible for wiring the canonical
-# `Kobako::SandboxError` / `Kobako::HandleTableExhausted` hierarchy; once
-# that lands, this file's raise sites should be rewired.
+# Error classes (canonical SPEC hierarchy, defined in `errors.rb`):
+#
+#   * {Kobako::HandleTableError} < {Kobako::SandboxError} — lookup miss
+#     (#fetch / #release of an unknown id).
+#   * {Kobako::HandleTableExhausted} < {Kobako::HandleTableError} — id
+#     counter would exceed `MAX_ID` on #alloc (B-21).
+
+require_relative "errors"
 
 module Kobako
-  # Placeholder error class. SPEC item #20 will replace raise sites with
-  # `Kobako::HandleTableExhausted` / `Kobako::SandboxError` as appropriate.
-  class HandleTableError < StandardError; end
-
   # Allocates and tracks opaque integer Handles for guest-side resources
   # (sockets, files, queues) so the host can refer to them across the wire
   # without exposing pointers. SPEC.md B-21 / "Wire Contract → Capability
@@ -64,15 +64,15 @@ module Kobako
     #
     # The counter is monotonic within a single run: each call returns
     # a strictly greater ID than the previous one (B-15). Allocation
-    # beyond MAX_ID raises HandleTableError without writing the entry
-    # or advancing the counter (B-21).
+    # beyond MAX_ID raises {Kobako::HandleTableExhausted} without writing
+    # the entry or advancing the counter (B-21).
     #
     # @param object [Object] host-side Ruby object to bind.
     # @return [Integer] freshly-allocated Handle ID in [1, MAX_ID].
-    # @raise [Kobako::HandleTableError] if the cap would be exceeded.
+    # @raise [Kobako::HandleTableExhausted] if the cap would be exceeded.
     def alloc(object)
       id = @next_id
-      raise HandleTableError, "HandleTable exhausted: id #{id} exceeds MAX_ID #{MAX_ID}" if id > MAX_ID
+      raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{MAX_ID}" if id > MAX_ID
 
       @entries[id] = object
       @next_id = id + 1
