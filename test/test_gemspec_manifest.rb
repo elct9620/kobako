@@ -41,17 +41,19 @@ class TestGemspecManifest < Minitest::Test
     .gitignore
     .rubocop.yml
     SPEC.md
-    Cargo.toml
-    Cargo.lock
   ].freeze
 
+  # Baseline `bundle gem --ext=rust` gemspec rejects the gemspec filename
+  # from spec.files (rubygems still ships it via metadata.gz), so it does
+  # not appear in the package's data tarball — and is not listed here.
   REQUIRED_FILES = %w[
     lib/kobako.rb
     lib/kobako/version.rb
     Rakefile
-    kobako.gemspec
     README.md
     LICENSE
+    Cargo.toml
+    Cargo.lock
   ].freeze
 
   REQUIRED_GLOBS = [
@@ -105,8 +107,7 @@ class TestGemspecManifest < Minitest::Test
   end
 
   def read_gem_manifest(gem_path)
-    files = []
-    Gem::Package.new(gem_path).contents.each { |f| files << f }
+    files = Gem::Package.new(gem_path).contents.map { |f| f }
     files.sort
   end
 

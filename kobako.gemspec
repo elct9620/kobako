@@ -21,21 +21,19 @@ Gem::Specification.new do |spec|
   spec.metadata["changelog_uri"] = "https://github.com/elct9620/kobako/blob/main/CHANGELOG.md"
   spec.metadata["bug_tracker_uri"] = "https://github.com/elct9620/kobako/issues"
 
-  # Explicit allowlist for files shipped in the published gem. Keep this in
-  # sync with SPEC.md "Code Organization" §gemspec files whitelist.
-  #
-  # Included: lib/, ext/kobako/ source, data/kobako.wasm, Rakefile, the
-  # gemspec itself, README.md, LICENSE, CHANGELOG.md.
-  #
-  # Excluded (must NOT ship): vendor/, wasm/, tasks/, build_config/, docs/,
-  # benchmark/, test/ (or spec/), bin/, .github/, .powerloop/, tmp/, Gemfile,
-  # .rubocop.yml, .gitignore, SPEC.md, Cargo.toml (workspace root).
-  spec.files = Dir.chdir(__dir__) do
-    Dir.glob("lib/**/*.rb") +
-      Dir.glob("ext/kobako/**/*.{rs,toml,rb,h}") +
-      %w[data/kobako.wasm Rakefile kobako.gemspec README.md LICENSE CHANGELOG.md]
-      .select { |f| File.exist?(f) }
+  # Specify which files should be added to the gem when it is released.
+  # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
+  # `data/kobako.wasm` is gitignored (built by `rake wasm:guest`) so it is
+  # appended explicitly when present.
+  gemspec = File.basename(__FILE__)
+  spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
+    ls.readlines("\x0", chomp: true).reject do |f|
+      (f == gemspec) ||
+        f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
+                          tasks/ build_config/ wasm/ docs/ benchmark/ .powerloop/ SPEC.md])
+    end
   end
+  spec.files += ["data/kobako.wasm"] if File.exist?(File.join(__dir__, "data/kobako.wasm"))
   spec.bindir = "exe"
   spec.executables = []
   spec.require_paths = ["lib"]
