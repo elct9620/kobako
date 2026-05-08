@@ -118,12 +118,32 @@ module Kobako
 
     # Invoke +method+ on +target+ with positional args and string-keyed
     # kwargs (symbolized at the boundary per SPEC B-12 Notes).
+    #
+    # SPEC Wire Codec → str/bin Encoding Rules: kwargs map keys may
+    # arrive as str (UTF-8) or bin (UTF-8 validated). bin-encoded keys
+    # land on the host as ASCII-8BIT-encoded String; we re-tag them as
+    # UTF-8 before symbolizing so the resulting Symbol matches the
+    # method's keyword parameter names regardless of msgpack family.
+    #
+    # Empty kwargs is wire-uniform (SPEC line 815: "empty kwargs is
+    # encoded as empty map `0x80`, never absent"). Methods whose
+    # signature accepts no keyword arguments must still dispatch when
+    # the wire carries an empty kwargs map; the empty-kwargs branch
+    # omits the `**` splat so Ruby 3.x's strict kwargs separation does
+    # not reject the call.
     def invoke(target, method, args, kwargs)
-      sym_kwargs = kwargs.transform_keys(&:to_sym)
+      sym_kwargs = symbolize_kwargs(kwargs)
       if sym_kwargs.empty?
         target.public_send(method.to_sym, *args)
       else
         target.public_send(method.to_sym, *args, **sym_kwargs)
+      end
+    end
+
+    def symbolize_kwargs(kwargs)
+      kwargs.each_with_object({}) do |(key, value), acc|
+        utf8_key = key.encoding == Encoding::UTF_8 ? key : key.dup.force_encoding(Encoding::UTF_8)
+        acc[utf8_key.to_sym] = value
       end
     end
 

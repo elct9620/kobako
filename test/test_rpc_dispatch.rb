@@ -171,6 +171,128 @@ class TestRpcDispatcherUnit < Minitest::Test
     assert_equal "argument", resp.payload.type
   end
 
+  # ---------- E-15 — kwargs dispatch (Testing Layer 4) -------------------
+
+  # SPEC E-15 (line 534) + Wire Contract Request kwargs (line 637) +
+  # str/bin Encoding Rules (line 768) + REFERENCE Ch.6 dispatch step 3
+  # (line 1162). The dispatcher symbolizes string keys before public_send
+  # to align with Ruby keyword-arg conventions.
+
+  # SPEC line 815: empty kwargs is encoded as empty map `0x80`, never
+  # absent. Methods whose signature accepts no keyword arguments must
+  # still dispatch successfully when the wire carries an empty kwargs
+  # map — the empty map is the wire-uniform shape for "no kwargs".
+  def test_empty_kwargs_dispatches_to_no_kwarg_method
+    @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
+    req = encode_request("Math::Add", "call", [2, 3], {})
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal 5, resp.payload
+  end
+
+  # SPEC E-15 explicit: "Passing keyword arguments to a method whose
+  # signature accepts no keyword arguments is treated as a parameter
+  # binding failure (type=\"argument\", E-15), not a Ruby runtime
+  # exception (E-11)."
+  def test_kwargs_to_no_kwarg_method_returns_argument_exception
+    @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
+    req = encode_request("Math::Add", "call", [2, 3], { "extra" => 1 })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "argument", resp.payload.type
+  end
+
+  # SPEC E-15 explicit example: "unknown keyword" → type="argument".
+  def test_unknown_keyword_returns_argument_exception
+    klass = Class.new do
+      define_method(:greet) { |name:| "hi,#{name}" }
+    end
+    @registry.define(:Hello).bind(:Greet, klass.new)
+    req = encode_request("Hello::Greet", "greet", [], { "name" => "alice", "bogus" => "x" })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.err?
+    assert_equal "argument", resp.payload.type
+  end
+
+  # SPEC line 768: kwargs map keys received as bin (ASCII-8BIT-encoded
+  # String on the host) are decoded as UTF-8 strings and treated as
+  # symbol-equivalent identifiers. The dispatcher must convert such
+  # keys to symbols whose name matches the method's keyword parameter.
+  def test_bin_encoded_kwargs_key_is_symbolized_for_dispatch
+    klass = Class.new do
+      define_method(:greet) { |name:| "hi,#{name}" }
+    end
+    @registry.define(:Hello).bind(:Greet, klass.new)
+    bin_key = "name".dup.force_encoding(Encoding::ASCII_8BIT)
+    # Construct a Request with a bin-encoded key bypassing the envelope's
+    # Hash typing — the wire decoder produces ASCII-8BIT strings for bin
+    # family payloads, which is the shape the dispatcher must accept.
+    req = encode_request("Hello::Greet", "greet", [], { bin_key => "alice" })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "hi,alice", resp.payload
+  end
+
+  # SPEC line 760: kwargs map keys are str or bin (UTF-8 validated).
+  # Non-string keys are a wire violation; the envelope decoder rejects
+  # them and the dispatcher surfaces a wire-decode error.
+  def test_non_string_kwargs_key_is_wire_violation
+    bad_request_bytes = Kobako::Wire::Encoder.encode(
+      ["Logger::Echo", "call", [], { 42 => "v" }]
+    )
+
+    resp = decode_response(@dispatcher.call(bad_request_bytes))
+
+    assert resp.err?
+    assert_equal "runtime", resp.payload.type
+    assert_match(/wire decode failed/, resp.payload.message)
+  end
+
+  # Mixed positional + kwargs: the dispatcher passes positional args
+  # first, then symbolized kwargs.
+  def test_mixed_positional_and_kwargs_dispatches_correctly
+    klass = Class.new do
+      define_method(:set) { |key, value:| "#{key}=#{value}" }
+    end
+    @registry.define(:KV).bind(:Set, klass.new)
+    req = encode_request("KV::Set", "set", ["k"], { "value" => "v" })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "k=v", resp.payload
+  end
+
+  # Method with **rest accepts any keys; the dispatcher symbolizes all
+  # keys before splatting.
+  def test_keyrest_method_accepts_arbitrary_kwargs
+    klass = Class.new do
+      attr_reader :captured
+
+      def capture(**opts)
+        @captured = opts
+        "ok"
+      end
+    end
+    obj = klass.new
+    @registry.define(:K).bind(:Cap, obj)
+    req = encode_request("K::Cap", "capture", [], { "a" => 1, "b" => 2 })
+
+    resp = decode_response(@dispatcher.call(req))
+
+    assert resp.ok?
+    assert_equal "ok", resp.payload
+    assert_equal({ a: 1, b: 2 }, obj.captured)
+  end
+
   # ---------- B-14 — host wraps stateful return values as Handles ----------
 
   # SPEC B-14: a Service method whose return value falls outside the wire
