@@ -28,6 +28,15 @@ license = "Apache-2.0"
 # `rlib` lets us run codec unit tests on the host target.
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# The default build emits the SPEC ABI exports (`__kobako_run`,
+# `__kobako_alloc`, `__kobako_take_outcome`). Downstream wasm crates that
+# want to reuse only the codec/envelope modules (e.g. `wasm/test-guest`)
+# disable this feature with `default-features = false`, so they can supply
+# their own export bodies without `#[no_mangle]` symbol collisions.
+default = ["abi-exports"]
+abi-exports = []
+
 [dependencies]
 # `rmp` is the low-level (no-serde) Pure Rust MessagePack codec. We use it
 # directly through `rmp::encode` / `rmp::decode` so the guest codec stays a

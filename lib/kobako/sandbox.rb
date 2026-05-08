@@ -2,6 +2,8 @@
 
 require_relative "handle_table"
 require_relative "service"
+require_relative "wire/envelope"
+require_relative "wire/error"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -132,14 +134,128 @@ module Kobako
       @services.define(name)
     end
 
-    # Execute a guest mruby script. Implemented in item #16; not yet wired.
-    def run(_script_string)
+    # Execute a guest mruby script (SPEC §B-02 / §B-03).
+    #
+    # Drives the four-step ABI flow against the cached Wasm instance:
+    #
+    #   1. Reset per-run state (HandleTable, capture buffers); seal the
+    #      Service Registry on first call (B-15, B-19, B-07 Notes).
+    #   2. Allocate guest linear memory for the source bytes via
+    #      `__kobako_alloc(len)`, then write the source bytes there.
+    #   3. Invoke `__kobako_run` (passing the source ptr/len when the
+    #      guest accepts that shape; the production Guest Binary takes
+    #      no args and reads source via WASI stdin — that path lands in
+    #      a later item).
+    #   4. Read OUTCOME_BUFFER via `__kobako_take_outcome` and decode the
+    #      envelope. Result envelope returns the wrapped value; Panic
+    #      envelope raises {Kobako::SandboxError} or
+    #      {Kobako::ServiceError} based on `origin`.
+    #
+    # @param source [String] mruby source code (UTF-8).
+    # @return [Object] the deserialized last expression of the script.
+    # @raise [Kobako::TrapError]    Wasm trap or wire-violation fallback.
+    # @raise [Kobako::SandboxError] guest ran to completion but the
+    #   execution failed (mruby error, decode failure, panic with
+    #   `origin: "sandbox"`).
+    # @raise [Kobako::ServiceError] guest ran a Service call that raised
+    #   and the script did not rescue (`origin: "service"`).
+    def run(source)
+      raise SandboxError, "source must be a String, got #{source.class}" unless source.is_a?(String)
+
       @services.seal!
-      raise NotImplementedError,
-            "Kobako::Sandbox#run is not yet implemented (implemented in item #16)"
+      reset_run_state!
+
+      ptr, len = inject_source(source)
+      invoke_guest_run(ptr, len)
+      outcome_bytes = read_outcome_bytes
+      decode_outcome_value(outcome_bytes)
     end
 
     private
+
+    # Per-run state reset (SPEC §B-03). Capture buffers and the
+    # HandleTable counter are zeroed before the guest runs.
+    def reset_run_state!
+      @handle_table.reset!
+      @stdout_buffer.clear
+      @stderr_buffer.clear
+    end
+
+    # Allocate a buffer in the guest and copy +source+ bytes into it.
+    # Returns the [ptr, len] pair so the Run import receives them. A
+    # ptr of 0 from the guest indicates an allocation trap.
+    def inject_source(source)
+      bytes = source.b
+      len = bytes.bytesize
+      ptr = @instance.alloc(len)
+      raise TrapError, "guest __kobako_alloc returned 0 (allocation failure)" if ptr.zero?
+
+      @instance.write_memory(ptr, bytes)
+      [ptr, len]
+    rescue Kobako::Wasm::Error => e
+      raise TrapError, "failed to inject source into guest: #{e.message}"
+    end
+
+    # Invoke `__kobako_run`. Wraps wasmtime / wire errors in TrapError
+    # so the Host App can recreate the Sandbox per SPEC §B-02 attribution
+    # rules.
+    def invoke_guest_run(ptr, len)
+      @instance.run(ptr, len)
+    rescue Kobako::Wasm::Error => e
+      raise TrapError, "guest __kobako_run trapped: #{e.message}"
+    end
+
+    # Pull the OUTCOME_BUFFER bytes out of guest memory. SPEC pins
+    # `len == 0` as a wire violation that surfaces as TrapError.
+    def read_outcome_bytes
+      packed = @instance.take_outcome
+      ptr, len = unpack_packed_u64(packed)
+      raise TrapError, "guest exited without writing an outcome (len=0)" if len.zero?
+
+      @instance.read_memory(ptr, len)
+    rescue Kobako::Wasm::Error => e
+      raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
+    end
+
+    # Big-endian unpack of the SPEC packed u64 layout: high 32 bits =
+    # ptr, low 32 bits = len.
+    def unpack_packed_u64(packed)
+      ptr = (packed >> 32) & 0xffff_ffff
+      len = packed & 0xffff_ffff
+      [ptr, len]
+    end
+
+    # Decode the OUTCOME envelope and dispatch on the tag (SPEC §"Step 2
+    # — Outcome envelope tag"). Result → return value; Panic → raise
+    # SandboxError or ServiceError; anything else → TrapError.
+    def decode_outcome_value(bytes)
+      outcome = Kobako::Wire::Envelope.decode_outcome(bytes)
+      case outcome.payload
+      when Kobako::Wire::Envelope::Result
+        outcome.payload.value
+      when Kobako::Wire::Envelope::Panic
+        raise build_panic_error(outcome.payload)
+      end
+    rescue Kobako::Wire::Error => e
+      # Malformed envelope: per SPEC, an unknown outcome tag or a
+      # truncated payload is a wire-violation fallback to TrapError.
+      raise TrapError, "outcome envelope decode failed: #{e.message}"
+    end
+
+    # Map a decoded {Kobako::Wire::Envelope::Panic} into the
+    # corresponding three-layer Ruby exception. `origin == "service"`
+    # → ServiceError; everything else → SandboxError (SPEC §"Step 2"
+    # attribution table).
+    def build_panic_error(panic)
+      target_class = panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE ? ServiceError : SandboxError
+      target_class.new(
+        panic.message,
+        origin: panic.origin,
+        klass: panic.klass,
+        backtrace_lines: panic.backtrace,
+        details: panic.details
+      )
+    end
 
     def build_wasm_pipeline(engine)
       @engine = engine || Kobako::Wasm::Engine.new

@@ -98,10 +98,20 @@ class TestSandbox < Minitest::Test
     assert_equal "", sandbox.stdout_buffer.to_s
   end
 
-  def test_run_raises_not_implemented_with_item_16_message
+  def test_run_against_minimal_fixture_raises_trap_error_when_alloc_missing
+    # The minimal.wasm fixture has none of the SPEC ABI exports, so the
+    # alloc step raises Kobako::Wasm::Error which `#run` re-wraps as a
+    # TrapError. Real fixture-based E2E coverage lives in
+    # test/test_sandbox_run.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    err = assert_raises(NotImplementedError) { sandbox.run("nil") }
-    assert_match(/item #16/, err.message)
+    err = assert_raises(Kobako::TrapError) { sandbox.run("nil") }
+    assert_match(/__kobako_alloc/, err.message)
+  end
+
+  def test_run_rejects_non_string_source
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    err = assert_raises(Kobako::SandboxError) { sandbox.run(nil) }
+    assert_match(/must be a String/, err.message)
   end
 
   def test_services_attribute_is_real_registry

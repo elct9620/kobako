@@ -49,6 +49,18 @@ module KobakoWasm
   DATA_DIR  = File.join(ROOT, "data").freeze
   DATA_WASM = File.join(DATA_DIR, "kobako.wasm").freeze
 
+  # Test fixture wasm — built from `wasm/test-guest/`, committed to the
+  # repo at TEST_GUEST_FIXTURE and refreshed via `rake fixtures:test_guest`.
+  # The fixture is a tiny wasm crate that exposes the SPEC ABI export
+  # names with stub bodies (no mruby), used by Sandbox#run E2E tests.
+  TEST_GUEST_DIR = File.join(ROOT, "wasm", "test-guest").freeze
+  TEST_GUEST_MANIFEST = File.join(TEST_GUEST_DIR, "Cargo.toml").freeze
+  TEST_GUEST_OUTPUT = File.join(
+    TEST_GUEST_DIR, "target", "wasm32-wasip1", "release", "test_guest.wasm"
+  ).freeze
+  FIXTURES_DIR = File.join(ROOT, "test", "fixtures").freeze
+  TEST_GUEST_FIXTURE = File.join(FIXTURES_DIR, "test-guest.wasm").freeze
+
   # Stage B output (set by tasks/mruby.rake → KobakoMruby::LIBMRUBY_PATH).
   # We avoid a require'd cross-task constant here so this file remains
   # loadable in isolation; the path is rebuilt from the same env-aware
@@ -196,5 +208,36 @@ namespace :wasm do
       puts "[wasm:guest:clean] removed #{KobakoWasm::DATA_WASM} and " \
            "#{KobakoWasm::CRATE_TARGET_DIR}"
     end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Test fixture wasm — used by host-side Sandbox#run E2E tests in Ruby.
+# ---------------------------------------------------------------------------
+#
+namespace :fixtures do
+  desc "Build the host-side Sandbox#run E2E test fixture (test/fixtures/test-guest.wasm)"
+  task :test_guest do
+    abort "cargo not on PATH" unless KobakoWasm.cargo_available?
+    abort "wasm32-wasip1 target not installed; run `rustup target add wasm32-wasip1`" \
+      unless KobakoWasm.wasm_target_or_host == KobakoWasm::WASM_TARGET
+
+    args = [
+      "cargo", "build",
+      "--manifest-path", KobakoWasm::TEST_GUEST_MANIFEST,
+      "--release",
+      "--target", KobakoWasm::WASM_TARGET
+    ]
+    puts "[fixtures:test_guest] ==> #{args.join(" ")}"
+    abort "[fixtures:test_guest] cargo build failed" unless system(*args)
+
+    unless File.exist?(KobakoWasm::TEST_GUEST_OUTPUT)
+      abort "[fixtures:test_guest] build succeeded but #{KobakoWasm::TEST_GUEST_OUTPUT} is missing"
+    end
+
+    FileUtils.mkdir_p(KobakoWasm::FIXTURES_DIR)
+    FileUtils.cp(KobakoWasm::TEST_GUEST_OUTPUT, KobakoWasm::TEST_GUEST_FIXTURE)
+    puts "[fixtures:test_guest] fixture refreshed at #{KobakoWasm::TEST_GUEST_FIXTURE} " \
+         "(#{File.size(KobakoWasm::TEST_GUEST_FIXTURE)} bytes)"
   end
 end

@@ -1,0 +1,47 @@
+# test-guest — minimal wasm fixture used by the host-side Sandbox#run E2E
+# tests in Ruby.
+#
+# This crate is NOT shipped in the gem and is NOT part of the production
+# Guest Binary (`kobako.wasm`). It exists so that the host-side run path
+# (item #16) can be exercised end-to-end against a real wasm module without
+# depending on the heavy mruby toolchain build (`KOBAKO_E2E_BUILD=1`).
+#
+# Behavioural contract — must match SPEC ABI Signatures shape (with one
+# deliberate signature deviation for #16: `__kobako_run` here takes
+# `(ptr, len) -> ()` so the host can pass the source bytes via linear
+# memory, deferring the real WASI-stdin frame mechanism to a later item):
+#
+#   - exports `__kobako_alloc(size: u32) -> u32` — bump allocator
+#   - exports `__kobako_run(ptr: u32, len: u32)` — parses passed bytes as
+#     a decimal integer, builds an Outcome (Result envelope) carrying that
+#     integer, stores it in a static OUTCOME_BUFFER. If the bytes spell
+#     `panic`, builds a Panic envelope instead so the host's panic-branch
+#     can be exercised.
+#   - exports `__kobako_take_outcome() -> u64` — returns packed (ptr, len)
+#     of the Outcome bytes.
+#   - imports `env::__kobako_rpc_call(req_ptr, req_len) -> u64` — declared
+#     so the import-table satisfies the host linker; never invoked here.
+#
+# Re-uses the production `kobako-wasm` crate's envelope encoder so the
+# fixture and the real guest agree on the wire format.
+
+[workspace]
+
+[package]
+name = "test-guest"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kobako-wasm = { path = "../kobako-wasm", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

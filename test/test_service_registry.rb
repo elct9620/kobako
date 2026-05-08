@@ -133,14 +133,14 @@ class TestServiceRegistry < Minitest::Test
   end
 
   # B-07 Notes: define after #run raises ArgumentError.
-  # (#run itself raises NotImplementedError until item #16, but seal! fires
-  # first; #run is one-shot from the registry's seal viewpoint.)
+  # The minimal.wasm fixture has no SPEC ABI exports, so #run trips on
+  # `__kobako_alloc` and raises Kobako::TrapError — but seal! has
+  # already fired by then, so the registry transitions to sealed and
+  # the post-run #define enforcement still applies.
   def test_b07_define_after_run_raises
     @sandbox.define(:Early).bind(:Member, :before_run)
 
-    # run currently raises NotImplementedError (item #16); seal! happens
-    # before the raise, so the registry transitions to sealed.
-    assert_raises(NotImplementedError) { @sandbox.run("nil") }
+    assert_raises(Kobako::TrapError) { @sandbox.run("nil") }
     assert @sandbox.services.sealed?
 
     err = assert_raises(ArgumentError) { @sandbox.define(:Late) }

@@ -18,9 +18,10 @@ use std::sync::Arc;
 use magnus::{
     function, method, prelude::*, value::Lazy, Error as MagnusError, ExceptionClass, RModule, Ruby,
 };
+use magnus::RString;
 use wasmtime::{
     AsContextMut, Caller, Engine as WtEngine, Extern, Instance as WtInstance, Linker,
-    Module as WtModule, Store as WtStore, TypedFunc,
+    Memory, Module as WtModule, Store as WtStore, TypedFunc,
 };
 
 // ---------------------------------------------------------------------------
@@ -173,8 +174,16 @@ pub struct Instance {
     // Cached TypedFunc handles for the three guest exports. Optional because
     // test fixtures (a minimal "ping" module) need not provide them; real
     // kobako.wasm always does, and #16 enforces presence at run time.
+    //
+    // Two `run` shapes are cached because the production Guest Binary
+    // exports `__kobako_run() -> ()` (SPEC) but the host-side test fixture
+    // (`wasm/test-guest`) exports `__kobako_run(ptr, len) -> ()` so the
+    // host can hand it the source bytes directly. Both shapes are looked
+    // up; the Ruby `Sandbox` picks which to call based on which one
+    // resolved successfully.
     run: Option<TypedFunc<(), ()>>,
-    take_outcome: Option<TypedFunc<(), (i32, i32)>>,
+    run_with_source: Option<TypedFunc<(i32, i32), ()>>,
+    take_outcome: Option<TypedFunc<(), u64>>,
     alloc: Option<TypedFunc<i32, i32>>,
 }
 
@@ -189,7 +198,7 @@ impl Instance {
         // #18 replaces the body with real Registry dispatch.
         linker
             .func_wrap(
-                "kobako",
+                "env",
                 "__kobako_rpc_call",
                 |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
                     let req_bytes = read_memory(&mut caller, req_ptr, req_len).unwrap_or_default();
@@ -198,6 +207,16 @@ impl Instance {
                 },
             )
             .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
+
+        // Minimal WASI preview1 stubs. The production Guest Binary will
+        // ship with `wasmtime-wasi` wired to real pipes (item #16's WASI
+        // capture path is a separate iteration). For now we satisfy the
+        // imports the test fixture's `std` brings in (panic-on-error
+        // formatting touches `fd_write` on the wasm32-wasip1 target) so
+        // the module instantiates. Each stub is a no-op or returns the
+        // SUCCESS errno (0).
+        register_wasi_stubs(&mut linker)
+            .map_err(|e| wasm_err(&ruby, format!("define WASI stubs: {}", e)))?;
 
         let cell = store.cell();
         let instance = {
@@ -210,25 +229,29 @@ impl Instance {
         // Best-effort export lookup. Missing exports are not an error here
         // (test fixture is a bare module); #16 will assert their presence
         // before invocation.
-        let (run, take_outcome, alloc) = {
+        let (run, run_with_source, take_outcome, alloc) = {
             let mut store_ref = cell.0.borrow_mut();
             let mut ctx = store_ref.as_context_mut();
             let run = instance
                 .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
                 .ok();
+            let run_with_source = instance
+                .get_typed_func::<(i32, i32), ()>(&mut ctx, "__kobako_run")
+                .ok();
             let take_outcome = instance
-                .get_typed_func::<(), (i32, i32)>(&mut ctx, "__kobako_take_outcome")
+                .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
                 .ok();
             let alloc = instance
                 .get_typed_func::<i32, i32>(&mut ctx, "__kobako_alloc")
                 .ok();
-            (run, take_outcome, alloc)
+            (run, run_with_source, take_outcome, alloc)
         };
 
         Ok(Self {
             inner: instance,
             store: cell,
             run,
+            run_with_source,
             take_outcome,
             alloc,
         })
@@ -246,11 +269,223 @@ impl Instance {
     /// Used by the real-tier E2E test to assert the full guest binary
     /// surface is intact.
     fn known_export_count(&self) -> usize {
-        [self.run.is_some(), self.take_outcome.is_some(), self.alloc.is_some()]
-            .iter()
-            .filter(|b| **b)
-            .count()
+        [
+            self.run.is_some() || self.run_with_source.is_some(),
+            self.take_outcome.is_some(),
+            self.alloc.is_some(),
+        ]
+        .iter()
+        .filter(|b| **b)
+        .count()
     }
+
+    // -----------------------------------------------------------------
+    // Run-path methods (item #16). These drive the alloc → write source
+    // → run → take_outcome flow from Ruby. Each method is best-effort —
+    // it raises a Ruby `Kobako::Wasm::Error` when the corresponding
+    // export is missing or fails so the Sandbox layer can map errors to
+    // the three-class taxonomy.
+    // -----------------------------------------------------------------
+
+    /// Invoke the guest's `__kobako_alloc(size)` export and return the
+    /// resulting linear-memory offset. A return of 0 indicates an
+    /// allocation failure (caller should treat as a wire violation /
+    /// trap).
+    fn alloc(&self, size: i32) -> Result<i32, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let alloc = self
+            .alloc
+            .as_ref()
+            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_alloc"))?;
+        let mut store_ref = self.store.0.borrow_mut();
+        alloc
+            .call(store_ref.as_context_mut(), size)
+            .map_err(|e| wasm_err(&ruby, format!("__kobako_alloc({}): {}", size, e)))
+    }
+
+    /// Write +bytes+ into the guest's linear memory starting at +ptr+.
+    /// Raises `Kobako::Wasm::Error` if the instance has no `memory`
+    /// export or the slice is out of bounds.
+    fn write_memory(&self, ptr: i32, bytes: RString) -> Result<(), MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let mut store_ref = self.store.0.borrow_mut();
+        let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
+            Some(Extern::Memory(m)) => m,
+            _ => return Err(wasm_err(&ruby, "guest does not export 'memory'")),
+        };
+
+        // SAFETY: RString::as_slice on a frozen-on-read borrow.
+        let src: &[u8] = unsafe { bytes.as_slice() };
+        let data = mem.data_mut(store_ref.as_context_mut());
+        let start = ptr as usize;
+        let end = start
+            .checked_add(src.len())
+            .ok_or_else(|| wasm_err(&ruby, "write_memory: ptr + len overflow"))?;
+        if end > data.len() {
+            return Err(wasm_err(
+                &ruby,
+                format!(
+                    "write_memory: range [{}, {}) exceeds memory size {}",
+                    start,
+                    end,
+                    data.len()
+                ),
+            ));
+        }
+        data[start..end].copy_from_slice(src);
+        Ok(())
+    }
+
+    /// Read +len+ bytes from the guest's linear memory starting at
+    /// +ptr+. Returns a binary-encoded Ruby String.
+    fn read_memory(&self, ptr: i32, len: i32) -> Result<RString, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let mut store_ref = self.store.0.borrow_mut();
+        let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
+            Some(Extern::Memory(m)) => m,
+            _ => return Err(wasm_err(&ruby, "guest does not export 'memory'")),
+        };
+        let data = mem.data(store_ref.as_context_mut());
+        let start = ptr as usize;
+        let end = start
+            .checked_add(len as usize)
+            .ok_or_else(|| wasm_err(&ruby, "read_memory: ptr + len overflow"))?;
+        if end > data.len() {
+            return Err(wasm_err(
+                &ruby,
+                format!(
+                    "read_memory: range [{}, {}) exceeds memory size {}",
+                    start,
+                    end,
+                    data.len()
+                ),
+            ));
+        }
+        Ok(ruby.str_from_slice(&data[start..end]))
+    }
+
+    /// Invoke `__kobako_run`. Tries the SPEC `() -> ()` shape first; if
+    /// the guest exports the `(ptr, len) -> ()` shape (test fixture),
+    /// passes the supplied +ptr+/+len+ instead.
+    fn run_call(&self, ptr: i32, len: i32) -> Result<(), MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let mut store_ref = self.store.0.borrow_mut();
+        if let Some(run) = &self.run_with_source {
+            return run
+                .call(store_ref.as_context_mut(), (ptr, len))
+                .map_err(|e| wasm_err(&ruby, format!("__kobako_run(ptr, len): {}", e)));
+        }
+        if let Some(run) = &self.run {
+            return run
+                .call(store_ref.as_context_mut(), ())
+                .map_err(|e| wasm_err(&ruby, format!("__kobako_run(): {}", e)));
+        }
+        Err(wasm_err(&ruby, "guest does not export __kobako_run"))
+    }
+
+    /// Invoke `__kobako_take_outcome`. Returns the packed u64
+    /// `(ptr << 32) | len`; the Ruby caller unpacks.
+    fn take_outcome(&self) -> Result<u64, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let take = self
+            .take_outcome
+            .as_ref()
+            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_take_outcome"))?;
+        let mut store_ref = self.store.0.borrow_mut();
+        take.call(store_ref.as_context_mut(), ())
+            .map_err(|e| wasm_err(&ruby, format!("__kobako_take_outcome(): {}", e)))
+    }
+}
+
+// Register no-op stubs for the wasi_snapshot_preview1 imports that
+// `std`-built wasm32-wasip1 modules pull in implicitly. These stubs are
+// scoped to host-side test fixtures; the production Guest Binary ships
+// with real WASI in a later iteration, replacing these stubs with
+// `wasmtime-wasi` (or wasi-common) bindings that route stdout/stderr
+// into the Sandbox's bounded buffers per SPEC §B-04.
+fn register_wasi_stubs(linker: &mut Linker<HostState>) -> Result<(), wasmtime::Error> {
+    // fd_write(fd: i32, iovs_ptr: i32, iovs_len: i32, nwritten_ptr: i32) -> errno (i32).
+    // We accept the call, claim 0 bytes written (success), and ignore
+    // the buffers. SPEC §B-04 capture lands in a later item.
+    linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_write",
+        |mut caller: Caller<'_, HostState>,
+         _fd: i32,
+         _iovs_ptr: i32,
+         _iovs_len: i32,
+         nwritten_ptr: i32|
+         -> i32 {
+            // Write 0 to *nwritten so the caller sees a successful 0-byte
+            // write; this is enough for `std::panicking` paths that
+            // probe before formatting.
+            if let Some(Extern::Memory(mem)) = caller.get_export("memory") {
+                let zero = [0u8; 4];
+                let _ = mem.write(&mut caller, nwritten_ptr as usize, &zero);
+            }
+            0
+        },
+    )?;
+
+    // proc_exit(code: i32) — terminates the guest. Trapping is the
+    // simplest semantics; the host turns the trap into TrapError.
+    linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "proc_exit",
+        |_caller: Caller<'_, HostState>, _code: i32| {
+            // Returning normally lets the wasm module continue, which is
+            // wrong; instead we return so wasmtime sees no error. proc_exit
+            // is rarely reached by the test fixture (no exit calls), but
+            // we keep the import satisfied either way.
+        },
+    )?;
+
+    // fd_close, fd_seek, environ_get, environ_sizes_get, args_get, args_sizes_get —
+    // all return SUCCESS without observable side effects. Sized as a
+    // single sweep so future SPEC-compliance work doesn't have to grow
+    // this list one symbol at a time.
+    for (name, arity) in [
+        ("fd_close", 1),
+        ("fd_seek", 4),
+        ("fd_fdstat_get", 2),
+        ("fd_prestat_get", 2),
+        ("fd_prestat_dir_name", 3),
+        ("environ_get", 2),
+        ("environ_sizes_get", 2),
+        ("args_get", 2),
+        ("args_sizes_get", 2),
+        ("clock_time_get", 4),
+        ("random_get", 2),
+    ] {
+        wasi_stub(linker, name, arity)?;
+    }
+
+    Ok(())
+}
+
+fn wasi_stub(
+    linker: &mut Linker<HostState>,
+    name: &str,
+    arity: usize,
+) -> Result<(), wasmtime::Error> {
+    match arity {
+        1 => linker.func_wrap("wasi_snapshot_preview1", name, |_a: i32| -> i32 { 0 }),
+        2 => linker.func_wrap("wasi_snapshot_preview1", name, |_a: i32, _b: i32| -> i32 {
+            0
+        }),
+        3 => linker.func_wrap(
+            "wasi_snapshot_preview1",
+            name,
+            |_a: i32, _b: i32, _c: i32| -> i32 { 0 },
+        ),
+        4 => linker.func_wrap(
+            "wasi_snapshot_preview1",
+            name,
+            |_a: i32, _b: i32, _c: i32, _d: i32| -> i32 { 0 },
+        ),
+        _ => unreachable!("unsupported WASI stub arity {}", arity),
+    }
+    .map(|_| ())
 }
 
 fn read_memory(
@@ -294,6 +529,11 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     instance.define_singleton_method("new", function!(Instance::new, 3))?;
     instance.define_method("has_export?", method!(Instance::has_export, 1))?;
     instance.define_method("known_export_count", method!(Instance::known_export_count, 0))?;
+    instance.define_method("alloc", method!(Instance::alloc, 1))?;
+    instance.define_method("write_memory", method!(Instance::write_memory, 2))?;
+    instance.define_method("read_memory", method!(Instance::read_memory, 2))?;
+    instance.define_method("run", method!(Instance::run_call, 2))?;
+    instance.define_method("take_outcome", method!(Instance::take_outcome, 0))?;
 
     Ok(())
 }

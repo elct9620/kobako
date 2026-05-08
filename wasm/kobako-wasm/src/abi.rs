@@ -57,7 +57,11 @@ pub const EXPORT_NAMES: [&str; 3] = [
 // Signature: `(req_ptr: i32, req_len: i32) -> i64` per SPEC ABI Signatures.
 // We only declare the import on the wasm32 target — on the host target
 // (where rlib codec tests run) there is no host to provide the symbol.
-#[cfg(target_arch = "wasm32")]
+// The import is also gated on the `abi-exports` feature so downstream
+// wasm crates that reuse only the codec/envelope modules (e.g.
+// `wasm/test-guest`) can declare their own copy of the import without
+// duplicate-symbol errors at link time.
+#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 #[link(wasm_import_module = "env")]
 extern "C" {
     /// Host-provided RPC bridge. Guest writes a Request payload at
@@ -84,6 +88,7 @@ extern "C" {
 /// invariant guard parses imports/exports from the wasm binary; an unused
 /// import would be dead-code-stripped). Item #10 will replace this with
 /// the real call site.
+#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_run() {
     #[cfg(target_arch = "wasm32")]
@@ -97,7 +102,7 @@ pub extern "C" fn __kobako_run() {
     unimplemented!("__kobako_run body lands with item #10 (boot script)")
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 static KEEP_ALIVE: bool = false;
 
 /// Guest allocator — hands out a `size`-byte buffer in wasm linear memory
@@ -105,6 +110,7 @@ static KEEP_ALIVE: bool = false;
 /// 0 as a trap signal). Signature: `(size: i32) -> i32`.
 ///
 /// Stub: real implementation arrives with item #11 (allocator).
+#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_alloc(_size: u32) -> u32 {
     unimplemented!("__kobako_alloc body lands with item #11 (allocator)")
@@ -116,6 +122,7 @@ pub extern "C" fn __kobako_alloc(_size: u32) -> u32 {
 ///
 /// Stub: real implementation arrives with item #10 (boot script populates
 /// OUTCOME_BUFFER; this export hands its ptr/len back to the host).
+#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_take_outcome() -> u64 {
     unimplemented!("__kobako_take_outcome body lands with item #10 (boot script)")
