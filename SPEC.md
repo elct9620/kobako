@@ -948,3 +948,117 @@ The following principles govern how all names in this specification and in the `
 | N-5 | Internal Rust crates are named with a hyphen prefix matching the gem: `kobako-wasm` (Guest Binary crate), `kobako-ext` (native extension crate) | `Cargo.toml` package names; not exposed to Ruby |
 | N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface | All layers of this specification |
 | N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |
+
+---
+
+### Implementation Standards
+
+#### Architecture
+
+The kobako codebase is split into two top-level source areas with a strict boundary between them:
+
+- **`lib/`** — the Host Gem Ruby surface. Contains `kobako.rb` (the main entry point that loads the native extension and defines the public API) and `lib/kobako/` sub-modules (error class definitions, wire helpers). This is the only layer the Host App interacts with directly.
+- **`ext/kobako/`** — the private native extension (`kobako-ext` Rust crate). Wraps wasmtime, owns the Wasm engine lifecycle, and implements the host-side import function `__kobako_rpc_call`. This is a private implementation detail of the Host Gem; it is never intended as a reusable wasmtime binding and exposes no Wasm engine types to the Host App or downstream gems.
+- **`wasm/`** — the Guest Binary source (`kobako-wasm` Rust crate, target `wasm32-wasip1`). This is build-time only; it is compiled to `data/kobako.wasm` and excluded from the published gem alongside build tools (`vendor/`, `tasks/`, `build_config/`).
+- **`data/kobako.wasm`** — the pre-built Guest Binary artifact. Produced at release time on the publisher's machine and shipped inside the gem. End users receive this file at install time; they never need to recompile the Wasm side.
+
+The boundary rule is: **`ext/` is private to the Host Gem and must never be imported by downstream gems**; `lib/` is the stable public surface. The host-side build (`ext/`) and the guest-side build (`wasm/`) maintain independent Cargo workspaces and separate lock graphs. The root `Cargo.toml` contains only `ext/kobako` in `members` and excludes `wasm/` and `vendor/` — this isolation prevents host-only crates (e.g., `wasmtime`) from appearing in the wasm32 dependency graph.
+
+#### Design Patterns
+
+The following patterns are enforced project-wide and apply at every layer:
+
+- **Wire is a release-internal contract.** The Wire Spec couples the Host Gem and Guest Binary at the gem release boundary. No version negotiation field is present on the wire; both sides always speak the single version shipped in the same gem release. One-sided wire evolution is not permitted.
+- **Round-trip fuzz is the consistency guarantee.** Because the host-side (Ruby) and guest-side (Rust/mruby) codec implementations are independent, correctness is established by bidirectional round-trip fuzz covering all 11 wire types and both ext types. There is no shared codec source code.
+- **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
+- **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
+- **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
+- **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, wire spec field, HandleTable guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
+
+##### Invariants
+
+The following invariants hold across every layer of the system. Each is a hard rule; no layer may violate them.
+
+| Invariant | Applies to |
+|-----------|-----------|
+| The terms `Service Group` and `Service Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers |
+| Wire `target` for Service calls uses the Ruby constant-path form `"Group::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations |
+| Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling |
+| stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem |
+| `Sandbox#run` returns the last mruby expression value via the Result envelope path; objects without a wire representation take the Panic envelope path — no implicit `inspect` or `to_h` conversion | Guest Binary, Wire Spec |
+| `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts |
+| mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build |
+| Guest Binary target is `wasm32-wasip1`; wasi-preview2 and component model are out of scope | Guest Binary build, Host Gem |
+| HandleTable IDs are bounded by `0x7fff_ffff` (2³¹ − 1); exceeding the cap raises `Kobako::SandboxError` immediately — no silent wraparound or truncation | Host Gem, wire layer |
+| `ext/kobako/` is a private binding for the kobako gem only; no downstream gem may depend on it directly | Architecture |
+| Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1; Handles are never individually released by the guest and never cleaned up by Ruby finalizers | Host Gem, Wire Spec |
+| Wire ABI has exactly one host import (`__kobako_rpc_call`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations |
+
+#### Testing Style
+
+The test suite is organized into four layers. All four layers must exist and must pass before a release is approved. No single layer may substitute for another.
+
+| Layer | Name | Scope | When it must pass |
+|-------|------|-------|------------------|
+| 1 | **Codec round-trip fuzz** | Bidirectional wire codec agreement between Host Gem and Guest Binary codec implementations; covers all 11 wire types, both ext types, and nested compositions | Always — any failure is a wire regression that blocks release unconditionally |
+| 2 | **Wire integration** | Full Request / Response exchange through a live Sandbox, including the disconnected sentinel path and all envelope type variants | Before release |
+| 3 | **Ext unit** | `ext/kobako/` internal Rust unit tests and `lib/kobako/` Ruby specs without starting a Sandbox; includes HandleTable allocation / release / fetch, `HandleTableExhausted` guard at `0x7fff_ffff`, wire encode/decode boundary values, and wasmtime API wrapper correctness | Before release; the HandleTable exhaustion guard is also a required build-pipeline guard (see below) |
+| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs and string-key → symbol-key conversion), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
+
+The recommended execution order is Layer 3 → Layer 1 → Layer 2 → Layer 4 (cheapest first; fail fast before starting the Sandbox).
+
+**Build-pipeline guards** — the following checks must run as part of the build step, before the full test suite:
+
+- HandleTable ID cap guard: after `ext/kobako/` is compiled, immediately verify that ID `0x7fff_ffff` is successfully allocated and that the next attempt raises `Kobako::HandleTableExhausted`.
+- Gemspec files whitelist check: after `gem build kobako.gemspec`, verify that the resulting archive does not contain `vendor/`, `wasm/`, `tasks/`, or `build_config/` content.
+
+**Regression benchmarks** — the following five benchmarks must be maintained in `benchmark/` with baseline results stored in git. Each release compares against the previous baseline; a regression greater than +10% requires explicit review and approval before release proceeds.
+
+| # | Benchmark | What it detects |
+|---|-----------|----------------|
+| 1 | Cold start latency (`Kobako::Sandbox.new` → first `#run`) | wasmtime Module load / Engine initialization regression |
+| 2 | RPC round-trip latency (single minimal Service call) | Wire codec, import function dispatch, HandleTable lookup combined |
+| 3 | Codec throughput at varying payload sizes and nesting depths (host and guest sides measured separately) | Unnecessary allocations or codec path regressions |
+| 4 | mruby script evaluation time (fixed script, no RPC) | Impact of `build_config/wasi.rb` flag changes on VM execution speed |
+| 5 | Handle allocation and release throughput (bulk Service return value wrapping) | HandleTable internal dictionary and counter performance |
+
+Benchmark #1 and #4 are the primary indicators of `build_config/wasi.rb` changes. Benchmark #3 must be run across two dimensions independently: (a) fixed payload size, varying nesting depth; (b) fixed depth, varying payload size. Baseline records are stored as `benchmark/results/<date>-<short-sha>.json`; release baselines are tagged.
+
+#### Code Organization
+
+The following directory layout principles govern the repository. The specific test framework, benchmark library, and CI provider are implementation choices and are not pinned here.
+
+**Directory roles (required, not relocatable):**
+
+- `lib/` — Host Gem Ruby surface; public API entry point and sub-modules
+- `ext/kobako/` — private native extension; Rust source (`src/`), `Cargo.toml`, `extconf.rb`, `build.rs`; compiled to `lib/kobako/kobako.<ext>` by rake-compiler
+- `wasm/` — Guest Binary Rust source; compiled to `data/kobako.wasm`; excluded from the published gem
+- `data/` — pre-built Wasm artifact (`kobako.wasm`); included in the published gem; never manually edited
+- `build_config/` — mruby build configuration (`wasi.rb`); build-time only; excluded from the published gem
+- `vendor/` — build-time toolchain storage for wasi-sdk and mruby tarballs; not committed; entirely covered by `.gitignore`; excluded from the published gem
+- `tasks/` — Rakefile sub-task files (`vendor.rake`, `wasm.rake`, `ext.rake`), each owning one task group; excluded from the published gem
+- `spec/` (or `test/`) — test files; excluded from the published gem; one consistent convention across the entire repo
+- `benchmark/` — benchmark scripts and baseline result files; excluded from the published gem
+- `docs/` — design documentation; excluded from the published gem
+
+**gemspec files whitelist:** `kobako.gemspec` uses an explicit allowlist (not a blacklist) to specify `spec.files`. The published gem includes: `lib/**/*.rb`, `ext/kobako/**/*.{rs,toml,rb,h}`, `data/kobako.wasm`, `Rakefile`, `kobako.gemspec`, `README.md`, `LICENSE`, `CHANGELOG.md`. All other directories (`vendor/`, `wasm/`, `tasks/`, `build_config/`, `docs/`, `benchmark/`, `spec/`, `test/`) are excluded.
+
+**Two build paths, two starting points:**
+
+- *End-user path*: `gem install kobako` → rake-compiler runs `compile_ext` (Rust toolchain required) → `data/kobako.wasm` is already present; wasi-sdk and mruby tarballs are not needed.
+- *Developer path*: `git clone` → `bundle install` → `bundle exec rake compile` → Rakefile runs vendor setup (downloads wasi-sdk and mruby tarballs to `vendor/`), then the wasm build (produces `data/kobako.wasm`), then `compile_ext`.
+
+Each task in `tasks/*.rake` must be idempotent: the presence of target files (e.g., `vendor/wasi-sdk/bin/clang`, `vendor/mruby/build/wasm32-wasip1/lib/libmruby.a`) short-circuits re-execution, so incremental development only reruns the changed stage.
+
+**Release documentation — six required artifacts:** A release is not complete until all six of the following documents are present and synchronized with the code. Shipping code before documentation is not permitted.
+
+| # | Document | Contents |
+|---|----------|----------|
+| 1 | `README.md` | Quickstart (5-line runnable example), API overview, install flow including MSRV |
+| 2 | Development guide (`docs/`) | Complete design specification (this document) |
+| 3 | Wire spec | Normative codec contract for implementers who want to build alternative hosts or codecs |
+| 4 | Build guide | Rake task reference, vendor version table, common build error troubleshooting |
+| 5 | `CHANGELOG.md` | Keep a Changelog format; each release includes Added / Changed / Fixed / Breaking Changes sections (empty sections may be omitted) |
+| 6 | `LICENSE` | License file |
+
+The wire spec (artifact #3) is the only one that forms an external stability promise. Its version is `1.0`; any change that breaks round-trip compatibility requires a version increment and a CHANGELOG entry marked as Breaking Changes. MSRV changes are treated as breaking changes and must appear in CHANGELOG.
