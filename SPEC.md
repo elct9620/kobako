@@ -251,7 +251,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
-| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. The script is compiled and executed within the isolated Wasm boundary. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. |
+| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
 | **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
@@ -297,7 +297,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Service members bound. |
 | **Operation** | `sandbox.run(script_string)` — same invocation as B-02 / B-03. |
-| **Result / Final State** | When the guest script completes execution without a Wasm trap, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the last expression produces a mruby object that has no wire representation (i.e. it cannot be encoded through the host↔guest message codec), `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in a later subsection. |
+| **Result / Final State** | When the guest script completes without raising `Kobako::TrapError`, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the last expression produces a mruby object that has no wire representation (i.e. it cannot be encoded through the host↔guest message codec), `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in a later subsection. |
 | **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. The wire-violation path (unrepresentable object) is attributed to the sandbox, not the Wasm engine or a Service call. |
 
 ---
@@ -501,7 +501,7 @@ Raised when the Wasm execution engine crashes or when the wire layer detects a s
 | E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback |
 | E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback |
 
-**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (HandleTable exhaustion) raises `Kobako::SandboxError`, not `TrapError`, because the failure is detected before the guest runtime crashes.
+**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`.
 
 ---
 
@@ -514,7 +514,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of `__kobako_run` | B-02, B-03 — script execution |
 | E-05 | Guest boot script fails to load or compile the user script (`mrb_load_string` error before execution begins) | B-02 — fresh run |
 | E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
-| E-07 | Service method return value is not a primitive wire type and HandleTable allocation fails because the counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — HandleTable exhaustion |
+| E-07 | Handle issuance for the returned object fails because the per-run Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution; E-04 fallback |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
@@ -533,11 +533,11 @@ Raised when the guest execution environment ran to completion, the mruby script 
 |---|---------|--------------------------|
 | E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the RPC response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — RPC dispatch |
 | E-12 | The RPC `target` path (e.g., `"GroupName::MemberName"`) does not match any registered Service Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
-| E-13 | The RPC `target` is a Handle ID that does not exist in the current run's HandleTable (stale Handle from a prior run presented as target in a new run); error `type="undefined"` | B-18 — stale Handle cross-run |
+| E-13 | The RPC `target` is a Handle ID that does not exist in the current run (stale Handle from a prior run presented as target in a new run); error `type="undefined"` | B-18 — stale Handle cross-run |
 | E-14 | The RPC `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable; error `type="disconnected"` | B-16 — Handle referencing |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby script does not rescue it | B-12 — RPC dispatch |
 
-A Handle ID from run N presented as an RPC target in run N+1 produces `type="undefined"` because the HandleTable is fully reset at the start of each `#run`; this reaches the host as `Kobako::ServiceError` if the script does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
+A Handle ID from run N presented as an RPC target in run N+1 produces `type="undefined"` because the Handle table is fully reset at the start of each `#run`; this reaches the host as `Kobako::ServiceError` if the script does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
 When a guest script wraps a Service call in `begin/rescue`, the RPC failure is handled within the script; no `ServiceError` reaches the host and `#run` returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the script.
 
