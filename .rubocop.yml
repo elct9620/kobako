@@ -11,18 +11,37 @@ Style/StringLiteralsInInterpolation:
 # default Metrics cops fight that shape without improving the tests.
 # tasks/*.rake host long DSL blocks (rake namespaces) and helper methods that
 # mirror the build pipeline structure.
+# lib/kobako/wire/** is a dispatch-by-tag MessagePack codec; the wide case
+# statement keeps the SPEC->code mapping legible and is intentional.
 Metrics/ClassLength:
   Exclude:
     - "test/**/*"
+    - "lib/kobako/wire/**/*"
 
 Metrics/MethodLength:
   Exclude:
     - "test/**/*"
     - "tasks/**/*"
+    - "lib/kobako/wire/**/*"
 
 Metrics/AbcSize:
   Exclude:
     - "test/**/*"
+    - "lib/kobako/wire/**/*"
+
+Metrics/CyclomaticComplexity:
+  Exclude:
+    - "lib/kobako/wire/**/*"
+
+Metrics/PerceivedComplexity:
+  Exclude:
+    - "lib/kobako/wire/**/*"
+
+# Codec helpers take single short-name byte/length parameters (n, s, f);
+# longer names would reduce, not improve, readability.
+Naming/MethodParameterName:
+  Exclude:
+    - "lib/kobako/wire/**/*"
 
 Metrics/BlockLength:
   Exclude:
