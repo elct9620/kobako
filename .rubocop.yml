@@ -6,3 +6,24 @@ Style/StringLiterals:
 
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
+
+# E2E test files spin up servers and orchestrate multi-step assertions; the
+# default Metrics cops fight that shape without improving the tests.
+# tasks/*.rake host long DSL blocks (rake namespaces) and helper methods that
+# mirror the build pipeline structure.
+Metrics/ClassLength:
+  Exclude:
+    - "test/**/*"
+
+Metrics/MethodLength:
+  Exclude:
+    - "test/**/*"
+    - "tasks/**/*"
+
+Metrics/AbcSize:
+  Exclude:
+    - "test/**/*"
+
+Metrics/BlockLength:
+  Exclude:
+    - "tasks/**/*"

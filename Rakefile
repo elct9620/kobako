@@ -19,4 +19,8 @@ RbSys::ExtensionTask.new("kobako", GEMSPEC) do |ext|
   ext.lib_dir = "lib/kobako"
 end
 
+# Load tasks/*.rake (vendor toolchain, build pipeline). Each .rake file is
+# self-contained; see tasks/vendor.rake for the wasi-sdk / mruby fetch flow.
+Dir.glob("tasks/*.rake").sort.each { |t| load t }
+
 task default: %i[compile test rubocop]
