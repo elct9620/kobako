@@ -186,7 +186,7 @@ A teaching platform or CI system operator receives student-submitted Ruby script
 4. The operator repeats this for each submission without restarting the host process.
 
 **Outcome**
-Each submission executes inside an isolated Wasm boundary. A submission that crashes, loops, or attempts to escape receives a `Kobako::TrapError` or `Kobako::SandboxError`; neither outcome affects subsequent submissions. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
+Each submission executes inside an isolated Wasm boundary. A submission that crashes or attempts to escape receives a `Kobako::TrapError` or `Kobako::SandboxError`; neither outcome affects subsequent submissions. kobako does not enforce execution-time quotas (see Non-Goals); submissions that loop indefinitely block the calling thread, and the Host App is responsible for any timeout policy. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
 
 ---
 
@@ -801,7 +801,7 @@ ext 0x02 may appear only in the Response error variant's envelope field. It must
 
 #### Envelope Encoding
 
-All envelope frames — Request, Response, Result envelope, Panic envelope, Outcome envelope — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release.
+Most envelope frames — Request, Response, Result envelope, Outcome envelope — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release. The Panic envelope is the single exception: it is encoded as a msgpack **map** keyed by name (see Panic Envelope below) because its fields (`origin`, `class`, `message`, `backtrace`, `details`) are forward-compatibility points where unknown keys must be silently ignored.
 
 ##### Request
 
@@ -998,7 +998,7 @@ The test suite is organized into four layers. All four layers must exist and mus
 | 1 | **Codec round-trip fuzz** | Bidirectional wire codec agreement between Host Gem and Guest Binary codec implementations; covers all 11 wire types, both ext types, and nested compositions | Always — any failure is a wire regression that blocks release unconditionally |
 | 2 | **Wire integration** | Full Request / Response exchange through a live Sandbox, including the disconnected sentinel path and all envelope type variants | Before release |
 | 3 | **Ext unit** | `ext/kobako/` internal Rust unit tests and `lib/kobako/` Ruby specs without starting a Sandbox; includes HandleTable allocation / release / fetch, `HandleTableExhausted` guard at `0x7fff_ffff`, wire encode/decode boundary values, and wasmtime API wrapper correctness | Before release; the HandleTable exhaustion guard is also a required build-pipeline guard (see below) |
-| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs and string-key → symbol-key conversion), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 raises `Kobako::SandboxError`), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
+| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs and string-key → symbol-key conversion), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
 
 The recommended execution order is Layer 3 → Layer 1 → Layer 2 → Layer 4 (cheapest first; fail fast before starting the Sandbox).
 
