@@ -390,4 +390,81 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Result / Final State** | The host-side object is stored in the HandleTable under a new opaque u32 Handle ID. The guest receives a Capability Handle (an opaque integer token) as the RPC response value, not the object itself. The guest can pass this Handle as the `target` in subsequent RPC calls to invoke methods on the same host-side object. The Host App has no API to create or inspect Handles directly — Handle allocation is an internal wire-layer operation. |
 | **Notes** | Handle lifecycle (per-`#run` scope, ABA protection, ID limits) is specified in Item #6. The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
 
+---
+
+### B-15 — Handle ID is allocated with a monotonically increasing counter scoped to a single `#run`
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `#run` invocation has just begun. The HandleTable counter is reset to 1. No entries exist in the table. |
+| **Operation** | The Host Gem's wire layer allocates a new Handle for a stateful return value (B-14). |
+| **Result / Final State** | The first Handle issued in this run receives ID 1, the second ID 2, and so on. Each ID is unique within the run. The counter never wraps or reuses an ID during a single `#run`. IDs are assigned in allocation order and no ID is skipped unless the exhaustion cap is reached (B-21). |
+| **Notes** | ID 0 is reserved as an invalid sentinel; the guest can use `id == 0` as a fast-fail guard. Counter and IDs are reset at the start of every `#run` — IDs from run N are not carried into run N+1 (see B-18). |
+
+---
+
+### B-16 — Guest passes a previously-received Handle as an argument to a Service RPC call
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `#run` invocation is in progress. The guest holds a `Kobako::Handle` (mruby object) obtained from a prior RPC response in the same run. The Handle's internal ID resolves to a live entry in the HandleTable. |
+| **Operation** | Guest code invokes a method on a `Kobako::RPC` Service member and passes the `Kobako::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
+| **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the HandleTable, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. |
+| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in Item #7. |
+
+---
+
+### B-17 — Chained composition: Handle returned by Service A used as target in a subsequent call to Service B
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `#run` invocation is in progress. Service A has been called via RPC and returned a stateful object; the guest holds `handle_a` (a `Kobako::Handle` proxy). |
+| **Operation** | Guest code calls a method directly on `handle_a` (e.g., `handle_a.find(id)`), using the Handle as the RPC target. The wire layer encodes `handle_a` as the `target` field of the Request. |
+| **Result / Final State** | The Host Gem resolves `handle_a`'s ID against the HandleTable and invokes `public_send(:find, id)` on the host-side Ruby object that `handle_a` represents. If that call returns another stateful object, a new Handle `handle_b` is allocated and returned to the guest. Each step in the chain is an independent, synchronous RPC; there is no implicit multi-hop traversal within a single wire call. |
+| **Notes** | Chain depth is unbounded within a single `#run` as long as each step produces a Handle that survives to the next call. Each intermediate Handle is a first-class entry in the HandleTable and follows the same lifecycle rules as any other Handle. Every host object reachable by the guest must have been explicitly returned by a Service method; there is no implicit intermediate binding path. |
+
+---
+
+### B-18 — Handle issued in run N is presented as a target in run N+1
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | Run N has completed. The guest (or a script) attempts to retain a Handle ID from run N and presents it as the `target` in a new `#run` invocation (run N+1). At the start of run N+1 the HandleTable has been fully reset: all entries from run N are cleared and the counter restarted. |
+| **Operation** | Guest code in run N+1 calls a method using the stale Handle ID as the RPC target. |
+| **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (Item #7) is triggered. Run N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
+| **Notes** | This outcome is unconditional: even if run N and run N+1 execute the same script with the same Service bindings, no Handle survives the `#run` boundary. The reset happens before the Guest Binary is instantiated for run N+1, so there is no window in which a stale ID could coincidentally match a new entry. |
+
+---
+
+### B-19 — Sandbox is discarded: all Handles for that Sandbox become invalid
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `Kobako::Sandbox` instance exists with zero or more completed `#run` invocations. The HandleTable is owned by this Sandbox instance. |
+| **Operation** | The Sandbox instance is garbage-collected or goes out of scope; Ruby reclaims it. |
+| **Result / Final State** | The HandleTable and all its entries are destroyed as part of Sandbox teardown. Every Handle that was issued during any `#run` on this Sandbox is permanently invalid. No Handle entry is shared with, transferred to, or reachable from any other Sandbox instance. |
+| **Notes** | Handles are not reference-counted and there is no explicit `release` API for individual entries. Validity is scoped to the owning Sandbox and the specific `#run` in which the Handle was issued (B-18). A Handle that was valid in a prior `#run` on this Sandbox is already invalid by the time the Sandbox is collected (per B-18); Sandbox teardown simply removes the ownership root. |
+
+---
+
+### B-20 — Guest cannot construct or dereference a Handle from a raw integer
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `#run` invocation is in progress. The guest mruby script has access to an arbitrary integer value (e.g., `42` or any computed integer). |
+| **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
+| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the guest-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in Item #7. |
+| **Notes** | The `Kobako::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
+
+---
+
+### B-21 — HandleTable exhaustion: allocation attempt beyond the ID cap
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A `#run` invocation is in progress. The HandleTable counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
+| **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
+| **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
+| **Notes** | The cap exists because mruby on wasm32 uses `MRB_INT32` (signed 32-bit integers): IDs above `0x7fff_ffff` would arrive at the guest as negative integers, silently corrupting capability references. The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in Item #7. |
+
 <!-- Refinement layer: append after Behavior -->
