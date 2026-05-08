@@ -230,7 +230,7 @@ The developer can route each failure class through the Host App's existing error
 
 ## Behavior
 
-The behaviors below specify observable outcomes for the Sandbox object and its execution contract. Each behavior uses the form **Initial State → Operation → Result / Final State**. Error attribution (TrapError, SandboxError, ServiceError) is covered in a later subsection; where an error branch is noted below, refer to that subsection for full semantics.
+The behaviors below specify observable outcomes for the Sandbox object and its execution contract. Each behavior uses the form **Initial State → Operation → Result / Final State**. Error attribution (TrapError, SandboxError, ServiceError) is covered in the Error Scenarios subsection; where an error branch is noted below, refer to that subsection for full semantics.
 
 ---
 
@@ -252,7 +252,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
 | **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
-| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in a later subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
+| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
 
@@ -297,8 +297,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Service members bound. |
 | **Operation** | `sandbox.run(script_string)` — same invocation as B-02 / B-03. |
-| **Result / Final State** | When the guest script completes without raising `Kobako::TrapError`, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the last expression produces a mruby object that has no wire representation (i.e. it cannot be encoded through the host↔guest message codec), `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in a later subsection. |
-| **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. The wire-violation path (unrepresentable object) is attributed to the sandbox, not the Wasm engine or a Service call. |
+| **Result / Final State** | When the guest script completes without raising `Kobako::TrapError`, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the script's last expression produces an object that cannot be returned as a Ruby value, `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
+| **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. This error is attributed to the script (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
 
 ---
 
@@ -515,7 +515,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-05 | Guest boot script fails to load or compile the user script (`mrb_load_string` error before execution begins) | B-02 — fresh run |
 | E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
 | E-07 | Handle issuance for the returned object fails because the per-run Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
-| E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution; E-04 fallback |
+| E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
 
