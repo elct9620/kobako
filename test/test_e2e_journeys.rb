@@ -178,8 +178,8 @@ class TestE2EJourneys < Minitest::Test
   # The seven mandated scenarios — kwargs dispatch (E-15), Handle chaining
   # (B-17), cross-run Handle invalidity (B-18 + E-13), stdout/stderr isolation
   # (B-04) — must be covered through real mruby at this layer. Wire-violation
-  # edge cases live in TestE2EWireViolations below (host-side decode paths;
-  # no real-mruby dependency).
+  # edge cases (host-side decode paths) are Layer 3 tests housed in
+  # `test_sandbox_errors.rb` (TestSandboxOutcomeDecoding).
 
   # SPEC.md E-15: kwargs string keys → symbol keys at the dispatch boundary.
   def test_kwargs_string_keys_become_symbol_keys_at_dispatch_boundary
@@ -253,53 +253,5 @@ class TestE2EJourneys < Minitest::Test
     refute_includes sandbox.stdout, "first",
                     "B-04: stdout must reset between runs (SPEC.md B-04 L264-270)"
     assert_includes sandbox.stdout, "second"
-  end
-end
-
-# ── Wire-violation edge cases (SPEC.md L1001) ────────────────────────────────
-#
-# These exercise host-side decode paths and do not require real mruby — they
-# are pure Ruby and run unconditionally. Promotes the host-side decode
-# coverage to a named E2E surface so the SPEC L1001 wire-violation column
-# is auditable from one place.
-class TestE2EWireViolations < Minitest::Test
-  # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."
-  # Empty outcome bytes have no tag → the host emits TrapError.
-  def test_zero_length_outcome_bytes_raises_trap_error
-    err = assert_raises(Kobako::TrapError) do
-      Kobako::Sandbox.allocate.send(:decode_outcome, "".b)
-    end
-
-    assert_match(/len=0/, err.message,
-                 "SPEC.md §ABI: len=0 outcome → TrapError with len=0 in message")
-  end
-
-  # SPEC.md §Error Scenarios: unknown outcome tag → TrapError (wire violation fallback).
-  def test_unknown_outcome_tag_raises_trap_error
-    bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << 0xff.chr(Encoding::ASCII_8BIT)
-
-    err = assert_raises(Kobako::TrapError) do
-      Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
-    end
-
-    assert_match(/unknown outcome tag/, err.message,
-                 "SPEC.md §Error Scenarios: unknown tag → TrapError")
-  end
-
-  # SPEC.md E-09: tag 0x01 + malformed body → SandboxError (Result envelope
-  # with unrepresentable / undecodable body).
-  def test_malformed_result_envelope_raises_sandbox_error
-    bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_RESULT.chr(Encoding::ASCII_8BIT)
-    bytes << "\xff\xff\xff".b
-
-    err = assert_raises(Kobako::SandboxError) do
-      Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
-    end
-
-    refute_kind_of Kobako::TrapError, err
-    assert_equal "Kobako::WireError", err.klass,
-                 "E-09: malformed Result envelope decode → SandboxError klass=Kobako::WireError"
   end
 end

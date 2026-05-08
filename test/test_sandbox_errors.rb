@@ -79,6 +79,16 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
   end
 
+  # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."
+  # Empty outcome bytes have no tag → the host emits TrapError.
+  def test_zero_length_outcome_bytes_raises_trap_error
+    err = assert_raises(Kobako::TrapError) { decode("".b) }
+
+    assert_match(/len=0/, err.message,
+                 "SPEC.md §ABI: len=0 outcome → TrapError with len=0 in message")
+  end
+
+  # SPEC.md §Error Scenarios: unknown outcome tag → TrapError (wire violation fallback).
   def test_unknown_outcome_tag_raises_trap_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
     bytes << 0xff.chr(Encoding::ASCII_8BIT)
