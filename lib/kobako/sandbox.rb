@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "handle_table"
+require_relative "service"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -92,17 +93,6 @@ module Kobako
       end
     end
 
-    # Placeholder Service Registry. Item #15 will replace this with the real
-    # Kobako::Service::Group registry. The placeholder exists so that B-07
-    # (`sandbox.define(...)`) has a stable accessor name even before the
-    # registry lands; calling #define raises NotImplementedError.
-    class ServicesPlaceholder
-      def define(_name, &)
-        raise NotImplementedError,
-              "Kobako::Service::Group registry not implemented yet (implemented in item #15)"
-      end
-    end
-
     attr_reader :wasm_path, :engine, :module_, :store, :instance,
                 :handle_table, :stdout_buffer, :stderr_buffer,
                 :stdout_limit, :stderr_limit, :services
@@ -127,11 +117,24 @@ module Kobako
       @handle_table = Kobako::HandleTable.new
       @stdout_buffer = OutputBuffer.new(@stdout_limit)
       @stderr_buffer = OutputBuffer.new(@stderr_limit)
-      @services = ServicesPlaceholder.new
+      @services = Kobako::Service::Registry.new
+    end
+
+    # Declare or retrieve a Service Group on this Sandbox (SPEC §B-07,
+    # B-09, B-10; REFERENCE Ch.6 §Service 注入 API). Idempotent — repeat
+    # calls with the same name return the same Group instance.
+    #
+    # @param name [Symbol, String] constant-form group name.
+    # @return [Kobako::Service::Group]
+    # @raise [ArgumentError] when called after `#run`, or when the name
+    #   does not match the constant-name pattern.
+    def define(name)
+      @services.define(name)
     end
 
     # Execute a guest mruby script. Implemented in item #16; not yet wired.
     def run(_script_string)
+      @services.seal!
       raise NotImplementedError,
             "Kobako::Sandbox#run is not yet implemented (implemented in item #16)"
     end

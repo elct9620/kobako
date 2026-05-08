@@ -104,10 +104,11 @@ class TestSandbox < Minitest::Test
     assert_match(/item #16/, err.message)
   end
 
-  def test_services_placeholder_raises_with_item_15_message
+  def test_services_attribute_is_real_registry
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    assert_respond_to sandbox.services, :define
-    err = assert_raises(NotImplementedError) { sandbox.services.define(:Foo) }
-    assert_match(/item #15/, err.message)
+    assert_instance_of Kobako::Service::Registry, sandbox.services
+    assert sandbox.services.empty?
+    group = sandbox.services.define(:Foo)
+    assert_instance_of Kobako::Service::Group, group
   end
 end
