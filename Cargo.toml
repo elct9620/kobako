@@ -4,4 +4,9 @@
 
 [workspace]
 members = ["./ext/kobako"]
+# `wasm/` is a sibling workspace (kobako-wasm crate) compiled for
+# wasm32-wasip1; excluding it keeps the host (wasmtime) and guest
+# dependency graphs separate. See tmp/REFERENCE.md Ch.2 §Root Cargo.toml
+# 與 wasm crate 隔離策略.
+exclude = ["wasm", "vendor"]
 resolver = "2"

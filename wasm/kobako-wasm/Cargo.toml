@@ -1,0 +1,44 @@
+# kobako-wasm — Guest Binary crate.
+#
+# This crate compiles to `kobako.wasm` (the Guest Binary artifact) and houses
+# the hand-written MessagePack wire codec. Per SPEC.md "Implementation
+# Standards" and tmp/REFERENCE.md Ch.2, this crate declares itself as its own
+# workspace root so that `cargo` does not collapse it into the repo-root
+# workspace (which would force wasmtime — a host-only crate — into the
+# wasm32-wasip1 dependency graph).
+#
+# Dependency-free: the codec is hand-written per SPEC.md "Wire Codec" and
+# must not pull in serde, rmp, msgpack, or any other runtime crate. This is
+# enforced by the fast-tier Minitest in test/test_wasm_crate.rb.
+
+[workspace]
+# Empty workspace table marks this directory as a workspace root and stops
+# `cargo`'s upward search for an enclosing workspace manifest.
+
+[package]
+name = "kobako-wasm"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "kobako Guest Binary — mruby-on-wasm interpreter and hand-written MessagePack wire codec."
+license = "Apache-2.0"
+
+[lib]
+# `cdylib` produces the wasm artifact when targeting wasm32-wasip1.
+# `rlib` lets us run codec unit tests on the host target.
+crate-type = ["cdylib", "rlib"]
+
+# No [dependencies] section. The Wire Codec is hand-written; see
+# src/codec/mod.rs. Adding a runtime dependency here violates SPEC.md
+# "Wire Codec" §Codec Choice (codec is the cross-implementer contract;
+# importing a third-party encoder would couple kobako to that crate's
+# version cadence and bug surface).
+
+[profile.release]
+# wasm size hygiene. These are not load-bearing for the skeleton, but pin
+# the intent so item #6 / #9 inherit a sensible baseline.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

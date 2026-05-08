@@ -1,0 +1,25 @@
+//! kobako-wasm — Guest Binary crate root.
+//!
+//! This crate is the source of `kobako.wasm`, the Guest Binary artifact
+//! described in SPEC.md "Core Abstractions". It hosts:
+//!
+//! * `codec` — the hand-written MessagePack wire codec (SPEC.md "Wire Codec").
+//! * (future) ABI exports `__kobako_run`, `__kobako_alloc`,
+//!   `__kobako_take_outcome` — added by item #9.
+//! * (future) the embedded mruby boot script — added by item #10.
+//!
+//! This is the **skeleton** delivered by item #4: module layout, error type,
+//! and the `Value` enum covering the 11 wire types per SPEC.md "Type
+//! Mapping". Encode/decode bodies are placeholders (`unimplemented!()`) and
+//! will be filled in by item #6.
+//!
+//! The crate uses `std` on every target. `wasm32-wasip1` (the production
+//! target — see SPEC.md "Implementation Standards" §Architecture) ships a
+//! working `std`, including allocator and panic handler. A `no_std` codec
+//! is not required by SPEC; switching adds friction (custom allocator,
+//! custom panic handler) without buying anything for the Guest Binary,
+//! which already pays for `std` through the embedded mruby interpreter.
+
+pub mod codec;
+
+pub use codec::{Decoder, Encoder, Value, WireError};
