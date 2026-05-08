@@ -21,5 +21,11 @@
 //! which already pays for `std` through the embedded mruby interpreter.
 
 pub mod codec;
+pub mod envelope;
 
 pub use codec::{Decoder, Encoder, Value, WireError};
+pub use envelope::{
+    decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
+    encode_panic, encode_request, encode_response, encode_result, EnvelopeError, Outcome, Panic,
+    Request, Response, ResultEnv, Target, STATUS_ERROR, STATUS_OK,
+};
