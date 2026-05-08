@@ -61,13 +61,43 @@ use core::ffi::c_void;
 #[cfg(target_arch = "wasm32")]
 use core::ffi::{c_char, c_int};
 
+/// `mrb_bool` — mruby's boolean C type (unsigned char / u8).
+#[cfg(target_arch = "wasm32")]
+pub type mrb_bool = u8;
+
+/// `mrb_protect_error_func` — function pointer type accepted by
+/// `mrb_protect_error`. Receives `mrb` + `userdata` and returns an
+/// `mrb_value`.
+#[cfg(target_arch = "wasm32")]
+pub type mrb_protect_error_func =
+    unsafe extern "C" fn(mrb: *mut mrb_state, userdata: *mut c_void) -> mrb_value;
+
 /// Opaque pointer to mruby state (`mrb_state *`).
 pub type mrb_state = c_void;
 
-/// Opaque mruby value. Sized at 16 bytes to fit any documented mruby
-/// word-box layout (wasm32 `MRB_WORDBOX_NO_INLINE_FLOAT` is 8 bytes;
-/// 64-bit no-inline-float and NaN-boxing variants are 8 bytes; a
-/// 16-byte slot covers all).
+/// Opaque mruby value. The layout is target-specific:
+///
+/// - **wasm32-wasip1** (production target): `mrb_value` is `struct { uintptr_t w }`
+///   where `uintptr_t` is 4 bytes → `mrb_value` is exactly 4 bytes.
+///   This is the `MRB_WORDBOX_NO_INLINE_FLOAT` configuration produced by
+///   the kobako build config (`build_config/wasi.rb`).
+///
+/// - **host target** (macOS/Linux aarch64/x86_64, used for `cargo test`):
+///   The mruby C API is not linked so the exact layout does not matter;
+///   we use a 16-byte opaque placeholder that is large enough to cover any
+///   documented layout and satisfies alignment requirements.
+///
+/// The wasm32 size is critical: if the Rust type is larger than the C type,
+/// the Rust compiler emits sret-style calls (return via out-pointer) that
+/// do not match the wasm32 C ABI where a 4-byte return fits in a register.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct mrb_value {
+    pub w: u32,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct mrb_value {
@@ -75,13 +105,14 @@ pub struct mrb_value {
 }
 
 impl mrb_value {
-    /// Construct an opaque all-zero `mrb_value`. Used **only** as a
-    /// placeholder return on host-target builds where the C bridges
-    /// are no-ops (the wasm32 bodies always either raise or call into
-    /// `mrb_*` boxing helpers and never return this value). Not safe
-    /// to hand to a real mruby VM as a Ruby value.
+    /// Construct an opaque all-zero `mrb_value`. On wasm32 this produces
+    /// `{ w: 0 }` which is mruby's `nil` value (MRB_Qnil = 0). On the host
+    /// target this produces a zeroed 16-byte placeholder.
     pub const fn zeroed() -> Self {
-        Self { _payload: [0, 0] }
+        #[cfg(target_arch = "wasm32")]
+        { Self { w: 0 } }
+        #[cfg(not(target_arch = "wasm32"))]
+        { Self { _payload: [0, 0] } }
     }
 }
 
@@ -163,9 +194,13 @@ extern "C" {
         aspec: mrb_aspec,
     );
 
-    /// `mrb_class_ptr(val)` — the singleton-method `self` is the class
-    /// object itself; `mrb_class_ptr` extracts the `RClass*` from it.
-    pub fn mrb_class_ptr(val: mrb_value) -> *mut RClass;
+    // NOTE: mrb_class_ptr is a C macro, not a real function:
+    //   #define mrb_class_ptr(v) ((struct RClass*)(mrb_ptr(v)))
+    // With MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32 config),
+    // mrb_ptr(val) resolves to the raw pointer stored in the lower 32 bits.
+    // Use `val.w as *mut RClass` inline in boot.rs; do NOT declare it here
+    // as an extern "C" fn (that would produce a wasm import for a symbol that
+    // doesn't exist as a real C function in libmruby.a).
 
     /// `mrb_class_name(mrb, c)` — returns the class's full Ruby name
     /// (e.g. `"MyService::KV"`).
@@ -199,6 +234,142 @@ extern "C" {
         name: *const c_char,
         super_: *mut RClass,
     ) -> *mut RClass;
+
+    /// `mrb_open()` — creates and initializes a new mruby interpreter
+    /// state. Returns NULL on allocation failure. Called once at the
+    /// start of every `__kobako_run` invocation.
+    pub fn mrb_open() -> *mut mrb_state;
+
+    /// `mrb_close(mrb)` — destroys the mruby state and frees all
+    /// associated memory. Called at the end of `__kobako_run`.
+    pub fn mrb_close(mrb: *mut mrb_state);
+
+    /// `mrb_load_nstring(mrb, s, len)` — compiles and evaluates the
+    /// Ruby source string `s[0..len]`. Returns the last expression
+    /// value; sets `mrb->exc` on parse or runtime error.
+    pub fn mrb_load_nstring(mrb: *mut mrb_state, s: *const c_char, len: usize) -> mrb_value;
+
+    /// `mrb_obj_classname(mrb, obj)` — returns a pointer to the class
+    /// name C string of `obj`. The pointer is owned by mruby and must
+    /// not be freed.
+    pub fn mrb_obj_classname(mrb: *mut mrb_state, obj: mrb_value) -> *const c_char;
+
+    /// `mrb_funcall(mrb, val, name, argc, ...)` — variadic Ruby method
+    /// call from C. Used to call `.message` on an exception value.
+    /// The call frame is not protected — callers must ensure `mrb->exc`
+    /// is already set as a known exception before calling this.
+    pub fn mrb_funcall(
+        mrb: *mut mrb_state,
+        val: mrb_value,
+        name: *const c_char,
+        argc: c_int,
+        ...
+    ) -> mrb_value;
+
+    /// `mrb_str_to_cstr(mrb, str)` — returns a NUL-terminated C string
+    /// from an mruby String value. The pointer is valid until the next
+    /// GC cycle; callers must copy before yielding control to mruby.
+    pub fn mrb_str_to_cstr(mrb: *mut mrb_state, str: mrb_value) -> *mut c_char;
+
+    /// `mrb_protect_error(mrb, body, userdata, error)` — calls `body`
+    /// via a protected frame. On exception, `*error` is set to TRUE and
+    /// the return value is the exception object. On success, `*error` is
+    /// FALSE and the return value is `body`'s return value.
+    pub fn mrb_protect_error(
+        mrb: *mut mrb_state,
+        body: mrb_protect_error_func,
+        userdata: *mut c_void,
+        error: *mut mrb_bool,
+    ) -> mrb_value;
+
+    /// `mrb_check_error(mrb)` — returns TRUE if `mrb->exc` is set, then
+    /// clears it. Used after `mrb_load_nstring` to detect exceptions
+    /// without accessing the struct field directly.
+    pub fn mrb_check_error(mrb: *mut mrb_state) -> mrb_bool;
+
+    /// `mrb_sym_name(mrb, sym)` — returns the C string name for a symbol.
+    /// Used to extract the method name from `method_missing` args.
+    pub fn mrb_sym_name(mrb: *mut mrb_state, sym: mrb_sym) -> *const c_char;
+
+    /// `mrb_str_new_cstr(mrb, str)` — creates a new mruby String from a
+    /// NUL-terminated C string.
+    pub fn mrb_str_new_cstr(mrb: *mut mrb_state, s: *const c_char) -> mrb_value;
+
+    /// `mrb_ary_entry(ary, offset)` — returns the element at `offset` in
+    /// `ary`. No bounds checking on the C side; caller must ensure offset
+    /// is in range.
+    ///
+    /// `offset` is `mrb_int` which on wasm32 (MRB_INT32 config) is a 32-bit
+    /// signed integer.
+    pub fn mrb_ary_entry(ary: mrb_value, offset: i32) -> mrb_value;
+
+    /// `mrb_hash_keys(mrb, hash)` — returns an Array of the hash's keys.
+    pub fn mrb_hash_keys(mrb: *mut mrb_state, hash: mrb_value) -> mrb_value;
+
+    /// `mrb_hash_get(mrb, hash, key)` — returns the value for `key` in
+    /// `hash`, or nil if not present.
+    pub fn mrb_hash_get(mrb: *mut mrb_state, hash: mrb_value, key: mrb_value) -> mrb_value;
+
+    /// `mrb_hash_p(mrb, obj)` — NOTE: this is a predicate macro in mruby,
+    /// not a real C function. Checking is done via mrb_obj_classname
+    /// comparison instead.
+
+    /// `mrb_intern_cstr(mrb, str)` — interns a NUL-terminated C string
+    /// as a symbol. Used to build string keys for mrb_hash_get.
+    pub fn mrb_intern_cstr(mrb: *mut mrb_state, str: *const c_char) -> mrb_sym;
+
+    /// `mrb_sym_str(mrb, sym)` — converts a symbol to its String representation.
+    pub fn mrb_sym_str(mrb: *mut mrb_state, sym: mrb_sym) -> mrb_value;
+
+    /// `mrb_str_new(mrb, p, len)` — create a new mruby String from `p[0..len]`.
+    ///
+    /// `len` is `mrb_int` which on wasm32 (MRB_INT32 config) is a 32-bit
+    /// signed integer.
+    pub fn mrb_str_new(mrb: *mut mrb_state, p: *const c_char, len: i32) -> mrb_value;
+
+    /// `mrb_boxing_int_value(mrb, n)` — construct an mruby Integer value
+    /// from a C `mrb_int`. Used to box integer RPC responses back into the
+    /// mruby VM without string round-tripping.
+    ///
+    /// `n` is `mrb_int` which on wasm32 (MRB_INT32 config) is a 32-bit
+    /// signed integer.
+    pub fn mrb_boxing_int_value(mrb: *mut mrb_state, n: i32) -> mrb_value;
+
+    /// `mrb_word_boxing_float_value(mrb, f)` — construct an mruby Float value
+    /// via the word-boxing allocator. Used on wasm32 with
+    /// MRB_WORDBOX_NO_INLINE_FLOAT where floats are heap-allocated.
+    pub fn mrb_word_boxing_float_value(mrb: *mut mrb_state, f: f64) -> mrb_value;
+
+    /// `mrb_define_method(mrb, c, name, func, aspec)` — defines an instance
+    /// method on class `c`. Used to register instance-level `method_missing`
+    /// on `Kobako::Handle` so handle objects forward method calls to the
+    /// host via `Kobako.__rpc_call__`.
+    pub fn mrb_define_method(
+        mrb: *mut mrb_state,
+        c: *mut RClass,
+        name: *const c_char,
+        func: mrb_func_t,
+        aspec: mrb_aspec,
+    );
+
+    /// `mrb_obj_new(mrb, c, argc, argv)` — allocates and initializes a new
+    /// instance of class `c`, calling `initialize` with `argc` arguments
+    /// from `argv`. Used to create `Kobako::Handle` instances.
+    pub fn mrb_obj_new(
+        mrb: *mut mrb_state,
+        c: *mut RClass,
+        argc: i32,
+        argv: *const mrb_value,
+    ) -> mrb_value;
+
+    /// `mrb_iv_set(mrb, obj, sym, val)` — sets the instance variable
+    /// identified by `sym` on `obj` to `val`. Used by the Handle `initialize`
+    /// C shim to stash the Handle id.
+    pub fn mrb_iv_set(mrb: *mut mrb_state, obj: mrb_value, sym: mrb_sym, val: mrb_value);
+
+    /// `mrb_iv_get(mrb, obj, sym)` — returns the instance variable identified
+    /// by `sym` on `obj`, or `mrb_nil_value()` if not set.
+    pub fn mrb_iv_get(mrb: *mut mrb_state, obj: mrb_value, sym: mrb_sym) -> mrb_value;
 }
 
 // --------------------------------------------------------------------

@@ -25,8 +25,8 @@ use magnus::{
 };
 use magnus::RString;
 use wasmtime::{
-    AsContextMut, Caller, Engine as WtEngine, Extern, Instance as WtInstance, Linker,
-    Memory, Module as WtModule, Store as WtStore, TypedFunc,
+    AsContextMut, Caller, Config as WtConfig, Engine as WtEngine, Extern,
+    Instance as WtInstance, Linker, Memory, Module as WtModule, Store as WtStore, TypedFunc,
 };
 use wasmtime_wasi::p1;
 use wasmtime_wasi::p1::WasiP1Ctx;
@@ -113,8 +113,20 @@ pub struct Engine {
 
 impl Engine {
     fn new() -> Result<Self, MagnusError> {
-        // Default Config; wasm_exceptions etc. tuned in later items.
-        let engine = WtEngine::default();
+        // Enable the wasm exceptions proposal so kobako.wasm (which uses
+        // try_table / exnref / tag for mruby's setjmp-via-new-EH path) can
+        // be loaded. The mruby wasi build config uses
+        //   -mllvm -wasm-use-legacy-eh=false
+        // which generates new-style exception handling instructions in the
+        // wasm32 object files; wasmtime must have the proposal enabled to
+        // parse and JIT those instructions.
+        let mut config = WtConfig::new();
+        config.wasm_exceptions(true);
+        let engine = WtEngine::new(&config)
+            .map_err(|e| {
+                let ruby = Ruby::get().expect("Ruby thread");
+                wasm_err(&ruby, format!("engine init: {}", e))
+            })?;
         Ok(Self { inner: engine })
     }
 

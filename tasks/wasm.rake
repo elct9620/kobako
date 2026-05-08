@@ -118,20 +118,28 @@ module KobakoWasm
     File.mtime(DATA_WASM) >= src_mtime
   end
 
-  # Build the env hash passed to `cargo build` for Stage C. Pins CC / AR to
-  # wasi-sdk's clang + llvm-ar (the wasm crate links via the same
-  # toolchain mruby was compiled with) and exports
+  # Build the env hash passed to `cargo build` for Stage C. Exports
   # `MRUBY_LIB_DIR` so build.rs can wire the libmruby.a search path.
+  #
+  # ## Linker choice: rust-lld (not wasi-sdk clang)
+  #
+  # We intentionally do NOT set CARGO_TARGET_WASM32_WASIP1_LINKER.
+  # Cargo's default for wasm32-wasip1 is rust's built-in rust-lld which
+  # links the cdylib with `--no-entry` (WASI reactor model) without the
+  # `-shared` flag. wasi-sdk clang, by contrast, drives wasm-ld with
+  # `-static -shared` which enforces PIC relocations on all input objects.
+  # Neither libmruby.a nor the Rust standard library wasm32-wasip1 prebuilts
+  # are compiled with -fPIC, causing wasm-ld to reject them. rust-lld's
+  # `--no-entry` mode does not enforce PIC, so the link succeeds cleanly.
+  #
+  # The CC_wasm32_wasip1 / AR_wasm32_wasip1 / WASI_SDK_PATH env vars remain
+  # set for any future build.rs steps (e.g. bindgen C compilation) that need
+  # the wasi-sdk toolchain; they do not affect the Rust+mruby link step.
   def cargo_build_env
     clang   = File.join(WASI_SDK_DIR, "bin", "clang")
     llvm_ar = File.join(WASI_SDK_DIR, "bin", "llvm-ar")
 
     {
-      # Make rustc's wasm32-wasip1 link step go through wasi-sdk's clang.
-      # `CARGO_TARGET_<TARGET>_LINKER` is cargo's documented per-target
-      # linker override (https://doc.rust-lang.org/cargo/reference/config.html
-      # #target).
-      "CARGO_TARGET_WASM32_WASIP1_LINKER" => clang,
       # cc-rs / build.rs convention for any C compilation that cargo or a
       # downstream crate may invoke. We don't currently compile C from the
       # wasm crate, but pinning these keeps a future bindgen / cc-rs hop

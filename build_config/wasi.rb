@@ -61,6 +61,7 @@ unless defined?(KobakoBuildConfig)
     # excluded to shrink the attack surface. Bumping this list is a wire- /
     # security-review-bearing change.
     MRBGEM_ALLOWLIST = %w[
+      mruby-compiler
       mruby-array-ext
       mruby-enum-ext
       mruby-hash-ext

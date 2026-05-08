@@ -76,4 +76,19 @@ fn main() {
             println!("cargo:rustc-link-lib=static=mruby");
         }
     }
+
+    // wasi-sdk setjmp library — required because libmruby.a uses setjmp/longjmp
+    // via the new WebAssembly exception handling mechanism (build_config/wasi.rb
+    // sets `-mllvm -wasm-use-legacy-eh=false`). This produces calls to
+    // `__wasm_setjmp`, `__wasm_longjmp`, and `__wasm_setjmp_test` which live in
+    // wasi-sdk's libsetjmp.a (not in Rust's wasm32-wasip1 self-contained libc).
+    // Without this library, rust-lld's `--allow-undefined` flag would turn these
+    // into wasm imports that the host cannot satisfy.
+    if let Ok(sdk_path) = env::var("WASI_SDK_PATH") {
+        if !sdk_path.is_empty() {
+            let setjmp_dir = format!("{}/share/wasi-sysroot/lib/wasm32-wasi", sdk_path);
+            println!("cargo:rustc-link-search=native={}", setjmp_dir);
+            println!("cargo:rustc-link-lib=static=setjmp");
+        }
+    }
 }
