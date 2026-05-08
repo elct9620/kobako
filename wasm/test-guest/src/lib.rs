@@ -13,8 +13,8 @@
 
 use core::cell::RefCell;
 use kobako_wasm::{
-    decode_response, encode_outcome, encode_request, Outcome, Panic, Request, Response, ResultEnv,
-    Target, Value,
+    decode_response, encode_outcome, encode_request, Decoder, Outcome, Panic, Request, Response,
+    ResultEnv, Target, Value,
 };
 
 // Imported so the wasm import table contains `env::__kobako_rpc_call`
@@ -160,6 +160,40 @@ fn build_outcome(source: &[u8]) -> Outcome {
         unreachable!();
     }
 
+    // `rpc-panic:Group::Member|method|argument` — same RPC round-trip as
+    // `rpc:` but the err branch is reified as a Panic(origin=service)
+    // envelope. Exercises the wire integration path that surfaces a
+    // Service exception to the host as `Kobako::ServiceError`. SPEC §B-12
+    // / §"Error Scenarios" E-11.
+    if let Some(rest) = text.strip_prefix("rpc-panic:") {
+        return run_rpc_panic(rest);
+    }
+
+    // `rpc-chain:Group::Factory|factory_method|factory_arg|target_method`
+    // — two-step Handle chaining (B-17). First call returns a Handle; the
+    // second call uses that Handle as the Request target.
+    if let Some(rest) = text.strip_prefix("rpc-chain:") {
+        return run_rpc_chain(rest);
+    }
+
+    // `rpc-kwargs:Group::Member|method|k1=v1,k2=v2` — RPC with kwargs.
+    // Exercises the kwargs symbolize-at-boundary path (E-15).
+    if let Some(rest) = text.strip_prefix("rpc-kwargs:") {
+        return run_rpc_kwargs(rest);
+    }
+
+    // `rpc-dc-chain:Group::Setup|setup_method|target_method` — exercises
+    // the disconnected-sentinel path (E-14). The setup method must:
+    //   1. allocate an object in the HandleTable,
+    //   2. mark it disconnected, and
+    //   3. return the integer id.
+    // The fixture then issues a second RPC with `Target::Handle(id)`,
+    // observes a `type="disconnected"` Response.err, and emits a
+    // Panic(origin=service, class="Kobako::ServiceError::Disconnected").
+    if let Some(rest) = text.strip_prefix("rpc-dc-chain:") {
+        return run_rpc_dc_chain(rest);
+    }
+
     // `rpc:Group::Member:method:argument` — exercise the host-side RPC
     // dispatch path (item #18). Build a Request envelope, hand it to
     // `__kobako_rpc_call`, decode the Response, and embed the outcome
@@ -297,6 +331,219 @@ fn invoke_rpc_import(req_bytes: &[u8]) -> Option<Vec<u8>> {
         let _ = req_bytes;
         None
     }
+}
+
+// ---------------------------------------------------------------------------
+// rpc-panic / rpc-chain / rpc-kwargs / rpc-dc-chain — wire-integration
+// fixture paths used by `test/test_wire_integration.rb`. Each builds one
+// or more Request envelopes via `__kobako_rpc_call` and reifies the host
+// response into the appropriate Outcome envelope so the host can assert
+// the full round-trip semantics through `Sandbox#run`.
+// ---------------------------------------------------------------------------
+
+// `rpc-panic:Group::Member|method|argument` — drive the RPC path and
+// surface the err branch as a Panic(origin=service) outcome. Exercises
+// the SPEC E-11 attribution path (Service exception → ServiceError).
+fn run_rpc_panic(rest: &str) -> Outcome {
+    let parts: Vec<&str> = rest.splitn(3, '|').collect();
+    if parts.len() != 3 {
+        return malformed_rpc("expected rpc-panic:Group::Member|method|argument");
+    }
+    let req = Request {
+        target: Target::Path(parts[0].to_string()),
+        method: parts[1].to_string(),
+        args: vec![Value::Str(parts[2].to_string())],
+        kwargs: vec![],
+    };
+    match dispatch_request(&req) {
+        Ok(Response::Ok(value)) => Outcome::Result(ResultEnv { value }),
+        Ok(Response::Err(payload)) => panic_from_err_payload(&payload),
+        Err(msg) => malformed_rpc(msg),
+    }
+}
+
+// `rpc-chain:Group::Factory|factory_method|factory_arg|target_method` —
+// exercises B-17 Handle target dispatch. First RPC's response must be
+// Value::Handle(id); the fixture re-uses that id as the Target of a
+// second RPC, returning the second call's value as the outcome.
+fn run_rpc_chain(rest: &str) -> Outcome {
+    let parts: Vec<&str> = rest.splitn(4, '|').collect();
+    if parts.len() != 4 {
+        return malformed_rpc(
+            "expected rpc-chain:Group::Factory|factory_method|factory_arg|target_method",
+        );
+    }
+    let factory_req = Request {
+        target: Target::Path(parts[0].to_string()),
+        method: parts[1].to_string(),
+        args: vec![Value::Str(parts[2].to_string())],
+        kwargs: vec![],
+    };
+    let handle_id = match dispatch_request(&factory_req) {
+        Ok(Response::Ok(Value::Handle(id))) => id,
+        Ok(Response::Ok(other)) => {
+            return malformed_rpc_owned(format!("chain factory returned non-Handle: {:?}", other));
+        }
+        Ok(Response::Err(_)) => return malformed_rpc("chain factory returned err"),
+        Err(msg) => return malformed_rpc(msg),
+    };
+    let target_req = Request {
+        target: Target::Handle(handle_id),
+        method: parts[3].to_string(),
+        args: vec![],
+        kwargs: vec![],
+    };
+    match dispatch_request(&target_req) {
+        Ok(Response::Ok(value)) => Outcome::Result(ResultEnv { value }),
+        Ok(Response::Err(payload)) => panic_from_err_payload(&payload),
+        Err(msg) => malformed_rpc(msg),
+    }
+}
+
+// `rpc-kwargs:Group::Member|method|k1=v1,k2=v2` — RPC with string-keyed
+// kwargs. The Registry symbolizes the keys at the boundary (E-15) and
+// the bound Service Member receives Symbol-keyed kwargs.
+fn run_rpc_kwargs(rest: &str) -> Outcome {
+    let parts: Vec<&str> = rest.splitn(3, '|').collect();
+    if parts.len() != 3 {
+        return malformed_rpc("expected rpc-kwargs:Group::Member|method|k1=v1,k2=v2");
+    }
+    let kwargs = match parse_kwargs(parts[2]) {
+        Ok(kw) => kw,
+        Err(msg) => return malformed_rpc(msg),
+    };
+    let req = Request {
+        target: Target::Path(parts[0].to_string()),
+        method: parts[1].to_string(),
+        args: vec![],
+        kwargs,
+    };
+    match dispatch_request(&req) {
+        Ok(Response::Ok(value)) => Outcome::Result(ResultEnv { value }),
+        Ok(Response::Err(payload)) => panic_from_err_payload(&payload),
+        Err(msg) => malformed_rpc(msg),
+    }
+}
+
+// `rpc-dc-chain:Group::Setup|setup_method|target_method` — exercises the
+// E-14 disconnected-sentinel path. The Setup service is bound by the
+// host test such that calling it allocates a HandleTable entry, marks
+// it `:disconnected`, and returns the integer id. The fixture then uses
+// `Target::Handle(id)` for the second RPC; the host returns a
+// `type="disconnected"` Response.err which the fixture surfaces as a
+// Panic(origin=service, class="Kobako::ServiceError::Disconnected").
+fn run_rpc_dc_chain(rest: &str) -> Outcome {
+    let parts: Vec<&str> = rest.splitn(3, '|').collect();
+    if parts.len() != 3 {
+        return malformed_rpc("expected rpc-dc-chain:Group::Setup|setup_method|target_method");
+    }
+    let setup_req = Request {
+        target: Target::Path(parts[0].to_string()),
+        method: parts[1].to_string(),
+        args: vec![],
+        kwargs: vec![],
+    };
+    let handle_id = match dispatch_request(&setup_req) {
+        Ok(Response::Ok(Value::Int(id))) if id >= 0 => id as u32,
+        Ok(Response::Ok(Value::UInt(id))) => id as u32,
+        Ok(Response::Ok(other)) => {
+            return malformed_rpc_owned(format!("dc-chain setup returned non-int: {:?}", other));
+        }
+        Ok(Response::Err(_)) => return malformed_rpc("dc-chain setup returned err"),
+        Err(msg) => return malformed_rpc(msg),
+    };
+    let target_req = Request {
+        target: Target::Handle(handle_id),
+        method: parts[2].to_string(),
+        args: vec![],
+        kwargs: vec![],
+    };
+    match dispatch_request(&target_req) {
+        Ok(Response::Ok(value)) => Outcome::Result(ResultEnv { value }),
+        Ok(Response::Err(payload)) => panic_from_err_payload(&payload),
+        Err(msg) => malformed_rpc(msg),
+    }
+}
+
+// Encode the Request, invoke the host import, decode the Response.
+// Returns Err with a static reason on encode/decode/transport faults.
+fn dispatch_request(req: &Request) -> Result<Response, &'static str> {
+    let req_bytes = encode_request(req).map_err(|_| "encode_request failed")?;
+    let resp_bytes = invoke_rpc_import(&req_bytes).ok_or("rpc import returned 0 (wire fault)")?;
+    decode_response(&resp_bytes).map_err(|_| "decode_response failed")
+}
+
+// Decode the inner ext 0x02 Exception map from a Response.err payload
+// and synthesise a Panic(origin=service) envelope. The panic class
+// field follows SPEC §"Error Class Hierarchy":
+//   * type=="disconnected" → "Kobako::ServiceError::Disconnected"
+//   * everything else      → "Kobako::ServiceError"
+// so the host's `Sandbox#build_panic_error` selects the right Ruby class.
+fn panic_from_err_payload(payload: &[u8]) -> Outcome {
+    let (typ, message) = decode_exception_payload(payload)
+        .unwrap_or_else(|| ("runtime".into(), "<undecodable>".into()));
+    let class = if typ == "disconnected" {
+        "Kobako::ServiceError::Disconnected".to_string()
+    } else {
+        "Kobako::ServiceError".to_string()
+    };
+    Outcome::Panic(Panic {
+        origin: "service".into(),
+        class,
+        message,
+        backtrace: vec!["test-guest:rpc-panic".into()],
+        details: None,
+    })
+}
+
+// Decode the ext 0x02 inner map's `type` and `message` string fields.
+// Returns None if the payload is not a map or the keys are absent /
+// non-string. Forward-compatible: unknown keys are silently ignored.
+fn decode_exception_payload(payload: &[u8]) -> Option<(String, String)> {
+    let mut dec = Decoder::new(payload);
+    let value = dec.read_value().ok()?;
+    let pairs = match value {
+        Value::Map(p) => p,
+        _ => return None,
+    };
+    let mut typ = None;
+    let mut msg = None;
+    for (k, v) in pairs {
+        if let (Value::Str(name), Value::Str(s)) = (&k, &v) {
+            match name.as_str() {
+                "type" => typ = Some(s.clone()),
+                "message" => msg = Some(s.clone()),
+                _ => {}
+            }
+        }
+    }
+    Some((typ?, msg?))
+}
+
+// Parse a comma-separated `k=v,k2=v2` kwargs spec into the Vec shape
+// expected by `Request.kwargs`. Empty input means no kwargs.
+fn parse_kwargs(spec: &str) -> Result<Vec<(String, Value)>, &'static str> {
+    if spec.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut pairs = Vec::new();
+    for entry in spec.split(',') {
+        let mut kv = entry.splitn(2, '=');
+        let key = kv.next().ok_or("kwargs: missing key")?;
+        let value = kv.next().ok_or("kwargs: missing value")?;
+        pairs.push((key.to_string(), Value::Str(value.to_string())));
+    }
+    Ok(pairs)
+}
+
+fn malformed_rpc_owned(msg: String) -> Outcome {
+    Outcome::Panic(Panic {
+        origin: "sandbox".into(),
+        class: "RuntimeError".into(),
+        message: msg,
+        backtrace: vec!["test-guest:rpc".into()],
+        details: None,
+    })
 }
 
 // ---------------------------------------------------------------------------

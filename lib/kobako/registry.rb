@@ -144,14 +144,18 @@ module Kobako
     # @return [String] msgpack-encoded Response envelope (binary).
     def dispatch(request_bytes)
       encode_ok(wrap_return(perform_dispatch(request_bytes)))
-    rescue Kobako::Wire::Error => e
-      encode_err("runtime", "wire decode failed: #{e.message}")
-    rescue UndefinedTargetError => e
-      encode_err("undefined", e.message)
-    rescue ArgumentError => e
-      encode_err("argument", e.message)
-    rescue StandardError => e
-      encode_err("runtime", "#{e.class}: #{e.message}")
+    rescue => e # rubocop:disable Style/RescueStandardError
+      encode_dispatch_error(e)
+    end
+
+    def encode_dispatch_error(error)
+      case error
+      when Kobako::Wire::Error        then encode_err("runtime", "wire decode failed: #{error.message}")
+      when DisconnectedTargetError    then encode_err("disconnected", error.message)
+      when UndefinedTargetError       then encode_err("undefined", error.message)
+      when ArgumentError              then encode_err("argument", error.message)
+      else                                 encode_err("runtime", "#{error.class}: #{error.message}")
+      end
     end
 
     # Expose the HandleTable for tests and wire-layer Handle wrapping.
@@ -335,6 +339,13 @@ module Kobako
     # taxonomy because the failure is contained at the wire boundary.
     class UndefinedTargetError < StandardError; end
 
+    # Internal sentinel — raised when a Handle target resolves to the
+    # `:disconnected` sentinel in the HandleTable (ABA protection, SPEC.md
+    # E-14). Mapped to Response.err with type="disconnected". Not part of
+    # the public Kobako error taxonomy; failure is contained at the wire
+    # boundary.
+    class DisconnectedTargetError < StandardError; end
+
     def perform_dispatch(request_bytes)
       request = Kobako::Wire::Envelope.decode_request(request_bytes)
       target_object = resolve_target(request.target)
@@ -346,16 +357,16 @@ module Kobako
     # SPEC.md B-16 — A Wire::Handle arriving as a positional or keyword
     # argument identifies a host-side object previously allocated by a prior
     # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
-    # the dispatch reaches `public_send`.
+    # the dispatch reaches `public_send`. A Handle whose entry is the
+    # `:disconnected` sentinel (E-14) raises DisconnectedTargetError so
+    # the dispatcher emits a Response.err with type="disconnected".
     def resolve_arg(value)
       case value
       when Kobako::Wire::Handle
-        @handle_table.fetch(value.id)
+        fetch_live_object(value.id)
       else
         value
       end
-    rescue Kobako::HandleTableError => e
-      raise UndefinedTargetError, e.message
     end
 
     # Resolve a Request target to the Ruby object the Registry (or
@@ -379,7 +390,16 @@ module Kobako
     end
 
     def resolve_handle(handle)
-      @handle_table.fetch(handle.id)
+      fetch_live_object(handle.id)
+    end
+
+    # Resolve +id+ through the HandleTable, distinguishing the
+    # `:disconnected` sentinel (E-14) from an unknown id (E-13).
+    def fetch_live_object(id)
+      object = @handle_table.fetch(id)
+      raise DisconnectedTargetError, "Handle id #{id} is disconnected" if object == :disconnected
+
+      object
     rescue Kobako::HandleTableError => e
       raise UndefinedTargetError, e.message
     end

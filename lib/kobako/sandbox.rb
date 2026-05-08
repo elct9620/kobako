@@ -265,17 +265,27 @@ module Kobako
     end
 
     # Map a decoded Panic envelope into the corresponding three-layer
-    # Ruby exception. `origin == "service"` → ServiceError; everything
+    # Ruby exception. `origin == "service"` → ServiceError (with the
+    # ::Disconnected subclass selected when the panic carries the
+    # disconnected sentinel — SPEC §"Error Class Hierarchy"); everything
     # else → SandboxError.
     def build_panic_error(panic)
-      target_class = panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE ? ServiceError : SandboxError
-      target_class.new(
+      panic_target_class(panic).new(
         panic.message,
         origin: panic.origin,
         klass: panic.klass,
         backtrace_lines: panic.backtrace,
         details: panic.details
       )
+    end
+
+    # SPEC §"Error Class Hierarchy": when origin="service" and the panic
+    # `class` field names ServiceError::Disconnected, surface that subclass
+    # so callers can rescue the disconnected path specifically (E-14).
+    def panic_target_class(panic)
+      return SandboxError unless panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE
+
+      panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
     end
 
     def wire_violation_error(klass, message)
