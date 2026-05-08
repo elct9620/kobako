@@ -252,7 +252,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
-| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
+| **Result / Final State** | Each `#run` call executes with a fresh capability state — the HandleTable counter is reset and no Handles from prior runs are reachable. Service bindings registered on this Sandbox remain active across runs. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
 | **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
@@ -553,7 +553,7 @@ When a guest script wraps a Service call in `begin/rescue`, the RPC failure is h
 
 ### Terminology
 
-This section defines every term used in this specification. Each term has exactly one canonical name; no synonyms are permitted within this document or the kobako codebase public surface.
+This section defines every term used in this specification. Each concept has one primary canonical name. Documented aliases are permitted only when both names appear together in this section with the canonical relationship explicitly stated.
 
 ---
 
@@ -569,6 +569,8 @@ These five roles describe every actor and artifact in the system. All sections o
 | **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Group::Member`). The only mechanism by which guest code can access host resources. | In scope |
 | **Wire Spec** | The MessagePack contract governing all host↔guest RPC messages. Not a runtime object — it is a protocol that both Host Gem and Guest Binary implement independently. | In scope |
 
+*Layer values: **In scope** — designed in this specification; **External** — outside this design, referenced for contract completeness.*
+
 ---
 
 #### Internal Concepts
@@ -581,7 +583,7 @@ These are sub-components and runtime concepts owned by the Host Gem. They are no
 | **Registry** | The Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable. Not exposed to the Host App. | No |
 | **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
 | **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to the Ruby class `Kobako::Handle` (host side) and the `Kobako::Handle` mruby class (guest side). | Partially — `Kobako::Handle` appears in Host App error handling and output, but the Host App has no API to create or inspect Handles directly |
-| **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No distinct class — see Handle |
+| **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No — same visibility as Handle; no distinct class exists |
 | **Stub** | The mruby VM-internal base class (`Kobako::RPC`) that represents a remote Service Member inside the guest. Guest scripts do not reference Stub directly; they see module constants. All method calls on a Stub are forwarded as RPC calls to the host. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
 
 ---
