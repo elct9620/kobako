@@ -616,6 +616,113 @@ These terms describe the two-level Service injection model used to expose host c
 
 ---
 
+### Wire Contract
+
+This section specifies the abstract logical shape of every message exchanged between the Host Gem and the Guest Binary during a `#run` invocation. It is a **Consistency-layer contract**: both sides implement it independently, and a kobako gem release ships exactly one version of it. Byte-level encoding (msgpack type mapping, ext code numbers, binary layout) is specified in the Wire Codec section (Item #10).
+
+---
+
+#### Transport Role
+
+- **Initiator**: the Guest Binary (Guest RPC client) is the sole initiator of all host↔guest communication. The Host Gem never pushes messages to the guest unprompted.
+- **Responder**: the Host Gem handles each request synchronously within the same Wasm import function call frame, then returns the response to the guest before that frame exits.
+- **Synchronicity**: every RPC round-trip is fully synchronous. From the guest mruby script's perspective, a Service method call is an ordinary synchronous function call that completes before the next line executes. There are no callbacks, promises, or yield-resume mechanisms.
+- **Medium**: Wasm linear memory. The guest writes the serialized Request into linear memory and calls a Wasm import function; the host reads and writes through a memory view provided by the Wasm engine. This is an implementation note; the wire contract specifies message shape, not transport mechanics.
+
+---
+
+#### Request Shape
+
+Every host↔guest RPC call carries exactly three logical fields:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `target` | Service Member path (two-level string `"Group::Member"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
+| `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
+| `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
+| `kwargs` | key-value map | Keyword arguments passed to the method. Keys are strings on the wire; the host converts them to Ruby symbols before dispatch. An empty kwargs map is always present (never absent) to keep field positions stable. |
+
+The `target` string form uses Ruby constant-path syntax (`"Group::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
+
+---
+
+#### Response Shape
+
+Every Response carries one of two mutually exclusive variants:
+
+| Variant | Fields | Meaning |
+|---------|--------|---------|
+| **Success** | `status=0`, `value` | The call completed successfully. `value` carries the return value (a primitive or a Capability Handle reference). |
+| **Error** | `status=1`, error envelope | The call failed. The error envelope (see Error Envelope below) describes the failure category and message. |
+
+A Response always matches exactly one variant. There is no partial success or streaming response.
+
+---
+
+#### Capability Handle
+
+A **Capability Handle** is an opaque token the guest holds to reference a stateful host-side Ruby object (e.g., a session, connection, or any object that is not a primitive wire type). The abstract contract is:
+
+- **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request.
+- **Host-allocated**: the wire layer on the host side allocates a Handle automatically whenever a Service method returns a stateful object. The Host App has no API to create or inspect Handles directly.
+- **Scoped to a single `#run`**: a Handle token issued during run N is invalid in run N+1. The HandleTable is fully reset at the start of every `#run`.
+- **Not constructible by the guest**: the guest mruby API does not expose a constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable.
+- **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound). The bound exists because mruby on wasm32 uses signed 32-bit integers; an ID above the cap would arrive as a negative integer at the guest, silently corrupting capability references.
+
+Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in the Wire Codec section (Item #10).
+
+---
+
+#### Error Envelope
+
+The error envelope appears inside a Response `status=1` variant and describes a Service-layer failure. It carries three fields:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `type` | string | One of the four reserved error type names (see table below). Identifies the failure category. |
+| `message` | string | Human-readable description of the failure. |
+| `details` | any (optional) | Structured supplementary information. Omitted or null when not present. |
+
+The four reserved `type` values are:
+
+| `type` value | Failure it represents |
+|---|---|
+| `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
+| `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
+| `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable (ABA protection rule — the ID exists but the entry is invalidated) |
+| `"undefined"` | The `target` string path does not match any registered Service Member, or the `target` Handle ID does not exist in the current run's HandleTable |
+
+These four names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
+
+---
+
+#### Outcome Envelope
+
+The outcome envelope carries the final result of an entire `#run` invocation (the user script's last expression or a top-level execution failure). It is distinct from the per-RPC Response: it is written by the guest at the end of `__kobako_run` and retrieved by the host via an export function after `__kobako_run` returns.
+
+The outcome envelope has two variants:
+
+| Variant | Meaning |
+|---------|---------|
+| **Result envelope** | The script completed without an uncaught top-level exception. Carries the serialized last expression of the mruby script. `Sandbox#run` returns the deserialized Ruby value. |
+| **Panic envelope** | The script terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, and `backtrace` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. |
+
+The host reads zero-length outcome bytes or an unrecognized envelope tag as a wire-violation signal and raises `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted). Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via `Sandbox#stdout` / `Sandbox#stderr`.
+
+---
+
+#### Release-Internal Versioning
+
+The Wire Spec is a **release-internal contract**: the Host Gem and Guest Binary ship together in a single kobako gem release and are always version-coupled. A running sandbox is short-lived (instantiated per `#run`, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast a release.
+
+Consequently:
+
+- **No in-band version field**: the wire envelope does not carry a version number or negotiation field. Version alignment is enforced at the gem release boundary, not at the message level.
+- **No negotiation mechanism**: there is no handshake, capability advertisement, or version dispatch. The single wire shape defined in this release is the only shape either side implements.
+- **Evolution path**: adding, removing, or changing field semantics requires a kobako gem release that updates both host and guest implementations simultaneously. One-sided evolution is not permitted. Release notes and CHANGELOG document wire-affecting changes at the release boundary.
+
+---
+
 ### Naming Principles
 
 The following principles govern how all names in this specification and in the `kobako` public surface are formed. They are declarative rules, not rationale.
