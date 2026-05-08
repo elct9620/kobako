@@ -240,8 +240,16 @@ module Kobako
       when Kobako::Wire::Envelope::OUTCOME_TAG_PANIC
         raise decode_outcome_panic(body)
       else
-        raise TrapError, format("unknown outcome tag 0x%<tag>02x", tag: tag)
+        raise trap_for_tag(tag)
       end
+    end
+
+    # TrapError for unknown or absent tag (SPEC.md §ABI Signatures: len=0
+    # and unknown-tag both walk the trap path).
+    def trap_for_tag(tag)
+      return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
+
+      TrapError.new(format("unknown outcome tag 0x%<tag>02x", tag: tag))
     end
 
     def split_outcome_tag(bytes)
