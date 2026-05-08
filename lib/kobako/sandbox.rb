@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "handle_table"
+require_relative "rpc_dispatcher"
 require_relative "service"
 require_relative "wire/envelope"
 require_relative "wire/error"
@@ -120,6 +121,8 @@ module Kobako
       @stdout_buffer = OutputBuffer.new(@stdout_limit)
       @stderr_buffer = OutputBuffer.new(@stderr_limit)
       @services = Kobako::Service::Registry.new
+      @dispatcher = Kobako::RpcDispatcher.new(registry: @services, handle_table: @handle_table)
+      @instance.set_rpc_dispatcher(@dispatcher)
     end
 
     # Declare or retrieve a Service Group on this Sandbox (SPEC §B-07,

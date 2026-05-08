@@ -8,20 +8,20 @@
 #![allow(unsafe_code)]
 
 use core::cell::RefCell;
-use kobako_wasm::{encode_outcome, Outcome, Panic, ResultEnv, Value};
+use kobako_wasm::{
+    decode_response, encode_outcome, encode_request, Outcome, Panic, Request, Response, ResultEnv,
+    Target, Value,
+};
 
 // Imported so the wasm import table contains `env::__kobako_rpc_call`
-// (an exact-shape match of the production guest). Never invoked here, but
-// the linker would dead-code-strip an unused extern, so we touch it from
-// a never-taken branch in `__kobako_run`.
+// (an exact-shape match of the production guest). Item #18 wires this to
+// the host RPC dispatcher; this fixture invokes it from the `rpc:` source
+// branch to exercise the host-side dispatch path end-to-end.
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn __kobako_rpc_call(req_ptr: u32, req_len: u32) -> u64;
 }
-
-#[cfg(target_arch = "wasm32")]
-static KEEP_ALIVE: bool = false;
 
 // ---------------------------------------------------------------------------
 // Bump allocator backing __kobako_alloc.
@@ -76,17 +76,6 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 /// stdin frame mechanism is a later item.
 #[no_mangle]
 pub extern "C" fn __kobako_run(ptr: u32, len: u32) {
-    #[cfg(target_arch = "wasm32")]
-    unsafe {
-        // Volatile read: the optimizer cannot fold the branch away, but
-        // KEEP_ALIVE is always false so the call never executes. This is
-        // here so the import table contains __kobako_rpc_call for
-        // host-side linker verification.
-        if core::ptr::read_volatile(&KEEP_ALIVE) {
-            let _ = __kobako_rpc_call(0, 0);
-        }
-    }
-
     // Read source bytes from linear memory. On wasm32 the host wrote
     // `len` bytes starting at `ptr`; we re-borrow them as a slice.
     let source: &[u8] = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
@@ -116,6 +105,15 @@ fn build_outcome(source: &[u8]) -> Outcome {
         });
     }
 
+    // `rpc:Group::Member:method:argument` — exercise the host-side RPC
+    // dispatch path (item #18). Build a Request envelope, hand it to
+    // `__kobako_rpc_call`, decode the Response, and embed the outcome
+    // value (or an "err:<type>" sentinel) in a Result envelope so the
+    // host test can assert the round-trip.
+    if let Some(rest) = text.strip_prefix("rpc:") {
+        return run_rpc(rest);
+    }
+
     // `handle:N` — emit a Result envelope carrying ext 0x01 Handle(N).
     // Used by host tests to stage a Handle id whose validity must NOT
     // survive into the next #run (cross-run Handle invalidity).
@@ -135,6 +133,114 @@ fn build_outcome(source: &[u8]) -> Outcome {
         Err(_) => Outcome::Result(ResultEnv {
             value: Value::Str(text.to_string()),
         }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// rpc:Group::Member:method:argument — drive the host RPC dispatch path.
+// ---------------------------------------------------------------------------
+//
+// Source format (deliberately tiny — this fixture is a string-driven
+// trigger, not an mruby host). Fields separated by `|` to avoid
+// ambiguity with the `::` namespace separator inside the target path:
+//
+//     rpc:<Group::Member>|<method>|<argument>
+//
+// Builds a Request envelope `[Path("Group::Member"), method, [argument], {}]`,
+// invokes `__kobako_rpc_call`, decodes the Response, and wraps the outcome
+// in a Result envelope so the host test can assert the round-trip.
+//
+//   * Response.ok(Value::Str(s))   → Result(Value::Str(s))
+//   * Response.ok(Value::Int(n))   → Result(Value::Int(n))
+//   * Response.ok(<other>)         → Result(Str("ok:<other>"))
+//   * Response.err(<exception>)    → Result(Str("err:<type>"))
+//
+// Returns a Panic envelope when the source format is malformed or when
+// the host import returns a zero packed value (wire-layer failure).
+fn run_rpc(rest: &str) -> Outcome {
+    let parts: Vec<&str> = rest.splitn(3, '|').collect();
+    if parts.len() != 3 {
+        return malformed_rpc("expected rpc:Group::Member|method|argument");
+    }
+    let target = parts[0];
+    let method = parts[1];
+    let argument = parts[2];
+
+    let req = Request {
+        target: Target::Path(target.to_string()),
+        method: method.to_string(),
+        args: vec![Value::Str(argument.to_string())],
+        kwargs: vec![],
+    };
+    let req_bytes = match encode_request(&req) {
+        Ok(b) => b,
+        Err(_) => return malformed_rpc("encode_request failed"),
+    };
+
+    let resp_bytes = match invoke_rpc_import(&req_bytes) {
+        Some(b) => b,
+        None => return malformed_rpc("rpc import returned 0 (wire fault)"),
+    };
+
+    let response = match decode_response(&resp_bytes) {
+        Ok(r) => r,
+        Err(_) => return malformed_rpc("decode_response failed"),
+    };
+
+    match response {
+        Response::Ok(Value::Str(s)) => Outcome::Result(ResultEnv {
+            value: Value::Str(s),
+        }),
+        Response::Ok(Value::Int(n)) => Outcome::Result(ResultEnv {
+            value: Value::Int(n),
+        }),
+        Response::Ok(Value::Nil) => Outcome::Result(ResultEnv { value: Value::Nil }),
+        Response::Ok(other) => Outcome::Result(ResultEnv {
+            value: Value::Str(format!("ok:{:?}", other)),
+        }),
+        Response::Err(payload) => {
+            // Best-effort surface of the exception type. The payload is
+            // a msgpack map carried opaquely by the codec; rather than
+            // re-decode it, we return a fixed marker so the host test
+            // can assert the err-branch was taken.
+            Outcome::Result(ResultEnv {
+                value: Value::Str(format!("err:{}bytes", payload.len())),
+            })
+        }
+    }
+}
+
+fn malformed_rpc(msg: &str) -> Outcome {
+    Outcome::Panic(Panic {
+        origin: "sandbox".into(),
+        class: "RuntimeError".into(),
+        message: msg.into(),
+        backtrace: vec!["test-guest:rpc".into()],
+        details: None,
+    })
+}
+
+/// Invoke the `__kobako_rpc_call` host import and read the response
+/// bytes back from guest linear memory. Returns `None` when the host
+/// returns 0 (reserved for wire-layer faults).
+fn invoke_rpc_import(req_bytes: &[u8]) -> Option<Vec<u8>> {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        let req_ptr = req_bytes.as_ptr() as u32;
+        let req_len = req_bytes.len() as u32;
+        let packed = __kobako_rpc_call(req_ptr, req_len);
+        if packed == 0 {
+            return None;
+        }
+        let resp_ptr = (packed >> 32) as u32;
+        let resp_len = (packed & 0xffff_ffff) as u32;
+        let slice = core::slice::from_raw_parts(resp_ptr as *const u8, resp_len as usize);
+        Some(slice.to_vec())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = req_bytes;
+        None
     }
 }
 
