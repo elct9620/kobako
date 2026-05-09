@@ -23,9 +23,9 @@ Metrics/ClassLength:
 
 Metrics/MethodLength:
   Exclude:
-    - "test/**/*"
     - "tasks/**/*"
     - "lib/kobako/wire/**/*"
+    - "test/test_codec_roundtrip_fuzz.rb"
 
 Metrics/AbcSize:
   Exclude:

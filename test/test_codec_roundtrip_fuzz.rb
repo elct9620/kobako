@@ -86,23 +86,28 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def setup
+    check_oracle_status
+    initialize_fuzzer_params
+  end
+
+  private
+
+  def check_oracle_status
     case self.class.ensure_oracle_built
     when :no_cargo
       skip "cargo not on PATH — skipping codec round-trip fuzz (install rustup to enable)"
     when :build_failed
       flunk "cargo build --release roundtrip_oracle failed:\n#{@@oracle_build_error}"
     end
+  end
 
+  def initialize_fuzzer_params
     @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "1000").to_i
     @iterations = 100_000 if ENV["KOBAKO_FUZZ_HEAVY"] == "1"
     @seed = (ENV["KOBAKO_FUZZ_SEED"] || Random.new_seed.to_s).to_i
     @rng = Random.new(@seed)
     @coverage = Hash.new(0)
   end
-
-  # ---------------------------------------------------------------------
-  # The fuzz test itself.
-  # ---------------------------------------------------------------------
 
   def test_round_trip_fuzz
     stdin, stdout, wait_thr = Open3.popen2(ORACLE_BIN)
@@ -143,8 +148,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
     puts "\nfuzz coverage (seed=#{@seed}, iterations=#{@iterations}): #{@coverage.inspect}"
   end
-
-  private
 
   def run_one(value, iter, stdin, stdout)
     encoded_a = Encoder.encode(value)
