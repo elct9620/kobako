@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path | select(endswith(\".rb\"))'); if [ -n \"$file\" ]; then bundle exec rubocop -A --stderr \"$file\" || exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
