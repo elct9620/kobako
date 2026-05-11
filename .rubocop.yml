@@ -73,9 +73,11 @@ Style/OneClassPerFile:
 # `private; CONSTANT = ...` inside `class << self` blocks is interpreted by
 # rubocop as scoping the constant, but we use it to keep the constant adjacent
 # to the private methods that consume it. Behaviour is unchanged.
+# Applies specifically to the fuzz harness (test_codec_roundtrip_fuzz.rb),
+# which defines private sentinel constants inline with the methods that use them.
 Lint/UselessConstantScoping:
   Exclude:
-    - "test/**/*"
+    - "test/test_codec_roundtrip_fuzz.rb"
 
 # Platform-detection branches intentionally collapse to identical defaults
 # (e.g. "x86_64-linux") for unrecognised host triples; the duplication keeps
