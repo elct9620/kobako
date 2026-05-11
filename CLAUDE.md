@@ -85,7 +85,7 @@ The repo-root `Cargo.toml` is a workspace containing only `ext/kobako` (the host
 
 ## Conventions
 
-- **Cite SPEC.md.** Reference behavior contracts in committed code via SPEC.md anchors (B-xx / E-xx). When the spec is silent, extend SPEC.md first, then cite the new anchor.
+- **Cite SPEC.md.** Reference behavior contracts in committed code via SPEC.md anchors (B-xx / E-xx). When the spec is silent, extend SPEC.md first, then cite the new anchor. Render the citation as an RDoc link — `{SPEC.md §B-04}[link:../../SPEC.md]` — with the relative path resolved from the current file's location (e.g. `../../SPEC.md` from `lib/kobako/*.rb`).
 - **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` are committed alongside dependency changes.
 - **Ruby comments use RDoc format.** Describe parameters, return values, and raised exceptions in prose paragraphs; wrap identifiers in `+code+` and use `:call-seq:` for non-obvious call signatures. Prefer plain prose over tag-style annotations (`@param` / `@return` / `@raise` belong to YARD and should be migrated to RDoc when touching nearby code).
 - **`test/` hosts Minitest specs of gem runtime behavior.** Keep build/packaging/lint/static-check wrappers under `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) live in `test/`.
