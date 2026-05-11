@@ -179,6 +179,31 @@ module Kobako
       refute table.include?(id2)
     end
 
+    # ---------- mark_disconnected: ABA protection sentinel ----------
+
+    def test_mark_disconnected_replaces_entry_with_disconnected_sentinel
+      # Arrange
+      table = Table.new
+      id = table.alloc(Object.new)
+
+      # Act
+      table.mark_disconnected(id)
+
+      # Assert — SPEC E-14: entry becomes the :disconnected sentinel so that
+      # any subsequent fetch returns the sentinel rather than the original object.
+      assert_equal :disconnected, table.fetch(id)
+    end
+
+    def test_mark_disconnected_ignores_unknown_id
+      # Arrange
+      table = Table.new
+      table.alloc(Object.new) # id 1
+
+      # Act + Assert — silently ignored; no exception, no state change.
+      assert_nil table.mark_disconnected(999)
+      assert_equal 1, table.size
+    end
+
     # ---------- Error class hierarchy sanity ----------
 
     def test_handle_table_error_is_sandbox_error_subclass

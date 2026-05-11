@@ -75,9 +75,16 @@ Three top-level branches, all under `Kobako::Error`:
 
 MessagePack with two registered ext types: `0x01` Capability Handle, `0x02` Exception envelope. The host side is built on the `msgpack` gem + a `Factory` (`lib/kobako/wire/factory.rb`); the guest side uses the `rmp` crate. Envelope kinds (Request/Response/Result/Panic) and the outer Outcome wrapper live in `lib/kobako/wire/envelope.rb`. **`Wire::Envelope` is the only place where binary framing rules live** — Encoder/Decoder primitives stay byte-only.
 
-### Registry / HandleTable (`lib/kobako/registry.rb`)
+### Registry / HandleTable
 
-`Registry` is the per-Sandbox container for Service Groups and the `HandleTable`. `Registry#dispatch(request_bytes)` is the host-side RPC entry point called from the native ext during `__kobako_rpc_call`; it **never raises** — every failure is reified as a `Response.err` envelope with one of these `type`s: `"undefined"`, `"disconnected"`, `"argument"`, `"runtime"`. Service methods whose return value is not wire-representable are routed through `HandleTable#alloc` and the guest receives a `Wire::Handle` (B-14). HandleTable IDs are scoped to one `#run` (B-15) and capped at `0x7fff_ffff` (B-21).
+The registry internals are split across four files:
+
+- `lib/kobako/registry.rb` — façade: the public `Registry` class that owns and delegates to the internal components.
+- `lib/kobako/registry/service_group.rb` — `ServiceGroup` definition and member registration.
+- `lib/kobako/registry/handle_table.rb` — `HandleTable`: opaque integer Handle ID ↔ Ruby object mapping.
+- `lib/kobako/registry/dispatcher.rb` — `Registry#dispatch(request_bytes)`: host-side RPC entry point called from the native ext during `__kobako_rpc_call`; it **never raises** — every failure is reified as a `Response.err` envelope with one of these `type`s: `"undefined"`, `"disconnected"`, `"argument"`, `"runtime"`.
+
+Service methods whose return value is not wire-representable are routed through `HandleTable#alloc` and the guest receives a `Wire::Handle` (B-14). HandleTable IDs are scoped to one `#run` (B-15) and capped at `0x7fff_ffff` (B-21).
 
 ### Cargo workspace layout
 
