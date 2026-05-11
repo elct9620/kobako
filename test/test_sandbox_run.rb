@@ -215,26 +215,3 @@ class TestSandboxRun < Minitest::Test
     assert_equal 2, sandbox.run("2")
   end
 end
-
-# Real-tier E2E — runs only when KOBAKO_E2E_BUILD=1 is set AND the heavy
-# `data/kobako.wasm` artifact has been built (rake wasm:guest). Skipped in
-# normal lanes because the build chain (vendor + mruby + cargo) is slow.
-class TestSandboxRunRealTier < Minitest::Test
-  REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
-
-  def setup
-    skip "set KOBAKO_E2E_BUILD=1 to run real-tier sandbox#run coverage" \
-      unless ENV["KOBAKO_E2E_BUILD"] == "1"
-    skip "data/kobako.wasm missing (run `bundle exec rake wasm:guest`)" \
-      unless File.exist?(REAL_WASM)
-    skip "native ext not compiled" unless defined?(Kobako::Wasm::Engine)
-  end
-
-  def test_real_guest_returns_value_from_simple_expression
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    # Real mruby integration; expression semantics depend on the boot
-    # script + mruby. This is a smoke assertion — exact value contract
-    # belongs in item #17+ once the production guest path stabilises.
-    refute_nil sandbox.run("1 + 1")
-  end
-end

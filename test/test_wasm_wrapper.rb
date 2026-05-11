@@ -10,9 +10,9 @@ require "test_helper"
 # us coverage of the full Engine -> Module -> Store -> Instance pipeline
 # plus an export lookup, without depending on the full guest binary.
 #
-# Real tier — gated on KOBAKO_E2E_BUILD=1; loads the actual data/kobako.wasm
-# produced by item #11 and asserts the three guest exports plus the
-# `__kobako_rpc_call` host import surface line up with Ch.4 §Wire ABI.
+# Real tier — runs when data/kobako.wasm exists (built by `rake wasm:guest`,
+# which the default test task now pulls in as a prerequisite). Asserts the
+# three guest exports line up with Ch.4 §Wire ABI.
 class TestWasmWrapper < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
@@ -69,7 +69,6 @@ class TestWasmWrapper < Minitest::Test
   end
 
   def test_real_guest_binary_when_built
-    skip "set KOBAKO_E2E_BUILD=1 to run the real-tier wasm wrapper test" unless ENV["KOBAKO_E2E_BUILD"] == "1"
     skip "data/kobako.wasm not built; run `bundle exec rake wasm:guest`" unless File.exist?(Kobako::Wasm.default_path)
 
     engine = Kobako::Wasm::Engine.new

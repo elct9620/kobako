@@ -23,4 +23,10 @@ end
 # self-contained; see tasks/vendor.rake for the wasi-sdk / mruby fetch flow.
 Dir.glob("tasks/*.rake").each { |t| load t }
 
+# data/kobako.wasm is gitignored and required by Layer 4 journey tests
+# (test/test_e2e_journeys.rb) plus the real-tier wasm wrapper check. The
+# wasm:guest task is idempotent (mtime short-circuit), so this only does
+# real work on a clean clone or when the wasm crate source changes.
+task test: "wasm:guest"
+
 task default: %i[compile test rubocop]
