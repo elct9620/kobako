@@ -316,6 +316,13 @@ module Kobako
         assert_equal expected, hex(bytes)
       end
 
+      def test_outcome_construction_validates_payload_type
+        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: "string") }
+        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: 42) }
+        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: nil) }
+        assert_raises(ArgumentError) { Envelope::Outcome.panic("not a panic") }
+      end
+
       # ============================================================
       # Cross-envelope nesting (Handle/Exception inside outer envelopes)
       # ============================================================
