@@ -20,13 +20,6 @@ Metrics/AbcSize:
   Exclude:
     - "test/**/*"
 
-# envelope.rb is 145 lines (limit 100): the module hosts the full SPEC envelope
-# dispatch (Request/Response/Result/Panic/Outcome); splitting it would scatter
-# the SPEC->code mapping across files.
-Metrics/ModuleLength:
-  Exclude:
-    - "lib/kobako/wire/**/*"
-
 # Test helpers parse WASM sections and generate fuzzed values via tag dispatch;
 # the cyclomatic shape mirrors the format spec and is intentional.
 Metrics/CyclomaticComplexity:
