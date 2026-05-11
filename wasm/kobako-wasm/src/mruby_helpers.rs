@@ -10,7 +10,7 @@
 //! ## Methods on `mrb_value`
 //!
 //! All three are `unsafe` — they forward to FFI calls that require a
-//! live `mrb_state *` produced the same VM as `self`.
+//! live `mrb_state *` produced by the same VM as `self`.
 //!
 //!   * [`mrb_value::classname`] — Ruby class name of this value.
 //!   * [`mrb_value::to_string`] — coerce to Rust `String` via
@@ -102,7 +102,22 @@ impl sys::mrb_value {
     /// ```
     ///
     /// Returns `String::new()` on any failure (NULL pointer, non-UTF-8
-    /// content).
+    /// content, or `.to_s` raising a Ruby exception).
+    ///
+    /// ## Exception handling
+    ///
+    /// If `.to_s` raises a Ruby exception (e.g. a user object overrides
+    /// `to_s` with `raise`), the failure is **swallowed**: the pending
+    /// `mrb->exc` is cleared via `mrb_check_error` and an empty
+    /// `String` is returned. This prevents the leaked exception from
+    /// corrupting subsequent mruby calls in the same C bridge.
+    ///
+    /// Callers that need to distinguish "`.to_s` raised" from "`.to_s`
+    /// returned `\"\"`" must check `mrb_check_error` themselves before
+    /// invoking `to_string` — at the moment no caller in the guest
+    /// crate does so, because every call site is on a value whose
+    /// `.to_s` is built-in (`Integer`, `Float`, `String`, `Symbol`,
+    /// `Exception#message`).
     ///
     /// # Safety
     ///
@@ -113,6 +128,11 @@ impl sys::mrb_value {
         let s_val = self.call(mrb, cstr!("to_s"), &[]);
         let ptr = sys::mrb_str_to_cstr(mrb, s_val);
         if ptr.is_null() {
+            // `.to_s` raised or returned a non-String. Clear `mrb->exc`
+            // so subsequent mruby calls in the same C bridge don't see
+            // corrupted state. See the "Exception handling" doc note
+            // above for the rationale.
+            let _ = sys::mrb_check_error(mrb);
             return String::new();
         }
         core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string()

@@ -34,6 +34,8 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
+use crate::cstr;
+
 /// Wasm namespace the host import lives in (`env`, per SPEC.md "ABI
 /// Signatures").
 pub const IMPORT_MODULE: &str = "env";
@@ -131,7 +133,6 @@ pub extern "C" fn __kobako_run() {
     {
         use crate::boot::mrb_kobako_init;
         use crate::codec::Value;
-        use crate::cstr;
         use crate::envelope::{encode_outcome, Outcome, Panic, ResultEnv};
         use crate::mruby_sys as sys;
         use std::io::Read;
@@ -384,7 +385,6 @@ pub extern "C" fn __kobako_run() {
 #[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 unsafe fn mrb_value_to_wire(mrb: *mut crate::mruby_sys::mrb_state, val: crate::mruby_sys::mrb_value) -> crate::codec::Value {
     use crate::codec::Value;
-    use crate::cstr;
 
     match val.classname(mrb) {
         "NilClass" => Value::Nil,
