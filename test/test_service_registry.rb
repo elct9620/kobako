@@ -179,7 +179,7 @@ class TestServiceRegistry < Minitest::Test
   end
 
   # Item #25 — `guest_preamble` returns msgpack-encoded bytes matching the
-  # two-level preamble array structure (SPEC.md §Sandbox#run 實作要點 step 1).
+  # two-level preamble array structure ({SPEC.md §B-02}[link:../../SPEC.md]).
   def test_guest_preamble_returns_msgpack_encoded_preamble
     require "msgpack"
     @sandbox.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)

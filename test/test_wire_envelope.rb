@@ -253,6 +253,15 @@ module Kobako
         assert_raises(InvalidType) { Envelope.decode_panic(bytes) }
       end
 
+      def test_panic_construction_validates_field_types
+        assert_raises(ArgumentError) { Envelope::Panic.new(origin: 123,       klass: "E", message: "m") }
+        assert_raises(ArgumentError) { Envelope::Panic.new(origin: "sandbox", klass: :sym, message: "m") }
+        assert_raises(ArgumentError) { Envelope::Panic.new(origin: "sandbox", klass: "E", message: nil) }
+        assert_raises(ArgumentError) do
+          Envelope::Panic.new(origin: "sandbox", klass: "E", message: "m", backtrace: "str")
+        end
+      end
+
       # ============================================================
       # Outcome envelope (tagged wrapper)
       # ============================================================
