@@ -241,71 +241,15 @@ pub extern "C" fn __kobako_run() {
             return;
         }
 
-        // --- Install Kobako module + Kobako::RPC base class ---
+        // --- Install Kobako module, RPC / Handle classes, error classes,
+        // and Kernel#puts / Kernel#p via the mruby C API ---
+        //
+        // `mrb_kobako_init` registers every boot-time entity through
+        // `mrb_define_module` / `mrb_define_class_under` /
+        // `mrb_define_method`. No Ruby source is loaded into the VM
+        // before the user script — see `crate::boot` module docs.
 
         unsafe { mrb_kobako_init(mrb) };
-
-        // --- Ruby preload: define Kernel#puts (missing from core mruby) ---
-        //
-        // mruby's core provides Kernel#print (routes to wasi-libc fwrite(stdout))
-        // via print.c when mruby-io is absent. Kernel#puts is only defined by the
-        // mruby-io gem, which cannot be included in the wasm32-wasip1 build because
-        // it uses POSIX <pwd.h> etc. Define a minimal puts on top of print here.
-        // Any parse/runtime error in the preload aborts with a BootError.
-        {
-            let preload: &[u8] = br#"
-# Kernel#puts: not available in core mruby without mruby-io.
-# mruby-io requires POSIX <pwd.h> absent in wasm32-wasip1.
-# Implement on top of Kernel#print (always available in core mruby).
-module Kernel
-  private
-  def puts(*args)
-    args = [''] if args.empty?
-    args.each do |a|
-      if a.is_a?(Array)
-        puts(*a)
-      else
-        s = a.to_s
-        print s
-        print "\n" unless s.length > 0 && s.getbyte(s.length - 1) == 10
-      end
-    end
-    nil
-  end
-  def p(*args)
-    args.each { |a| print a.inspect; print "\n" }
-    args.length == 1 ? args[0] : args
-  end
-end
-
-# Kobako::ServiceError: stub class used by the C bridge to distinguish
-# service-origin exceptions from sandbox-origin exceptions. The class
-# name is checked on the host side (Sandbox#build_panic_error) to route
-# to Kobako::ServiceError vs. Kobako::SandboxError.
-module Kobako
-  class ServiceError < RuntimeError; end
-  class WireError < RuntimeError; end
-end
-"#;
-            unsafe {
-                sys::mrb_load_nstring(
-                    mrb,
-                    preload.as_ptr() as *const core::ffi::c_char,
-                    preload.len(),
-                )
-            };
-            // Preload should never fail, but clear any error defensively.
-            let preload_err = unsafe { sys::mrb_check_error(mrb) };
-            if preload_err != 0 {
-                unsafe { sys::mrb_close(mrb) };
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "mruby puts preload failed",
-                );
-                return;
-            }
-        }
 
         // --- Install Service Group modules + Member subclasses (Frame 1) ---
 

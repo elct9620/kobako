@@ -37,7 +37,8 @@
 //!   * `mrb_class_name`
 //!   * `mrb_get_args`
 //!   * `mrb_str_new` / `mrb_str_to_cstr` (string round-trip)
-//!   * `mrb_raise` / `mrb_class_get_under` (exception path)
+//!   * `mrb_raise` / `mrb_class_get_under` / `mrb_class_get` /
+//!     `mrb_module_get` (exception path + Kernel registration)
 //!   * The `mrb_value` boxing helpers (declared as opaque `extern "C"`
 //!     to side-step the static-inline issue — the future
 //!     `crates/mruby-sys/wrapper.h` shim path).
@@ -370,6 +371,26 @@ extern "C" {
     /// `mrb_iv_get(mrb, obj, sym)` — returns the instance variable identified
     /// by `sym` on `obj`, or `mrb_nil_value()` if not set.
     pub fn mrb_iv_get(mrb: *mut mrb_state, obj: mrb_value, sym: mrb_sym) -> mrb_value;
+
+    /// `mrb_class_get(mrb, name)` — fetches a top-level class by name
+    /// (e.g. `"RuntimeError"`). Used to resolve the parent class for
+    /// `Kobako::ServiceError` / `Kobako::WireError` in `mrb_kobako_init`.
+    pub fn mrb_class_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
+
+    /// `mrb_module_get(mrb, name)` — fetches a top-level module by name
+    /// (e.g. `"Kernel"`). Used to register `Kernel#puts` / `Kernel#p`
+    /// via `mrb_define_method` without going through `mrb_load_nstring`.
+    pub fn mrb_module_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
+
+    /// `mrb_ary_new_from_values(mrb, size, vals)` — constructs a new
+    /// mruby Array containing `size` copies of the elements pointed to
+    /// by `vals`. Used by `Kernel#p` to return the original args array
+    /// when called with multiple arguments.
+    pub fn mrb_ary_new_from_values(
+        mrb: *mut mrb_state,
+        size: i32,
+        vals: *const mrb_value,
+    ) -> mrb_value;
 
     /// `kobako_get_exc(mrb)` — layout-safe accessor for `mrb->exc`.
     ///

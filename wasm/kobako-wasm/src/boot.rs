@@ -2,8 +2,8 @@
 //!
 //! This module replaces the previous `boot.rb` + `include_str!`
 //! mechanism with the **mruby C API path**. No Ruby text is loaded into
-//! the mruby VM at boot time; instead, the three foundational entities
-//! are registered directly via C API calls:
+//! the mruby VM at boot time; instead, every foundational entity is
+//! registered directly via C API calls:
 //!
 //!   1. `Kobako` module — `mrb_define_module(mrb, "Kobako")`.
 //!   2. `Kobako::RPC` base class — `mrb_define_class_under(mrb,
@@ -18,9 +18,23 @@
 //!      subclasses (path target) and `Kobako::Handle` instances (handle
 //!      target — wire ext 0x01, see SPEC.md "ext 0x01 — Capability
 //!      Handle").
+//!   4. `Kobako::Handle` class — instance subclass of `Object` carrying a
+//!      Handle id in `@__kobako_id__`. `initialize`, `method_missing`
+//!      and `respond_to_missing?` are all C bridges.
+//!   5. `Kobako::ServiceError < RuntimeError` and
+//!      `Kobako::WireError < RuntimeError` — raised by the Rust bridges
+//!      via `mrb_raise`.
+//!   6. `Kernel#puts` and `Kernel#p` — mruby core only registers
+//!      `Kernel#print`; `puts`/`p` are normally provided by the
+//!      `mruby-io` gem, which depends on POSIX `<pwd.h>` and is absent
+//!      from the wasm32-wasip1 allowlist (`build_config/wasi.rb`). We
+//!      re-implement them as C bridges that delegate to `Kernel#print`
+//!      via `mrb_funcall`.
 //!
-//! `mrb_load_string` is intentionally not used for the boot/preload
-//! phase — every entity is defined via C API. This file never inspects
+//! `mrb_load_string` / `mrb_load_nstring` is intentionally not used for
+//! the boot/preload phase — every entity above is defined via C API.
+//! The only `mrb_load_nstring` call sites in the guest are inside
+//! `__kobako_run` for evaluating Frame 2 (the user script). This file never inspects
 //! or constructs `mrb_value` payloads; it forwards them through the FFI
 //! shims in `mruby_sys.rs`.
 //!
@@ -78,6 +92,29 @@ const INITIALIZE_NAME: &[u8] = b"initialize\0";
 /// Uses a mangled name to avoid collision with user-defined ivars.
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
+/// `b"ServiceError\0"`. Subclass of `RuntimeError`; raised by the Rust
+/// bridge when the host returns a Service-origin Panic.
+#[cfg(target_arch = "wasm32")]
+const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
+/// `b"RuntimeError\0"` — top-level mruby class used as the parent of
+/// `Kobako::ServiceError` / `Kobako::WireError`.
+#[cfg(target_arch = "wasm32")]
+const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
+/// `b"Kernel\0"` — top-level mruby module. Receives our `puts` / `p`
+/// instance methods (mruby core lacks them without `mruby-io`, which
+/// can't compile for `wasm32-wasip1`).
+#[cfg(target_arch = "wasm32")]
+const KERNEL_NAME: &[u8] = b"Kernel\0";
+/// `b"puts\0"`, `b"p\0"` — method names registered on `Kernel`.
+#[cfg(target_arch = "wasm32")]
+const PUTS_NAME: &[u8] = b"puts\0";
+#[cfg(target_arch = "wasm32")]
+const P_NAME: &[u8] = b"p\0";
+/// `b"print\0"` — method we delegate to from `Kernel#puts` / `Kernel#p`.
+/// Provided by mruby's `mruby-print` mrbgem (always present in the
+/// kobako wasi build — see `build_config/wasi.rb`).
+#[cfg(target_arch = "wasm32")]
+const PRINT_NAME: &[u8] = b"print\0";
 
 // --------------------------------------------------------------------
 // Public entry point.
@@ -199,6 +236,61 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
             handle_class,
             RESPOND_TO_MISSING_NAME.as_ptr() as *const core::ffi::c_char,
             rpc_respond_to_missing,
+            sys::MRB_ARGS_ANY,
+        );
+
+        // (6) `Kobako::ServiceError` / `Kobako::WireError` — both subclass
+        //     `RuntimeError`. The Rust bridges in this file raise them
+        //     directly via `mrb_raise`, so the classes must exist before
+        //     `__kobako_run` enters the user-script phase.
+        //
+        //     Resolve `RuntimeError` via `mrb_class_get` (top-level) rather
+        //     than `mrb_class_get_under(mrb, object_class, ...)`; mruby
+        //     core registers RuntimeError as a top-level class in
+        //     `mrb_init_exception`.
+        let runtime_error_class = sys::mrb_class_get(
+            mrb,
+            RUNTIME_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+        );
+        sys::mrb_define_class_under(
+            mrb,
+            kobako_mod,
+            SERVICE_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+            runtime_error_class,
+        );
+        sys::mrb_define_class_under(
+            mrb,
+            kobako_mod,
+            WIRE_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+            runtime_error_class,
+        );
+
+        // (7) `Kernel#puts` / `Kernel#p`.
+        //
+        // mruby's core kernel.c registers `Kernel#print` (routes to wasi-libc
+        // fwrite(stdout)) unconditionally — see vendor/mruby/src/kernel.c
+        // and vendor/mruby/src/print.c — but `puts` / `p` only exist when the
+        // `mruby-io` mrbgem is linked in. `mruby-io` requires POSIX <pwd.h>
+        // and is absent from kobako's `wasm32-wasip1` allowlist
+        // (`build_config/wasi.rb`), so we register both methods here via
+        // `mrb_define_method` and have the C bridge bodies delegate to
+        // `Kernel#print` through `mrb_funcall`.
+        let kernel_mod = sys::mrb_module_get(
+            mrb,
+            KERNEL_NAME.as_ptr() as *const core::ffi::c_char,
+        );
+        sys::mrb_define_method(
+            mrb,
+            kernel_mod,
+            PUTS_NAME.as_ptr() as *const core::ffi::c_char,
+            kernel_puts,
+            sys::MRB_ARGS_ANY,
+        );
+        sys::mrb_define_method(
+            mrb,
+            kernel_mod,
+            P_NAME.as_ptr() as *const core::ffi::c_char,
+            kernel_p,
             sys::MRB_ARGS_ANY,
         );
     }
@@ -525,6 +617,212 @@ unsafe extern "C" fn rpc_respond_to_missing(
     #[cfg(target_arch = "wasm32")]
     {
         mrb_true_value()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        sys::mrb_value::zeroed()
+    }
+}
+
+// --------------------------------------------------------------------
+// `Kernel#puts` / `Kernel#p` C bridges.
+// --------------------------------------------------------------------
+//
+// Both bridges delegate to `Kernel#print` via `mrb_funcall`. We take the
+// `mrb_funcall` route rather than calling mruby's internal `mrb_print_m`
+// directly because `mrb_print_m` is not part of the public mruby C API
+// (it's a static handler installed in `kernel.c`).
+//
+// `puts` semantics matched against MRI:
+//   * No args             → emit a single "\n".
+//   * `Array` arg         → recurse into each element (one line per
+//                            non-Array element, preserving order).
+//   * Other args          → call `.to_s`, print, append "\n" unless the
+//                            string already ends in "\n".
+//
+// `p` semantics matched against MRI:
+//   * Each arg            → print `arg.inspect` followed by "\n".
+//   * Returns the single arg if `argc == 1`, the args Array otherwise,
+//     `nil` when called with no arguments.
+
+/// Helper: print a single mruby `String` via `Kernel#print`. Uses
+/// `mrb_funcall` so we don't depend on mruby's static `mrb_print_m`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn print_str(mrb: *mut sys::mrb_state, self_: sys::mrb_value, s: sys::mrb_value) {
+    sys::mrb_funcall(
+        mrb,
+        self_,
+        PRINT_NAME.as_ptr() as *const core::ffi::c_char,
+        1,
+        s,
+    );
+}
+
+/// Helper: print one element for `Kernel#puts`. Recurses for Array
+/// elements; otherwise calls `.to_s`, prints, and appends `"\n"` unless
+/// the string already ends with `"\n"`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn puts_one(
+    mrb: *mut sys::mrb_state,
+    self_: sys::mrb_value,
+    arg: sys::mrb_value,
+    nl: sys::mrb_value,
+) {
+    let classname_ptr = sys::mrb_obj_classname(mrb, arg);
+    let classname = if classname_ptr.is_null() {
+        ""
+    } else {
+        core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
+    };
+    if classname == "Array" {
+        let len = mrb_collection_len(mrb, arg);
+        for i in 0..len {
+            let elem = sys::mrb_ary_entry(arg, i as i32);
+            puts_one(mrb, self_, elem, nl);
+        }
+        return;
+    }
+
+    let s_val = sys::mrb_funcall(
+        mrb,
+        arg,
+        b"to_s\0".as_ptr() as *const core::ffi::c_char,
+        0,
+    );
+    print_str(mrb, self_, s_val);
+
+    // Append newline unless the printed string already ended with "\n".
+    // We inspect the byte at `length - 1` via Ruby (`bytesize` + `getbyte`)
+    // rather than `mrb_str_to_cstr` so embedded NULs and binary content
+    // are handled correctly.
+    let bytesize_val = sys::mrb_funcall(
+        mrb,
+        s_val,
+        b"bytesize\0".as_ptr() as *const core::ffi::c_char,
+        0,
+    );
+    // bytesize returns a small Integer; route through to_s + parse to
+    // avoid depending on a private boxing-int unbox shim.
+    let bs_str = sys::mrb_funcall(
+        mrb,
+        bytesize_val,
+        b"to_s\0".as_ptr() as *const core::ffi::c_char,
+        0,
+    );
+    let bs_ptr = sys::mrb_str_to_cstr(mrb, bs_str);
+    let bs: usize = if bs_ptr.is_null() {
+        0
+    } else {
+        core::ffi::CStr::from_ptr(bs_ptr)
+            .to_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0)
+    };
+    if bs == 0 {
+        print_str(mrb, self_, nl);
+        return;
+    }
+    let last_idx = sys::mrb_boxing_int_value(mrb, (bs - 1) as i32);
+    let last_byte_val = sys::mrb_funcall(
+        mrb,
+        s_val,
+        b"getbyte\0".as_ptr() as *const core::ffi::c_char,
+        1,
+        last_idx,
+    );
+    let lb_str = sys::mrb_funcall(
+        mrb,
+        last_byte_val,
+        b"to_s\0".as_ptr() as *const core::ffi::c_char,
+        0,
+    );
+    let lb_ptr = sys::mrb_str_to_cstr(mrb, lb_str);
+    let lb: i32 = if lb_ptr.is_null() {
+        0
+    } else {
+        core::ffi::CStr::from_ptr(lb_ptr)
+            .to_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0)
+    };
+    if lb != 10 {
+        print_str(mrb, self_, nl);
+    }
+}
+
+/// `Kernel#puts(*args)` C bridge.
+#[allow(unused_variables)]
+unsafe extern "C" fn kernel_puts(
+    mrb: *mut sys::mrb_state,
+    self_: sys::mrb_value,
+) -> sys::mrb_value {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut args_ptr: *const sys::mrb_value = core::ptr::null();
+        let mut args_len: core::ffi::c_int = 0;
+        sys::mrb_get_args(
+            mrb,
+            b"*\0".as_ptr() as *const core::ffi::c_char,
+            &mut args_ptr as *mut *const sys::mrb_value,
+            &mut args_len as *mut core::ffi::c_int,
+        );
+
+        let nl = sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1);
+
+        if args_len == 0 {
+            print_str(mrb, self_, nl);
+            return mrb_nil_value();
+        }
+
+        let args = core::slice::from_raw_parts(args_ptr, args_len as usize);
+        for &arg in args {
+            puts_one(mrb, self_, arg, nl);
+        }
+        mrb_nil_value()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        sys::mrb_value::zeroed()
+    }
+}
+
+/// `Kernel#p(*args)` C bridge.
+#[allow(unused_variables)]
+unsafe extern "C" fn kernel_p(
+    mrb: *mut sys::mrb_state,
+    self_: sys::mrb_value,
+) -> sys::mrb_value {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut args_ptr: *const sys::mrb_value = core::ptr::null();
+        let mut args_len: core::ffi::c_int = 0;
+        sys::mrb_get_args(
+            mrb,
+            b"*\0".as_ptr() as *const core::ffi::c_char,
+            &mut args_ptr as *mut *const sys::mrb_value,
+            &mut args_len as *mut core::ffi::c_int,
+        );
+
+        let nl = sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1);
+        let args = core::slice::from_raw_parts(args_ptr, args_len as usize);
+        for &arg in args {
+            let insp = sys::mrb_funcall(
+                mrb,
+                arg,
+                b"inspect\0".as_ptr() as *const core::ffi::c_char,
+                0,
+            );
+            print_str(mrb, self_, insp);
+            print_str(mrb, self_, nl);
+        }
+
+        match args_len {
+            0 => mrb_nil_value(),
+            1 => args[0],
+            _ => sys::mrb_ary_new_from_values(mrb, args_len, args_ptr),
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
