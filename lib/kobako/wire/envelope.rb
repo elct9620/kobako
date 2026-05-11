@@ -46,9 +46,12 @@ module Kobako
       # +target+ is either a String (e.g. "Group::Member") or a {Handle}.
       # +method+ is a String. +args+ is an Array. +kwargs+ is a Hash with
       # String keys.
-      class Request
-        attr_reader :target, :method_name, :args, :kwargs
-
+      #
+      # Frozen value object backed by +Data.define+. Equality, +eql?+, and
+      # +hash+ are provided automatically based on field values. The public
+      # constructor keyword is +method:+ (not +method_name:+); the
+      # +initialize+ override maps it to the Data field +method_name:+.
+      Request = Data.define(:target, :method_name, :args, :kwargs) do
         def initialize(target:, method:, args: [], kwargs: {})
           unless target.is_a?(String) || target.is_a?(Handle)
             raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
@@ -57,23 +60,7 @@ module Kobako
           raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
           raise ArgumentError, "Request kwargs must be Hash"   unless kwargs.is_a?(Hash)
 
-          @target      = target
-          @method_name = method
-          @args        = args
-          @kwargs      = kwargs
-        end
-
-        def ==(other)
-          other.is_a?(Request) &&
-            other.target      == @target &&
-            other.method_name == @method_name &&
-            other.args        == @args &&
-            other.kwargs      == @kwargs
-        end
-        alias eql? ==
-
-        def hash
-          [self.class, @target, @method_name, @args, @kwargs].hash
+          super(target: target, method_name: method, args: args, kwargs: kwargs)
         end
       end
 
