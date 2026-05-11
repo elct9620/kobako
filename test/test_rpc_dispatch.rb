@@ -480,22 +480,6 @@ class TestRegistryDispatchUnit < Minitest::Test
     assert_equal 0, @handle_table.size
   end
 
-  def test_raw_integer_target_does_not_reach_handle_table_lookup
-    # Defense-in-depth check: even if a raw integer somehow reached
-    # resolve_target (it cannot today, because decode_request rejects it
-    # first), the unsupported-type branch raises UndefinedTargetError
-    # rather than silently coercing the int as a Handle id. This test
-    # bypasses #call's decode and exercises resolve_target directly via
-    # send to pin the policy at the resolver level too.
-    obj = Object.new
-    @handle_table.alloc(obj) # id 1 — proves the table is not empty
-
-    error = assert_raises(Kobako::Registry::Dispatcher::UndefinedTargetError) do
-      Kobako::Registry::Dispatcher.send(:resolve_target, 1, @registry, @handle_table)
-    end
-    assert_match(/unsupported target type Integer/, error.message)
-  end
-
   # ---------- HandleTable exhaustion (SPEC B-21 / E-07) ----------
 
   # SPEC §B-21 / §E-07: when the per-#run HandleTable counter reaches

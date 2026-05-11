@@ -99,14 +99,16 @@ module Kobako
       # Resolve a Request target to the Ruby object the Registry (or
       # HandleTable) holds. String targets go through the Registry;
       # Handle targets (ext 0x01) go through the HandleTable.
+      #
+      # Target type is already validated by +Wire::Envelope.decode_request+
+      # before this method is reached, so no else-branch is needed here —
+      # the wire layer is the system boundary that enforces the invariant.
       def resolve_target(target, registry, handle_table)
         case target
         when String
           resolve_path(target, registry)
         when Kobako::Wire::Handle
           resolve_handle(target, handle_table)
-        else
-          raise UndefinedTargetError, "unsupported target type #{target.class}"
         end
       end
 
