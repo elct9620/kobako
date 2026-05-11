@@ -12,20 +12,17 @@ Style/StringLiteralsInInterpolation:
 
 # E2E test files spin up servers and orchestrate multi-step assertions; the
 # default Metrics cops fight that shape without improving the tests.
-# lib/kobako/wire/** is a dispatch-by-tag MessagePack codec; the wide case
-# statement keeps the SPEC->code mapping legible and is intentional.
 Metrics/ClassLength:
   Exclude:
     - "test/**/*"
-    - "lib/kobako/wire/**/*"
 
 Metrics/AbcSize:
   Exclude:
     - "test/**/*"
-    - "lib/kobako/wire/**/*"
 
-# Wire envelope module hosts the full SPEC dispatch (Request/Response/Panic);
-# splitting it would scatter the SPEC->code mapping across files.
+# envelope.rb is 145 lines (limit 100): the module hosts the full SPEC envelope
+# dispatch (Request/Response/Result/Panic/Outcome); splitting it would scatter
+# the SPEC->code mapping across files.
 Metrics/ModuleLength:
   Exclude:
     - "lib/kobako/wire/**/*"
@@ -34,12 +31,10 @@ Metrics/ModuleLength:
 # the cyclomatic shape mirrors the format spec and is intentional.
 Metrics/CyclomaticComplexity:
   Exclude:
-    - "lib/kobako/wire/**/*"
     - "test/**/*"
 
 Metrics/PerceivedComplexity:
   Exclude:
-    - "lib/kobako/wire/**/*"
     - "test/**/*"
 
 # Codec helpers take single short-name byte/length parameters (n, s, f);
@@ -47,7 +42,6 @@ Metrics/PerceivedComplexity:
 # to test helpers that mirror the codec API surface.
 Naming/MethodParameterName:
   Exclude:
-    - "lib/kobako/wire/**/*"
     - "test/**/*"
 
 # MessagePack format names embed bit-width suffixes (int_8, fixarray_16, map_32)
