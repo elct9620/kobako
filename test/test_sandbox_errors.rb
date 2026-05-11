@@ -72,14 +72,15 @@ end
 
 # Outcome-attribution unit coverage for branches that don't need a full
 # wasm fixture: zero-length / unknown-tag / decode-failure paths. The
-# decode logic lives as private methods on Kobako::Sandbox per SPEC.md
-# §Architecture; we exercise it via Sandbox.allocate + send to avoid
-# constructing a wasmtime pipeline for pure byte-decoding tests.
+# Decode logic lives on Kobako::Sandbox::OutcomeDecoder as a stateless
+# module of pure functions (extracted from Sandbox to keep that class focused
+# on the wasmtime pipeline), so we call it directly without instantiating
+# Sandbox.
 class TestSandboxOutcomeDecoding < Minitest::Test
   include OutcomeBytesHelpers
 
   def decode(bytes)
-    Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
+    Kobako::Sandbox::OutcomeDecoder.decode(bytes)
   end
 
   # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."

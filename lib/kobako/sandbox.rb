@@ -4,6 +4,8 @@ require_relative "errors"
 require_relative "registry"
 require_relative "wire/envelope"
 require_relative "wire/error"
+require_relative "sandbox/output_buffer"
+require_relative "sandbox/outcome_decoder"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -22,82 +24,13 @@ module Kobako
   # Buffer overflow policy ({SPEC.md §B-04}[link:../../SPEC.md]): once an
   # append would push the cumulative byte count past the per-channel
   # `*_limit`, the OutputBuffer truncates — it stores a prefix that fits
-  # under the cap and appends a `[truncated]` marker on the next read.
-  # Truncation does NOT raise.
-  # rubocop:disable Metrics/ClassLength
+  # under the cap and appends a +[truncated]+ marker on the next read.
+  # Truncation does NOT raise. The marker constant lives on
+  # +Kobako::Sandbox::OutputBuffer::OUTPUT_TRUNCATION_MARKER+.
   class Sandbox
     # Default per-channel capture ceiling: 1 MiB
     # ({SPEC.md §B-01 footnote}[link:../../SPEC.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
-
-    # Marker appended to a buffer that hit its capture limit
-    # ({SPEC.md §B-04}[link:../../SPEC.md]).
-    OUTPUT_TRUNCATION_MARKER = "[truncated]"
-
-    # In-memory bounded byte buffer for one of the guest's output channels.
-    # Tracks accumulated bytes (binary-encoded) and enforces the per-channel
-    # cap by truncating-with-marker ({SPEC.md §B-04}[link:../../SPEC.md]).
-    class OutputBuffer
-      attr_reader :limit
-
-      def initialize(limit)
-        raise ArgumentError, "limit must be a positive Integer" unless limit.is_a?(Integer) && limit.positive?
-
-        @limit = limit
-        @bytes = String.new(encoding: Encoding::ASCII_8BIT)
-        @truncated = false
-      end
-
-      # Append +bytes+ to the buffer. If the append would push the
-      # cumulative byte count past the limit, the buffer keeps as many
-      # leading bytes as fit and seals itself; subsequent appends are
-      # discarded. {SPEC.md §B-04}[link:../../SPEC.md] — truncation is a
-      # non-error outcome.
-      def <<(bytes)
-        return self if @truncated
-
-        appended = bytes.to_s.b
-        room = @limit - @bytes.bytesize
-        if appended.bytesize <= room
-          @bytes << appended
-        else
-          @bytes << appended.byteslice(0, room) if room.positive?
-          @truncated = true
-        end
-        self
-      end
-
-      # Returns +true+ when the buffer was sealed by an overflow.
-      def truncated?
-        @truncated
-      end
-
-      # Returns the number of bytes currently stored.
-      def bytesize
-        @bytes.bytesize
-      end
-
-      # Returns +true+ when the buffer is empty.
-      def empty?
-        @bytes.empty?
-      end
-
-      # Returns the accumulated bytes as a UTF-8 String, with the
-      # +[truncated]+ marker appended when the buffer overflowed.
-      def to_s
-        copy = @bytes.dup
-        copy << OUTPUT_TRUNCATION_MARKER.b if @truncated
-        copy.force_encoding(Encoding::UTF_8)
-        copy.valid_encoding? ? copy : copy.dup.force_encoding(Encoding::ASCII_8BIT)
-      end
-
-      # Reset the buffer to empty. Used at the per-`#run` boundary.
-      def clear
-        @bytes.clear
-        @truncated = false
-        self
-      end
-    end
 
     attr_reader :wasm_path, :engine, :module_, :store, :instance,
                 :stdout_buffer, :stderr_buffer,
@@ -181,7 +114,7 @@ module Kobako
       invoke_guest_run
       drain_wasi_output
       outcome_bytes = read_outcome_bytes
-      decode_outcome(outcome_bytes)
+      OutcomeDecoder.decode(outcome_bytes)
     end
 
     private
@@ -232,90 +165,6 @@ module Kobako
       [ptr, len]
     end
 
-    # Three-layer error attribution
-    # ({SPEC.md §"Error Scenarios"}[link:../../SPEC.md]):
-    #
-    #   * tag 0x01, decode OK                 → return Result.value
-    #   * tag 0x01, decode fails              → SandboxError (E-09)
-    #   * tag 0x02, origin="service"          → ServiceError (E-13)
-    #   * tag 0x02, origin="sandbox"/missing  → SandboxError (E-04..E-07)
-    #   * tag 0x02, decode fails              → SandboxError (E-08)
-    #   * unknown tag                         → TrapError    (E-03)
-    def decode_outcome(bytes)
-      tag, body = split_outcome_tag(bytes)
-      case tag
-      when Kobako::Wire::Envelope::OUTCOME_TAG_RESULT
-        decode_outcome_result(body)
-      when Kobako::Wire::Envelope::OUTCOME_TAG_PANIC
-        raise decode_outcome_panic(body)
-      else
-        raise trap_for_tag(tag)
-      end
-    end
-
-    # TrapError for unknown or absent tag
-    # ({SPEC.md §ABI Signatures}[link:../../SPEC.md]: len=0 and unknown-tag
-    # both walk the trap path).
-    def trap_for_tag(tag)
-      return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
-
-      TrapError.new(format("unknown outcome tag 0x%<tag>02x", tag: tag))
-    end
-
-    def split_outcome_tag(bytes)
-      bytes = bytes.b
-      [bytes.getbyte(0), bytes.byteslice(1, bytes.bytesize - 1)]
-    end
-
-    # Decode failure on a known Result tag is a SandboxError (E-09): the
-    # framing was fine, but the wrapped value is unrepresentable.
-    def decode_outcome_result(body)
-      Kobako::Wire::Envelope.decode_result(body).value
-    rescue Kobako::Wire::Error => e
-      raise wire_violation_error(SandboxError, "result envelope decode failed: #{e.message}")
-    end
-
-    # Decode failure on a known Panic tag is a SandboxError (E-08).
-    def decode_outcome_panic(body)
-      build_panic_error(Kobako::Wire::Envelope.decode_panic(body))
-    rescue Kobako::Wire::Error => e
-      wire_violation_error(SandboxError, "panic envelope decode failed: #{e.message}")
-    end
-
-    # Map a decoded Panic envelope into the corresponding three-layer
-    # Ruby exception. `origin == "service"` → ServiceError (with the
-    # ::Disconnected subclass selected when the panic carries the
-    # disconnected sentinel —
-    # {SPEC §"Error Class Hierarchy"}[link:../../SPEC.md]); everything else
-    # → SandboxError.
-    def build_panic_error(panic)
-      panic_target_class(panic).new(
-        panic.message,
-        origin: panic.origin,
-        klass: panic.klass,
-        backtrace_lines: panic.backtrace,
-        details: panic.details
-      )
-    end
-
-    # {SPEC §"Error Class Hierarchy"}[link:../../SPEC.md]: when
-    # origin="service" and the panic `class` field names
-    # ServiceError::Disconnected, surface that subclass so callers can
-    # rescue the disconnected path specifically (E-14).
-    def panic_target_class(panic)
-      return SandboxError unless panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE
-
-      panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
-    end
-
-    def wire_violation_error(klass, message)
-      klass.new(
-        message,
-        origin: Kobako::Wire::Envelope::Panic::ORIGIN_SANDBOX,
-        klass: "Kobako::WireError"
-      )
-    end
-
     def build_wasm_pipeline(engine)
       @engine = engine || Kobako::Wasm::Engine.new
       @module_ = Kobako::Wasm::Module.from_file(@engine, @wasm_path)
@@ -323,5 +172,4 @@ module Kobako
       @instance = Kobako::Wasm::Instance.new(@engine, @module_, @store)
     end
   end
-  # rubocop:enable Metrics/ClassLength
 end

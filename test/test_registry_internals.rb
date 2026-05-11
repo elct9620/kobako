@@ -121,10 +121,10 @@ end
 class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   include OutcomeBytesHelpers
 
-  # Decode a raw outcome byte-string through Sandbox's private decode path
+  # Decode a raw outcome byte-string through the OutcomeDecoder module
   # without building a wasmtime pipeline.
   def decode(bytes)
-    Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
+    Kobako::Sandbox::OutcomeDecoder.decode(bytes)
   end
 
   # --- Panic with unknown origin (SPEC §E-09 / §Error Scenarios) ---
