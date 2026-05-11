@@ -86,25 +86,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
     initialize_fuzzer_params
   end
 
-  private
-
-  def check_oracle_status
-    case self.class.ensure_oracle_built
-    when :no_cargo
-      skip "cargo not on PATH — skipping codec round-trip fuzz (install rustup to enable)"
-    when :build_failed
-      flunk "cargo build --release roundtrip_oracle failed:\n#{@@oracle_build_error}"
-    end
-  end
-
-  def initialize_fuzzer_params
-    @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "1000").to_i
-    @iterations = 100_000 if ENV["KOBAKO_FUZZ_HEAVY"] == "1"
-    @seed = (ENV["KOBAKO_FUZZ_SEED"] || Random.new_seed.to_s).to_i
-    @rng = Random.new(@seed)
-    @coverage = Hash.new(0)
-  end
-
   # Coverage report: each of the 11 wire types and both ext types must
   # have been visited at least once across the run. Boundary lengths get
   # their own counters so a regression that stops generating large
@@ -124,6 +105,25 @@ class TestCodecRoundtripFuzz < Minitest::Test
     end
     assert_coverage_complete
     puts "\nfuzz coverage (seed=#{@seed}, iterations=#{@iterations}): #{@coverage.inspect}"
+  end
+
+  private
+
+  def check_oracle_status
+    case self.class.ensure_oracle_built
+    when :no_cargo
+      skip "cargo not on PATH — skipping codec round-trip fuzz (install rustup to enable)"
+    when :build_failed
+      flunk "cargo build --release roundtrip_oracle failed:\n#{@@oracle_build_error}"
+    end
+  end
+
+  def initialize_fuzzer_params
+    @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "1000").to_i
+    @iterations = 100_000 if ENV["KOBAKO_FUZZ_HEAVY"] == "1"
+    @seed = (ENV["KOBAKO_FUZZ_SEED"] || Random.new_seed.to_s).to_i
+    @rng = Random.new(@seed)
+    @coverage = Hash.new(0)
   end
 
   def with_oracle_subprocess

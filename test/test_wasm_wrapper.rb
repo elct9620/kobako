@@ -47,7 +47,7 @@ class TestWasmWrapper < Minitest::Test
   def test_full_pipeline_with_fixture
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
-    engine, mod, store, instance = build_full_pipeline(FIXTURE_PATH)
+    mod, store, instance = build_full_pipeline(FIXTURE_PATH)
 
     assert_instance_of Kobako::Wasm::Module, mod
     assert_instance_of Kobako::Wasm::Store, store
@@ -55,15 +55,17 @@ class TestWasmWrapper < Minitest::Test
     assert instance.has_export?("ping"), "fixture must expose `ping` export"
     refute instance.has_export?("__kobako_run"), "fixture must NOT expose guest binary exports"
     assert_equal 0, store.rpc_call_count, "no RPC calls expected before guest invocation"
-    refute_nil engine
   end
 
+  # Engine is the inner construction dependency — held only inside this
+  # helper since the test asserts on the externally-visible mod / store /
+  # instance triple.
   def build_full_pipeline(path)
     engine = Kobako::Wasm::Engine.new
     mod = Kobako::Wasm::Module.from_file(engine, path)
     store = Kobako::Wasm::Store.new(engine)
     instance = Kobako::Wasm::Instance.new(engine, mod, store)
-    [engine, mod, store, instance]
+    [mod, store, instance]
   end
 
   def test_real_guest_binary_when_built

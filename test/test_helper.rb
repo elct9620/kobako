@@ -19,3 +19,4 @@ rescue LoadError => e
 end
 
 require "minitest/autorun"
+require_relative "support/outcome_bytes_helpers"

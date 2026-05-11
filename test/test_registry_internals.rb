@@ -15,6 +15,7 @@
 #   - SPEC.md §E-09 / §Error Scenarios — unknown Panic origin maps to SandboxError
 
 require "minitest/autorun"
+require_relative "support/outcome_bytes_helpers"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/registry"
@@ -118,25 +119,12 @@ end
 # ---------------------------------------------------------------------------
 
 class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
+  include OutcomeBytesHelpers
+
   # Decode a raw outcome byte-string through Sandbox's private decode path
   # without building a wasmtime pipeline.
   def decode(bytes)
     Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
-  end
-
-  def build_outcome_bytes(tag, body)
-    bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << tag.chr(Encoding::ASCII_8BIT)
-    bytes << body
-    bytes
-  end
-
-  def panic_outcome_bytes(origin:, klass:, message:)
-    panic = Kobako::Wire::Envelope::Panic.new(origin: origin, klass: klass, message: message)
-    build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC,
-      Kobako::Wire::Envelope.encode_panic(panic)
-    )
   end
 
   # --- Panic with unknown origin (SPEC §E-09 / §Error Scenarios) ---

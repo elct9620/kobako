@@ -76,18 +76,10 @@ end
 # §Architecture; we exercise it via Sandbox.allocate + send to avoid
 # constructing a wasmtime pipeline for pure byte-decoding tests.
 class TestSandboxOutcomeDecoding < Minitest::Test
+  include OutcomeBytesHelpers
+
   def decode(bytes)
     Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
-  end
-
-  def panic_outcome_bytes(origin:, klass:, message:, backtrace: [])
-    panic = Kobako::Wire::Envelope::Panic.new(
-      origin: origin, klass: klass, message: message, backtrace: backtrace
-    )
-    body = Kobako::Wire::Envelope.encode_panic(panic)
-    bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_PANIC.chr(Encoding::ASCII_8BIT)
-    bytes << body
   end
 
   # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."

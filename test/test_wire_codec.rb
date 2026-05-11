@@ -452,14 +452,14 @@ module Kobako
       def combined_payload_fixture
         h = Handle.new(123_456)
         e = Exc.new(type: "runtime", message: "x", details: [1, 2, 3])
-        combined_payload_primitives.merge(
+        combined_payload_without_ext_types.merge(
           "map" => { "nested" => { "again" => [h] } },
           "handle" => h,
           "exc" => e
         )
       end
 
-      def combined_payload_primitives
+      def combined_payload_without_ext_types
         {
           "nil" => nil,
           "bools" => [true, false],

@@ -357,20 +357,25 @@ module Kobako
         map = Decoder.decode(bytes)
         raise InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-        validate_panic_required_fields!(map)
+        origin, klass, message = validate_panic_required_fields!(map)
         backtrace = map["backtrace"] || []
         unless backtrace.is_a?(Array) && backtrace.all?(String)
           raise InvalidType, "Panic backtrace must be array of str"
         end
 
-        Panic.new(origin: map["origin"], klass: map["class"], message: map["message"],
+        Panic.new(origin: origin, klass: klass, message: message,
                   backtrace: backtrace, details: map["details"])
       end
 
       def self.validate_panic_required_fields!(map)
-        raise InvalidType, "Panic envelope missing 'origin' (str)"  unless map["origin"].is_a?(String)
-        raise InvalidType, "Panic envelope missing 'class' (str)"   unless map["class"].is_a?(String)
-        raise InvalidType, "Panic envelope missing 'message' (str)" unless map["message"].is_a?(String)
+        origin  = map["origin"]
+        klass   = map["class"]
+        message = map["message"]
+        raise InvalidType, "Panic envelope missing 'origin' (str)"  unless origin.is_a?(String)
+        raise InvalidType, "Panic envelope missing 'class' (str)"   unless klass.is_a?(String)
+        raise InvalidType, "Panic envelope missing 'message' (str)" unless message.is_a?(String)
+
+        [origin, klass, message]
       end
       private_class_method :validate_panic_required_fields!
 

@@ -561,26 +561,34 @@ class TestRegistryDispatchUnit < Minitest::Test
   # into +capture+ and returns "ok".
   def kwarg_tag_recorder(capture)
     klass = Class.new
-    klass.define_method(:tag) { |arg, key:| (capture << [arg, key]) && "ok" }
+    klass.define_method(:tag) do |arg, key:|
+      capture << [arg, key]
+      "ok"
+    end
     klass.new
   end
 
   # Fixture: service member with `capture(**opts)` keyrest, stashing
   # opts into the returned object's `captured` reader.
   def keyrest_recorder
-    klass = Class.new do
+    Class.new do
       attr_reader :captured
 
-      def capture(**opts) = (@captured = opts) && "ok"
-    end
-    klass.new
+      def capture(**opts)
+        @captured = opts
+        "ok"
+      end
+    end.new
   end
 
   # Fixture: service member with `run(target:)` typed kwarg that pushes
   # `target.greet` into +capture+ and returns "done".
   def target_kwarg_runner(capture)
     klass = Class.new
-    klass.define_method(:run) { |target:| (capture << target.greet) && "done" }
+    klass.define_method(:run) do |target:|
+      capture << target.greet
+      "done"
+    end
     klass.new
   end
 
@@ -588,15 +596,15 @@ class TestRegistryDispatchUnit < Minitest::Test
   # representative non-wire-representable return value (B-14).
   def greeter(name)
     Class.new do
-      define_method(:initialize) { |n| @name = n }
-      define_method(:greet) { |prefix = "hi"| "#{prefix},#{@name}" }
+      def initialize(name) = (@name = name)
+      def greet(prefix = "hi") = "#{prefix},#{@name}"
     end.new(name)
   end
 
   # Fixture: factory whose `make` returns a fresh +leaf+ (each with
   # `kind = "leaf"`) — used to exercise B-14 + B-17 chained wrapping.
   def leaf_factory
-    leaf = Class.new { define_method(:kind) { "leaf" } }
+    leaf = Class.new { def kind = "leaf" }
     Class.new { define_method(:make) { leaf.new } }.new
   end
 
@@ -611,7 +619,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Fixture: factory whose `make` always returns a fresh Object — the
   # non-wire-representable return value that drives B-21 exhaustion.
   def object_factory
-    Class.new { define_method(:make) { Object.new } }.new
+    Class.new { def make = Object.new }.new
   end
 
   # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1

@@ -22,6 +22,13 @@ require "test_helper"
 class TestE2EJourneys < Minitest::Test
   REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
 
+  # Stateful object handed to B-17 chain tests — Factory::Make returns a
+  # Greeter, the guest then routes greet() to it directly.
+  class Greeter
+    def initialize(name) = (@name = name)
+    def greet = "hi,#{@name}"
+  end
+
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Engine)
     return if File.exist?(REAL_WASM)
@@ -219,11 +226,6 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "hi,Bob", result,
                  "B-17: Handle target from first RPC routes second RPC to the stateful object"
-  end
-
-  class Greeter
-    def initialize(name) = (@name = name)
-    def greet = "hi,#{@name}"
   end
 
   # SPEC.md B-18 + E-13: cross-run Handle invalidity. A Handle obtained in
