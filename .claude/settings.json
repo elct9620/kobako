@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "file=$(jq -r '.tool_input.file_path | select(endswith(\".rs\"))'); if [ -n \"$file\" ]; then rustfmt --edition 2021 \"$file\" || exit 2; fi"
+            "command": "file=$(jq -r '.tool_input.file_path | select(endswith(\".rs\"))'); if [ -n \"$file\" ]; then dir=$(dirname \"$file\"); while [ \"$dir\" != \"/\" ] && [ ! -f \"$dir/Cargo.toml\" ]; do dir=$(dirname \"$dir\"); done; if [ -f \"$dir/Cargo.toml\" ]; then cargo fmt --manifest-path \"$dir/Cargo.toml\" -- \"$file\" || exit 2; fi; fi"
           }
         ]
       }
