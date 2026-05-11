@@ -5,10 +5,10 @@ module Kobako
     # ===========================================================================
     # Internal class: ServiceGroup
     #
-    # A named namespace of Service Members for one Sandbox (SPEC.md §B-07..B-11).
+    # A named namespace of Service Members for one Sandbox ({SPEC.md §B-07..B-11}[link:../../../SPEC.md]).
     # ===========================================================================
     class ServiceGroup
-      # Ruby constant-name pattern (SPEC.md §B-07/B-08 Notes).
+      # Ruby constant-name pattern ({SPEC.md §B-07/B-08 Notes}[link:../../../SPEC.md]).
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
       attr_reader :name, :members
@@ -26,7 +26,7 @@ module Kobako
       #   will invoke.
       # @return [self] for chaining.
       # @raise [ArgumentError] when +member+ does not match the constant
-      #   pattern, or a member of the same name is already bound (B-11).
+      #   pattern, or a member of the same name is already bound ({SPEC.md §B-11}[link:../../../SPEC.md]).
       def bind(member, object)
         member_str = validate_member_name!(member)
         raise ArgumentError, "Member #{@name}::#{member_str} is already bound" if @members.key?(member_str)
