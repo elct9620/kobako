@@ -71,10 +71,10 @@ module Kobako
       # return value; for error it is an {Exception} (ext 0x02 envelope).
       #
       # The two factory methods (+ok+, +err+) reflect the two mutually
-      # exclusive variants pinned by SPEC.
-      class Response
-        attr_reader :status, :payload
-
+      # exclusive variants pinned by SPEC. Frozen value object backed by
+      # +Data.define+. Equality, +eql?+, and +hash+ are provided
+      # automatically based on field values.
+      Response = Data.define(:status, :payload) do
         def self.ok(value)
           new(status: STATUS_OK, payload: value)
         end
@@ -95,25 +95,15 @@ module Kobako
             raise ArgumentError, "Response status=1 payload must be Kobako::Wire::Exception"
           end
 
-          @status  = status
-          @payload = payload
+          super
         end
 
         def ok?
-          @status == STATUS_OK
+          status == STATUS_OK
         end
 
         def err?
-          @status == STATUS_ERROR
-        end
-
-        def ==(other)
-          other.is_a?(Response) && other.status == @status && other.payload == @payload
-        end
-        alias eql? ==
-
-        def hash
-          [self.class, @status, @payload].hash
+          status == STATUS_ERROR
         end
       end
 
