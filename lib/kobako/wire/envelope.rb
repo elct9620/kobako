@@ -144,9 +144,12 @@ module Kobako
       # The OUTCOME_BUFFER wrapper: a one-byte tag (+0x01+ result, +0x02+
       # panic) followed by the msgpack payload. Carries either a {Result}
       # or a {Panic}.
-      class Outcome
-        attr_reader :payload
-
+      #
+      # Frozen value object backed by +Data.define+. Equality, +eql?+, and
+      # +hash+ are provided automatically based on field values. Positional
+      # construction (+Outcome.new(payload)+) is preserved for internal
+      # callers; Data.new accepts both positional and keyword arguments.
+      Outcome = Data.define(:payload) do
         def self.result(value)
           new(Result.new(value))
         end
@@ -157,29 +160,20 @@ module Kobako
           new(panic)
         end
 
-        def initialize(payload)
+        def initialize(payload:)
           unless payload.is_a?(Result) || payload.is_a?(Panic)
             raise ArgumentError, "Outcome payload must be Result or Panic, got #{payload.class}"
           end
 
-          @payload = payload
+          super
         end
 
         def result?
-          @payload.is_a?(Result)
+          payload.is_a?(Result)
         end
 
         def panic?
-          @payload.is_a?(Panic)
-        end
-
-        def ==(other)
-          other.is_a?(Outcome) && other.payload == @payload
-        end
-        alias eql? ==
-
-        def hash
-          [self.class, @payload].hash
+          payload.is_a?(Panic)
         end
       end
 
