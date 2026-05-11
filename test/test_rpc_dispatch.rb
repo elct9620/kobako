@@ -490,8 +490,8 @@ class TestRegistryDispatchUnit < Minitest::Test
     obj = Object.new
     @handle_table.alloc(obj) # id 1 — proves the table is not empty
 
-    error = assert_raises(Kobako::Registry::UndefinedTargetError) do
-      @registry.send(:resolve_target, 1)
+    error = assert_raises(Kobako::Registry::Dispatcher::UndefinedTargetError) do
+      Kobako::Registry::Dispatcher.send(:resolve_target, 1, @registry, @handle_table)
     end
     assert_match(/unsupported target type Integer/, error.message)
   end
