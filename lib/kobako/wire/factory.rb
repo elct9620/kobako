@@ -48,6 +48,9 @@ module Kobako
       end
       private_class_method :register_exception_type
 
+      # Pre-validates the payload here so failures surface as +InvalidType+
+      # (wire-error taxonomy) rather than the +ArgumentError+ that
+      # +Handle#initialize+ would raise — the duplicate checks are intentional.
       def self.decode_handle(payload)
         bytes = payload.b
         raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
@@ -77,6 +80,9 @@ module Kobako
       end
       private_class_method :unpack_exception
 
+      # Pre-validates map keys and type here so failures surface as +InvalidType+
+      # rather than the +ArgumentError+ that +Exception#initialize+ would raise —
+      # the duplicate checks are intentional.
       def self.validate_exception_map!(map)
         type    = map["type"]
         message = map["message"]
