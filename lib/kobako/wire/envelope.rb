@@ -122,39 +122,22 @@ module Kobako
       # by name (forward-compatibility — unknown keys are silently
       # ignored). Required keys: "origin", "class", "message". Optional:
       # "backtrace" (array of str), "details" (any wire-legal value).
-      class Panic
-        ORIGIN_SANDBOX = "sandbox"
-        ORIGIN_SERVICE = "service"
-
-        attr_reader :origin, :klass, :message, :backtrace, :details
-
+      #
+      # Frozen value object backed by +Data.define+. Equality, +eql?+, and
+      # +hash+ are provided automatically based on field values.
+      Panic = Data.define(:origin, :klass, :message, :backtrace, :details) do
         def initialize(origin:, klass:, message:, backtrace: [], details: nil)
           raise ArgumentError, "Panic origin must be String"  unless origin.is_a?(String)
           raise ArgumentError, "Panic class must be String"   unless klass.is_a?(String)
           raise ArgumentError, "Panic message must be String" unless message.is_a?(String)
           raise ArgumentError, "Panic backtrace must be Array" unless backtrace.is_a?(Array)
 
-          @origin    = origin
-          @klass     = klass
-          @message   = message
-          @backtrace = backtrace
-          @details   = details
-        end
-
-        def ==(other)
-          other.is_a?(Panic) &&
-            other.origin    == @origin &&
-            other.klass     == @klass &&
-            other.message   == @message &&
-            other.backtrace == @backtrace &&
-            other.details   == @details
-        end
-        alias eql? ==
-
-        def hash
-          [self.class, @origin, @klass, @message, @backtrace, @details].hash
+          super
         end
       end
+
+      Panic::ORIGIN_SANDBOX = "sandbox"
+      Panic::ORIGIN_SERVICE = "service"
 
       # Outcome envelope (SPEC.md Outcome Envelope).
       #
