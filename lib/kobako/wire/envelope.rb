@@ -114,22 +114,7 @@ module Kobako
       # a 1-element msgpack array carrying the value, so that the framing
       # is symmetric with the Panic envelope and the value position is
       # never ambiguous.
-      class Result
-        attr_reader :value
-
-        def initialize(value)
-          @value = value
-        end
-
-        def ==(other)
-          other.is_a?(Result) && other.value == @value
-        end
-        alias eql? ==
-
-        def hash
-          [self.class, @value].hash
-        end
-      end
+      Result = Data.define(:value)
 
       # Panic envelope (SPEC.md Outcome Envelope → Panic).
       #
