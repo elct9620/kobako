@@ -35,9 +35,16 @@ class TestServiceRegistry < Minitest::Test
 
   # B-08: bind accepts class / instance / module uniformly.
   def test_b08_bind_accepts_class_instance_and_module
-    klass = Class.new do
-      def self.ping = :klass
-    end
+    klass, instance, mod = b08_class_instance_module_triple
+    @sandbox.define(:Mixed).bind(:K, klass).bind(:I, instance).bind(:M, mod)
+
+    assert_same klass,    @sandbox.services.lookup("Mixed::K")
+    assert_same instance, @sandbox.services.lookup("Mixed::I")
+    assert_same mod,      @sandbox.services.lookup("Mixed::M")
+  end
+
+  def b08_class_instance_module_triple
+    klass = Class.new { def self.ping = :klass }
     instance = Object.new
     def instance.ping = :instance
     mod = Module.new do
@@ -45,13 +52,7 @@ class TestServiceRegistry < Minitest::Test
 
       def ping = :mod
     end
-
-    group = @sandbox.define(:Mixed)
-    group.bind(:K, klass).bind(:I, instance).bind(:M, mod)
-
-    assert_same klass,    @sandbox.services.lookup("Mixed::K")
-    assert_same instance, @sandbox.services.lookup("Mixed::I")
-    assert_same mod,      @sandbox.services.lookup("Mixed::M")
+    [klass, instance, mod]
   end
 
   # B-09: multiple groups coexist; cross-group paths do not leak.

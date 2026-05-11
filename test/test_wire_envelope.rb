@@ -296,12 +296,8 @@ module Kobako
 
       def test_outcome_panic_golden_minimum
         # Tag 0x02 + fixmap 3 with origin=sandbox, class=RuntimeError, message=boom
-        outcome = Envelope::Outcome.panic(Envelope::Panic.new(
-                                            origin: "sandbox",
-                                            klass: "RuntimeError",
-                                            message: "boom"
-                                          ))
-        bytes = Envelope.encode_outcome(outcome)
+        panic = Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
+        bytes = Envelope.encode_outcome(Envelope::Outcome.panic(panic))
         # 02 | 83 | a6 origin     a7 sandbox          | a5 class    ac RuntimeError                       | a7 message a4 boom
         expected = "02" \
                    "83" \

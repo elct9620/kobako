@@ -124,13 +124,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   def test_passes_kwargs_as_symbols_to_bound_object
     capture = []
-    klass = Class.new do
-      define_method(:tag) do |arg, key:|
-        capture << [arg, key]
-        "ok"
-      end
-    end
-    @registry.define(:Logger).bind(:Tag, klass.new)
+    @registry.define(:Logger).bind(:Tag, kwarg_tag_recorder(capture))
     req = encode_request("Logger::Tag", "tag", ["x"], { "key" => "value" })
 
     resp = decode_response(@registry.dispatch(req))
@@ -272,15 +266,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Method with **rest accepts any keys; the dispatcher symbolizes all
   # keys before splatting.
   def test_keyrest_method_accepts_arbitrary_kwargs
-    klass = Class.new do
-      attr_reader :captured
-
-      def capture(**opts)
-        @captured = opts
-        "ok"
-      end
-    end
-    obj = klass.new
+    obj = keyrest_recorder
     @registry.define(:K).bind(:Cap, obj)
     req = encode_request("K::Cap", "capture", [], { "a" => 1, "b" => 2 })
 
@@ -297,11 +283,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # type set (B-13) is automatically allocated a HandleTable entry, and
   # the guest sees a Wire::Handle in the Response.ok payload.
   def test_non_wire_return_value_is_wrapped_as_handle
-    greeter = Class.new do
-      def initialize(name) = (@name = name)
-      def greet(prefix = "hi") = "#{prefix},#{@name}"
-    end
-    @registry.define(:Factory).bind(:Make, ->(name) { greeter.new(name) })
+    @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
     req = encode_request("Factory::Make", "call", ["Alice"], {})
 
     resp = decode_response(@registry.dispatch(req))
@@ -309,7 +291,6 @@ class TestRegistryDispatchUnit < Minitest::Test
     assert resp.ok?
     assert_kind_of Kobako::Wire::Handle, resp.payload
     bound = @handle_table.fetch(resp.payload.id)
-
     assert_equal "hi,Alice", bound.greet
   end
 
@@ -348,15 +329,8 @@ class TestRegistryDispatchUnit < Minitest::Test
     obj = Object.new
     def obj.greet = "kw_ok"
     handle_id = @handle_table.alloc(obj)
-
     capture = []
-    klass = Class.new do
-      define_method(:run) do |target:|
-        capture << target.greet
-        "done"
-      end
-    end
-    @registry.define(:K).bind(:Run, klass.new)
+    @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
     req = encode_request("K::Run", "run", [], { "target" => Kobako::Wire::Handle.new(handle_id) })
 
     resp = decode_response(@registry.dispatch(req))
@@ -396,13 +370,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
-    leaf = Class.new do
-      def kind = "leaf"
-    end
-    factory = Class.new do
-      define_method(:make) { leaf.new }
-    end.new
-    parent_id = @handle_table.alloc(factory)
+    parent_id = @handle_table.alloc(leaf_factory)
     req = encode_request_with_target(Kobako::Wire::Handle.new(parent_id), "make", [], {})
 
     resp = decode_response(@registry.dispatch(req))
@@ -449,26 +417,19 @@ class TestRegistryDispatchUnit < Minitest::Test
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     registry_a = Kobako::Registry.new
     registry_b = Kobako::Registry.new
-    table_a = registry_a.handle_table
-    table_b = registry_b.handle_table
-
-    obj = Object.new
-    def obj.ping = "pong"
-    handle_id_in_a = table_a.alloc(obj)
+    handle_id_in_a = registry_a.handle_table.alloc(pinger)
 
     # Sanity: the integer id has meaning in A.
-    assert_equal "pong", table_a.fetch(handle_id_in_a).ping
+    assert_equal "pong", registry_a.handle_table.fetch(handle_id_in_a).ping
 
     # The integer id presented as a Handle target against B's registry
     # must NOT cross over: B's HandleTable does not contain that id.
-    req = encode_request_with_target(
-      Kobako::Wire::Handle.new(handle_id_in_a), "ping", [], {}
-    )
+    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id_in_a), "ping", [], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.err?
     assert_equal "undefined", resp.payload.type
-    assert_equal 0, table_b.size
+    assert_equal 0, registry_b.handle_table.size
   end
 
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
@@ -549,22 +510,11 @@ class TestRegistryDispatchUnit < Minitest::Test
     # Test seam: HandleTable.new(next_id:) lets us pin the counter at
     # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
     # HandleTable § "Build a fresh, empty HandleTable" — the parameter is
-    # explicitly intended for cap-exhaustion testing. We swap the
-    # registry's HandleTable via instance_variable_set since Registry
-    # constructs its own HandleTable in #initialize.
-    registry = Kobako::Registry.new
-    exhausted_table = Kobako::Registry::HandleTable.new(
-      next_id: Kobako::Registry::HandleTable::MAX_ID + 1
-    )
-    registry.instance_variable_set(:@handle_table, exhausted_table)
-
-    factory = Class.new do
-      # non-wire-representable -> wrap_return -> alloc
-      def make = Object.new
-    end.new
-    registry.define(:Factory).bind(:Make, factory)
-
+    # explicitly intended for cap-exhaustion testing.
+    registry = registry_with_exhausted_handle_table
+    registry.define(:Factory).bind(:Make, object_factory)
     req = encode_request("Factory::Make", "make", [], {})
+
     resp = decode_response(registry.dispatch(req))
 
     assert resp.err?
@@ -605,5 +555,71 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   def decode_response(bytes)
     Kobako::Wire::Envelope.decode_response(bytes)
+  end
+
+  # Fixture: service member that records each `tag(arg, key:)` invocation
+  # into +capture+ and returns "ok".
+  def kwarg_tag_recorder(capture)
+    klass = Class.new
+    klass.define_method(:tag) { |arg, key:| (capture << [arg, key]) && "ok" }
+    klass.new
+  end
+
+  # Fixture: service member with `capture(**opts)` keyrest, stashing
+  # opts into the returned object's `captured` reader.
+  def keyrest_recorder
+    klass = Class.new do
+      attr_reader :captured
+
+      def capture(**opts) = (@captured = opts) && "ok"
+    end
+    klass.new
+  end
+
+  # Fixture: service member with `run(target:)` typed kwarg that pushes
+  # `target.greet` into +capture+ and returns "done".
+  def target_kwarg_runner(capture)
+    klass = Class.new
+    klass.define_method(:run) { |target:| (capture << target.greet) && "done" }
+    klass.new
+  end
+
+  # Fixture: stateful object with `name` + `greet(prefix="hi")` —
+  # representative non-wire-representable return value (B-14).
+  def greeter(name)
+    Class.new do
+      define_method(:initialize) { |n| @name = n }
+      define_method(:greet) { |prefix = "hi"| "#{prefix},#{@name}" }
+    end.new(name)
+  end
+
+  # Fixture: factory whose `make` returns a fresh +leaf+ (each with
+  # `kind = "leaf"`) — used to exercise B-14 + B-17 chained wrapping.
+  def leaf_factory
+    leaf = Class.new { define_method(:kind) { "leaf" } }
+    Class.new { define_method(:make) { leaf.new } }.new
+  end
+
+  # Fixture: object with a single `ping → "pong"` method, the minimum
+  # Handle target needed for cross-Sandbox B-19 invalidity coverage.
+  def pinger
+    obj = Object.new
+    def obj.ping = "pong"
+    obj
+  end
+
+  # Fixture: factory whose `make` always returns a fresh Object — the
+  # non-wire-representable return value that drives B-21 exhaustion.
+  def object_factory
+    Class.new { define_method(:make) { Object.new } }.new
+  end
+
+  # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1
+  # so the next #alloc trips the B-21 cap.
+  def registry_with_exhausted_handle_table
+    registry = Kobako::Registry.new
+    exhausted = Kobako::Registry::HandleTable.new(next_id: Kobako::Registry::HandleTable::MAX_ID + 1)
+    registry.instance_variable_set(:@handle_table, exhausted)
+    registry
   end
 end

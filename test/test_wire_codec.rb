@@ -443,23 +443,32 @@ module Kobako
       # ---------- self-consistency: every type goes through one big fuzz-ish list ----------
 
       def test_combined_payload_roundtrip
+        value = combined_payload_fixture
+        _, decoded = roundtrip(value)
+        # Float::INFINITY and -0.0 compare equal under == so plain assert_equal works
+        assert_equal value, decoded
+      end
+
+      def combined_payload_fixture
         h = Handle.new(123_456)
         e = Exc.new(type: "runtime", message: "x", details: [1, 2, 3])
-        value = {
+        combined_payload_primitives.merge(
+          "map" => { "nested" => { "again" => [h] } },
+          "handle" => h,
+          "exc" => e
+        )
+      end
+
+      def combined_payload_primitives
+        {
           "nil" => nil,
           "bools" => [true, false],
           "ints" => [-1, 0, 1, 0x7f, 0x80, 0xffff_ffff_ffff_ffff, -0x8000_0000_0000_0000],
           "floats" => [0.0, -0.0, 1.5, Float::INFINITY],
           "strs" => ["", "a", "蒼"],
           "bins" => [[0xff, 0x00].pack("C*")],
-          "arr" => [[], [[]], [[[]]]],
-          "map" => { "nested" => { "again" => [h] } },
-          "handle" => h,
-          "exc" => e
+          "arr" => [[], [[]], [[[]]]]
         }
-        _, decoded = roundtrip(value)
-        # Float::INFINITY and -0.0 compare equal under == so plain assert_equal works
-        assert_equal value, decoded
       end
 
       # Migration check: codec backbone is the official `msgpack` gem.

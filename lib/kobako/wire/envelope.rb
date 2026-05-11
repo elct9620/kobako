@@ -265,6 +265,11 @@ module Kobako
         end
 
         target, method_name, args, kwargs = arr
+        validate_request_fields!(target, method_name, args, kwargs)
+        Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
+      end
+
+      def self.validate_request_fields!(target, method_name, args, kwargs)
         unless target.is_a?(String) || target.is_a?(Handle)
           raise InvalidType, "Request target must be str or Handle, got #{target.class}"
         end
@@ -273,8 +278,8 @@ module Kobako
         raise InvalidType, "Request kwargs must be map" unless kwargs.is_a?(Hash)
 
         validate_kwargs_keys!(kwargs)
-        Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
       end
+      private_class_method :validate_request_fields!
 
       # ---------------- Response ----------------
 
@@ -290,7 +295,10 @@ module Kobako
           raise InvalidType, "Response must be a 2-element array, got #{arr.inspect}"
         end
 
-        status, payload = arr
+        decode_response_status(*arr)
+      end
+
+      def self.decode_response_status(status, payload)
         case status
         when STATUS_OK
           Response.new(status: STATUS_OK, payload: payload)
@@ -302,6 +310,7 @@ module Kobako
           raise InvalidType, "Response status must be 0 or 1, got #{status.inspect}"
         end
       end
+      private_class_method :decode_response_status
 
       # ---------------- Result envelope (Outcome payload) -----------
 
@@ -323,10 +332,16 @@ module Kobako
       def self.encode_panic(panic)
         raise ArgumentError, "encode_panic requires Panic" unless panic.is_a?(Panic)
 
-        # SPEC: Panic is a msgpack MAP keyed by name. We always emit the
-        # required keys; "backtrace" is emitted only when non-empty (keep
-        # the wire compact); "details" only when non-nil. Receivers must
-        # ignore unknown keys, so the optional-key absence is wire-legal.
+        buf = String.new(encoding: Encoding::ASCII_8BIT)
+        Encoder.new(buf).write_map_pairs(panic_pairs(panic))
+        buf
+      end
+
+      # SPEC: Panic is a msgpack MAP keyed by name. We always emit the
+      # required keys; "backtrace" is emitted only when non-empty (keep
+      # the wire compact); "details" only when non-nil. Receivers must
+      # ignore unknown keys, so the optional-key absence is wire-legal.
+      def self.panic_pairs(panic)
         pairs = [
           ["origin", panic.origin],
           ["class", panic.klass],
@@ -334,51 +349,50 @@ module Kobako
         ]
         pairs << ["backtrace", panic.backtrace] unless panic.backtrace.empty?
         pairs << ["details", panic.details] unless panic.details.nil?
-
-        buf = String.new(encoding: Encoding::ASCII_8BIT)
-        Encoder.new(buf).write_map_pairs(pairs)
-        buf
+        pairs
       end
+      private_class_method :panic_pairs
 
       def self.decode_panic(bytes)
         map = Decoder.decode(bytes)
         raise InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-        origin  = map["origin"]
-        klass   = map["class"]
-        message = map["message"]
-        raise InvalidType, "Panic envelope missing 'origin' (str)"  unless origin.is_a?(String)
-        raise InvalidType, "Panic envelope missing 'class' (str)"   unless klass.is_a?(String)
-        raise InvalidType, "Panic envelope missing 'message' (str)" unless message.is_a?(String)
-
+        validate_panic_required_fields!(map)
         backtrace = map["backtrace"] || []
         unless backtrace.is_a?(Array) && backtrace.all?(String)
           raise InvalidType, "Panic backtrace must be array of str"
         end
 
-        Panic.new(origin: origin, klass: klass, message: message, backtrace: backtrace,
-                  details: map["details"])
+        Panic.new(origin: map["origin"], klass: map["class"], message: map["message"],
+                  backtrace: backtrace, details: map["details"])
       end
+
+      def self.validate_panic_required_fields!(map)
+        raise InvalidType, "Panic envelope missing 'origin' (str)"  unless map["origin"].is_a?(String)
+        raise InvalidType, "Panic envelope missing 'class' (str)"   unless map["class"].is_a?(String)
+        raise InvalidType, "Panic envelope missing 'message' (str)" unless map["message"].is_a?(String)
+      end
+      private_class_method :validate_panic_required_fields!
 
       # ---------------- Outcome envelope (tagged wrapper) ------------
 
       def self.encode_outcome(outcome)
         raise ArgumentError, "encode_outcome requires Outcome" unless outcome.is_a?(Outcome)
 
-        case outcome.payload
-        when Result
-          tag = OUTCOME_TAG_RESULT
-          body = encode_result(outcome.payload.value)
-        when Panic
-          tag = OUTCOME_TAG_PANIC
-          body = encode_panic(outcome.payload)
-        end
-
+        tag, body = encode_outcome_payload(outcome.payload)
         out = String.new(encoding: Encoding::ASCII_8BIT)
         out << [tag].pack("C")
         out << body
         out
       end
+
+      def self.encode_outcome_payload(payload)
+        case payload
+        when Result then [OUTCOME_TAG_RESULT, encode_result(payload.value)]
+        when Panic  then [OUTCOME_TAG_PANIC, encode_panic(payload)]
+        end
+      end
+      private_class_method :encode_outcome_payload
 
       def self.decode_outcome(bytes)
         bytes = bytes.b
@@ -386,15 +400,17 @@ module Kobako
 
         tag = bytes.getbyte(0)
         body = bytes.byteslice(1, bytes.bytesize - 1)
+        Outcome.new(decode_outcome_payload(tag, body))
+      end
+
+      def self.decode_outcome_payload(tag, body)
         case tag
-        when OUTCOME_TAG_RESULT
-          Outcome.new(decode_result(body))
-        when OUTCOME_TAG_PANIC
-          Outcome.new(decode_panic(body))
-        else
-          raise InvalidType, format("unknown outcome tag 0x%<tag>02x", tag: tag)
+        when OUTCOME_TAG_RESULT then decode_result(body)
+        when OUTCOME_TAG_PANIC  then decode_panic(body)
+        else raise InvalidType, format("unknown outcome tag 0x%<tag>02x", tag: tag)
         end
       end
+      private_class_method :decode_outcome_payload
 
       # =================================================================
       # Internal helpers

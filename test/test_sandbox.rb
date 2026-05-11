@@ -17,7 +17,7 @@ class TestSandbox < Minitest::Test
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
-  def test_default_construction_with_fixture
+  def test_default_construction_wires_wasm_pipeline_and_handle_table
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
@@ -26,6 +26,11 @@ class TestSandbox < Minitest::Test
     assert_instance_of Kobako::Wasm::Store, sandbox.store
     assert_instance_of Kobako::Wasm::Instance, sandbox.instance
     assert_instance_of Kobako::Registry::HandleTable, sandbox.handle_table
+  end
+
+  def test_default_construction_initializes_output_buffers_at_default_limit
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
     assert_instance_of Kobako::Sandbox::OutputBuffer, sandbox.stdout_buffer
     assert_instance_of Kobako::Sandbox::OutputBuffer, sandbox.stderr_buffer
     assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit

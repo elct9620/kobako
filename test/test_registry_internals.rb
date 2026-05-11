@@ -131,6 +131,14 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     bytes
   end
 
+  def panic_outcome_bytes(origin:, klass:, message:)
+    panic = Kobako::Wire::Envelope::Panic.new(origin: origin, klass: klass, message: message)
+    build_outcome_bytes(
+      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC,
+      Kobako::Wire::Envelope.encode_panic(panic)
+    )
+  end
+
   # --- Panic with unknown origin (SPEC §E-09 / §Error Scenarios) ---
   #
   # SPEC: origin values other than "service" and "sandbox" are treated as
@@ -138,13 +146,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # for any origin that is not exactly "service").  This is the third branch
   # of the origin decision tree.
   def test_panic_with_unknown_origin_raises_sandbox_error
-    panic = Kobako::Wire::Envelope::Panic.new(
-      origin: "unknown", klass: "Kobako::SomeError", message: "strange"
-    )
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC,
-      Kobako::Wire::Envelope.encode_panic(panic)
-    )
+    bytes = panic_outcome_bytes(origin: "unknown", klass: "Kobako::SomeError", message: "strange")
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::ServiceError, err,

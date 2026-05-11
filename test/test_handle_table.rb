@@ -134,37 +134,46 @@ module Kobako
       # same numeric id is re-allocated, fetching it must yield the NEW object,
       # not the original — i.e. the original Handle reference is invalidated.
       table = Table.new
-
       obj_a = Object.new
       id_a = table.alloc(obj_a)
       assert_equal 1, id_a
       assert_same obj_a, table.fetch(id_a)
 
+      obj_b = reset_and_alloc(table, Object.new)
+
+      assert_equal 1, id_a # counter rolled back to 1 at the run boundary
+      refute_same obj_a, table.fetch(1)
+      assert_same obj_b, table.fetch(1)
+    end
+
+    def reset_and_alloc(table, obj)
       table.reset!
-
-      obj_b = Object.new
-      id_b = table.alloc(obj_b)
-      assert_equal 1, id_b # counter rolled back to 1 at the run boundary
-
-      # The original "id 1" reference is no longer valid for obj_a:
-      refute_same obj_a, table.fetch(id_b)
-      assert_same obj_b, table.fetch(id_b)
+      table.alloc(obj)
+      obj
     end
 
     # ---------- Utility predicates ----------
 
-    def test_size_and_include_predicate
+    def test_size_and_include_predicate_on_empty_table
       table = Table.new
       assert_equal 0, table.size
       refute table.include?(1)
+    end
 
+    def test_size_and_include_predicate_after_alloc
+      table = Table.new
       id1 = table.alloc(Object.new)
       id2 = table.alloc(Object.new)
       assert_equal 2, table.size
       assert table.include?(id1)
       assert table.include?(id2)
       refute table.include?(99)
+    end
 
+    def test_size_and_include_predicate_after_release_and_reset
+      table = Table.new
+      id1 = table.alloc(Object.new)
+      id2 = table.alloc(Object.new)
       table.release(id1)
       assert_equal 1, table.size
       refute table.include?(id1)

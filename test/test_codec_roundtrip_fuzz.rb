@@ -64,25 +64,21 @@ class TestCodecRoundtripFuzz < Minitest::Test
   @@oracle_build_error  = nil
 
   def self.ensure_oracle_built
-    return @@oracle_build_status if @@oracle_build_status
+    @@oracle_build_status ||= cargo_build_oracle
+  end
 
-    unless system("command -v cargo > /dev/null 2>&1")
-      @@oracle_build_status = :no_cargo
-      return @@oracle_build_status
-    end
+  def self.cargo_build_oracle
+    return :no_cargo unless system("command -v cargo > /dev/null 2>&1")
 
     out, status = Open3.capture2e(
       "cargo", "build", "--release",
       "--manifest-path", CARGO_MANIFEST,
       "--bin", "roundtrip_oracle"
     )
-    if status.success? && File.executable?(ORACLE_BIN)
-      @@oracle_build_status = :ok
-    else
-      @@oracle_build_status = :build_failed
-      @@oracle_build_error = out
-    end
-    @@oracle_build_status
+    return :ok if status.success? && File.executable?(ORACLE_BIN)
+
+    @@oracle_build_error = out
+    :build_failed
   end
 
   def setup
@@ -109,44 +105,49 @@ class TestCodecRoundtripFuzz < Minitest::Test
     @coverage = Hash.new(0)
   end
 
+  # Coverage report: each of the 11 wire types and both ext types must
+  # have been visited at least once across the run. Boundary lengths get
+  # their own counters so a regression that stops generating large
+  # str/bin/array/map values is caught.
+  REQUIRED_COVERAGE_KEYS = %i[
+    nil bool int_pos_fix int_neg_fix int_u8 int_u16 int_u32 int_u64
+    int_i8 int_i16 int_i32 int_i64 float str_empty str_fix str_8 str_16
+    bin_empty bin_8 bin_16 array_empty array_fix array_16 map_empty
+    map_fix map_16 handle exception nesting
+  ].freeze
+
   def test_round_trip_fuzz
+    with_oracle_subprocess do |stdin, stdout|
+      @iterations.times do |i|
+        run_one(generate_value(depth: 0), i, stdin, stdout)
+      end
+    end
+    assert_coverage_complete
+    puts "\nfuzz coverage (seed=#{@seed}, iterations=#{@iterations}): #{@coverage.inspect}"
+  end
+
+  def with_oracle_subprocess
     stdin, stdout, wait_thr = Open3.popen2(ORACLE_BIN)
     stdin.binmode
     stdout.binmode
+    yield stdin, stdout
+  ensure
+    stdin&.close unless stdin&.closed?
+    drain_stdout(stdout)
+    stdout&.close unless stdout&.closed?
+    wait_thr&.join
+  end
 
-    begin
-      @iterations.times do |i|
-        value = generate_value(depth: 0)
-        run_one(value, i, stdin, stdout)
-      end
-    ensure
-      stdin.close unless stdin.closed?
-      # Drain stdout so the child can exit cleanly.
-      begin
-        stdout.read
-      rescue StandardError
-        # ignore — we only care about clean shutdown
-      end
-      stdout.close unless stdout.closed?
-      wait_thr.join
-    end
+  def drain_stdout(stdout)
+    stdout&.read
+  rescue StandardError
+    # ignore — we only care about clean shutdown
+  end
 
-    # Coverage report: each of the 11 wire types and both ext types must
-    # have been visited at least once across the run. Boundary lengths get
-    # their own counters so a regression that stops generating large
-    # str/bin/array/map values is caught.
-    required = %i[
-      nil bool int_pos_fix int_neg_fix int_u8 int_u16 int_u32 int_u64
-      int_i8 int_i16 int_i32 int_i64 float str_empty str_fix str_8 str_16
-      bin_empty bin_8 bin_16 array_empty array_fix array_16 map_empty
-      map_fix map_16 handle exception nesting
-    ]
-    missing = required.reject { |k| @coverage[k].positive? }
-    assert missing.empty?,
-           "fuzz coverage gap (seed=#{@seed}): #{missing.inspect}; " \
-           "counters=#{@coverage.inspect}"
-
-    puts "\nfuzz coverage (seed=#{@seed}, iterations=#{@iterations}): #{@coverage.inspect}"
+  def assert_coverage_complete
+    missing = REQUIRED_COVERAGE_KEYS.reject { |k| @coverage[k].positive? }
+    msg = "fuzz coverage gap (seed=#{@seed}): #{missing.inspect}; counters=#{@coverage.inspect}"
+    assert missing.empty?, msg
   end
 
   def run_one(value, iter, stdin, stdout)
@@ -154,26 +155,23 @@ class TestCodecRoundtripFuzz < Minitest::Test
     write_frame(stdin, encoded_a)
     stdin.flush
     encoded_b = read_frame(stdout, iter, value)
+    assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
+    assert_ruby_roundtrip(iter, value, encoded_a, "Ruby encode -> Ruby decode mismatch")
+    assert_ruby_roundtrip(iter, value, encoded_b, "Ruby encode -> Rust re-encode -> Ruby decode mismatch")
+  end
 
-    unless encoded_a == encoded_b
-      flunk fuzz_failure(
-        iter, value,
-        "Rust re-encoded bytes differ from Ruby-encoded bytes",
-        ruby_bytes: encoded_a, rust_bytes: encoded_b
-      )
-    end
+  def assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
+    return if encoded_a == encoded_b
 
-    recovered_a = Decoder.new(encoded_a).read
-    unless values_equal?(value, recovered_a)
-      flunk fuzz_failure(iter, value, "Ruby encode -> Ruby decode mismatch",
-                         decoded: recovered_a)
-    end
+    flunk fuzz_failure(iter, value, "Rust re-encoded bytes differ from Ruby-encoded bytes",
+                       ruby_bytes: encoded_a, rust_bytes: encoded_b)
+  end
 
-    recovered_b = Decoder.new(encoded_b).read
-    return if values_equal?(value, recovered_b)
+  def assert_ruby_roundtrip(iter, value, encoded, message)
+    recovered = Decoder.new(encoded).read
+    return if values_equal?(value, recovered)
 
-    flunk fuzz_failure(iter, value, "Ruby encode -> Rust re-encode -> Ruby decode mismatch",
-                       decoded: recovered_b)
+    flunk fuzz_failure(iter, value, message, decoded: recovered)
   end
 
   def write_frame(io, bytes)
@@ -182,23 +180,26 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def read_frame(io, iter, value)
-    hdr = io.read(4)
-    flunk fuzz_failure(iter, value, "oracle stdout closed unexpectedly (no header)") if hdr.nil? || hdr.bytesize < 4
-    word = hdr.unpack1("N")
-    is_error = word.anybits?(ERROR_FLAG)
-    len = word & ~ERROR_FLAG
+    is_error, len = read_frame_header(io, iter, value)
     payload = len.zero? ? "".b : io.read(len)
     if payload.nil? || payload.bytesize < len
       flunk fuzz_failure(iter, value, "oracle stdout truncated (header said #{len} bytes)")
     end
-
-    if is_error
-      tag = payload.byteslice(0, 1)
-      msg = payload.byteslice(1, payload.bytesize - 1)
-      flunk fuzz_failure(iter, value, "oracle reported wire error tag=#{tag.inspect} msg=#{msg.inspect}")
-    end
-
+    flunk_oracle_error(iter, value, payload) if is_error
     payload.b
+  end
+
+  def read_frame_header(io, iter, value)
+    hdr = io.read(4)
+    flunk fuzz_failure(iter, value, "oracle stdout closed unexpectedly (no header)") if hdr.nil? || hdr.bytesize < 4
+    word = hdr.unpack1("N")
+    [word.anybits?(ERROR_FLAG), word & ~ERROR_FLAG]
+  end
+
+  def flunk_oracle_error(iter, value, payload)
+    tag = payload.byteslice(0, 1)
+    msg = payload.byteslice(1, payload.bytesize - 1)
+    flunk fuzz_failure(iter, value, "oracle reported wire error tag=#{tag.inspect} msg=#{msg.inspect}")
   end
 
   def fuzz_failure(iter, value, msg, **extra)
@@ -207,16 +208,14 @@ class TestCodecRoundtripFuzz < Minitest::Test
       "  message: #{msg}",
       "  value:   #{value.inspect[0, 200]}"
     ]
-    extra.each do |k, v|
-      summary =
-        if v.is_a?(String) && v.encoding == Encoding::ASCII_8BIT
-          v.unpack1("H*")[0, 200]
-        else
-          v.inspect[0, 200]
-        end
-      parts << "  #{k}: #{summary}"
-    end
+    extra.each { |k, v| parts << "  #{k}: #{format_extra_value(v)}" }
     parts.join("\n")
+  end
+
+  def format_extra_value(value)
+    return value.unpack1("H*")[0, 200] if value.is_a?(String) && value.encoding == Encoding::ASCII_8BIT
+
+    value.inspect[0, 200]
   end
 
   # ---------------------------------------------------------------------
@@ -293,77 +292,72 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   # ----- integers -----
 
-  INT_BANDS = %i[
-    pos_fix neg_fix u8 u16 u32 u64 i8 i16 i32 i64
-  ].freeze
+  # Each band maps to a lambda that samples its msgpack-format range from
+  # the shared RNG. Negative bands keep the `-rng.rand(positive_range)`
+  # form to preserve the seeded value sequence — switching to a direct
+  # negative range would consume the same number of RNG draws but yield
+  # different values for the same seed.
+  INT_BAND_SAMPLERS = {
+    pos_fix: ->(rng) { rng.rand(0..0x7f) },
+    neg_fix: ->(rng) { -rng.rand(1..32) },
+    u8: ->(rng) { rng.rand(0x80..0xff) },
+    u16: ->(rng) { rng.rand(0x100..0xffff) },
+    u32: ->(rng) { rng.rand(0x1_0000..0xffff_ffff) },
+    u64: ->(rng) { rng.rand(0x1_0000_0000..0xffff_ffff_ffff_ffff) },
+    i8: ->(rng) { -rng.rand(33..0x80) },
+    i16: ->(rng) { -rng.rand(0x81..0x8000) },
+    i32: ->(rng) { -rng.rand(0x8001..0x8000_0000) },
+    i64: ->(rng) { -rng.rand(0x8000_0001..0x8000_0000_0000_0000) }
+  }.freeze
+  INT_BANDS = INT_BAND_SAMPLERS.keys.freeze
 
   def generate_integer
     band = INT_BANDS.sample(random: @rng)
-    n = case band
-        when :pos_fix then @rng.rand(0..0x7f)
-        when :neg_fix then -@rng.rand(1..32)
-        when :u8      then @rng.rand(0x80..0xff)
-        when :u16     then @rng.rand(0x100..0xffff)
-        when :u32     then @rng.rand(0x1_0000..0xffff_ffff)
-        when :u64     then @rng.rand(0x1_0000_0000..0xffff_ffff_ffff_ffff)
-        when :i8      then -@rng.rand(33..0x80)
-        when :i16     then -@rng.rand(0x81..0x8000)
-        when :i32     then -@rng.rand(0x8001..0x8000_0000)
-        when :i64     then -@rng.rand(0x8000_0001..0x8000_0000_0000_0000)
-        end
     @coverage[:"int_#{band}"] += 1
-    n
+    INT_BAND_SAMPLERS.fetch(band).call(@rng)
   end
 
   # ----- floats -----
 
+  # Special-value floats indexed 0..5; bucket 6..9 falls through to
+  # random_general_float. SPEC.md does not constrain NaN bit patterns;
+  # NaN is deliberately omitted because f64::from_bits round-trip can
+  # mutate the bit pattern and break the byte-equality check.
+  SPECIAL_FLOATS = [0.0, -0.0, Float::INFINITY, -Float::INFINITY, 1.0, -1.0].freeze
+
   def generate_float
     track(:float) do
       pick = @rng.rand(10)
-      case pick
-      when 0 then 0.0
-      when 1 then -0.0
-      when 2 then Float::INFINITY
-      when 3 then -Float::INFINITY
-      when 4 then 1.0
-      when 5 then -1.0
-      else
-        # General floats; deliberately skip NaN since the comparator
-        # already handles it but generating NaN here gives the byte-equality
-        # check (encoded_a == encoded_b) trouble across NaN bit patterns
-        # produced by f64::from_bits round-trip.
-        sign = @rng.rand(2).zero? ? 1.0 : -1.0
-        mantissa = @rng.rand
-        exponent = @rng.rand(-50..50)
-        sign * mantissa * (10.0**exponent)
-      end
+      pick < SPECIAL_FLOATS.size ? SPECIAL_FLOATS[pick] : random_general_float
     end
+  end
+
+  def random_general_float
+    sign = @rng.rand(2).zero? ? 1.0 : -1.0
+    mantissa = @rng.rand
+    exponent = @rng.rand(-50..50)
+    sign * mantissa * (10.0**exponent)
   end
 
   # ----- strings -----
 
+  # str-family msgpack length bands: each entry is [upper_bound_exclusive
+  # in the 20-bucket pick, coverage key, byte-length range or nil for
+  # the empty-string fast path]. We cap str_16 below the full u16 range
+  # to keep the fuzz cheap; SPEC's narrowest-encoding rule still gets
+  # exercised at the band boundaries.
+  STRING_BANDS = [
+    [1,  :str_empty, nil],
+    [12, :str_fix,   1..31],
+    [17, :str_8,     32..255],
+    [20, :str_16,    256..2048]
+  ].freeze
+
   def generate_string
     pick = @rng.rand(20)
-    if pick.zero?
-      @coverage[:str_empty] += 1
-      ""
-    elsif pick < 12
-      # fixstr: 1..31
-      len = @rng.rand(1..31)
-      @coverage[:str_fix] += 1
-      random_utf8_string(len)
-    elsif pick < 17
-      # str 8: 32..255
-      len = @rng.rand(32..255)
-      @coverage[:str_8] += 1
-      random_utf8_string(len)
-    else
-      # str 16: 256..2048 (we cap below the full u16 range to keep the
-      # fuzz cheap; SPEC's narrowest-encoding rule still gets exercised).
-      len = @rng.rand(256..2048)
-      @coverage[:str_16] += 1
-      random_utf8_string(len)
-    end
+    _, key, range = STRING_BANDS.find { |upper, *| pick < upper }
+    @coverage[key] += 1
+    range ? random_utf8_string(@rng.rand(range)) : ""
   end
 
   ASCII_PRINTABLE = (32..126).to_a.freeze
@@ -391,22 +385,18 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   # ----- binary -----
 
+  # bin-family msgpack length bands (same shape as STRING_BANDS).
+  BINARY_BANDS = [
+    [1,  :bin_empty, nil],
+    [14, :bin_8,     1..255],
+    [20, :bin_16,    256..2048]
+  ].freeze
+
   def generate_binary
     pick = @rng.rand(20)
-    if pick.zero?
-      @coverage[:bin_empty] += 1
-      "".b
-    elsif pick < 14
-      # bin 8: 1..255
-      len = @rng.rand(1..255)
-      @coverage[:bin_8] += 1
-      random_bytes(len)
-    else
-      # bin 16: 256..2048
-      len = @rng.rand(256..2048)
-      @coverage[:bin_16] += 1
-      random_bytes(len)
-    end
+    _, key, range = BINARY_BANDS.find { |upper, *| pick < upper }
+    @coverage[key] += 1
+    range ? random_bytes(@rng.rand(range)) : "".b
   end
 
   def random_bytes(n)
@@ -415,42 +405,41 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   # ----- containers -----
 
+  # Container msgpack length bands. array_16 is capped small so deep
+  # nesting doesn't explode payload size.
+  ARRAY_BANDS = [
+    [1,  :array_empty, nil],
+    [16, :array_fix,   1..15],
+    [20, :array_16,    16..32]
+  ].freeze
+
+  MAP_BANDS = [
+    [1,  :map_empty, nil],
+    [16, :map_fix,   1..15],
+    [20, :map_16,    16..24]
+  ].freeze
+
   def generate_array(depth:)
-    pick = @rng.rand(20)
-    len =
-      if pick.zero?
-        @coverage[:array_empty] += 1
-        0
-      elsif pick < 16
-        @coverage[:array_fix] += 1
-        @rng.rand(1..15)
-      else
-        @coverage[:array_16] += 1
-        @rng.rand(16..32) # cap small so deep nesting doesn't explode payload size
-      end
+    len = pick_container_length(ARRAY_BANDS)
     @coverage[:nesting] += 1 if depth > 1
     Array.new(len) { generate_value(depth: depth) }
   end
 
   def generate_map(depth:)
-    pick = @rng.rand(20)
-    len =
-      if pick.zero?
-        @coverage[:map_empty] += 1
-        0
-      elsif pick < 16
-        @coverage[:map_fix] += 1
-        @rng.rand(1..15)
-      else
-        @coverage[:map_16] += 1
-        @rng.rand(16..24)
-      end
+    len = pick_container_length(MAP_BANDS)
     h = {}
     # Use unique scalar keys to avoid accidental collisions that would
     # shrink the map and skew the boundary coverage.
     h[generate_map_key] = generate_value(depth: depth) while h.size < len
     @coverage[:nesting] += 1 if depth > 1
     h
+  end
+
+  def pick_container_length(bands)
+    pick = @rng.rand(20)
+    _, key, range = bands.find { |upper, *| pick < upper }
+    @coverage[key] += 1
+    range ? @rng.rand(range) : 0
   end
 
   def generate_map_key

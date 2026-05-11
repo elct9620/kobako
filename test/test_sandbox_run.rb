@@ -58,17 +58,22 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     sandbox.run("1")
-    engine_before  = sandbox.engine
-    module_before  = sandbox.module_
-    store_before   = sandbox.store
-    instance_before = sandbox.instance
-
+    before = snapshot_pipeline(sandbox)
     sandbox.run("2")
 
-    assert_same engine_before,   sandbox.engine
-    assert_same module_before,   sandbox.module_
-    assert_same store_before,    sandbox.store
-    assert_same instance_before, sandbox.instance
+    assert_pipeline_identity(before, sandbox)
+  end
+
+  def snapshot_pipeline(sandbox)
+    { engine: sandbox.engine, module_: sandbox.module_,
+      store: sandbox.store, instance: sandbox.instance }
+  end
+
+  def assert_pipeline_identity(snapshot, sandbox)
+    assert_same snapshot[:engine],   sandbox.engine
+    assert_same snapshot[:module_],  sandbox.module_
+    assert_same snapshot[:store],    sandbox.store
+    assert_same snapshot[:instance], sandbox.instance
   end
 
   def test_run_resets_handle_table_counter_to_one_between_runs

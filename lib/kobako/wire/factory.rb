@@ -25,21 +25,28 @@ module Kobako
       # instance; production code should call {.instance}.
       def self.build
         factory = MessagePack::Factory.new
+        register_handle_type(factory)
+        register_exception_type(factory)
+        factory
+      end
 
+      def self.register_handle_type(factory)
         factory.register_type(
           0x01, Handle,
           packer: ->(handle) { [handle.id].pack("N") },
           unpacker: ->(payload) { decode_handle(payload) }
         )
+      end
+      private_class_method :register_handle_type
 
+      def self.register_exception_type(factory)
         factory.register_type(
           0x02, Exception,
           packer: ->(exc) { pack_exception(exc, factory) },
           unpacker: ->(payload) { unpack_exception(payload, factory) }
         )
-
-        factory
       end
+      private_class_method :register_exception_type
 
       def self.decode_handle(payload)
         bytes = payload.b
@@ -65,18 +72,23 @@ module Kobako
         map = factory.load(payload)
         raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
+        type, message = validate_exception_map!(map)
+        Exception.new(type: type, message: message, details: map["details"])
+      end
+      private_class_method :unpack_exception
+
+      def self.validate_exception_map!(map)
         type    = map["type"]
         message = map["message"]
-        details = map["details"]
         raise InvalidType, "ext 0x02 missing 'type' (str)"    unless type.is_a?(String)
         raise InvalidType, "ext 0x02 missing 'message' (str)" unless message.is_a?(String)
         unless Exception::VALID_TYPES.include?(type)
           raise InvalidType, "ext 0x02 type #{type.inspect} not in #{Exception::VALID_TYPES.inspect}"
         end
 
-        Exception.new(type: type, message: message, details: details)
+        [type, message]
       end
-      private_class_method :unpack_exception
+      private_class_method :validate_exception_map!
     end
   end
 end

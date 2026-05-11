@@ -35,24 +35,21 @@ class TestEnvelopeRoundtrip < Minitest::Test
   @@build_error  = nil
 
   def self.ensure_oracle_built
-    return @@build_status if @@build_status
+    @@build_status ||= cargo_build_oracle
+  end
 
-    if `which cargo 2>/dev/null`.strip.empty?
-      @@build_status = :no_cargo
-      return @@build_status
-    end
+  def self.cargo_build_oracle
+    return :no_cargo if `which cargo 2>/dev/null`.strip.empty?
+
     out, status = Open3.capture2e(
       { "CARGO_TARGET_DIR" => File.join(CRATE_DIR, "target") },
       "cargo", "build", "--release", "--bin", "envelope_oracle",
       chdir: CRATE_DIR
     )
-    if status.success?
-      @@build_status = :ok
-    else
-      @@build_status = :build_failed
-      @@build_error  = out
-    end
-    @@build_status
+    return :ok if status.success?
+
+    @@build_error = out
+    :build_failed
   end
 
   def setup
@@ -77,20 +74,24 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # +kind+ is a single-byte tag picked by the oracle protocol
   # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome).
   def oracle_roundtrip(kind, payload)
-    frame = +"".b
-    frame << kind
-    frame << payload.b
+    send_frame(kind, payload)
+    read_response_frame
+  end
+
+  def send_frame(kind, payload)
+    frame = +"".b << kind << payload.b
     @stdin.write([frame.bytesize].pack("N"))
     @stdin.write(frame)
     @stdin.flush
+  end
 
+  def read_response_frame
     hdr = @stdout.read(4) or flunk "oracle stdout closed; no header"
     hdr_word = hdr.unpack1("N")
-    is_error = hdr_word.anybits?(ERROR_FLAG)
     len = hdr_word & 0x7fff_ffff
     body = len.zero? ? "".b : @stdout.read(len)
     flunk "oracle stdout truncated (expected #{len} bytes)" if body.nil? || body.bytesize != len
-    flunk "oracle reported error: #{body}" if is_error
+    flunk "oracle reported error: #{body}" if hdr_word.anybits?(ERROR_FLAG)
     body
   end
 

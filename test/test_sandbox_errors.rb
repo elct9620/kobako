@@ -80,6 +80,16 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     Kobako::Sandbox.allocate.send(:decode_outcome, bytes)
   end
 
+  def panic_outcome_bytes(origin:, klass:, message:, backtrace: [])
+    panic = Kobako::Wire::Envelope::Panic.new(
+      origin: origin, klass: klass, message: message, backtrace: backtrace
+    )
+    body = Kobako::Wire::Envelope.encode_panic(panic)
+    bytes = String.new(encoding: Encoding::ASCII_8BIT)
+    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_PANIC.chr(Encoding::ASCII_8BIT)
+    bytes << body
+  end
+
   # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."
   # Empty outcome bytes have no tag → the host emits TrapError.
   def test_zero_length_outcome_bytes_raises_trap_error
@@ -122,14 +132,10 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   end
 
   def test_panic_envelope_with_service_origin_dispatches_service_error
-    panic = Kobako::Wire::Envelope::Panic.new(
+    bytes = panic_outcome_bytes(
       origin: "service", klass: "Kobako::ServiceError",
       message: "boom", backtrace: ["x:1"]
     )
-    body = Kobako::Wire::Envelope.encode_panic(panic)
-    bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_PANIC.chr(Encoding::ASCII_8BIT)
-    bytes << body
 
     err = assert_raises(Kobako::ServiceError) { decode(bytes) }
     assert_equal "boom", err.message

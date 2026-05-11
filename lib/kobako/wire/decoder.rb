@@ -28,21 +28,30 @@ module Kobako
         @unpacker.feed(@buf)
       end
 
+      # The msgpack gem raises these for type/format violations; +ArgumentError+
+      # also comes from our ext-type validators (Handle id range, Exception
+      # type whitelist). All surface as {InvalidType}.
+      INVALID_TYPE_ERRORS = [
+        ::MessagePack::UnknownExtTypeError,
+        ::MessagePack::MalformedFormatError,
+        ::MessagePack::StackError,
+        ::ArgumentError
+      ].freeze
+      private_constant :INVALID_TYPE_ERRORS
+
+      # +UnpackError+ is the gem's umbrella class for short-read / incomplete-buffer
+      # faults; +EOFError+ covers underflow at the buffer edge. Both map to {Truncated}.
+      TRUNCATED_ERRORS = [::MessagePack::UnpackError, ::EOFError].freeze
+      private_constant :TRUNCATED_ERRORS
+
       # Read exactly one wire value and return its Ruby form.
       def read
         value = @unpacker.read
         validate_utf8!(value)
         value
-      rescue ::MessagePack::UnknownExtTypeError,
-             ::MessagePack::MalformedFormatError,
-             ::MessagePack::StackError,
-             ::ArgumentError => e
-        # +ArgumentError+ comes from our ext-type validators (Handle id
-        # range, Exception type whitelist) — surfacing as a wire-violation.
+      rescue *INVALID_TYPE_ERRORS => e
         raise InvalidType, e.message
-      rescue ::MessagePack::UnpackError, ::EOFError => e
-        # +UnpackError+ is the gem's umbrella class for short-read /
-        # incomplete-buffer faults; map to {Truncated}.
+      rescue *TRUNCATED_ERRORS => e
         raise Truncated, e.message
       rescue ::EncodingError => e
         raise InvalidEncoding, e.message
@@ -62,21 +71,27 @@ module Kobako
       # str-typed leaf.
       def validate_utf8!(value)
         case value
-        when String
-          return unless value.encoding == Encoding::UTF_8
-          raise InvalidEncoding, "str payload is not valid UTF-8" unless value.valid_encoding?
-        when Array
-          value.each { |v| validate_utf8!(v) }
-        when Hash
-          value.each do |k, v|
-            validate_utf8!(k)
-            validate_utf8!(v)
-          end
-        when Exception
-          validate_utf8!(value.type)
-          validate_utf8!(value.message)
-          validate_utf8!(value.details)
+        when String    then validate_string_utf8!(value)
+        when Array     then value.each { |v| validate_utf8!(v) }
+        when Hash      then value.each_pair { |k, v| validate_pair_utf8!(k, v) }
+        when Exception then validate_exception_utf8!(value)
         end
+      end
+
+      def validate_string_utf8!(value)
+        return unless value.encoding == Encoding::UTF_8
+        raise InvalidEncoding, "str payload is not valid UTF-8" unless value.valid_encoding?
+      end
+
+      def validate_pair_utf8!(key, value)
+        validate_utf8!(key)
+        validate_utf8!(value)
+      end
+
+      def validate_exception_utf8!(exc)
+        validate_utf8!(exc.type)
+        validate_utf8!(exc.message)
+        validate_utf8!(exc.details)
       end
     end
   end

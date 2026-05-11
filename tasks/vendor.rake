@@ -113,25 +113,31 @@ module KobakoVendor
     sidecar = "#{path}.sha256"
 
     if expected_sha && !expected_sha.empty?
-      unless actual == expected_sha
-        raise "checksum mismatch for #{File.basename(path)}: " \
-              "expected #{expected_sha}, got #{actual}"
-      end
-      File.write(sidecar, "#{actual}\n")
-      return actual
-    end
-
-    if File.exist?(sidecar)
-      pinned = File.read(sidecar).strip
-      unless actual == pinned
-        raise "checksum drift for #{File.basename(path)}: " \
-              "pinned #{pinned}, got #{actual}"
-      end
+      verify_against_expected(path, actual, expected_sha, sidecar)
     else
-      File.write(sidecar, "#{actual}\n")
+      verify_or_pin_sidecar(path, actual, sidecar)
     end
 
     actual
+  end
+
+  def self.verify_against_expected(path, actual, expected_sha, sidecar)
+    unless actual == expected_sha
+      raise "checksum mismatch for #{File.basename(path)}: " \
+            "expected #{expected_sha}, got #{actual}"
+    end
+    File.write(sidecar, "#{actual}\n")
+  end
+
+  def self.verify_or_pin_sidecar(path, actual, sidecar)
+    if File.exist?(sidecar)
+      pinned = File.read(sidecar).strip
+      return if actual == pinned
+
+      raise "checksum drift for #{File.basename(path)}: " \
+            "pinned #{pinned}, got #{actual}"
+    end
+    File.write(sidecar, "#{actual}\n")
   end
 
   # Prepare an unpacked tree at `final_dir` from `tarball`'s `top_level_dir`.
@@ -139,11 +145,7 @@ module KobakoVendor
   def self.prepare_unpacked(tarball:, top_level_dir:, final_dir:, sentinel:)
     return if File.exist?(File.join(final_dir, sentinel))
 
-    staging = "#{final_dir}.staging"
-    FileUtils.rm_rf(staging)
-    FileUtils.mkdir_p(staging)
-    system("tar", "-xzf", tarball, "-C", staging, exception: true)
-
+    staging = extract_to_staging(tarball, final_dir)
     src = File.join(staging, top_level_dir)
     raise "expected #{src} after extracting #{tarball}, missing" unless File.directory?(src)
 
@@ -151,6 +153,14 @@ module KobakoVendor
     FileUtils.mkdir_p(File.dirname(final_dir))
     FileUtils.mv(src, final_dir)
     FileUtils.rm_rf(staging)
+  end
+
+  def self.extract_to_staging(tarball, final_dir)
+    staging = "#{final_dir}.staging"
+    FileUtils.rm_rf(staging)
+    FileUtils.mkdir_p(staging)
+    system("tar", "-xzf", tarball, "-C", staging, exception: true)
+    staging
   end
 end
 

@@ -122,12 +122,7 @@ class TestWireIntegration < Minitest::Test
   #   2. mark that id `:disconnected` (B-19 ABA protection), and
   #   3. return the integer id so the fixture can re-target it.
   def test_handle_target_disconnected_surfaces_as_service_error_disconnected
-    sandbox = @sandbox
-    @sandbox.define(:Dc).bind(:Setup, lambda do
-      id = sandbox.handle_table.alloc(Object.new)
-      sandbox.handle_table.mark_disconnected(id)
-      id
-    end)
+    @sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(@sandbox))
 
     err = assert_raises(Kobako::ServiceError::Disconnected) do
       @sandbox.run("rpc-dc-chain:Dc::Setup|call|noop")
@@ -138,6 +133,14 @@ class TestWireIntegration < Minitest::Test
     assert_equal "service", err.origin
     assert_equal "Kobako::ServiceError::Disconnected", err.klass
     assert_match(/disconnected/, err.message)
+  end
+
+  def disconnected_handle_setup_lambda(sandbox)
+    lambda do
+      id = sandbox.handle_table.alloc(Object.new)
+      sandbox.handle_table.mark_disconnected(id)
+      id
+    end
   end
 
   # -------- (6) Handle-target dispatch — B-17 chaining -----------------

@@ -209,12 +209,8 @@ class TestE2EJourneys < Minitest::Test
   # SPEC.md B-17: Service A returns stateful object → guest uses Handle as
   # next RPC target → chain works.
   def test_handle_chain_b17_service_returns_handle_used_as_target
-    greeter = Class.new do
-      def initialize(name) = (@name = name)
-      def greet = "hi,#{@name}"
-    end
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Factory).bind(:Make, ->(name) { greeter.new(name) })
+    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
 
     result = sandbox.run(<<~RUBY)
       g = Factory::Make.call("Bob")
@@ -223,6 +219,11 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "hi,Bob", result,
                  "B-17: Handle target from first RPC routes second RPC to the stateful object"
+  end
+
+  class Greeter
+    def initialize(name) = (@name = name)
+    def greet = "hi,#{@name}"
   end
 
   # SPEC.md B-18 + E-13: cross-run Handle invalidity. A Handle obtained in
