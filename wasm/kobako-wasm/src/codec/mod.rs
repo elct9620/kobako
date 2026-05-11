@@ -14,9 +14,7 @@
 //! against the previous hand-rolled implementation, but the byte-level
 //! work is now delegated to `rmp::encode` / `rmp::decode`.
 
-use rmp::decode::{
-    read_marker, MarkerReadError, NumValueReadError, RmpRead, ValueReadError,
-};
+use rmp::decode::{read_marker, MarkerReadError, NumValueReadError, RmpRead, ValueReadError};
 use rmp::encode::{
     write_array_len, write_bin, write_bool, write_ext_meta, write_f64, write_map_len, write_nil,
     write_sint, write_str, write_uint,
@@ -180,14 +178,12 @@ impl Encoder {
                 if *id > HANDLE_ID_MAX {
                     return Err(WireError::InvalidHandle);
                 }
-                write_ext_meta(&mut self.buf, 4, EXT_HANDLE)
-                    .map_err(|_| WireError::Truncated)?;
+                write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| WireError::Truncated)?;
                 self.buf.extend_from_slice(&id.to_be_bytes());
             }
             Value::ErrEnv(payload) => {
                 let len = u32::try_from(payload.len()).map_err(|_| WireError::PayloadTooLarge)?;
-                write_ext_meta(&mut self.buf, len, EXT_ERRENV)
-                    .map_err(|_| WireError::Truncated)?;
+                write_ext_meta(&mut self.buf, len, EXT_ERRENV).map_err(|_| WireError::Truncated)?;
                 self.buf.extend_from_slice(payload);
             }
         }
@@ -563,7 +559,8 @@ mod tests {
     fn golden_outcome_result_42() {
         let mut buf = vec![OUTCOME_TAG_RESULT];
         let mut enc = Encoder::new();
-        enc.write_value(&Value::Array(vec![Value::Int(42)])).unwrap();
+        enc.write_value(&Value::Array(vec![Value::Int(42)]))
+            .unwrap();
         buf.extend(enc.into_bytes());
         assert_eq!(buf, vec![0x01, 0x91, 0x2a]);
     }
@@ -626,11 +623,29 @@ mod tests {
     #[test]
     fn roundtrip_int_boundaries() {
         let cases: &[i64] = &[
-            0, 1, -1, 127, 128, -32, -33, i8::MIN as i64,
-            i8::MIN as i64 - 1, i16::MAX as i64, i16::MIN as i64,
-            i16::MIN as i64 - 1, i32::MAX as i64, i32::MIN as i64,
-            i32::MIN as i64 - 1, i64::MAX, i64::MIN, 255, 256,
-            65_535, 65_536, 0xffff_ffff, 0x1_0000_0000,
+            0,
+            1,
+            -1,
+            127,
+            128,
+            -32,
+            -33,
+            i8::MIN as i64,
+            i8::MIN as i64 - 1,
+            i16::MAX as i64,
+            i16::MIN as i64,
+            i16::MIN as i64 - 1,
+            i32::MAX as i64,
+            i32::MIN as i64,
+            i32::MIN as i64 - 1,
+            i64::MAX,
+            i64::MIN,
+            255,
+            256,
+            65_535,
+            65_536,
+            0xffff_ffff,
+            0x1_0000_0000,
         ];
         for &n in cases {
             assert_eq!(roundtrip(Value::Int(n)), Value::Int(n), "Int({})", n);

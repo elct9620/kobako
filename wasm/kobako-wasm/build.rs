@@ -89,12 +89,8 @@ fn main() {
     // still declared in `mruby_sys.rs` under `#[cfg(target_arch = "wasm32")]`
     // which is sufficient for `cargo check` type-checking without a linked
     // object.
-    let wasi_sdk = env::var("WASI_SDK_PATH")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let cc_override = env::var("CC_wasm32_wasip1")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let wasi_sdk = env::var("WASI_SDK_PATH").ok().filter(|s| !s.is_empty());
+    let cc_override = env::var("CC_wasm32_wasip1").ok().filter(|s| !s.is_empty());
 
     if (wasi_sdk.is_some() || cc_override.is_some()) && mruby_include.exists() {
         // The mruby build process generates some headers (e.g.

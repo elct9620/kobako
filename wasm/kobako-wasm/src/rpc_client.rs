@@ -41,13 +41,11 @@
 
 #[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 use crate::abi::__kobako_rpc_call;
+use crate::abi::pack_u64;
 #[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 use crate::abi::unpack_u64;
-use crate::abi::pack_u64;
 use crate::codec::{Decoder, Value, WireError};
-use crate::envelope::{
-    encode_request, EnvelopeError, Request, Response, Target,
-};
+use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -172,9 +170,9 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
         Response::Err(payload_bytes) => {
             // Decode the inner ext 0x02 Exception map: {type, message, details}.
             let mut dec = Decoder::new(&payload_bytes);
-            let inner = dec.read_value().map_err(|e| {
-                InvokeError::Wire(EnvelopeError::Wire(e))
-            })?;
+            let inner = dec
+                .read_value()
+                .map_err(|e| InvokeError::Wire(EnvelopeError::Wire(e)))?;
             let pairs = match inner {
                 Value::Map(p) => p,
                 _ => {
@@ -202,12 +200,8 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
                     }
                 }
             }
-            let r#type = typ.ok_or(InvokeError::Wire(EnvelopeError::MissingField(
-                "type",
-            )))?;
-            let message = msg.ok_or(InvokeError::Wire(EnvelopeError::MissingField(
-                "message",
-            )))?;
+            let r#type = typ.ok_or(InvokeError::Wire(EnvelopeError::MissingField("type")))?;
+            let message = msg.ok_or(InvokeError::Wire(EnvelopeError::MissingField("message")))?;
             Err(InvokeError::ServiceErr(ExceptionPayload {
                 r#type,
                 message,
@@ -244,9 +238,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     }
     // SAFETY: the host promises [ptr, ptr+len) is a valid response
     // buffer in our linear memory for the duration of this call frame.
-    let slice = unsafe {
-        core::slice::from_raw_parts(ptr as *const u8, len as usize)
-    };
+    let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
     Ok(slice.to_vec())
 }
 
@@ -298,7 +290,7 @@ const _PACK_U64_REACHABLE: fn(u32, u32) -> u64 = pack_u64;
 mod tests {
     use super::*;
     use crate::codec::Encoder;
-    use crate::envelope::{encode_response, encode_request, Response};
+    use crate::envelope::{encode_request, encode_response, Response};
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
@@ -342,13 +334,7 @@ mod tests {
         let args = vec![Value::Str("hello".into())];
         let kwargs: Vec<(String, Value)> = vec![];
 
-        let direct = build_request_bytes(
-            target.clone(),
-            method,
-            &args,
-            &kwargs,
-        )
-        .unwrap();
+        let direct = build_request_bytes(target.clone(), method, &args, &kwargs).unwrap();
         let viaenv = encode_request(&Request {
             target,
             method: method.into(),
@@ -365,19 +351,12 @@ mod tests {
         // `request_golden_empty_args_and_kwargs` test; if either layer
         // drifts, both tests fail simultaneously and the discrepancy is
         // immediately localised.
-        let bytes = build_request_bytes(
-            Target::Path("G::M".into()),
-            "ping",
-            &[],
-            &[],
-        )
-        .unwrap();
+        let bytes = build_request_bytes(Target::Path("G::M".into()), "ping", &[], &[]).unwrap();
         assert_eq!(
             bytes,
             vec![
                 0x94, // fixarray 4
-                0xa4, b'G', b':', b':', b'M',
-                0xa4, b'p', b'i', b'n', b'g',
+                0xa4, b'G', b':', b':', b'M', 0xa4, b'p', b'i', b'n', b'g',
                 0x90, // fixarray 0
                 0x80, // fixmap 0
             ]
@@ -392,12 +371,7 @@ mod tests {
         let response = encode_response(&Response::Ok(Value::Int(42))).unwrap();
         install_canned(captured.clone(), response);
 
-        let out = invoke_rpc(
-            Target::Path("MyService::Counter".into()),
-            "value",
-            &[],
-            &[],
-        );
+        let out = invoke_rpc(Target::Path("MyService::Counter".into()), "value", &[], &[]);
         clear_loopback();
 
         assert_eq!(out, Ok(Value::Int(42)));
@@ -440,11 +414,7 @@ mod tests {
     #[test]
     fn invoke_rpc_returns_service_err_on_response_err() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = encode_response(&Response::Err(errenv_payload(
-            "runtime",
-            "boom",
-        )))
-        .unwrap();
+        let response = encode_response(&Response::Err(errenv_payload("runtime", "boom"))).unwrap();
         install_canned(captured, response);
 
         let out = invoke_rpc(
@@ -471,12 +441,7 @@ mod tests {
         // Garbage: a single 0xc1 byte (reserved msgpack family).
         install_canned(captured, vec![0xc1]);
 
-        let out = invoke_rpc(
-            Target::Path("G::M".into()),
-            "x",
-            &[],
-            &[],
-        );
+        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[]);
         clear_loopback();
 
         match out {
@@ -490,12 +455,7 @@ mod tests {
         // Defensive: if a test forgets to install a loopback, the
         // function must fail loudly rather than block or panic.
         clear_loopback();
-        let out = invoke_rpc(
-            Target::Path("G::M".into()),
-            "x",
-            &[],
-            &[],
-        );
+        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[]);
         match out {
             Err(InvokeError::Wire(EnvelopeError::Shape(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");
@@ -503,5 +463,4 @@ mod tests {
             other => panic!("expected Wire(Shape) error, got {other:?}"),
         }
     }
-
 }

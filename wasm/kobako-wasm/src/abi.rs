@@ -44,11 +44,7 @@ pub const IMPORT_MODULE: &str = "env";
 pub const IMPORT_NAME: &str = "__kobako_rpc_call";
 
 /// All three guest-provided export names, in declaration order.
-pub const EXPORT_NAMES: [&str; 3] = [
-    "__kobako_run",
-    "__kobako_alloc",
-    "__kobako_take_outcome",
-];
+pub const EXPORT_NAMES: [&str; 3] = ["__kobako_run", "__kobako_alloc", "__kobako_take_outcome"];
 
 // ---------------------------------------------------------------------------
 // Host import declaration.
@@ -212,7 +208,11 @@ pub extern "C" fn __kobako_run() {
         let frame1 = match read_frame() {
             Some(b) => b,
             None => {
-                write_panic_outcome("sandbox", "Kobako::BootError", "failed to read preamble frame");
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to read preamble frame",
+                );
                 return;
             }
         };
@@ -220,7 +220,11 @@ pub extern "C" fn __kobako_run() {
         let preamble = match decode_preamble(&frame1) {
             Some(p) => p,
             None => {
-                write_panic_outcome("sandbox", "Kobako::BootError", "failed to decode preamble msgpack");
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to decode preamble msgpack",
+                );
                 return;
             }
         };
@@ -230,7 +234,11 @@ pub extern "C" fn __kobako_run() {
         let frame2 = match read_frame() {
             Some(b) => b,
             None => {
-                write_panic_outcome("sandbox", "Kobako::BootError", "failed to read script frame");
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to read script frame",
+                );
                 return;
             }
         };
@@ -258,8 +266,7 @@ pub extern "C" fn __kobako_run() {
         // Kobako module + RPC base class are installed by mrb_kobako_init above;
         // look them up once here so each iteration can use rpc_class directly.
         let kobako_mod = unsafe { sys::mrb_define_module(mrb, cstr!("Kobako")) };
-        let rpc_class =
-            unsafe { sys::mrb_class_get_under(mrb, kobako_mod, cstr!("RPC")) };
+        let rpc_class = unsafe { sys::mrb_class_get_under(mrb, kobako_mod, cstr!("RPC")) };
 
         for (group_name, members) in &preamble {
             // NUL-terminate for the C API.
@@ -267,7 +274,11 @@ pub extern "C" fn __kobako_run() {
                 Ok(s) => s,
                 Err(_) => {
                     unsafe { sys::mrb_close(mrb) };
-                    write_panic_outcome("sandbox", "Kobako::BootError", "group name contains NUL byte");
+                    write_panic_outcome(
+                        "sandbox",
+                        "Kobako::BootError",
+                        "group name contains NUL byte",
+                    );
                     return;
                 }
             };
@@ -282,7 +293,11 @@ pub extern "C" fn __kobako_run() {
                     Ok(s) => s,
                     Err(_) => {
                         unsafe { sys::mrb_close(mrb) };
-                        write_panic_outcome("sandbox", "Kobako::BootError", "member name contains NUL byte");
+                        write_panic_outcome(
+                            "sandbox",
+                            "Kobako::BootError",
+                            "member name contains NUL byte",
+                        );
                         return;
                     }
                 };
@@ -310,7 +325,11 @@ pub extern "C" fn __kobako_run() {
         // offset is always correct for the compiler and mruby version in use.
 
         let result_val = unsafe {
-            sys::mrb_load_nstring(mrb, frame2.as_ptr() as *const core::ffi::c_char, frame2.len())
+            sys::mrb_load_nstring(
+                mrb,
+                frame2.as_ptr() as *const core::ffi::c_char,
+                frame2.len(),
+            )
         };
 
         // Retrieve the pending exception (if any) via the layout-safe C shim.
@@ -337,7 +356,11 @@ pub extern "C" fn __kobako_run() {
             // Call .message on the exception object to get the error message.
             let message = unsafe {
                 let m = exc_val.call(mrb, cstr!("message"), &[]).to_string(mrb);
-                if m.is_empty() { class_name.clone() } else { m }
+                if m.is_empty() {
+                    class_name.clone()
+                } else {
+                    m
+                }
             };
 
             // Clear the exception from mrb state.
@@ -383,7 +406,10 @@ pub extern "C" fn __kobako_run() {
 /// protocol (SPEC.md §Type Mapping). Non-representable values fall back
 /// to a string via the value's `Object#inspect` representation.
 #[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
-unsafe fn mrb_value_to_wire(mrb: *mut crate::mruby_sys::mrb_state, val: crate::mruby_sys::mrb_value) -> crate::codec::Value {
+unsafe fn mrb_value_to_wire(
+    mrb: *mut crate::mruby_sys::mrb_state,
+    val: crate::mruby_sys::mrb_value,
+) -> crate::codec::Value {
     use crate::codec::Value;
 
     match val.classname(mrb) {
@@ -540,7 +566,11 @@ mod tests {
             (u32::MAX, 1),
         ] {
             let packed = pack_u64(ptr, len);
-            assert_eq!(unpack_u64(packed), (ptr, len), "roundtrip failed for ({ptr:#x}, {len:#x})");
+            assert_eq!(
+                unpack_u64(packed),
+                (ptr, len),
+                "roundtrip failed for ({ptr:#x}, {len:#x})"
+            );
         }
     }
 

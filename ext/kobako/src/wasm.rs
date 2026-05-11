@@ -19,14 +19,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use magnus::{
-    function, method, prelude::*, value::Lazy, value::Opaque, Error as MagnusError,
-    ExceptionClass, RModule, Ruby, Value,
-};
 use magnus::RString;
+use magnus::{
+    function, method, prelude::*, value::Lazy, value::Opaque, Error as MagnusError, ExceptionClass,
+    RModule, Ruby, Value,
+};
 use wasmtime::{
-    AsContextMut, Caller, Config as WtConfig, Engine as WtEngine, Extern,
-    Instance as WtInstance, Linker, Memory, Module as WtModule, Store as WtStore, TypedFunc,
+    AsContextMut, Caller, Config as WtConfig, Engine as WtEngine, Extern, Instance as WtInstance,
+    Linker, Memory, Module as WtModule, Store as WtStore, TypedFunc,
 };
 use wasmtime_wasi::p1;
 use wasmtime_wasi::p1::WasiP1Ctx;
@@ -122,11 +122,10 @@ impl Engine {
         // parse and JIT those instructions.
         let mut config = WtConfig::new();
         config.wasm_exceptions(true);
-        let engine = WtEngine::new(&config)
-            .map_err(|e| {
-                let ruby = Ruby::get().expect("Ruby thread");
-                wasm_err(&ruby, format!("engine init: {}", e))
-            })?;
+        let engine = WtEngine::new(&config).map_err(|e| {
+            let ruby = Ruby::get().expect("Ruby thread");
+            wasm_err(&ruby, format!("engine init: {}", e))
+        })?;
         Ok(Self { inner: engine })
     }
 
@@ -242,7 +241,10 @@ impl Instance {
         // that never invokes WASI functions), the Option unwrap will panic —
         // but `setup_wasi_pipes` is always called before any WASI-enabled run.
         p1::add_to_linker_sync(&mut linker, |state: &mut HostState| {
-            state.wasi.as_mut().expect("WASI context not initialised — call setup_wasi_pipes before run")
+            state
+                .wasi
+                .as_mut()
+                .expect("WASI context not initialised — call setup_wasi_pipes before run")
         })
         .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
 
@@ -475,8 +477,7 @@ impl Instance {
         let preamble: &[u8] = unsafe { preamble_bytes.as_slice() };
         let source: &[u8] = unsafe { source_bytes.as_slice() };
 
-        let mut stdin_content: Vec<u8> =
-            Vec::with_capacity(4 + preamble.len() + 4 + source.len());
+        let mut stdin_content: Vec<u8> = Vec::with_capacity(4 + preamble.len() + 4 + source.len());
         // Frame 1 — preamble
         stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(preamble);
@@ -626,11 +627,7 @@ fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Option<i6
     Some(((ptr_u32 as i64) << 32) | (len_u32 as i64))
 }
 
-fn read_memory(
-    caller: &mut Caller<'_, HostState>,
-    ptr: i32,
-    len: i32,
-) -> Option<Vec<u8>> {
+fn read_memory(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> Option<Vec<u8>> {
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
         _ => return None,
@@ -666,7 +663,10 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("new", function!(Instance::new, 3))?;
     instance.define_method("has_export?", method!(Instance::has_export, 1))?;
-    instance.define_method("known_export_count", method!(Instance::known_export_count, 0))?;
+    instance.define_method(
+        "known_export_count",
+        method!(Instance::known_export_count, 0),
+    )?;
     instance.define_method("alloc", method!(Instance::alloc, 1))?;
     instance.define_method("write_memory", method!(Instance::write_memory, 2))?;
     instance.define_method("read_memory", method!(Instance::read_memory, 2))?;

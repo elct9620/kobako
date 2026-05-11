@@ -135,7 +135,10 @@ impl sys::mrb_value {
             let _ = sys::mrb_check_error(mrb);
             return String::new();
         }
-        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string()
+        core::ffi::CStr::from_ptr(ptr)
+            .to_str()
+            .unwrap_or("")
+            .to_string()
     }
 
     /// Invoke `self.method_name(args...)` via the non-variadic

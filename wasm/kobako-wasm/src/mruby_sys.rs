@@ -111,9 +111,13 @@ impl mrb_value {
     /// target this produces a zeroed 16-byte placeholder.
     pub const fn zeroed() -> Self {
         #[cfg(target_arch = "wasm32")]
-        { Self { w: 0 } }
+        {
+            Self { w: 0 }
+        }
         #[cfg(not(target_arch = "wasm32"))]
-        { Self { _payload: [0, 0] } }
+        {
+            Self { _payload: [0, 0] }
+        }
     }
 }
 
@@ -131,8 +135,7 @@ pub type mrb_sym = u32;
 /// `mrb_value (*)(mrb_state*, mrb_value)`. Used by
 /// `mrb_define_method` / `mrb_define_module_function` /
 /// `mrb_define_singleton_method`.
-pub type mrb_func_t =
-    unsafe extern "C" fn(mrb: *mut mrb_state, self_: mrb_value) -> mrb_value;
+pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: mrb_value) -> mrb_value;
 
 /// `mrb_aspec` — packed argument specification (e.g. `MRB_ARGS_REQ(4)`).
 /// In mruby this is a `uint32_t`. Construction macros listed below.

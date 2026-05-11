@@ -16,9 +16,7 @@
 //! host envelope module ends up byte-compatible because both sides
 //! follow SPEC, not because one was copied from the other.
 
-use crate::codec::{
-    Decoder, Encoder, Value, WireError, OUTCOME_TAG_PANIC, OUTCOME_TAG_RESULT,
-};
+use crate::codec::{Decoder, Encoder, Value, WireError, OUTCOME_TAG_PANIC, OUTCOME_TAG_RESULT};
 
 /// Response variant marker for the success branch
 /// (SPEC.md → Wire Codec → Response).
@@ -165,7 +163,11 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
     let target = match target_v {
         Value::Str(s) => Target::Path(s),
         Value::Handle(id) => Target::Handle(id),
-        _ => return Err(EnvelopeError::WrongFieldType("Request target must be str or Handle")),
+        _ => {
+            return Err(EnvelopeError::WrongFieldType(
+                "Request target must be str or Handle",
+            ))
+        }
     };
     let method = match method_v {
         Value::Str(s) => s,
@@ -252,7 +254,11 @@ pub fn decode_result(bytes: &[u8]) -> Result<ResultEnv, EnvelopeError> {
     let frame = dec.read_value()?;
     let mut items = match frame {
         Value::Array(items) if items.len() == 1 => items,
-        _ => return Err(EnvelopeError::Shape("Result envelope must be a 1-element array")),
+        _ => {
+            return Err(EnvelopeError::Shape(
+                "Result envelope must be a 1-element array",
+            ))
+        }
     };
     Ok(ResultEnv {
         value: items.pop().unwrap(),
@@ -263,9 +269,15 @@ pub fn decode_result(bytes: &[u8]) -> Result<ResultEnv, EnvelopeError> {
 
 pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, EnvelopeError> {
     let mut pairs: Vec<(Value, Value)> = Vec::with_capacity(5);
-    pairs.push((Value::Str("origin".into()), Value::Str(panic.origin.clone())));
+    pairs.push((
+        Value::Str("origin".into()),
+        Value::Str(panic.origin.clone()),
+    ));
     pairs.push((Value::Str("class".into()), Value::Str(panic.class.clone())));
-    pairs.push((Value::Str("message".into()), Value::Str(panic.message.clone())));
+    pairs.push((
+        Value::Str("message".into()),
+        Value::Str(panic.message.clone()),
+    ));
     if !panic.backtrace.is_empty() {
         let bt = panic
             .backtrace
@@ -591,7 +603,10 @@ mod tests {
                 Value::Str("RuntimeError".into()),
             ),
             (Value::Str("message".into()), Value::Str("boom".into())),
-            (Value::Str("future_key".into()), Value::Str("ignored".into())),
+            (
+                Value::Str("future_key".into()),
+                Value::Str("ignored".into()),
+            ),
         ]))
         .unwrap();
         let p = decode_panic(&enc.into_bytes()).unwrap();
@@ -660,10 +675,7 @@ mod tests {
 
     #[test]
     fn outcome_decode_rejects_empty_bytes() {
-        assert!(matches!(
-            decode_outcome(&[]),
-            Err(EnvelopeError::Shape(_))
-        ));
+        assert!(matches!(decode_outcome(&[]), Err(EnvelopeError::Shape(_))));
     }
 
     #[test]

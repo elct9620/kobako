@@ -143,10 +143,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
     #[cfg(target_arch = "wasm32")]
     {
         // (1) `mrb_define_module(mrb, "Kobako")`.
-        let kobako_mod = sys::mrb_define_module(
-            mrb,
-            cstr_ptr(KOBAKO_NAME),
-        );
+        let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
 
         // (2) `Kobako::RPC` base class.
         //
@@ -164,12 +161,8 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         // fix is to thread `mrb->object_class` through a small shim in
         // `mruby_sys.rs` rather than re-writing this function — the
         // boot mechanism shape is stable.
-        let rpc_class = sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(RPC_NAME),
-            core::ptr::null_mut(),
-        );
+        let rpc_class =
+            sys::mrb_define_class_under(mrb, kobako_mod, cstr_ptr(RPC_NAME), core::ptr::null_mut());
 
         // (3) Singleton-class `method_missing` and `respond_to_missing?`
         //     on `Kobako::RPC`.
@@ -251,10 +244,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         //     than `mrb_class_get_under(mrb, object_class, ...)`; mruby
         //     core registers RuntimeError as a top-level class in
         //     `mrb_init_exception`.
-        let runtime_error_class = sys::mrb_class_get(
-            mrb,
-            cstr_ptr(RUNTIME_ERROR_NAME),
-        );
+        let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
         sys::mrb_define_class_under(
             mrb,
             kobako_mod,
@@ -278,10 +268,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         // (`build_config/wasi.rb`), so we register both methods here via
         // `mrb_define_method` and have the C bridge bodies delegate to
         // `Kernel#print` through `mrb_funcall`.
-        let kernel_mod = sys::mrb_module_get(
-            mrb,
-            cstr_ptr(KERNEL_NAME),
-        );
+        let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
         sys::mrb_define_method(
             mrb,
             kernel_mod,
@@ -477,7 +464,9 @@ unsafe extern "C" fn rpc_method_missing(
         let target_str = if class_name_ptr.is_null() {
             raise_wire_error(mrb, b"RPC target class name is null\0");
         } else {
-            core::ffi::CStr::from_ptr(class_name_ptr).to_str().unwrap_or("")
+            core::ffi::CStr::from_ptr(class_name_ptr)
+                .to_str()
+                .unwrap_or("")
         };
 
         // Get the method name string from the symbol.
@@ -485,7 +474,9 @@ unsafe extern "C" fn rpc_method_missing(
         let method_name = if method_name_ptr.is_null() {
             raise_wire_error(mrb, b"RPC method symbol name is null\0");
         } else {
-            core::ffi::CStr::from_ptr(method_name_ptr).to_str().unwrap_or("")
+            core::ffi::CStr::from_ptr(method_name_ptr)
+                .to_str()
+                .unwrap_or("")
         };
 
         // Build args and kwargs from rest_ptr[0..rest_len].
@@ -498,7 +489,14 @@ unsafe extern "C" fn rpc_method_missing(
         let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
         let target = Target::Path(target_str.to_string());
 
-        dispatch_invoke(mrb, target, method_name, &wire_args, &wire_kwargs, b"RPC wire error\0")
+        dispatch_invoke(
+            mrb,
+            target,
+            method_name,
+            &wire_args,
+            &wire_kwargs,
+            b"RPC wire error\0",
+        )
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -560,7 +558,9 @@ unsafe extern "C" fn handle_method_missing(
         let method_name = if method_name_ptr.is_null() {
             raise_wire_error(mrb, b"Handle method symbol name is null\0");
         } else {
-            core::ffi::CStr::from_ptr(method_name_ptr).to_str().unwrap_or("")
+            core::ffi::CStr::from_ptr(method_name_ptr)
+                .to_str()
+                .unwrap_or("")
         };
 
         // Build args and kwargs from rest_ptr[0..rest_len].
@@ -573,7 +573,14 @@ unsafe extern "C" fn handle_method_missing(
         let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
         let target = Target::Handle(handle_id);
 
-        dispatch_invoke(mrb, target, method_name, &wire_args, &wire_kwargs, b"RPC wire error (Handle dispatch)\0")
+        dispatch_invoke(
+            mrb,
+            target,
+            method_name,
+            &wire_args,
+            &wire_kwargs,
+            b"RPC wire error (Handle dispatch)\0",
+        )
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -709,10 +716,7 @@ unsafe extern "C" fn kernel_puts(
 
 /// `Kernel#p(*args)` C bridge.
 #[allow(unused_variables)]
-unsafe extern "C" fn kernel_p(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+unsafe extern "C" fn kernel_p(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
@@ -760,7 +764,13 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
     use crate::codec::Value;
     match val {
         Value::Nil => mrb_nil_value(),
-        Value::Bool(b) => if b { mrb_true_value() } else { mrb_false_value() },
+        Value::Bool(b) => {
+            if b {
+                mrb_true_value()
+            } else {
+                mrb_false_value()
+            }
+        }
         Value::Int(n) => {
             // mrb_boxing_int_value(mrb, n) is the proper API for constructing
             // a boxed integer without hand-coding the bit layout.
@@ -792,12 +802,8 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
             // Return a Kobako::Handle instance carrying the id. Instance-level
             // method_missing on Kobako::Handle routes subsequent calls to the
             // host via Kobako.__rpc_call__ with Target::Handle(id) (SPEC §B-17).
-            let kobako_mod = sys::mrb_define_module(
-                mrb, cstr_ptr(KOBAKO_NAME)
-            );
-            let handle_class = sys::mrb_class_get_under(
-                mrb, kobako_mod, cstr_ptr(HANDLE_NAME)
-            );
+            let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+            let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
             // Build the constructor argument: mrb_int id (mrb_boxing_int_value).
             let id_val = sys::mrb_boxing_int_value(mrb, id as i32);
             // mrb_obj_new calls Kobako::Handle.new(id) which triggers
@@ -824,7 +830,10 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
 /// Convert an `mrb_value` to a kobako wire `Value`. Used when building
 /// args/kwargs for `invoke_rpc` from mruby-side values.
 #[cfg(target_arch = "wasm32")]
-unsafe fn mrb_value_to_wire_value(mrb: *mut sys::mrb_state, val: sys::mrb_value) -> crate::codec::Value {
+unsafe fn mrb_value_to_wire_value(
+    mrb: *mut sys::mrb_state,
+    val: sys::mrb_value,
+) -> crate::codec::Value {
     use crate::codec::Value;
 
     match val.classname(mrb) {
@@ -946,8 +955,7 @@ unsafe fn raise_service_error(
     mrb: *mut sys::mrb_state,
     ex: &crate::rpc_client::ExceptionPayload,
 ) -> ! {
-    let kobako_mod =
-        sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+    let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
     let svc_err_cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
     let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
     sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
@@ -956,10 +964,10 @@ unsafe fn raise_service_error(
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
 // These bit-pattern values come from mruby.h and must not be changed without
 // verifying the mruby header for the targeted mruby version and build config.
-const MRB_QNIL: u32   = 0;   // mruby.h: MRB_Qnil  (MRB_WORDBOX, wasm32)
-const MRB_QTRUE: u32  = 12;  // mruby.h: MRB_Qtrue
-const MRB_QFALSE: u32 = 4;   // mruby.h: MRB_Qfalse
-// MRB_Qnil must be zero so that `mrb_value::zeroed()` produces a nil value.
+const MRB_QNIL: u32 = 0; // mruby.h: MRB_Qnil  (MRB_WORDBOX, wasm32)
+const MRB_QTRUE: u32 = 12; // mruby.h: MRB_Qtrue
+const MRB_QFALSE: u32 = 4; // mruby.h: MRB_Qfalse
+                           // MRB_Qnil must be zero so that `mrb_value::zeroed()` produces a nil value.
 const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
 
 /// Construct an mruby `nil` value.
@@ -996,20 +1004,9 @@ fn mrb_false_value() -> sys::mrb_value {
 
 #[cfg(target_arch = "wasm32")]
 unsafe fn raise_wire_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
-    let kobako_mod = sys::mrb_define_module(
-        mrb,
-        cstr_ptr(KOBAKO_NAME),
-    );
-    let cls = sys::mrb_class_get_under(
-        mrb,
-        kobako_mod,
-        cstr_ptr(WIRE_ERROR_NAME),
-    );
-    sys::mrb_raise(
-        mrb,
-        cls,
-        msg.as_ptr() as *const core::ffi::c_char,
-    );
+    let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+    let cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(WIRE_ERROR_NAME));
+    sys::mrb_raise(mrb, cls, msg.as_ptr() as *const core::ffi::c_char);
 }
 
 // --------------------------------------------------------------------
@@ -1028,7 +1025,9 @@ mod tests {
     use super::*;
 
     fn is_ascii_nul_terminated(s: &[u8]) -> bool {
-        !s.is_empty() && s[s.len() - 1] == 0 && s[..s.len() - 1].iter().all(|b| b.is_ascii() && *b != 0)
+        !s.is_empty()
+            && s[s.len() - 1] == 0
+            && s[..s.len() - 1].iter().all(|b| b.is_ascii() && *b != 0)
     }
 
     #[test]
