@@ -139,6 +139,13 @@ module Kobako
         assert_raises(ArgumentError) { Envelope::Response.err("not an exc") }
       end
 
+      def test_response_construction_validates_field_types
+        assert_raises(ArgumentError) { Envelope::Response.new(status: 99,                        payload: nil) }
+        assert_raises(ArgumentError) { Envelope::Response.new(status: -1,                        payload: nil) }
+        assert_raises(ArgumentError) { Envelope::Response.new(status: Envelope::STATUS_ERROR, payload: "str") }
+        assert_raises(ArgumentError) { Envelope::Response.new(status: Envelope::STATUS_ERROR, payload: 42) }
+      end
+
       def test_response_decode_rejects_unknown_status
         bytes = Encoder.encode([2, nil])
         assert_raises(InvalidType) { Envelope.decode_response(bytes) }
