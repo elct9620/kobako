@@ -14,7 +14,7 @@ require_relative "registry/dispatcher"
 module Kobako
   # Kobako::Registry — per-Sandbox container of Service Groups and Handle
   # state. Manages capability injection and guest-initiated RPC dispatch
-  # (SPEC.md §Implementation Standards §Architecture).
+  # ({SPEC.md §B-07..B-21}[link:../../SPEC.md]).
   #
   # Public API:
   #
