@@ -187,11 +187,13 @@ module Kobako
       id = table.alloc(Object.new)
 
       # Act
-      table.mark_disconnected(id)
+      result = table.mark_disconnected(id)
 
       # Assert — SPEC E-14: entry becomes the :disconnected sentinel so that
       # any subsequent fetch returns the sentinel rather than the original object.
       assert_equal :disconnected, table.fetch(id)
+      # Returns self for chainability, matching the reset! convention.
+      assert_same table, result
     end
 
     def test_mark_disconnected_ignores_unknown_id

@@ -40,11 +40,11 @@ module Kobako
     end
 
     # Declare or retrieve the Group named +name+ (idempotent — SPEC.md B-10).
-    #
-    # @param name [Symbol, String] constant-form group name.
-    # @return [Kobako::Registry::ServiceGroup] the Group instance.
-    # @raise [ArgumentError] when +name+ is malformed, or when called after
-    #   the owning Sandbox has been sealed by `#run`.
+    # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
+    # +NAME_PATTERN+). Returns the +Kobako::Registry::ServiceGroup+ for that
+    # name, creating it if it does not exist. Raises +ArgumentError+ when
+    # +name+ is malformed, or when called after the owning Sandbox has been
+    # sealed by +#run+.
     def define(name)
       raise ArgumentError, "cannot define after Sandbox#run has been invoked" if @sealed
 
@@ -57,11 +57,10 @@ module Kobako
       @groups[name_str] ||= ServiceGroup.new(name_str)
     end
 
-    # Resolve a `"GroupName::MemberName"` path to the bound Host object.
-    #
-    # @param target [String] two-level path with `::` separator.
-    # @return [Object] the bound Host object.
-    # @raise [KeyError] when the group or the member is not bound.
+    # Resolve a +target+ path of the form +"GroupName::MemberName"+ to the
+    # bound Host object. +target+ is a two-level path using the +::+
+    # separator. Returns the bound Host object. Raises +KeyError+ when the
+    # group or the member is not bound.
     def lookup(target)
       group_name, member_name = target.to_s.split("::", 2)
       group = @groups[group_name]
@@ -71,8 +70,8 @@ module Kobako
       group.fetch(member_name)
     end
 
-    # @param target [String] two-level path with `::` separator.
-    # @return [Boolean] whether +target+ resolves to a bound member.
+    # Returns +true+ when +target+ (a +"GroupName::MemberName"+ path) resolves
+    # to a bound member, +false+ otherwise.
     def bound?(target)
       group_name, member_name = target.to_s.split("::", 2)
       return false if member_name.nil?
@@ -81,38 +80,36 @@ module Kobako
       !group.nil? && !group[member_name].nil?
     end
 
-    # @return [Array<Kobako::Registry::ServiceGroup>] all declared groups.
+    # Returns all declared +Kobako::Registry::ServiceGroup+ instances as an
+    # +Array+.
     def groups
       @groups.values
     end
 
-    # @return [Integer] number of declared groups.
+    # Returns the number of declared groups as an +Integer+.
     def size
       @groups.size
     end
 
-    # @return [Boolean] whether any groups have been declared.
+    # Returns +true+ when no groups have been declared, +false+ otherwise.
     def empty?
       @groups.empty?
     end
 
-    # Structured Frame 1 description (msgpack-encoded). Called by
-    # `Sandbox#run` when assembling stdin Frame 1 (SPEC.md §Sandbox#run
-    # 實作要點, step 1).
-    #
-    # @return [Array<Array(String, Array<String>)>] unencoded preamble array.
+    # Structured Frame 1 description. Called by +Sandbox#run+ when assembling
+    # stdin Frame 1 ({SPEC.md §B-02}[link:../../SPEC.md]). Returns an
+    # unencoded preamble array — an +Array+ of two-element +[name, members]+
+    # arrays, one per declared group.
     def to_preamble
       @groups.values.map(&:to_preamble)
     end
 
-    # Encode the preamble as msgpack bytes for stdin Frame 1 delivery.
-    #
-    # Uses plain MessagePack (no kobako ext types) because the preamble
-    # contains only strings — no Handles or Exception envelopes. Structure:
-    # `[["GroupName", ["MemberA", "MemberB"]], ...]` (SPEC.md §Sandbox#run
-    # 實作要點, step 1).
-    #
-    # @return [String] binary msgpack bytes.
+    # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
+    # ({SPEC.md §B-02}[link:../../SPEC.md]). Uses plain MessagePack (no
+    # kobako ext types) because the preamble contains only strings — no
+    # Handles or Exception envelopes. Structure:
+    # +[["GroupName", ["MemberA", "MemberB"]], ...]+. Returns a binary
+    # +String+ of msgpack bytes.
     def guest_preamble
       MessagePack.pack(to_preamble)
     end
@@ -124,33 +121,30 @@ module Kobako
       self
     end
 
-    # @return [Boolean] whether {#seal!} has been called.
+    # Returns +true+ when {#seal!} has been called, +false+ otherwise.
     def sealed?
       @sealed
     end
 
-    # Reset the HandleTable for a new #run boundary. Called by Sandbox#run
-    # before each invocation (SPEC.md §HandleTable 實作要點, #reset!).
+    # Reset the HandleTable for a new +#run+ boundary. Called by +Sandbox#run+
+    # before each invocation ({SPEC.md §B-19}[link:../../SPEC.md]).
     def reset_handles!
       @handle_table.reset!
     end
 
-    # Dispatch a single RPC request and return the encoded response bytes.
-    #
-    # Called by the Rust ext from inside +__kobako_rpc_call+. Always returns
-    # a binary String — never raises. Delegates to +Dispatcher.dispatch+ which
-    # reifies any failure as a Response.err envelope so the guest sees the
-    # failure as a normal RPC error rather than a wasm trap
-    # ({SPEC.md §Registry 實作要點 §dispatch 流程}[link:../../SPEC.md]).
-    #
-    # @param request_bytes [String] msgpack-encoded Request envelope.
-    # @return [String] msgpack-encoded Response envelope (binary).
+    # Dispatch a single RPC request and return the encoded response bytes
+    # ({SPEC.md §B-12}[link:../../SPEC.md]). +request_bytes+ is a
+    # msgpack-encoded Request envelope. Called by the Rust ext from inside
+    # +__kobako_rpc_call+. Always returns a binary +String+ — never raises.
+    # Delegates to +Dispatcher.dispatch+ which reifies any failure as a
+    # +Response.err+ envelope so the guest sees the failure as a normal RPC
+    # error rather than a wasm trap.
     def dispatch(request_bytes)
       Dispatcher.dispatch(request_bytes, self)
     end
 
-    # Expose the HandleTable for tests and wire-layer Handle wrapping.
-    # @return [Kobako::Registry::HandleTable]
+    # Expose the +Kobako::Registry::HandleTable+ for tests and wire-layer
+    # Handle wrapping.
     attr_reader :handle_table
   end
 end

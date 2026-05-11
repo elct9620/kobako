@@ -5,7 +5,7 @@ module Kobako
     # Host-side mapping from opaque integer Handle IDs to Ruby objects
     # (capability proxies). One table is owned per Kobako::Registry instance
     # (and therefore per Kobako::Sandbox instance). See
-    # {SPEC.md §HandleTable 實作要點}[link:../../../SPEC.md].
+    # {SPEC.md §B-15}[link:../../../SPEC.md].
     #
     # Lifecycle invariants ({SPEC.md}[link:../../../SPEC.md]):
     #
@@ -67,7 +67,7 @@ module Kobako
       end
 
       # Clear all entries AND reset the counter to 1. Called at the per-run
-      # boundary — see {SPEC.md §HandleTable 實作要點, #reset!}[link:../../../SPEC.md].
+      # boundary — see {SPEC.md §B-19}[link:../../../SPEC.md].
       # Returns +self+.
       def reset!
         @entries.clear

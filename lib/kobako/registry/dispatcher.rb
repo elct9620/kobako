@@ -41,7 +41,7 @@ module Kobako
       # decode, lookup, or method invocation is reified as a Response.err
       # envelope so the guest sees the failure as a normal RPC error rather
       # than a wasm trap
-      # ({SPEC.md §Registry 實作要點 §dispatch 流程}[link:../../../SPEC.md]).
+      # ({SPEC.md §B-12}[link:../../../SPEC.md]).
       def dispatch(request_bytes, registry)
         encode_ok(wrap_return(perform_dispatch(request_bytes, registry), registry))
       rescue StandardError => e
@@ -51,7 +51,7 @@ module Kobako
       # Map an error raised during dispatch to a Response.err envelope.
       # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
       # a msgpack-encoded Response envelope (binary). Four error buckets
-      # ({SPEC.md §dispatch 流程}[link:../../../SPEC.md]): +Wire::Error+ →
+      # ({SPEC.md §B-12}[link:../../../SPEC.md]): +Wire::Error+ →
       # type="runtime" (wire decode failed); +DisconnectedTargetError+ →
       # type="disconnected" (E-14); +UndefinedTargetError+ → type="undefined"
       # (E-13); +ArgumentError+ → type="argument" (B-12 arity mismatch);
