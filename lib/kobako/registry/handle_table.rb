@@ -26,21 +26,19 @@ module Kobako
       # {SPEC.md §B-21}[link:../../../SPEC.md]. 0x7fff_ffff == 2³¹ − 1.
       MAX_ID = 0x7fff_ffff
 
-      # Build a fresh, empty HandleTable.
-      #
-      # @param next_id [Integer] internal seam: starting value of the
-      #   monotonic counter. Defaults to 1 (per B-15). Used by tests to
-      #   exercise the cap-exhaustion path without 2³¹ allocations.
+      # Build a fresh, empty HandleTable. +next_id+ is an internal seam that
+      # sets the starting value of the monotonic counter (defaults to 1 per
+      # B-15); tests pass a value near +MAX_ID+ to exercise the cap-exhaustion
+      # path without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {}
         @next_id = next_id
       end
 
       # Bind +object+ in the table and return its newly-allocated Handle ID.
-      #
-      # @param object [Object] host-side Ruby object to bind.
-      # @return [Integer] freshly-allocated Handle ID in [1, MAX_ID].
-      # @raise [Kobako::HandleTableExhausted] if the cap would be exceeded.
+      # +object+ is any host-side Ruby object to bind. Returns a freshly-
+      # allocated Handle ID in +[1, MAX_ID]+. Raises +Kobako::HandleTableExhausted+
+      # if the next ID would exceed the cap.
       def alloc(object)
         id = @next_id
         raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{MAX_ID}" if id > MAX_ID
@@ -50,22 +48,18 @@ module Kobako
         id
       end
 
-      # Resolve a Handle ID to its bound object.
-      #
-      # @param id [Integer] Handle ID previously returned by #alloc.
-      # @return [Object] the bound object.
-      # @raise [Kobako::HandleTableError] if +id+ is not currently bound.
+      # Resolve a Handle ID to its bound object. +id+ is a Handle ID previously
+      # returned by +#alloc+. Returns the bound object. Raises
+      # +Kobako::HandleTableError+ if +id+ is not currently bound.
       def fetch(id)
         return @entries[id] if @entries.key?(id)
 
         raise HandleTableError, "unknown Handle id: #{id.inspect}"
       end
 
-      # Remove and return the binding for +id+.
-      #
-      # @param id [Integer] Handle ID to release.
-      # @return [Object] the previously-bound object.
-      # @raise [Kobako::HandleTableError] if +id+ is not currently bound.
+      # Remove and return the binding for +id+. +id+ is the Handle ID to
+      # release. Returns the previously-bound object. Raises
+      # +Kobako::HandleTableError+ if +id+ is not currently bound.
       def release(id)
         raise HandleTableError, "unknown Handle id: #{id.inspect}" unless @entries.key?(id)
 
@@ -74,28 +68,25 @@ module Kobako
 
       # Clear all entries AND reset the counter to 1. Called at the per-run
       # boundary — see {SPEC.md §HandleTable 實作要點, #reset!}[link:../../../SPEC.md].
-      #
-      # @return [self]
+      # Returns +self+.
       def reset!
         @entries.clear
         @next_id = 1
         self
       end
 
-      # Mark the entry at +id+ as disconnected (ABA protection).
-      #
-      # @param id [Integer]
+      # Mark the entry at +id+ as disconnected (ABA protection). +id+ is the
+      # Handle ID to poison; silently ignored if +id+ is not currently bound.
       def mark_disconnected(id)
         @entries[id] = :disconnected if @entries.key?(id)
       end
 
-      # @return [Integer] number of currently-bound entries.
+      # Returns the number of currently-bound entries.
       def size
         @entries.size
       end
 
-      # @param id [Integer]
-      # @return [Boolean] whether +id+ is currently bound.
+      # Returns +true+ when +id+ is currently bound, +false+ otherwise.
       def include?(id)
         @entries.key?(id)
       end

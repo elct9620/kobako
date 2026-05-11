@@ -9,20 +9,19 @@ module Kobako
 
       attr_reader :name, :members
 
-      # @param name [String] already-validated Group name.
+      # Build a new ServiceGroup. +name+ is an already-validated Group name
+      # (must satisfy +NAME_PATTERN+; validation is the caller's responsibility).
       def initialize(name)
         @name = name
         @members = {}
       end
 
-      # Bind +object+ under +member+ inside this group.
-      #
-      # @param member [Symbol, String] constant-form member name.
-      # @param object [Object] any object responding to the methods guest code
-      #   will invoke.
-      # @return [self] for chaining.
-      # @raise [ArgumentError] when +member+ does not match the constant
-      #   pattern, or a member of the same name is already bound ({SPEC.md §B-11}[link:../../../SPEC.md]).
+      # Bind +object+ under +member+ inside this group. +member+ is a
+      # constant-form name as a +Symbol+ or +String+. +object+ is any Ruby
+      # object that responds to the methods guest code will invoke. Returns
+      # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
+      # match the constant pattern, or a member of the same name is already
+      # bound ({SPEC.md §B-11}[link:../../../SPEC.md]).
       def bind(member, object)
         member_str = validate_member_name!(member)
         raise ArgumentError, "Member #{@name}::#{member_str} is already bound" if @members.key?(member_str)
@@ -36,9 +35,8 @@ module Kobako
         @members[member.to_s]
       end
 
-      # Strict variant of {#[]}; raises when the member is unbound.
-      #
-      # @raise [KeyError] when no member is registered under +member+.
+      # Strict variant of {#[]}; raises +KeyError+ when no member is
+      # registered under +member+.
       def fetch(member)
         member_str = member.to_s
         unless @members.key?(member_str)
@@ -48,9 +46,8 @@ module Kobako
         @members[member_str]
       end
 
-      # Structured description for the guest preamble (Frame 1).
-      #
-      # @return [Array(String, Array<String>)]
+      # Structured description for the guest preamble (Frame 1). Returns a
+      # two-element array +[name, member_keys]+ suitable for msgpack encoding.
       def to_preamble
         [@name, @members.keys]
       end

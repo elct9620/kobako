@@ -32,19 +32,16 @@ module Kobako
       class DisconnectedTargetError < StandardError; end
 
       # Dispatch a single RPC request and return the encoded response bytes.
-      #
       # Called by +Kobako::Registry#dispatch+ which is invoked from the Rust
-      # ext inside +__kobako_rpc_call+. Always returns a binary String — never
-      # raises. Any failure during decode, lookup, or method invocation is
-      # reified as a Response.err envelope so the guest sees the failure as a
-      # normal RPC error rather than a wasm trap
+      # ext inside +__kobako_rpc_call+. +request_bytes+ is the msgpack-encoded
+      # Request envelope. +registry+ is the live registry for this run, used
+      # to resolve path-based targets via +#lookup+ and to access the
+      # +#handle_table+ for Handle-based targets and return-value wrapping.
+      # Always returns a binary String — never raises. Any failure during
+      # decode, lookup, or method invocation is reified as a Response.err
+      # envelope so the guest sees the failure as a normal RPC error rather
+      # than a wasm trap
       # ({SPEC.md §Registry 實作要點 §dispatch 流程}[link:../../../SPEC.md]).
-      #
-      # @param request_bytes [String] msgpack-encoded Request envelope.
-      # @param registry [Kobako::Registry] the live registry for this run;
-      #   used to resolve path-based targets via +#lookup+ and to access the
-      #   +#handle_table+ for Handle-based targets and return-value wrapping.
-      # @return [String] msgpack-encoded Response envelope (binary).
       def dispatch(request_bytes, registry)
         encode_ok(wrap_return(perform_dispatch(request_bytes, registry), registry))
       rescue StandardError => e
@@ -52,16 +49,13 @@ module Kobako
       end
 
       # Map an error raised during dispatch to a Response.err envelope.
-      #
-      # Four error buckets ({SPEC.md §dispatch 流程}[link:../../../SPEC.md]):
-      # +Wire::Error+ → type="runtime" (wire decode failed);
-      # +DisconnectedTargetError+ → type="disconnected" (E-14);
-      # +UndefinedTargetError+ → type="undefined" (E-13);
-      # +ArgumentError+ → type="argument" (B-12 arity mismatch);
+      # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
+      # a msgpack-encoded Response envelope (binary). Four error buckets
+      # ({SPEC.md §dispatch 流程}[link:../../../SPEC.md]): +Wire::Error+ →
+      # type="runtime" (wire decode failed); +DisconnectedTargetError+ →
+      # type="disconnected" (E-14); +UndefinedTargetError+ → type="undefined"
+      # (E-13); +ArgumentError+ → type="argument" (B-12 arity mismatch);
       # everything else → type="runtime".
-      #
-      # @param error [StandardError]
-      # @return [String] msgpack-encoded Response envelope (binary).
       def encode_dispatch_error(error)
         case error
         when Kobako::Wire::Error     then encode_err("runtime", "wire decode failed: #{error.message}")
