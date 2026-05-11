@@ -2,11 +2,7 @@
 
 module Kobako
   class Registry
-    # ===========================================================================
-    # Internal class: ServiceGroup
-    #
     # A named namespace of Service Members for one Sandbox ({SPEC.md §B-07..B-11}[link:../../../SPEC.md]).
-    # ===========================================================================
     class ServiceGroup
       # Ruby constant-name pattern ({SPEC.md §B-07/B-08 Notes}[link:../../../SPEC.md]).
       NAME_PATTERN = /\A[A-Z]\w*\z/

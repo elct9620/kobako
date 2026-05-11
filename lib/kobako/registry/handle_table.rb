@@ -2,9 +2,6 @@
 
 module Kobako
   class Registry
-    # ===========================================================================
-    # Internal class: HandleTable
-    #
     # Host-side mapping from opaque integer Handle IDs to Ruby objects
     # (capability proxies). One table is owned per Kobako::Registry instance
     # (and therefore per Kobako::Sandbox instance). See
@@ -24,7 +21,6 @@ module Kobako
     #   - {SPEC.md §B-21}[link:../../../SPEC.md] — The cap is `0x7fff_ffff`
     #     (2³¹ − 1). Allocation beyond the cap raises immediately — no silent
     #     truncation, no wrap, no ID reuse.
-    # ===========================================================================
     class HandleTable
       # Maximum valid Handle ID. Wire-format invariant:
       # {SPEC.md §B-21}[link:../../../SPEC.md]. 0x7fff_ffff == 2³¹ − 1.
