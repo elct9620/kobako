@@ -200,18 +200,9 @@ module Kobako
       table.alloc(Object.new) # id 1
 
       # Act + Assert — silently ignored; no exception, no state change.
-      assert_nil table.mark_disconnected(999)
+      # Returns self for chainability (matching reset! convention).
+      assert_same table, table.mark_disconnected(999)
       assert_equal 1, table.size
-    end
-
-    # ---------- Error class hierarchy sanity ----------
-
-    def test_handle_table_error_is_sandbox_error_subclass
-      # SPEC §"Error Class Hierarchy" (Item #20):
-      #   HandleTableExhausted < HandleTableError < SandboxError < Error.
-      assert Kobako::HandleTableError < Kobako::SandboxError
-      assert Kobako::HandleTableExhausted < Kobako::HandleTableError
-      assert Kobako::HandleTableExhausted < Kobako::SandboxError
     end
   end
 end

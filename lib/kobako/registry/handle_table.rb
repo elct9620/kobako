@@ -77,8 +77,10 @@ module Kobako
 
       # Mark the entry at +id+ as disconnected (ABA protection). +id+ is the
       # Handle ID to poison; silently ignored if +id+ is not currently bound.
+      # Returns +self+ for chainability, matching the convention of +#reset!+.
       def mark_disconnected(id)
         @entries[id] = :disconnected if @entries.key?(id)
+        self
       end
 
       # Returns the number of currently-bound entries.
