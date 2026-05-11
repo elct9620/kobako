@@ -131,6 +131,7 @@ pub extern "C" fn __kobako_run() {
     {
         use crate::boot::mrb_kobako_init;
         use crate::codec::Value;
+        use crate::cstr;
         use crate::envelope::{encode_outcome, Outcome, Panic, ResultEnv};
         use crate::mruby_sys as sys;
         use std::io::Read;
@@ -255,12 +256,9 @@ pub extern "C" fn __kobako_run() {
 
         // Kobako module + RPC base class are installed by mrb_kobako_init above;
         // look them up once here so each iteration can use rpc_class directly.
-        let kobako_mod = unsafe {
-            sys::mrb_define_module(mrb, b"Kobako\0".as_ptr() as *const core::ffi::c_char)
-        };
-        let rpc_class = unsafe {
-            sys::mrb_class_get_under(mrb, kobako_mod, b"RPC\0".as_ptr() as *const core::ffi::c_char)
-        };
+        let kobako_mod = unsafe { sys::mrb_define_module(mrb, cstr!("Kobako")) };
+        let rpc_class =
+            unsafe { sys::mrb_class_get_under(mrb, kobako_mod, cstr!("RPC")) };
 
         for (group_name, members) in &preamble {
             // NUL-terminate for the C API.
@@ -327,36 +325,18 @@ pub extern "C" fn __kobako_run() {
         if has_exception {
             // Extract class name from the exception object.
             let class_name = unsafe {
-                let ptr = sys::mrb_obj_classname(mrb, exc_val);
-                if ptr.is_null() {
+                let cn = exc_val.classname(mrb);
+                if cn.is_empty() {
                     "RuntimeError".to_string()
                 } else {
-                    core::ffi::CStr::from_ptr(ptr)
-                        .to_str()
-                        .unwrap_or("RuntimeError")
-                        .to_string()
+                    cn.to_string()
                 }
             };
 
             // Call .message on the exception object to get the error message.
-            let msg_val = unsafe {
-                sys::mrb_funcall(
-                    mrb,
-                    exc_val,
-                    b"message\0".as_ptr() as *const core::ffi::c_char,
-                    0,
-                )
-            };
             let message = unsafe {
-                let ptr = sys::mrb_str_to_cstr(mrb, msg_val);
-                if ptr.is_null() {
-                    class_name.clone()
-                } else {
-                    core::ffi::CStr::from_ptr(ptr)
-                        .to_str()
-                        .unwrap_or(&class_name)
-                        .to_string()
-                }
+                let m = exc_val.call(mrb, cstr!("message"), &[]).to_string(mrb);
+                if m.is_empty() { class_name.clone() } else { m }
             };
 
             // Clear the exception from mrb state.
@@ -400,102 +380,28 @@ pub extern "C" fn __kobako_run() {
 /// Convert an `mrb_value` to a kobako wire `Value` for the outcome Result
 /// envelope. Only handles the types representable in the kobako wire
 /// protocol (SPEC.md §Type Mapping). Non-representable values fall back
-/// to a string via `mrb_inspect`.
+/// to a string via the value's `Object#inspect` representation.
 #[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 unsafe fn mrb_value_to_wire(mrb: *mut crate::mruby_sys::mrb_state, val: crate::mruby_sys::mrb_value) -> crate::codec::Value {
     use crate::codec::Value;
-    use crate::mruby_sys as sys;
+    use crate::cstr;
 
-    // Use mrb_inspect to get a Ruby-style string representation, then
-    // try to decode as a known type from the string.
-    // Better: use mrb_type checks via mrb_obj_classname to branch.
-    let classname_ptr = sys::mrb_obj_classname(mrb, val);
-    let classname = if classname_ptr.is_null() {
-        ""
-    } else {
-        core::ffi::CStr::from_ptr(classname_ptr)
-            .to_str()
-            .unwrap_or("")
-    };
-
-    match classname {
+    match val.classname(mrb) {
         "NilClass" => Value::Nil,
         "TrueClass" => Value::Bool(true),
         "FalseClass" => Value::Bool(false),
-        "Integer" => {
-            // Use mrb_inspect → CStr → parse as i64.
-            let inspect_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let s_ptr = sys::mrb_str_to_cstr(mrb, inspect_val);
-            if s_ptr.is_null() {
-                Value::Int(0)
-            } else {
-                let s = core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("0");
-                Value::Int(s.parse::<i64>().unwrap_or(0))
-            }
-        }
-        "Float" => {
-            let inspect_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let s_ptr = sys::mrb_str_to_cstr(mrb, inspect_val);
-            if s_ptr.is_null() {
-                Value::Float(0.0)
-            } else {
-                let s = core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("0.0");
-                Value::Float(s.parse::<f64>().unwrap_or(0.0))
-            }
-        }
-        "String" => {
-            let s_ptr = sys::mrb_str_to_cstr(mrb, val);
-            if s_ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                let s = core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("").to_string();
-                Value::Str(s)
-            }
-        }
-        "Array" => {
-            // Array: fall back to inspect string for the outcome envelope.
-            // Full Array wire encoding is a follow-up item.
-            let inspect_val = sys::mrb_funcall(
-                mrb, val, b"inspect\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let s_ptr = sys::mrb_str_to_cstr(mrb, inspect_val);
-            if s_ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                Value::Str(core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("").to_string())
-            }
-        }
+        "Integer" => Value::Int(val.to_string(mrb).parse().unwrap_or(0)),
+        "Float" => Value::Float(val.to_string(mrb).parse().unwrap_or(0.0)),
+        "String" => Value::Str(val.to_string(mrb)),
+        // Array / Hash / unknown: serialize via Object#inspect for the
+        // outcome envelope. Full Array/Hash wire encoding is a follow-up.
+        // Hash empty-fallback differs from the generic empty-fallback so
+        // we keep the "{}" sentinel for it explicitly.
         "Hash" => {
-            // Fall back to inspect string for hashes — no direct pair-iteration
-            // without additional C API shims.
-            let inspect_val = sys::mrb_funcall(
-                mrb, val, b"inspect\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let s_ptr = sys::mrb_str_to_cstr(mrb, inspect_val);
-            if s_ptr.is_null() {
-                Value::Str("{}".to_string())
-            } else {
-                Value::Str(core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("{}").to_string())
-            }
+            let s = val.call(mrb, cstr!("inspect"), &[]).to_string(mrb);
+            Value::Str(if s.is_empty() { "{}".to_string() } else { s })
         }
-        _ => {
-            // Unknown / non-wire type: use inspect string representation.
-            // Callers that need the exact Ruby type should use the RPC path
-            // (Service returns a Handle for non-primitive objects).
-            let inspect_val = sys::mrb_funcall(
-                mrb, val, b"inspect\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let s_ptr = sys::mrb_str_to_cstr(mrb, inspect_val);
-            if s_ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                Value::Str(core::ffi::CStr::from_ptr(s_ptr).to_str().unwrap_or("").to_string())
-            }
-        }
+        _ => Value::Str(val.call(mrb, cstr!("inspect"), &[]).to_string(mrb)),
     }
 }
 

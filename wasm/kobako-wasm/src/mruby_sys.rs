@@ -259,12 +259,29 @@ extern "C" {
     /// call from C. Used to call `.message` on an exception value.
     /// The call frame is not protected — callers must ensure `mrb->exc`
     /// is already set as a known exception before calling this.
+    ///
+    /// Prefer `mrb_funcall_argv` (the non-variadic counterpart) when
+    /// the call site has a fixed argv slice — it gives the Rust borrow
+    /// checker something to verify and avoids variadic-FFI footguns.
     pub fn mrb_funcall(
         mrb: *mut mrb_state,
         val: mrb_value,
         name: *const c_char,
         argc: c_int,
         ...
+    ) -> mrb_value;
+
+    /// `mrb_funcall_argv(mrb, val, mid, argc, argv)` — non-variadic
+    /// counterpart to `mrb_funcall`. Takes a pre-interned method
+    /// symbol and an `argv` array pointer. Used by `mrb_value::call`
+    /// (`crate::mruby_helpers`) so call sites stop reaching for the
+    /// variadic `mrb_funcall`.
+    pub fn mrb_funcall_argv(
+        mrb: *mut mrb_state,
+        val: mrb_value,
+        mid: mrb_sym,
+        argc: c_int,
+        argv: *const mrb_value,
     ) -> mrb_value;
 
     /// `mrb_str_to_cstr(mrb, str)` — returns a NUL-terminated C string

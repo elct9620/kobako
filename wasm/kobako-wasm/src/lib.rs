@@ -32,6 +32,7 @@ pub mod abi;
 pub mod boot;
 pub mod codec;
 pub mod envelope;
+pub mod mruby_helpers;
 pub mod mruby_sys;
 pub mod rpc_client;
 

@@ -67,6 +67,9 @@
 //! `__kobako_run` body and the host-side ABI; none of them require an
 //! mruby-VM-side artifact.
 
+use crate::cstr;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby_helpers::cstr_ptr;
 use crate::mruby_sys as sys;
 
 // --------------------------------------------------------------------
@@ -142,7 +145,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         // (1) `mrb_define_module(mrb, "Kobako")`.
         let kobako_mod = sys::mrb_define_module(
             mrb,
-            KOBAKO_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(KOBAKO_NAME),
         );
 
         // (2) `Kobako::RPC` base class.
@@ -164,7 +167,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         let rpc_class = sys::mrb_define_class_under(
             mrb,
             kobako_mod,
-            RPC_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(RPC_NAME),
             core::ptr::null_mut(),
         );
 
@@ -179,14 +182,14 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         sys::mrb_define_singleton_method(
             mrb,
             rpc_class as *mut sys::RObject,
-            METHOD_MISSING_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(METHOD_MISSING_NAME),
             rpc_method_missing,
             sys::MRB_ARGS_ANY,
         );
         sys::mrb_define_singleton_method(
             mrb,
             rpc_class as *mut sys::RObject,
-            RESPOND_TO_MISSING_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(RESPOND_TO_MISSING_NAME),
             rpc_respond_to_missing,
             sys::MRB_ARGS_ANY,
         );
@@ -196,7 +199,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         sys::mrb_define_module_function(
             mrb,
             kobako_mod,
-            RPC_CALL_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(RPC_CALL_NAME),
             kobako_rpc_call,
             sys::mrb_args_req(4),
         );
@@ -214,27 +217,27 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         let handle_class = sys::mrb_define_class_under(
             mrb,
             kobako_mod,
-            HANDLE_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(HANDLE_NAME),
             core::ptr::null_mut(), // inherit from Object
         );
         sys::mrb_define_method(
             mrb,
             handle_class,
-            INITIALIZE_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(INITIALIZE_NAME),
             handle_initialize,
             sys::mrb_args_req(1),
         );
         sys::mrb_define_method(
             mrb,
             handle_class,
-            METHOD_MISSING_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(METHOD_MISSING_NAME),
             handle_method_missing,
             sys::MRB_ARGS_ANY,
         );
         sys::mrb_define_method(
             mrb,
             handle_class,
-            RESPOND_TO_MISSING_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(RESPOND_TO_MISSING_NAME),
             rpc_respond_to_missing,
             sys::MRB_ARGS_ANY,
         );
@@ -250,18 +253,18 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         //     `mrb_init_exception`.
         let runtime_error_class = sys::mrb_class_get(
             mrb,
-            RUNTIME_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(RUNTIME_ERROR_NAME),
         );
         sys::mrb_define_class_under(
             mrb,
             kobako_mod,
-            SERVICE_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(SERVICE_ERROR_NAME),
             runtime_error_class,
         );
         sys::mrb_define_class_under(
             mrb,
             kobako_mod,
-            WIRE_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(WIRE_ERROR_NAME),
             runtime_error_class,
         );
 
@@ -277,19 +280,19 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         // `Kernel#print` through `mrb_funcall`.
         let kernel_mod = sys::mrb_module_get(
             mrb,
-            KERNEL_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(KERNEL_NAME),
         );
         sys::mrb_define_method(
             mrb,
             kernel_mod,
-            PUTS_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(PUTS_NAME),
             kernel_puts,
             sys::MRB_ARGS_ANY,
         );
         sys::mrb_define_method(
             mrb,
             kernel_mod,
-            P_NAME.as_ptr() as *const core::ffi::c_char,
+            cstr_ptr(P_NAME),
             kernel_p,
             sys::MRB_ARGS_ANY,
         );
@@ -371,7 +374,7 @@ unsafe extern "C" fn kobako_rpc_call(
 
         sys::mrb_get_args(
             mrb,
-            b"oooo\0".as_ptr() as *const core::ffi::c_char,
+            cstr!("oooo"),
             &mut target_val as *mut sys::mrb_value,
             &mut method_val as *mut sys::mrb_value,
             &mut args_ary as *mut sys::mrb_value,
@@ -379,30 +382,15 @@ unsafe extern "C" fn kobako_rpc_call(
         );
 
         // Decode target: String path or Kobako::Handle instance.
-        let target = {
-            let classname_ptr = sys::mrb_obj_classname(mrb, target_val);
-            let classname = if classname_ptr.is_null() {
-                ""
-            } else {
-                core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-            };
-            match classname {
-                "Kobako::Handle" => {
-                    // Handle target: extract id from @__kobako_id__ ivar.
-                    let id = extract_handle_id(mrb, target_val);
-                    Target::Handle(id)
-                }
-                _ => {
-                    let ptr = sys::mrb_str_to_cstr(mrb, target_val);
-                    let s = if ptr.is_null() { "" } else {
-                        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("")
-                    };
-                    Target::Path(s.to_string())
-                }
-            }
+        let target = match target_val.classname(mrb) {
+            "Kobako::Handle" => Target::Handle(extract_handle_id(mrb, target_val)),
+            _ => Target::Path(target_val.to_string(mrb)),
         };
 
-        // Decode method name string.
+        // Decode method name string. NULL pointer (not just an empty
+        // string) is the wire violation — preserve the distinction by
+        // checking the raw `mrb_str_to_cstr` pointer instead of going
+        // through `string_to_rust`, which collapses NULL into "".
         let method_ptr = sys::mrb_str_to_cstr(mrb, method_val);
         let method_name = if method_ptr.is_null() {
             raise_wire_error(mrb, b"RPC method name is null\0");
@@ -418,17 +406,11 @@ unsafe extern "C" fn kobako_rpc_call(
             wire_args.push(mrb_value_to_wire_value(mrb, elem));
         }
 
-        // Decode kwargs from the Hash.
+        // Decode kwargs from the Hash. Skip silently when kwargs_hash is
+        // not actually a Hash (defensive — `oooo` unpack accepts any object).
         let mut wire_kwargs: Vec<(String, Value)> = Vec::new();
-        // Check if kwargs_hash is a Hash by classname.
-        {
-            let kh_classname_ptr = sys::mrb_obj_classname(mrb, kwargs_hash);
-            let kh_classname = if kh_classname_ptr.is_null() { "" } else {
-                core::ffi::CStr::from_ptr(kh_classname_ptr).to_str().unwrap_or("")
-            };
-            if kh_classname == "Hash" {
-                decode_hash_kwargs(mrb, kwargs_hash, &mut wire_kwargs);
-            }
+        if kwargs_hash.classname(mrb) == "Hash" {
+            decode_hash_kwargs(mrb, kwargs_hash, &mut wire_kwargs);
         }
 
         // Invoke RPC.
@@ -474,7 +456,7 @@ unsafe extern "C" fn rpc_method_missing(
 
         sys::mrb_get_args(
             mrb,
-            b"n*\0".as_ptr() as *const core::ffi::c_char,
+            cstr!("n*"),
             &mut method_sym as *mut sys::mrb_sym,
             &mut rest_ptr as *mut *const sys::mrb_value,
             &mut rest_len as *mut core::ffi::c_int,
@@ -536,12 +518,8 @@ unsafe extern "C" fn handle_initialize(
     #[cfg(target_arch = "wasm32")]
     {
         let mut id_val = sys::mrb_value::zeroed();
-        sys::mrb_get_args(
-            mrb,
-            b"o\0".as_ptr() as *const core::ffi::c_char,
-            &mut id_val as *mut sys::mrb_value,
-        );
-        let sym = sys::mrb_intern_cstr(mrb, HANDLE_ID_IVAR.as_ptr() as *const core::ffi::c_char);
+        sys::mrb_get_args(mrb, cstr!("o"), &mut id_val as *mut sys::mrb_value);
+        let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(HANDLE_ID_IVAR));
         sys::mrb_iv_set(mrb, self_, sym, id_val);
     }
     sys::mrb_value::zeroed()
@@ -568,7 +546,7 @@ unsafe extern "C" fn handle_method_missing(
 
         sys::mrb_get_args(
             mrb,
-            b"n*\0".as_ptr() as *const core::ffi::c_char,
+            cstr!("n*"),
             &mut method_sym as *mut sys::mrb_sym,
             &mut rest_ptr as *mut *const sys::mrb_value,
             &mut rest_len as *mut core::ffi::c_int,
@@ -649,13 +627,7 @@ unsafe extern "C" fn rpc_respond_to_missing(
 /// `mrb_funcall` so we don't depend on mruby's static `mrb_print_m`.
 #[cfg(target_arch = "wasm32")]
 unsafe fn print_str(mrb: *mut sys::mrb_state, self_: sys::mrb_value, s: sys::mrb_value) {
-    sys::mrb_funcall(
-        mrb,
-        self_,
-        PRINT_NAME.as_ptr() as *const core::ffi::c_char,
-        1,
-        s,
-    );
+    self_.call(mrb, cstr_ptr(PRINT_NAME), &[s]);
 }
 
 /// Helper: print one element for `Kernel#puts`. Recurses for Array
@@ -668,13 +640,7 @@ unsafe fn puts_one(
     arg: sys::mrb_value,
     nl: sys::mrb_value,
 ) {
-    let classname_ptr = sys::mrb_obj_classname(mrb, arg);
-    let classname = if classname_ptr.is_null() {
-        ""
-    } else {
-        core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-    };
-    if classname == "Array" {
+    if arg.classname(mrb) == "Array" {
         let len = mrb_collection_len(mrb, arg);
         for i in 0..len {
             let elem = sys::mrb_ary_entry(arg, i as i32);
@@ -683,70 +649,23 @@ unsafe fn puts_one(
         return;
     }
 
-    let s_val = sys::mrb_funcall(
-        mrb,
-        arg,
-        b"to_s\0".as_ptr() as *const core::ffi::c_char,
-        0,
-    );
+    let s_val = arg.call(mrb, cstr!("to_s"), &[]);
     print_str(mrb, self_, s_val);
 
     // Append newline unless the printed string already ended with "\n".
-    // We inspect the byte at `length - 1` via Ruby (`bytesize` + `getbyte`)
-    // rather than `mrb_str_to_cstr` so embedded NULs and binary content
-    // are handled correctly.
-    let bytesize_val = sys::mrb_funcall(
-        mrb,
-        s_val,
-        b"bytesize\0".as_ptr() as *const core::ffi::c_char,
-        0,
-    );
-    // bytesize returns a small Integer; route through to_s + parse to
-    // avoid depending on a private boxing-int unbox shim.
-    let bs_str = sys::mrb_funcall(
-        mrb,
-        bytesize_val,
-        b"to_s\0".as_ptr() as *const core::ffi::c_char,
-        0,
-    );
-    let bs_ptr = sys::mrb_str_to_cstr(mrb, bs_str);
-    let bs: usize = if bs_ptr.is_null() {
-        0
-    } else {
-        core::ffi::CStr::from_ptr(bs_ptr)
-            .to_str()
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0)
-    };
+    // Inspect the byte at `length - 1` via Ruby (`bytesize` + `getbyte`)
+    // — `mrb_str_to_cstr` would mishandle embedded NULs / binary content.
+    // Both bytesize and the last-byte value are small Integers; round-trip
+    // through `to_s` + parse to avoid depending on a private int unbox shim.
+    let bytesize_val = s_val.call(mrb, cstr!("bytesize"), &[]);
+    let bs: usize = bytesize_val.to_string(mrb).parse().unwrap_or(0);
     if bs == 0 {
         print_str(mrb, self_, nl);
         return;
     }
     let last_idx = sys::mrb_boxing_int_value(mrb, (bs - 1) as i32);
-    let last_byte_val = sys::mrb_funcall(
-        mrb,
-        s_val,
-        b"getbyte\0".as_ptr() as *const core::ffi::c_char,
-        1,
-        last_idx,
-    );
-    let lb_str = sys::mrb_funcall(
-        mrb,
-        last_byte_val,
-        b"to_s\0".as_ptr() as *const core::ffi::c_char,
-        0,
-    );
-    let lb_ptr = sys::mrb_str_to_cstr(mrb, lb_str);
-    let lb: i32 = if lb_ptr.is_null() {
-        0
-    } else {
-        core::ffi::CStr::from_ptr(lb_ptr)
-            .to_str()
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0)
-    };
+    let last_byte_val = s_val.call(mrb, cstr!("getbyte"), &[last_idx]);
+    let lb: i32 = last_byte_val.to_string(mrb).parse().unwrap_or(0);
     if lb != 10 {
         print_str(mrb, self_, nl);
     }
@@ -764,7 +683,7 @@ unsafe extern "C" fn kernel_puts(
         let mut args_len: core::ffi::c_int = 0;
         sys::mrb_get_args(
             mrb,
-            b"*\0".as_ptr() as *const core::ffi::c_char,
+            cstr!("*"),
             &mut args_ptr as *mut *const sys::mrb_value,
             &mut args_len as *mut core::ffi::c_int,
         );
@@ -800,7 +719,7 @@ unsafe extern "C" fn kernel_p(
         let mut args_len: core::ffi::c_int = 0;
         sys::mrb_get_args(
             mrb,
-            b"*\0".as_ptr() as *const core::ffi::c_char,
+            cstr!("*"),
             &mut args_ptr as *mut *const sys::mrb_value,
             &mut args_len as *mut core::ffi::c_int,
         );
@@ -808,12 +727,7 @@ unsafe extern "C" fn kernel_p(
         let nl = sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1);
         let args = core::slice::from_raw_parts(args_ptr, args_len as usize);
         for &arg in args {
-            let insp = sys::mrb_funcall(
-                mrb,
-                arg,
-                b"inspect\0".as_ptr() as *const core::ffi::c_char,
-                0,
-            );
+            let insp = arg.call(mrb, cstr!("inspect"), &[]);
             print_str(mrb, self_, insp);
             print_str(mrb, self_, nl);
         }
@@ -879,10 +793,10 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
             // method_missing on Kobako::Handle routes subsequent calls to the
             // host via Kobako.__rpc_call__ with Target::Handle(id) (SPEC §B-17).
             let kobako_mod = sys::mrb_define_module(
-                mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char
+                mrb, cstr_ptr(KOBAKO_NAME)
             );
             let handle_class = sys::mrb_class_get_under(
-                mrb, kobako_mod, HANDLE_NAME.as_ptr() as *const core::ffi::c_char
+                mrb, kobako_mod, cstr_ptr(HANDLE_NAME)
             );
             // Build the constructor argument: mrb_int id (mrb_boxing_int_value).
             let id_val = sys::mrb_boxing_int_value(mrb, id as i32);
@@ -913,97 +827,16 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
 unsafe fn mrb_value_to_wire_value(mrb: *mut sys::mrb_state, val: sys::mrb_value) -> crate::codec::Value {
     use crate::codec::Value;
 
-    let classname_ptr = sys::mrb_obj_classname(mrb, val);
-    let classname = if classname_ptr.is_null() {
-        ""
-    } else {
-        core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-    };
-
-    match classname {
+    match val.classname(mrb) {
         "NilClass" => Value::Nil,
         "TrueClass" => Value::Bool(true),
         "FalseClass" => Value::Bool(false),
-        "Integer" => {
-            let s_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let ptr = sys::mrb_str_to_cstr(mrb, s_val);
-            if ptr.is_null() {
-                Value::Int(0)
-            } else {
-                let s = core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("0");
-                Value::Int(s.parse::<i64>().unwrap_or(0))
-            }
-        }
-        "Float" => {
-            let s_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let ptr = sys::mrb_str_to_cstr(mrb, s_val);
-            if ptr.is_null() {
-                Value::Float(0.0)
-            } else {
-                let s = core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("0.0");
-                Value::Float(s.parse::<f64>().unwrap_or(0.0))
-            }
-        }
-        "String" => {
-            let ptr = sys::mrb_str_to_cstr(mrb, val);
-            if ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                let s = core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string();
-                Value::Str(s)
-            }
-        }
-        "Symbol" => {
-            // Symbols: convert to string via mrb_sym_str or .to_s.
-            let str_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let ptr = sys::mrb_str_to_cstr(mrb, str_val);
-            if ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                Value::Str(core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string())
-            }
-        }
-        _ => {
-            // Unknown type: inspect string fallback.
-            let insp_val = sys::mrb_funcall(
-                mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0
-            );
-            let ptr = sys::mrb_str_to_cstr(mrb, insp_val);
-            if ptr.is_null() {
-                Value::Str(String::new())
-            } else {
-                Value::Str(core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string())
-            }
-        }
-    }
-}
-
-/// Convert a Symbol or String `mrb_value` to a Rust String. Used for
-/// Hash key extraction in kwargs decoding.
-#[cfg(target_arch = "wasm32")]
-unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value) -> String {
-    let classname_ptr = sys::mrb_obj_classname(mrb, val);
-    let classname = if classname_ptr.is_null() {
-        ""
-    } else {
-        core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-    };
-    let str_val = if classname == "Symbol" {
-        sys::mrb_funcall(mrb, val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0)
-    } else {
-        val
-    };
-    let ptr = sys::mrb_str_to_cstr(mrb, str_val);
-    if ptr.is_null() {
-        String::new()
-    } else {
-        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("").to_string()
+        "Integer" => Value::Int(val.to_string(mrb).parse().unwrap_or(0)),
+        "Float" => Value::Float(val.to_string(mrb).parse().unwrap_or(0.0)),
+        "String" => Value::Str(val.to_string(mrb)),
+        // Symbol / fallback: route through `.to_s` (Symbol stringifies to
+        // its name; other types use whatever `Object#to_s` produces).
+        _ => Value::Str(val.to_string(mrb)),
     }
 }
 
@@ -1013,15 +846,9 @@ unsafe fn mrb_sym_or_str_to_string(mrb: *mut sys::mrb_state, val: sys::mrb_value
 /// downstream treats id 0 as undefined per SPEC §B-19.
 #[cfg(target_arch = "wasm32")]
 unsafe fn extract_handle_id(mrb: *mut sys::mrb_state, handle_val: sys::mrb_value) -> u32 {
-    let id_sym = sys::mrb_intern_cstr(mrb, HANDLE_ID_IVAR.as_ptr() as *const core::ffi::c_char);
+    let id_sym = sys::mrb_intern_cstr(mrb, cstr_ptr(HANDLE_ID_IVAR));
     let id_val = sys::mrb_iv_get(mrb, handle_val, id_sym);
-    let id_str_val = sys::mrb_funcall(mrb, id_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0);
-    let ptr = sys::mrb_str_to_cstr(mrb, id_str_val);
-    if ptr.is_null() {
-        0
-    } else {
-        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("0").parse().unwrap_or(0)
-    }
+    id_val.to_string(mrb).parse().unwrap_or(0)
 }
 
 /// Return the number of elements in an mruby Array or Hash by calling
@@ -1029,27 +856,15 @@ unsafe fn extract_handle_id(mrb: *mut sys::mrb_state, handle_val: sys::mrb_value
 /// length is needed without a direct FFI binding for `mrb_ary_len`.
 #[cfg(target_arch = "wasm32")]
 unsafe fn mrb_collection_len(mrb: *mut sys::mrb_state, col: sys::mrb_value) -> usize {
-    let len_val = sys::mrb_funcall(
-        mrb, col, b"length\0".as_ptr() as *const core::ffi::c_char, 0
-    );
-    let len_str = sys::mrb_str_to_cstr(
-        mrb,
-        sys::mrb_funcall(mrb, len_val, b"to_s\0".as_ptr() as *const core::ffi::c_char, 0),
-    );
-    if len_str.is_null() {
-        return 0;
-    }
-    core::ffi::CStr::from_ptr(len_str)
-        .to_str()
-        .unwrap_or("0")
-        .parse()
-        .unwrap_or(0)
+    let len_val = col.call(mrb, cstr!("length"), &[]);
+    len_val.to_string(mrb).parse().unwrap_or(0)
 }
 
 /// Decode every key/value pair from an mruby Hash into `out` as
-/// `(String, Value)` pairs. Keys are converted via `mrb_sym_or_str_to_string`;
-/// values via `mrb_value_to_wire_value`. Used at the three kwargs-decoding
-/// call sites in the RPC bridges.
+/// `(String, Value)` pairs. Keys go through `mrb_value::to_rust_string`
+/// (handles both Symbol and String keys via `Object#to_s`); values via
+/// `mrb_value_to_wire_value`. Used at the three kwargs-decoding call
+/// sites in the RPC bridges.
 #[cfg(target_arch = "wasm32")]
 unsafe fn decode_hash_kwargs(
     mrb: *mut sys::mrb_state,
@@ -1061,8 +876,7 @@ unsafe fn decode_hash_kwargs(
     for i in 0..keys_len {
         let key_val = sys::mrb_ary_entry(keys_ary, i as i32);
         let val = sys::mrb_hash_get(mrb, hash, key_val);
-        let key_str = mrb_sym_or_str_to_string(mrb, key_val);
-        out.push((key_str, mrb_value_to_wire_value(mrb, val)));
+        out.push((key_val.to_string(mrb), mrb_value_to_wire_value(mrb, val)));
     }
 }
 
@@ -1081,14 +895,8 @@ unsafe fn unpack_args_kwargs(
     let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
 
     for (idx, &mrb_val) in rest.iter().enumerate() {
-        let classname_ptr = sys::mrb_obj_classname(mrb, mrb_val);
-        let classname = if classname_ptr.is_null() {
-            ""
-        } else {
-            core::ffi::CStr::from_ptr(classname_ptr).to_str().unwrap_or("")
-        };
         // If the last argument is a Hash, treat it as kwargs.
-        if classname == "Hash" && idx == rest.len() - 1 {
+        if mrb_val.classname(mrb) == "Hash" && idx == rest.len() - 1 {
             decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
         } else {
             wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
@@ -1139,12 +947,8 @@ unsafe fn raise_service_error(
     ex: &crate::rpc_client::ExceptionPayload,
 ) -> ! {
     let kobako_mod =
-        sys::mrb_define_module(mrb, KOBAKO_NAME.as_ptr() as *const core::ffi::c_char);
-    let svc_err_cls = sys::mrb_class_get_under(
-        mrb,
-        kobako_mod,
-        b"ServiceError\0".as_ptr() as *const core::ffi::c_char,
-    );
+        sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+    let svc_err_cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
     let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
     sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
 }
@@ -1194,12 +998,12 @@ fn mrb_false_value() -> sys::mrb_value {
 unsafe fn raise_wire_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
     let kobako_mod = sys::mrb_define_module(
         mrb,
-        KOBAKO_NAME.as_ptr() as *const core::ffi::c_char,
+        cstr_ptr(KOBAKO_NAME),
     );
     let cls = sys::mrb_class_get_under(
         mrb,
         kobako_mod,
-        WIRE_ERROR_NAME.as_ptr() as *const core::ffi::c_char,
+        cstr_ptr(WIRE_ERROR_NAME),
     );
     sys::mrb_raise(
         mrb,
