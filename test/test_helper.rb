@@ -6,7 +6,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 # In clean checkouts before `bundle exec rake compile` runs, that bundle is
 # absent — degrade gracefully so individual test files can `skip` rather
 # than the whole test suite blowing up at require time. Tests that need the
-# native ext check `defined?(Kobako::Wasm::Engine)` (or similar) and skip.
+# native ext check `defined?(Kobako::Wasm::Instance)` and skip.
 begin
   require "kobako"
 rescue LoadError => e

@@ -11,7 +11,7 @@ class TestServiceRegistry < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Engine)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)

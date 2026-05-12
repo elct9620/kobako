@@ -1,9 +1,11 @@
-// Host-side wasmtime wrapper. Exposes a minimal binding surface to Ruby:
+// Host-side wasmtime wrapper. The only Ruby-visible class is
 //
-//   Kobako::Wasm::Engine     - wraps wasmtime::Engine
-//   Kobako::Wasm::Module     - wraps wasmtime::Module (file-loaded)
-//   Kobako::Wasm::Store      - wraps wasmtime::Store<HostState>
 //   Kobako::Wasm::Instance   - wraps wasmtime::Instance + cached TypedFuncs
+//
+// constructed via `Kobako::Wasm::Instance.from_path(path)`. The underlying
+// wasmtime Engine and compiled Module live in a process-scope cache inside
+// this module and never surface to Ruby (SPEC.md "Code Organization": `ext/`
+// "exposes no Wasm engine types to the Host App or downstream gems").
 //
 // WASI stdout/stderr capture (SPEC.md B-04): wasmtime-wasi p1 bindings route
 // guest fd 1 and fd 2 into per-run MemoryOutputPipe instances. After each run
@@ -18,7 +20,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use magnus::RString;
 use magnus::{
@@ -77,6 +79,13 @@ fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
     }
+    // Enable the wasm exceptions proposal so kobako.wasm (which uses
+    // try_table / exnref / tag for mruby's setjmp-via-new-EH path) can be
+    // loaded. The mruby wasi build config uses
+    //   -mllvm -wasm-use-legacy-eh=false
+    // which generates new-style exception handling instructions in the
+    // wasm32 object files; wasmtime must have the proposal enabled to parse
+    // and JIT those instructions.
     let mut config = WtConfig::new();
     config.wasm_exceptions(true);
     let engine = WtEngine::new(&config).map_err(|e| {
@@ -120,14 +129,12 @@ fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
     Ok(module)
 }
 
-/// Build an `Instance` from an engine, module, and store cell. Shared by
-/// `Instance::new` (engine/module/store passed in from Ruby — wrapper unit
-/// tests) and `Instance::from_path` (engine/module sourced from the
-/// process-wide cache, store constructed fresh per call — production path).
+/// Build an `Instance` from an engine, module, and store cell. The store cell
+/// is moved in and ends up owned by the returned Instance.
 fn build_instance(
     engine: &WtEngine,
     module: &WtModule,
-    store_cell: Arc<StoreCell>,
+    store_cell: StoreCell,
 ) -> Result<Instance, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let mut linker: Linker<HostState> = Linker::new(engine);
@@ -236,81 +243,13 @@ pub struct HostState {
 }
 
 // ---------------------------------------------------------------------------
-// Engine
-// ---------------------------------------------------------------------------
-
-#[magnus::wrap(class = "Kobako::Wasm::Engine", free_immediately, size)]
-pub struct Engine {
-    inner: WtEngine,
-}
-
-impl Engine {
-    fn new() -> Result<Self, MagnusError> {
-        // Enable the wasm exceptions proposal so kobako.wasm (which uses
-        // try_table / exnref / tag for mruby's setjmp-via-new-EH path) can
-        // be loaded. The mruby wasi build config uses
-        //   -mllvm -wasm-use-legacy-eh=false
-        // which generates new-style exception handling instructions in the
-        // wasm32 object files; wasmtime must have the proposal enabled to
-        // parse and JIT those instructions.
-        let mut config = WtConfig::new();
-        config.wasm_exceptions(true);
-        let engine = WtEngine::new(&config).map_err(|e| {
-            let ruby = Ruby::get().expect("Ruby thread");
-            wasm_err(&ruby, format!("engine init: {}", e))
-        })?;
-        Ok(Self { inner: engine })
-    }
-
-    pub(crate) fn raw(&self) -> &WtEngine {
-        &self.inner
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Module
-// ---------------------------------------------------------------------------
-
-#[magnus::wrap(class = "Kobako::Wasm::Module", free_immediately, size)]
-pub struct Module {
-    inner: WtModule,
-}
-
-impl Module {
-    /// Load a wasm module from disk. Raises `Kobako::Wasm::ModuleNotBuiltError`
-    /// when the file is missing — the typical case before `rake wasm:guest`
-    /// has produced `data/kobako.wasm`.
-    fn from_file(engine: &Engine, path: String) -> Result<Self, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let p = PathBuf::from(&path);
-        if !p.exists() {
-            return Err(MagnusError::new(
-                ruby.get_inner(&MODULE_NOT_BUILT_ERROR),
-                format!(
-                    "wasm module not found at {}; run `bundle exec rake wasm:guest` to build it",
-                    path
-                ),
-            ));
-        }
-        let bytes = fs::read(&p).map_err(|e| wasm_err(&ruby, format!("read {}: {}", path, e)))?;
-        let module = WtModule::new(engine.raw(), &bytes)
-            .map_err(|e| wasm_err(&ruby, format!("compile module: {}", e)))?;
-        Ok(Self { inner: module })
-    }
-
-    pub(crate) fn raw(&self) -> &WtModule {
-        &self.inner
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Store
+// StoreCell — interior-mutability wrapper around wasmtime::Store<HostState>.
 // ---------------------------------------------------------------------------
 
 /// Magnus requires `Send + Sync` for wrapped types. wasmtime::Store is not
-/// Sync, so we wrap it in an `Arc<Mutex>`-equivalent: a single-threaded
-/// `RefCell` is sufficient because magnus enforces single-threaded GVL
-/// access from Ruby. We assert Send+Sync via an unsafe wrapper.
+/// Sync, so we wrap it in a `RefCell`. RefCell alone is sufficient because
+/// magnus enforces single-threaded GVL access from Ruby; Send + Sync are
+/// asserted via unsafe impls below.
 pub struct StoreCell(RefCell<WtStore<HostState>>);
 
 // SAFETY: Ruby's GVL serialises access to magnus-wrapped objects on a single
@@ -319,38 +258,14 @@ pub struct StoreCell(RefCell<WtStore<HostState>>);
 unsafe impl Send for StoreCell {}
 unsafe impl Sync for StoreCell {}
 
-#[magnus::wrap(class = "Kobako::Wasm::Store", free_immediately, size)]
-pub struct Store {
-    cell: Arc<StoreCell>,
-}
-
-impl Store {
-    fn new(engine: &Engine) -> Result<Self, MagnusError> {
-        let store = WtStore::new(engine.raw(), HostState::default());
-        Ok(Self {
-            cell: Arc::new(StoreCell(RefCell::new(store))),
-        })
-    }
-
-    pub(crate) fn cell(&self) -> Arc<StoreCell> {
-        self.cell.clone()
-    }
-
-    /// Read-only snapshot of recorded RPC stub calls — used by tests at #12,
-    /// replaced by Registry dispatch at #18.
-    fn rpc_call_count(&self) -> usize {
-        self.cell.0.borrow().data().rpc_calls.len()
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Instance
+// Instance — the only Ruby-visible wasmtime wrapper.
 // ---------------------------------------------------------------------------
 
 #[magnus::wrap(class = "Kobako::Wasm::Instance", free_immediately, size)]
 pub struct Instance {
     inner: WtInstance,
-    store: Arc<StoreCell>,
+    store: StoreCell,
     // Cached TypedFunc handles for the three guest exports. Optional because
     // test fixtures (a minimal "ping" module) need not provide them; real
     // kobako.wasm always does, and the host enforces presence at run time.
@@ -363,20 +278,15 @@ pub struct Instance {
 }
 
 impl Instance {
-    fn new(engine: &Engine, module: &Module, store: &Store) -> Result<Self, MagnusError> {
-        build_instance(engine.raw(), module.raw(), store.cell())
-    }
-
     /// Construct an Instance from a wasm file path, using the process-wide
-    /// shared Engine and per-path Module cache. This is the single Ruby-facing
-    /// constructor that production callers (`Kobako::Sandbox`) consume —
-    /// Engine and Module are never visible to Ruby. The lower-level `new`
-    /// (with explicit engine/module/store) is retained for wrapper unit tests.
+    /// shared Engine and per-path Module cache. The single Ruby-facing
+    /// constructor for `Kobako::Wasm::Instance` — Engine and Module are
+    /// never visible to Ruby.
     fn from_path(path: String) -> Result<Self, MagnusError> {
         let engine = shared_engine()?;
         let module = cached_module(Path::new(&path))?;
         let store = WtStore::new(engine, HostState::default());
-        let store_cell = Arc::new(StoreCell(RefCell::new(store)));
+        let store_cell = StoreCell(RefCell::new(store));
         build_instance(engine, &module, store_cell)
     }
 
@@ -413,11 +323,11 @@ impl Instance {
     }
 
     // -----------------------------------------------------------------
-    // Run-path methods (item #16). These drive the alloc → write source
-    // → run → take_outcome flow from Ruby. Each method is best-effort —
-    // it raises a Ruby `Kobako::Wasm::Error` when the corresponding
-    // export is missing or fails so the Sandbox layer can map errors to
-    // the three-class taxonomy.
+    // Run-path methods. These drive the alloc → write source → run →
+    // take_outcome flow from Ruby. Each method is best-effort — it raises
+    // a Ruby `Kobako::Wasm::Error` when the corresponding export is
+    // missing or fails so the Sandbox layer can map errors to the
+    // three-class taxonomy.
     // -----------------------------------------------------------------
 
     /// Invoke the guest's `__kobako_alloc(size)` export and return the
@@ -729,18 +639,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let base_err = wasm.define_error("Error", ruby.exception_standard_error())?;
     wasm.define_error("ModuleNotBuiltError", base_err)?;
 
-    let engine = wasm.define_class("Engine", ruby.class_object())?;
-    engine.define_singleton_method("new", function!(Engine::new, 0))?;
-
-    let module = wasm.define_class("Module", ruby.class_object())?;
-    module.define_singleton_method("from_file", function!(Module::from_file, 2))?;
-
-    let store = wasm.define_class("Store", ruby.class_object())?;
-    store.define_singleton_method("new", function!(Store::new, 1))?;
-    store.define_method("rpc_call_count", method!(Store::rpc_call_count, 0))?;
-
     let instance = wasm.define_class("Instance", ruby.class_object())?;
-    instance.define_singleton_method("new", function!(Instance::new, 3))?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 1))?;
     instance.define_method("has_export?", method!(Instance::has_export, 1))?;
     instance.define_method(

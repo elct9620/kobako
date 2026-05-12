@@ -79,4 +79,4 @@ When changing behavior, start at the listed files and follow the SPEC anchors th
 - **ABI surface (host ↔ guest exports)** — `wasm/kobako-wasm/src/abi.rs` + matching `ext/kobako/src/wasm.rs` callers.
 - **Build / toolchain** — `tasks/{vendor,mruby,wasm}.rake`.
 
-`test/test_helper.rb` `rescue`s the `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests check `defined?(Kobako::Wasm::Engine)` (or similar) and `skip` themselves when the native ext is absent.
+`test/test_helper.rb` `rescue`s the `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests check `defined?(Kobako::Wasm::Instance)` and `skip` themselves when the native ext is absent.
