@@ -297,21 +297,6 @@ impl Instance {
         Ok(())
     }
 
-    /// Returns the count of cached well-known exports actually found in the
-    /// instance (out of __kobako_run / __kobako_take_outcome / __kobako_alloc).
-    /// Used by the real-tier E2E test to assert the full guest binary
-    /// surface is intact.
-    fn known_export_count(&self) -> usize {
-        [
-            self.run.is_some(),
-            self.take_outcome.is_some(),
-            self.alloc.is_some(),
-        ]
-        .iter()
-        .filter(|b| **b)
-        .count()
-    }
-
     // -----------------------------------------------------------------
     // Run-path methods. These drive the alloc → write source → run →
     // take_outcome flow from Ruby. Each method is best-effort — it raises
@@ -625,10 +610,6 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 1))?;
-    instance.define_method(
-        "known_export_count",
-        method!(Instance::known_export_count, 0),
-    )?;
     instance.define_method("alloc", method!(Instance::alloc, 1))?;
     instance.define_method("write_memory", method!(Instance::write_memory, 2))?;
     instance.define_method("read_memory", method!(Instance::read_memory, 2))?;

@@ -8,14 +8,10 @@ require "test_helper"
 # Organization": `ext/` "exposes no Wasm engine types to the Host App or
 # downstream gems").
 #
-# Fast tier — runs against a hand-encoded test fixture wasm
-# (test/fixtures/minimal.wasm), so no `rake wasm:build` build is required.
-# Exercises the from_path pipeline against a minimal module with none of
-# the SPEC Wire ABI exports.
-#
-# Real tier — runs when data/kobako.wasm exists (built by `rake wasm:build`,
-# which the default test task now pulls in as a prerequisite). Asserts the
-# three guest exports line up with SPEC.md Wire ABI.
+# Scope is limited to the from_path pipeline and its error-mapping surface —
+# real-guest export presence is covered transitively by the E2E journeys
+# (test_e2e_journeys.rb), which drive +Sandbox#run+ end-to-end and would fail
+# fast if any SPEC Wire ABI export went missing.
 class TestWasmWrapper < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
@@ -46,7 +42,6 @@ class TestWasmWrapper < Minitest::Test
 
     instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     assert_instance_of Kobako::Wasm::Instance, instance
-    assert_equal 0, instance.known_export_count, "fixture must NOT expose guest binary exports"
   end
 
   def test_from_path_repeated_calls_return_independent_instances
@@ -55,16 +50,5 @@ class TestWasmWrapper < Minitest::Test
     a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     refute_same a, b, "each call must return a fresh Instance with its own Store"
-  end
-
-  def test_real_guest_binary_exports_match_wire_abi
-    skip "data/kobako.wasm not built; run `bundle exec rake wasm:build`" unless File.exist?(Kobako::Wasm.default_path)
-
-    instance = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
-
-    # All three Wire ABI exports must be present (per SPEC.md Wire ABI exports);
-    # build_instance caches each as a TypedFunc, so a count of 3 means every
-    # ABI symbol resolved with the SPEC-mandated signature.
-    assert_equal 3, instance.known_export_count
   end
 end
