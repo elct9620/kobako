@@ -6,14 +6,11 @@ require "test_helper"
 #
 # Each test corresponds to one of the five journeys (J-01..J-05) defined in
 # SPEC.md L146-218 and exercises the full Host App → `Sandbox#run` → Service
-# call → result return path through real mruby (`data/kobako.wasm`).
-#
-# Layer 4 mandates exercising real mruby — not the test-guest fixture's
-# source-keyword dialects (those are the wire-integration / outcome-decoding
-# substrate covered at Layer 2 in `test_sandbox_run.rb`,
-# `test_wire_integration.rb`, `test_sandbox_errors.rb`, and
-# `test_sandbox_capture.rb`). Journey-level coverage requires the production
-# Guest Binary so guest scripts are real Ruby.
+# call → result return path through real mruby (`data/kobako.wasm`). Layer 4
+# mandates exercising the production Guest Binary so guest scripts are real
+# Ruby; the host-side decoder / dispatcher branches that do not need a live
+# Sandbox stay covered by the unit tests in `test_sandbox_errors.rb` and
+# `test_rpc_dispatch.rb`.
 #
 # Build prerequisite: `bundle exec rake wasm:guest` produces `data/kobako.wasm`
 # from `wasm/kobako-wasm/` + `vendor/mruby/`. When the artifact is missing,
@@ -277,12 +274,12 @@ class TestE2EJourneys < Minitest::Test
   # message.
   #
   # The +Kobako::ServiceError::Disconnected+ subclass selection lives on
-  # +OutcomeDecoder.panic_target_class+ (host-side) and is exercised by
-  # +TestSandboxOutcomeDecoding+. The mruby guest's exception bridge
-  # (+wasm/kobako-wasm/src/boot.rs+) currently raises a single
-  # +Kobako::ServiceError+ class without propagating +type+ into the
-  # panic +class+ field, so the subclass selection is not reachable
-  # through this end-to-end path today.
+  # +OutcomeDecoder.panic_target_class+ (host-side) and is pinned by
+  # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+.
+  # The mruby guest's exception bridge (+wasm/kobako-wasm/src/boot.rs+)
+  # currently raises a single +Kobako::ServiceError+ class without
+  # propagating +type+ into the panic +class+ field, so the subclass
+  # selection is not reachable through this end-to-end path today.
   def test_e14_disconnected_handle_target_surfaces_as_service_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(sandbox))
