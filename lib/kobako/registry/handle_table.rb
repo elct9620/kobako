@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../wire/handle"
+
 module Kobako
   class Registry
     # Host-side mapping from opaque integer Handle IDs to Ruby objects
@@ -22,9 +24,10 @@ module Kobako
     #     (2³¹ − 1). Allocation beyond the cap raises immediately — no silent
     #     truncation, no wrap, no ID reuse.
     class HandleTable
-      # Maximum valid Handle ID. Wire-format invariant:
-      # {SPEC.md B-21}[link:../../../SPEC.md]. 0x7fff_ffff == 2³¹ − 1.
-      MAX_ID = 0x7fff_ffff
+      # Maximum valid Handle ID. Single source of truth lives on the wire-
+      # layer Handle value object ({SPEC.md B-21}[link:../../../SPEC.md]):
+      # the allocator cap and the codec cap are the same invariant.
+      MAX_ID = Wire::Handle::MAX_ID
 
       # Build a fresh, empty HandleTable. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1 per

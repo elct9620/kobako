@@ -57,11 +57,6 @@ module Kobako
         raise InvalidEncoding, e.message
       end
 
-      # True if the underlying byte buffer has been fully consumed.
-      def eof?
-        !@unpacker.buffer.nonempty?
-      end
-
       private
 
       # SPEC pins +str+ family payloads to UTF-8 (Wire Codec → str/bin

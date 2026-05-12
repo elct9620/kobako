@@ -41,7 +41,6 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_rpc_call;
-use crate::abi::pack_u64;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{Decoder, Value, WireError};
@@ -252,12 +251,6 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
         ))),
     })
 }
-
-// Reference to keep `pack_u64` reachable from this module on host
-// targets — it is part of the documented packed-u64 ABI helper set
-// even though only wasm32 currently uses it inside this file.
-#[allow(dead_code)]
-const _PACK_U64_REACHABLE: fn(u32, u32) -> u64 = pack_u64;
 
 // ---------------------------------------------------------------------
 // mruby C-bridge — see `crate::boot`.

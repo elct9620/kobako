@@ -38,9 +38,6 @@ pub const OUTCOME_TAG_PANIC: u8 = 0x02;
 /// Maximum legal Capability Handle ID (SPEC.md "Ext Types" → ext 0x01).
 pub const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
-/// Single-RPC payload size limit (SPEC.md "ABI Signatures"): 16 MiB.
-pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
-
 /// Errors raised by the codec when input bytes do not conform to the
 /// kobako wire (SPEC.md "Wire Codec").
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -467,11 +464,6 @@ mod tests {
     #[test]
     fn handle_id_cap_matches_spec() {
         assert_eq!(HANDLE_ID_MAX, (1u32 << 31) - 1);
-    }
-
-    #[test]
-    fn payload_limit_is_16_mib() {
-        assert_eq!(MAX_PAYLOAD_BYTES, 16 * 1024 * 1024);
     }
 
     #[test]
