@@ -170,7 +170,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   def test_panic_with_missing_class_field_raises_sandbox_error
     # Hand-roll a panic map that omits "class" — cannot use Panic.new because
     # it requires the field; build the raw bytes directly.
-    raw_map = Kobako::Wire::Encoder.encode(
+    raw_map = Kobako::Wire::Codec::Encoder.encode(
       "origin" => "sandbox", "message" => "missing class"
     )
     bytes = build_outcome_bytes(

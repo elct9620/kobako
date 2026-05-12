@@ -2,9 +2,7 @@
 
 require_relative "result"
 require_relative "panic"
-require_relative "../encoder"
-require_relative "../decoder"
-require_relative "../error"
+require_relative "../codec"
 
 module Kobako
   module Wire

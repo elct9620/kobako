@@ -46,14 +46,14 @@ module Kobako
       # framing was fine, but the wrapped value is unrepresentable.
       def decode_result(body)
         Kobako::Wire::Envelope.decode_result(body).value
-      rescue Kobako::Wire::Error => e
+      rescue Kobako::Wire::Codec::Error => e
         raise wire_violation_error("result envelope decode failed: #{e.message}")
       end
 
       # Decode failure on a known Panic tag is a SandboxError (E-08).
       def decode_panic(body)
         build_panic_error(Kobako::Wire::Envelope.decode_panic(body))
-      rescue Kobako::Wire::Error => e
+      rescue Kobako::Wire::Codec::Error => e
         wire_violation_error("panic envelope decode failed: #{e.message}")
       end
 

@@ -1,10 +1,8 @@
 # frozen_string_literal: true
 
-require_relative "error"
 require_relative "handle"
 require_relative "exception"
-require_relative "encoder"
-require_relative "decoder"
+require_relative "codec"
 
 module Kobako
   module Wire
@@ -35,6 +33,14 @@ module Kobako
       STATUS_OK    = 0
       # Response variant marker for the error branch.
       STATUS_ERROR = 1
+
+      # ---------------- Codec re-exports (envelope-layer shorthand) ------
+      # Encoded/decoded byte plumbing lives in {Codec}; envelope helpers
+      # below reference these through short local names so they read at
+      # the layer where SPEC's framing rules live.
+      Encoder     = Codec::Encoder
+      Decoder     = Codec::Decoder
+      InvalidType = Codec::InvalidType
 
       # =================================================================
       # Value objects and their encode/decode helpers (one file per class)

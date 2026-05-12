@@ -51,14 +51,14 @@ module Kobako
       # Map an error raised during dispatch to a Response.err envelope.
       # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
       # a msgpack-encoded Response envelope (binary). Four error buckets
-      # ({SPEC.md B-12}[link:../../../SPEC.md]): +Wire::Error+ →
+      # ({SPEC.md B-12}[link:../../../SPEC.md]): +Wire::Codec::Error+ →
       # type="runtime" (wire decode failed); +DisconnectedTargetError+ →
       # type="disconnected" (E-14); +UndefinedTargetError+ → type="undefined"
       # (E-13); +ArgumentError+ → type="argument" (B-12 arity mismatch);
       # everything else → type="runtime".
       def encode_dispatch_error(error)
         case error
-        when Kobako::Wire::Error     then encode_err("runtime", "wire decode failed: #{error.message}")
+        when Kobako::Wire::Codec::Error then encode_err("runtime", "wire decode failed: #{error.message}")
         when DisconnectedTargetError then encode_err("disconnected", error.message)
         when UndefinedTargetError    then encode_err("undefined", error.message)
         when ArgumentError           then encode_err("argument", error.message)
@@ -156,9 +156,9 @@ module Kobako
       # through the HandleTable and the guest receives a Capability Handle in
       # place of the raw object.
       def wrap_return(value, registry)
-        Kobako::Wire::Encoder.encode(value)
+        Kobako::Wire::Codec::Encoder.encode(value)
         value
-      rescue Kobako::Wire::UnsupportedType
+      rescue Kobako::Wire::Codec::UnsupportedType
         Kobako::Wire::Handle.new(registry.handle_table.alloc(value))
       end
 

@@ -140,7 +140,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Non-string keys are a wire violation; the envelope decoder rejects
   # them and the dispatcher surfaces a wire-decode error.
   def test_non_string_kwargs_key_is_wire_violation
-    bad_request_bytes = Kobako::Wire::Encoder.encode(
+    bad_request_bytes = Kobako::Wire::Codec::Encoder.encode(
       ["Logger::Echo", "call", [], { 42 => "v" }]
     )
 
@@ -391,7 +391,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # the msgpack bytes via Wire::Encoder so the malformed payload reaches
   # the dispatcher exactly as a misbehaving guest would emit it.
   def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
-    bad_request_bytes = Kobako::Wire::Encoder.encode([42, "call", ["x"], {}])
+    bad_request_bytes = Kobako::Wire::Codec::Encoder.encode([42, "call", ["x"], {}])
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 

@@ -12,9 +12,11 @@ require "kobako/wire"
 module Kobako
   module Wire
     class WireEnvelopeTest < Minitest::Test
-      Envelope = Kobako::Wire::Envelope
-      Handle   = Kobako::Wire::Handle
-      Exc      = Kobako::Wire::Exception
+      Envelope    = Kobako::Wire::Envelope
+      Handle      = Kobako::Wire::Handle
+      Exc         = Kobako::Wire::Exception
+      Encoder     = Kobako::Wire::Codec::Encoder
+      InvalidType = Kobako::Wire::Codec::InvalidType
 
       def hex(bytes)
         bytes.b.unpack1("H*")

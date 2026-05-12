@@ -49,8 +49,8 @@ class TestCodecRoundtripFuzz < Minitest::Test
   ORACLE_BIN    = File.join(CRATE_DIR, "target", "release", "roundtrip_oracle")
   CARGO_MANIFEST = File.join(CRATE_DIR, "Cargo.toml")
 
-  Encoder  = Kobako::Wire::Encoder
-  Decoder  = Kobako::Wire::Decoder
+  Encoder  = Kobako::Wire::Codec::Encoder
+  Decoder  = Kobako::Wire::Codec::Decoder
   Handle   = Kobako::Wire::Handle
   Exc      = Kobako::Wire::Exception
 

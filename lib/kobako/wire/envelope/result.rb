@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../encoder"
-require_relative "../decoder"
-require_relative "../error"
+require_relative "../codec"
 
 module Kobako
   module Wire

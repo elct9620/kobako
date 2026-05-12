@@ -14,10 +14,14 @@ require "kobako/wire"
 module Kobako
   module Wire
     class WireCodecTest < Minitest::Test
-      Encoder  = Kobako::Wire::Encoder
-      Decoder  = Kobako::Wire::Decoder
-      Handle   = Kobako::Wire::Handle
-      Exc      = Kobako::Wire::Exception
+      Encoder         = Kobako::Wire::Codec::Encoder
+      Decoder         = Kobako::Wire::Codec::Decoder
+      Handle          = Kobako::Wire::Handle
+      Exc             = Kobako::Wire::Exception
+      Truncated       = Kobako::Wire::Codec::Truncated
+      InvalidType     = Kobako::Wire::Codec::InvalidType
+      InvalidEncoding = Kobako::Wire::Codec::InvalidEncoding
+      UnsupportedType = Kobako::Wire::Codec::UnsupportedType
 
       # ---------- helpers ----------
 
@@ -478,9 +482,9 @@ module Kobako
         require "msgpack"
         assert defined?(::MessagePack::Factory),
                "msgpack gem must be loaded — wire codec is built on MessagePack::Factory"
-        factory = Kobako::Wire::Factory.instance
+        factory = Kobako::Wire::Codec::Factory.instance
         assert_kind_of ::MessagePack::Factory, factory,
-                       "Kobako::Wire::Factory.instance must be a MessagePack::Factory"
+                       "Kobako::Wire::Codec::Factory.instance must be a MessagePack::Factory"
       end
     end
   end

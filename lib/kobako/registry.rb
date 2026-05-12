@@ -2,11 +2,7 @@
 
 require "msgpack"
 require_relative "errors"
-require_relative "wire/encoder"
-require_relative "wire/envelope"
-require_relative "wire/exception"
-require_relative "wire/error"
-require_relative "wire/handle"
+require_relative "wire"
 require_relative "registry/service_group"
 require_relative "registry/handle_table"
 require_relative "registry/dispatcher"

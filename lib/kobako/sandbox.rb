@@ -2,8 +2,7 @@
 
 require_relative "errors"
 require_relative "registry"
-require_relative "wire/envelope"
-require_relative "wire/error"
+require_relative "wire"
 require_relative "sandbox/output_buffer"
 require_relative "sandbox/outcome_decoder"
 
