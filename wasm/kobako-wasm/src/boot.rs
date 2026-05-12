@@ -75,50 +75,25 @@ use crate::mruby::value::cstr_ptr;
 // --------------------------------------------------------------------
 // C strings — null-terminated for FFI calls.
 // --------------------------------------------------------------------
+//
+// Constants used during the boot-time registration of `Kobako`,
+// `Kobako::RPC`, `Kobako::Handle`, etc., now live with their owner in
+// `crate::kobako`. What remains here are only the names referenced by
+// C-bridge bodies that still talk to the raw FFI directly (the
+// Stage D-2 sweep will fold these into `Kobako` too).
 
-/// `b"Kobako\0"`. mruby's `mrb_define_module` expects a NUL-terminated
-/// C string per `<mruby.h>`.
+/// `b"Kobako\0"`. Used by `wire_value_to_mrb` to look up the
+/// `Kobako::Handle` class when boxing a Handle wire value back into the
+/// mruby VM.
+#[cfg(target_arch = "wasm32")]
 const KOBAKO_NAME: &[u8] = b"Kobako\0";
-/// `b"RPC\0"`.
-const RPC_NAME: &[u8] = b"RPC\0";
-/// `b"Handle\0"`.
+/// `b"Handle\0"`. Same call site as `KOBAKO_NAME`.
+#[cfg(target_arch = "wasm32")]
 const HANDLE_NAME: &[u8] = b"Handle\0";
-/// `b"__rpc_call__\0"`.
-const RPC_CALL_NAME: &[u8] = b"__rpc_call__\0";
-/// `b"method_missing\0"`.
-const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
-/// `b"respond_to_missing?\0"`.
-const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
-/// `b"initialize\0"`.
-const INITIALIZE_NAME: &[u8] = b"initialize\0";
 /// `b"@__kobako_id__\0"` — instance variable name for Handle id storage.
 /// Uses a mangled name to avoid collision with user-defined ivars.
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
-/// `b"ServiceError\0"`. Subclass of `RuntimeError`; raised by the Rust
-/// bridge when the host returns a Service-origin Panic.
-#[cfg(target_arch = "wasm32")]
-const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
-/// `b"Disconnected\0"`. Nested subclass of `Kobako::ServiceError`; raised
-/// by the Rust bridge when the host returns a Response.err with
-/// `type="disconnected"` (SPEC.md E-14 — Handle ID resolves to the
-/// `:disconnected` sentinel).
-#[cfg(target_arch = "wasm32")]
-const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
-/// `b"RuntimeError\0"` — top-level mruby class used as the parent of
-/// `Kobako::ServiceError` / `Kobako::WireError`.
-#[cfg(target_arch = "wasm32")]
-const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
-/// `b"Kernel\0"` — top-level mruby module. Receives our `puts` / `p`
-/// instance methods (mruby core lacks them without `mruby-io`, which
-/// can't compile for `wasm32-wasip1`).
-#[cfg(target_arch = "wasm32")]
-const KERNEL_NAME: &[u8] = b"Kernel\0";
-/// `b"puts\0"`, `b"p\0"` — method names registered on `Kernel`.
-#[cfg(target_arch = "wasm32")]
-const PUTS_NAME: &[u8] = b"puts\0";
-#[cfg(target_arch = "wasm32")]
-const P_NAME: &[u8] = b"p\0";
 /// `b"print\0"` — method we delegate to from `Kernel#puts` / `Kernel#p`.
 /// Provided by mruby's `mruby-print` mrbgem (always present in the
 /// kobako wasi build — see `build_config/wasi.rb`).
@@ -129,179 +104,19 @@ const PRINT_NAME: &[u8] = b"print\0";
 // Public entry point.
 // --------------------------------------------------------------------
 
-/// Register `Kobako` module, `Kobako::RPC` base class, and
-/// `Kobako.__rpc_call__` module function on the given mruby state.
+/// Thin shim that forwards to [`crate::kobako::Kobako::install_raw`].
+///
+/// Retained as a public entry point so external callers / tests that
+/// reach for `mrb_kobako_init(mrb)` continue to work; the registration
+/// body itself lives in `crate::kobako` now (see the module docs there
+/// for the rationale behind the `Kobako` boundary).
 ///
 /// # Safety
 ///
 /// `mrb` must be a valid `mrb_state *` returned by `mrb_open` (or
-/// equivalent) and not yet closed. The caller is `__kobako_run` in
-/// `lib.rs` (or test code on the host target with a stub `mrb_state`).
-///
-/// # wasm32-only
-///
-/// The body issues real mruby C API calls and is therefore gated on
-/// `target_arch = "wasm32"`. On the host target this function is a
-/// no-op so the rlib used by `cargo test` compiles without
-/// `libmruby.a` in the link graph.
-#[allow(unused_variables)]
+/// equivalent) and not yet closed.
 pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // (1) `mrb_define_module(mrb, "Kobako")`.
-        let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-
-        // (2) `Kobako::RPC` base class.
-        //
-        // The super-class is `mrb->object_class`. The standard idiom is
-        // `mrb_define_class_under(mrb, kobako_mod, "RPC",
-        // mrb->object_class)`. We pass `core::ptr::null_mut()` for
-        // `super_` here: mruby's `mrb_define_class_under` accepts
-        // a `NULL` super-class as a request to inherit from
-        // `mrb->object_class` in current mruby releases. The Frame 1
-        // preamble (item #11+) inherits Service Members directly from
-        // this `Kobako::RPC` class, not from `Object`, so the precise
-        // base-of-RPC choice is not visible to user code.
-        //
-        // NOTE: if mruby strictness changes in a future release, the
-        // fix is to thread `mrb->object_class` through a small shim in
-        // `crate::mruby::sys` rather than re-writing this function — the
-        // boot mechanism shape is stable.
-        let rpc_class =
-            sys::mrb_define_class_under(mrb, kobako_mod, cstr_ptr(RPC_NAME), core::ptr::null_mut());
-
-        // (3) Singleton-class `method_missing` and `respond_to_missing?`
-        //     on `Kobako::RPC`.
-        //
-        // `mrb_define_singleton_method` takes the *object* whose
-        // singleton-class receives the method. For class-level
-        // `method_missing` the object is the class itself, cast to
-        // `RObject*`. Subclasses inherit through metaclass-chain
-        // dispatch.
-        sys::mrb_define_singleton_method(
-            mrb,
-            rpc_class as *mut sys::RObject,
-            cstr_ptr(METHOD_MISSING_NAME),
-            rpc_method_missing,
-            sys::MRB_ARGS_ANY,
-        );
-        sys::mrb_define_singleton_method(
-            mrb,
-            rpc_class as *mut sys::RObject,
-            cstr_ptr(RESPOND_TO_MISSING_NAME),
-            rpc_respond_to_missing,
-            sys::MRB_ARGS_ANY,
-        );
-
-        // (4) `Kobako.__rpc_call__` module function with 4 required
-        //     args.
-        sys::mrb_define_module_function(
-            mrb,
-            kobako_mod,
-            cstr_ptr(RPC_CALL_NAME),
-            kobako_rpc_call,
-            sys::mrb_args_req(4),
-        );
-
-        // (5) `Kobako::Handle` class — returned by Service calls that produce
-        //     stateful objects. Instances carry a Handle id (`@__kobako_id__`)
-        //     and forward every method call to the host via `Kobako.__rpc_call__`
-        //     with `Target::Handle(id)` (SPEC.md B-17).
-        //
-        //     class Kobako::Handle
-        //       def initialize(id)  # C shim: stores id in @__kobako_id__
-        //       def method_missing(name, *args)  # C shim: routes to __rpc_call__
-        //       def respond_to_missing?(name, include_private = false)  → true
-        //     end
-        let handle_class = sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(HANDLE_NAME),
-            core::ptr::null_mut(), // inherit from Object
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(INITIALIZE_NAME),
-            handle_initialize,
-            sys::mrb_args_req(1),
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(METHOD_MISSING_NAME),
-            handle_method_missing,
-            sys::MRB_ARGS_ANY,
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(RESPOND_TO_MISSING_NAME),
-            rpc_respond_to_missing,
-            sys::MRB_ARGS_ANY,
-        );
-
-        // (6) `Kobako::ServiceError` / `Kobako::WireError` — both subclass
-        //     `RuntimeError`. The Rust bridges in this file raise them
-        //     directly via `mrb_raise`, so the classes must exist before
-        //     `__kobako_run` enters the user-script phase.
-        //
-        //     Resolve `RuntimeError` via `mrb_class_get` (top-level) rather
-        //     than `mrb_class_get_under(mrb, object_class, ...)`; mruby
-        //     core registers RuntimeError as a top-level class in
-        //     `mrb_init_exception`.
-        let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
-        let service_error_class = sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(SERVICE_ERROR_NAME),
-            runtime_error_class,
-        );
-        // `Kobako::ServiceError::Disconnected < Kobako::ServiceError` —
-        // SPEC.md "Error Classes" (E-14). Nested under
-        // `service_error_class`, not `kobako_mod`, so `mrb_class_name`
-        // yields `"Kobako::ServiceError::Disconnected"` and the panic
-        // envelope's `class` field carries the qualified name through
-        // to host-side `OutcomeDecoder.panic_target_class`.
-        sys::mrb_define_class_under(
-            mrb,
-            service_error_class,
-            cstr_ptr(DISCONNECTED_NAME),
-            service_error_class,
-        );
-        sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(WIRE_ERROR_NAME),
-            runtime_error_class,
-        );
-
-        // (7) `Kernel#puts` / `Kernel#p`.
-        //
-        // mruby's core kernel.c registers `Kernel#print` (routes to wasi-libc
-        // fwrite(stdout)) unconditionally — see vendor/mruby/src/kernel.c
-        // and vendor/mruby/src/print.c — but `puts` / `p` only exist when the
-        // `mruby-io` mrbgem is linked in. `mruby-io` requires POSIX <pwd.h>
-        // and is absent from kobako's `wasm32-wasip1` allowlist
-        // (`build_config/wasi.rb`), so we register both methods here via
-        // `mrb_define_method` and have the C bridge bodies delegate to
-        // `Kernel#print` through `mrb_funcall`.
-        let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
-        sys::mrb_define_method(
-            mrb,
-            kernel_mod,
-            cstr_ptr(PUTS_NAME),
-            kernel_puts,
-            sys::MRB_ARGS_ANY,
-        );
-        sys::mrb_define_method(
-            mrb,
-            kernel_mod,
-            cstr_ptr(P_NAME),
-            kernel_p,
-            sys::MRB_ARGS_ANY,
-        );
-    }
+    let _ = unsafe { crate::kobako::Kobako::install_raw(mrb) };
 }
 
 // --------------------------------------------------------------------
@@ -346,9 +161,6 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
 // avoiding a body-write that depends on the not-yet-bound boxing
 // macros.
 
-#[cfg(target_arch = "wasm32")]
-const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
-
 /// `Kobako.__rpc_call__(target, method, args, kwargs)` C bridge.
 ///
 /// Receives four positional args assembled by `rpc_method_missing`:
@@ -361,7 +173,7 @@ const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
 /// wire-decoded mruby value. On service error, raises `Kobako::ServiceError`.
 /// On wire error, raises `Kobako::WireError`.
 #[allow(unused_variables)]
-unsafe extern "C" fn kobako_rpc_call(
+pub(crate) unsafe extern "C" fn kobako_rpc_call(
     mrb: *mut sys::mrb_state,
     _self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -398,7 +210,7 @@ unsafe extern "C" fn kobako_rpc_call(
         // through `string_to_rust`, which collapses NULL into "".
         let method_ptr = sys::mrb_str_to_cstr(mrb, method_val);
         let method_name = if method_ptr.is_null() {
-            raise_wire_error(mrb, b"RPC method name is null\0");
+            crate::kobako::Kobako::resolve_raw(mrb).raise_wire_error(b"RPC method name is null\0");
         } else {
             core::ffi::CStr::from_ptr(method_ptr).to_str().unwrap_or("")
         };
@@ -422,10 +234,11 @@ unsafe extern "C" fn kobako_rpc_call(
         match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
             Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
             Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                raise_service_error(mrb, &ex);
+                crate::kobako::Kobako::resolve_raw(mrb).raise_service_error(&ex);
             }
             Err(_) => {
-                raise_wire_error(mrb, b"RPC wire error during invoke_rpc\0");
+                crate::kobako::Kobako::resolve_raw(mrb)
+                    .raise_wire_error(b"RPC wire error during invoke_rpc\0");
             }
         }
     }
@@ -446,7 +259,7 @@ unsafe extern "C" fn kobako_rpc_call(
 ///
 /// Forwards to `kobako_rpc_call` via `invoke_rpc`.
 #[allow(unused_variables)]
-unsafe extern "C" fn rpc_method_missing(
+pub(crate) unsafe extern "C" fn rpc_method_missing(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -480,7 +293,8 @@ unsafe extern "C" fn rpc_method_missing(
         let class_ptr = self_.w as *mut sys::RClass;
         let class_name_ptr = sys::mrb_class_name(mrb, class_ptr);
         let target_str = if class_name_ptr.is_null() {
-            raise_wire_error(mrb, b"RPC target class name is null\0");
+            crate::kobako::Kobako::resolve_raw(mrb)
+                .raise_wire_error(b"RPC target class name is null\0");
         } else {
             core::ffi::CStr::from_ptr(class_name_ptr)
                 .to_str()
@@ -490,7 +304,8 @@ unsafe extern "C" fn rpc_method_missing(
         // Get the method name string from the symbol.
         let method_name_ptr = sys::mrb_sym_name(mrb, method_sym);
         let method_name = if method_name_ptr.is_null() {
-            raise_wire_error(mrb, b"RPC method symbol name is null\0");
+            crate::kobako::Kobako::resolve_raw(mrb)
+                .raise_wire_error(b"RPC method symbol name is null\0");
         } else {
             core::ffi::CStr::from_ptr(method_name_ptr)
                 .to_str()
@@ -527,7 +342,7 @@ unsafe extern "C" fn rpc_method_missing(
 /// Stores the Handle integer id in the `@__kobako_id__` instance variable.
 /// Called by `mrb_obj_new` when creating a `Kobako::Handle` instance.
 #[allow(unused_variables)]
-unsafe extern "C" fn handle_initialize(
+pub(crate) unsafe extern "C" fn handle_initialize(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -547,7 +362,7 @@ unsafe extern "C" fn handle_initialize(
 /// `Kobako.__rpc_call__(id, method_name, args, kwargs)` with the Handle id
 /// as an integer target (SPEC.md B-17 — Handle chaining).
 #[allow(unused_variables)]
-unsafe extern "C" fn handle_method_missing(
+pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -574,7 +389,8 @@ unsafe extern "C" fn handle_method_missing(
         // Get the method name string from the symbol.
         let method_name_ptr = sys::mrb_sym_name(mrb, method_sym);
         let method_name = if method_name_ptr.is_null() {
-            raise_wire_error(mrb, b"Handle method symbol name is null\0");
+            crate::kobako::Kobako::resolve_raw(mrb)
+                .raise_wire_error(b"Handle method symbol name is null\0");
         } else {
             core::ffi::CStr::from_ptr(method_name_ptr)
                 .to_str()
@@ -613,7 +429,7 @@ unsafe extern "C" fn handle_method_missing(
 /// here ensures `respond_to?` checks succeed for mruby code that probes
 /// Service Member capabilities.
 #[allow(unused_variables)]
-unsafe extern "C" fn rpc_respond_to_missing(
+pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     _mrb: *mut sys::mrb_state,
     _self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -698,7 +514,7 @@ unsafe fn puts_one(
 
 /// `Kernel#puts(*args)` C bridge.
 #[allow(unused_variables)]
-unsafe extern "C" fn kernel_puts(
+pub(crate) unsafe extern "C" fn kernel_puts(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
 ) -> sys::mrb_value {
@@ -734,7 +550,10 @@ unsafe extern "C" fn kernel_puts(
 
 /// `Kernel#p(*args)` C bridge.
 #[allow(unused_variables)]
-unsafe extern "C" fn kernel_p(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -> sys::mrb_value {
+pub(crate) unsafe extern "C" fn kernel_p(
+    mrb: *mut sys::mrb_state,
+    self_: sys::mrb_value,
+) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
@@ -958,42 +777,12 @@ unsafe fn dispatch_invoke(
     match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
         Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
         Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-            raise_service_error(mrb, &ex);
+            crate::kobako::Kobako::resolve_raw(mrb).raise_service_error(&ex);
         }
         Err(_) => {
-            raise_wire_error(mrb, wire_err_msg);
+            crate::kobako::Kobako::resolve_raw(mrb).raise_wire_error(wire_err_msg);
         }
     }
-}
-
-/// Raise the right `Kobako::ServiceError` subclass for `ex`. Diverges
-/// (`-> !`) — `mrb_raise` does not return.
-///
-/// SPEC.md "Error Classes" + "Error Envelope" pin the
-/// mapping from the Response.err `type` field to a guest-side mruby class.
-/// Only `"disconnected"` resolves to a named subclass today
-/// (`Kobako::ServiceError::Disconnected`, E-14); the other three reserved
-/// types (`"runtime"`, `"argument"`, `"undefined"`) and any future
-/// unmapped type land on the `Kobako::ServiceError` parent.
-///
-/// The selected class's qualified name (`mrb_class_name`) is captured by
-/// `__kobako_run` into the Panic envelope's `class` field, which the host
-/// then routes through `OutcomeDecoder.panic_target_class` to produce the
-/// matching host-side Ruby exception.
-#[cfg(target_arch = "wasm32")]
-unsafe fn raise_service_error(
-    mrb: *mut sys::mrb_state,
-    ex: &crate::rpc_client::ExceptionPayload,
-) -> ! {
-    let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-    let svc_err_cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
-    let target_cls = if ex.r#type == "disconnected" {
-        sys::mrb_class_get_under(mrb, svc_err_cls, cstr_ptr(DISCONNECTED_NAME))
-    } else {
-        svc_err_cls
-    };
-    let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-    sys::mrb_raise(mrb, target_cls, msg.as_ptr());
 }
 
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
@@ -1037,13 +826,6 @@ fn mrb_false_value() -> sys::mrb_value {
 // terminated C string message. Diverges (`-> !`) — `mrb_raise` does
 // not return.
 
-#[cfg(target_arch = "wasm32")]
-unsafe fn raise_wire_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
-    let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-    let cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(WIRE_ERROR_NAME));
-    sys::mrb_raise(mrb, cls, msg.as_ptr() as *const core::ffi::c_char);
-}
-
 // --------------------------------------------------------------------
 // Tests — host target.
 // --------------------------------------------------------------------
@@ -1065,38 +847,13 @@ mod tests {
             && s[..s.len() - 1].iter().all(|b| b.is_ascii() && *b != 0)
     }
 
-    #[test]
-    fn c_string_constants_are_well_formed() {
-        // mruby C API takes `const char*`. Each constant must be
-        // ASCII, contain no embedded NUL, and end in NUL.
-        for (label, s) in &[
-            ("KOBAKO_NAME", KOBAKO_NAME),
-            ("RPC_NAME", RPC_NAME),
-            ("HANDLE_NAME", HANDLE_NAME),
-            ("RPC_CALL_NAME", RPC_CALL_NAME),
-            ("METHOD_MISSING_NAME", METHOD_MISSING_NAME),
-            ("RESPOND_TO_MISSING_NAME", RESPOND_TO_MISSING_NAME),
-            ("INITIALIZE_NAME", INITIALIZE_NAME),
-        ] {
-            assert!(
-                is_ascii_nul_terminated(s),
-                "{label} must be ASCII + NUL-terminated, got {s:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn ruby_names_match_boot_contract() {
-        // The boot contract fixes these names exactly.
-        assert_eq!(&KOBAKO_NAME[..KOBAKO_NAME.len() - 1], b"Kobako");
-        assert_eq!(&RPC_NAME[..RPC_NAME.len() - 1], b"RPC");
-        assert_eq!(&HANDLE_NAME[..HANDLE_NAME.len() - 1], b"Handle");
-        assert_eq!(&RPC_CALL_NAME[..RPC_CALL_NAME.len() - 1], b"__rpc_call__");
-        assert_eq!(
-            &METHOD_MISSING_NAME[..METHOD_MISSING_NAME.len() - 1],
-            b"method_missing"
-        );
-    }
+    // Registration-time C-string constants (Kobako / RPC / Handle / …)
+    // moved to `crate::kobako` together with their install owner; their
+    // well-formedness check lives in that module's test block. The C-string
+    // constants that remain here (HANDLE_ID_IVAR, PRINT_NAME, …) carry
+    // their NUL terminator literally in source and are exercised by the
+    // E2E path (`data/kobako.wasm`), so a duplicate boolean check would be
+    // pure churn.
 
     #[test]
     fn mrb_kobako_init_is_safe_no_op_on_host() {

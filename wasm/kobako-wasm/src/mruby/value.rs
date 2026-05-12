@@ -38,6 +38,7 @@
 //! framework — the same trade-off discussed at the top of
 //! `mruby::sys`.
 
+#[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
 
 /// Compile-time NUL-terminated C-string literal pointer.
