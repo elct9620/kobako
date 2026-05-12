@@ -280,7 +280,7 @@ class TestE2EJourneys < Minitest::Test
   # and the host-side +OutcomeDecoder.panic_target_class+ selects the
   # Disconnected subclass (pinned in unit form by
   # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+).
-  def test_e14_disconnected_handle_target_surfaces_as_service_error_disconnected
+  def test_e14_disconnected_handle_target_raises_disconnected_subclass
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(sandbox))
 
