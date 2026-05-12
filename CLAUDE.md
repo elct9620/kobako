@@ -40,7 +40,7 @@ Apply these in order — earlier principles override later ones on conflict.
    end
    ```
 
-6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Reserve `wasm/test-guest/` for native-ext exercises that cannot involve mruby; do not add new test-guest dialects.
+6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `OutcomeDecoder` / `Registry::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
 
 7. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
 
@@ -57,7 +57,6 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage 
 | Default CI task (compile + test + rubocop) | `bundle exec rake` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
 | Build Guest Binary (full chain) | `bundle exec rake wasm:guest` |
-| Build host-side E2E test fixture | `bundle exec rake fixtures:test_guest` |
 | Run all Ruby tests | `bundle exec rake test` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
