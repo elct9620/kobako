@@ -15,6 +15,13 @@ module Kobako
   # Host-side MessagePack codec for the kobako wire contract.
   # See SPEC.md → Wire Codec for the binary layout this namespace implements.
   module Wire
+    # MessagePack ext type code reserved for Capability Handle
+    # (SPEC.md → Wire Codec → Ext Types → ext 0x01).
+    EXT_HANDLE = 0x01
+
+    # MessagePack ext type code reserved for Exception envelope
+    # (SPEC.md → Wire Codec → Ext Types → ext 0x02).
+    EXT_ERRENV = 0x02
   end
 end
 

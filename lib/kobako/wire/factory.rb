@@ -32,7 +32,7 @@ module Kobako
 
       def self.register_handle_type(factory)
         factory.register_type(
-          0x01, Handle,
+          EXT_HANDLE, Handle,
           packer: ->(handle) { [handle.id].pack("N") },
           unpacker: ->(payload) { decode_handle(payload) }
         )
@@ -41,7 +41,7 @@ module Kobako
 
       def self.register_exception_type(factory)
         factory.register_type(
-          0x02, Exception,
+          EXT_ERRENV, Exception,
           packer: ->(exc) { pack_exception(exc, factory) },
           unpacker: ->(payload) { unpack_exception(payload, factory) }
         )
