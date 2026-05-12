@@ -39,10 +39,10 @@
 //! encode/transport/decode pipeline that the C bridge delegates to once
 //! item #16 wires the argument unpack.
 
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_rpc_call;
 use crate::abi::pack_u64;
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{Decoder, Value, WireError};
 use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
@@ -215,7 +215,7 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
 // host_call — the only function that differs between wasm32 and host.
 // ---------------------------------------------------------------------
 
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     // On wasm32, write the request into linear memory at a stable
     // address and call the host import. The host writes the response
@@ -251,19 +251,6 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
              when calling invoke_rpc on the host target",
         ))),
     })
-}
-
-// When `abi-exports` is disabled on wasm32 (e.g. downstream test fixture
-// crates that don't speak RPC), no host import is linked. `invoke_rpc` is
-// still compiled because it lives at the crate root, so we provide a
-// stub `host_call` that returns a Wire shape error. Practically the
-// fixture never invokes `invoke_rpc`, but the symbol must exist for the
-// crate to link.
-#[cfg(all(target_arch = "wasm32", not(feature = "abi-exports")))]
-fn host_call(_req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
-    Err(InvokeError::Wire(EnvelopeError::Shape(
-        "host_call unavailable: kobako-wasm built without `abi-exports`",
-    )))
 }
 
 // Reference to keep `pack_u64` reachable from this module on host

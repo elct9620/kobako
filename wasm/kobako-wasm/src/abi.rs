@@ -34,7 +34,7 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 use crate::cstr;
 
 /// Wasm namespace the host import lives in (`env`, per SPEC.md "ABI
@@ -55,11 +55,7 @@ pub const EXPORT_NAMES: [&str; 3] = ["__kobako_run", "__kobako_alloc", "__kobako
 // Signature: `(req_ptr: i32, req_len: i32) -> i64` per SPEC ABI Signatures.
 // We only declare the import on the wasm32 target — on the host target
 // (where rlib codec tests run) there is no host to provide the symbol.
-// The import is also gated on the `abi-exports` feature so downstream
-// wasm crates that reuse only the codec/envelope modules (e.g.
-// `wasm/test-guest`) can declare their own copy of the import without
-// duplicate-symbol errors at link time.
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     /// Host-provided RPC bridge. Guest writes a Request payload at
@@ -96,7 +92,7 @@ extern "C" {
 /// counts `__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`.
 /// `_initialize` is a WASI reactor bookkeeping export and is explicitly
 /// excluded from the kobako export count.
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn _initialize() {
     // No-op: wasi-libc reactor static ctors are not needed for kobako's
@@ -123,7 +119,6 @@ pub extern "C" fn _initialize() {
 ///
 /// `__kobako_run` never traps or calls `exit` — the host reads the outcome
 /// tag from `__kobako_take_outcome()` after this function returns.
-#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_run() {
     #[cfg(target_arch = "wasm32")]
@@ -406,7 +401,7 @@ pub extern "C" fn __kobako_run() {
 /// envelope. Only handles the types representable in the kobako wire
 /// protocol (SPEC.md §Type Mapping). Non-representable values fall back
 /// to a string via the value's `Object#inspect` representation.
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 unsafe fn mrb_value_to_wire(
     mrb: *mut crate::mruby_sys::mrb_state,
     val: crate::mruby_sys::mrb_value,
@@ -436,7 +431,7 @@ unsafe fn mrb_value_to_wire(
 /// once by `__kobako_take_outcome`. Protected by the single-threaded
 /// wasm execution model: only one `__kobako_run` executes at a time and
 /// no concurrency is possible inside a single wasm instance.
-#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
+#[cfg(target_arch = "wasm32")]
 static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
 
 /// Guest allocator — hands out a `size`-byte buffer in wasm linear memory
@@ -450,7 +445,6 @@ static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
 /// consumed synchronously before the RPC call returns, so the buffer does
 /// not need to outlive the call frame. Instance drop frees all linear memory
 /// (SPEC.md §Wire ABI exports).
-#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
@@ -479,7 +473,6 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 ///
 /// The buffer is owned by the static `OUTCOME_BUFFER`; the host must consume
 /// the bytes before the next `__kobako_run` call (each run resets the buffer).
-#[cfg(feature = "abi-exports")]
 #[no_mangle]
 pub extern "C" fn __kobako_take_outcome() -> u64 {
     #[cfg(target_arch = "wasm32")]
