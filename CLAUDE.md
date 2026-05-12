@@ -40,11 +40,11 @@ Apply these in order — earlier principles override later ones on conflict.
    end
    ```
 
-5. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Reserve `wasm/test-guest/` for native-ext exercises that cannot involve mruby; do not add new test-guest dialects.
+6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Reserve `wasm/test-guest/` for native-ext exercises that cannot involve mruby; do not add new test-guest dialects.
 
-6. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
+7. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
 
-7. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
+8. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
 
 ## Build Pipeline
 
@@ -80,4 +80,4 @@ When changing behavior, start at the listed files and follow the SPEC anchors th
 - **ABI surface (host ↔ guest exports)** — `wasm/kobako-wasm/src/abi.rs` + matching `ext/kobako/src/wasm.rs` callers.
 - **Build / toolchain** — `tasks/{vendor,mruby,wasm}.rake`.
 
-`test/test_helper.rb` `skip`s native-ext-dependent tests when `lib/kobako/kobako.bundle` is missing, so the suite still loads on a clean checkout.
+`test/test_helper.rb` `rescue`s the `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests check `defined?(Kobako::Wasm::Engine)` (or similar) and `skip` themselves when the native ext is absent.
