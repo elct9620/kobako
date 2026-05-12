@@ -634,7 +634,8 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let wasm = kobako.define_module("Wasm")?;
 
     // Error hierarchy. ModuleNotBuiltError is the headline error for the
-    // common pre-build state (see Ch.6 runtime 讀取策略).
+    // common pre-build state where `data/kobako.wasm` has not yet been
+    // produced (e.g. fresh clone before `rake compile`).
     let base_err = wasm.define_error("Error", ruby.exception_standard_error())?;
     wasm.define_error("ModuleNotBuiltError", base_err)?;
 

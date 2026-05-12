@@ -102,7 +102,7 @@ pub extern "C" fn _initialize() {
 /// Reactor entry — runs the three-job boot script, writing the outcome
 /// envelope to OUTCOME_BUFFER before returning. Signature: `() -> ()`.
 ///
-/// Responsibilities (SPEC.md Boot Script 三職責):
+/// Responsibilities:
 ///
 /// 1. Read stdin Frame 1 (4-byte BE u32 length prefix + msgpack preamble).
 ///    Decode the preamble array (`[["GroupName", ["MemberA"]], ...]`) and
