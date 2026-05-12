@@ -277,7 +277,7 @@ extern "C" {
     /// `mrb_funcall_argv(mrb, val, mid, argc, argv)` — non-variadic
     /// counterpart to `mrb_funcall`. Takes a pre-interned method
     /// symbol and an `argv` array pointer. Used by `mrb_value::call`
-    /// (`crate::mruby_helpers`) so call sites stop reaching for the
+    /// (`crate::mruby::value`) so call sites stop reaching for the
     /// variadic `mrb_funcall`.
     pub fn mrb_funcall_argv(
         mrb: *mut mrb_state,

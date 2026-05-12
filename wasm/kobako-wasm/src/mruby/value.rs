@@ -36,9 +36,9 @@
 //! passing `mrb_value` directly. Methods on the FFI type itself give
 //! us most of the ergonomic win without committing to a typed value
 //! framework — the same trade-off discussed at the top of
-//! `mruby_sys.rs`.
+//! `mruby::sys`.
 
-use crate::mruby_sys as sys;
+use crate::mruby::sys;
 
 /// Compile-time NUL-terminated C-string literal pointer.
 ///

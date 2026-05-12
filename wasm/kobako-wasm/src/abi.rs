@@ -126,7 +126,7 @@ pub extern "C" fn __kobako_run() {
         use crate::boot::mrb_kobako_init;
         use crate::codec::Value;
         use crate::envelope::{encode_outcome, Outcome, Panic, ResultEnv};
-        use crate::mruby_sys as sys;
+        use crate::mruby::sys;
         use std::io::Read;
 
         // --- helpers ---
@@ -403,8 +403,8 @@ pub extern "C" fn __kobako_run() {
 /// to a string via the value's `Object#inspect` representation.
 #[cfg(target_arch = "wasm32")]
 unsafe fn mrb_value_to_wire(
-    mrb: *mut crate::mruby_sys::mrb_state,
-    val: crate::mruby_sys::mrb_value,
+    mrb: *mut crate::mruby::sys::mrb_state,
+    val: crate::mruby::sys::mrb_value,
 ) -> crate::codec::Value {
     use crate::codec::Value;
 

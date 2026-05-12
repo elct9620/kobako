@@ -10,8 +10,9 @@
 //! * `boot` — Rust-side mruby C API registrations (Kobako module /
 //!   Kobako::RPC class / Kobako.__rpc_call__ module function). No Ruby
 //!   boot text.
-//! * `mruby_sys` — hand-rolled FFI declarations for the mruby C API
-//!   subset the boot mechanism calls.
+//! * `mruby` — façade for the mruby C API binding. Submodule `mruby::sys`
+//!   holds the hand-rolled FFI declarations; `mruby::value` adds the small
+//!   ergonomic layer (inherent methods on `mrb_value` + the `cstr!` macro).
 //!
 //! This is the **skeleton** delivered by item #4: module layout, error type,
 //! and the `Value` enum covering the 11 wire types per SPEC.md "Type
@@ -32,8 +33,7 @@ pub mod abi;
 pub mod boot;
 pub mod codec;
 pub mod envelope;
-pub mod mruby_helpers;
-pub mod mruby_sys;
+pub mod mruby;
 pub mod rpc_client;
 
 pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};

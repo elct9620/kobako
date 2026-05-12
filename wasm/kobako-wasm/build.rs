@@ -86,7 +86,7 @@ fn main() {
     // wasi-sdk toolchain would use the host clang which lacks the WASI
     // sysroot — mruby.h includes <stdio.h> and would fail. This mirrors
     // the existing link-wiring guard below. The `kobako_get_exc` symbol is
-    // still declared in `mruby_sys.rs` under `#[cfg(target_arch = "wasm32")]`
+    // still declared in `mruby::sys` under `#[cfg(target_arch = "wasm32")]`
     // which is sufficient for `cargo check` type-checking without a linked
     // object.
     let wasi_sdk = env::var("WASI_SDK_PATH").ok().filter(|s| !s.is_empty());

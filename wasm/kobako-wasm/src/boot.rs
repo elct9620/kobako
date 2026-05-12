@@ -36,7 +36,7 @@
 //! The only `mrb_load_nstring` call sites in the guest are inside
 //! `__kobako_run` for evaluating Frame 2 (the user script). This file never inspects
 //! or constructs `mrb_value` payloads; it forwards them through the FFI
-//! shims in `mruby_sys.rs`.
+//! shims in `crate::mruby::sys`.
 //!
 //! ## Lifecycle
 //!
@@ -68,9 +68,9 @@
 //! mruby-VM-side artifact.
 
 use crate::cstr;
+use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
-use crate::mruby_helpers::cstr_ptr;
-use crate::mruby_sys as sys;
+use crate::mruby::value::cstr_ptr;
 
 // --------------------------------------------------------------------
 // C strings — null-terminated for FFI calls.
@@ -165,7 +165,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         //
         // NOTE: if mruby strictness changes in a future release, the
         // fix is to thread `mrb->object_class` through a small shim in
-        // `mruby_sys.rs` rather than re-writing this function — the
+        // `crate::mruby::sys` rather than re-writing this function — the
         // boot mechanism shape is stable.
         let rpc_class =
             sys::mrb_define_class_under(mrb, kobako_mod, cstr_ptr(RPC_NAME), core::ptr::null_mut());
@@ -337,7 +337,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
 //   * Item #11 / #16: full body wiring `mrb_get_args`, marshalling to
 //     `crate::codec::Value`, calling `invoke_rpc`, and decoding the
 //     response into a fresh `mrb_value` via the boxing macros in the
-//     mruby_sys shim layer.
+//     mruby::sys shim layer.
 //
 // At this item, the bridge functions are deliberately minimal: they
 // raise `Kobako::WireError` with a "not yet wired" message. That keeps
@@ -1052,7 +1052,7 @@ unsafe fn raise_wire_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
 // What we *can* test cheaply is that the function items compile with
 // the documented signatures and that the C-string constants are well
 // formed (NUL-terminated, ASCII). C API signature regressions surface
-// as compile errors in `mruby_sys.rs` — we don't need duplicate runtime
+// as compile errors in `mruby::sys` — we don't need duplicate runtime
 // asserts.
 
 #[cfg(test)]
