@@ -1,151 +1,58 @@
-//! Guest Binary boot — Rust-side mruby C API registrations.
+//! C-callable shims registered with mruby at install time.
 //!
-//! This module replaces the previous `boot.rb` + `include_str!`
-//! mechanism with the **mruby C API path**. No Ruby text is loaded into
-//! the mruby VM at boot time; instead, every foundational entity is
-//! registered directly via C API calls:
+//! Every function here matches the [`crate::mruby::sys::mrb_func_t`]
+//! signature so mruby can invoke it as a method body. The registrations
+//! happen in [`super::Kobako::install_raw`]; the bridges themselves
+//! re-enter the boundary by resolving a `Kobako` token via
+//! [`super::Kobako::resolve_raw`] and then call safe methods.
 //!
-//!   1. `Kobako` module — `mrb_define_module(mrb, "Kobako")`.
-//!   2. `Kobako::RPC` base class — `mrb_define_class_under(mrb,
-//!      kobako_mod, "RPC", mrb->object_class)`. Each Service Member
-//!      (e.g. `MyService::KV`) is, at runtime, a *subclass* of
-//!      `Kobako::RPC` created by the Frame 1 preamble — they inherit
-//!      the singleton-class `method_missing` installed here.
-//!   3. `Kobako.__rpc_call__(target, method, args, kwargs)` —
-//!      `mrb_define_module_function(mrb, kobako_mod, "__rpc_call__",
-//!      c_fn, MRB_ARGS_REQ(4))`. The four-arg module function is the
-//!      single dispatch entry point shared by both `Kobako::RPC`
-//!      subclasses (path target) and `Kobako::Handle` instances (handle
-//!      target — wire ext 0x01, see SPEC.md "ext 0x01 — Capability
-//!      Handle").
-//!   4. `Kobako::Handle` class — instance subclass of `Object` carrying a
-//!      Handle id in `@__kobako_id__`. `initialize`, `method_missing`
-//!      and `respond_to_missing?` are all C bridges.
-//!   5. `Kobako::ServiceError < RuntimeError` and
-//!      `Kobako::WireError < RuntimeError` — raised by the Rust bridges
-//!      via `mrb_raise`.
-//!   6. `Kernel#puts` and `Kernel#p` — mruby core only registers
-//!      `Kernel#print`; `puts`/`p` are normally provided by the
-//!      `mruby-io` gem, which depends on POSIX `<pwd.h>` and is absent
-//!      from the wasm32-wasip1 allowlist (`build_config/wasi.rb`). We
-//!      re-implement them as C bridges that delegate to `Kernel#print`
-//!      via `mrb_funcall`.
+//! ## Dispatch chain
 //!
-//! `mrb_load_string` / `mrb_load_nstring` is intentionally not used for
-//! the boot/preload phase — every entity above is defined via C API.
-//! The only `mrb_load_nstring` call sites in the guest are inside
-//! `__kobako_run` for evaluating Frame 2 (the user script). This file never inspects
-//! or constructs `mrb_value` payloads; it forwards them through the FFI
-//! shims in `crate::mruby::sys`.
+//! ```text
+//!   user_script:    MyService::KV.get(:user_42)
+//!        │
+//!        │ (no instance method named `get`; class-level dispatch falls
+//!        │  through to singleton-class `method_missing`, inherited
+//!        │  from `Kobako::RPC.singleton_class`)
+//!        ▼
+//!   rpc_method_missing(mrb, self=KV.class)
+//!        │
+//!        │ (extract method symbol + args; build kwargs hash from
+//!        │  trailing Hash if present; resolve target string via
+//!        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
+//!        ▼
+//!   forwards to Kobako.__rpc_call__(target, method, args, kwargs)
+//!        │
+//!        ▼
+//!   kobako_rpc_call(mrb, self=Kobako module)
+//!        │
+//!        ▼
+//!   crate::rpc_client::invoke_rpc(...)
+//! ```
 //!
-//! ## Lifecycle
+//! ## Safety
 //!
-//! `mrb_kobako_init(mrb)` is called once per `__kobako_run` entry,
-//! immediately after the mruby state is created and before the Frame 1
-//! preamble executes (which depends on `Kobako::RPC` being available
-//! to be `super_` of each Service Member subclass). The wasm-side
-//! lib.rs `__kobako_run` body wires this into the reactor flow once
-//! item #16 lands.
-//!
-//! ## What this module is NOT responsible for
-//!
-//! The original `boot.rb` had three responsibilities — those have all
-//! moved:
-//!
-//!   * "State init / capture $stdout/$stderr" — stdout/stderr are
-//!     **user-observable channels** delivered by wasi fds 1/2. The host
-//!     side reads them through `Sandbox#stdout` / `Sandbox#stderr`. No
-//!     mruby-side capture is needed.
-//!   * "Service::Group::Member proxy install" — that proxy *is* the
-//!     `Kobako::RPC` subclass mechanism this module registers; the
-//!     Frame 1 preamble (item #11 / future) creates the subclasses.
-//!   * "I/O drain hook" — also obsolete: WASI flushes fds 1/2
-//!     synchronously through the host's import; there is no
-//!     mruby-level buffering to drain.
-//!
-//! All three of those responsibilities are accounted for by the
-//! `__kobako_run` body and the host-side ABI; none of them require an
-//! mruby-VM-side artifact.
+//! Each bridge is `unsafe extern "C" fn` because mruby invokes it from
+//! the C side with a raw `*mut mrb_state` and an `mrb_value` receiver.
+//! Bodies open with `unsafe { Kobako::resolve_raw(mrb) }` to obtain the
+//! safe `Kobako` token; from then on the work is safe Rust with
+//! explicit `unsafe { ... }` blocks at each remaining FFI call site.
 
 use crate::cstr;
 use crate::mruby::sys;
 
-// All registration-time C strings and value helpers now live with their
-// owner in `crate::kobako`; this file only keeps the `unsafe extern "C"
-// fn` C-bridges that mruby registers as method bodies.
-
-// --------------------------------------------------------------------
-// Public entry point.
-// --------------------------------------------------------------------
-
-/// Thin shim that forwards to [`crate::kobako::Kobako::install_raw`].
-///
-/// Retained as a public entry point so external callers / tests that
-/// reach for `mrb_kobako_init(mrb)` continue to work; the registration
-/// body itself lives in `crate::kobako` now (see the module docs there
-/// for the rationale behind the `Kobako` boundary).
-///
-/// # Safety
-///
-/// `mrb` must be a valid `mrb_state *` returned by `mrb_open` (or
-/// equivalent) and not yet closed.
-pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
-    let _ = unsafe { crate::kobako::Kobako::install_raw(mrb) };
-}
-
-// --------------------------------------------------------------------
-// C-callable shims registered above.
-// --------------------------------------------------------------------
-//
-// All three are registered with mruby; the dispatch chain at runtime
-// is:
-//
-//   user_script:    MyService::KV.get(:user_42)
-//        │
-//        │ (no instance method named `get`; class-level dispatch falls
-//        │  through to singleton-class `method_missing`, inherited
-//        │  from `Kobako::RPC.singleton_class`)
-//        ▼
-//   rpc_method_missing(mrb, self=KV.class)
-//        │
-//        │ (extract method symbol + args; build kwargs hash from
-//        │  trailing Hash if present; resolve target string via
-//        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
-//        ▼
-//   forwards to Kobako.__rpc_call__(target, method, args, kwargs)
-//        │
-//        ▼
-//   kobako_rpc_call(mrb, self=Kobako module)
-//        │
-//        ▼
-//   crate::rpc_client::invoke_rpc(...)
-//
-// The full chain lands incrementally:
-//   * Item #29 (this item): registrations + thin C bridges that
-//     surface a clear `Kobako::WireError` until the bodies are wired.
-//   * Item #11 / #16: full body wiring `mrb_get_args`, marshalling to
-//     `crate::codec::Value`, calling `invoke_rpc`, and decoding the
-//     response into a fresh `mrb_value` via the boxing macros in the
-//     mruby::sys shim layer.
-//
-// At this item, the bridge functions are deliberately minimal: they
-// raise `Kobako::WireError` with a "not yet wired" message. That keeps
-// the boot mechanism end-to-end testable from item #16 onwards (the
-// caller sees a structured error rather than a wasm trap) while
-// avoiding a body-write that depends on the not-yet-bound boxing
-// macros.
-
 /// `Kobako.__rpc_call__(target, method, args, kwargs)` C bridge.
 ///
-/// Receives four positional args assembled by `rpc_method_missing`:
-///   - `target`: String path (e.g. `"MyService::KV"`) or Handle integer.
+/// Receives four positional args assembled by [`rpc_method_missing`]:
+///   - `target`: String path (e.g. `"MyService::KV"`) or `Kobako::Handle` instance.
 ///   - `method`: String method name.
 ///   - `args`: Array of positional Wire values.
 ///   - `kwargs`: Hash of String key → Wire value pairs.
 ///
-/// Delegates to `crate::rpc_client::invoke_rpc`. On success, returns the
-/// wire-decoded mruby value. On service error, raises `Kobako::ServiceError`.
-/// On wire error, raises `Kobako::WireError`.
+/// Delegates to [`crate::rpc_client::invoke_rpc`] through
+/// [`super::Kobako::dispatch_invoke`]. On success, returns the
+/// wire-decoded mruby value; on service error, raises
+/// `Kobako::ServiceError`; on wire error, raises `Kobako::WireError`.
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn kobako_rpc_call(
     mrb: *mut sys::mrb_state,
@@ -157,11 +64,11 @@ pub(crate) unsafe extern "C" fn kobako_rpc_call(
 
         // SAFETY: `mrb` is live by the bridge contract (mruby invoked us
         // through a registration done at install time). Construct a
-        // `Kobako` token once at the top of the bridge — everything
-        // below uses safe methods.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        // `Kobako` token once at the top — everything below uses safe
+        // methods.
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-        // Unpack 4 required positional args: target, method, args_ary, kwargs_hash
+        // Unpack 4 required positional args: target, method, args_ary, kwargs_hash.
         let mut target_val = sys::mrb_value::zeroed();
         let mut method_val = sys::mrb_value::zeroed();
         let mut args_ary = sys::mrb_value::zeroed();
@@ -231,12 +138,12 @@ pub(crate) unsafe extern "C" fn kobako_rpc_call(
 /// level, so `self` is the class object (e.g. `MyService::KV`).
 ///
 /// Extracts:
-///   - `target` = full class name from `mrb_class_name(mrb, mrb_class_ptr(self))`
+///   - `target` = full class name via `mrb_class_name(mrb_class_ptr(self))`
 ///   - `method` = first arg (Symbol → String)
 ///   - `args`   = rest args (positional), last arg absorbed into kwargs if Hash
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
-/// Forwards to `kobako_rpc_call` via `invoke_rpc`.
+/// Forwards to [`super::Kobako::dispatch_invoke`].
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn rpc_method_missing(
     mrb: *mut sys::mrb_state,
@@ -246,10 +153,9 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     {
         use crate::envelope::Target;
 
-        // SAFETY: as above.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        // SAFETY: bridge contract.
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-        // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
         let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
         let mut rest_len: core::ffi::c_int = 0;
@@ -282,7 +188,6 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
                 .unwrap_or("")
         };
 
-        // Get the method name string from the symbol.
         let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
         let method_name = if method_name_ptr.is_null() {
             unsafe { kobako.raise_wire_error(b"RPC method symbol name is null\0") };
@@ -292,7 +197,6 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
                 .unwrap_or("")
         };
 
-        // Build args and kwargs from rest_ptr[0..rest_len].
         let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
             // SAFETY: mruby passes a valid array on `n*` unpack.
             unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
@@ -317,10 +221,9 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     }
 }
 
-/// `Kobako::Handle#initialize(id)` C bridge.
-///
-/// Stores the Handle integer id in the `@__kobako_id__` instance variable.
-/// Called by `mrb_obj_new` when creating a `Kobako::Handle` instance.
+/// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
+/// id into the `@__kobako_id__` instance variable via
+/// [`super::Kobako::set_handle_id`].
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn handle_initialize(
     mrb: *mut sys::mrb_state,
@@ -329,7 +232,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge contract.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
         let mut id_val = sys::mrb_value::zeroed();
         unsafe {
@@ -340,10 +243,9 @@ pub(crate) unsafe extern "C" fn handle_initialize(
     sys::mrb_value::zeroed()
 }
 
-/// `Kobako::Handle#method_missing(name, *args)` C bridge.
-///
-/// Forwards every method call on a Handle instance to the host via
-/// `Kobako.__rpc_call__(id, method_name, args, kwargs)` with the Handle id
+/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards every
+/// method call on a Handle instance to the host via
+/// `Kobako.__rpc_call__(id, method, args, kwargs)` with the Handle id
 /// as an integer target (SPEC.md B-17 — Handle chaining).
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn handle_method_missing(
@@ -355,9 +257,8 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
         use crate::envelope::Target;
 
         // SAFETY: bridge contract.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-        // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
         let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
         let mut rest_len: core::ffi::c_int = 0;
@@ -371,10 +272,8 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             );
         }
 
-        // Retrieve the Handle id from @__kobako_id__.
         let handle_id = kobako.extract_handle_id(self_);
 
-        // Get the method name string from the symbol.
         let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
         let method_name = if method_name_ptr.is_null() {
             unsafe { kobako.raise_wire_error(b"Handle method symbol name is null\0") };
@@ -384,7 +283,6 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
                 .unwrap_or("")
         };
 
-        // Build args and kwargs from rest_ptr[0..rest_len].
         let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
             unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
         } else {
@@ -409,20 +307,18 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 }
 
 /// `Kobako::RPC.respond_to_missing?(name, include_private)` C bridge.
-///
 /// Always returns `true` — every method call on a Service Member class
-/// is dispatched through `method_missing` to the host. Returning `true`
-/// here ensures `respond_to?` checks succeed for mruby code that probes
-/// Service Member capabilities.
+/// is dispatched through `method_missing` to the host, so probing via
+/// `respond_to?` must succeed.
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
-    _mrb: *mut sys::mrb_state,
+    mrb: *mut sys::mrb_state,
     _self_: sys::mrb_value,
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge contract.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(_mrb) };
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
         kobako.true_value()
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -435,10 +331,10 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
 // `Kernel#puts` / `Kernel#p` C bridges.
 // --------------------------------------------------------------------
 //
-// Both bridges delegate to `Kernel#print` via `mrb_funcall`. We take the
-// `mrb_funcall` route rather than calling mruby's internal `mrb_print_m`
-// directly because `mrb_print_m` is not part of the public mruby C API
-// (it's a static handler installed in `kernel.c`).
+// Both bridges delegate to `Kernel#print` via `mrb_funcall`. We take
+// the `mrb_funcall` route rather than calling mruby's internal
+// `mrb_print_m` directly because `mrb_print_m` is not part of the
+// public mruby C API (it's a static handler installed in `kernel.c`).
 //
 // `puts` semantics matched against MRI:
 //   * No args             → emit a single "\n".
@@ -461,7 +357,7 @@ pub(crate) unsafe extern "C" fn kernel_puts(
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge contract.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
         let mut args_len: core::ffi::c_int = 0;
@@ -502,7 +398,7 @@ pub(crate) unsafe extern "C" fn kernel_p(
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge contract.
-        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
         let mut args_len: core::ffi::c_int = 0;
@@ -535,46 +431,22 @@ pub(crate) unsafe extern "C" fn kernel_p(
     }
 }
 
-// --------------------------------------------------------------------
-// Tests — host target.
-// --------------------------------------------------------------------
-//
-// On host the FFI calls are absent (`#[cfg(target_arch = "wasm32")]`).
-// What we *can* test cheaply is that the function items compile with
-// the documented signatures and that the C-string constants are well
-// formed (NUL-terminated, ASCII). C API signature regressions surface
-// as compile errors in `mruby::sys` — we don't need duplicate runtime
-// asserts.
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Registration-time C-string constants moved to `crate::kobako`; the
-    // C-bridges remaining here use literal byte slices at their call
-    // sites, exercised end-to-end by `data/kobako.wasm`. A duplicate
-    // host-target byte-pattern check would be pure churn.
-
-    #[test]
-    fn mrb_kobako_init_is_safe_no_op_on_host() {
-        // On host target the function body short-circuits via the
-        // `target_arch = "wasm32"` cfg, so passing a null `mrb` is
-        // safe. This guard documents the host-side contract: the
-        // function exists with a stable signature and is a true no-op
-        // when the FFI cannot reach mruby.
-        unsafe { mrb_kobako_init(core::ptr::null_mut()) };
-    }
-
     #[test]
     fn c_bridges_have_mrb_func_t_signature() {
         // Compile-time signature check — these `let` bindings fail to
-        // compile if the bridge functions drift from `mrb_func_t`.
-        // This is the host-target compile-time replacement for the
-        // mruby-link-level signature check.
+        // compile if the bridge functions drift from `mrb_func_t`. This
+        // is the host-target replacement for an mruby-link-level
+        // signature check.
         let _f1: sys::mrb_func_t = kobako_rpc_call;
         let _f2: sys::mrb_func_t = rpc_method_missing;
         let _f3: sys::mrb_func_t = rpc_respond_to_missing;
         let _f4: sys::mrb_func_t = handle_initialize;
         let _f5: sys::mrb_func_t = handle_method_missing;
+        let _f6: sys::mrb_func_t = kernel_puts;
+        let _f7: sys::mrb_func_t = kernel_p;
     }
 }

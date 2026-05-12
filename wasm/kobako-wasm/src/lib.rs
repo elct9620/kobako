@@ -7,12 +7,14 @@
 //!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
 //! * (future) ABI exports `__kobako_run`, `__kobako_alloc`,
 //!   `__kobako_take_outcome` — added by item #9.
-//! * `boot` — Rust-side mruby C API registrations (Kobako module /
-//!   Kobako::RPC class / Kobako.__rpc_call__ module function). No Ruby
-//!   boot text.
+//! * `kobako` — domain runtime: owns the `Kobako` value-token that
+//!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::Handle` /
+//!   exception classes on an mruby VM and registers the C-bridges in
+//!   its `bridges` submodule. No Ruby boot text.
 //! * `mruby` — façade for the mruby C API binding. Submodule `mruby::sys`
 //!   holds the hand-rolled FFI declarations; `mruby::value` adds the small
-//!   ergonomic layer (inherent methods on `mrb_value` + the `cstr!` macro).
+//!   ergonomic layer (inherent methods on `mrb_value` + the `cstr!` macro);
+//!   `mruby::state` exposes the `Mrb` RAII wrapper around `mrb_state *`.
 //!
 //! This is the **skeleton** delivered by item #4: module layout, error type,
 //! and the `Value` enum covering the 11 wire types per SPEC.md "Type
@@ -30,7 +32,6 @@
 pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;
-pub mod boot;
 pub mod codec;
 pub mod envelope;
 pub mod kobako;
@@ -38,7 +39,6 @@ pub mod mruby;
 pub mod rpc_client;
 
 pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
-pub use boot::mrb_kobako_init;
 pub use codec::{Decoder, Encoder, Value, WireError};
 pub use envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,

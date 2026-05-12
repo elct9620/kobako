@@ -29,6 +29,8 @@
 //! [`Kobako::resolve_raw`] entry to obtain the same handle without
 //! repeating registration.
 
+pub mod bridges;
+
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
@@ -152,7 +154,7 @@ impl Kobako {
     pub unsafe fn install_raw(mrb: *mut sys::mrb_state) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            use crate::boot as bridges;
+            use bridges;
 
             // (1) Kobako module.
             let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
@@ -801,5 +803,17 @@ mod tests {
             InstallGroupsError::NulInGroupName,
             InstallGroupsError::NulInMemberName
         );
+    }
+
+    #[test]
+    fn install_raw_is_safe_no_op_on_host() {
+        // On host target the `install_raw` body short-circuits via the
+        // `target_arch = "wasm32"` cfg, so passing a null `mrb` is safe.
+        // This guard documents the host-side contract: the function
+        // exists with a stable signature and is a true no-op when the
+        // FFI cannot reach mruby.
+        unsafe {
+            let _ = Kobako::install_raw(core::ptr::null_mut());
+        }
     }
 }
