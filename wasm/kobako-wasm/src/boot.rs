@@ -423,7 +423,7 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     {
         // SAFETY: bridge contract.
         let kobako = unsafe { crate::kobako::Kobako::resolve_raw(_mrb) };
-        kobako.r#true()
+        kobako.true_value()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -478,14 +478,14 @@ pub(crate) unsafe extern "C" fn kernel_puts(
 
         if args_len == 0 {
             kobako.print_str(self_, nl);
-            return kobako.nil();
+            return kobako.nil_value();
         }
 
         let args = unsafe { core::slice::from_raw_parts(args_ptr, args_len as usize) };
         for &arg in args {
             kobako.puts_one(self_, arg, nl);
         }
-        kobako.nil()
+        kobako.nil_value()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -524,7 +524,7 @@ pub(crate) unsafe extern "C" fn kernel_p(
         }
 
         match args_len {
-            0 => kobako.nil(),
+            0 => kobako.nil_value(),
             1 => args[0],
             _ => unsafe { sys::mrb_ary_new_from_values(mrb, args_len, args_ptr) },
         }

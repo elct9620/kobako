@@ -439,21 +439,24 @@ impl Kobako {
 
     /// Return an mruby `nil` value. `MRB_Qnil == 0`, so this is the
     /// same as `mrb_value::zeroed()` on wasm32; the named accessor
-    /// keeps call sites explicit about intent.
+    /// keeps call sites explicit about intent and mirrors mruby's own
+    /// `mrb_nil_value()` API.
     #[cfg(target_arch = "wasm32")]
-    pub fn nil(&self) -> sys::mrb_value {
+    pub fn nil_value(&self) -> sys::mrb_value {
         sys::mrb_value { w: MRB_QNIL }
     }
 
-    /// Return an mruby `true` value (`MRB_Qtrue == 12`).
+    /// Return an mruby `true` value (`MRB_Qtrue == 12`). Mirrors
+    /// mruby's own `mrb_true_value()` API.
     #[cfg(target_arch = "wasm32")]
-    pub fn r#true(&self) -> sys::mrb_value {
+    pub fn true_value(&self) -> sys::mrb_value {
         sys::mrb_value { w: MRB_QTRUE }
     }
 
-    /// Return an mruby `false` value (`MRB_Qfalse == 4`).
+    /// Return an mruby `false` value (`MRB_Qfalse == 4`). Mirrors
+    /// mruby's own `mrb_false_value()` API.
     #[cfg(target_arch = "wasm32")]
-    pub fn r#false(&self) -> sys::mrb_value {
+    pub fn false_value(&self) -> sys::mrb_value {
         sys::mrb_value { w: MRB_QFALSE }
     }
 
@@ -618,12 +621,12 @@ impl Kobako {
         // `install_raw` / `resolve_raw`.
         unsafe {
             match val {
-                Value::Nil => self.nil(),
+                Value::Nil => self.nil_value(),
                 Value::Bool(b) => {
                     if b {
-                        self.r#true()
+                        self.true_value()
                     } else {
-                        self.r#false()
+                        self.false_value()
                     }
                 }
                 Value::Int(n) => {
@@ -658,7 +661,7 @@ impl Kobako {
                     bytes.as_ptr() as *const core::ffi::c_char,
                     bytes.len() as i32,
                 ),
-                Value::Array(_) | Value::Map(_) | Value::ErrEnv(_) => self.nil(),
+                Value::Array(_) | Value::Map(_) | Value::ErrEnv(_) => self.nil_value(),
             }
         }
     }
