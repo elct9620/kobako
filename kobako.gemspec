@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
-  # `data/kobako.wasm` is gitignored (built by `rake wasm:guest`) so it is
+  # `data/kobako.wasm` is gitignored (built by `rake wasm:build`) so it is
   # appended explicitly when present.
   #
   # The deny prefixes exclude dev-only / non-runtime artifacts:

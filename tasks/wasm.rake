@@ -14,19 +14,19 @@
 #   * `rake wasm:test`  — runs `cargo test` on the host. wasm32 has no test
 #                         runner, so codec unit tests must run on the host
 #                         build of the same code.
-#   * `rake wasm:guest` — Stage C of the Build Pipeline. Cross-compiles
+#   * `rake wasm:build` — Stage C of the Build Pipeline. Cross-compiles
 #                         the kobako-wasm crate against the vendored wasi-sdk +
 #                         libmruby.a and writes the resulting Guest Binary
 #                         to `data/kobako.wasm`. Depends on `vendor:setup`
 #                         and `mruby:build` so the full three-stage pipeline
 #                         runs end-to-end from a clean clone with a single
 #                         command.
-#   * `rake wasm:guest:clean` — removes the produced `data/kobako.wasm` and
+#   * `rake wasm:clean` — removes the produced `data/kobako.wasm` and
 #                         the wasm crate's `target/` cache directory.
 #
 # `wasm:check` and `wasm:test` do not require wasi-sdk; they run with plain
 # host cargo so feedback is fast in lanes without a vendored toolchain.
-# Only `wasm:guest` walks the full Stage A → B → C chain.
+# Only `wasm:build` walks the full Stage A → B → C chain.
 
 require "fileutils"
 require "open3"
@@ -85,7 +85,7 @@ module KobakoWasm
   # ---- Stage C helpers ---------------------------------------------------
 
   # Returns the latest mtime among the wasm crate's Rust + Cargo sources.
-  # Used to short-circuit `wasm:guest` when `data/kobako.wasm` already
+  # Used to short-circuit `wasm:build` when `data/kobako.wasm` already
   # reflects the current source tree (idempotency contract from item #11).
   def newest_source_mtime
     files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
@@ -162,16 +162,16 @@ namespace :wasm do
   end
 
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
-  task guest: ["vendor:setup", "mruby:build"] do
-    abort "cargo not on PATH; install Rust toolchain to run wasm:guest" unless KobakoWasm.cargo_available?
+  task build: ["vendor:setup", "mruby:build"] do
+    abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
 
     if KobakoWasm.guest_wasm_up_to_date?
-      puts "[wasm:guest] #{KobakoWasm::DATA_WASM} is up to date — skipping"
+      puts "[wasm:build] #{KobakoWasm::DATA_WASM} is up to date — skipping"
       next
     end
 
     unless File.exist?(KobakoWasm::LIBMRUBY_PATH)
-      raise "[wasm:guest] expected libmruby.a at #{KobakoWasm::LIBMRUBY_PATH}; " \
+      raise "[wasm:build] expected libmruby.a at #{KobakoWasm::LIBMRUBY_PATH}; " \
             "run `rake mruby:build` (Stage B) first"
     end
 
@@ -182,27 +182,25 @@ namespace :wasm do
       "--target", KobakoWasm::WASM_TARGET
     ]
     env = KobakoWasm.cargo_build_env
-    puts "[wasm:guest] env=#{env.inspect}"
-    puts "[wasm:guest] ==> #{args.join(" ")}"
-    raise "[wasm:guest] cargo build failed" unless system(env, *args)
+    puts "[wasm:build] env=#{env.inspect}"
+    puts "[wasm:build] ==> #{args.join(" ")}"
+    raise "[wasm:build] cargo build failed" unless system(env, *args)
 
     unless File.exist?(KobakoWasm::CRATE_WASM_OUTPUT)
-      raise "[wasm:guest] cargo build succeeded but #{KobakoWasm::CRATE_WASM_OUTPUT} is missing"
+      raise "[wasm:build] cargo build succeeded but #{KobakoWasm::CRATE_WASM_OUTPUT} is missing"
     end
 
     FileUtils.mkdir_p(KobakoWasm::DATA_DIR)
     FileUtils.cp(KobakoWasm::CRATE_WASM_OUTPUT, KobakoWasm::DATA_WASM)
-    puts "[wasm:guest] Guest Binary ready at #{KobakoWasm::DATA_WASM} " \
+    puts "[wasm:build] Guest Binary ready at #{KobakoWasm::DATA_WASM} " \
          "(#{File.size(KobakoWasm::DATA_WASM)} bytes)"
   end
 
-  namespace :guest do
-    desc "Remove data/kobako.wasm and the wasm crate target/ cache"
-    task :clean do
-      FileUtils.rm_f(KobakoWasm::DATA_WASM)
-      FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)
-      puts "[wasm:guest:clean] removed #{KobakoWasm::DATA_WASM} and " \
-           "#{KobakoWasm::CRATE_TARGET_DIR}"
-    end
+  desc "Remove data/kobako.wasm and the wasm crate target/ cache"
+  task :clean do
+    FileUtils.rm_f(KobakoWasm::DATA_WASM)
+    FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)
+    puts "[wasm:clean] removed #{KobakoWasm::DATA_WASM} and " \
+         "#{KobakoWasm::CRATE_TARGET_DIR}"
   end
 end

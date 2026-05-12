@@ -183,32 +183,34 @@ namespace :vendor do
     KobakoVendor.verify_or_pin(t.name, KobakoVendor.mruby_sha256)
   end
 
-  desc "Download and unpack wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} into vendor/wasi-sdk/"
-  task setup_wasi_sdk: KobakoVendor::WASI_TARBALL_PATH do
-    KobakoVendor.verify_or_pin(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.wasi_sdk_sha256)
-    KobakoVendor.prepare_unpacked(
-      tarball: KobakoVendor::WASI_TARBALL_PATH,
-      top_level_dir: KobakoVendor::WASI_SDK_UNPACKED_DIR,
-      final_dir: KobakoVendor::WASI_SDK_FINAL,
-      sentinel: KobakoVendor::WASI_SDK_SENTINEL
-    )
-    puts "[vendor] wasi-sdk ready at #{KobakoVendor::WASI_SDK_FINAL}"
-  end
+  namespace :setup do
+    desc "Download and unpack wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} into vendor/wasi-sdk/"
+    task wasi_sdk: KobakoVendor::WASI_TARBALL_PATH do
+      KobakoVendor.verify_or_pin(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.wasi_sdk_sha256)
+      KobakoVendor.prepare_unpacked(
+        tarball: KobakoVendor::WASI_TARBALL_PATH,
+        top_level_dir: KobakoVendor::WASI_SDK_UNPACKED_DIR,
+        final_dir: KobakoVendor::WASI_SDK_FINAL,
+        sentinel: KobakoVendor::WASI_SDK_SENTINEL
+      )
+      puts "[vendor] wasi-sdk ready at #{KobakoVendor::WASI_SDK_FINAL}"
+    end
 
-  desc "Download and unpack mruby #{KobakoVendor::MRUBY_VERSION} into vendor/mruby/"
-  task setup_mruby: KobakoVendor::MRUBY_TARBALL_PATH do
-    KobakoVendor.verify_or_pin(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.mruby_sha256)
-    KobakoVendor.prepare_unpacked(
-      tarball: KobakoVendor::MRUBY_TARBALL_PATH,
-      top_level_dir: KobakoVendor::MRUBY_UNPACKED_DIR,
-      final_dir: KobakoVendor::MRUBY_FINAL,
-      sentinel: KobakoVendor::MRUBY_SENTINEL
-    )
-    puts "[vendor] mruby ready at #{KobakoVendor::MRUBY_FINAL}"
+    desc "Download and unpack mruby #{KobakoVendor::MRUBY_VERSION} into vendor/mruby/"
+    task mruby: KobakoVendor::MRUBY_TARBALL_PATH do
+      KobakoVendor.verify_or_pin(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.mruby_sha256)
+      KobakoVendor.prepare_unpacked(
+        tarball: KobakoVendor::MRUBY_TARBALL_PATH,
+        top_level_dir: KobakoVendor::MRUBY_UNPACKED_DIR,
+        final_dir: KobakoVendor::MRUBY_FINAL,
+        sentinel: KobakoVendor::MRUBY_SENTINEL
+      )
+      puts "[vendor] mruby ready at #{KobakoVendor::MRUBY_FINAL}"
+    end
   end
 
   desc "Fetch and unpack all build-time vendor toolchains (wasi-sdk + mruby)"
-  task setup: %i[setup_wasi_sdk setup_mruby]
+  task setup: ["setup:wasi_sdk", "setup:mruby"]
 
   desc "Remove unpacked vendor toolchains (keeps cached tarballs)"
   task :clean do

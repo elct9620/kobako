@@ -9,12 +9,12 @@ require "test_helper"
 # downstream gems").
 #
 # Fast tier — runs against a hand-encoded test fixture wasm
-# (test/fixtures/minimal.wasm), so no `rake wasm:guest` build is required.
+# (test/fixtures/minimal.wasm), so no `rake wasm:build` build is required.
 # The fixture is the smallest valid module that exposes one export, giving
 # us coverage of the from_path pipeline plus an export lookup, without
 # depending on the full guest binary.
 #
-# Real tier — runs when data/kobako.wasm exists (built by `rake wasm:guest`,
+# Real tier — runs when data/kobako.wasm exists (built by `rake wasm:build`,
 # which the default test task now pulls in as a prerequisite). Asserts the
 # three guest exports line up with SPEC.md Wire ABI.
 class TestWasmWrapper < Minitest::Test
@@ -34,7 +34,7 @@ class TestWasmWrapper < Minitest::Test
     err = assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
       Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm")
     end
-    assert_match(/rake wasm:guest/, err.message)
+    assert_match(/rake wasm:build/, err.message)
   end
 
   def test_module_not_built_error_is_standard_error
@@ -62,7 +62,7 @@ class TestWasmWrapper < Minitest::Test
   end
 
   def test_real_guest_binary_exports_match_wire_abi
-    skip "data/kobako.wasm not built; run `bundle exec rake wasm:guest`" unless File.exist?(Kobako::Wasm.default_path)
+    skip "data/kobako.wasm not built; run `bundle exec rake wasm:build`" unless File.exist?(Kobako::Wasm.default_path)
 
     instance = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
 

@@ -48,7 +48,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 ## Build Pipeline
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:guest`. `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake` `cargo_build_env`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
+The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:build`. `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake` `cargo_build_env`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
 
 ## Common Commands
 
@@ -56,13 +56,13 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage 
 |------|---------|
 | Default CI task (compile + test + rubocop) | `bundle exec rake` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
-| Build Guest Binary (full chain) | `bundle exec rake wasm:guest` |
+| Build Guest Binary (full chain) | `bundle exec rake wasm:build` |
 | Run all Ruby tests | `bundle exec rake test` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Guest crate host-only tests (wasm32 has no test runner) | `bundle exec rake wasm:test` |
 | Guest crate `cargo check` | `bundle exec rake wasm:check` |
-| Clean Stage B / Stage C | `rake mruby:clean` / `rake wasm:guest:clean` |
+| Clean Stage B / Stage C | `rake mruby:clean` / `rake wasm:clean` |
 | Clean vendor toolchains | `rake vendor:clean` (keeps tarball cache) or `rake vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
 

@@ -112,7 +112,7 @@ fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
         return Err(MagnusError::new(
             ruby.get_inner(&MODULE_NOT_BUILT_ERROR),
             format!(
-                "wasm module not found at {}; run `bundle exec rake wasm:guest` to build it",
+                "wasm module not found at {}; run `bundle exec rake wasm:build` to build it",
                 path.display()
             ),
         ));

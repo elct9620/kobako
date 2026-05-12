@@ -12,7 +12,7 @@ require "test_helper"
 # Sandbox stay covered by the unit tests in `test_sandbox_errors.rb` and
 # `test_rpc_dispatch.rb`.
 #
-# Build prerequisite: `bundle exec rake wasm:guest` produces `data/kobako.wasm`
+# Build prerequisite: `bundle exec rake wasm:build` produces `data/kobako.wasm`
 # from `wasm/kobako-wasm/` + `vendor/mruby/`. When the artifact is missing,
 # every test in this file `skip`s with a clear message — see follow-up
 # item #29 for re-enablement once the vendor toolchain build succeeds.
@@ -30,7 +30,7 @@ class TestE2EJourneys < Minitest::Test
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
     return if File.exist?(REAL_WASM)
 
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:guest` " \
+    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build` " \
          "(requires `rake vendor:setup` + `rake mruby:build` first; " \
          "tracked as follow-up #29)"
   end

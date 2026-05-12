@@ -14,7 +14,7 @@
 //   would force this build step to depend on a working libclang on every
 //   developer machine, which is heavier than item #11's contract requires.
 // * It does not validate the mruby archive. The Rake driver
-//   (tasks/wasm.rake :: wasm:guest) builds libmruby.a immediately before this
+//   (tasks/wasm.rake :: wasm:build) builds libmruby.a immediately before this
 //   build script runs, and the wasm-binary invariant test (item #9, executed
 //   against the real artefact in test_wasm_guest_build.rb) catches link-time
 //   regressions.
@@ -82,7 +82,7 @@ fn main() {
     // target word at runtime.
     //
     // Guard: only compile when WASI_SDK_PATH or CC_wasm32_wasip1 is set
-    // (i.e. the full wasm:guest pipeline). Bare `cargo check` without the
+    // (i.e. the full wasm:build pipeline). Bare `cargo check` without the
     // wasi-sdk toolchain would use the host clang which lacks the WASI
     // sysroot — mruby.h includes <stdio.h> and would fail. This mirrors
     // the existing link-wiring guard below. The `kobako_get_exc` symbol is
@@ -120,7 +120,7 @@ fn main() {
     // libmruby.a. In practice `cargo check --target wasm32-wasip1` may run
     // without `MRUBY_LIB_DIR` set (e.g. from `wasm:check`); in that lane we
     // want a clean compile-only signal, so we silently skip the link wiring.
-    // The downstream `cargo build` invocation in `wasm:guest` always has the
+    // The downstream `cargo build` invocation in `wasm:build` always has the
     // env var set (see tasks/wasm.rake), and `mrb_kobako_send` is currently a
     // pure-Rust stub (rpc_client.rs) so even the `cargo build` step links
     // cleanly without mruby symbols when the env var is absent.
