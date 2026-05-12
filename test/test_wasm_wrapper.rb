@@ -82,4 +82,42 @@ class TestWasmWrapper < Minitest::Test
     assert instance.has_export?("__kobako_alloc"),        "guest binary must export __kobako_alloc"
     assert_equal 3, instance.known_export_count
   end
+
+  # Task #1: Instance.from_path is the single Ruby-facing constructor that
+  # transparently shares Engine + caches Module across calls. Callers do not
+  # see Engine / Module / Store.
+
+  def test_from_path_returns_ready_instance_for_real_guest
+    skip "data/kobako.wasm not built" unless File.exist?(Kobako::Wasm.default_path)
+
+    instance = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
+    assert_instance_of Kobako::Wasm::Instance, instance
+    assert instance.has_export?("__kobako_run"), "from_path instance must expose guest exports"
+    assert_equal 3, instance.known_export_count
+  end
+
+  def test_from_path_raises_module_not_built_for_missing_path
+    err = assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
+      Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm")
+    end
+    assert_match(/rake wasm:guest/, err.message)
+  end
+
+  def test_from_path_repeated_calls_return_independent_instances
+    skip "data/kobako.wasm not built" unless File.exist?(Kobako::Wasm.default_path)
+
+    a = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
+    b = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
+    refute_equal a.object_id, b.object_id, "each call must return a fresh Instance with its own Store"
+    assert a.has_export?("__kobako_run")
+    assert b.has_export?("__kobako_run")
+  end
+
+  def test_from_path_works_with_fixture_module
+    skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
+
+    instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
+    assert_instance_of Kobako::Wasm::Instance, instance
+    assert instance.has_export?("ping"), "fixture must expose `ping` export through from_path"
+  end
 end

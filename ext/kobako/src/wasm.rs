@@ -15,9 +15,10 @@
 // before each run (SPEC.md ABI Signatures).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use magnus::RString;
 use magnus::{
@@ -51,6 +52,150 @@ static WASM_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
 
 fn wasm_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(&WASM_ERROR), msg.into())
+}
+
+// ---------------------------------------------------------------------------
+// Process-wide caches: shared Engine + Module compilation cache.
+// ---------------------------------------------------------------------------
+//
+// The native ext owns the wasmtime lifecycle — SPEC.md "Code Organization"
+// pins `ext/` as private and forbids exposing wasm engine types to the Host
+// App or downstream gems. To amortise Engine creation and Module JIT
+// compilation across multiple `Kobako::Sandbox` constructions, the ext keeps
+// a process-scope shared Engine and a per-path Module cache. Both are
+// transparent to Ruby callers, who construct an Instance via
+// `Kobako::Wasm::Instance.from_path(...)` and never see Engine or Module.
+//
+// Concurrency: under Ruby's GVL only one thread can execute Rust code at a
+// time, so the Mutex is held briefly during HashMap insert/lookup and serves
+// to satisfy `Sync` bounds rather than to arbitrate real contention.
+
+static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
+static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
+
+fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
+    if let Some(engine) = SHARED_ENGINE.get() {
+        return Ok(engine);
+    }
+    let mut config = WtConfig::new();
+    config.wasm_exceptions(true);
+    let engine = WtEngine::new(&config).map_err(|e| {
+        let ruby = Ruby::get().expect("Ruby thread");
+        wasm_err(&ruby, format!("engine init: {}", e))
+    })?;
+    Ok(SHARED_ENGINE.get_or_init(|| engine))
+}
+
+fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+    if let Some(module) = cache
+        .lock()
+        .expect("module cache mutex poisoned")
+        .get(path)
+        .cloned()
+    {
+        return Ok(module);
+    }
+
+    if !path.exists() {
+        return Err(MagnusError::new(
+            ruby.get_inner(&MODULE_NOT_BUILT_ERROR),
+            format!(
+                "wasm module not found at {}; run `bundle exec rake wasm:guest` to build it",
+                path.display()
+            ),
+        ));
+    }
+
+    let bytes =
+        fs::read(path).map_err(|e| wasm_err(&ruby, format!("read {}: {}", path.display(), e)))?;
+    let module = WtModule::new(shared_engine()?, &bytes)
+        .map_err(|e| wasm_err(&ruby, format!("compile module: {}", e)))?;
+    cache
+        .lock()
+        .expect("module cache mutex poisoned")
+        .insert(path.to_path_buf(), module.clone());
+    Ok(module)
+}
+
+/// Build an `Instance` from an engine, module, and store cell. Shared by
+/// `Instance::new` (engine/module/store passed in from Ruby — wrapper unit
+/// tests) and `Instance::from_path` (engine/module sourced from the
+/// process-wide cache, store constructed fresh per call — production path).
+fn build_instance(
+    engine: &WtEngine,
+    module: &WtModule,
+    store_cell: Arc<StoreCell>,
+) -> Result<Instance, MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let mut linker: Linker<HostState> = Linker::new(engine);
+
+    // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2 to
+    // the MemoryOutputPipes set up before each run via `setup_wasi_pipes`.
+    // The closure extracts `&mut WasiP1Ctx` from HostState; if none is set
+    // (e.g. a test module that never invokes WASI functions), the Option
+    // unwrap will panic — but `setup_wasi_pipes` is always called before any
+    // WASI-enabled run.
+    p1::add_to_linker_sync(&mut linker, |state: &mut HostState| {
+        state
+            .wasi
+            .as_mut()
+            .expect("WASI context not initialised — call setup_wasi_pipes before run")
+    })
+    .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
+
+    // `__kobako_rpc_call` host import. Signature per SPEC Wire ABI:
+    //   (req_ptr: i32, req_len: i32) -> i64
+    // Decodes the Request bytes, dispatches via the Ruby-side
+    // `Kobako::Registry` (set per-run via `set_registry`), allocates a guest
+    // buffer through `__kobako_alloc`, writes the Response bytes there, and
+    // returns the packed `(ptr<<32)|len`. When no Registry is set (test
+    // scenarios that never RPC), the legacy recorder behaviour is preserved.
+    linker
+        .func_wrap(
+            "env",
+            "__kobako_rpc_call",
+            |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
+                dispatch_rpc(&mut caller, req_ptr, req_len)
+            },
+        )
+        .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
+
+    let instance = {
+        let mut store_ref = store_cell.0.borrow_mut();
+        linker
+            .instantiate(store_ref.as_context_mut(), module)
+            .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
+    };
+
+    // Best-effort export lookup. Missing exports are not an error here
+    // (test fixture is a bare module); the host enforces presence before
+    // invocation. Only the SPEC ABI `() -> ()` shape is accepted for
+    // `__kobako_run` — the transitional `(ptr, len) -> ()` shape is gone.
+    let (run, take_outcome, alloc) = {
+        let mut store_ref = store_cell.0.borrow_mut();
+        let mut ctx = store_ref.as_context_mut();
+        let run = instance
+            .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
+            .ok();
+        let take_outcome = instance
+            .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
+            .ok();
+        let alloc = instance
+            .get_typed_func::<i32, i32>(&mut ctx, "__kobako_alloc")
+            .ok();
+        (run, take_outcome, alloc)
+    };
+
+    Ok(Instance {
+        inner: instance,
+        store: store_cell,
+        run,
+        take_outcome,
+        alloc,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -219,75 +364,20 @@ pub struct Instance {
 
 impl Instance {
     fn new(engine: &Engine, module: &Module, store: &Store) -> Result<Self, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let mut linker: Linker<HostState> = Linker::new(engine.raw());
+        build_instance(engine.raw(), module.raw(), store.cell())
+    }
 
-        // Wire the wasmtime-wasi preview1 WASI imports. This replaces the
-        // manual no-op stubs and routes guest fd 1/2 to the MemoryOutputPipes
-        // set up before each run via `setup_wasi_pipes`. The closure extracts
-        // `&mut WasiP1Ctx` from HostState; if none is set (e.g. a test module
-        // that never invokes WASI functions), the Option unwrap will panic —
-        // but `setup_wasi_pipes` is always called before any WASI-enabled run.
-        p1::add_to_linker_sync(&mut linker, |state: &mut HostState| {
-            state
-                .wasi
-                .as_mut()
-                .expect("WASI context not initialised — call setup_wasi_pipes before run")
-        })
-        .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
-
-        // `__kobako_rpc_call` host import. Signature per SPEC Wire ABI:
-        //   (req_ptr: i32, req_len: i32) -> i64
-        // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::Registry` (set per-run via `set_registry`), allocates a
-        // guest buffer through `__kobako_alloc`, writes the Response bytes
-        // there, and returns the packed `(ptr<<32)|len`. When no Registry
-        // is set (test scenarios that never RPC), the legacy recorder
-        // behaviour is preserved.
-        linker
-            .func_wrap(
-                "env",
-                "__kobako_rpc_call",
-                |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
-                    dispatch_rpc(&mut caller, req_ptr, req_len)
-                },
-            )
-            .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
-
-        let cell = store.cell();
-        let instance = {
-            let mut store_ref = cell.0.borrow_mut();
-            linker
-                .instantiate(store_ref.as_context_mut(), module.raw())
-                .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
-        };
-
-        // Best-effort export lookup. Missing exports are not an error here
-        // (test fixture is a bare module); the host enforces presence before
-        // invocation. Only the SPEC ABI `() -> ()` shape is accepted for
-        // `__kobako_run` — the transitional `(ptr, len) -> ()` shape is gone.
-        let (run, take_outcome, alloc) = {
-            let mut store_ref = cell.0.borrow_mut();
-            let mut ctx = store_ref.as_context_mut();
-            let run = instance
-                .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
-                .ok();
-            let take_outcome = instance
-                .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
-                .ok();
-            let alloc = instance
-                .get_typed_func::<i32, i32>(&mut ctx, "__kobako_alloc")
-                .ok();
-            (run, take_outcome, alloc)
-        };
-
-        Ok(Self {
-            inner: instance,
-            store: cell,
-            run,
-            take_outcome,
-            alloc,
-        })
+    /// Construct an Instance from a wasm file path, using the process-wide
+    /// shared Engine and per-path Module cache. This is the single Ruby-facing
+    /// constructor that production callers (`Kobako::Sandbox`) consume —
+    /// Engine and Module are never visible to Ruby. The lower-level `new`
+    /// (with explicit engine/module/store) is retained for wrapper unit tests.
+    fn from_path(path: String) -> Result<Self, MagnusError> {
+        let engine = shared_engine()?;
+        let module = cached_module(Path::new(&path))?;
+        let store = WtStore::new(engine, HostState::default());
+        let store_cell = Arc::new(StoreCell(RefCell::new(store)));
+        build_instance(engine, &module, store_cell)
     }
 
     /// Install the Ruby-side `Kobako::Registry` into HostState. Called by
@@ -651,6 +741,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("new", function!(Instance::new, 3))?;
+    instance.define_singleton_method("from_path", function!(Instance::from_path, 1))?;
     instance.define_method("has_export?", method!(Instance::has_export, 1))?;
     instance.define_method(
         "known_export_count",
