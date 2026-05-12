@@ -560,6 +560,18 @@ impl Kobako {
     /// for use as an RPC argument or keyword value. Unknown types fall
     /// back to `Object#to_s` (Symbol stringifies to its name; other
     /// types use whatever `Object#to_s` produces).
+    ///
+    /// ## Why two converters
+    ///
+    /// This is the **RPC-path** converter — Hash arguments are decoded
+    /// elsewhere into kwargs ([`Kobako::decode_hash_kwargs`]), so a
+    /// stray Hash here falls through the `to_s` arm. The sibling
+    /// [`Kobako::mrb_value_to_wire_outcome`] handles the **outcome-path**
+    /// (the script's last-expression value): it uses `inspect` for
+    /// unknown types and emits an explicit `"{}"` sentinel for empty
+    /// Hashes so the host-side outcome envelope carries a non-empty
+    /// `Value::Str`. Do not unify the two without first checking
+    /// whether the host treats `"{}"` as a load-bearing sentinel.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -577,10 +589,28 @@ impl Kobako {
         }
     }
 
-    /// Variant of [`Kobako::mrb_value_to_wire_value`] that falls back to
-    /// `Object#inspect` for unknown types. Used by `__kobako_run` to
-    /// serialize the last-expression value into the outcome Result
-    /// envelope.
+    /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
+    /// for inclusion in the outcome Result envelope. Used by
+    /// `__kobako_run` to serialize the user script's last-expression
+    /// value.
+    ///
+    /// ## Why this differs from [`Kobako::mrb_value_to_wire_value`]
+    ///
+    /// Two intentional divergences from the RPC-path converter:
+    ///
+    /// 1. **Unknown-type fallback uses `Object#inspect`** rather than
+    ///    `Object#to_s`. The outcome envelope is read by host-side
+    ///    callers as a *display* representation, not an interchange
+    ///    value, so `inspect` (which quotes strings, shows class names,
+    ///    etc.) is the right shape.
+    /// 2. **Empty Hashes emit `"{}"` instead of `""`**. `Object#inspect`
+    ///    on an empty Hash already returns `"{}"`; the explicit check
+    ///    guards against any caller that returns an empty string from
+    ///    its custom `inspect`, so the outcome carries a non-empty
+    ///    `Value::Str` for the empty-collection case.
+    ///
+    /// Full Array / Hash wire encoding is a separate follow-up; today
+    /// we serialize them as the `inspect` string.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
