@@ -245,6 +245,15 @@ class TestE2EJourneys < Minitest::Test
     assert_raises(Kobako::HandleTableError) { sandbox.handle_table.fetch(handle_id) }
   end
 
+  # SPEC.md B-04: output past +stdout_limit+ is truncated with a
+  # +[truncated]+ marker rather than raising; the cap is enforced even
+  # under real WASI capture from the mruby guest.
+  def test_stdout_truncation_marker_when_output_exceeds_cap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
+    sandbox.run('puts "long enough to overflow the 5-byte cap"; 1')
+    assert_includes sandbox.stdout, "[truncated]"
+  end
+
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
   def test_stdout_buffer_is_per_run_b04
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -256,5 +265,45 @@ class TestE2EJourneys < Minitest::Test
     refute_includes sandbox.stdout, "first",
                     "B-04: stdout must reset between runs (SPEC.md B-04 L264-270)"
     assert_includes sandbox.stdout, "second"
+  end
+
+  # SPEC.md E-14: a Handle whose entry has been replaced with the
+  # +:disconnected+ sentinel surfaces as a Service-origin error on the
+  # next dispatch through that handle. Full mruby round-trip: Service
+  # Setup returns a pre-allocated Wire::Handle whose backing entry was
+  # immediately marked disconnected; the mruby method call against that
+  # handle dispatches against the disconnected sentinel and the host
+  # observes a +Kobako::ServiceError+ with the dispatcher's disconnected
+  # message.
+  #
+  # The +Kobako::ServiceError::Disconnected+ subclass selection lives on
+  # +OutcomeDecoder.panic_target_class+ (host-side) and is exercised by
+  # +TestSandboxOutcomeDecoding+. The mruby guest's exception bridge
+  # (+wasm/kobako-wasm/src/boot.rs+) currently raises a single
+  # +Kobako::ServiceError+ class without propagating +type+ into the
+  # panic +class+ field, so the subclass selection is not reachable
+  # through this end-to-end path today.
+  def test_e14_disconnected_handle_target_surfaces_as_service_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(sandbox))
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.run("handle = Dc::Setup.call\nhandle.any_method\n")
+    end
+
+    assert_equal "service", err.origin
+    assert_match(/disconnected/, err.message)
+  end
+
+  # E-14 setup helper: alloc a fresh Object in the live HandleTable,
+  # immediately replace the entry with the +:disconnected+ sentinel, and
+  # return the Wire::Handle so the bound Service can hand it back to mruby
+  # for use as a target on the next RPC.
+  def disconnected_handle_setup_lambda(sandbox)
+    lambda do
+      id = sandbox.handle_table.alloc(Object.new)
+      sandbox.handle_table.mark_disconnected(id)
+      Kobako::Wire::Handle.new(id)
+    end
   end
 end
