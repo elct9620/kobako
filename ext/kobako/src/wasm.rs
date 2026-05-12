@@ -231,9 +231,6 @@ pub struct HostState {
     pub stdout_pipe: Option<MemoryOutputPipe>,
     /// Clone of the MemoryOutputPipe wired to guest fd 2 (stderr).
     pub stderr_pipe: Option<MemoryOutputPipe>,
-    /// Recorded `__kobako_rpc_call` invocations from the stub import.
-    /// Each entry is (request_bytes_received, response_bytes_returned).
-    pub rpc_calls: Vec<(Vec<u8>, Vec<u8>)>,
     /// Ruby-side `Kobako::Registry`. When set, the `__kobako_rpc_call`
     /// import calls `registry.dispatch(req_bytes)` and hands the returned
     /// Response bytes back to the guest. `Opaque<Value>` is `Send + Sync`;
@@ -548,25 +545,19 @@ fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) 
         None => return 0,
     };
 
-    // No Registry bound — preserve the legacy recorder behaviour so tests
-    // that exercise the import-table shape without a Registry still pass.
+    // No Registry bound — return 0 to signal a wire-layer fault; the guest
+    // maps a 0 return to a trap. `Kobako::Sandbox` always installs a
+    // Registry before invoking the guest, so reaching this branch indicates
+    // a misuse rather than a normal control path.
     let registry = match caller.data().registry {
         Some(d) => d,
-        None => {
-            caller.data_mut().rpc_calls.push((req_bytes, Vec::new()));
-            return 0;
-        }
+        None => return 0,
     };
 
     let resp_bytes = match invoke_registry(registry, &req_bytes) {
         Ok(b) => b,
         Err(_) => return 0,
     };
-
-    caller
-        .data_mut()
-        .rpc_calls
-        .push((req_bytes, resp_bytes.clone()));
 
     write_response(caller, &resp_bytes).unwrap_or(0)
 }

@@ -56,7 +56,7 @@ class TestWasmWrapper < Minitest::Test
 
     a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
-    refute_equal a.object_id, b.object_id, "each call must return a fresh Instance with its own Store"
+    refute_same a, b, "each call must return a fresh Instance with its own Store"
     assert a.has_export?("ping")
     assert b.has_export?("ping")
   end
