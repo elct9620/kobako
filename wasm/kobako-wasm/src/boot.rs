@@ -69,36 +69,10 @@
 
 use crate::cstr;
 use crate::mruby::sys;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::value::cstr_ptr;
 
-// --------------------------------------------------------------------
-// C strings — null-terminated for FFI calls.
-// --------------------------------------------------------------------
-//
-// Constants used during the boot-time registration of `Kobako`,
-// `Kobako::RPC`, `Kobako::Handle`, etc., now live with their owner in
-// `crate::kobako`. What remains here are only the names referenced by
-// C-bridge bodies that still talk to the raw FFI directly (the
-// Stage D-2 sweep will fold these into `Kobako` too).
-
-/// `b"Kobako\0"`. Used by `wire_value_to_mrb` to look up the
-/// `Kobako::Handle` class when boxing a Handle wire value back into the
-/// mruby VM.
-#[cfg(target_arch = "wasm32")]
-const KOBAKO_NAME: &[u8] = b"Kobako\0";
-/// `b"Handle\0"`. Same call site as `KOBAKO_NAME`.
-#[cfg(target_arch = "wasm32")]
-const HANDLE_NAME: &[u8] = b"Handle\0";
-/// `b"@__kobako_id__\0"` — instance variable name for Handle id storage.
-/// Uses a mangled name to avoid collision with user-defined ivars.
-#[cfg(target_arch = "wasm32")]
-const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
-/// `b"print\0"` — method we delegate to from `Kernel#puts` / `Kernel#p`.
-/// Provided by mruby's `mruby-print` mrbgem (always present in the
-/// kobako wasi build — see `build_config/wasi.rb`).
-#[cfg(target_arch = "wasm32")]
-const PRINT_NAME: &[u8] = b"print\0";
+// All registration-time C strings and value helpers now live with their
+// owner in `crate::kobako`; this file only keeps the `unsafe extern "C"
+// fn` C-bridges that mruby registers as method bodies.
 
 // --------------------------------------------------------------------
 // Public entry point.
@@ -179,68 +153,73 @@ pub(crate) unsafe extern "C" fn kobako_rpc_call(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::codec::Value;
         use crate::envelope::Target;
-        use crate::rpc_client::invoke_rpc;
+
+        // SAFETY: `mrb` is live by the bridge contract (mruby invoked us
+        // through a registration done at install time). Construct a
+        // `Kobako` token once at the top of the bridge — everything
+        // below uses safe methods.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
 
         // Unpack 4 required positional args: target, method, args_ary, kwargs_hash
         let mut target_val = sys::mrb_value::zeroed();
         let mut method_val = sys::mrb_value::zeroed();
         let mut args_ary = sys::mrb_value::zeroed();
         let mut kwargs_hash = sys::mrb_value::zeroed();
-
-        sys::mrb_get_args(
-            mrb,
-            cstr!("oooo"),
-            &mut target_val as *mut sys::mrb_value,
-            &mut method_val as *mut sys::mrb_value,
-            &mut args_ary as *mut sys::mrb_value,
-            &mut kwargs_hash as *mut sys::mrb_value,
-        );
+        unsafe {
+            sys::mrb_get_args(
+                mrb,
+                cstr!("oooo"),
+                &mut target_val as *mut sys::mrb_value,
+                &mut method_val as *mut sys::mrb_value,
+                &mut args_ary as *mut sys::mrb_value,
+                &mut kwargs_hash as *mut sys::mrb_value,
+            );
+        }
 
         // Decode target: String path or Kobako::Handle instance.
-        let target = match target_val.classname(mrb) {
-            "Kobako::Handle" => Target::Handle(extract_handle_id(mrb, target_val)),
-            _ => Target::Path(target_val.to_string(mrb)),
+        let target = match unsafe { target_val.classname(mrb) } {
+            "Kobako::Handle" => Target::Handle(kobako.extract_handle_id(target_val)),
+            _ => Target::Path(unsafe { target_val.to_string(mrb) }),
         };
 
         // Decode method name string. NULL pointer (not just an empty
         // string) is the wire violation — preserve the distinction by
         // checking the raw `mrb_str_to_cstr` pointer instead of going
-        // through `string_to_rust`, which collapses NULL into "".
-        let method_ptr = sys::mrb_str_to_cstr(mrb, method_val);
+        // through `to_string`, which collapses NULL into "".
+        let method_ptr = unsafe { sys::mrb_str_to_cstr(mrb, method_val) };
         let method_name = if method_ptr.is_null() {
-            crate::kobako::Kobako::resolve_raw(mrb).raise_wire_error(b"RPC method name is null\0");
+            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+            unsafe { kobako.raise_wire_error(b"RPC method name is null\0") };
         } else {
-            core::ffi::CStr::from_ptr(method_ptr).to_str().unwrap_or("")
+            unsafe { core::ffi::CStr::from_ptr(method_ptr) }
+                .to_str()
+                .unwrap_or("")
         };
 
         // Decode positional args from the Array.
-        let args_len = mrb_collection_len(mrb, args_ary);
+        let args_len = kobako.collection_len(args_ary);
         let mut wire_args = Vec::with_capacity(args_len);
         for i in 0..args_len {
-            let elem = sys::mrb_ary_entry(args_ary, i as i32);
-            wire_args.push(mrb_value_to_wire_value(mrb, elem));
+            let elem = unsafe { sys::mrb_ary_entry(args_ary, i as i32) };
+            wire_args.push(kobako.mrb_value_to_wire_value(elem));
         }
 
         // Decode kwargs from the Hash. Skip silently when kwargs_hash is
-        // not actually a Hash (defensive — `oooo` unpack accepts any object).
-        let mut wire_kwargs: Vec<(String, Value)> = Vec::new();
-        if kwargs_hash.classname(mrb) == "Hash" {
-            decode_hash_kwargs(mrb, kwargs_hash, &mut wire_kwargs);
+        // not actually a Hash (defensive — `oooo` unpack accepts any
+        // object).
+        let mut wire_kwargs = Vec::new();
+        if unsafe { kwargs_hash.classname(mrb) } == "Hash" {
+            kobako.decode_hash_kwargs(kwargs_hash, &mut wire_kwargs);
         }
 
-        // Invoke RPC.
-        match invoke_rpc(target, method_name, &wire_args, &wire_kwargs) {
-            Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
-            Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-                crate::kobako::Kobako::resolve_raw(mrb).raise_service_error(&ex);
-            }
-            Err(_) => {
-                crate::kobako::Kobako::resolve_raw(mrb)
-                    .raise_wire_error(b"RPC wire error during invoke_rpc\0");
-            }
-        }
+        kobako.dispatch_invoke(
+            target,
+            method_name,
+            &wire_args,
+            &wire_kwargs,
+            b"RPC wire error during invoke_rpc\0",
+        )
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -267,63 +246,64 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     {
         use crate::envelope::Target;
 
+        // SAFETY: as above.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+
         // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
         let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
         let mut rest_len: core::ffi::c_int = 0;
+        unsafe {
+            sys::mrb_get_args(
+                mrb,
+                cstr!("n*"),
+                &mut method_sym as *mut sys::mrb_sym,
+                &mut rest_ptr as *mut *const sys::mrb_value,
+                &mut rest_len as *mut core::ffi::c_int,
+            );
+        }
 
-        sys::mrb_get_args(
-            mrb,
-            cstr!("n*"),
-            &mut method_sym as *mut sys::mrb_sym,
-            &mut rest_ptr as *mut *const sys::mrb_value,
-            &mut rest_len as *mut core::ffi::c_int,
-        );
-
-        // Get the target class name.
-        // mrb_class_ptr(val) is the macro `((struct RClass*)(mrb_ptr(val)))`.
-        // With MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (our wasm32 config),
-        // mrb_ptr(val) is `mrb_val_union(val).p` which for object-tagged values
-        // is just the raw pointer stored in the lower bits of the word.
-        // On wasm32 (32-bit address space), the mrb_value.w field IS the pointer
-        // directly for object types. We implement the macro inline here to avoid
-        // declaring mrb_class_ptr as an extern "C" fn (it is a C macro, not
-        // a real function, so a Rust FFI declaration would produce an unresolved
-        // wasm import).
+        // Get the target class name. `mrb_class_ptr(val)` is the C macro
+        // `((struct RClass*)(mrb_ptr(val)))`. On wasm32 with
+        // MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32, `mrb_ptr(val)` is the
+        // raw pointer stored in the lower bits of `mrb_value.w` for
+        // object-tagged values — i.e. `self_.w as *mut RClass`. We
+        // implement the macro inline to avoid declaring it as an extern
+        // "C" fn (it is a macro, not a function, so an FFI declaration
+        // would produce an unresolved wasm import).
         let class_ptr = self_.w as *mut sys::RClass;
-        let class_name_ptr = sys::mrb_class_name(mrb, class_ptr);
+        let class_name_ptr = unsafe { sys::mrb_class_name(mrb, class_ptr) };
         let target_str = if class_name_ptr.is_null() {
-            crate::kobako::Kobako::resolve_raw(mrb)
-                .raise_wire_error(b"RPC target class name is null\0");
+            // SAFETY: bridge frame.
+            unsafe { kobako.raise_wire_error(b"RPC target class name is null\0") };
         } else {
-            core::ffi::CStr::from_ptr(class_name_ptr)
+            unsafe { core::ffi::CStr::from_ptr(class_name_ptr) }
                 .to_str()
                 .unwrap_or("")
         };
 
         // Get the method name string from the symbol.
-        let method_name_ptr = sys::mrb_sym_name(mrb, method_sym);
+        let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
         let method_name = if method_name_ptr.is_null() {
-            crate::kobako::Kobako::resolve_raw(mrb)
-                .raise_wire_error(b"RPC method symbol name is null\0");
+            unsafe { kobako.raise_wire_error(b"RPC method symbol name is null\0") };
         } else {
-            core::ffi::CStr::from_ptr(method_name_ptr)
+            unsafe { core::ffi::CStr::from_ptr(method_name_ptr) }
                 .to_str()
                 .unwrap_or("")
         };
 
         // Build args and kwargs from rest_ptr[0..rest_len].
         let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
-            core::slice::from_raw_parts(rest_ptr, rest_len as usize)
+            // SAFETY: mruby passes a valid array on `n*` unpack.
+            unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
         } else {
             &[]
         };
 
-        let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
+        let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
 
-        dispatch_invoke(
-            mrb,
+        kobako.dispatch_invoke(
             target,
             method_name,
             &wire_args,
@@ -348,10 +328,14 @@ pub(crate) unsafe extern "C" fn handle_initialize(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
+        // SAFETY: bridge contract.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+
         let mut id_val = sys::mrb_value::zeroed();
-        sys::mrb_get_args(mrb, cstr!("o"), &mut id_val as *mut sys::mrb_value);
-        let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(HANDLE_ID_IVAR));
-        sys::mrb_iv_set(mrb, self_, sym, id_val);
+        unsafe {
+            sys::mrb_get_args(mrb, cstr!("o"), &mut id_val as *mut sys::mrb_value);
+        }
+        kobako.set_handle_id(self_, id_val);
     }
     sys::mrb_value::zeroed()
 }
@@ -370,45 +354,47 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     {
         use crate::envelope::Target;
 
+        // SAFETY: bridge contract.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+
         // Unpack: method_name_sym + rest args.
         let mut method_sym: sys::mrb_sym = 0;
         let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
         let mut rest_len: core::ffi::c_int = 0;
-
-        sys::mrb_get_args(
-            mrb,
-            cstr!("n*"),
-            &mut method_sym as *mut sys::mrb_sym,
-            &mut rest_ptr as *mut *const sys::mrb_value,
-            &mut rest_len as *mut core::ffi::c_int,
-        );
+        unsafe {
+            sys::mrb_get_args(
+                mrb,
+                cstr!("n*"),
+                &mut method_sym as *mut sys::mrb_sym,
+                &mut rest_ptr as *mut *const sys::mrb_value,
+                &mut rest_len as *mut core::ffi::c_int,
+            );
+        }
 
         // Retrieve the Handle id from @__kobako_id__.
-        let handle_id = extract_handle_id(mrb, self_);
+        let handle_id = kobako.extract_handle_id(self_);
 
         // Get the method name string from the symbol.
-        let method_name_ptr = sys::mrb_sym_name(mrb, method_sym);
+        let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
         let method_name = if method_name_ptr.is_null() {
-            crate::kobako::Kobako::resolve_raw(mrb)
-                .raise_wire_error(b"Handle method symbol name is null\0");
+            unsafe { kobako.raise_wire_error(b"Handle method symbol name is null\0") };
         } else {
-            core::ffi::CStr::from_ptr(method_name_ptr)
+            unsafe { core::ffi::CStr::from_ptr(method_name_ptr) }
                 .to_str()
                 .unwrap_or("")
         };
 
         // Build args and kwargs from rest_ptr[0..rest_len].
         let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
-            core::slice::from_raw_parts(rest_ptr, rest_len as usize)
+            unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
         } else {
             &[]
         };
 
-        let (wire_args, wire_kwargs) = unpack_args_kwargs(mrb, rest);
+        let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Handle(handle_id);
 
-        dispatch_invoke(
-            mrb,
+        kobako.dispatch_invoke(
             target,
             method_name,
             &wire_args,
@@ -435,7 +421,9 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
-        mrb_true_value()
+        // SAFETY: bridge contract.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(_mrb) };
+        kobako.r#true()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -464,54 +452,6 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
 //   * Returns the single arg if `argc == 1`, the args Array otherwise,
 //     `nil` when called with no arguments.
 
-/// Helper: print a single mruby `String` via `Kernel#print`. Uses
-/// `mrb_funcall` so we don't depend on mruby's static `mrb_print_m`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn print_str(mrb: *mut sys::mrb_state, self_: sys::mrb_value, s: sys::mrb_value) {
-    self_.call(mrb, cstr_ptr(PRINT_NAME), &[s]);
-}
-
-/// Helper: print one element for `Kernel#puts`. Recurses for Array
-/// elements; otherwise calls `.to_s`, prints, and appends `"\n"` unless
-/// the string already ends with `"\n"`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn puts_one(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-    arg: sys::mrb_value,
-    nl: sys::mrb_value,
-) {
-    if arg.classname(mrb) == "Array" {
-        let len = mrb_collection_len(mrb, arg);
-        for i in 0..len {
-            let elem = sys::mrb_ary_entry(arg, i as i32);
-            puts_one(mrb, self_, elem, nl);
-        }
-        return;
-    }
-
-    let s_val = arg.call(mrb, cstr!("to_s"), &[]);
-    print_str(mrb, self_, s_val);
-
-    // Append newline unless the printed string already ended with "\n".
-    // Inspect the byte at `length - 1` via Ruby (`bytesize` + `getbyte`)
-    // — `mrb_str_to_cstr` would mishandle embedded NULs / binary content.
-    // Both bytesize and the last-byte value are small Integers; round-trip
-    // through `to_s` + parse to avoid depending on a private int unbox shim.
-    let bytesize_val = s_val.call(mrb, cstr!("bytesize"), &[]);
-    let bs: usize = bytesize_val.to_string(mrb).parse().unwrap_or(0);
-    if bs == 0 {
-        print_str(mrb, self_, nl);
-        return;
-    }
-    let last_idx = sys::mrb_boxing_int_value(mrb, (bs - 1) as i32);
-    let last_byte_val = s_val.call(mrb, cstr!("getbyte"), &[last_idx]);
-    let lb: i32 = last_byte_val.to_string(mrb).parse().unwrap_or(0);
-    if lb != 10 {
-        print_str(mrb, self_, nl);
-    }
-}
-
 /// `Kernel#puts(*args)` C bridge.
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn kernel_puts(
@@ -520,27 +460,32 @@ pub(crate) unsafe extern "C" fn kernel_puts(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
+        // SAFETY: bridge contract.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
         let mut args_len: core::ffi::c_int = 0;
-        sys::mrb_get_args(
-            mrb,
-            cstr!("*"),
-            &mut args_ptr as *mut *const sys::mrb_value,
-            &mut args_len as *mut core::ffi::c_int,
-        );
+        unsafe {
+            sys::mrb_get_args(
+                mrb,
+                cstr!("*"),
+                &mut args_ptr as *mut *const sys::mrb_value,
+                &mut args_len as *mut core::ffi::c_int,
+            );
+        }
 
-        let nl = sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1);
+        let nl = unsafe { sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1) };
 
         if args_len == 0 {
-            print_str(mrb, self_, nl);
-            return mrb_nil_value();
+            kobako.print_str(self_, nl);
+            return kobako.nil();
         }
 
-        let args = core::slice::from_raw_parts(args_ptr, args_len as usize);
+        let args = unsafe { core::slice::from_raw_parts(args_ptr, args_len as usize) };
         for &arg in args {
-            puts_one(mrb, self_, arg, nl);
+            kobako.puts_one(self_, arg, nl);
         }
-        mrb_nil_value()
+        kobako.nil()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -556,27 +501,32 @@ pub(crate) unsafe extern "C" fn kernel_p(
 ) -> sys::mrb_value {
     #[cfg(target_arch = "wasm32")]
     {
+        // SAFETY: bridge contract.
+        let kobako = unsafe { crate::kobako::Kobako::resolve_raw(mrb) };
+
         let mut args_ptr: *const sys::mrb_value = core::ptr::null();
         let mut args_len: core::ffi::c_int = 0;
-        sys::mrb_get_args(
-            mrb,
-            cstr!("*"),
-            &mut args_ptr as *mut *const sys::mrb_value,
-            &mut args_len as *mut core::ffi::c_int,
-        );
+        unsafe {
+            sys::mrb_get_args(
+                mrb,
+                cstr!("*"),
+                &mut args_ptr as *mut *const sys::mrb_value,
+                &mut args_len as *mut core::ffi::c_int,
+            );
+        }
 
-        let nl = sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1);
-        let args = core::slice::from_raw_parts(args_ptr, args_len as usize);
+        let nl = unsafe { sys::mrb_str_new(mrb, b"\n".as_ptr() as *const core::ffi::c_char, 1) };
+        let args = unsafe { core::slice::from_raw_parts(args_ptr, args_len as usize) };
         for &arg in args {
-            let insp = arg.call(mrb, cstr!("inspect"), &[]);
-            print_str(mrb, self_, insp);
-            print_str(mrb, self_, nl);
+            let insp = unsafe { arg.call(mrb, cstr!("inspect"), &[]) };
+            kobako.print_str(self_, insp);
+            kobako.print_str(self_, nl);
         }
 
         match args_len {
-            0 => mrb_nil_value(),
+            0 => kobako.nil(),
             1 => args[0],
-            _ => sys::mrb_ary_new_from_values(mrb, args_len, args_ptr),
+            _ => unsafe { sys::mrb_ary_new_from_values(mrb, args_len, args_ptr) },
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -584,247 +534,6 @@ pub(crate) unsafe extern "C" fn kernel_p(
         sys::mrb_value::zeroed()
     }
 }
-
-// --------------------------------------------------------------------
-// Value conversion helpers (wasm32-only).
-// --------------------------------------------------------------------
-
-/// Convert a kobako wire `Value` to an `mrb_value`. Used to box the RPC
-/// response back into the mruby VM after `invoke_rpc` succeeds.
-///
-/// Covers the wire types the journey tests exercise (SPEC.md Type Mapping):
-/// Nil, Bool, Int, Float, Str, Handle (as Integer). UInt, Bin, Array, Map,
-/// ErrEnv are not required by the J-01..J-05 journeys; Array/Map support is
-/// a follow-up item.
-#[cfg(target_arch = "wasm32")]
-unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) -> sys::mrb_value {
-    use crate::codec::Value;
-    match val {
-        Value::Nil => mrb_nil_value(),
-        Value::Bool(b) => {
-            if b {
-                mrb_true_value()
-            } else {
-                mrb_false_value()
-            }
-        }
-        Value::Int(n) => {
-            // mrb_boxing_int_value(mrb, n) is the proper API for constructing
-            // a boxed integer without hand-coding the bit layout.
-            // mrb_int on wasm32 is 32-bit (MRB_INT32 config); clamp to i32.
-            let n32 = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            sys::mrb_boxing_int_value(mrb, n32)
-        }
-        Value::UInt(n) => {
-            // UInt that fits in i32 → Int path; otherwise clamp.
-            let n32 = n.min(i32::MAX as u64) as i32;
-            sys::mrb_boxing_int_value(mrb, n32)
-        }
-        Value::Float(f) => {
-            // mrb_word_boxing_float_value allocates a boxed float object on
-            // the mruby heap (required for MRB_WORDBOX_NO_INLINE_FLOAT on wasm32).
-            sys::mrb_word_boxing_float_value(mrb, f)
-        }
-        Value::Str(s) => {
-            match std::ffi::CString::new(s.as_str()) {
-                Ok(cs) => sys::mrb_str_new_cstr(mrb, cs.as_ptr()),
-                Err(_) => {
-                    // String contains NUL bytes; use mrb_str_new with explicit len.
-                    // mrb_int on wasm32 is 32-bit; len fits as i32 for any sane string.
-                    sys::mrb_str_new(mrb, s.as_ptr() as *const core::ffi::c_char, s.len() as i32)
-                }
-            }
-        }
-        Value::Handle(id) => {
-            // Return a Kobako::Handle instance carrying the id. Instance-level
-            // method_missing on Kobako::Handle routes subsequent calls to the
-            // host via Kobako.__rpc_call__ with Target::Handle(id) (SPEC B-17).
-            let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-            let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
-            // Build the constructor argument: mrb_int id (mrb_boxing_int_value).
-            let id_val = sys::mrb_boxing_int_value(mrb, id as i32);
-            // mrb_obj_new calls Kobako::Handle.new(id) which triggers
-            // handle_initialize to store @__kobako_id__.
-            sys::mrb_obj_new(mrb, handle_class, 1, &id_val as *const sys::mrb_value)
-        }
-        Value::Bin(bytes) => {
-            // Binary data as mruby String (binary-transparent).
-            // mrb_int on wasm32 is 32-bit; len fits as i32 for any sane buffer.
-            sys::mrb_str_new(
-                mrb,
-                bytes.as_ptr() as *const core::ffi::c_char,
-                bytes.len() as i32,
-            )
-        }
-        Value::Array(_) | Value::Map(_) | Value::ErrEnv(_) => {
-            // Complex types: return nil. Full Array/Hash support requires
-            // mrb_ary_new + iteration; not needed for J-01..J-05 journeys.
-            mrb_nil_value()
-        }
-    }
-}
-
-/// Convert an `mrb_value` to a kobako wire `Value`. Used when building
-/// args/kwargs for `invoke_rpc` from mruby-side values.
-#[cfg(target_arch = "wasm32")]
-unsafe fn mrb_value_to_wire_value(
-    mrb: *mut sys::mrb_state,
-    val: sys::mrb_value,
-) -> crate::codec::Value {
-    use crate::codec::Value;
-
-    match val.classname(mrb) {
-        "NilClass" => Value::Nil,
-        "TrueClass" => Value::Bool(true),
-        "FalseClass" => Value::Bool(false),
-        "Integer" => Value::Int(val.to_string(mrb).parse().unwrap_or(0)),
-        "Float" => Value::Float(val.to_string(mrb).parse().unwrap_or(0.0)),
-        "String" => Value::Str(val.to_string(mrb)),
-        // Symbol / fallback: route through `.to_s` (Symbol stringifies to
-        // its name; other types use whatever `Object#to_s` produces).
-        _ => Value::Str(val.to_string(mrb)),
-    }
-}
-
-/// Read the u32 id stored in a `Kobako::Handle` instance's `@__kobako_id__` ivar.
-///
-/// Returns 0 if the ivar is missing or its `.to_s` is non-numeric — the resolver
-/// downstream treats id 0 as undefined per SPEC B-19.
-#[cfg(target_arch = "wasm32")]
-unsafe fn extract_handle_id(mrb: *mut sys::mrb_state, handle_val: sys::mrb_value) -> u32 {
-    let id_sym = sys::mrb_intern_cstr(mrb, cstr_ptr(HANDLE_ID_IVAR));
-    let id_val = sys::mrb_iv_get(mrb, handle_val, id_sym);
-    id_val.to_string(mrb).parse().unwrap_or(0)
-}
-
-/// Return the number of elements in an mruby Array or Hash by calling
-/// `.length` and parsing the result string. Used wherever a collection
-/// length is needed without a direct FFI binding for `mrb_ary_len`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn mrb_collection_len(mrb: *mut sys::mrb_state, col: sys::mrb_value) -> usize {
-    let len_val = col.call(mrb, cstr!("length"), &[]);
-    len_val.to_string(mrb).parse().unwrap_or(0)
-}
-
-/// Decode every key/value pair from an mruby Hash into `out` as
-/// `(String, Value)` pairs. Keys go through `mrb_value::to_rust_string`
-/// (handles both Symbol and String keys via `Object#to_s`); values via
-/// `mrb_value_to_wire_value`. Used at the three kwargs-decoding call
-/// sites in the RPC bridges.
-#[cfg(target_arch = "wasm32")]
-unsafe fn decode_hash_kwargs(
-    mrb: *mut sys::mrb_state,
-    hash: sys::mrb_value,
-    out: &mut Vec<(String, crate::codec::Value)>,
-) {
-    let keys_ary = sys::mrb_hash_keys(mrb, hash);
-    let keys_len = mrb_collection_len(mrb, keys_ary);
-    for i in 0..keys_len {
-        let key_val = sys::mrb_ary_entry(keys_ary, i as i32);
-        let val = sys::mrb_hash_get(mrb, hash, key_val);
-        out.push((key_val.to_string(mrb), mrb_value_to_wire_value(mrb, val)));
-    }
-}
-
-/// Split a `rest` slice (from `mrb_get_args` `"n*"`) into positional wire args
-/// and keyword wire kwargs. The last element is absorbed into kwargs when it is
-/// a Hash; all other elements become positional args.
-///
-/// Extracted from the identical args/kwargs split loop shared by
-/// `rpc_method_missing` and `handle_method_missing`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn unpack_args_kwargs(
-    mrb: *mut sys::mrb_state,
-    rest: &[sys::mrb_value],
-) -> (Vec<crate::codec::Value>, Vec<(String, crate::codec::Value)>) {
-    let mut wire_args: Vec<crate::codec::Value> = Vec::new();
-    let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
-
-    for (idx, &mrb_val) in rest.iter().enumerate() {
-        // If the last argument is a Hash, treat it as kwargs.
-        if mrb_val.classname(mrb) == "Hash" && idx == rest.len() - 1 {
-            decode_hash_kwargs(mrb, mrb_val, &mut wire_kwargs);
-        } else {
-            wire_args.push(mrb_value_to_wire_value(mrb, mrb_val));
-        }
-    }
-
-    (wire_args, wire_kwargs)
-}
-
-/// Invoke `invoke_rpc` and convert the result to an `mrb_value`.
-///
-/// On success, boxes the wire value back into the mruby VM.
-/// On `ServiceErr`, raises `Kobako::ServiceError` (diverges).
-/// On any other error, raises `Kobako::WireError` with `wire_err_msg` (diverges).
-///
-/// The `wire_err_msg` parameter is call-site-specific so that diagnostic
-/// strings remain distinct between `rpc_method_missing` and
-/// `handle_method_missing` (both callers preserve their original messages).
-///
-/// Extracted from the identical `invoke_rpc` match block shared by
-/// `rpc_method_missing` and `handle_method_missing`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn dispatch_invoke(
-    mrb: *mut sys::mrb_state,
-    target: crate::envelope::Target,
-    method_name: &str,
-    wire_args: &[crate::codec::Value],
-    wire_kwargs: &[(String, crate::codec::Value)],
-    wire_err_msg: &[u8],
-) -> sys::mrb_value {
-    use crate::rpc_client::invoke_rpc;
-    match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
-        Ok(wire_val) => wire_value_to_mrb(mrb, wire_val),
-        Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
-            crate::kobako::Kobako::resolve_raw(mrb).raise_service_error(&ex);
-        }
-        Err(_) => {
-            crate::kobako::Kobako::resolve_raw(mrb).raise_wire_error(wire_err_msg);
-        }
-    }
-}
-
-// mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
-// These bit-pattern values come from mruby.h and must not be changed without
-// verifying the mruby header for the targeted mruby version and build config.
-const MRB_QNIL: u32 = 0; // mruby.h: MRB_Qnil  (MRB_WORDBOX, wasm32)
-const MRB_QTRUE: u32 = 12; // mruby.h: MRB_Qtrue
-const MRB_QFALSE: u32 = 4; // mruby.h: MRB_Qfalse
-                           // MRB_Qnil must be zero so that `mrb_value::zeroed()` produces a nil value.
-const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
-
-/// Construct an mruby `nil` value.
-///
-/// In mruby's word-boxing ABI on wasm32, `mrb_value.w = 0` is nil
-/// (MRB_Qnil = 0). With our corrected `mrb_value { w: u32 }` layout,
-/// `mrb_value::zeroed()` gives the right representation.
-#[cfg(target_arch = "wasm32")]
-fn mrb_nil_value() -> sys::mrb_value {
-    sys::mrb_value { w: MRB_QNIL } // MRB_Qnil = 0
-}
-
-/// Construct an mruby `true` value (MRB_Qtrue = 12).
-#[cfg(target_arch = "wasm32")]
-fn mrb_true_value() -> sys::mrb_value {
-    sys::mrb_value { w: MRB_QTRUE } // MRB_Qtrue = 12
-}
-
-/// Construct an mruby `false` value (MRB_Qfalse = 4).
-#[cfg(target_arch = "wasm32")]
-fn mrb_false_value() -> sys::mrb_value {
-    sys::mrb_value { w: MRB_QFALSE } // MRB_Qfalse = 4
-}
-
-// --------------------------------------------------------------------
-// `Kobako::WireError` raise helper.
-// --------------------------------------------------------------------
-//
-// Resolves `Kobako::WireError` (defined host-side; the guest sees it
-// because the host class registry seeds it during sandbox start, see
-// SPEC Error attribution) and raises with the supplied null-
-// terminated C string message. Diverges (`-> !`) — `mrb_raise` does
-// not return.
 
 // --------------------------------------------------------------------
 // Tests — host target.
@@ -841,19 +550,10 @@ fn mrb_false_value() -> sys::mrb_value {
 mod tests {
     use super::*;
 
-    fn is_ascii_nul_terminated(s: &[u8]) -> bool {
-        !s.is_empty()
-            && s[s.len() - 1] == 0
-            && s[..s.len() - 1].iter().all(|b| b.is_ascii() && *b != 0)
-    }
-
-    // Registration-time C-string constants (Kobako / RPC / Handle / …)
-    // moved to `crate::kobako` together with their install owner; their
-    // well-formedness check lives in that module's test block. The C-string
-    // constants that remain here (HANDLE_ID_IVAR, PRINT_NAME, …) carry
-    // their NUL terminator literally in source and are exercised by the
-    // E2E path (`data/kobako.wasm`), so a duplicate boolean check would be
-    // pure churn.
+    // Registration-time C-string constants moved to `crate::kobako`; the
+    // C-bridges remaining here use literal byte slices at their call
+    // sites, exercised end-to-end by `data/kobako.wasm`. A duplicate
+    // host-target byte-pattern check would be pure churn.
 
     #[test]
     fn mrb_kobako_init_is_safe_no_op_on_host() {

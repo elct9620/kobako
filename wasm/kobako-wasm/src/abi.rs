@@ -361,7 +361,7 @@ pub extern "C" fn __kobako_run() {
             // Simplified encoding: nil → Nil, true/false → Bool,
             // integers → Int via mrb_inspect + parse, strings → Str via
             // mrb_str_to_cstr, other → Str via mrb_inspect.
-            let wire_value = unsafe { mrb_value_to_wire(mrb.as_ptr(), result_val) };
+            let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
 
             let outcome = Outcome::Result(ResultEnv { value: wire_value });
             match encode_outcome(&outcome) {
@@ -374,36 +374,6 @@ pub extern "C" fn __kobako_run() {
             }
         }
         // `mrb` drops here — `mrb_close` runs automatically.
-    }
-}
-
-/// Convert an `mrb_value` to a kobako wire `Value` for the outcome Result
-/// envelope. Only handles the types representable in the kobako wire
-/// protocol (SPEC.md Type Mapping). Non-representable values fall back
-/// to a string via the value's `Object#inspect` representation.
-#[cfg(target_arch = "wasm32")]
-unsafe fn mrb_value_to_wire(
-    mrb: *mut crate::mruby::sys::mrb_state,
-    val: crate::mruby::sys::mrb_value,
-) -> crate::codec::Value {
-    use crate::codec::Value;
-
-    match val.classname(mrb) {
-        "NilClass" => Value::Nil,
-        "TrueClass" => Value::Bool(true),
-        "FalseClass" => Value::Bool(false),
-        "Integer" => Value::Int(val.to_string(mrb).parse().unwrap_or(0)),
-        "Float" => Value::Float(val.to_string(mrb).parse().unwrap_or(0.0)),
-        "String" => Value::Str(val.to_string(mrb)),
-        // Array / Hash / unknown: serialize via Object#inspect for the
-        // outcome envelope. Full Array/Hash wire encoding is a follow-up.
-        // Hash empty-fallback differs from the generic empty-fallback so
-        // we keep the "{}" sentinel for it explicitly.
-        "Hash" => {
-            let s = val.call(mrb, cstr!("inspect"), &[]).to_string(mrb);
-            Value::Str(if s.is_empty() { "{}".to_string() } else { s })
-        }
-        _ => Value::Str(val.call(mrb, cstr!("inspect"), &[]).to_string(mrb)),
     }
 }
 
