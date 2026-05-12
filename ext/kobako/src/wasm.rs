@@ -63,6 +63,7 @@ fn wasm_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// fresh before each `#run` without rebuilding the Store. The `stdout_pipe`
 /// and `stderr_pipe` clones are kept alongside so the Ruby layer can drain
 /// captured bytes after execution without touching the WASI internals.
+#[derive(Default)]
 pub struct HostState {
     /// Buffer mirror of guest's OUTCOME_BUFFER. Filled by `__kobako_take_outcome`
     /// post-execution. Reserved for a future streaming-outcome path; not yet
@@ -87,19 +88,6 @@ pub struct HostState {
     /// calling `get_inner` requires a `Ruby` handle, which we obtain on
     /// every Ruby thread entry via `Ruby::get()`.
     pub registry: Option<Opaque<Value>>,
-}
-
-impl Default for HostState {
-    fn default() -> Self {
-        Self {
-            outcome: Vec::new(),
-            wasi: None,
-            stdout_pipe: None,
-            stderr_pipe: None,
-            rpc_calls: Vec::new(),
-            registry: None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

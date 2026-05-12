@@ -34,6 +34,7 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
+#[cfg(all(target_arch = "wasm32", feature = "abi-exports"))]
 use crate::cstr;
 
 /// Wasm namespace the host import lives in (`env`, per SPEC.md "ABI
