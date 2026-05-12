@@ -270,25 +270,28 @@ class TestE2EJourneys < Minitest::Test
   # Setup returns a pre-allocated Wire::Handle whose backing entry was
   # immediately marked disconnected; the mruby method call against that
   # handle dispatches against the disconnected sentinel and the host
-  # observes a +Kobako::ServiceError+ with the dispatcher's disconnected
-  # message.
+  # observes a +Kobako::ServiceError::Disconnected+ carrying the
+  # dispatcher's disconnected message.
   #
-  # The +Kobako::ServiceError::Disconnected+ subclass selection lives on
-  # +OutcomeDecoder.panic_target_class+ (host-side) and is pinned by
-  # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+.
-  # The mruby guest's exception bridge (+wasm/kobako-wasm/src/boot.rs+)
-  # currently raises a single +Kobako::ServiceError+ class without
-  # propagating +type+ into the panic +class+ field, so the subclass
-  # selection is not reachable through this end-to-end path today.
-  def test_e14_disconnected_handle_target_surfaces_as_service_error
+  # The guest's exception bridge (+wasm/kobako-wasm/src/boot.rs+) maps
+  # the Response.err +type="disconnected"+ field onto the
+  # +Kobako::ServiceError::Disconnected+ mruby class before +mrb_raise+,
+  # so the class name propagates into the Panic envelope's +class+ field
+  # and the host-side +OutcomeDecoder.panic_target_class+ selects the
+  # Disconnected subclass (pinned in unit form by
+  # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+).
+  def test_e14_disconnected_handle_target_surfaces_as_service_error_disconnected
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(sandbox))
 
-    err = assert_raises(Kobako::ServiceError) do
+    err = assert_raises(Kobako::ServiceError::Disconnected) do
       sandbox.run("handle = Dc::Setup.call\nhandle.any_method\n")
     end
 
+    assert_kind_of Kobako::ServiceError, err,
+                   "Disconnected must remain a ServiceError subclass"
     assert_equal "service", err.origin
+    assert_equal "Kobako::ServiceError::Disconnected", err.klass
     assert_match(/disconnected/, err.message)
   end
 

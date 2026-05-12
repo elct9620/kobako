@@ -99,6 +99,12 @@ const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
 /// bridge when the host returns a Service-origin Panic.
 #[cfg(target_arch = "wasm32")]
 const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
+/// `b"Disconnected\0"`. Nested subclass of `Kobako::ServiceError`; raised
+/// by the Rust bridge when the host returns a Response.err with
+/// `type="disconnected"` (SPEC.md §E-14 — Handle ID resolves to the
+/// `:disconnected` sentinel).
+#[cfg(target_arch = "wasm32")]
+const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
 /// `b"RuntimeError\0"` — top-level mruby class used as the parent of
 /// `Kobako::ServiceError` / `Kobako::WireError`.
 #[cfg(target_arch = "wasm32")]
@@ -245,11 +251,23 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         //     core registers RuntimeError as a top-level class in
         //     `mrb_init_exception`.
         let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
-        sys::mrb_define_class_under(
+        let service_error_class = sys::mrb_define_class_under(
             mrb,
             kobako_mod,
             cstr_ptr(SERVICE_ERROR_NAME),
             runtime_error_class,
+        );
+        // `Kobako::ServiceError::Disconnected < Kobako::ServiceError` —
+        // SPEC.md §"Error Class Hierarchy" (E-14). Nested under
+        // `service_error_class`, not `kobako_mod`, so `mrb_class_name`
+        // yields `"Kobako::ServiceError::Disconnected"` and the panic
+        // envelope's `class` field carries the qualified name through
+        // to host-side `OutcomeDecoder.panic_target_class`.
+        sys::mrb_define_class_under(
+            mrb,
+            service_error_class,
+            cstr_ptr(DISCONNECTED_NAME),
+            service_error_class,
         );
         sys::mrb_define_class_under(
             mrb,
@@ -948,8 +966,20 @@ unsafe fn dispatch_invoke(
     }
 }
 
-/// Raise `Kobako::ServiceError` with the message from `ex`. Diverges
+/// Raise the right `Kobako::ServiceError` subclass for `ex`. Diverges
 /// (`-> !`) — `mrb_raise` does not return.
+///
+/// SPEC.md §"Error Class Hierarchy" + §"Service-side error types" pin the
+/// mapping from the Response.err `type` field to a guest-side mruby class.
+/// Only `"disconnected"` resolves to a named subclass today
+/// (`Kobako::ServiceError::Disconnected`, E-14); the other three reserved
+/// types (`"runtime"`, `"argument"`, `"undefined"`) and any future
+/// unmapped type land on the `Kobako::ServiceError` parent.
+///
+/// The selected class's qualified name (`mrb_class_name`) is captured by
+/// `__kobako_run` into the Panic envelope's `class` field, which the host
+/// then routes through `OutcomeDecoder.panic_target_class` to produce the
+/// matching host-side Ruby exception.
 #[cfg(target_arch = "wasm32")]
 unsafe fn raise_service_error(
     mrb: *mut sys::mrb_state,
@@ -957,8 +987,13 @@ unsafe fn raise_service_error(
 ) -> ! {
     let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
     let svc_err_cls = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
+    let target_cls = if ex.r#type == "disconnected" {
+        sys::mrb_class_get_under(mrb, svc_err_cls, cstr_ptr(DISCONNECTED_NAME))
+    } else {
+        svc_err_cls
+    };
     let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-    sys::mrb_raise(mrb, svc_err_cls, msg.as_ptr());
+    sys::mrb_raise(mrb, target_cls, msg.as_ptr());
 }
 
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32).
