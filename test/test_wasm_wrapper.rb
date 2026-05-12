@@ -10,9 +10,8 @@ require "test_helper"
 #
 # Fast tier — runs against a hand-encoded test fixture wasm
 # (test/fixtures/minimal.wasm), so no `rake wasm:build` build is required.
-# The fixture is the smallest valid module that exposes one export, giving
-# us coverage of the from_path pipeline plus an export lookup, without
-# depending on the full guest binary.
+# Exercises the from_path pipeline against a minimal module with none of
+# the SPEC Wire ABI exports.
 #
 # Real tier — runs when data/kobako.wasm exists (built by `rake wasm:build`,
 # which the default test task now pulls in as a prerequisite). Asserts the
@@ -47,8 +46,7 @@ class TestWasmWrapper < Minitest::Test
 
     instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     assert_instance_of Kobako::Wasm::Instance, instance
-    assert instance.has_export?("ping"), "fixture must expose `ping` export"
-    refute instance.has_export?("__kobako_run"), "fixture must NOT expose guest binary exports"
+    assert_equal 0, instance.known_export_count, "fixture must NOT expose guest binary exports"
   end
 
   def test_from_path_repeated_calls_return_independent_instances
@@ -57,8 +55,6 @@ class TestWasmWrapper < Minitest::Test
     a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
     refute_same a, b, "each call must return a fresh Instance with its own Store"
-    assert a.has_export?("ping")
-    assert b.has_export?("ping")
   end
 
   def test_real_guest_binary_exports_match_wire_abi
@@ -66,10 +62,9 @@ class TestWasmWrapper < Minitest::Test
 
     instance = Kobako::Wasm::Instance.from_path(Kobako::Wasm.default_path)
 
-    # All three Wire ABI exports must be present (per SPEC.md Wire ABI exports).
-    assert instance.has_export?("__kobako_run"),          "guest binary must export __kobako_run"
-    assert instance.has_export?("__kobako_take_outcome"), "guest binary must export __kobako_take_outcome"
-    assert instance.has_export?("__kobako_alloc"),        "guest binary must export __kobako_alloc"
+    # All three Wire ABI exports must be present (per SPEC.md Wire ABI exports);
+    # build_instance caches each as a TypedFunc, so a count of 3 means every
+    # ABI symbol resolved with the SPEC-mandated signature.
     assert_equal 3, instance.known_export_count
   end
 end

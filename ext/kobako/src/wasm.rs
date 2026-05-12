@@ -297,13 +297,6 @@ impl Instance {
         Ok(())
     }
 
-    fn has_export(&self, name: String) -> bool {
-        let mut store_ref = self.store.0.borrow_mut();
-        self.inner
-            .get_export(store_ref.as_context_mut(), &name)
-            .is_some()
-    }
-
     /// Returns the count of cached well-known exports actually found in the
     /// instance (out of __kobako_run / __kobako_take_outcome / __kobako_alloc).
     /// Used by the real-tier E2E test to assert the full guest binary
@@ -632,7 +625,6 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 1))?;
-    instance.define_method("has_export?", method!(Instance::has_export, 1))?;
     instance.define_method(
         "known_export_count",
         method!(Instance::known_export_count, 0),
