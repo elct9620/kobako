@@ -8,7 +8,10 @@
 #     {Codec::Encoder}, {Codec::Decoder}, {Codec::Factory}, plus the
 #     {Codec::Error} taxonomy. This is the layer that emits and
 #     consumes raw bytes; ext types 0x01 (Capability Handle) and
-#     0x02 (Exception envelope) are registered exactly once here.
+#     0x02 (Exception envelope) are registered exactly once here, and
+#     their numeric codes live on the Codec module
+#     ({Codec::EXT_HANDLE} / {Codec::EXT_ERRENV}) alongside the
+#     Rust-side +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+.
 #
 #   - {Envelope} — logical message framing (SPEC.md → Wire Contract):
 #     {Envelope::Request} / {Envelope::Response} / {Envelope::Result}
@@ -22,14 +25,13 @@
 # on the native extension or on +lib/kobako.rb+ — so it can be required
 # directly from tests that run on a clean checkout (no compiled artifacts).
 module Kobako
+  # See the file-level documentation above for the layer split. The
+  # module body is intentionally empty: the byte-level codec lives in
+  # {Wire::Codec}, the logical framing in {Wire::Envelope}, and the
+  # shared value objects ({Wire::Handle} / {Wire::Exception}) load
+  # themselves into this namespace via the +require_relative+ calls
+  # below.
   module Wire
-    # MessagePack ext type code reserved for Capability Handle
-    # (SPEC.md → Wire Codec → Ext Types → ext 0x01).
-    EXT_HANDLE = 0x01
-
-    # MessagePack ext type code reserved for Exception envelope
-    # (SPEC.md → Wire Codec → Ext Types → ext 0x02).
-    EXT_ERRENV = 0x02
   end
 end
 
