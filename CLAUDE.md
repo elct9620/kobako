@@ -4,19 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-kobako is a Ruby gem that provides an in-process Wasm sandbox for running untrusted mruby scripts. The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing the mruby interpreter; host and guest communicate over a MessagePack-based RPC wire (`SPEC.md` is the authoritative contract — anything in this file is a navigational aid, not the spec).
+kobako is a Ruby gem that provides an in-process Wasm sandbox for running untrusted mruby scripts. The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing the mruby interpreter; host and guest communicate over a MessagePack-based RPC wire defined in `SPEC.md`.
 
-`SPEC.md` is the single source of truth for behavior — Wire Codec, error taxonomy, Sandbox lifecycle, HandleTable rules (B-xx / E-xx anchors are referenced throughout the codebase).
+## Principles
 
-## Build Pipeline (three stages)
+Apply these in order — earlier principles override later ones on conflict.
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and produced by a three-stage chain. Stage C depends on Stages A and B, so a one-shot `rake compile` from a clean clone walks the full chain:
+1. **SPEC.md is the source of truth.** Behavior contracts (Wire Codec, error taxonomy, Sandbox lifecycle, HandleTable rules) live in `SPEC.md`. Cite anchors (B-xx / E-xx) from committed code as an RDoc link resolved from the file's location — e.g. `{SPEC.md B-04}[link:../../SPEC.md]` from `lib/kobako/*.rb`. When SPEC is silent, extend `SPEC.md` first, then cite the new anchor.
 
-- **Stage A — `rake vendor:setup`** — downloads/unpacks pinned `wasi-sdk` and `mruby` tarballs into `vendor/` (sentinel-based idempotency; `vendor/` is gitignored). Honors `KOBAKO_VENDOR_DIR` and `KOBAKO_VENDOR_BASE_URL` for test fixtures.
-- **Stage B — `rake mruby:build`** — cross-compiles `libmruby.a` for `wasm32-wasip1` via mruby's vendored `minirake` driven by `build_config/wasi.rb`. Output: `vendor/mruby/build/wasi/lib/libmruby.a`. Skips when sentinel exists.
-- **Stage C — `rake wasm:guest`** — `cargo build --release --target wasm32-wasip1` on the `wasm/kobako-wasm/` crate, linking libmruby.a, then copies the artifact to `data/kobako.wasm`. Uses **rust-lld** (not wasi-sdk's clang) because libmruby.a and Rust's wasi prebuilts are not `-fPIC` — see the long comment in `tasks/wasm.rake` `cargo_build_env`.
+2. **One thing per file; keep files small.** When a class grows, split it into a façade plus per-responsibility files in a sibling directory. `Registry`, `Wire::Envelope`, and `Sandbox` all follow this pattern (`<name>.rb` façade + `<name>/` directory of focused files). Prefer adding a new file over expanding an existing one.
 
-The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime` (not the guest).
+3. **Keep it simple. Don't pre-abstract.** Model exactly what SPEC requires — no speculative interfaces, parallel hierarchies, or defensive layers. Three similar lines beats a premature abstraction; a one-shot operation does not need a helper. Avoid feature flags and backwards-compatibility shims when the code can just change.
+
+4. **Follow language community conventions via tooling.** Ruby: Rubocop (auto-applied on `.rb` Edit/Write via PostToolUse hook). Rust: `cargo fmt` and `cargo clippy`. When a cop or lint fires, **shrink the code to fit the tool** — don't widen `.rubocop.yml` exclusions or add `#[allow]`. Existing exclusions on `lib/kobako/wire/**`, `tasks/*.rake`, and `test/**` are anchored to specific SPEC-to-code mappings; add new ones only with an inline comment naming the mapping.
+
+5. **Document Ruby in RDoc prose.** No tool enforces this — match the existing style. Class doc explains purpose, ownership, and SPEC invariants; method doc describes parameters, return value, and raised exceptions in prose paragraphs. Wrap identifiers in `+code+`. Cite SPEC as `{SPEC.md B-XX}[link:<relative path>]` in plain text (no glyphs like the section sign). Do not use YARD tags (`@param` / `@return` / `@raise`); migrate them when touching nearby code.
+
+   ```ruby
+   # Host-side mapping from opaque integer Handle IDs to Ruby objects.
+   # One table is owned per Kobako::Registry instance. See
+   # {SPEC.md B-15}[link:../../../SPEC.md].
+   #
+   #   - {SPEC.md B-15}[link:../../../SPEC.md] — IDs are monotonically
+   #     allocated per +#run+; ID 0 is the invalid sentinel.
+   #   - {SPEC.md B-21}[link:../../../SPEC.md] — Cap is +MAX_ID+; allocation
+   #     beyond raises immediately, no wrap, no reuse.
+   class HandleTable
+     # Bind +object+ in the table and return its newly-allocated Handle ID.
+     # +object+ is any host-side Ruby object to bind. Returns a freshly-
+     # allocated Handle ID in +[1, MAX_ID]+. Raises
+     # +Kobako::HandleTableExhausted+ if the next ID would exceed the cap.
+     def alloc(object)
+       # ...
+     end
+   end
+   ```
+
+5. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Reserve `wasm/test-guest/` for native-ext exercises that cannot involve mruby; do not add new test-guest dialects.
+
+6. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
+
+7. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
+
+## Build Pipeline
+
+The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:guest`. `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake` `cargo_build_env`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
 
 ## Common Commands
 
@@ -24,78 +56,28 @@ The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys
 |------|---------|
 | Default CI task (compile + test + rubocop) | `bundle exec rake` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
-| Build Guest Binary (full A→B→C chain) | `bundle exec rake wasm:guest` |
+| Build Guest Binary (full chain) | `bundle exec rake wasm:guest` |
 | Build host-side E2E test fixture | `bundle exec rake fixtures:test_guest` |
 | Run all Ruby tests | `bundle exec rake test` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
-| Rubocop (auto-applied via PostToolUse hook on `.rb` edits) | `bundle exec rubocop -A` |
 | Guest crate host-only tests (wasm32 has no test runner) | `bundle exec rake wasm:test` |
 | Guest crate `cargo check` | `bundle exec rake wasm:check` |
 | Clean Stage B / Stage C | `rake mruby:clean` / `rake wasm:guest:clean` |
 | Clean vendor toolchains | `rake vendor:clean` (keeps tarball cache) or `rake vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
 
-`test/test_helper.rb` degrades gracefully when `lib/kobako/kobako.bundle` is missing — tests that need the native ext call `skip` so the suite still loads on a clean checkout.
+## Where to Look
 
-## Architecture
+When changing behavior, start at the listed files and follow the SPEC anchors they cite. Each entry names only the **load-bearing** files — incidental helpers are reachable from there.
 
-### Three-process-but-one model
+- **Wire format / codec** — `lib/kobako/wire/` (host) + `wasm/kobako-wasm/src/codec/`, `wasm/kobako-wasm/src/envelope.rs` (guest). SPEC anchors: B-01..B-14.
+- **Error taxonomy / outcome attribution** — `lib/kobako/errors.rb` + `lib/kobako/sandbox/outcome_decoder.rb`. SPEC anchors: E-xx.
+- **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` (façade) + `lib/kobako/sandbox/*` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/boot.rs` (guest entry).
+- **RPC dispatch** — `lib/kobako/registry/dispatcher.rb` (host; **never raises** — every failure becomes a `Response.err` envelope) + `wasm/kobako-wasm/src/rpc_client.rs` (guest).
+- **HandleTable / capability handles** — `lib/kobako/registry/handle_table.rb` + `lib/kobako/wire/handle.rb`.
+- **Service registration** — `lib/kobako/registry.rb` + `lib/kobako/registry/service_group.rb`.
+- **ABI surface (host ↔ guest exports)** — `wasm/kobako-wasm/src/abi.rs` + matching `ext/kobako/src/wasm.rs` callers.
+- **Build / toolchain** — `tasks/{vendor,mruby,wasm}.rake`.
 
-There are three independently-compiled artifacts that all participate in one `Sandbox#run`:
-
-1. **Host Ruby (`lib/`)** — public API (`Kobako::Sandbox`, `Kobako::Registry`, `Kobako::Wire::*`). All loaded by `lib/kobako.rb`.
-2. **Host native ext (`ext/kobako/` → `lib/kobako/kobako.bundle`)** — Rust + magnus + `wasmtime` + `wasmtime-wasi`. Surfaces `Kobako::Wasm::{Engine, Module, Store, Instance}` plus error classes from Rust at load time. Source in `ext/kobako/src/{lib.rs,wasm.rs}`.
-3. **Guest binary (`wasm/kobako-wasm/` → `data/kobako.wasm`)** — Rust + `rmp` + linked `libmruby.a`. Compiled for `wasm32-wasip1`. Exports the SPEC ABI (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`, …) and embeds the mruby interpreter and RPC client.
-
-### Per-run flow (`Kobako::Sandbox#run`)
-
-1. `Registry#seal!` — locks the Service group/member definitions.
-2. `Registry#reset_handles!` + clear stdout/stderr `OutputBuffer`s.
-3. Build the **two-frame stdin protocol**: Frame 1 = msgpack-packed preamble (Service Group registry snapshot), Frame 2 = mruby source UTF-8 bytes. Each prefixed by a 4-byte big-endian u32 length.
-4. Native ext invokes guest `__kobako_run`; WASI stdout/stderr pipes are drained into bounded `OutputBuffer`s (1 MiB cap each by default, truncate-with-`[truncated]` marker — SPEC §B-04).
-5. Read OUTCOME_BUFFER bytes; first byte is the tag (`0x01` Result, `0x02` Panic), rest is a msgpack envelope. `Sandbox#decode_outcome` implements the three-layer attribution:
-   - Tag `0x01` → return decoded value (or `SandboxError` if envelope decode fails — E-09)
-   - Tag `0x02`, `origin="service"` → `ServiceError` (or `ServiceError::Disconnected` for the E-14 sentinel)
-   - Tag `0x02`, `origin="sandbox"`/missing → `SandboxError` (E-04..E-07)
-   - Unknown tag / zero len → `TrapError` (E-02 / E-03)
-
-### Error taxonomy (`lib/kobako/errors.rb`)
-
-Three top-level branches, all under `Kobako::Error`:
-
-- `TrapError` — Wasm engine crash or wire-violation fallback (corrupted guest state)
-- `SandboxError` — guest ran but failed (mruby error, protocol fault, wire decode failure on a valid tag, HandleTable exhaustion)
-  - `HandleTableError < SandboxError` — unknown id lookup
-  - `HandleTableExhausted < HandleTableError` — id cap hit (B-21)
-- `ServiceError` — unrescued Service capability failure inside the script
-  - `ServiceError::Disconnected < ServiceError` — Handle resolved to `:disconnected` sentinel (E-14, ABA protection)
-
-### Wire codec (`lib/kobako/wire/`)
-
-MessagePack with two registered ext types: `0x01` Capability Handle, `0x02` Exception envelope. The host side is built on the `msgpack` gem + a `Factory` (`lib/kobako/wire/factory.rb`); the guest side uses the `rmp` crate. Envelope kinds (Request/Response/Result/Panic) and the outer Outcome wrapper live in `lib/kobako/wire/envelope.rb`. **`Wire::Envelope` is the only place where binary framing rules live** — Encoder/Decoder primitives stay byte-only.
-
-### Registry / HandleTable
-
-The registry internals are split across four files:
-
-- `lib/kobako/registry.rb` — façade: the public `Registry` class that owns and delegates to the internal components.
-- `lib/kobako/registry/service_group.rb` — `ServiceGroup` definition and member registration.
-- `lib/kobako/registry/handle_table.rb` — `HandleTable`: opaque integer Handle ID ↔ Ruby object mapping.
-- `lib/kobako/registry/dispatcher.rb` — `Registry#dispatch(request_bytes)`: host-side RPC entry point called from the native ext during `__kobako_rpc_call`; it **never raises** — every failure is reified as a `Response.err` envelope with one of these `type`s: `"undefined"`, `"disconnected"`, `"argument"`, `"runtime"`.
-
-Service methods whose return value is not wire-representable are routed through `HandleTable#alloc` and the guest receives a `Wire::Handle` (B-14). HandleTable IDs are scoped to one `#run` (B-15) and capped at `0x7fff_ffff` (B-21).
-
-### Cargo workspace layout
-
-The repo-root `Cargo.toml` is a workspace containing only `ext/kobako` (the host extension); `wasm/` is **excluded** so it can be its own workspace root. This keeps host-only `wasmtime` out of the wasm32-wasip1 dependency graph, and lets the guest crate (`wasm/kobako-wasm`) compile against `rmp` + `libmruby.a` without dragging in host dependencies. `wasm/test-guest/` is a sibling guest workspace producing a stub binary for native-ext E2E tests.
-
-## Conventions
-
-- **Cite SPEC.md.** Reference behavior contracts in committed code via SPEC.md anchors (B-xx / E-xx). When the spec is silent, extend SPEC.md first, then cite the new anchor. Render the citation as an RDoc link — `{SPEC.md §B-04}[link:../../SPEC.md]` — with the relative path resolved from the current file's location (e.g. `../../SPEC.md` from `lib/kobako/*.rb`).
-- **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` are committed alongside dependency changes.
-- **Ruby comments use RDoc format.** Describe parameters, return values, and raised exceptions in prose paragraphs; wrap identifiers in `+code+` and use `:call-seq:` for non-obvious call signatures. Prefer plain prose over tag-style annotations (`@param` / `@return` / `@raise` belong to YARD and should be migrated to RDoc when touching nearby code).
-- **`test/` hosts Minitest specs of gem runtime behavior.** Keep build/packaging/lint/static-check wrappers under `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) live in `test/`.
-- **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Reserve `wasm/test-guest/` for native-ext exercises that cannot involve mruby.
-- **Rubocop runs automatically** on every `Edit`/`Write` to a `.rb` file via the `.claude/settings.json` PostToolUse hook (`bundle exec rubocop -A`). Exit code 2 means autocorrect did not converge — fix the offense and retry.
-- **Keep `.rubocop.yml` exclusions narrow.** Existing exclusions on `lib/kobako/wire/**`, `tasks/*.rake`, and `test/**` exist because the SPEC-to-code mapping (codec dispatch, rake DSL, fuzz fixtures) outweighs the cop's heuristic. Add new exclusions only with an inline comment explaining the mapping that motivates them.
+`test/test_helper.rb` `skip`s native-ext-dependent tests when `lib/kobako/kobako.bundle` is missing, so the suite still loads on a clean checkout.
