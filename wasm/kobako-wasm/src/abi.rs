@@ -240,12 +240,18 @@ pub extern "C" fn __kobako_run() {
         };
 
         // --- mruby VM init ---
+        //
+        // `Mrb::open` wraps `mrb_open` with NULL handling and ties the VM
+        // lifetime to a Drop guard — every early-return below releases
+        // the state automatically.
 
-        let mrb = unsafe { sys::mrb_open() };
-        if mrb.is_null() {
-            write_panic_outcome("sandbox", "Kobako::BootError", "mrb_open returned NULL");
-            return;
-        }
+        let mrb = match crate::mruby::Mrb::open() {
+            Ok(m) => m,
+            Err(_) => {
+                write_panic_outcome("sandbox", "Kobako::BootError", "mrb_open returned NULL");
+                return;
+            }
+        };
 
         // --- Install Kobako module, RPC / Handle classes, error classes,
         // and Kernel#puts / Kernel#p via the mruby C API ---
@@ -255,21 +261,20 @@ pub extern "C" fn __kobako_run() {
         // `mrb_define_method`. No Ruby source is loaded into the VM
         // before the user script — see `crate::boot` module docs.
 
-        unsafe { mrb_kobako_init(mrb) };
+        unsafe { mrb_kobako_init(mrb.as_ptr()) };
 
         // --- Install Service Group modules + Member subclasses (Frame 1) ---
 
         // Kobako module + RPC base class are installed by mrb_kobako_init above;
         // look them up once here so each iteration can use rpc_class directly.
-        let kobako_mod = unsafe { sys::mrb_define_module(mrb, cstr!("Kobako")) };
-        let rpc_class = unsafe { sys::mrb_class_get_under(mrb, kobako_mod, cstr!("RPC")) };
+        let kobako_mod = unsafe { sys::mrb_define_module(mrb.as_ptr(), cstr!("Kobako")) };
+        let rpc_class = unsafe { sys::mrb_class_get_under(mrb.as_ptr(), kobako_mod, cstr!("RPC")) };
 
         for (group_name, members) in &preamble {
             // NUL-terminate for the C API.
             let group_cstr = match std::ffi::CString::new(group_name.as_str()) {
                 Ok(s) => s,
                 Err(_) => {
-                    unsafe { sys::mrb_close(mrb) };
                     write_panic_outcome(
                         "sandbox",
                         "Kobako::BootError",
@@ -279,7 +284,7 @@ pub extern "C" fn __kobako_run() {
                 }
             };
 
-            let group_mod = unsafe { sys::mrb_define_module(mrb, group_cstr.as_ptr()) };
+            let group_mod = unsafe { sys::mrb_define_module(mrb.as_ptr(), group_cstr.as_ptr()) };
 
             // Retrieve Kobako::RPC class pointer to use as the parent for
             // each Member subclass.
@@ -288,7 +293,6 @@ pub extern "C" fn __kobako_run() {
                 let member_cstr = match std::ffi::CString::new(member_name.as_str()) {
                     Ok(s) => s,
                     Err(_) => {
-                        unsafe { sys::mrb_close(mrb) };
                         write_panic_outcome(
                             "sandbox",
                             "Kobako::BootError",
@@ -299,7 +303,12 @@ pub extern "C" fn __kobako_run() {
                 };
 
                 unsafe {
-                    sys::mrb_define_class_under(mrb, group_mod, member_cstr.as_ptr(), rpc_class)
+                    sys::mrb_define_class_under(
+                        mrb.as_ptr(),
+                        group_mod,
+                        member_cstr.as_ptr(),
+                        rpc_class,
+                    )
                 };
             }
         }
@@ -322,7 +331,7 @@ pub extern "C" fn __kobako_run() {
 
         let result_val = unsafe {
             sys::mrb_load_nstring(
-                mrb,
+                mrb.as_ptr(),
                 frame2.as_ptr() as *const core::ffi::c_char,
                 frame2.len(),
             )
@@ -333,7 +342,7 @@ pub extern "C" fn __kobako_run() {
         // no exception is pending, or `mrb_obj_value(mrb->exc)` otherwise.
         // Does NOT clear `mrb->exc` — we call `mrb_check_error` below after
         // consuming the exception object.
-        let exc_val = unsafe { sys::kobako_get_exc(mrb) };
+        let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
         let has_exception = exc_val.w != 0;
 
         // --- Outcome serialization ---
@@ -341,7 +350,7 @@ pub extern "C" fn __kobako_run() {
         if has_exception {
             // Extract class name from the exception object.
             let class_name = unsafe {
-                let cn = exc_val.classname(mrb);
+                let cn = exc_val.classname(mrb.as_ptr());
                 if cn.is_empty() {
                     "RuntimeError".to_string()
                 } else {
@@ -351,7 +360,9 @@ pub extern "C" fn __kobako_run() {
 
             // Call .message on the exception object to get the error message.
             let message = unsafe {
-                let m = exc_val.call(mrb, cstr!("message"), &[]).to_string(mrb);
+                let m = exc_val
+                    .call(mrb.as_ptr(), cstr!("message"), &[])
+                    .to_string(mrb.as_ptr());
                 if m.is_empty() {
                     class_name.clone()
                 } else {
@@ -360,7 +371,7 @@ pub extern "C" fn __kobako_run() {
             };
 
             // Clear the exception from mrb state.
-            let _ = unsafe { sys::mrb_check_error(mrb) };
+            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
 
             // Determine origin: Kobako::ServiceError → "service"; others → "sandbox".
             let origin = if class_name.contains("ServiceError") {
@@ -369,7 +380,6 @@ pub extern "C" fn __kobako_run() {
                 "sandbox"
             };
 
-            unsafe { sys::mrb_close(mrb) };
             write_panic_outcome(origin, &class_name, &message);
         } else {
             // Success: convert mrb_value to wire Value and encode as Result envelope.
@@ -381,8 +391,7 @@ pub extern "C" fn __kobako_run() {
             // Simplified encoding: nil → Nil, true/false → Bool,
             // integers → Int via mrb_inspect + parse, strings → Str via
             // mrb_str_to_cstr, other → Str via mrb_inspect.
-            let wire_value = unsafe { mrb_value_to_wire(mrb, result_val) };
-            unsafe { sys::mrb_close(mrb) };
+            let wire_value = unsafe { mrb_value_to_wire(mrb.as_ptr(), result_val) };
 
             let outcome = Outcome::Result(ResultEnv { value: wire_value });
             match encode_outcome(&outcome) {
@@ -394,6 +403,7 @@ pub extern "C" fn __kobako_run() {
                 ),
             }
         }
+        // `mrb` drops here — `mrb_close` runs automatically.
     }
 }
 
