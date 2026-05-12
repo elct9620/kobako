@@ -306,4 +306,78 @@ class TestE2EJourneys < Minitest::Test
       Kobako::Wire::Handle.new(id)
     end
   end
+
+  # ── Wire converter contract guards ─────────────────────────────────────
+  #
+  # +Kobako::mrb_value_to_wire_outcome+ (outcome path, +inspect+ fallback +
+  # +"{}"+ Hash sentinel) and +Kobako::mrb_value_to_wire_value+ (RPC path,
+  # +to_s+ fallback) intentionally diverge: see the cross-referenced
+  # doc-comments on both methods in +wasm/kobako-wasm/src/kobako.rs+. The
+  # tests below pin the divergence so a future "DRY cleanup" that unifies
+  # them does not silently drop the +"{}"+ sentinel or swap +inspect+ for
+  # +to_s+ on the outcome path.
+
+  # Empty Hash literal as the script's last expression must produce the
+  # +"{}"+ sentinel string in the outcome envelope, NOT the empty-string
+  # fallback that an arbitrary +Object#inspect+ override could yield.
+  def test_outcome_envelope_for_empty_hash_uses_curly_sentinel
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run("{}")
+
+    assert_equal "{}", result,
+                 "outcome path: empty Hash must surface as the \"{}\" sentinel, " \
+                 "not \"\" — see Kobako::mrb_value_to_wire_outcome doc"
+  end
+
+  # Non-empty Hash exercises the +inspect+ fallback for unknown wire types.
+  # Pin the substring rather than the exact format (mruby's Hash#inspect
+  # punctuation has shifted between minor versions; the contract is
+  # "inspect, not to_s").
+  def test_outcome_envelope_for_nonempty_hash_uses_inspect
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run("{a: 1}")
+
+    assert_kind_of String, result,
+                   "outcome path: Hash falls back to inspect-as-String (no native Hash wire type yet)"
+    assert_includes result, "1",
+                    "outcome path: inspect output must carry the value (\"1\")"
+    assert_includes result, "a",
+                    "outcome path: inspect output must carry the key (\":a\" / \"a:\")"
+  end
+
+  # Array follows the same +inspect+ fallback. +Object#to_s+ on an Array
+  # would yield the same string in mruby today, so the assertion uses a
+  # shape that +to_s+ does NOT produce — the bracketed +inspect+ form with
+  # comma-space separators.
+  def test_outcome_envelope_for_array_falls_back_to_inspect
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run("[1, 2, 3]")
+
+    assert_kind_of String, result,
+                   "outcome path: Array falls back to inspect-as-String"
+    assert_includes result, "[",
+                    "outcome path: inspect output preserves the [..] brackets"
+    assert_includes result, "1, 2, 3",
+                    "outcome path: inspect output preserves comma-space element separators"
+  end
+
+  # RPC path: a Symbol argument is stringified via +Object#to_s+ at the
+  # guest boundary, so the Service receives the bare name without the
+  # colon. Distinguishes the RPC path from the outcome path (whose
+  # +inspect+ fallback would yield +":user_42"+). The Service echoes the
+  # received argument back so a single assertion pins both the
+  # service-side shape and the outcome-side round-trip.
+  def test_rpc_arg_symbol_stringifies_via_to_s
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg })
+
+    result = sandbox.run("Sym::Echo.call(:user_42)")
+
+    assert_equal "user_42", result,
+                 "RPC path: Symbol arg arrives at the Service as the to_s form (\"user_42\"), " \
+                 "not the inspect form (\":user_42\") — see Kobako::mrb_value_to_wire_value doc"
+  end
 end
