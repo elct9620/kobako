@@ -580,8 +580,8 @@ impl Kobako {
 
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for use as an RPC argument or keyword value. Unknown types fall
-    /// back to `Object#to_s` (Symbol stringifies to its name; other
-    /// types use whatever `Object#to_s` produces).
+    /// back to `Object#to_s` (Symbol stringifies to its name without the
+    /// leading colon; other types use whatever `Object#to_s` produces).
     ///
     /// ## Why two converters
     ///
@@ -589,11 +589,11 @@ impl Kobako {
     /// elsewhere into kwargs ([`Kobako::decode_hash_kwargs`]), so a
     /// stray Hash here falls through the `to_s` arm. The sibling
     /// [`Kobako::mrb_value_to_wire_outcome`] handles the **outcome-path**
-    /// (the script's last-expression value): it uses `inspect` for
-    /// unknown types and emits an explicit `"{}"` sentinel for empty
-    /// Hashes so the host-side outcome envelope carries a non-empty
-    /// `Value::Str`. Do not unify the two without first checking
-    /// whether the host treats `"{}"` as a load-bearing sentinel.
+    /// (the script's last-expression value) and uses `inspect` for the
+    /// fallback instead. Do not unify the two: the RPC path needs the
+    /// bare-name form so a Service sees `"user_42"` rather than
+    /// `":user_42"`, while the outcome path is read as a display
+    /// representation.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -618,21 +618,13 @@ impl Kobako {
     ///
     /// ## Why this differs from [`Kobako::mrb_value_to_wire_value`]
     ///
-    /// Two intentional divergences from the RPC-path converter:
-    ///
-    /// 1. **Unknown-type fallback uses `Object#inspect`** rather than
-    ///    `Object#to_s`. The outcome envelope is read by host-side
-    ///    callers as a *display* representation, not an interchange
-    ///    value, so `inspect` (which quotes strings, shows class names,
-    ///    etc.) is the right shape.
-    /// 2. **Empty Hashes emit `"{}"` instead of `""`**. `Object#inspect`
-    ///    on an empty Hash already returns `"{}"`; the explicit check
-    ///    guards against any caller that returns an empty string from
-    ///    its custom `inspect`, so the outcome carries a non-empty
-    ///    `Value::Str` for the empty-collection case.
-    ///
-    /// Full Array / Hash wire encoding is a separate follow-up; today
-    /// we serialize them as the `inspect` string.
+    /// Unknown types fall back to `Object#inspect` rather than
+    /// `Object#to_s`. The outcome envelope is read by host-side callers
+    /// as a *display* representation, not an interchange value, so
+    /// `inspect` (which quotes strings, shows class names, formats
+    /// Array / Hash with their punctuation) is the right shape. Array
+    /// and Hash currently flow through this `inspect` fallback —
+    /// native wire-level Array / Hash encoding is a separate follow-up.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -645,15 +637,6 @@ impl Kobako {
             "Integer" => Value::Int(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0)),
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
-            // Hash empty-fallback differs from the generic empty-fallback
-            // so we keep the "{}" sentinel for it explicitly.
-            "Hash" => {
-                let s = unsafe {
-                    val.call(self.mrb, cstr!("inspect"), &[])
-                        .to_string(self.mrb)
-                };
-                Value::Str(if s.is_empty() { "{}".to_string() } else { s })
-            }
             _ => Value::Str(unsafe {
                 val.call(self.mrb, cstr!("inspect"), &[])
                     .to_string(self.mrb)
