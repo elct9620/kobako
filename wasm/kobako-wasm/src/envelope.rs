@@ -16,7 +16,7 @@
 //! host envelope module ends up byte-compatible because both sides
 //! follow SPEC, not because one was copied from the other.
 
-use crate::codec::{Decoder, Encoder, Value, WireError};
+use crate::codec::{CodecError, Decoder, Encoder, Value};
 
 /// Response variant marker for the success branch
 /// (SPEC.md → Wire Codec → Response).
@@ -30,16 +30,16 @@ pub const OUTCOME_TAG_RESULT: u8 = 0x01;
 /// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome Envelope").
 pub const OUTCOME_TAG_PANIC: u8 = 0x02;
 
-/// Errors raised by envelope-level encode/decode on top of [`WireError`].
+/// Errors raised by envelope-level encode/decode on top of [`CodecError`].
 ///
-/// A pure wire fault (truncated input, bad UTF-8, etc.) bubbles up as
-/// [`EnvelopeError::Wire`]. Envelope-shape faults (wrong arity, missing
+/// A pure codec fault (truncated input, bad UTF-8, etc.) bubbles up as
+/// [`EnvelopeError::Codec`]. Envelope-shape faults (wrong arity, missing
 /// required field, illegal tag byte) get their own variants so the host
 /// can classify them per SPEC's attribution rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvelopeError {
     /// Underlying wire codec rejected the input bytes.
-    Wire(WireError),
+    Codec(CodecError),
     /// The decoded value does not match the SPEC envelope shape (e.g.
     /// Request was not a 4-element array, Response status was outside
     /// {0, 1}, Outcome tag byte was neither 0x01 nor 0x02).
@@ -52,9 +52,9 @@ pub enum EnvelopeError {
     WrongFieldType(&'static str),
 }
 
-impl From<WireError> for EnvelopeError {
-    fn from(e: WireError) -> Self {
-        EnvelopeError::Wire(e)
+impl From<CodecError> for EnvelopeError {
+    fn from(e: CodecError) -> Self {
+        EnvelopeError::Codec(e)
     }
 }
 

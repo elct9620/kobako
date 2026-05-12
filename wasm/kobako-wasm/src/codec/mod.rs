@@ -9,7 +9,7 @@
 //! two implementations byte-aligned without any cross-language sharing.
 //!
 //! This module is intentionally a thin shim: the public surface — `Value`,
-//! `Encoder`, `Decoder`, `WireError` — is the same one downstream callers
+//! `Encoder`, `Decoder`, `CodecError` — is the same one downstream callers
 //! (`envelope.rs`, `rpc_client.rs`, the round-trip oracle binary) used
 //! against the previous hand-rolled implementation, but the byte-level
 //! work is now delegated to `rmp::encode` / `rmp::decode`.
@@ -35,7 +35,7 @@ pub const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 /// Errors raised by the codec when input bytes do not conform to the
 /// kobako wire (SPEC.md "Wire Codec").
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WireError {
+pub enum CodecError {
     Truncated,
     InvalidType,
     Utf8,
@@ -46,7 +46,7 @@ pub enum WireError {
 
 /// A decoded msgpack value, restricted to the 11 wire types the kobako
 /// wire accepts (SPEC.md "Type Mapping"). Anything outside this set is
-/// rejected at decode time with `WireError::InvalidType`.
+/// rejected at decode time with `CodecError::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,
@@ -69,31 +69,31 @@ pub enum Value {
 // rmp error mapping
 // ---------------------------------------------------------------------------
 
-impl<E: rmp::decode::RmpReadErr> From<ValueReadError<E>> for WireError {
+impl<E: rmp::decode::RmpReadErr> From<ValueReadError<E>> for CodecError {
     fn from(err: ValueReadError<E>) -> Self {
         match err {
             ValueReadError::InvalidMarkerRead(_) | ValueReadError::InvalidDataRead(_) => {
-                WireError::Truncated
+                CodecError::Truncated
             }
-            ValueReadError::TypeMismatch(_) => WireError::InvalidType,
+            ValueReadError::TypeMismatch(_) => CodecError::InvalidType,
         }
     }
 }
 
-impl<E: rmp::decode::RmpReadErr> From<MarkerReadError<E>> for WireError {
+impl<E: rmp::decode::RmpReadErr> From<MarkerReadError<E>> for CodecError {
     fn from(_: MarkerReadError<E>) -> Self {
-        WireError::Truncated
+        CodecError::Truncated
     }
 }
 
-impl<E: rmp::decode::RmpReadErr> From<NumValueReadError<E>> for WireError {
+impl<E: rmp::decode::RmpReadErr> From<NumValueReadError<E>> for CodecError {
     fn from(err: NumValueReadError<E>) -> Self {
         match err {
             NumValueReadError::InvalidMarkerRead(_) | NumValueReadError::InvalidDataRead(_) => {
-                WireError::Truncated
+                CodecError::Truncated
             }
             NumValueReadError::TypeMismatch(_) | NumValueReadError::OutOfRange => {
-                WireError::InvalidType
+                CodecError::InvalidType
             }
         }
     }
@@ -135,31 +135,31 @@ impl Encoder {
         self.buf
     }
 
-    pub fn write_value(&mut self, value: &Value) -> Result<(), WireError> {
+    pub fn write_value(&mut self, value: &Value) -> Result<(), CodecError> {
         match value {
-            Value::Nil => write_nil(&mut self.buf).map_err(|_| WireError::Truncated)?,
-            Value::Bool(b) => write_bool(&mut self.buf, *b).map_err(|_| WireError::Truncated)?,
+            Value::Nil => write_nil(&mut self.buf).map_err(|_| CodecError::Truncated)?,
+            Value::Bool(b) => write_bool(&mut self.buf, *b).map_err(|_| CodecError::Truncated)?,
             Value::Int(n) => {
-                write_sint(&mut self.buf, *n).map_err(|_| WireError::Truncated)?;
+                write_sint(&mut self.buf, *n).map_err(|_| CodecError::Truncated)?;
             }
             Value::UInt(n) => {
-                write_uint(&mut self.buf, *n).map_err(|_| WireError::Truncated)?;
+                write_uint(&mut self.buf, *n).map_err(|_| CodecError::Truncated)?;
             }
             Value::Float(f) => {
-                write_f64(&mut self.buf, *f).map_err(|_| WireError::Truncated)?;
+                write_f64(&mut self.buf, *f).map_err(|_| CodecError::Truncated)?;
             }
-            Value::Str(s) => write_str(&mut self.buf, s).map_err(|_| WireError::Truncated)?,
-            Value::Bin(b) => write_bin(&mut self.buf, b).map_err(|_| WireError::Truncated)?,
+            Value::Str(s) => write_str(&mut self.buf, s).map_err(|_| CodecError::Truncated)?,
+            Value::Bin(b) => write_bin(&mut self.buf, b).map_err(|_| CodecError::Truncated)?,
             Value::Array(items) => {
-                let len = u32::try_from(items.len()).map_err(|_| WireError::PayloadTooLarge)?;
-                write_array_len(&mut self.buf, len).map_err(|_| WireError::Truncated)?;
+                let len = u32::try_from(items.len()).map_err(|_| CodecError::PayloadTooLarge)?;
+                write_array_len(&mut self.buf, len).map_err(|_| CodecError::Truncated)?;
                 for item in items {
                     self.write_value(item)?;
                 }
             }
             Value::Map(pairs) => {
-                let len = u32::try_from(pairs.len()).map_err(|_| WireError::PayloadTooLarge)?;
-                write_map_len(&mut self.buf, len).map_err(|_| WireError::Truncated)?;
+                let len = u32::try_from(pairs.len()).map_err(|_| CodecError::PayloadTooLarge)?;
+                write_map_len(&mut self.buf, len).map_err(|_| CodecError::Truncated)?;
                 for (k, v) in pairs {
                     self.write_value(k)?;
                     self.write_value(v)?;
@@ -167,14 +167,15 @@ impl Encoder {
             }
             Value::Handle(id) => {
                 if *id > HANDLE_ID_MAX {
-                    return Err(WireError::InvalidHandle);
+                    return Err(CodecError::InvalidHandle);
                 }
-                write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| WireError::Truncated)?;
+                write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| CodecError::Truncated)?;
                 self.buf.extend_from_slice(&id.to_be_bytes());
             }
             Value::ErrEnv(payload) => {
-                let len = u32::try_from(payload.len()).map_err(|_| WireError::PayloadTooLarge)?;
-                write_ext_meta(&mut self.buf, len, EXT_ERRENV).map_err(|_| WireError::Truncated)?;
+                let len = u32::try_from(payload.len()).map_err(|_| CodecError::PayloadTooLarge)?;
+                write_ext_meta(&mut self.buf, len, EXT_ERRENV)
+                    .map_err(|_| CodecError::Truncated)?;
                 self.buf.extend_from_slice(payload);
             }
         }
@@ -213,7 +214,7 @@ impl<'a> Decoder<'a> {
         self.pos >= self.input.len()
     }
 
-    pub fn read_value(&mut self) -> Result<Value, WireError> {
+    pub fn read_value(&mut self) -> Result<Value, CodecError> {
         let mut cursor = &self.input[self.pos..];
         let value = read_value_from(&mut cursor)?;
         self.pos = self.input.len() - cursor.len();
@@ -224,8 +225,8 @@ impl<'a> Decoder<'a> {
 /// Decode a single `Value` from a `&mut &[u8]` cursor (the form `rmp`'s
 /// `RmpRead` impl for byte slices expects). The cursor advances by the
 /// number of bytes consumed.
-fn read_value_from(cursor: &mut &[u8]) -> Result<Value, WireError> {
-    let marker = read_marker(cursor).map_err(|_| WireError::Truncated)?;
+fn read_value_from(cursor: &mut &[u8]) -> Result<Value, CodecError> {
+    let marker = read_marker(cursor).map_err(|_| CodecError::Truncated)?;
     match marker {
         Marker::Null => Ok(Value::Nil),
         Marker::True => Ok(Value::Bool(true)),
@@ -317,13 +318,13 @@ fn read_value_from(cursor: &mut &[u8]) -> Result<Value, WireError> {
             read_ext(cursor, len)
         }
 
-        Marker::Reserved => Err(WireError::InvalidType),
+        Marker::Reserved => Err(CodecError::InvalidType),
     }
 }
 
-fn take(cursor: &mut &[u8], n: usize) -> Result<Vec<u8>, WireError> {
+fn take(cursor: &mut &[u8], n: usize) -> Result<Vec<u8>, CodecError> {
     if cursor.len() < n {
-        return Err(WireError::Truncated);
+        return Err(CodecError::Truncated);
     }
     let (head, tail) = cursor.split_at(n);
     let out = head.to_vec();
@@ -331,17 +332,17 @@ fn take(cursor: &mut &[u8], n: usize) -> Result<Vec<u8>, WireError> {
     Ok(out)
 }
 
-fn read_str_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
+fn read_str_body(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     let bytes = take(cursor, len)?;
-    let s = String::from_utf8(bytes).map_err(|_| WireError::Utf8)?;
+    let s = String::from_utf8(bytes).map_err(|_| CodecError::Utf8)?;
     Ok(Value::Str(s))
 }
 
-fn read_bin_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
+fn read_bin_body(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     Ok(Value::Bin(take(cursor, len)?))
 }
 
-fn read_array_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
+fn read_array_body(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     let mut items = Vec::with_capacity(len);
     for _ in 0..len {
         items.push(read_value_from(cursor)?);
@@ -349,7 +350,7 @@ fn read_array_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
     Ok(Value::Array(items))
 }
 
-fn read_map_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
+fn read_map_body(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     let mut pairs = Vec::with_capacity(len);
     for _ in 0..len {
         let k = read_value_from(cursor)?;
@@ -359,21 +360,21 @@ fn read_map_body(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
     Ok(Value::Map(pairs))
 }
 
-fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
+fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     if cursor.is_empty() {
-        return Err(WireError::Truncated);
+        return Err(CodecError::Truncated);
     }
     let ty = cursor[0] as i8;
     *cursor = &cursor[1..];
     match ty {
         EXT_HANDLE => {
             if len != 4 {
-                return Err(WireError::InvalidHandle);
+                return Err(CodecError::InvalidHandle);
             }
             let payload = take(cursor, 4)?;
             let id = u32::from_be_bytes(payload.try_into().unwrap());
             if id > HANDLE_ID_MAX {
-                return Err(WireError::InvalidHandle);
+                return Err(CodecError::InvalidHandle);
             }
             Ok(Value::Handle(id))
         }
@@ -383,11 +384,11 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, WireError> {
             let mut inner = &payload[..];
             match read_value_from(&mut inner) {
                 Ok(Value::Map(_)) if inner.is_empty() => {}
-                _ => return Err(WireError::InvalidErrEnv),
+                _ => return Err(CodecError::InvalidErrEnv),
             }
             Ok(Value::ErrEnv(payload))
         }
-        _ => Err(WireError::InvalidType),
+        _ => Err(CodecError::InvalidType),
     }
 }
 
@@ -779,14 +780,14 @@ mod tests {
     fn decode_truncated_input_returns_truncated() {
         let bytes = [0xa3];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::Truncated));
+        assert_eq!(dec.read_value(), Err(CodecError::Truncated));
 
         let bytes = [0xcd, 0x00];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::Truncated));
+        assert_eq!(dec.read_value(), Err(CodecError::Truncated));
 
         let mut dec = Decoder::new(&[]);
-        assert_eq!(dec.read_value(), Err(WireError::Truncated));
+        assert_eq!(dec.read_value(), Err(CodecError::Truncated));
     }
 
     #[test]
@@ -794,19 +795,19 @@ mod tests {
         // 0xc1 is reserved/never used in msgpack.
         let bytes = [0xc1];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::InvalidType));
+        assert_eq!(dec.read_value(), Err(CodecError::InvalidType));
 
         // fixext 1 with an unknown ext code (0x05 — not 0x01 or 0x02).
         let bytes = [0xd4, 0x05, 0x00];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::InvalidType));
+        assert_eq!(dec.read_value(), Err(CodecError::InvalidType));
     }
 
     #[test]
     fn decode_invalid_utf8_in_str_returns_utf8() {
         let bytes = [0xa2, 0xff, 0xfe];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::Utf8));
+        assert_eq!(dec.read_value(), Err(CodecError::Utf8));
     }
 
     #[test]
@@ -814,21 +815,21 @@ mod tests {
         // fixext 1 with type 0x01 — Handle with only 1 payload byte.
         let bytes = [0xd4, 0x01, 0x00];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::InvalidHandle));
+        assert_eq!(dec.read_value(), Err(CodecError::InvalidHandle));
     }
 
     #[test]
     fn decode_handle_above_cap_returns_invalid_handle() {
         let bytes = [0xd6, 0x01, 0x80, 0x00, 0x00, 0x00];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::InvalidHandle));
+        assert_eq!(dec.read_value(), Err(CodecError::InvalidHandle));
     }
 
     #[test]
     fn decode_errenv_with_non_map_payload_returns_invalid_errenv() {
         let bytes = [0xc7, 0x01, 0x02, 0xc0];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(WireError::InvalidErrEnv));
+        assert_eq!(dec.read_value(), Err(CodecError::InvalidErrEnv));
     }
 
     #[test]

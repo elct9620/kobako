@@ -43,7 +43,7 @@
 use crate::abi::__kobako_rpc_call;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use crate::codec::{Decoder, Value, WireError};
+use crate::codec::{CodecError, Decoder, Value};
 use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 
 // ---------------------------------------------------------------------
@@ -91,9 +91,9 @@ impl From<EnvelopeError> for InvokeError {
     }
 }
 
-impl From<WireError> for InvokeError {
-    fn from(e: WireError) -> Self {
-        InvokeError::Wire(EnvelopeError::Wire(e))
+impl From<CodecError> for InvokeError {
+    fn from(e: CodecError) -> Self {
+        InvokeError::Wire(EnvelopeError::Codec(e))
     }
 }
 
@@ -171,7 +171,7 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
             let mut dec = Decoder::new(&payload_bytes);
             let inner = dec
                 .read_value()
-                .map_err(|e| InvokeError::Wire(EnvelopeError::Wire(e)))?;
+                .map_err(|e| InvokeError::Wire(EnvelopeError::Codec(e)))?;
             let pairs = match inner {
                 Value::Map(p) => p,
                 _ => {

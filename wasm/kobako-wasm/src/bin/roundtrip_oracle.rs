@@ -17,7 +17,7 @@
 //!       value the oracle produced after a decode + re-encode cycle.
 //!     - `length` with the high bit set (0x8000_0000): error frame. The
 //!       low 31 bits give the payload length; the first payload byte is a
-//!       single-character tag identifying the `WireError` variant
+//!       single-character tag identifying the `CodecError` variant
 //!       (`'T'`, `'I'`, `'U'`, `'H'`, `'E'`, `'P'`); remaining bytes are
 //!       a UTF-8 diagnostic. The Ruby side asserts no error frame is ever
 //!       emitted during a clean fuzz run.
@@ -29,7 +29,7 @@
 
 use std::io::{self, Read, Write};
 
-use kobako_wasm::codec::{Decoder, Encoder, WireError};
+use kobako_wasm::codec::{CodecError, Decoder, Encoder};
 use kobako_wasm::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024; // 64 MiB hard cap (well above SPEC's 16 MiB single-RPC limit)
@@ -101,14 +101,14 @@ fn roundtrip_once(input: &[u8]) -> Result<Vec<u8>, (u8, String)> {
     Ok(enc.into_bytes())
 }
 
-fn wire_to_tag(e: WireError) -> (u8, String) {
+fn wire_to_tag(e: CodecError) -> (u8, String) {
     let tag = match e {
-        WireError::Truncated => b'T',
-        WireError::InvalidType => b'I',
-        WireError::Utf8 => b'U',
-        WireError::InvalidHandle => b'H',
-        WireError::InvalidErrEnv => b'E',
-        WireError::PayloadTooLarge => b'P',
+        CodecError::Truncated => b'T',
+        CodecError::InvalidType => b'I',
+        CodecError::Utf8 => b'U',
+        CodecError::InvalidHandle => b'H',
+        CodecError::InvalidErrEnv => b'E',
+        CodecError::PayloadTooLarge => b'P',
     };
     (tag, format!("{e:?}"))
 }
