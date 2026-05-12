@@ -2,9 +2,9 @@
 
 module Kobako
   class Registry
-    # A named namespace of Service Members for one Sandbox ({SPEC.md §B-07..B-11}[link:../../../SPEC.md]).
+    # A named namespace of Service Members for one Sandbox ({SPEC.md B-07..B-11}[link:../../../SPEC.md]).
     class ServiceGroup
-      # Ruby constant-name pattern ({SPEC.md §B-07/B-08 Notes}[link:../../../SPEC.md]).
+      # Ruby constant-name pattern ({SPEC.md B-07/B-08 Notes}[link:../../../SPEC.md]).
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
       attr_reader :name, :members
@@ -21,7 +21,7 @@ module Kobako
       # object that responds to the methods guest code will invoke. Returns
       # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
       # match the constant pattern, or a member of the same name is already
-      # bound ({SPEC.md §B-11}[link:../../../SPEC.md]).
+      # bound ({SPEC.md B-11}[link:../../../SPEC.md]).
       def bind(member, object)
         member_str = validate_member_name!(member)
         raise ArgumentError, "Member #{@name}::#{member_str} is already bound" if @members.key?(member_str)

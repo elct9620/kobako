@@ -101,7 +101,7 @@ const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
 const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
 /// `b"Disconnected\0"`. Nested subclass of `Kobako::ServiceError`; raised
 /// by the Rust bridge when the host returns a Response.err with
-/// `type="disconnected"` (SPEC.md §E-14 — Handle ID resolves to the
+/// `type="disconnected"` (SPEC.md E-14 — Handle ID resolves to the
 /// `:disconnected` sentinel).
 #[cfg(target_arch = "wasm32")]
 const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
@@ -206,7 +206,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
         // (5) `Kobako::Handle` class — returned by Service calls that produce
         //     stateful objects. Instances carry a Handle id (`@__kobako_id__`)
         //     and forward every method call to the host via `Kobako.__rpc_call__`
-        //     with `Target::Handle(id)` (SPEC.md §B-17).
+        //     with `Target::Handle(id)` (SPEC.md B-17).
         //
         //     class Kobako::Handle
         //       def initialize(id)  # C shim: stores id in @__kobako_id__
@@ -258,7 +258,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
             runtime_error_class,
         );
         // `Kobako::ServiceError::Disconnected < Kobako::ServiceError` —
-        // SPEC.md §"Error Classes" (E-14). Nested under
+        // SPEC.md "Error Classes" (E-14). Nested under
         // `service_error_class`, not `kobako_mod`, so `mrb_class_name`
         // yields `"Kobako::ServiceError::Disconnected"` and the panic
         // envelope's `class` field carries the qualified name through
@@ -545,7 +545,7 @@ unsafe extern "C" fn handle_initialize(
 ///
 /// Forwards every method call on a Handle instance to the host via
 /// `Kobako.__rpc_call__(id, method_name, args, kwargs)` with the Handle id
-/// as an integer target (SPEC.md §B-17 — Handle chaining).
+/// as an integer target (SPEC.md B-17 — Handle chaining).
 #[allow(unused_variables)]
 unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
@@ -773,7 +773,7 @@ unsafe extern "C" fn kernel_p(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -
 /// Convert a kobako wire `Value` to an `mrb_value`. Used to box the RPC
 /// response back into the mruby VM after `invoke_rpc` succeeds.
 ///
-/// Covers the wire types the journey tests exercise (SPEC.md §Type Mapping):
+/// Covers the wire types the journey tests exercise (SPEC.md Type Mapping):
 /// Nil, Bool, Int, Float, Str, Handle (as Integer). UInt, Bin, Array, Map,
 /// ErrEnv are not required by the J-01..J-05 journeys; Array/Map support is
 /// a follow-up item.
@@ -819,7 +819,7 @@ unsafe fn wire_value_to_mrb(mrb: *mut sys::mrb_state, val: crate::codec::Value) 
         Value::Handle(id) => {
             // Return a Kobako::Handle instance carrying the id. Instance-level
             // method_missing on Kobako::Handle routes subsequent calls to the
-            // host via Kobako.__rpc_call__ with Target::Handle(id) (SPEC §B-17).
+            // host via Kobako.__rpc_call__ with Target::Handle(id) (SPEC B-17).
             let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
             let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
             // Build the constructor argument: mrb_int id (mrb_boxing_int_value).
@@ -870,7 +870,7 @@ unsafe fn mrb_value_to_wire_value(
 /// Read the u32 id stored in a `Kobako::Handle` instance's `@__kobako_id__` ivar.
 ///
 /// Returns 0 if the ivar is missing or its `.to_s` is non-numeric — the resolver
-/// downstream treats id 0 as undefined per SPEC §B-19.
+/// downstream treats id 0 as undefined per SPEC B-19.
 #[cfg(target_arch = "wasm32")]
 unsafe fn extract_handle_id(mrb: *mut sys::mrb_state, handle_val: sys::mrb_value) -> u32 {
     let id_sym = sys::mrb_intern_cstr(mrb, cstr_ptr(HANDLE_ID_IVAR));
@@ -969,7 +969,7 @@ unsafe fn dispatch_invoke(
 /// Raise the right `Kobako::ServiceError` subclass for `ex`. Diverges
 /// (`-> !`) — `mrb_raise` does not return.
 ///
-/// SPEC.md §"Error Classes" + §"Error Envelope" pin the
+/// SPEC.md "Error Classes" + "Error Envelope" pin the
 /// mapping from the Response.err `type` field to a guest-side mruby class.
 /// Only `"disconnected"` resolves to a named subclass today
 /// (`Kobako::ServiceError::Disconnected`, E-14); the other three reserved
@@ -1033,7 +1033,7 @@ fn mrb_false_value() -> sys::mrb_value {
 //
 // Resolves `Kobako::WireError` (defined host-side; the guest sees it
 // because the host class registry seeds it during sandbox start, see
-// SPEC §Error attribution) and raises with the supplied null-
+// SPEC Error attribution) and raises with the supplied null-
 // terminated C string message. Diverges (`-> !`) — `mrb_raise` does
 // not return.
 

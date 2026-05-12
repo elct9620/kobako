@@ -310,7 +310,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   # ---------- Disconnected sentinel (SPEC E-14) ----------
 
-  # SPEC §E-14: a Handle whose entry has been replaced with the
+  # SPEC E-14: a Handle whose entry has been replaced with the
   # +:disconnected+ sentinel (B-19 ABA protection) resolves to
   # Response.err(type="disconnected") at dispatch time, even though the id
   # still occupies the HandleTable. This is distinct from E-13 (unknown id
@@ -332,7 +332,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
 
-  # SPEC §B-19: HandleTable ownership is per-Sandbox. A Handle ID issued
+  # SPEC B-19: HandleTable ownership is per-Sandbox. A Handle ID issued
   # by Sandbox A's HandleTable has no meaning in Sandbox B's HandleTable;
   # presenting it there resolves to "ID not found" and surfaces as a
   # Response.err with type="undefined". This is distinct from B-18
@@ -378,7 +378,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   # ---------- Raw-int Handle rejection (SPEC B-20) ----------
 
-  # SPEC §B-20: a guest cannot forge a Capability Handle from a bare
+  # SPEC B-20: a guest cannot forge a Capability Handle from a bare
   # integer. The host-side wire decoder rejects the malformed encoding
   # before the value reaches the HandleTable. Operationally, a Request
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
@@ -407,7 +407,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   # ---------- HandleTable exhaustion (SPEC B-21 / E-07) ----------
 
-  # SPEC §B-21 / §E-07: when the per-#run HandleTable counter reaches
+  # SPEC B-21 / E-07: when the per-#run HandleTable counter reaches
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
   # Kobako::HandleTableExhausted (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
@@ -418,7 +418,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   def test_handle_table_exhaustion_during_wrap_return_is_response_err
     # Test seam: HandleTable.new(next_id:) lets us pin the counter at
     # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
-    # HandleTable § "Build a fresh, empty HandleTable" — the parameter is
+    # HandleTable "Build a fresh, empty HandleTable" — the parameter is
     # explicitly intended for cap-exhaustion testing.
     registry = registry_with_exhausted_handle_table
     registry.define(:Factory).bind(:Make, object_factory)
@@ -437,7 +437,7 @@ class TestRegistryDispatchUnit < Minitest::Test
     # Sandbox#run-level callers rescuing SandboxError must catch the
     # exhaustion path; the dispatcher's rescue StandardError branch
     # turns the raise into a Response.err so the guest can observe it,
-    # but the underlying class identity is what SPEC §B-21 pins.
+    # but the underlying class identity is what SPEC B-21 pins.
     assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
 

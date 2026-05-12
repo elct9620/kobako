@@ -10,7 +10,7 @@ module Kobako
     # The module is stateless — all mutable state is threaded through the
     # +registry+ argument so Dispatcher has no instance variables and no side
     # effects beyond mutating the HandleTable via +alloc+ when a non-wire-
-    # representable return value must be wrapped ({SPEC.md §B-14}[link:../../../SPEC.md]).
+    # representable return value must be wrapped ({SPEC.md B-14}[link:../../../SPEC.md]).
     #
     # Entry point:
     #
@@ -22,12 +22,12 @@ module Kobako
       # Internal sentinel raised when target resolution fails. Mapped to
       # Response.err with type="undefined". Contained at the wire boundary —
       # not part of the public Kobako error taxonomy
-      # ({SPEC.md §E-xx}[link:../../../SPEC.md]).
+      # ({SPEC.md E-xx}[link:../../../SPEC.md]).
       class UndefinedTargetError < StandardError; end
 
       # Internal sentinel raised when a Handle target resolves to the
       # +:disconnected+ sentinel in the HandleTable (ABA protection,
-      # {SPEC.md §E-14}[link:../../../SPEC.md]). Mapped to Response.err with
+      # {SPEC.md E-14}[link:../../../SPEC.md]). Mapped to Response.err with
       # type="disconnected". Contained at the wire boundary.
       class DisconnectedTargetError < StandardError; end
 
@@ -41,7 +41,7 @@ module Kobako
       # decode, lookup, or method invocation is reified as a Response.err
       # envelope so the guest sees the failure as a normal RPC error rather
       # than a wasm trap
-      # ({SPEC.md §B-12}[link:../../../SPEC.md]).
+      # ({SPEC.md B-12}[link:../../../SPEC.md]).
       def dispatch(request_bytes, registry)
         encode_ok(wrap_return(perform_dispatch(request_bytes, registry), registry))
       rescue StandardError => e
@@ -51,7 +51,7 @@ module Kobako
       # Map an error raised during dispatch to a Response.err envelope.
       # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
       # a msgpack-encoded Response envelope (binary). Four error buckets
-      # ({SPEC.md §B-12}[link:../../../SPEC.md]): +Wire::Error+ →
+      # ({SPEC.md B-12}[link:../../../SPEC.md]): +Wire::Error+ →
       # type="runtime" (wire decode failed); +DisconnectedTargetError+ →
       # type="disconnected" (E-14); +UndefinedTargetError+ → type="undefined"
       # (E-13); +ArgumentError+ → type="argument" (B-12 arity mismatch);
@@ -75,7 +75,7 @@ module Kobako
         invoke(target_object, request.method_name, args, kwargs)
       end
 
-      # {SPEC.md §B-16}[link:../../../SPEC.md] — A Wire::Handle arriving as a positional or keyword
+      # {SPEC.md B-16}[link:../../../SPEC.md] — A Wire::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the
@@ -128,7 +128,7 @@ module Kobako
       end
 
       # Invoke +method+ on +target+ with positional args and string-keyed
-      # kwargs (symbolized at the boundary per {SPEC.md §B-12 Notes}[link:../../../SPEC.md]).
+      # kwargs (symbolized at the boundary per {SPEC.md B-12 Notes}[link:../../../SPEC.md]).
       #
       # Empty kwargs is wire-uniform ({SPEC.md line 815}[link:../../../SPEC.md]: "empty kwargs is
       # encoded as empty map +0x80+, never absent"). Methods whose signature
@@ -151,7 +151,7 @@ module Kobako
         end
       end
 
-      # {SPEC.md §B-14}[link:../../../SPEC.md] — When a bound Service method returns a value that is not
+      # {SPEC.md B-14}[link:../../../SPEC.md] — When a bound Service method returns a value that is not
       # wire-representable per B-13's type mapping, the wire layer routes it
       # through the HandleTable and the guest receives a Capability Handle in
       # place of the raw object.

@@ -5,14 +5,14 @@
 //   Kobako::Wasm::Store      - wraps wasmtime::Store<HostState>
 //   Kobako::Wasm::Instance   - wraps wasmtime::Instance + cached TypedFuncs
 //
-// WASI stdout/stderr capture (SPEC.md §B-04): wasmtime-wasi p1 bindings route
+// WASI stdout/stderr capture (SPEC.md B-04): wasmtime-wasi p1 bindings route
 // guest fd 1 and fd 2 into per-run MemoryOutputPipe instances. After each run
 // the host drains the pipes via Instance#take_stdout / #take_stderr and pushes
 // the raw bytes through Ruby's OutputBuffer (which enforces the cap and
 // `[truncated]` marker). Stdin carries the two-frame length-prefixed protocol:
 // Frame 1 (preamble msgpack) followed by Frame 2 (user script UTF-8), each
 // prefixed by a 4-byte big-endian u32 length. Written via `setup_wasi_frames`
-// before each run (SPEC.md §ABI Signatures).
+// before each run (SPEC.md ABI Signatures).
 
 use std::cell::RefCell;
 use std::fs;
@@ -71,7 +71,7 @@ pub struct HostState {
     #[allow(dead_code)]
     pub outcome: Vec<u8>,
     /// WASI p1 context for the current (or most-recent) run. Replaced before
-    /// each `#run` so stdin/stdout/stderr pipes are always fresh (SPEC.md §B-03).
+    /// each `#run` so stdin/stdout/stderr pipes are always fresh (SPEC.md B-03).
     pub wasi: Option<WasiP1Ctx>,
     /// Clone of the MemoryOutputPipe wired to guest fd 1 (stdout). Retained
     /// here so `take_stdout` can call `contents()` after execution without
@@ -236,7 +236,7 @@ impl Instance {
         })
         .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
 
-        // `__kobako_rpc_call` host import. Signature per SPEC § Wire ABI:
+        // `__kobako_rpc_call` host import. Signature per SPEC Wire ABI:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
         // `Kobako::Registry` (set per-run via `set_registry`), allocates a
@@ -435,7 +435,7 @@ impl Instance {
     }
 
     // -----------------------------------------------------------------
-    // WASI capture path (SPEC.md §B-04). Called by Ruby's Sandbox#run.
+    // WASI capture path (SPEC.md B-04). Called by Ruby's Sandbox#run.
     // -----------------------------------------------------------------
 
     /// Initialise fresh WASI pipes with the two-frame stdin content.
@@ -444,12 +444,12 @@ impl Instance {
     ///   * A MemoryInputPipe for stdin with Frame 1 (preamble) + Frame 2
     ///     (user script) encoded as length-prefixed frames: each frame is a
     ///     4-byte big-endian u32 length prefix followed by the payload bytes.
-    ///     The guest reads both frames from WASI stdin (SPEC.md §ABI Signatures).
+    ///     The guest reads both frames from WASI stdin (SPEC.md ABI Signatures).
     ///   * A MemoryOutputPipe for fd 1 (stdout) — transport-layer pipe.
     ///   * A MemoryOutputPipe for fd 2 (stderr) — transport-layer pipe.
     ///
     /// `stdout_cap` and `stderr_cap` are accepted but the transport pipes are
-    /// uncapped: SPEC.md §B-04 requires that overflowing the OutputBuffer limit
+    /// uncapped: SPEC.md B-04 requires that overflowing the OutputBuffer limit
     /// is a non-error outcome. A capped WASI pipe would produce a real trap.
     fn setup_wasi_pipes(
         &self,
@@ -461,7 +461,7 @@ impl Instance {
         let _ = (stdout_cap, stderr_cap);
 
         // Build the two-frame stdin content. Each frame: 4-byte BE u32 length
-        // prefix + payload bytes (SPEC.md §ABI Signatures — two-frame protocol).
+        // prefix + payload bytes (SPEC.md ABI Signatures — two-frame protocol).
         let preamble: &[u8] = unsafe { preamble_bytes.as_slice() };
         let source: &[u8] = unsafe { source_bytes.as_slice() };
 
@@ -529,7 +529,7 @@ impl Instance {
 
 /// Drive a single `__kobako_rpc_call` invocation end-to-end.
 ///
-/// Steps (SPEC § B-12 / B-13):
+/// Steps (SPEC B-12 / B-13):
 ///
 ///   1. Read the Request bytes from guest linear memory.
 ///   2. Hand them to the Ruby-side `Kobako::Registry` and recover Response bytes.
@@ -577,8 +577,8 @@ fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) 
 /// which we treat as a wire-layer fault.
 fn invoke_registry(registry: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called
-    // Sandbox#run — the invariant SPEC § Implementation Standards
-    // §Architecture pins for the host gem — so `Ruby::get()` is always
+    // Sandbox#run — the invariant SPEC Implementation Standards
+    // Architecture pins for the host gem — so `Ruby::get()` is always
     // available here. Panicking with `expect` localises the violation
     // rather than letting a nonsense error propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_rpc_call");
@@ -634,7 +634,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let wasm = kobako.define_module("Wasm")?;
 
     // Error hierarchy. ModuleNotBuiltError is the headline error for the
-    // common pre-build state (see Ch.6 §runtime 讀取策略).
+    // common pre-build state (see Ch.6 runtime 讀取策略).
     let base_err = wasm.define_error("Error", ruby.exception_standard_error())?;
     wasm.define_error("ModuleNotBuiltError", base_err)?;
 

@@ -5,7 +5,7 @@
 # Intentionally does NOT require "test_helper" — HandleTable is pure Ruby and
 # must be exercisable without the native extension being compiled. We require
 # lib/kobako/registry.rb directly (HandleTable is an internal class of
-# Kobako::Registry per SPEC.md §Architecture).
+# Kobako::Registry per SPEC.md Architecture).
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
@@ -112,7 +112,7 @@ module Kobako
       assert_equal Table::MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
-      # SPEC §"Error Classes": cap-exhaustion raises the canonical
+      # SPEC "Error Classes": cap-exhaustion raises the canonical
       # HandleTableExhausted < HandleTableError < SandboxError chain.
       err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
       assert_kind_of Kobako::HandleTableError, err

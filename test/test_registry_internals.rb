@@ -8,11 +8,11 @@
 # wasmtime pipeline.
 #
 # Cross-references:
-#   - SPEC.md §B-07 — Group name validation
-#   - SPEC.md §B-08 — Member name validation (non-symbol/non-string input)
-#   - SPEC.md §B-10 — define idempotence (duplicate Group)
-#   - SPEC.md §B-11 — duplicate bind raises, existing binding preserved
-#   - SPEC.md §E-09 / §Error Scenarios — unknown Panic origin maps to SandboxError
+#   - SPEC.md B-07 — Group name validation
+#   - SPEC.md B-08 — Member name validation (non-symbol/non-string input)
+#   - SPEC.md B-10 — define idempotence (duplicate Group)
+#   - SPEC.md B-11 — duplicate bind raises, existing binding preserved
+#   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError
 
 require "minitest/autorun"
 require_relative "support/outcome_bytes_helpers"
@@ -33,7 +33,7 @@ module Kobako
 
     # --- bind: non-symbol/non-string member name ---
 
-    # SPEC §B-08 Notes: bind validates the member name against the constant
+    # SPEC B-08 Notes: bind validates the member name against the constant
     # pattern after coercing it to a String via #to_s.  Passing an Integer
     # hits the coercion path ("42".to_s → "42") then fails the pattern check
     # because "42" starts with a digit, not an uppercase letter.
@@ -67,7 +67,7 @@ module Kobako
 
     # --- empty group: to_preamble round-trip ---
 
-    # SPEC §B-07 Notes: an empty Group (no Members) is legal and its
+    # SPEC B-07 Notes: an empty Group (no Members) is legal and its
     # to_preamble form is [name, []].  Verifies that guest_preamble does not
     # blow up on a Registry that contains only empty Groups.
     def test_empty_group_to_preamble_returns_empty_members_list
@@ -87,7 +87,7 @@ module Kobako
 
     # --- non-symbol string name accepted by bind ---
 
-    # SPEC §B-08: both Symbol and String forms of a constant-pattern name
+    # SPEC B-08: both Symbol and String forms of a constant-pattern name
     # must be accepted and normalized to the same String key internally.
     def test_bind_with_string_member_name_normalizes_to_string_key
       group = Group.new("Logger")
@@ -127,7 +127,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     Kobako::Sandbox::OutcomeDecoder.decode(bytes)
   end
 
-  # --- Panic with unknown origin (SPEC §E-09 / §Error Scenarios) ---
+  # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---
   #
   # SPEC: origin values other than "service" and "sandbox" are treated as
   # sandbox-side failures (the panic_target_class method returns SandboxError
@@ -162,7 +162,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     assert_equal "box-side error", err.message
   end
 
-  # --- Panic with missing "class" field raises SandboxError (SPEC §E-08) ---
+  # --- Panic with missing "class" field raises SandboxError (SPEC E-08) ---
   #
   # decode_panic calls Envelope.decode_panic, which raises Wire::InvalidType
   # when a required key is absent.  The Sandbox rescue chain wraps that as
@@ -182,7 +182,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     assert_equal "Kobako::WireError", err.klass
   end
 
-  # --- Result envelope with empty bytes body raises SandboxError (SPEC §E-09) ---
+  # --- Result envelope with empty bytes body raises SandboxError (SPEC E-09) ---
   #
   # An empty result body is not a valid msgpack value, so decode_result raises
   # Wire::Truncated (a Wire::Error subclass).  The Sandbox rescue chain wraps

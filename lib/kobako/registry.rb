@@ -14,7 +14,7 @@ require_relative "registry/dispatcher"
 module Kobako
   # Kobako::Registry — per-Sandbox container of Service Groups and Handle
   # state. Manages capability injection and guest-initiated RPC dispatch
-  # ({SPEC.md §B-07..B-21}[link:../../SPEC.md]).
+  # ({SPEC.md B-07..B-21}[link:../../SPEC.md]).
   #
   # Public API:
   #
@@ -30,7 +30,7 @@ module Kobako
   # Dispatch helpers live in +Kobako::Registry::Dispatcher+
   # (lib/kobako/registry/dispatcher.rb).
   class Registry
-    # Ruby constant-name pattern (SPEC.md §B-07/B-08 Notes).
+    # Ruby constant-name pattern (SPEC.md B-07/B-08 Notes).
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
     def initialize
@@ -97,7 +97,7 @@ module Kobako
     end
 
     # Structured Frame 1 description. Called by +Sandbox#run+ when assembling
-    # stdin Frame 1 ({SPEC.md §B-02}[link:../../SPEC.md]). Returns an
+    # stdin Frame 1 ({SPEC.md B-02}[link:../../SPEC.md]). Returns an
     # unencoded preamble array — an +Array+ of two-element +[name, members]+
     # arrays, one per declared group.
     def to_preamble
@@ -105,7 +105,7 @@ module Kobako
     end
 
     # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
-    # ({SPEC.md §B-02}[link:../../SPEC.md]). Uses plain MessagePack (no
+    # ({SPEC.md B-02}[link:../../SPEC.md]). Uses plain MessagePack (no
     # kobako ext types) because the preamble contains only strings — no
     # Handles or Exception envelopes. Structure:
     # +[["GroupName", ["MemberA", "MemberB"]], ...]+. Returns a binary
@@ -127,13 +127,13 @@ module Kobako
     end
 
     # Reset the HandleTable for a new +#run+ boundary. Called by +Sandbox#run+
-    # before each invocation ({SPEC.md §B-19}[link:../../SPEC.md]).
+    # before each invocation ({SPEC.md B-19}[link:../../SPEC.md]).
     def reset_handles!
       @handle_table.reset!
     end
 
     # Dispatch a single RPC request and return the encoded response bytes
-    # ({SPEC.md §B-12}[link:../../SPEC.md]). +request_bytes+ is a
+    # ({SPEC.md B-12}[link:../../SPEC.md]). +request_bytes+ is a
     # msgpack-encoded Request envelope. Called by the Rust ext from inside
     # +__kobako_rpc_call+. Always returns a binary +String+ — never raises.
     # Delegates to +Dispatcher.dispatch+ which reifies any failure as a

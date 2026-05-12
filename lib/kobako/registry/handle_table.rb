@@ -5,25 +5,25 @@ module Kobako
     # Host-side mapping from opaque integer Handle IDs to Ruby objects
     # (capability proxies). One table is owned per Kobako::Registry instance
     # (and therefore per Kobako::Sandbox instance). See
-    # {SPEC.md §B-15}[link:../../../SPEC.md].
+    # {SPEC.md B-15}[link:../../../SPEC.md].
     #
     # Lifecycle invariants ({SPEC.md}[link:../../../SPEC.md]):
     #
-    #   - {SPEC.md §B-15}[link:../../../SPEC.md] — Handle IDs are allocated by
+    #   - {SPEC.md B-15}[link:../../../SPEC.md] — Handle IDs are allocated by
     #     a monotonically increasing counter scoped to a single `#run`. The
     #     first ID issued in a run is 1; ID 0 is reserved as the invalid
     #     sentinel and is never returned by #alloc.
     #
-    #   - {SPEC.md §B-19}[link:../../../SPEC.md] — When between `#run`
+    #   - {SPEC.md B-19}[link:../../../SPEC.md] — When between `#run`
     #     invocations (via `#reset!`), every Handle issued under the old state
     #     becomes invalid.
     #
-    #   - {SPEC.md §B-21}[link:../../../SPEC.md] — The cap is `0x7fff_ffff`
+    #   - {SPEC.md B-21}[link:../../../SPEC.md] — The cap is `0x7fff_ffff`
     #     (2³¹ − 1). Allocation beyond the cap raises immediately — no silent
     #     truncation, no wrap, no ID reuse.
     class HandleTable
       # Maximum valid Handle ID. Wire-format invariant:
-      # {SPEC.md §B-21}[link:../../../SPEC.md]. 0x7fff_ffff == 2³¹ − 1.
+      # {SPEC.md B-21}[link:../../../SPEC.md]. 0x7fff_ffff == 2³¹ − 1.
       MAX_ID = 0x7fff_ffff
 
       # Build a fresh, empty HandleTable. +next_id+ is an internal seam that
@@ -67,7 +67,7 @@ module Kobako
       end
 
       # Clear all entries AND reset the counter to 1. Called at the per-run
-      # boundary — see {SPEC.md §B-19}[link:../../../SPEC.md].
+      # boundary — see {SPEC.md B-19}[link:../../../SPEC.md].
       # Returns +self+.
       def reset!
         @entries.clear

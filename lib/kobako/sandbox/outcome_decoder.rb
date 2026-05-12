@@ -5,7 +5,7 @@ module Kobako
     # Pure-function decoder for the OUTCOME_BUFFER bytes returned by
     # +__kobako_run+. Maps a tagged msgpack envelope to either the unwrapped
     # mruby return value or a raised three-layer
-    # ({SPEC.md §"Error Scenarios"}[link:../../../SPEC.md]) exception.
+    # ({SPEC.md "Error Scenarios"}[link:../../../SPEC.md]) exception.
     #
     #   * tag 0x01, decode OK                 → return Result.value
     #   * tag 0x01, decode fails              → SandboxError (E-09)
@@ -29,7 +29,7 @@ module Kobako
       end
 
       # TrapError for unknown or absent tag
-      # ({SPEC.md §ABI Signatures}[link:../../../SPEC.md]: len=0 and unknown-tag
+      # ({SPEC.md ABI Signatures}[link:../../../SPEC.md]: len=0 and unknown-tag
       # both walk the trap path).
       def trap_for_tag(tag)
         return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
@@ -61,7 +61,7 @@ module Kobako
       # Ruby exception. +origin == "service"+ → ServiceError (with the
       # +::Disconnected+ subclass selected when the panic carries the
       # disconnected sentinel —
-      # {SPEC §"Error Classes"}[link:../../../SPEC.md]); everything else
+      # {SPEC "Error Classes"}[link:../../../SPEC.md]); everything else
       # → SandboxError.
       def build_panic_error(panic)
         panic_target_class(panic).new(
@@ -73,7 +73,7 @@ module Kobako
         )
       end
 
-      # {SPEC §"Error Classes"}[link:../../../SPEC.md]: when
+      # {SPEC "Error Classes"}[link:../../../SPEC.md]: when
       # +origin="service"+ and the panic +class+ field names
       # +ServiceError::Disconnected+, surface that subclass so callers can
       # rescue the disconnected path specifically (E-14).

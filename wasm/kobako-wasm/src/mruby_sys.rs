@@ -26,7 +26,7 @@
 //!
 //! ## What is bound
 //!
-//! Only the C API functions needed for the §Boot Script 預載 three
+//! Only the C API functions needed for the Boot Script 預載 three
 //! registrations and the `Kobako.__rpc_call__` argument unpacking:
 //!
 //!   * `mrb_define_module`

@@ -88,7 +88,7 @@ extern "C" {
 /// need to run before the first call. Approach (a) from the two known
 /// fixes — smaller and sufficient for the kobako use case.
 ///
-/// Per SPEC.md §ABI Signatures, the "exactly 3 kobako exports" invariant
+/// Per SPEC.md ABI Signatures, the "exactly 3 kobako exports" invariant
 /// counts `__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`.
 /// `_initialize` is a WASI reactor bookkeeping export and is explicitly
 /// excluded from the kobako export count.
@@ -102,7 +102,7 @@ pub extern "C" fn _initialize() {
 /// Reactor entry — runs the three-job boot script, writing the outcome
 /// envelope to OUTCOME_BUFFER before returning. Signature: `() -> ()`.
 ///
-/// Responsibilities (SPEC.md §Boot Script 三職責):
+/// Responsibilities (SPEC.md Boot Script 三職責):
 ///
 /// 1. Read stdin Frame 1 (4-byte BE u32 length prefix + msgpack preamble).
 ///    Decode the preamble array (`[["GroupName", ["MemberA"]], ...]`) and
@@ -190,7 +190,7 @@ pub extern "C" fn __kobako_run() {
             }
             // If serialization itself fails, OUTCOME_BUFFER stays empty —
             // the host treats len=0 as a wire violation → TrapError path
-            // (SPEC.md §Error Scenarios).
+            // (SPEC.md Error Scenarios).
         }
 
         fn write_outcome(bytes: Vec<u8>) {
@@ -399,7 +399,7 @@ pub extern "C" fn __kobako_run() {
 
 /// Convert an `mrb_value` to a kobako wire `Value` for the outcome Result
 /// envelope. Only handles the types representable in the kobako wire
-/// protocol (SPEC.md §Type Mapping). Non-representable values fall back
+/// protocol (SPEC.md Type Mapping). Non-representable values fall back
 /// to a string via the value's `Object#inspect` representation.
 #[cfg(target_arch = "wasm32")]
 unsafe fn mrb_value_to_wire(
@@ -444,7 +444,7 @@ static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
 /// buffer inside the `__kobako_rpc_call` callback, then the response is
 /// consumed synchronously before the RPC call returns, so the buffer does
 /// not need to outlive the call frame. Instance drop frees all linear memory
-/// (SPEC.md §Wire ABI exports).
+/// (SPEC.md Wire ABI exports).
 #[no_mangle]
 pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
@@ -455,7 +455,7 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
         let ptr = unsafe { malloc(size as usize) };
         if ptr.is_null() {
             // malloc failure → return 0, host treats 0 as a trap signal
-            // per SPEC.md §Wire ABI exports.
+            // per SPEC.md Wire ABI exports.
             return 0;
         }
         ptr as u32
@@ -469,7 +469,7 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 
 /// Outcome reader — host calls this after `__kobako_run` returns to fetch
 /// the OUTCOME_BUFFER bytes. Returns packed u64 `(ptr << 32) | len`.
-/// `len == 0` is a wire violation (SPEC.md §ABI Signatures). Signature: `() -> i64`.
+/// `len == 0` is a wire violation (SPEC.md ABI Signatures). Signature: `() -> i64`.
 ///
 /// The buffer is owned by the static `OUTCOME_BUFFER`; the host must consume
 /// the bytes before the next `__kobako_run` call (each run resets the buffer).

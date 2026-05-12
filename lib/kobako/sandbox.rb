@@ -10,7 +10,7 @@ require_relative "sandbox/outcome_decoder"
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
   # scripts inside a wasmtime-hosted Wasm module
-  # ({SPEC.md §B-01}[link:../../SPEC.md]).
+  # ({SPEC.md B-01}[link:../../SPEC.md]).
   #
   # The Sandbox owns the wasmtime pipeline (Engine / Module / Store /
   # Instance), the per-instance Registry (which itself owns the per-run
@@ -21,7 +21,7 @@ module Kobako
   # production caller running many runs should also share the Engine,
   # because Engine creation is comparatively expensive.
   #
-  # Buffer overflow policy ({SPEC.md §B-04}[link:../../SPEC.md]): once an
+  # Buffer overflow policy ({SPEC.md B-04}[link:../../SPEC.md]): once an
   # append would push the cumulative byte count past the per-channel
   # `*_limit`, the OutputBuffer truncates — it stores a prefix that fits
   # under the cap and appends a +[truncated]+ marker on the next read.
@@ -29,7 +29,7 @@ module Kobako
   # +Kobako::Sandbox::OutputBuffer::OUTPUT_TRUNCATION_MARKER+.
   class Sandbox
     # Default per-channel capture ceiling: 1 MiB
-    # ({SPEC.md §B-01 footnote}[link:../../SPEC.md]).
+    # ({SPEC.md B-01 footnote}[link:../../SPEC.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
     attr_reader :wasm_path, :engine, :module_, :store, :instance,
@@ -38,7 +38,7 @@ module Kobako
 
     # Returns the complete byte content guest wrote to stdout during the most
     # recent +#run+ as a UTF-8 String, or an empty String before any +#run+
-    # call. {SPEC.md §B-04}[link:../../SPEC.md]: may contain a +[truncated]+
+    # call. {SPEC.md B-04}[link:../../SPEC.md]: may contain a +[truncated]+
     # marker when the cap was hit.
     def stdout
       @stdout_buffer.to_s
@@ -46,7 +46,7 @@ module Kobako
 
     # Returns the complete byte content guest wrote to stderr during the most
     # recent +#run+ as a UTF-8 String, or an empty String before any +#run+
-    # call. {SPEC.md §B-04}[link:../../SPEC.md]: may contain a +[truncated]+
+    # call. {SPEC.md B-04}[link:../../SPEC.md]: may contain a +[truncated]+
     # marker when the cap was hit.
     def stderr
       @stderr_buffer.to_s
@@ -79,7 +79,7 @@ module Kobako
     end
 
     # Declare or retrieve the Service Group named +name+ on this Sandbox
-    # ({SPEC.md §B-07, B-09, B-10}[link:../../SPEC.md]). +name+ must be a
+    # ({SPEC.md B-07, B-09, B-10}[link:../../SPEC.md]). +name+ must be a
     # Symbol or String in constant form. Returns the
     # +Kobako::Registry::ServiceGroup+.
     #
@@ -90,12 +90,12 @@ module Kobako
     end
 
     # Execute a guest mruby script
-    # ({SPEC.md §B-02 / §B-03}[link:../../SPEC.md]). +source+ is the mruby
+    # ({SPEC.md B-02 / B-03}[link:../../SPEC.md]). +source+ is the mruby
     # source code as a UTF-8 String. Returns the deserialized last
     # expression of the script.
     #
     # Source delivery uses the WASI stdin two-frame protocol
-    # ({SPEC.md §ABI Signatures}[link:../../SPEC.md]): Frame 1 carries the
+    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]): Frame 1 carries the
     # msgpack-encoded preamble (Service Group registry snapshot) and Frame 2
     # carries the user script UTF-8 bytes. Each frame is prefixed by a
     # 4-byte big-endian u32 length.
@@ -119,7 +119,7 @@ module Kobako
 
     private
 
-    # Per-run state reset ({SPEC.md §B-03}[link:../../SPEC.md]). Capture
+    # Per-run state reset ({SPEC.md B-03}[link:../../SPEC.md]). Capture
     # buffers and the HandleTable counter are zeroed before the guest runs.
     def reset_run_state!
       @services.reset_handles!
@@ -129,7 +129,7 @@ module Kobako
 
     # Drain the WASI stdout/stderr pipes populated during the most recent
     # guest execution into the bounded OutputBuffers
-    # ({SPEC.md §B-04}[link:../../SPEC.md]). Must be called after
+    # ({SPEC.md B-04}[link:../../SPEC.md]). Must be called after
     # `invoke_guest_run` and before the next reset.
     def drain_wasi_output
       stdout_bytes = @instance.take_stdout
@@ -141,7 +141,7 @@ module Kobako
     # Invoke `__kobako_run`. Wraps wasmtime / wire errors in TrapError.
     # Source was already delivered via the stdin two-frame protocol in
     # `setup_wasi_pipes` before this call
-    # ({SPEC.md §ABI Signatures}[link:../../SPEC.md]).
+    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
     def invoke_guest_run
       @instance.run
     rescue Kobako::Wasm::Error => e

@@ -16,16 +16,16 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     Kobako::Sandbox::OutcomeDecoder.decode(bytes)
   end
 
-  # SPEC.md §ABI Signatures: "len == 0 is a wire violation; host walks trap path."
+  # SPEC.md ABI Signatures: "len == 0 is a wire violation; host walks trap path."
   # Empty outcome bytes have no tag → the host emits TrapError.
   def test_zero_length_outcome_bytes_raises_trap_error
     err = assert_raises(Kobako::TrapError) { decode("".b) }
 
     assert_match(/len=0/, err.message,
-                 "SPEC.md §ABI: len=0 outcome → TrapError with len=0 in message")
+                 "SPEC.md ABI: len=0 outcome → TrapError with len=0 in message")
   end
 
-  # SPEC.md §Error Scenarios: unknown outcome tag → TrapError (wire violation fallback).
+  # SPEC.md Error Scenarios: unknown outcome tag → TrapError (wire violation fallback).
   def test_unknown_outcome_tag_raises_trap_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
     bytes << 0xff.chr(Encoding::ASCII_8BIT)
@@ -68,7 +68,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     assert_equal "service", err.origin
   end
 
-  # SPEC.md §E-14 + §"Error Classes": a Service-origin Panic whose
+  # SPEC.md E-14 + "Error Classes": a Service-origin Panic whose
   # +class+ field names +Kobako::ServiceError::Disconnected+ resolves to
   # the Disconnected subclass, letting Host Apps rescue the disconnected
   # path specifically. Pins +OutcomeDecoder.panic_target_class+ — the
@@ -119,9 +119,9 @@ class TestErrorClassHierarchy < Minitest::Test
 
   def test_sandbox_output_limit_exceeded_placeholder_is_gone
     # Cycle 14 left `Kobako::Sandbox::OutputLimitExceeded < StandardError`
-    # as a placeholder; SPEC §B-04 specifies truncate-with-marker, not
+    # as a placeholder; SPEC B-04 specifies truncate-with-marker, not
     # raise. The placeholder must no longer exist.
     refute defined?(Kobako::Sandbox::OutputLimitExceeded),
-           "Kobako::Sandbox::OutputLimitExceeded must be removed (SPEC §B-04 truncates)"
+           "Kobako::Sandbox::OutputLimitExceeded must be removed (SPEC B-04 truncates)"
   end
 end

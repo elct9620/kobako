@@ -4,7 +4,7 @@ require "test_helper"
 
 # Kobako::Registry + Kobako::Registry::ServiceGroup + bind/define API.
 #
-# This is an integration-flavored Minitest covering SPEC §B-07..B-11 on the
+# This is an integration-flavored Minitest covering SPEC B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
 # constructs the wasmtime pipeline; tests skip when it is absent.
 class TestServiceRegistry < Minitest::Test
@@ -91,14 +91,14 @@ class TestServiceRegistry < Minitest::Test
                  "existing binding must not be overwritten on duplicate-bind"
   end
 
-  # SPEC §B-07 Notes / E-16: malformed group name raises ArgumentError.
+  # SPEC B-07 Notes / E-16: malformed group name raises ArgumentError.
   def test_define_with_invalid_group_name_raises
     assert_raises(ArgumentError) { @sandbox.define(:lower) }
     assert_raises(ArgumentError) { @sandbox.define(:"Has-Dash") }
     assert_raises(ArgumentError) { @sandbox.define("9Numeric") }
   end
 
-  # SPEC §B-08 Notes / E-17: malformed member name raises ArgumentError.
+  # SPEC B-08 Notes / E-17: malformed member name raises ArgumentError.
   def test_bind_with_invalid_member_name_raises
     group = @sandbox.define(:Logger)
     assert_raises(ArgumentError) { group.bind(:lower, Object.new) }
@@ -179,7 +179,7 @@ class TestServiceRegistry < Minitest::Test
   end
 
   # Item #25 — `guest_preamble` returns msgpack-encoded bytes matching the
-  # two-level preamble array structure ({SPEC.md §B-02}[link:../../SPEC.md]).
+  # two-level preamble array structure ({SPEC.md B-02}[link:../../SPEC.md]).
   def test_guest_preamble_returns_msgpack_encoded_preamble
     require "msgpack"
     @sandbox.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)

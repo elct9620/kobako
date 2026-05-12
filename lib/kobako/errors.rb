@@ -6,8 +6,8 @@ module Kobako
   #
   # Every `Kobako::Sandbox#run` invocation either returns a value or raises
   # exactly one of these three classes. Attribution is decided after the
-  # guest binary returns control to the host (SPEC §"Step 1 — Wasm trap"
-  # then §"Step 2 — Outcome envelope tag").
+  # guest binary returns control to the host (SPEC "Step 1 — Wasm trap"
+  # then "Step 2 — Outcome envelope tag").
   #
   # Three top-level branches:
   #
@@ -20,7 +20,7 @@ module Kobako
   #   * {ServiceError}  — service / capability layer (a Service RPC that
   #                       failed and was not rescued inside the script).
   #
-  # Subclasses pinned by SPEC §"Error Classes":
+  # Subclasses pinned by SPEC "Error Classes":
   #
   #   * {HandleTableExhausted} < {SandboxError}    — id cap hit (B-21).
   #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
@@ -65,7 +65,7 @@ module Kobako
       @details = details
     end
 
-    # SPEC §"Error Classes": ServiceError::Disconnected is raised
+    # SPEC "Error Classes": ServiceError::Disconnected is raised
     # when the RPC target Handle resolves to the `:disconnected` sentinel
     # in the HandleTable (ABA protection rule — id exists but entry was
     # invalidated). E-14.
@@ -80,7 +80,7 @@ module Kobako
   # directly), it surfaces as a SandboxError.
   class HandleTableError < SandboxError; end
 
-  # SPEC §"Error Classes": HandleTableExhausted is the canonical
+  # SPEC "Error Classes": HandleTableExhausted is the canonical
   # SandboxError subclass for the id-cap-hit path (B-21). Inherits from
   # HandleTableError so a single `rescue Kobako::HandleTableError` covers
   # both lookup-failure and cap-exhaustion paths.

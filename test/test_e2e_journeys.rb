@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Layer 4 — End-to-end user journey tests (SPEC.md §Testing Style Layer 4, L1001).
+# Layer 4 — End-to-end user journey tests (SPEC.md Testing Style Layer 4, L1001).
 #
 # Each test corresponds to one of the five journeys (J-01..J-05) defined in
 # SPEC.md L146-218 and exercises the full Host App → `Sandbox#run` → Service
@@ -116,7 +116,7 @@ class TestE2EJourneys < Minitest::Test
     assert_equal 42, result,
                  "J-02 / B-04: return value comes through outcome envelope, not stdout"
     assert_includes sandbox.stdout, "diagnostic",
-                    "J-02 / B-04: guest puts is captured in Sandbox#stdout (SPEC.md L169, §B-04)"
+                    "J-02 / B-04: guest puts is captured in Sandbox#stdout (SPEC.md L169, B-04)"
   end
 
   # ── J-03 — Teaching platform evaluates student submissions in isolation ──
@@ -196,7 +196,7 @@ class TestE2EJourneys < Minitest::Test
     result = sandbox.run('Geo::Lookup.lookup(name: "alice", region: "us")')
 
     assert_equal "us/alice", result,
-                 "E-15: wire kwargs str keys symbolized at dispatch boundary (SPEC.md §E-15)"
+                 "E-15: wire kwargs str keys symbolized at dispatch boundary (SPEC.md E-15)"
   end
 
   # SPEC.md L1001 + E-15: empty kwargs path also exercised.

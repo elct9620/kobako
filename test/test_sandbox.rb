@@ -67,7 +67,7 @@ class TestSandbox < Minitest::Test
   end
 
   def test_output_buffer_truncates_with_marker_on_stdout
-    # SPEC §B-04: when an append would exceed the per-channel limit, the
+    # SPEC B-04: when an append would exceed the per-channel limit, the
     # buffer keeps the leading bytes that fit and seals itself; subsequent
     # reads see a `[truncated]` marker. Truncation does NOT raise.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stdout_limit: 8, stderr_limit: 8)

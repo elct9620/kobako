@@ -378,7 +378,7 @@ module Kobako
         assert_bytes expected, Exc.new(type: "runtime", message: "boom")
       end
 
-      # ---------- golden vectors: narrow zero-length tags (SPEC Wire Codec §Type Mapping) ----------
+      # ---------- golden vectors: narrow zero-length tags (SPEC Wire Codec Type Mapping) ----------
       #
       # Each empty container must encode to its narrowest possible tag — the
       # single-byte "fix" form.  These vectors prevent silent drift toward a
@@ -405,7 +405,7 @@ module Kobako
         assert_bytes "80", {}
       end
 
-      # ---------- golden vectors: integer boundary tags (SPEC Wire Codec §Type Mapping) ----------
+      # ---------- golden vectors: integer boundary tags (SPEC Wire Codec Type Mapping) ----------
       #
       # These pin the exact tag byte at each encoding tier boundary so a
       # future encoder change that silently promotes to a wider format is
@@ -426,7 +426,7 @@ module Kobako
         assert_bytes "e0", -32
       end
 
-      # ---------- Handle ext wrong payload length (SPEC Wire Codec §Ext Types) ----------
+      # ---------- Handle ext wrong payload length (SPEC Wire Codec Ext Types) ----------
       #
       # The factory's decode_handle validates that the ext 0x01 payload is
       # exactly 4 bytes.  A fixext1 (0xd4 type=0x01, 1-byte payload) is a

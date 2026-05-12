@@ -18,7 +18,7 @@
 //! Mapping". Encode/decode bodies use `rmp::encode` / `rmp::decode` as the codec backbone.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
-//! target — see SPEC.md "Implementation Standards" §Architecture) ships a
+//! target — see SPEC.md "Implementation Standards" Architecture) ships a
 //! working `std`, including allocator and panic handler. A `no_std` codec
 //! is not required by SPEC; switching adds friction (custom allocator,
 //! custom panic handler) without buying anything for the Guest Binary,

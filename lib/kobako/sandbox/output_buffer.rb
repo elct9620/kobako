@@ -4,7 +4,7 @@ module Kobako
   class Sandbox
     # In-memory bounded byte buffer for one of the guest's output channels.
     # Tracks accumulated bytes (binary-encoded) and enforces the per-channel
-    # cap by truncating-with-marker ({SPEC.md §B-04}[link:../../../SPEC.md]).
+    # cap by truncating-with-marker ({SPEC.md B-04}[link:../../../SPEC.md]).
     #
     # When the accumulated byte count would exceed the limit, the buffer keeps
     # as many leading bytes as fit and seals itself. Subsequent appends are
@@ -12,7 +12,7 @@ module Kobako
     # signal the overflow to the caller.
     class OutputBuffer
       # Marker appended to a buffer that hit its capture limit
-      # ({SPEC.md §B-04}[link:../../../SPEC.md]).
+      # ({SPEC.md B-04}[link:../../../SPEC.md]).
       OUTPUT_TRUNCATION_MARKER = "[truncated]"
 
       attr_reader :limit
@@ -28,7 +28,7 @@ module Kobako
       # Append +bytes+ to the buffer. If the append would push the
       # cumulative byte count past the limit, the buffer keeps as many
       # leading bytes as fit and seals itself; subsequent appends are
-      # discarded. {SPEC.md §B-04}[link:../../../SPEC.md] — truncation is a
+      # discarded. {SPEC.md B-04}[link:../../../SPEC.md] — truncation is a
       # non-error outcome.
       def <<(bytes)
         return self if @truncated

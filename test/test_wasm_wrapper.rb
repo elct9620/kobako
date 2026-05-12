@@ -12,7 +12,7 @@ require "test_helper"
 #
 # Real tier — runs when data/kobako.wasm exists (built by `rake wasm:guest`,
 # which the default test task now pulls in as a prerequisite). Asserts the
-# three guest exports line up with Ch.4 §Wire ABI.
+# three guest exports line up with Ch.4 Wire ABI.
 class TestWasmWrapper < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
@@ -76,7 +76,7 @@ class TestWasmWrapper < Minitest::Test
     store = Kobako::Wasm::Store.new(engine)
     instance = Kobako::Wasm::Instance.new(engine, mod, store)
 
-    # All three Wire ABI exports must be present (per Ch.4 §Wire ABI exports).
+    # All three Wire ABI exports must be present (per Ch.4 Wire ABI exports).
     assert instance.has_export?("__kobako_run"),          "guest binary must export __kobako_run"
     assert instance.has_export?("__kobako_take_outcome"), "guest binary must export __kobako_take_outcome"
     assert instance.has_export?("__kobako_alloc"),        "guest binary must export __kobako_alloc"
