@@ -50,6 +50,8 @@ Apply these in order — earlier principles override later ones on conflict.
 
 The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:build`. `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake` `cargo_build_env`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
 
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxidize-rb/actions/setup-ruby-and-rust` — the default task (`compile + test + rubocop`) is the canonical gate.
+
 ## Common Commands
 
 | Task | Command |
@@ -77,6 +79,7 @@ When changing behavior, start at the listed files and follow the SPEC anchors th
 - **HandleTable / capability handles** — `lib/kobako/registry/handle_table.rb` + `lib/kobako/wire/handle.rb`.
 - **Service registration** — `lib/kobako/registry.rb` + `lib/kobako/registry/service_group.rb`.
 - **ABI surface (host ↔ guest exports)** — `wasm/kobako-wasm/src/abi.rs` + matching `ext/kobako/src/wasm.rs` callers.
+- **E2E coverage / real guest binary** — `test/test_e2e_journeys.rb` drives `Sandbox#run` against `data/kobako.wasm`; it is the load-bearing coverage for Wire ABI export presence and the host↔guest round-trip. Wrapper-tier tests (`test/test_wasm_wrapper.rb`) cover only the `from_path` pipeline and intentionally do not duplicate this — a missing export fails the first E2E journey, so adding a wrapper-tier smoke test is redundant.
 - **Build / toolchain** — `tasks/{vendor,mruby,wasm}.rake`.
 
 `test/test_helper.rb` `rescue`s the `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests check `defined?(Kobako::Wasm::Instance)` and `skip` themselves when the native ext is absent.

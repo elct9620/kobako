@@ -24,9 +24,9 @@ end
 Dir.glob("tasks/*.rake").each { |t| load t }
 
 # data/kobako.wasm is gitignored and required by Layer 4 journey tests
-# (test/test_e2e_journeys.rb) plus the real-tier wasm wrapper check. The
-# wasm:build task is idempotent (mtime short-circuit), so this only does
-# real work on a clean clone or when the wasm crate source changes.
+# (test/test_e2e_journeys.rb). The wasm:build task is idempotent (mtime
+# short-circuit), so this only does real work on a clean clone or when
+# the wasm crate source changes.
 task test: "wasm:build"
 
 task default: %i[compile test rubocop]
