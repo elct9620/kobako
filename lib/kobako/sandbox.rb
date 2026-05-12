@@ -12,14 +12,11 @@ module Kobako
   # scripts inside a wasmtime-hosted Wasm module
   # ({SPEC.md B-01}[link:../../SPEC.md]).
   #
-  # The Sandbox owns the wasmtime pipeline (Engine / Module / Store /
-  # Instance), the per-instance Registry (which itself owns the per-run
-  # HandleTable), and bounded stdout / stderr capture buffers.
-  #
-  # Engine reuse note: the constructor accepts an optional `engine:` argument
-  # so test setups can build many Sandboxes against one shared Engine; a
-  # production caller running many runs should also share the Engine,
-  # because Engine creation is comparatively expensive.
+  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance Registry
+  # (which itself owns the per-run HandleTable), and bounded stdout / stderr
+  # capture buffers. The underlying wasmtime Engine and compiled Module are
+  # cached at process scope by the native ext and never surface to Ruby —
+  # constructing many Sandboxes amortises both costs automatically.
   #
   # Buffer overflow policy ({SPEC.md B-04}[link:../../SPEC.md]): once an
   # append would push the cumulative byte count past the per-channel
@@ -32,7 +29,7 @@ module Kobako
     # ({SPEC.md B-01 footnote}[link:../../SPEC.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
-    attr_reader :wasm_path, :engine, :module_, :store, :instance,
+    attr_reader :wasm_path, :instance,
                 :stdout_buffer, :stderr_buffer,
                 :stdout_limit, :stderr_limit, :services
 
@@ -57,14 +54,11 @@ module Kobako
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
     # gem-bundled +data/kobako.wasm+. +stdout_limit+ and +stderr_limit+ cap
     # the per-run byte ceiling for each capture channel (default 1 MiB).
-    # +engine+ is an optional shared +Kobako::Wasm::Engine+ — pass one when
-    # constructing many Sandboxes against the same Engine, since Engine
-    # creation is comparatively expensive.
-    def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil, engine: nil)
+    def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil)
       @wasm_path = wasm_path || Kobako::Wasm.default_path
       @stdout_limit = stdout_limit || DEFAULT_OUTPUT_LIMIT
       @stderr_limit = stderr_limit || DEFAULT_OUTPUT_LIMIT
-      build_wasm_pipeline(engine)
+      @instance = Kobako::Wasm::Instance.from_path(@wasm_path)
       @stdout_buffer = OutputBuffer.new(@stdout_limit)
       @stderr_buffer = OutputBuffer.new(@stderr_limit)
       @services = Kobako::Registry.new
@@ -163,13 +157,6 @@ module Kobako
       ptr = (packed >> 32) & 0xffff_ffff
       len = packed & 0xffff_ffff
       [ptr, len]
-    end
-
-    def build_wasm_pipeline(engine)
-      @engine = engine || Kobako::Wasm::Engine.new
-      @module_ = Kobako::Wasm::Module.from_file(@engine, @wasm_path)
-      @store = Kobako::Wasm::Store.new(@engine)
-      @instance = Kobako::Wasm::Instance.new(@engine, @module_, @store)
     end
   end
 end

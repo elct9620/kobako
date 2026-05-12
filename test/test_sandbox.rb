@@ -21,9 +21,6 @@ class TestSandbox < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
-    assert_instance_of Kobako::Wasm::Engine, sandbox.engine
-    assert_instance_of Kobako::Wasm::Module, sandbox.module_
-    assert_instance_of Kobako::Wasm::Store, sandbox.store
     assert_instance_of Kobako::Wasm::Instance, sandbox.instance
     assert_instance_of Kobako::Registry::HandleTable, sandbox.handle_table
   end
