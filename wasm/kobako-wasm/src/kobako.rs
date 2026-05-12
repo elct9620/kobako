@@ -148,143 +148,160 @@ impl Kobako {
     ///
     /// `mrb` must be a live mruby state — not null, not yet closed, and
     /// not concurrently mutated. Intended for entry points that receive
-    /// a raw pointer from mruby itself (currently the C bridge in
-    /// [`crate::boot::mrb_kobako_init`]).
+    /// a raw pointer from mruby itself; the safe wrapper
+    /// [`Kobako::install`] is the preferred entry from owning Rust code.
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     pub unsafe fn install_raw(mrb: *mut sys::mrb_state) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            use bridges;
-
-            // (1) Kobako module.
-            let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-
-            // (2) Kobako::RPC base class.
+            // SAFETY of every FFI call in this block:
             //
-            // The super-class is `mrb->object_class`. mruby's
-            // `mrb_define_class_under` accepts a NULL super_ as a
-            // request to inherit from Object in current 3.x releases.
-            // Service Member subclasses inherit from this `Kobako::RPC`
-            // (see `Kobako::install_groups`), not from Object directly,
-            // so the precise base-of-RPC choice is invisible to user
-            // code.
-            let rpc_class = sys::mrb_define_class_under(
-                mrb,
-                kobako_mod,
-                cstr_ptr(RPC_NAME),
-                core::ptr::null_mut(),
-            );
+            //   * `mrb` is live by the function's safety contract.
+            //   * Every C-string passed (`cstr_ptr(*_NAME)`) is a
+            //     compile-time-NUL-terminated `&[u8]`, so the pointer
+            //     conversion satisfies mruby's `const char*` requirement.
+            //   * Class handles returned by `mrb_define_module` /
+            //     `mrb_define_class_under` / `mrb_class_get` /
+            //     `mrb_module_get` are owned by mruby and live for the
+            //     duration of `mrb`; we use them only inside this
+            //     function body and stash the load-bearing five in
+            //     `Self`, which itself lives no longer than `mrb`.
+            //   * The function-pointer arguments are
+            //     `unsafe extern "C" fn` items from
+            //     [`bridges`], the only producer of the
+            //     `mrb_func_t` signature in this crate.
+            unsafe {
+                // (1) Kobako module.
+                let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
 
-            // (3) Singleton-class `method_missing` /
-            //     `respond_to_missing?` on `Kobako::RPC`. Subclasses
-            //     inherit through metaclass-chain dispatch.
-            sys::mrb_define_singleton_method(
-                mrb,
-                rpc_class as *mut sys::RObject,
-                cstr_ptr(METHOD_MISSING_NAME),
-                bridges::rpc_method_missing,
-                sys::MRB_ARGS_ANY,
-            );
-            sys::mrb_define_singleton_method(
-                mrb,
-                rpc_class as *mut sys::RObject,
-                cstr_ptr(RESPOND_TO_MISSING_NAME),
-                bridges::rpc_respond_to_missing,
-                sys::MRB_ARGS_ANY,
-            );
+                // (2) Kobako::RPC base class.
+                //
+                // mruby's `mrb_define_class_under` accepts a NULL
+                // super_ as a request to inherit from
+                // `mrb->object_class` in current 3.x releases. Service
+                // Member subclasses inherit from this `Kobako::RPC`
+                // (see `Kobako::install_groups`), not from `Object`
+                // directly, so the precise base-of-RPC choice is
+                // invisible to user code.
+                let rpc_class = sys::mrb_define_class_under(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(RPC_NAME),
+                    core::ptr::null_mut(),
+                );
 
-            // (4) `Kobako.__rpc_call__` module function with 4 required
-            //     args.
-            sys::mrb_define_module_function(
-                mrb,
-                kobako_mod,
-                cstr_ptr(RPC_CALL_NAME),
-                bridges::kobako_rpc_call,
-                sys::mrb_args_req(4),
-            );
+                // (3) Singleton-class `method_missing` /
+                //     `respond_to_missing?` on `Kobako::RPC`. Subclasses
+                //     inherit through metaclass-chain dispatch.
+                sys::mrb_define_singleton_method(
+                    mrb,
+                    rpc_class as *mut sys::RObject,
+                    cstr_ptr(METHOD_MISSING_NAME),
+                    bridges::rpc_method_missing,
+                    sys::MRB_ARGS_ANY,
+                );
+                sys::mrb_define_singleton_method(
+                    mrb,
+                    rpc_class as *mut sys::RObject,
+                    cstr_ptr(RESPOND_TO_MISSING_NAME),
+                    bridges::rpc_respond_to_missing,
+                    sys::MRB_ARGS_ANY,
+                );
 
-            // (5) `Kobako::Handle` instance class.
-            let handle_class = sys::mrb_define_class_under(
-                mrb,
-                kobako_mod,
-                cstr_ptr(HANDLE_NAME),
-                core::ptr::null_mut(),
-            );
-            sys::mrb_define_method(
-                mrb,
-                handle_class,
-                cstr_ptr(INITIALIZE_NAME),
-                bridges::handle_initialize,
-                sys::mrb_args_req(1),
-            );
-            sys::mrb_define_method(
-                mrb,
-                handle_class,
-                cstr_ptr(METHOD_MISSING_NAME),
-                bridges::handle_method_missing,
-                sys::MRB_ARGS_ANY,
-            );
-            sys::mrb_define_method(
-                mrb,
-                handle_class,
-                cstr_ptr(RESPOND_TO_MISSING_NAME),
-                bridges::rpc_respond_to_missing,
-                sys::MRB_ARGS_ANY,
-            );
+                // (4) `Kobako.__rpc_call__` module function with 4
+                //     required args.
+                sys::mrb_define_module_function(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(RPC_CALL_NAME),
+                    bridges::kobako_rpc_call,
+                    sys::mrb_args_req(4),
+                );
 
-            // (6) `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
-            //     / `Kobako::WireError` — all subclass `RuntimeError`.
-            let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
-            let service_error_class = sys::mrb_define_class_under(
-                mrb,
-                kobako_mod,
-                cstr_ptr(SERVICE_ERROR_NAME),
-                runtime_error_class,
-            );
-            let disconnected_class = sys::mrb_define_class_under(
-                mrb,
-                service_error_class,
-                cstr_ptr(DISCONNECTED_NAME),
-                service_error_class,
-            );
-            let wire_error_class = sys::mrb_define_class_under(
-                mrb,
-                kobako_mod,
-                cstr_ptr(WIRE_ERROR_NAME),
-                runtime_error_class,
-            );
+                // (5) `Kobako::Handle` instance class.
+                let handle_class = sys::mrb_define_class_under(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(HANDLE_NAME),
+                    core::ptr::null_mut(),
+                );
+                sys::mrb_define_method(
+                    mrb,
+                    handle_class,
+                    cstr_ptr(INITIALIZE_NAME),
+                    bridges::handle_initialize,
+                    sys::mrb_args_req(1),
+                );
+                sys::mrb_define_method(
+                    mrb,
+                    handle_class,
+                    cstr_ptr(METHOD_MISSING_NAME),
+                    bridges::handle_method_missing,
+                    sys::MRB_ARGS_ANY,
+                );
+                sys::mrb_define_method(
+                    mrb,
+                    handle_class,
+                    cstr_ptr(RESPOND_TO_MISSING_NAME),
+                    bridges::rpc_respond_to_missing,
+                    sys::MRB_ARGS_ANY,
+                );
 
-            // (7) `Kernel#puts` / `Kernel#p` shims. mruby's core
-            //     `kernel.c` registers `Kernel#print` unconditionally,
-            //     but `puts` / `p` only exist when the `mruby-io` mrbgem
-            //     is linked in. `mruby-io` requires POSIX `<pwd.h>` and
-            //     is absent from kobako's `wasm32-wasip1` allowlist, so
-            //     we register both methods here and have the C bridge
-            //     bodies delegate to `Kernel#print` through
-            //     `mrb_funcall`.
-            let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
-            sys::mrb_define_method(
-                mrb,
-                kernel_mod,
-                cstr_ptr(PUTS_NAME),
-                bridges::kernel_puts,
-                sys::MRB_ARGS_ANY,
-            );
-            sys::mrb_define_method(
-                mrb,
-                kernel_mod,
-                cstr_ptr(P_NAME),
-                bridges::kernel_p,
-                sys::MRB_ARGS_ANY,
-            );
+                // (6) `Kobako::ServiceError` /
+                //     `Kobako::ServiceError::Disconnected` /
+                //     `Kobako::WireError` — all subclass `RuntimeError`.
+                let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
+                let service_error_class = sys::mrb_define_class_under(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(SERVICE_ERROR_NAME),
+                    runtime_error_class,
+                );
+                let disconnected_class = sys::mrb_define_class_under(
+                    mrb,
+                    service_error_class,
+                    cstr_ptr(DISCONNECTED_NAME),
+                    service_error_class,
+                );
+                let wire_error_class = sys::mrb_define_class_under(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(WIRE_ERROR_NAME),
+                    runtime_error_class,
+                );
 
-            Self {
-                mrb,
-                rpc_class,
-                handle_class,
-                service_error_class,
-                disconnected_class,
-                wire_error_class,
+                // (7) `Kernel#puts` / `Kernel#p` shims. mruby's core
+                //     `kernel.c` registers `Kernel#print` unconditionally,
+                //     but `puts` / `p` only exist when the `mruby-io`
+                //     mrbgem is linked in. `mruby-io` requires POSIX
+                //     `<pwd.h>` and is absent from kobako's
+                //     `wasm32-wasip1` allowlist, so we register both
+                //     methods here and have the C bridge bodies
+                //     delegate to `Kernel#print` through `mrb_funcall`.
+                let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
+                sys::mrb_define_method(
+                    mrb,
+                    kernel_mod,
+                    cstr_ptr(PUTS_NAME),
+                    bridges::kernel_puts,
+                    sys::MRB_ARGS_ANY,
+                );
+                sys::mrb_define_method(
+                    mrb,
+                    kernel_mod,
+                    cstr_ptr(P_NAME),
+                    bridges::kernel_p,
+                    sys::MRB_ARGS_ANY,
+                );
+
+                Self {
+                    mrb,
+                    rpc_class,
+                    handle_class,
+                    service_error_class,
+                    disconnected_class,
+                    wire_error_class,
+                }
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -317,26 +334,29 @@ impl Kobako {
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            // SAFETY of every call below: `mrb` is live; `mrb_define_module`
-            // is idempotent (returns the existing module if already
-            // registered); `mrb_class_get_under` returns the already
-            // -registered class produced by `install_raw`.
-            let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-            let rpc_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
-            let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
-            let service_error_class =
-                sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
-            let disconnected_class =
-                sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
-            let wire_error_class =
-                sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(WIRE_ERROR_NAME));
-            Self {
-                mrb,
-                rpc_class,
-                handle_class,
-                service_error_class,
-                disconnected_class,
-                wire_error_class,
+            // SAFETY of every FFI call below: `mrb` is live by the
+            // function's safety contract; `mrb_define_module` is
+            // idempotent (returns the existing module if already
+            // registered); `mrb_class_get_under` returns the
+            // already-registered class produced by `install_raw`.
+            unsafe {
+                let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+                let rpc_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
+                let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
+                let service_error_class =
+                    sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
+                let disconnected_class =
+                    sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
+                let wire_error_class =
+                    sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(WIRE_ERROR_NAME));
+                Self {
+                    mrb,
+                    rpc_class,
+                    handle_class,
+                    service_error_class,
+                    disconnected_class,
+                    wire_error_class,
+                }
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
