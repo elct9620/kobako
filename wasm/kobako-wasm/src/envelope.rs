@@ -16,13 +16,19 @@
 //! host envelope module ends up byte-compatible because both sides
 //! follow SPEC, not because one was copied from the other.
 
-use crate::codec::{Decoder, Encoder, Value, WireError, OUTCOME_TAG_PANIC, OUTCOME_TAG_RESULT};
+use crate::codec::{Decoder, Encoder, Value, WireError};
 
 /// Response variant marker for the success branch
 /// (SPEC.md → Wire Codec → Response).
 pub const STATUS_OK: i64 = 0;
 /// Response variant marker for the error branch.
 pub const STATUS_ERROR: i64 = 1;
+
+/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome Envelope").
+pub const OUTCOME_TAG_RESULT: u8 = 0x01;
+
+/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome Envelope").
+pub const OUTCOME_TAG_PANIC: u8 = 0x02;
 
 /// Errors raised by envelope-level encode/decode on top of [`WireError`].
 ///

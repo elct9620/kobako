@@ -29,12 +29,6 @@ pub const EXT_HANDLE: i8 = 0x01;
 /// "Ext Types" → ext 0x02).
 pub const EXT_ERRENV: i8 = 0x02;
 
-/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome Envelope").
-pub const OUTCOME_TAG_RESULT: u8 = 0x01;
-
-/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome Envelope").
-pub const OUTCOME_TAG_PANIC: u8 = 0x02;
-
 /// Maximum legal Capability Handle ID (SPEC.md "Ext Types" → ext 0x01).
 pub const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
@@ -456,12 +450,6 @@ mod tests {
     }
 
     #[test]
-    fn outcome_tags_match_spec() {
-        assert_eq!(OUTCOME_TAG_RESULT, 0x01);
-        assert_eq!(OUTCOME_TAG_PANIC, 0x02);
-    }
-
-    #[test]
     fn handle_id_cap_matches_spec() {
         assert_eq!(HANDLE_ID_MAX, (1u32 << 31) - 1);
     }
@@ -545,16 +533,6 @@ mod tests {
             encode(&Value::Handle(HANDLE_ID_MAX)),
             vec![0xd6, 0x01, 0x7f, 0xff, 0xff, 0xff]
         );
-    }
-
-    #[test]
-    fn golden_outcome_result_42() {
-        let mut buf = vec![OUTCOME_TAG_RESULT];
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Array(vec![Value::Int(42)]))
-            .unwrap();
-        buf.extend(enc.into_bytes());
-        assert_eq!(buf, vec![0x01, 0x91, 0x2a]);
     }
 
     #[test]
