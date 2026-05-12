@@ -37,10 +37,12 @@ module Kobako
       # ---------------- Codec re-exports (envelope-layer shorthand) ------
       # Encoded/decoded byte plumbing lives in {Codec}; envelope helpers
       # below reference these through short local names so they read at
-      # the layer where SPEC's framing rules live.
+      # the layer where SPEC's framing rules live. Hidden from the public
+      # surface — the canonical paths are +Codec::Encoder+ etc.
       Encoder     = Codec::Encoder
       Decoder     = Codec::Decoder
       InvalidType = Codec::InvalidType
+      private_constant :Encoder, :Decoder, :InvalidType
 
       # =================================================================
       # Value objects and their encode/decode helpers (one file per class)

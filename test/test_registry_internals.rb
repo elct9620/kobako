@@ -164,7 +164,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
 
   # --- Panic with missing "class" field raises SandboxError (SPEC E-08) ---
   #
-  # decode_panic calls Envelope.decode_panic, which raises Wire::InvalidType
+  # decode_panic calls Envelope.decode_panic, which raises Wire::Codec::InvalidType
   # when a required key is absent.  The Sandbox rescue chain wraps that as
   # SandboxError with klass="Kobako::WireError".
   def test_panic_with_missing_class_field_raises_sandbox_error
@@ -185,7 +185,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # --- Result envelope with empty bytes body raises SandboxError (SPEC E-09) ---
   #
   # An empty result body is not a valid msgpack value, so decode_result raises
-  # Wire::Truncated (a Wire::Error subclass).  The Sandbox rescue chain wraps
+  # Wire::Codec::Truncated (a Wire::Codec::Error subclass).  The Sandbox rescue chain wraps
   # that as SandboxError (E-09: result envelope decode failed).
   def test_result_envelope_with_empty_body_raises_sandbox_error
     bytes = build_outcome_bytes(
