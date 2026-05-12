@@ -123,7 +123,6 @@ pub extern "C" fn _initialize() {
 pub extern "C" fn __kobako_run() {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::boot::mrb_kobako_init;
         use crate::codec::Value;
         use crate::envelope::{encode_outcome, Outcome, Panic, ResultEnv};
         use crate::mruby::sys;
@@ -253,63 +252,34 @@ pub extern "C" fn __kobako_run() {
             }
         };
 
-        // --- Install Kobako module, RPC / Handle classes, error classes,
-        // and Kernel#puts / Kernel#p via the mruby C API ---
+        // --- Install Kobako runtime and Frame 1 Service Groups ---
         //
-        // `mrb_kobako_init` registers every boot-time entity through
-        // `mrb_define_module` / `mrb_define_class_under` /
-        // `mrb_define_method`. No Ruby source is loaded into the VM
-        // before the user script — see `crate::boot` module docs.
+        // `Kobako::install` registers `Kobako`, `Kobako::RPC`,
+        // `Kobako::Handle`, the error classes and `Kernel#puts` / `p`
+        // shims. `install_groups` walks the preamble and installs each
+        // Group module + Member subclass. Neither runs Ruby source —
+        // every entity is registered through the mruby C API.
 
-        unsafe { mrb_kobako_init(mrb.as_ptr()) };
+        let kobako = crate::kobako::Kobako::install(&mrb);
 
-        // --- Install Service Group modules + Member subclasses (Frame 1) ---
-
-        // Kobako module + RPC base class are installed by mrb_kobako_init above;
-        // look them up once here so each iteration can use rpc_class directly.
-        let kobako_mod = unsafe { sys::mrb_define_module(mrb.as_ptr(), cstr!("Kobako")) };
-        let rpc_class = unsafe { sys::mrb_class_get_under(mrb.as_ptr(), kobako_mod, cstr!("RPC")) };
-
-        for (group_name, members) in &preamble {
-            // NUL-terminate for the C API.
-            let group_cstr = match std::ffi::CString::new(group_name.as_str()) {
-                Ok(s) => s,
-                Err(_) => {
-                    write_panic_outcome(
-                        "sandbox",
-                        "Kobako::BootError",
-                        "group name contains NUL byte",
-                    );
-                    return;
-                }
-            };
-
-            let group_mod = unsafe { sys::mrb_define_module(mrb.as_ptr(), group_cstr.as_ptr()) };
-
-            // Retrieve Kobako::RPC class pointer to use as the parent for
-            // each Member subclass.
-
-            for member_name in members {
-                let member_cstr = match std::ffi::CString::new(member_name.as_str()) {
-                    Ok(s) => s,
-                    Err(_) => {
-                        write_panic_outcome(
-                            "sandbox",
-                            "Kobako::BootError",
-                            "member name contains NUL byte",
-                        );
-                        return;
-                    }
-                };
-
-                unsafe {
-                    sys::mrb_define_class_under(
-                        mrb.as_ptr(),
-                        group_mod,
-                        member_cstr.as_ptr(),
-                        rpc_class,
-                    )
-                };
+        use crate::kobako::InstallGroupsError;
+        match kobako.install_groups(&preamble) {
+            Ok(()) => {}
+            Err(InstallGroupsError::NulInGroupName) => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "group name contains NUL byte",
+                );
+                return;
+            }
+            Err(InstallGroupsError::NulInMemberName) => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "member name contains NUL byte",
+                );
+                return;
             }
         }
 

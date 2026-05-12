@@ -33,6 +33,7 @@ pub mod abi;
 pub mod boot;
 pub mod codec;
 pub mod envelope;
+pub mod kobako;
 pub mod mruby;
 pub mod rpc_client;
 
