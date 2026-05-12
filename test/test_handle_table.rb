@@ -112,7 +112,7 @@ module Kobako
       assert_equal Table::MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
-      # SPEC §"Error Class Hierarchy": cap-exhaustion raises the canonical
+      # SPEC §"Error Classes": cap-exhaustion raises the canonical
       # HandleTableExhausted < HandleTableError < SandboxError chain.
       err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
       assert_kind_of Kobako::HandleTableError, err

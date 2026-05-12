@@ -258,7 +258,7 @@ pub unsafe fn mrb_kobako_init(mrb: *mut sys::mrb_state) {
             runtime_error_class,
         );
         // `Kobako::ServiceError::Disconnected < Kobako::ServiceError` —
-        // SPEC.md §"Error Class Hierarchy" (E-14). Nested under
+        // SPEC.md §"Error Classes" (E-14). Nested under
         // `service_error_class`, not `kobako_mod`, so `mrb_class_name`
         // yields `"Kobako::ServiceError::Disconnected"` and the panic
         // envelope's `class` field carries the qualified name through
@@ -969,7 +969,7 @@ unsafe fn dispatch_invoke(
 /// Raise the right `Kobako::ServiceError` subclass for `ex`. Diverges
 /// (`-> !`) — `mrb_raise` does not return.
 ///
-/// SPEC.md §"Error Class Hierarchy" + §"Service-side error types" pin the
+/// SPEC.md §"Error Classes" + §"Error Envelope" pin the
 /// mapping from the Response.err `type` field to a guest-side mruby class.
 /// Only `"disconnected"` resolves to a named subclass today
 /// (`Kobako::ServiceError::Disconnected`, E-14); the other three reserved

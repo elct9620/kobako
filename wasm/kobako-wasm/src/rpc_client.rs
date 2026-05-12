@@ -58,7 +58,7 @@ use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExceptionPayload {
     /// The `type` field of the inner ext 0x02 map (e.g. `"runtime"`,
-    /// `"undefined"`). SPEC.md → "Service-side error types".
+    /// `"undefined"`). SPEC.md → "Error Envelope".
     pub r#type: String,
     /// Human-readable message (`message` field of the inner map).
     pub message: String,

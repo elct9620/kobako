@@ -68,7 +68,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     assert_equal "service", err.origin
   end
 
-  # SPEC.md §E-14 + §"Error Class Hierarchy": a Service-origin Panic whose
+  # SPEC.md §E-14 + §"Error Classes": a Service-origin Panic whose
   # +class+ field names +Kobako::ServiceError::Disconnected+ resolves to
   # the Disconnected subclass, letting Host Apps rescue the disconnected
   # path specifically. Pins +OutcomeDecoder.panic_target_class+ — the

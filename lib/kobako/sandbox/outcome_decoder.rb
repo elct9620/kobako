@@ -61,7 +61,7 @@ module Kobako
       # Ruby exception. +origin == "service"+ → ServiceError (with the
       # +::Disconnected+ subclass selected when the panic carries the
       # disconnected sentinel —
-      # {SPEC §"Error Class Hierarchy"}[link:../../../SPEC.md]); everything else
+      # {SPEC §"Error Classes"}[link:../../../SPEC.md]); everything else
       # → SandboxError.
       def build_panic_error(panic)
         panic_target_class(panic).new(
@@ -73,7 +73,7 @@ module Kobako
         )
       end
 
-      # {SPEC §"Error Class Hierarchy"}[link:../../../SPEC.md]: when
+      # {SPEC §"Error Classes"}[link:../../../SPEC.md]: when
       # +origin="service"+ and the panic +class+ field names
       # +ServiceError::Disconnected+, surface that subclass so callers can
       # rescue the disconnected path specifically (E-14).
