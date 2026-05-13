@@ -77,10 +77,9 @@ module Kobako
         end
       end
 
-      # Encode a {Request} to bytes.
+      # Encode a {Request} to bytes. The Value Object's own invariants
+      # are the contract; this method does not re-check the shape.
       def self.encode_request(request)
-        raise ArgumentError, "encode_request requires Request" unless request.is_a?(Request)
-
         Encoder.encode([request.target, request.method_name, request.args, request.kwargs])
       end
 
@@ -132,8 +131,6 @@ module Kobako
       end
 
       def self.encode_response(response)
-        raise ArgumentError, "encode_response requires Response" unless response.is_a?(Response)
-
         Encoder.encode([response.status, response.payload])
       end
 

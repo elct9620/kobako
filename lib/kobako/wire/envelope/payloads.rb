@@ -57,8 +57,6 @@ module Kobako
       Panic::ORIGIN_SERVICE = "service"
 
       def self.encode_panic(panic)
-        raise ArgumentError, "encode_panic requires Panic" unless panic.is_a?(Panic)
-
         Encoder.encode(panic_map(panic))
       end
 
@@ -110,8 +108,6 @@ module Kobako
       end
 
       def self.encode_outcome(outcome)
-        raise ArgumentError, "encode_outcome requires Outcome" unless outcome.is_a?(Outcome)
-
         tag, body = encode_outcome_payload(outcome.payload)
         out = String.new(encoding: Encoding::ASCII_8BIT)
         out << [tag].pack("C")
