@@ -67,6 +67,10 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 | Clean Stage B / Stage C | `rake mruby:clean` / `rake wasm:clean` |
 | Clean vendor toolchains | `rake vendor:clean` (keeps tarball cache) or `rake vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
+| SPEC regression benchmarks (#1..#5, ≤1 MiB payloads) | `bundle exec rake bench` |
+| Regression benchmarks + 16 MiB codec sweep | `bundle exec rake bench:full` |
+| Concurrent characterization (#6, not gated) | `bundle exec rake bench:concurrent` |
+| Memory characterization (#7, not gated) | `bundle exec rake bench:memory` |
 
 ## Where to Look
 
@@ -74,12 +78,13 @@ When changing behavior, start at the listed files and follow the SPEC anchors th
 
 - **Wire format / codec** — `lib/kobako/wire/` (host) + `wasm/kobako-wasm/src/codec/`, `wasm/kobako-wasm/src/envelope.rs` (guest). SPEC anchors: B-01..B-14.
 - **Error taxonomy / outcome attribution** — `lib/kobako/errors.rb` + `lib/kobako/sandbox/outcome_decoder.rb`. SPEC anchors: E-xx.
-- **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` (façade) + `lib/kobako/sandbox/*` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/boot.rs` (guest entry).
+- **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` (façade) + `lib/kobako/sandbox/*` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/abi.rs` (guest entry — `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome` exports).
 - **RPC dispatch** — `lib/kobako/registry/dispatcher.rb` (host; **never raises** — every failure becomes a `Response.err` envelope) + `wasm/kobako-wasm/src/rpc_client.rs` (guest).
 - **HandleTable / capability handles** — `lib/kobako/registry/handle_table.rb` + `lib/kobako/wire/handle.rb`.
 - **Service registration** — `lib/kobako/registry.rb` + `lib/kobako/registry/service_group.rb`.
 - **ABI surface (host ↔ guest exports)** — `wasm/kobako-wasm/src/abi.rs` + matching `ext/kobako/src/wasm.rs` callers.
 - **E2E coverage / real guest binary** — `test/test_e2e_journeys.rb` drives `Sandbox#run` against `data/kobako.wasm`; it is the load-bearing coverage for Wire ABI export presence and the host↔guest round-trip. Wrapper-tier tests (`test/test_wasm_wrapper.rb`) cover only the `from_path` pipeline and intentionally do not duplicate this — a missing export fails the first E2E journey, so adding a wrapper-tier smoke test is redundant.
 - **Build / toolchain** — `tasks/{vendor,mruby,wasm}.rake`.
+- **Regression benchmarks** — `tasks/benchmark.rake` + `benchmark/{cold_start,rpc_roundtrip,codec,mruby_eval,handle_table}.rb` are the five SPEC-mandated benchmarks (#1..#5); a +10% regression on any one blocks release. Characterization scripts (`benchmark/concurrent/`, `benchmark/memory.rb`) are #6/#7 and are not in the release gate. Results land in `benchmark/results/<date>-<short-sha>.json`. See `benchmark/README.md` for per-suite scope and known caveats (guest String size cap, GVL bounds, allocator retention).
 
 `test/test_helper.rb` `rescue`s the `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests check `defined?(Kobako::Wasm::Instance)` and `skip` themselves when the native ext is absent.
