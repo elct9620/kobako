@@ -1067,9 +1067,9 @@ Each task in `tasks/*.rake` must be idempotent: the presence of target files (e.
 |---|----------|----------|
 | 1 | `README.md` | Quickstart (5-line runnable example), API overview, install flow including MSRV |
 | 2 | Development guide (`docs/`) | Complete design specification (this document) |
-| 3 | Wire Spec | Normative codec contract for implementers who want to build alternative hosts or codecs |
+| 3 | Wire Spec | Normative host↔guest codec contract; the binding reference for the Host Gem and Guest Binary implementations shipped in this release |
 | 4 | Build guide | Rake task reference, vendor version table, common build error troubleshooting |
 | 5 | `CHANGELOG.md` | Keep a Changelog format; each release includes Added / Changed / Fixed / Breaking Changes sections (empty sections may be omitted) |
 | 6 | `LICENSE` | License file |
 
-The Wire Spec (artifact #3) is the only one that forms an external stability promise. Its version is `1.0`; any change that breaks round-trip compatibility requires a version increment and a CHANGELOG entry marked as Breaking Changes. MSRV changes are treated as breaking changes and must appear in CHANGELOG.
+Wire-affecting changes that break round-trip compatibility are recorded in `CHANGELOG.md` under the Breaking Changes section. MSRV changes are treated as breaking changes and must appear in `CHANGELOG.md`.
