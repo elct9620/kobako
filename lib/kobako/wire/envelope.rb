@@ -58,30 +58,24 @@ module Kobako
       # construction so the Value Object is the single source of truth.
       Request = Data.define(:target, :method_name, :args, :kwargs) do
         def initialize(target:, method:, args: [], kwargs: {})
-          Envelope.send(:validate_request_fields!, target, method, args, kwargs)
+          unless target.is_a?(String) || target.is_a?(Handle)
+            raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
+          end
+          raise ArgumentError, "Request method must be String" unless method.is_a?(String)
+          raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
+
+          self.class.validate_kwargs!(kwargs)
           super(target: target, method_name: method, args: args, kwargs: kwargs)
         end
-      end
 
-      def self.validate_request_fields!(target, method_name, args, kwargs)
-        unless target.is_a?(String) || target.is_a?(Handle)
-          raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
-        end
-        raise ArgumentError, "Request method must be String" unless method_name.is_a?(String)
-        raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
+        def self.validate_kwargs!(kwargs)
+          raise ArgumentError, "Request kwargs must be Hash" unless kwargs.is_a?(Hash)
 
-        validate_request_kwargs!(kwargs)
-      end
-      private_class_method :validate_request_fields!
-
-      def self.validate_request_kwargs!(kwargs)
-        raise ArgumentError, "Request kwargs must be Hash" unless kwargs.is_a?(Hash)
-
-        kwargs.each_key do |k|
-          raise ArgumentError, "Request kwargs keys must be String, got #{k.class}" unless k.is_a?(String)
+          kwargs.each_key do |k|
+            raise ArgumentError, "Request kwargs keys must be String, got #{k.class}" unless k.is_a?(String)
+          end
         end
       end
-      private_class_method :validate_request_kwargs!
 
       # Encode a {Request} to bytes.
       def self.encode_request(request)
@@ -123,23 +117,19 @@ module Kobako
         end
 
         def initialize(status:, payload:)
-          Envelope.send(:validate_response_fields!, status, payload)
+          unless [STATUS_OK, STATUS_ERROR].include?(status)
+            raise ArgumentError, "Response status must be 0 or 1, got #{status.inspect}"
+          end
+          if status == STATUS_ERROR && !payload.is_a?(Exception)
+            raise ArgumentError, "Response status=1 payload must be Kobako::Wire::Exception"
+          end
+
           super
         end
 
         def ok?  = status == STATUS_OK
         def err? = status == STATUS_ERROR
       end
-
-      def self.validate_response_fields!(status, payload)
-        unless [STATUS_OK, STATUS_ERROR].include?(status)
-          raise ArgumentError, "Response status must be 0 or 1, got #{status.inspect}"
-        end
-        return unless status == STATUS_ERROR && !payload.is_a?(Exception)
-
-        raise ArgumentError, "Response status=1 payload must be Kobako::Wire::Exception"
-      end
-      private_class_method :validate_response_fields!
 
       def self.encode_response(response)
         raise ArgumentError, "encode_response requires Response" unless response.is_a?(Response)
