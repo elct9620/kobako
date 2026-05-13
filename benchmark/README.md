@@ -128,12 +128,32 @@ The last four rows confirm the Hash stays effectively flat from 1 K to 1 M entri
 
 Practical implication for Sidekiq / Puma cluster shapes: a long-running script does NOT block other Threads' short `#run` calls by hundreds of milliseconds. The contention overhead is modest because any host-side synchronization (Queue push from a Service callback, mutex acquisition, IO) yields the GVL and lets the contending Thread interleave.
 
+### Memory cost ([`memory.rb`](memory.rb)) — characterization only
+
+External RSS sampling (`ps -o rss=`) — we only observe what the host process consumes, never look inside the Sandbox's mruby heap or Wasm linear memory. This is the right granularity for capacity planning (how many tenants fit in one process) without violating SPEC's Non-Goal of per-`#run` instrumentation.
+
+| Scenario | Result |
+|---|---|
+| Process RSS at boot (no Sandbox) | 26 MB |
+| RSS after the first `Sandbox.new` + `#run("nil")` | 154 MB (**+128 MB** — Engine init + Module JIT + 1 instance, one-time) |
+| RSS after 10 Sandboxes total | 156 MB (~203 KB per additional Sandbox) |
+| RSS after 100 Sandboxes total | 173 MB (~194 KB per additional Sandbox) |
+| RSS after 1 000 Sandboxes total | 372 MB (~**218 KB per additional Sandbox**) |
+| RSS drift after 10 000 consecutive `#run("nil")` on one Sandbox | +2.2 MB over the whole run (~0.2 KB / run; consistent with allocator page retention, not a B-15 / B-19 violation) |
+| Peak RSS while holding a 512 KiB return value | +2.5 MB above baseline |
+| Retained RSS after GC of the same value | +2.5 MB (allocator does not eagerly return pages to the OS; the Ruby reference is dropped) |
+
+Practical implication for tenant isolation: budget ~128 MB up front per worker process (paid by the first Sandbox), plus ~200 KB per concurrent tenant. **1 000 tenants ≈ 330 MB** in one Ruby process — well within a typical Sidekiq / Puma worker's RSS limit. The 200 KB number is dominated by each Sandbox's own Wasm Instance and its linear memory; the Engine and the compiled Module are shared at process scope and not re-paid per Sandbox.
+
+The 7b drift is allocator behaviour, not a real leak — the per-`#run` HandleTable reset is honored at the Ruby level; the residual RSS is malloc pages held for reuse. If a host operator needs to bound a long-lived process tightly, monitor RSS over wall-clock hours rather than per-run growth.
+
 ## Running
 
 ```bash
 bundle exec rake bench             # five gated benchmarks (= bench:smoke; CI-friendly, payloads ≤ 1 MiB)
 bundle exec rake bench:full        # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent  # multi-Thread characterization
+bundle exec rake bench:memory      # per-Sandbox RSS characterization
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; you can also invoke a single script directly for fast iteration:

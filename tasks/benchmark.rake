@@ -13,6 +13,8 @@
 #                       1 MiB cap is already CI-friendly).
 #   bench:full        — bench plus codec @ 16 MiB (BENCH_FULL=1).
 #   bench:concurrent  — #6 characterization (not in release gate).
+#   bench:memory      — #7 characterization: per-Sandbox RSS, leak
+#                       detection, large-payload retention.
 #
 # Each script writes its suite into
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
@@ -50,6 +52,11 @@ namespace :bench do
   desc "Run concurrent characterization benchmark (SPEC.md #6; not in release gate)."
   task :concurrent do
     sh "bundle exec ruby benchmark/concurrent/threads.rb"
+  end
+
+  desc "Run memory characterization benchmark (#7; not in release gate)."
+  task :memory do
+    sh "bundle exec ruby benchmark/memory.rb"
   end
 end
 

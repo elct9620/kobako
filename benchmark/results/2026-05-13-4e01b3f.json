@@ -1,0 +1,131 @@
+{
+  "env": {
+    "ruby_version": "3.4.7",
+    "ruby_platform": "arm64-darwin24",
+    "ruby_engine": "ruby",
+    "host_os": "darwin24",
+    "host_cpu": "arm64",
+    "processors": 16,
+    "git_sha": "4e01b3f",
+    "captured_at": "2026-05-13T13:35:42Z"
+  },
+  "suites": {
+    "memory": [
+      {
+        "label": "7a-rss-baseline",
+        "mode": "memory",
+        "rss_kb": 26464
+      },
+      {
+        "label": "7a-rss-after-1-sandbox",
+        "mode": "memory",
+        "rss_kb": 154160,
+        "delta_from_baseline_kb": 127696
+      },
+      {
+        "label": "7a-rss-after-10-sandboxes",
+        "mode": "memory",
+        "rss_kb": 155984,
+        "delta_from_first_kb": 1824,
+        "per_additional_sandbox_kb": 202.7
+      },
+      {
+        "label": "7a-rss-after-100-sandboxes",
+        "mode": "memory",
+        "rss_kb": 173408,
+        "delta_from_first_kb": 19248,
+        "per_additional_sandbox_kb": 194.4
+      },
+      {
+        "label": "7a-rss-after-1000-sandboxes",
+        "mode": "memory",
+        "rss_kb": 372032,
+        "delta_from_first_kb": 217872,
+        "per_additional_sandbox_kb": 218.1
+      },
+      {
+        "label": "7b-rss-before-run-loop",
+        "mode": "memory",
+        "rss_kb": 178192
+      },
+      {
+        "label": "7b-rss-after-1000-runs",
+        "mode": "memory",
+        "rss_kb": 178432,
+        "delta_from_baseline_kb": 240
+      },
+      {
+        "label": "7b-rss-after-2000-runs",
+        "mode": "memory",
+        "rss_kb": 178848,
+        "delta_from_baseline_kb": 656
+      },
+      {
+        "label": "7b-rss-after-3000-runs",
+        "mode": "memory",
+        "rss_kb": 179216,
+        "delta_from_baseline_kb": 1024
+      },
+      {
+        "label": "7b-rss-after-4000-runs",
+        "mode": "memory",
+        "rss_kb": 179584,
+        "delta_from_baseline_kb": 1392
+      },
+      {
+        "label": "7b-rss-after-5000-runs",
+        "mode": "memory",
+        "rss_kb": 179616,
+        "delta_from_baseline_kb": 1424
+      },
+      {
+        "label": "7b-rss-after-6000-runs",
+        "mode": "memory",
+        "rss_kb": 179664,
+        "delta_from_baseline_kb": 1472
+      },
+      {
+        "label": "7b-rss-after-7000-runs",
+        "mode": "memory",
+        "rss_kb": 180016,
+        "delta_from_baseline_kb": 1824
+      },
+      {
+        "label": "7b-rss-after-8000-runs",
+        "mode": "memory",
+        "rss_kb": 180032,
+        "delta_from_baseline_kb": 1840
+      },
+      {
+        "label": "7b-rss-after-9000-runs",
+        "mode": "memory",
+        "rss_kb": 180080,
+        "delta_from_baseline_kb": 1888
+      },
+      {
+        "label": "7b-rss-after-10000-runs",
+        "mode": "memory",
+        "rss_kb": 180384,
+        "delta_from_baseline_kb": 2192
+      },
+      {
+        "label": "7c-rss-before-512kib-return",
+        "mode": "memory",
+        "rss_kb": 180384
+      },
+      {
+        "label": "7c-rss-while-holding-return-value",
+        "mode": "memory",
+        "rss_kb": 182944,
+        "peak_delta_kb": 2560,
+        "payload_bytesize": 524288
+      },
+      {
+        "label": "7c-rss-after-gc",
+        "mode": "memory",
+        "rss_kb": 182944,
+        "retained_delta_kb": 2560
+      }
+    ]
+  }
+}
