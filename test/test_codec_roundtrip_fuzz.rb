@@ -168,7 +168,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def assert_ruby_roundtrip(iter, value, encoded, message)
-    recovered = Decoder.new(encoded).read
+    recovered = Decoder.decode(encoded)
     return if values_equal?(value, recovered)
 
     flunk fuzz_failure(iter, value, message, decoded: recovered)

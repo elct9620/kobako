@@ -27,7 +27,7 @@ module Kobako
 
       def roundtrip(value)
         bytes = Encoder.encode(value)
-        decoded = Decoder.new(bytes).read
+        decoded = Decoder.decode(bytes)
         [bytes, decoded]
       end
 
@@ -159,7 +159,7 @@ module Kobako
         bytes = Encoder.encode(s)
         # 0xc4 = bin8
         assert_equal 0xc4, bytes.getbyte(0)
-        decoded = Decoder.new(bytes).read
+        decoded = Decoder.decode(bytes)
         assert_equal Encoding::ASCII_8BIT, decoded.encoding
         assert_equal "abc".b, decoded
       end
@@ -231,12 +231,12 @@ module Kobako
       def test_handle_zero_id_on_wire_rejected
         # Manually construct fixext4 + 0x01 + zero ID
         bytes = "\xd6\x01\x00\x00\x00\x00".b
-        assert_raises(InvalidType) { Decoder.new(bytes).read }
+        assert_raises(InvalidType) { Decoder.decode(bytes) }
       end
 
       def test_handle_over_cap_on_wire_rejected
         bytes = "\xd6\x01\x80\x00\x00\x00".b
-        assert_raises(InvalidType) { Decoder.new(bytes).read }
+        assert_raises(InvalidType) { Decoder.decode(bytes) }
       end
 
       # ---------- ext 0x02 Exception ----------
@@ -282,36 +282,36 @@ module Kobako
       # ---------- decoder error cases ----------
 
       def test_truncated_empty_input
-        assert_raises(Truncated) { Decoder.new("".b).read }
+        assert_raises(Truncated) { Decoder.decode("".b) }
       end
 
       def test_truncated_in_str_payload
         # fixstr len=5 but only 2 bytes follow
         bytes = "\xa5ab".b
-        assert_raises(Truncated) { Decoder.new(bytes).read }
+        assert_raises(Truncated) { Decoder.decode(bytes) }
       end
 
       def test_truncated_in_int64
         bytes = "\xcf\x00\x00\x00".b
-        assert_raises(Truncated) { Decoder.new(bytes).read }
+        assert_raises(Truncated) { Decoder.decode(bytes) }
       end
 
       def test_invalid_type_tag
         # 0xc1 is reserved as "never used" in msgpack -> wire violation
         bytes = "\xc1".b
-        assert_raises(InvalidType) { Decoder.new(bytes).read }
+        assert_raises(InvalidType) { Decoder.decode(bytes) }
       end
 
       def test_unknown_ext_code_rejected
         # fixext1 with type 0x99 (not 0x01 or 0x02)
         bytes = "\xd4\x99\x00".b
-        assert_raises(InvalidType) { Decoder.new(bytes).read }
+        assert_raises(InvalidType) { Decoder.decode(bytes) }
       end
 
       def test_invalid_utf8_in_str_rejected
         # fixstr len=2 with invalid UTF-8 bytes (lone continuation byte)
         bytes = "\xa2\xff\xfe".b
-        assert_raises(InvalidEncoding) { Decoder.new(bytes).read }
+        assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
       end
 
       def test_unsupported_ruby_type_at_encode
@@ -440,7 +440,7 @@ module Kobako
       def test_handle_wrong_payload_length_on_wire_rejected
         # fixext1: 0xd4  type=0x01  payload=0x01 (1 byte instead of 4)
         bytes = "\xd4\x01\x01".b
-        err = assert_raises(InvalidType) { Decoder.new(bytes).read }
+        err = assert_raises(InvalidType) { Decoder.decode(bytes) }
         assert_match(/4 bytes/, err.message)
       end
     end

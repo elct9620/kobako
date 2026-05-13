@@ -10,8 +10,8 @@ require_relative "factory"
 module Kobako
   module Wire
     module Codec
-      # Thin wrapper around +MessagePack::Factory+ for the host side of the
-      # kobako wire (SPEC.md → Wire Codec → Type Mapping).
+      # Module-level entry point for the host side of the kobako wire
+      # (SPEC.md → Wire Codec → Type Mapping).
       #
       # The codec backbone is the official +msgpack+ gem: integers, floats,
       # strings, arrays, and maps go through the gem's narrowest-encoding
@@ -19,32 +19,20 @@ module Kobako
       # 0x02 Exception envelope) are registered on +Factory+ via
       # {Kobako::Wire::Codec::Factory.instance}.
       #
-      # The class still exists as a public API surface so callers do not need
-      # to know the codec backend — the previous hand-rolled implementation
-      # exposed +Encoder.encode(value)+ / +Encoder.new(buf).write(value)+ and
-      # those entry points are preserved.
-      class Encoder
-        # Single-shot helper.
-        def self.encode(value)
-          new.tap { |enc| enc.write(value) }.buffer
-        end
-
-        def initialize(buffer = String.new(encoding: Encoding::ASCII_8BIT))
-          @buffer = buffer
-        end
-
-        attr_reader :buffer
-
-        # Encode +value+ and append the resulting bytes to the backing buffer.
+      # Public API is a single function — {.encode}. The codec is stateless;
+      # there is no buffer accumulator and no streaming write API. Callers
+      # that need to concatenate multiple encodings build the bytes
+      # themselves (see {Envelope.encode_outcome} for the canonical example).
+      module Encoder
+        # Encode +value+ to wire bytes (binary-encoded String).
         # Wire violations surface as +UnsupportedType+: SPEC's 10-entry type
         # mapping is a closed set, and anything outside it is rejected by
         # either the Factory (Symbol — see +register_symbol_rejection+) or
         # the msgpack gem itself (arbitrary objects raise +NoMethodError+
         # from missing +to_msgpack+, integers outside i64..u64 raise
         # +RangeError+).
-        def write(value)
-          @buffer << Factory.instance.dump(value)
-          self
+        def self.encode(value)
+          Factory.instance.dump(value)
         rescue ::RangeError, ::NoMethodError => e
           raise UnsupportedType, e.message
         end

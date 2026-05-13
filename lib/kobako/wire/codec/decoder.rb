@@ -10,25 +10,18 @@ require_relative "factory"
 module Kobako
   module Wire
     module Codec
-      # Thin wrapper around +MessagePack::Factory+'s +Unpacker+ for the host
-      # side of the kobako wire (SPEC.md → Wire Codec → Type Mapping).
+      # Module-level entry point for the host side of the kobako wire
+      # (SPEC.md → Wire Codec → Type Mapping).
       #
       # Translates msgpack gem exceptions into the kobako error taxonomy
       # ({Truncated}, {InvalidType}, {InvalidEncoding}, {UnsupportedType}) so
       # callers can pattern-match on the SPEC's wire-violation categories
       # without leaking the gem's internal exception classes.
-      class Decoder
-        # Single-shot helper — decode +bytes+ into one Ruby value.
-        def self.decode(bytes)
-          new(bytes).read
-        end
-
-        def initialize(bytes)
-          @buf = bytes.b
-          @unpacker = Factory.instance.unpacker
-          @unpacker.feed(@buf)
-        end
-
+      #
+      # Public API is a single function — {.decode}. The decoder is
+      # stateless; the +MessagePack::Unpacker+ instance is built per call
+      # because callers always decode exactly one wire value at a time.
+      module Decoder
         # The msgpack gem raises these for type/format violations; +ArgumentError+
         # also comes from our ext-type validators (Handle id range, Exception
         # type whitelist). All surface as {InvalidType}.
@@ -45,9 +38,11 @@ module Kobako
         TRUNCATED_ERRORS = [::MessagePack::UnpackError, ::EOFError].freeze
         private_constant :TRUNCATED_ERRORS
 
-        # Read exactly one wire value and return its Ruby form.
-        def read
-          value = @unpacker.read
+        # Decode +bytes+ into one Ruby value and validate transitively
+        # against the SPEC type mapping. Raises {Truncated}, {InvalidType},
+        # or {InvalidEncoding} on wire violations.
+        def self.decode(bytes)
+          value = read_one(bytes)
           validate_utf8!(value)
           value
         rescue *INVALID_TYPE_ERRORS => e
@@ -58,7 +53,12 @@ module Kobako
           raise InvalidEncoding, e.message
         end
 
-        private
+        def self.read_one(bytes)
+          unpacker = Factory.instance.unpacker
+          unpacker.feed(bytes.b)
+          unpacker.read
+        end
+        private_class_method :read_one
 
         # SPEC pins +str+ family payloads to UTF-8 (Wire Codec → str/bin
         # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
@@ -68,23 +68,26 @@ module Kobako
         # +Factory.unpack_exception+ feeds the inner ext-0x02 bytes back
         # through this Decoder, so their +str+ fields are already covered
         # by the time control returns here.
-        def validate_utf8!(value)
+        def self.validate_utf8!(value)
           case value
           when String then validate_string_utf8!(value)
           when Array  then value.each { |v| validate_utf8!(v) }
           when Hash   then value.each_pair { |k, v| validate_pair_utf8!(k, v) }
           end
         end
+        private_class_method :validate_utf8!
 
-        def validate_string_utf8!(value)
+        def self.validate_string_utf8!(value)
           return unless value.encoding == Encoding::UTF_8
           raise InvalidEncoding, "str payload is not valid UTF-8" unless value.valid_encoding?
         end
+        private_class_method :validate_string_utf8!
 
-        def validate_pair_utf8!(key, value)
+        def self.validate_pair_utf8!(key, value)
           validate_utf8!(key)
           validate_utf8!(value)
         end
+        private_class_method :validate_pair_utf8!
       end
     end
   end
