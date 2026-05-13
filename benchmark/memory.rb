@@ -35,6 +35,10 @@ $LOAD_PATH.unshift File.expand_path("support", __dir__)
 require "kobako"
 require "runner"
 
+# 7c payload size — kept well below MRB_STR_LENGTH_MAX (1 MiB; SPEC
+# Invariant) so the guest can construct the String without raising.
+PAYLOAD_BYTES = 512 * 1024
+
 # RSS in KB via `ps -o rss=` — macOS and Linux both report in 1024-byte
 # blocks. Reading our own PID, so no quoting concern.
 def sample_rss_kb
@@ -120,8 +124,13 @@ end
 
 def sample_during_payload(runner, sandbox, before)
   record(runner, "7c-rss-before-512kib-return", rss_kb: before)
-  result = sandbox.run('"x" * 524288')
+  result = sandbox.run("\"x\" * #{PAYLOAD_BYTES}")
   during = sample_rss_kb
+  # `payload_bytesize` reads `result` *after* the rss sample, which
+  # is what keeps the 512 KiB String alive across `sample_rss_kb`.
+  # Do not drop this field: rubocop's auto-correct previously
+  # stripped the unused `result =` assignment and silently broke
+  # the during-payload measurement.
   record(runner, "7c-rss-while-holding-return-value",
          rss_kb: during,
          peak_delta_kb: during - before,
