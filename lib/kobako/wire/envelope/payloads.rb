@@ -20,13 +20,13 @@ module Kobako
       Result = Data.define(:value)
 
       def self.encode_result(value)
-        Encoder.encode([value])
+        Codec::Encoder.encode([value])
       end
 
       def self.decode_result(bytes)
-        arr = Decoder.decode(bytes)
+        arr = Codec::Decoder.decode(bytes)
         unless arr.is_a?(Array) && arr.length == 1
-          raise InvalidType, "Result envelope must be a 1-element array, got #{arr.inspect}"
+          raise Codec::InvalidType, "Result envelope must be a 1-element array, got #{arr.inspect}"
         end
 
         Result.new(arr[0])
@@ -57,7 +57,7 @@ module Kobako
       Panic::ORIGIN_SERVICE = "service"
 
       def self.encode_panic(panic)
-        Encoder.encode(panic_map(panic))
+        Codec::Encoder.encode(panic_map(panic))
       end
 
       # SPEC: Panic is a msgpack MAP keyed by name. Required keys always
@@ -74,8 +74,8 @@ module Kobako
       private_class_method :panic_map
 
       def self.decode_panic(bytes)
-        map = Decoder.decode(bytes)
-        raise InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
+        map = Codec::Decoder.decode(bytes)
+        raise Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
         Codec.translate_value_object_error do
           Panic.new(
@@ -125,7 +125,7 @@ module Kobako
 
       def self.decode_outcome(bytes)
         bytes = bytes.b
-        raise InvalidType, "Outcome bytes must not be empty" if bytes.empty?
+        raise Codec::InvalidType, "Outcome bytes must not be empty" if bytes.empty?
 
         tag = bytes.getbyte(0)
         body = bytes.byteslice(1, bytes.bytesize - 1)
@@ -136,7 +136,7 @@ module Kobako
         case tag
         when OUTCOME_TAG_RESULT then decode_result(body)
         when OUTCOME_TAG_PANIC  then decode_panic(body)
-        else raise InvalidType, format("unknown outcome tag 0x%<tag>02x", tag: tag)
+        else raise Codec::InvalidType, format("unknown outcome tag 0x%<tag>02x", tag: tag)
         end
       end
       private_class_method :decode_outcome_payload

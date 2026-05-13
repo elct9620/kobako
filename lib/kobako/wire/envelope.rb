@@ -42,12 +42,6 @@ module Kobako
       # Response variant marker for the error branch.
       STATUS_ERROR = 1
 
-      # ---------------- Codec re-exports (envelope-layer shorthand) ------
-      Encoder     = Codec::Encoder
-      Decoder     = Codec::Decoder
-      InvalidType = Codec::InvalidType
-      private_constant :Encoder, :Decoder, :InvalidType
-
       # ============================================================
       # Request (SPEC.md Wire Codec → Request)
       # ============================================================
@@ -82,13 +76,13 @@ module Kobako
       # Encode a {Request} to bytes. The Value Object's own invariants
       # are the contract; this method does not re-check the shape.
       def self.encode_request(request)
-        Encoder.encode([request.target, request.method_name, request.args, request.kwargs])
+        Codec::Encoder.encode([request.target, request.method_name, request.args, request.kwargs])
       end
 
       def self.decode_request(bytes)
-        arr = Decoder.decode(bytes)
+        arr = Codec::Decoder.decode(bytes)
         unless arr.is_a?(Array) && arr.length == 4
-          raise InvalidType, "Request must be a 4-element array, got #{arr.inspect}"
+          raise Codec::InvalidType, "Request must be a 4-element array, got #{arr.inspect}"
         end
 
         target, method_name, args, kwargs = arr
@@ -133,13 +127,13 @@ module Kobako
       end
 
       def self.encode_response(response)
-        Encoder.encode([response.status, response.payload])
+        Codec::Encoder.encode([response.status, response.payload])
       end
 
       def self.decode_response(bytes)
-        arr = Decoder.decode(bytes)
+        arr = Codec::Decoder.decode(bytes)
         unless arr.is_a?(Array) && arr.length == 2
-          raise InvalidType, "Response must be a 2-element array, got #{arr.inspect}"
+          raise Codec::InvalidType, "Response must be a 2-element array, got #{arr.inspect}"
         end
 
         status, payload = arr
