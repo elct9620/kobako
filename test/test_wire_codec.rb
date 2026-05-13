@@ -327,7 +327,7 @@ module Kobako
       end
 
       def test_symbol_empty_roundtrip
-        # SPEC: empty payload (:""") is wire-legal.
+        # SPEC: empty payload (:"") is wire-legal.
         assert_roundtrip(:"")
       end
 
