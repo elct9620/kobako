@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.description = "kobako provides an in-process Wasm sandbox (wasmtime + mruby) with a MessagePack-based host/guest RPC, allowing Ruby applications to execute untrusted mruby scripts under capability-based Service injection."
   spec.homepage = "https://github.com/elct9620/kobako"
   spec.license = "Apache-2.0"
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 3.3.0"
   spec.required_rubygems_version = ">= 3.3.11"
 
   spec.metadata["allowed_push_host"] = "https://rubygems.org"

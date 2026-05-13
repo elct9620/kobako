@@ -16,7 +16,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 
 ## Requirements
 
-- **Ruby ≥ 3.2.0**
+- **Ruby ≥ 3.3.0**
 - **Rust / Cargo** at install time — the native extension compiles from source via `rb_sys`
 - **Linux** or **macOS** — Windows is not supported
 
