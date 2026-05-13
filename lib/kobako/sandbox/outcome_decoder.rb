@@ -22,7 +22,7 @@ module Kobako
         when Kobako::Wire::Envelope::OUTCOME_TAG_RESULT
           decode_result(body)
         when Kobako::Wire::Envelope::OUTCOME_TAG_PANIC
-          raise decode_panic(body)
+          decode_panic(body)
         else
           raise trap_for_tag(tag)
         end
@@ -50,11 +50,16 @@ module Kobako
         raise wire_violation_error("result envelope decode failed: #{e.message}")
       end
 
-      # Decode failure on a known Panic tag is a SandboxError (E-08).
+      # Decode failure on a known Panic tag is a SandboxError (E-08). Either
+      # path raises — on success the decoded Panic is mapped to its three-
+      # layer exception via +build_panic_error+ and raised; on wire-decode
+      # failure the rescue path raises the wire-violation +SandboxError+.
+      # Symmetric with +decode_result+ — both have signature
+      # "decode body and return value, or raise".
       def decode_panic(body)
-        build_panic_error(Kobako::Wire::Envelope.decode_panic(body))
+        raise build_panic_error(Kobako::Wire::Envelope.decode_panic(body))
       rescue Kobako::Wire::Codec::Error => e
-        wire_violation_error("panic envelope decode failed: #{e.message}")
+        raise wire_violation_error("panic envelope decode failed: #{e.message}")
       end
 
       # Map a decoded Panic envelope into the corresponding three-layer
