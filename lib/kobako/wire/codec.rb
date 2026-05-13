@@ -17,17 +17,18 @@ module Kobako
     # ext-code constants live as module-private values on {Factory}
     # alongside +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+ on that side.
     module Codec
-      # Boundary translator: every Value Object in the wire layer
-      # (Handle / Exception / Request / Response / Panic / ...) raises
+      # Wire-boundary translator: every wire Value Object (Handle /
+      # Exception / Request / Response / Panic / Outcome) raises
       # +ArgumentError+ when an invariant is violated at construction.
       # The wire boundary surfaces those violations to callers as
-      # +InvalidType+ so the public taxonomy is +Codec::Error+ subclasses
-      # and never +ArgumentError+ from the Ruby standard library.
+      # +InvalidType+ so the public taxonomy stays +Codec::Error+ and
+      # never leaks +ArgumentError+ from the Ruby standard library.
       #
-      # Use this helper around any block that constructs a Value Object
-      # from wire-decoded data so the translation is uniform across the
-      # five decode sites (Request / Response / Panic / Handle ext /
-      # Exception ext).
+      # Wrap any block that constructs a wire Value Object from decoded
+      # bytes with this helper to keep the five decode sites (Request /
+      # Response / Panic / Handle ext / Exception ext) uniform. Do not
+      # use it for general-purpose validation outside the wire boundary
+      # — host-layer +ArgumentError+ values should propagate unchanged.
       def self.translate_value_object_error
         yield
       rescue ::ArgumentError => e
