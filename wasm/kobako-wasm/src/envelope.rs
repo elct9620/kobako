@@ -182,15 +182,12 @@ pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
 pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
-    let mut items = match frame {
-        Value::Array(items) if items.len() == 4 => items,
+    // `try_into` on a Vec succeeds iff length matches; the preceding guard
+    // makes that condition true, so the unwrap is unreachable in practice.
+    let [target_v, method_v, args_v, kwargs_v]: [Value; 4] = match frame {
+        Value::Array(items) if items.len() == 4 => items.try_into().unwrap(),
         _ => return Err(EnvelopeError::Shape("Request must be a 4-element array")),
     };
-    // Drain in order to avoid clones.
-    let kwargs_v = items.pop().unwrap();
-    let args_v = items.pop().unwrap();
-    let method_v = items.pop().unwrap();
-    let target_v = items.pop().unwrap();
 
     let target = match target_v {
         Value::Str(s) => Target::Path(s),
@@ -251,12 +248,10 @@ pub fn encode_response(resp: &Response) -> Result<Vec<u8>, EnvelopeError> {
 pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
-    let mut items = match frame {
-        Value::Array(items) if items.len() == 2 => items,
+    let [status, payload]: [Value; 2] = match frame {
+        Value::Array(items) if items.len() == 2 => items.try_into().unwrap(),
         _ => return Err(EnvelopeError::Shape("Response must be a 2-element array")),
     };
-    let payload = items.pop().unwrap();
-    let status = items.pop().unwrap();
     let status = match status {
         Value::Int(n) => n,
         _ => return Err(EnvelopeError::WrongFieldType("Response status must be int")),
@@ -284,17 +279,15 @@ pub fn encode_result(value: &Value) -> Result<Vec<u8>, EnvelopeError> {
 pub fn decode_result(bytes: &[u8]) -> Result<ResultEnv, EnvelopeError> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
-    let mut items = match frame {
-        Value::Array(items) if items.len() == 1 => items,
+    let [value]: [Value; 1] = match frame {
+        Value::Array(items) if items.len() == 1 => items.try_into().unwrap(),
         _ => {
             return Err(EnvelopeError::Shape(
                 "Result envelope must be a 1-element array",
             ))
         }
     };
-    Ok(ResultEnv {
-        value: items.pop().unwrap(),
-    })
+    Ok(ResultEnv { value })
 }
 
 // ---------------- Panic envelope ----------------
