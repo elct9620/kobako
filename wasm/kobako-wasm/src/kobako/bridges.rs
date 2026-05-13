@@ -38,6 +38,7 @@
 //! safe `Kobako` token; from then on the work is safe Rust with
 //! explicit `unsafe { ... }` blocks at each remaining FFI call site.
 
+#[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
 

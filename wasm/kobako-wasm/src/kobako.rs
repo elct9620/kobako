@@ -30,6 +30,7 @@
 //! [`Kobako::resolve_raw`] entry to obtain the same handle without
 //! repeating registration.
 
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod bridges;
 
 #[cfg(target_arch = "wasm32")]
@@ -45,7 +46,9 @@ use crate::rpc_client::ExceptionPayload;
 // C-string constants — NUL-terminated names passed to the mruby C API.
 // --------------------------------------------------------------------
 
+#[cfg(target_arch = "wasm32")]
 const KOBAKO_NAME: &[u8] = b"Kobako\0";
+#[cfg(target_arch = "wasm32")]
 const RPC_NAME: &[u8] = b"RPC\0";
 #[cfg(target_arch = "wasm32")]
 const HANDLE_NAME: &[u8] = b"Handle\0";
