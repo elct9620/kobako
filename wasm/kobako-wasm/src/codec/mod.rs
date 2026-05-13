@@ -47,6 +47,21 @@ pub enum CodecError {
     PayloadTooLarge,
 }
 
+impl std::fmt::Display for CodecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CodecError::Truncated => f.write_str("truncated msgpack input"),
+            CodecError::InvalidType => f.write_str("invalid msgpack type for kobako wire"),
+            CodecError::Utf8 => f.write_str("invalid UTF-8 in msgpack str"),
+            CodecError::InvalidHandle => f.write_str("invalid Capability Handle (ext 0x01)"),
+            CodecError::InvalidErrEnv => f.write_str("invalid Exception envelope (ext 0x02)"),
+            CodecError::PayloadTooLarge => f.write_str("msgpack payload exceeds u32 length"),
+        }
+    }
+}
+
+impl std::error::Error for CodecError {}
+
 /// A decoded msgpack value, restricted to the 11 wire types the kobako
 /// wire accepts (SPEC.md "Type Mapping"). Anything outside this set is
 /// rejected at decode time with `CodecError::InvalidType`.

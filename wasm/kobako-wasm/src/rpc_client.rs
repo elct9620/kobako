@@ -99,6 +99,26 @@ impl From<CodecError> for InvokeError {
     }
 }
 
+impl std::fmt::Display for InvokeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvokeError::ServiceErr(ex) => {
+                write!(f, "service raised {}: {}", ex.kind, ex.message)
+            }
+            InvokeError::Wire(e) => write!(f, "RPC wire fault: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for InvokeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InvokeError::Wire(e) => Some(e),
+            InvokeError::ServiceErr(_) => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------
 // Pure Request builder — decoupled from the host import for testing.
 // ---------------------------------------------------------------------

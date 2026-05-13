@@ -62,6 +62,28 @@ impl From<CodecError> for EnvelopeError {
     }
 }
 
+impl std::fmt::Display for EnvelopeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvelopeError::Codec(e) => write!(f, "wire codec rejected envelope bytes: {e}"),
+            EnvelopeError::Shape(msg) => write!(f, "envelope shape mismatch: {msg}"),
+            EnvelopeError::MissingField(name) => {
+                write!(f, "envelope missing required field: {name}")
+            }
+            EnvelopeError::WrongFieldType(msg) => write!(f, "envelope field had wrong type: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for EnvelopeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            EnvelopeError::Codec(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 // ============================================================
 // Value objects
 // ============================================================

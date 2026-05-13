@@ -110,5 +110,5 @@ fn wire_to_tag(e: CodecError) -> (u8, String) {
         CodecError::InvalidErrEnv => b'E',
         CodecError::PayloadTooLarge => b'P',
     };
-    (tag, format!("{e:?}"))
+    (tag, e.to_string())
 }

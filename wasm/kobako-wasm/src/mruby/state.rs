@@ -37,6 +37,14 @@ pub struct Mrb {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MrbOpenError;
 
+impl std::fmt::Display for MrbOpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("mrb_open returned NULL")
+    }
+}
+
+impl std::error::Error for MrbOpenError {}
+
 impl Mrb {
     /// Open a fresh mruby state. Returns [`MrbOpenError`] when mruby's
     /// allocator cannot produce a state (or unconditionally on the host

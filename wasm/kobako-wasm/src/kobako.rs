@@ -104,6 +104,21 @@ pub enum InstallGroupsError {
     NulInMemberName,
 }
 
+impl std::fmt::Display for InstallGroupsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InstallGroupsError::NulInGroupName => {
+                f.write_str("preamble Group name contains interior NUL byte")
+            }
+            InstallGroupsError::NulInMemberName => {
+                f.write_str("preamble Member name contains interior NUL byte")
+            }
+        }
+    }
+}
+
+impl std::error::Error for InstallGroupsError {}
+
 /// Handle to a Kobako runtime installed on a live mruby VM.
 ///
 /// `Kobako` is a value-type token: it carries the raw `*mut mrb_state`

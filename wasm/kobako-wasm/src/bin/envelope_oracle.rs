@@ -112,5 +112,5 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn stringify(e: EnvelopeError) -> String {
-    format!("{e:?}")
+    e.to_string()
 }
