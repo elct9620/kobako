@@ -518,7 +518,7 @@ impl Instance {
 /// envelopes from the Registry itself, so a 0 return is reserved for
 /// genuine wire-layer breakage and is mapped by the guest to a trap.
 fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
-    let req_bytes = match read_memory(caller, req_ptr, req_len) {
+    let req_bytes = match read_caller_memory(caller, req_ptr, req_len) {
         Some(b) => b,
         None => return 0,
     };
@@ -584,7 +584,7 @@ fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Option<i6
     Some(((ptr_u32 as i64) << 32) | (len_u32 as i64))
 }
 
-fn read_memory(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> Option<Vec<u8>> {
+fn read_caller_memory(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> Option<Vec<u8>> {
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
         _ => return None,
