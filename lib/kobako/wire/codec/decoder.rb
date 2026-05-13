@@ -42,7 +42,7 @@ module Kobako
         # against the SPEC type mapping. Raises {Truncated}, {InvalidType},
         # or {InvalidEncoding} on wire violations.
         def self.decode(bytes)
-          value = read_one(bytes)
+          value = Factory.instance.load(bytes.b)
           validate_utf8!(value)
           value
         rescue *INVALID_TYPE_ERRORS => e
@@ -52,13 +52,6 @@ module Kobako
         rescue ::EncodingError => e
           raise InvalidEncoding, e.message
         end
-
-        def self.read_one(bytes)
-          unpacker = Factory.instance.unpacker
-          unpacker.feed(bytes.b)
-          unpacker.read
-        end
-        private_class_method :read_one
 
         # SPEC pins +str+ family payloads to UTF-8 (Wire Codec → str/bin
         # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
