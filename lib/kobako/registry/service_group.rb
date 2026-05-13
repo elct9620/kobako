@@ -4,9 +4,6 @@ module Kobako
   class Registry
     # A named namespace of Service Members for one Sandbox ({SPEC.md B-07..B-11}[link:../../../SPEC.md]).
     class ServiceGroup
-      # Ruby constant-name pattern ({SPEC.md B-07/B-08 Notes}[link:../../../SPEC.md]).
-      NAME_PATTERN = /\A[A-Z]\w*\z/
-
       attr_reader :name, :members
 
       # Build a new ServiceGroup. +name+ is an already-validated Group name
@@ -56,9 +53,9 @@ module Kobako
 
       def validate_member_name!(member)
         member_str = member.to_s
-        unless NAME_PATTERN.match?(member_str)
+        unless Registry::NAME_PATTERN.match?(member_str)
           raise ArgumentError,
-                "MemberName must match #{NAME_PATTERN.inspect} (got #{member.inspect})"
+                "MemberName must match #{Registry::NAME_PATTERN.inspect} (got #{member.inspect})"
         end
 
         member_str

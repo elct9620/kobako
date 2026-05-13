@@ -26,7 +26,10 @@ module Kobako
   # Dispatch helpers live in +Kobako::Registry::Dispatcher+
   # (lib/kobako/registry/dispatcher.rb).
   class Registry
-    # Ruby constant-name pattern (SPEC.md B-07/B-08 Notes).
+    # Ruby constant-name pattern shared by Group and Member names
+    # ({SPEC.md B-07/B-08 Notes}[link:../../SPEC.md]). Referenced by both
+    # +#define+ here and +ServiceGroup#bind+ — single source of truth so
+    # the validation rule cannot drift between the two boundaries.
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
     def initialize
