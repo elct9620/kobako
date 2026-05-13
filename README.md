@@ -190,6 +190,16 @@ To install the local checkout as a gem:
 bundle exec rake install
 ```
 
+## Performance
+
+Kobako maintains a regression benchmark suite covering cold start, RPC round-trip latency, codec throughput, mruby VM speed, HandleTable scaling, and concurrent multi-Thread usage. Release baselines live in [`benchmark/results/`](benchmark/results); a +10% regression on any of the five SPEC-mandated benchmarks blocks release.
+
+See [`benchmark/README.md`](benchmark/README.md) for the per-suite breakdown, rake task reference, and known measurement caveats (guest String size cap, GVL bounds on aggregate throughput).
+
+```bash
+bundle exec rake bench   # run #1..#5 (≤ 1 MiB payloads, ~5-7 min)
+```
+
 ## Contributing
 
 Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
