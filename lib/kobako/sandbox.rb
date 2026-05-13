@@ -64,13 +64,6 @@ module Kobako
       @instance.set_registry(@services)
     end
 
-    # Returns the +Kobako::Registry::HandleTable+ owned by the Sandbox's
-    # Registry. Exposed for tests and integration with the wire-layer
-    # Handle wrapping path.
-    def handle_table
-      @services.handle_table
-    end
-
     # Declare or retrieve the Service Group named +name+ on this Sandbox
     # ({SPEC.md B-07, B-09, B-10}[link:../../SPEC.md]). +name+ must be a
     # Symbol or String in constant form. Returns the

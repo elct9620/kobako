@@ -232,14 +232,14 @@ class TestE2EJourneys < Minitest::Test
     sandbox.define(:Factory).bind(:Make, ->(_n) { Object.new })
 
     sandbox.run('Factory::Make.call("alice")')
-    handle_id = sandbox.handle_table.alloc(:run_n_marker)
-    assert sandbox.handle_table.include?(handle_id), "B-18 setup: id present in run N"
+    handle_id = sandbox.services.handle_table.alloc(:run_n_marker)
+    assert sandbox.services.handle_table.include?(handle_id), "B-18 setup: id present in run N"
 
     sandbox.run("1 + 1")
 
-    refute sandbox.handle_table.include?(handle_id),
+    refute sandbox.services.handle_table.include?(handle_id),
            "B-18: HandleTable must be fully reset at the start of run N+1 (SPEC.md L423)"
-    assert_raises(Kobako::HandleTableError) { sandbox.handle_table.fetch(handle_id) }
+    assert_raises(Kobako::HandleTableError) { sandbox.services.handle_table.fetch(handle_id) }
   end
 
   # SPEC.md B-04: output past +stdout_limit+ is truncated with a
@@ -301,8 +301,8 @@ class TestE2EJourneys < Minitest::Test
   # for use as a target on the next RPC.
   def disconnected_handle_setup_lambda(sandbox)
     lambda do
-      id = sandbox.handle_table.alloc(Object.new)
-      sandbox.handle_table.mark_disconnected(id)
+      id = sandbox.services.handle_table.alloc(Object.new)
+      sandbox.services.handle_table.mark_disconnected(id)
       Kobako::Wire::Handle.new(id)
     end
   end

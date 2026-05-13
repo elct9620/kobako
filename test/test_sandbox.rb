@@ -22,7 +22,7 @@ class TestSandbox < Minitest::Test
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
     assert_instance_of Kobako::Wasm::Instance, sandbox.instance
-    assert_instance_of Kobako::Registry::HandleTable, sandbox.handle_table
+    assert_instance_of Kobako::Registry::HandleTable, sandbox.services.handle_table
   end
 
   def test_default_construction_initializes_output_buffers_at_default_limit
@@ -56,11 +56,11 @@ class TestSandbox < Minitest::Test
     a = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     b = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
-    refute_same a.handle_table, b.handle_table
-    a.handle_table.alloc(:x)
-    a.handle_table.alloc(:y)
-    assert_equal 2, a.handle_table.size
-    assert_equal 0, b.handle_table.size, "alloc on one Sandbox must not leak to another"
+    refute_same a.services.handle_table, b.services.handle_table
+    a.services.handle_table.alloc(:x)
+    a.services.handle_table.alloc(:y)
+    assert_equal 2, a.services.handle_table.size
+    assert_equal 0, b.services.handle_table.size, "alloc on one Sandbox must not leak to another"
   end
 
   def test_run_against_minimal_fixture_raises_trap_error_when_run_missing
