@@ -20,7 +20,8 @@ require "kobako/registry"
 
 module Kobako
   class HandleTableTest < Minitest::Test
-    Table = Kobako::Registry::HandleTable
+    Table  = Kobako::Registry::HandleTable
+    MAX_ID = Kobako::Wire::Handle::MAX_ID
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 
@@ -106,10 +107,10 @@ module Kobako
     def test_alloc_at_max_id_succeeds_then_next_alloc_raises
       # Internal seam: next_id: lets us exercise the cap without 2³¹ allocations.
       # Test-only-visible; documented as internal.
-      table = Table.new(next_id: Table::MAX_ID)
+      table = Table.new(next_id: MAX_ID)
 
       id = table.alloc(Object.new)
-      assert_equal Table::MAX_ID, id
+      assert_equal MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
       # SPEC "Error Classes": cap-exhaustion raises the canonical
@@ -122,8 +123,8 @@ module Kobako
     def test_max_id_constant_is_wire_invariant
       # SPEC B-21 + Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
       # 0x7fff_ffff is the maximum valid Handle ID.
-      assert_equal 0x7fff_ffff, Table::MAX_ID
-      assert_equal (2**31) - 1, Table::MAX_ID
+      assert_equal 0x7fff_ffff, MAX_ID
+      assert_equal (2**31) - 1, MAX_ID
     end
 
     # ---------- Cross-run Handle invalidity (SPEC B-19) ----------

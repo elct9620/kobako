@@ -442,7 +442,7 @@ class TestRegistryDispatchUnit < Minitest::Test
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
 
     table = Kobako::Registry::HandleTable.new(
-      next_id: Kobako::Registry::HandleTable::MAX_ID + 1
+      next_id: Kobako::Wire::Handle::MAX_ID + 1
     )
     error = assert_raises(Kobako::SandboxError) do
       table.alloc(Object.new)
@@ -534,7 +534,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1
   # so the next #alloc trips the B-21 cap.
   def registry_with_exhausted_handle_table
-    exhausted = Kobako::Registry::HandleTable.new(next_id: Kobako::Registry::HandleTable::MAX_ID + 1)
+    exhausted = Kobako::Registry::HandleTable.new(next_id: Kobako::Wire::Handle::MAX_ID + 1)
     Kobako::Registry.new(handle_table: exhausted)
   end
 end

@@ -24,15 +24,10 @@ module Kobako
     #     (2³¹ − 1). Allocation beyond the cap raises immediately — no silent
     #     truncation, no wrap, no ID reuse.
     class HandleTable
-      # Maximum valid Handle ID. Single source of truth lives on the wire-
-      # layer Handle value object ({SPEC.md B-21}[link:../../../SPEC.md]):
-      # the allocator cap and the codec cap are the same invariant.
-      MAX_ID = Wire::Handle::MAX_ID
-
       # Build a fresh, empty HandleTable. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1 per
-      # B-15); tests pass a value near +MAX_ID+ to exercise the cap-exhaustion
-      # path without 2³¹ allocations.
+      # B-15); tests pass a value near +Wire::Handle::MAX_ID+ to exercise
+      # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {}
         @next_id = next_id
@@ -40,11 +35,14 @@ module Kobako
 
       # Bind +object+ in the table and return its newly-allocated Handle ID.
       # +object+ is any host-side Ruby object to bind. Returns a freshly-
-      # allocated Handle ID in +[1, MAX_ID]+. Raises +Kobako::HandleTableExhausted+
-      # if the next ID would exceed the cap.
+      # allocated Handle ID in +[1, Wire::Handle::MAX_ID]+. Raises
+      # +Kobako::HandleTableExhausted+ if the next ID would exceed the cap.
+      # The cap is anchored on +Wire::Handle+ — the wire codec and the
+      # allocator share the same invariant ({SPEC.md B-21}[link:../../../SPEC.md]).
       def alloc(object)
         id = @next_id
-        raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{MAX_ID}" if id > MAX_ID
+        cap = Wire::Handle::MAX_ID
+        raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{cap}" if id > cap
 
         @entries[id] = object
         @next_id = id + 1
