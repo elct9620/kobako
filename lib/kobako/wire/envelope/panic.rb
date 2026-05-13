@@ -34,26 +34,22 @@ module Kobako
       def self.encode_panic(panic)
         raise ArgumentError, "encode_panic requires Panic" unless panic.is_a?(Panic)
 
-        buf = String.new(encoding: Encoding::ASCII_8BIT)
-        Encoder.new(buf).write_map_pairs(panic_pairs(panic))
-        buf
+        Encoder.encode(panic_map(panic))
       end
 
       # SPEC: Panic is a msgpack MAP keyed by name. We always emit the
       # required keys; "backtrace" is emitted only when non-empty (keep
       # the wire compact); "details" only when non-nil. Receivers must
       # ignore unknown keys, so the optional-key absence is wire-legal.
-      def self.panic_pairs(panic)
-        pairs = [
-          ["origin", panic.origin],
-          ["class", panic.klass],
-          ["message", panic.message]
-        ]
-        pairs << ["backtrace", panic.backtrace] unless panic.backtrace.empty?
-        pairs << ["details", panic.details] unless panic.details.nil?
-        pairs
+      # Ruby Hash preserves insertion order, so the resulting msgpack map
+      # carries the keys in the order we add them.
+      def self.panic_map(panic)
+        map = { "origin" => panic.origin, "class" => panic.klass, "message" => panic.message }
+        map["backtrace"] = panic.backtrace unless panic.backtrace.empty?
+        map["details"]   = panic.details   unless panic.details.nil?
+        map
       end
-      private_class_method :panic_pairs
+      private_class_method :panic_map
 
       def self.decode_panic(bytes)
         map = Decoder.decode(bytes)

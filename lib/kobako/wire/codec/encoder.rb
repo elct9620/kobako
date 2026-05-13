@@ -22,8 +22,7 @@ module Kobako
       # The class still exists as a public API surface so callers do not need
       # to know the codec backend — the previous hand-rolled implementation
       # exposed +Encoder.encode(value)+ / +Encoder.new(buf).write(value)+ and
-      # +write_map_pairs(pairs)+ (used by the envelope layer to emit the
-      # ordered Panic map). Those entry points are preserved.
+      # those entry points are preserved.
       class Encoder
         # Single-shot helper.
         def self.encode(value)
@@ -46,25 +45,6 @@ module Kobako
           # msgpack's i64..u64 representable range. SPEC's int family covers
           # exactly that range; anything wider is a wire violation.
           raise UnsupportedType, e.message
-        end
-
-        # @api private
-        #
-        # Encode an ordered list of key/value pairs as a single msgpack map and
-        # append it to the backing buffer. Used internally by the envelope layer
-        # for the Panic envelope, where field order is observable on the wire.
-        # No production caller outside the envelope module should depend on it.
-        def write_map_pairs(pairs)
-          packer = Factory.instance.packer
-          packer.write_map_header(pairs.length)
-          pairs.each do |k, v|
-            check_encodable!(k)
-            check_encodable!(v)
-            packer.write(k)
-            packer.write(v)
-          end
-          @buffer << packer.full_pack
-          self
         end
 
         private
