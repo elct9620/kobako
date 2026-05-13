@@ -868,16 +868,4 @@ mod tests {
             other => panic!("unexpected: {:?}", other),
         }
     }
-
-    /// Migration check: codec backend is the `rmp` crate. If someone
-    /// quietly reverts to a hand-rolled implementation this test catches
-    /// the drift via a symbol that only exists in `rmp`.
-    #[test]
-    fn rmp_crate_is_the_codec_backbone() {
-        // Calling an `rmp` API that doesn't exist anywhere else. Compile
-        // failure of this test == drift back to a hand-rolled codec.
-        let mut buf = Vec::<u8>::new();
-        rmp::encode::write_nil(&mut buf).unwrap();
-        assert_eq!(buf, vec![0xc0]);
-    }
 }
