@@ -11,17 +11,10 @@ module Kobako
     # {Decoder} are thin wrappers that register the two kobako-specific
     # ext types (0x01 Capability Handle and 0x02 Exception envelope) on
     # a single +MessagePack::Factory+ instance. The Rust side mirrors
-    # this layer as the +codec+ module in the +kobako-wasm+ crate, and
-    # the {EXT_HANDLE} / {EXT_ERRENV} constants below match
-    # +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+ in that crate.
+    # this layer as the +codec+ module in the +kobako-wasm+ crate; the
+    # ext-code constants live as module-private values on {Factory}
+    # alongside +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+ on that side.
     module Codec
-      # MessagePack ext type code reserved for Capability Handle
-      # (SPEC.md → Wire Codec → Ext Types → ext 0x01).
-      EXT_HANDLE = 0x01
-
-      # MessagePack ext type code reserved for Exception envelope
-      # (SPEC.md → Wire Codec → Ext Types → ext 0x02).
-      EXT_ERRENV = 0x02
     end
   end
 end

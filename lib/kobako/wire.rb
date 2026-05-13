@@ -8,10 +8,9 @@
 #     {Codec::Encoder}, {Codec::Decoder}, {Codec::Factory}, plus the
 #     {Codec::Error} taxonomy. This is the layer that emits and
 #     consumes raw bytes; ext types 0x01 (Capability Handle) and
-#     0x02 (Exception envelope) are registered exactly once here, and
-#     their numeric codes live on the Codec module
-#     ({Codec::EXT_HANDLE} / {Codec::EXT_ERRENV}) alongside the
-#     Rust-side +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+.
+#     0x02 (Exception envelope) are registered exactly once on the
+#     Factory, where the numeric codes live as module-private constants
+#     alongside the Rust-side +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+.
 #
 #   - {Envelope} — logical message framing (SPEC.md → Wire Contract):
 #     {Envelope::Request} / {Envelope::Response} / {Envelope::Result}

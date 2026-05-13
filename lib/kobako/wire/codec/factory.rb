@@ -17,6 +17,16 @@ module Kobako
       # codes 0x01 (Capability Handle) and 0x02 (Exception envelope) are
       # configured exactly once at module load.
       module Factory
+        # MessagePack ext type code reserved for Capability Handle
+        # (SPEC.md → Wire Codec → Ext Types → ext 0x01). Module-private —
+        # mirrors +codec::EXT_HANDLE+ on the Rust side.
+        EXT_HANDLE = 0x01
+        # MessagePack ext type code reserved for Exception envelope
+        # (SPEC.md → Wire Codec → Ext Types → ext 0x02). Module-private —
+        # mirrors +codec::EXT_ERRENV+ on the Rust side.
+        EXT_ERRENV = 0x02
+        private_constant :EXT_HANDLE, :EXT_ERRENV
+
         # Returns the lazily-built process-wide +MessagePack::Factory+.
         def self.instance
           @instance ||= build
