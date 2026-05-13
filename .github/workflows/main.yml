@@ -29,3 +29,13 @@ jobs:
           rubygems: '3.6.9'
       - name: Run the default task
         run: bundle exec rake
+      - name: Rust unit tests (kobako-wasm, host target)
+        run: bundle exec rake wasm:test
+      - name: cargo fmt --check (ext + wasm crate)
+        run: |
+          cargo fmt --manifest-path ext/kobako/Cargo.toml -- --check
+          cargo fmt --manifest-path wasm/kobako-wasm/Cargo.toml -- --check
+      - name: cargo clippy (ext, host target)
+        run: cargo clippy --manifest-path ext/kobako/Cargo.toml -- -D warnings
+      - name: cargo clippy (kobako-wasm, wasm32-wasip1)
+        run: cargo clippy --manifest-path wasm/kobako-wasm/Cargo.toml --target wasm32-wasip1 -- -D warnings
