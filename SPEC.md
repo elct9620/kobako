@@ -705,7 +705,7 @@ The host reads zero-length outcome bytes or an unrecognized envelope tag as a wi
 
 ---
 
-#### Release-Internal Versioning
+#### Release-Internal Contract
 
 The Wire Spec is a **release-internal contract**: the Host Gem and Guest Binary ship together in a single kobako gem release and are always version-coupled. A running sandbox is short-lived (instantiated per `#run`, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast a release.
 
@@ -758,7 +758,6 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 |---|---|---|
 | Request `target` field (Service Member constant path form, e.g. `"Group::Member"`) | str only | bin → wire violation, reject |
 | Request `method` field | str only | bin → wire violation, reject |
-| Request `kwargs` map keys | ext 0x00 (Symbol) only | str / bin / any other type → wire violation, reject |
 | Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Response Error Envelope `type` field value | str only | bin → wire violation, reject |
 | Response Error Envelope `message` field value | str only | bin → wire violation, reject |
@@ -783,9 +782,13 @@ Symbols travel as ext 0x00 (→ Ext Types below). A Symbol encoded on one side a
 | n | `0x00` — kobako ext type code |
 | n+1.. | UTF-8 bytes of the symbol name |
 
-A non-UTF-8 payload is a wire violation; the receiving side rejects the message. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
+The payload bytes MUST decode as UTF-8. A non-UTF-8 payload is a wire violation: encoders SHOULD validate UTF-8 before emitting, and decoders MUST reject the message rather than fall back to a binary-encoded Symbol. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
 
-ext 0x00 may appear in: Request `args` elements, Request `kwargs` keys, Request `kwargs` values, Response `value` field (success variant), Result envelope `value` field, and as elements / keys / values of any nested array or map in those positions. It must not appear in: Request `target` field, Request `method` field, Response Error Envelope `type` / `message` fields, Panic envelope `origin` / `class` / `message` fields, or Exception envelope `type` / `message` fields.
+Position rules for ext 0x00:
+
+- **MUST be ext 0x00** at: Request `kwargs` map keys (no other wire type is accepted at this position; a `str`, `bin`, or other-type key is a wire violation).
+- **MAY appear** at: Request `args` elements, Request `kwargs` values, Response `value` field (success variant), Result envelope `value` field, and as elements / keys / values of any nested array or map within those positions (other wire types are also permitted).
+- **MUST NOT appear** at: Request `target` field, Request `method` field, Response Error Envelope `type` / `message` fields, Panic envelope `origin` / `class` / `message` fields, or Exception envelope `type` / `message` fields.
 
 ##### ext 0x01 — Capability Handle
 
