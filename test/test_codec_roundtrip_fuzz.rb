@@ -444,10 +444,11 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def generate_map_key
-    case @rng.rand(4)
+    case @rng.rand(5)
     when 0 then random_utf8_string(@rng.rand(1..16))
     when 1 then @rng.rand(-1000..1000)
     when 2 then @rng.rand(2).zero?
+    when 3 then generate_symbol
     else "k#{@rng.rand(1_000_000)}"
     end
   end
