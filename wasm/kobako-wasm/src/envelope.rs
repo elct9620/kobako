@@ -19,16 +19,20 @@
 use crate::codec::{CodecError, Decoder, Encoder, Value};
 
 /// Response variant marker for the success branch
-/// (SPEC.md → Wire Codec → Response).
-pub const STATUS_OK: i64 = 0;
-/// Response variant marker for the error branch.
-pub const STATUS_ERROR: i64 = 1;
+/// (SPEC.md → Wire Codec → Response). Module-private — `Response::Ok`
+/// / `Response::Err` are the public surface and reify these values.
+const STATUS_OK: i64 = 0;
+/// Response variant marker for the error branch. Module-private.
+const STATUS_ERROR: i64 = 1;
 
-/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome Envelope").
-pub const OUTCOME_TAG_RESULT: u8 = 0x01;
+/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome
+/// Envelope"). Module-private — `Outcome::Result` is the public
+/// surface and reifies this value.
+const OUTCOME_TAG_RESULT: u8 = 0x01;
 
-/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome Envelope").
-pub const OUTCOME_TAG_PANIC: u8 = 0x02;
+/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome
+/// Envelope"). Module-private.
+const OUTCOME_TAG_PANIC: u8 = 0x02;
 
 /// Errors raised by envelope-level encode/decode on top of [`CodecError`].
 ///

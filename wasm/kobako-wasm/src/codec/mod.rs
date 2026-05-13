@@ -22,15 +22,18 @@ use rmp::encode::{
 use rmp::Marker;
 
 /// MessagePack ext type code reserved for Capability Handle (SPEC.md
-/// "Ext Types" → ext 0x01).
-pub const EXT_HANDLE: i8 = 0x01;
+/// "Ext Types" → ext 0x01). Module-private — every encoder/decoder
+/// that needs it lives inside this module.
+const EXT_HANDLE: i8 = 0x01;
 
 /// MessagePack ext type code reserved for Exception envelope (SPEC.md
-/// "Ext Types" → ext 0x02).
-pub const EXT_ERRENV: i8 = 0x02;
+/// "Ext Types" → ext 0x02). Module-private — every encoder/decoder
+/// that needs it lives inside this module.
+const EXT_ERRENV: i8 = 0x02;
 
 /// Maximum legal Capability Handle ID (SPEC.md "Ext Types" → ext 0x01).
-pub const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
+/// Module-private.
+const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// Errors raised by the codec when input bytes do not conform to the
 /// kobako wire (SPEC.md "Wire Codec").
