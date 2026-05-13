@@ -41,7 +41,19 @@ Gem::Specification.new do |spec|
                           .claude/ CLAUDE.md Rakefile data/.keep])
     end
   end
-  spec.files += ["data/kobako.wasm"] if File.exist?(File.join(__dir__, "data/kobako.wasm"))
+  # `rake build` chains `wasm:build`, which raises if the Guest Binary can't
+  # be produced, so the packaging path is guarded end-to-end. The warn below
+  # only fires when someone bypasses rake (e.g. invoking `gem build` directly)
+  # without first running `rake wasm:build` — packaging then proceeds without
+  # the Guest Binary and the resulting gem is non-functional at runtime.
+  wasm_path = File.join(__dir__, "data/kobako.wasm")
+  if File.exist?(wasm_path)
+    spec.files += ["data/kobako.wasm"]
+  else
+    warn "kobako.gemspec: data/kobako.wasm is absent — the packaged gem will not " \
+         "function at runtime. Run `bundle exec rake wasm:build` (or `rake build`, " \
+         "which chains it) before packaging."
+  end
   spec.bindir = "exe"
   spec.executables = []
   spec.require_paths = ["lib"]

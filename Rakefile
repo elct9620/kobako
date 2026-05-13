@@ -11,7 +11,12 @@ RuboCop::RakeTask.new
 
 require "rb_sys/extensiontask"
 
-task build: :compile
+# `bundler/gem_tasks` exposes `rake build` (and therefore `rake release`,
+# which depends on it). `data/kobako.wasm` is gitignored, so we chain
+# `wasm:build` here to guarantee the Guest Binary is present and fresh
+# before the gem is packaged. `wasm:build` is mtime-idempotent, so this
+# is free when the source tree hasn't changed.
+task build: %i[compile wasm:build]
 
 GEMSPEC = Gem::Specification.load("kobako.gemspec")
 
