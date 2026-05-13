@@ -315,24 +315,16 @@ module Kobako
       end
 
       def test_unsupported_ruby_type_at_encode
-        # Symbol is now native (ext 0x00); only types outside SPEC's
-        # 12-entry mapping (Object, Range, Time, ...) raise UnsupportedType.
+        # SPEC's 12-entry mapping is closed; types outside it (Object,
+        # Range, Time, ...) raise UnsupportedType.
         assert_raises(UnsupportedType) { Encoder.encode(Object.new) }
       end
 
       # ---------- ext 0x00 Symbol (SPEC Wire Codec Ext Types → ext 0x00) ----
 
-      def test_symbol_roundtrip
-        assert_roundtrip(:hello)
-      end
-
-      def test_symbol_empty_roundtrip
-        # SPEC: empty payload (:"") is wire-legal.
-        assert_roundtrip(:"")
-      end
-
-      def test_symbol_multibyte_utf8_roundtrip
-        assert_roundtrip(:蒼時)
+      def test_symbol_roundtrip_payload_sizes
+        # Empty Symbol is wire-legal; multibyte UTF-8 must survive.
+        [:hello, :"", :蒼時].each { |s| assert_roundtrip(s) }
       end
 
       def test_symbol_preserved_across_string_distinction
@@ -356,15 +348,9 @@ module Kobako
         assert_bytes "c705006865 6c6c6f".tr(" ", ""), :hello
       end
 
-      # SPEC: "The payload bytes MUST decode as UTF-8. ... decoders MUST
-      # reject the message rather than fall back to a binary-encoded
-      # Symbol." Mirrors the Rust guest's
-      # +decode_sym_with_invalid_utf8_returns_utf8_error+ so host↔guest
-      # behaviour is symmetric — without this guard the msgpack gem's
-      # default +Symbol.from_msgpack_ext+ would silently produce a
-      # binary-encoded Symbol.
       def test_invalid_utf8_in_symbol_rejected
-        # ext 8, len=2, type=0x00, payload=0xff 0xfe (lone UTF-8 continuation bytes)
+        # ext 0x00 payload must decode as UTF-8 — SPEC forbids the
+        # binary-encoded Symbol fallback.
         bytes = "\xc7\x02\x00\xff\xfe".b
         assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
       end
