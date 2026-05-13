@@ -1,35 +1,199 @@
 # Kobako
 
-kobako is a Ruby gem that provides an embeddable Wasm sandbox for running untrusted mruby code from Ruby applications. It combines `wasmtime` and `mruby` with a MessagePack-based host/guest RPC, so host applications can expose capabilities to guest scripts via Service injection while retaining full control over external resources.
+Kobako is a Ruby gem that embeds a Wasm-isolated mruby interpreter inside your application, so you can execute untrusted Ruby scripts (LLM-generated code, user formulas, student submissions, third-party plugins) in-process without giving them access to host memory, files, network, or credentials.
+
+The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and an RPC client. The only way a guest script can reach the outside world is through Host App-declared **Services** — named Ruby objects you explicitly inject into the sandbox.
+
+## Features
+
+- **In-process Wasm sandbox** — no subprocess, no container. Each `Sandbox#run` is a synchronous Ruby call.
+- **Capability injection via Services** — guest scripts can only call Ruby objects you explicitly `bind` under a two-level `Group::Member` namespace.
+- **Structured outcome** — `#run` returns the deserialized last expression of the guest script as a normal Ruby value.
+- **Three-class error taxonomy** — every failure is exactly one of `TrapError` (Wasm engine), `SandboxError` (script / wire fault), or `ServiceError` (Service capability fault), so you can route errors without inspecting messages.
+- **Per-run state reset** — Handles issued during one `#run` are invalidated before the next; Service bindings remain.
+- **Separated stdout / stderr capture** — guest `puts`/`warn` output is buffered (1 MiB default cap, configurable, with a `[truncated]` marker on overflow) and is independent of the RPC channel.
+- **Capability Handles** — Services may return stateful host objects; the guest receives an opaque token it can use as the target of follow-up RPC calls, with no way to dereference it.
+
+## Requirements
+
+- **Ruby ≥ 3.2.0**
+- **Rust / Cargo** at install time — the native extension compiles from source via `rb_sys`
+- **Linux** or **macOS** — Windows is not supported
+
+The precompiled `kobako.wasm` Guest Binary ships inside the gem, so end users do **not** need a WASI toolchain. (The toolchain is only required if you build the gem from a source checkout — see [Development](#development).)
 
 ## Installation
 
-Install the gem and add to the application's Gemfile by executing:
+Add Kobako to your Gemfile:
 
 ```bash
 bundle add kobako
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+Or install it directly:
 
 ```bash
 gem install kobako
 ```
 
-## Usage
+## Quick Start
 
-TODO: Write usage instructions here
+```ruby
+require "kobako"
+
+sandbox = Kobako::Sandbox.new
+
+result = sandbox.run(<<~RUBY)
+  1 + 2
+RUBY
+
+result        # => 3
+sandbox.stdout # => ""
+```
+
+The script executes inside the Wasm guest. It cannot read your filesystem, open sockets, or touch your `ENV`.
+
+## Injecting Services
+
+Guest scripts reach host resources only through Services. Declare a **Group**, then `bind` named **Members** on it — each member can be any Ruby object that responds to the methods the guest will call.
+
+```ruby
+sandbox = Kobako::Sandbox.new
+
+sandbox.define(:KV).bind(:Lookup, ->(key) { redis.get(key) })
+sandbox.define(:Log).bind(:Sink,   ->(msg) { logger.info(msg) })
+
+sandbox.run(<<~RUBY)
+  Log::Sink.call("starting")
+  KV::Lookup.call("user_42")
+RUBY
+# => "..." (the redis value)
+```
+
+Names must match the Ruby constant pattern `/\A[A-Z]\w*\z/`. Services declared before the first `#run` remain active across subsequent runs.
+
+### Keyword arguments
+
+Keyword keys travel as Symbols and reach the host method as keyword arguments:
+
+```ruby
+sandbox.define(:Geo).bind(:Lookup, ->(name:, region:) { "#{region}/#{name}" })
+
+sandbox.run('Geo::Lookup.call(name: "alice", region: "us")')
+# => "us/alice"
+```
+
+## Capturing stdout and stderr
+
+Guest output is captured into per-run buffers and exposed independently from the return value:
+
+```ruby
+sandbox = Kobako::Sandbox.new
+
+result = sandbox.run(<<~RUBY)
+  puts "hello"
+  warn "be careful"
+  42
+RUBY
+
+result          # => 42
+sandbox.stdout  # => "hello\n"
+sandbox.stderr  # => "be careful\n"
+```
+
+Each `#run` clears the buffers at start. Output past the per-channel cap is truncated; the buffer ends with `[truncated]` and `#run` still returns normally.
+
+```ruby
+Kobako::Sandbox.new(stdout_limit: 64 * 1024, stderr_limit: 64 * 1024)
+```
+
+## Error handling
+
+Every `#run` either returns a value or raises exactly one of three classes:
+
+```ruby
+begin
+  sandbox.run(script)
+rescue Kobako::TrapError => e
+  # Wasm engine crashed: OOM, stack overflow, corrupted guest runtime.
+  # The Sandbox is unrecoverable — discard and recreate it.
+rescue Kobako::ServiceError => e
+  # A Service call failed and the script did not rescue it.
+  # Treat like any other downstream-service failure in your app.
+rescue Kobako::SandboxError => e
+  # The script itself raised, failed to compile, or produced an
+  # unrepresentable value. A script-level fault, not infrastructure.
+end
+```
+
+`SandboxError` and `ServiceError` carry structured fields (`origin`, `klass`, `backtrace_lines`, `details`) when the guest produced a panic envelope.
+
+`Kobako::ServiceError::Disconnected` is a named subclass raised when an RPC target Handle has been invalidated. `Kobako::HandleTableExhausted` is a named `SandboxError` subclass raised when the per-run Handle counter reaches its cap (2³¹ − 1).
+
+## Capability Handles
+
+When a Service returns a stateful host object (anything beyond `nil` / Boolean / Integer / Float / String / Symbol / Array / Hash), the wire layer transparently allocates an opaque Handle. The guest receives a `Kobako::Handle` proxy it can use as the target of further RPC calls — but cannot dereference, forge from an integer, or smuggle across runs.
+
+```ruby
+class Greeter
+  def initialize(name) = @name = name
+  def greet            = "hi, #{@name}"
+end
+
+sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+
+sandbox.run(<<~RUBY)
+  g = Factory::Make.call("Bob")  # g is a Kobako::Handle proxy
+  g.greet                         # second RPC, routed to the Greeter
+RUBY
+# => "hi, Bob"
+```
+
+Handles are scoped to a single `#run` — a Handle obtained in run N is invalid in run N+1, even on the same Sandbox.
+
+## Setup-once, run-many
+
+A single Sandbox can serve many script executions. Service bindings persist; capability state (Handles, stdout, stderr) resets between runs.
+
+```ruby
+sandbox = Kobako::Sandbox.new
+sandbox.define(:Data).bind(:Fetch, ->(id) { records[id] })
+
+sandbox.run('Data::Fetch.call("a")')  # => "..."
+sandbox.run('Data::Fetch.call("b")')  # => "..." (same bindings, fresh state)
+```
+
+For workloads that must be isolated from each other (e.g., one Sandbox per tenant, per student submission), construct a fresh `Kobako::Sandbox` per scope. wasmtime's Engine and the compiled Module are cached at process scope, so additional Sandboxes amortize cold-start cost automatically.
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+After checking out the repo:
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+```bash
+bin/setup                  # install dependencies
+bundle exec rake           # default: compile + test + rubocop
+```
+
+Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain. The first compile walks the full vendor / mruby / wasm chain:
+
+```bash
+bundle exec rake compile   # build the native extension
+bundle exec rake wasm:build # rebuild data/kobako.wasm (requires vendor:setup + mruby:build)
+bundle exec rake test      # run the Ruby test suite
+```
+
+`bin/console` opens an IRB session with the gem preloaded for experimentation.
+
+To install the local checkout as a gem:
+
+```bash
+bundle exec rake install
+```
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/elct9620/kobako.
+Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
 
 ## License
 
-The gem is available as open source under the terms of the [Apache License 2.0](https://opensource.org/licenses/Apache-2.0).
+Kobako is released under the [Apache License 2.0](https://opensource.org/licenses/Apache-2.0).
