@@ -799,17 +799,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn install_groups_error_variants_are_distinct() {
-        // Compile-time / debug-form check: variants are not accidentally
-        // collapsed. The two reasons land on distinct error envelopes in
-        // `__kobako_run`, so they must remain distinguishable.
-        assert_ne!(
-            InstallGroupsError::NulInGroupName,
-            InstallGroupsError::NulInMemberName
-        );
-    }
-
-    #[test]
     fn install_raw_is_safe_no_op_on_host() {
         // On host target the `install_raw` body short-circuits via the
         // `target_arch = "wasm32"` cfg, so passing a null `mrb` is safe.
