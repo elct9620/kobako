@@ -11,9 +11,8 @@
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
 //!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
-//! This item delivers the **ABI shape** and full implementations. The
-//! build-pipeline guard (item #26) inspects the emitted wasm and verifies
-//! exactly these names appear.
+//! The wasm-binary invariant test (`test/test_wasm_guest_build.rb`)
+//! inspects the emitted wasm and verifies exactly these names appear.
 //!
 //! ## Packed u64 layout
 //!
@@ -69,9 +68,7 @@ extern "C" {
 // Guest exports.
 // ---------------------------------------------------------------------------
 //
-// Signatures must match the SPEC table. Bodies are deliberate stubs — item
-// #9 delivers the symbol shape so the build-pipeline guard (item #26) can
-// run; later items wire real bodies in.
+// Signatures must match the SPEC.md "ABI Signatures" table.
 
 /// WASI Reactor `_initialize` entry-point.
 ///

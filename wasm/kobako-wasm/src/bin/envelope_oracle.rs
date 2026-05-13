@@ -1,4 +1,5 @@
-//! Envelope-layer round-trip oracle (SPEC item #8 cross-side E2E).
+//! Envelope-layer round-trip oracle — cross-side encoder/decoder
+//! agreement check between the Ruby host and the wasm guest.
 //!
 //! This is the envelope sibling of `roundtrip_oracle`: the Ruby side sends
 //! a length-prefixed frame, the oracle decodes it as a specific envelope

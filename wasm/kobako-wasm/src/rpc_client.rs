@@ -11,8 +11,8 @@
 //! 1. [`build_request_bytes`] — pure encoder. Given a [`Target`],
 //!    method, args, and kwargs, produces a Request envelope per
 //!    [`crate::envelope::encode_request`]. Trivially testable on the
-//!    host target; cross-checked against the existing envelope-layer
-//!    golden vectors so that any drift surfaces in `cargo test`.
+//!    host target; cross-checked against the envelope-layer golden
+//!    vectors so that any drift surfaces in `cargo test`.
 //!
 //! 2. [`invoke_rpc`] — full round-trip. Builds the Request bytes, calls
 //!    the host via `__kobako_rpc_call` on `wasm32`, then decodes the

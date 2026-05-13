@@ -5,8 +5,14 @@
 //!
 //! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
-//! * (future) ABI exports `__kobako_run`, `__kobako_alloc`,
-//!   `__kobako_take_outcome` — added by item #9.
+//! * `envelope` — Request / Response / Result / Panic / Outcome
+//!   envelope encoders and decoders on top of `codec` (SPEC.md
+//!   "Wire Contract").
+//! * `abi` — Wire ABI surface: the `__kobako_rpc_call` host import and
+//!   the `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome`
+//!   guest exports (SPEC.md "ABI Signatures").
+//! * `rpc_client` — RPC round-trip pipeline used by the guest-side
+//!   mruby bridge to dispatch a call through `__kobako_rpc_call`.
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
@@ -15,10 +21,6 @@
 //!   holds the hand-rolled FFI declarations; `mruby::value` adds the small
 //!   ergonomic layer (inherent methods on `mrb_value` + the `cstr!` macro);
 //!   `mruby::state` exposes the `Mrb` RAII wrapper around `mrb_state *`.
-//!
-//! This is the **skeleton** delivered by item #4: module layout, error type,
-//! and the `Value` enum covering the 11 wire types per SPEC.md "Type
-//! Mapping". Encode/decode bodies use `rmp::encode` / `rmp::decode` as the codec backbone.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
 //! target — see SPEC.md "Implementation Standards" Architecture) ships a

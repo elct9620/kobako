@@ -21,9 +21,9 @@
 //!     `#[cfg(target_arch = "wasm32")]`-gated, so the rlib used by
 //!     `cargo test` on macOS / Linux never needs the symbols resolved.
 //!
-//! When bindgen lands (item tracked in `build.rs` TODO), this module
-//! migrates to using the bindgen-emitted types and the C-side shims for
-//! the `static inline` boxing macros.
+//! If bindgen is ever wired into the build (see the file comment in
+//! `build.rs`), this module migrates to using the bindgen-emitted types
+//! and the C-side shims for the `static inline` boxing macros.
 //!
 //! ## What is bound
 //!
