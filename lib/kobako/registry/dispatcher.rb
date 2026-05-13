@@ -76,6 +76,23 @@ module Kobako
         invoke(target_object, request.method_name, args, kwargs)
       end
 
+      # Invoke +method+ on +target+ with positional args and Symbol-keyed
+      # kwargs (per {SPEC.md B-12 Notes}[link:../../../SPEC.md]: keyword
+      # argument names travel on the wire as Symbols and the host passes
+      # them to +public_send+ without further conversion).
+      #
+      # Empty kwargs is wire-uniform: methods whose signature accepts no
+      # keyword arguments must still dispatch when the wire carries an
+      # empty kwargs map; the empty-kwargs branch omits the +**+ splat so
+      # Ruby 3.x's strict kwargs separation does not reject the call.
+      def invoke(target, method, args, kwargs)
+        if kwargs.empty?
+          target.public_send(method.to_sym, *args)
+        else
+          target.public_send(method.to_sym, *args, **kwargs)
+        end
+      end
+
       # {SPEC.md B-16}[link:../../../SPEC.md] — A Wire::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
@@ -126,30 +143,6 @@ module Kobako
         object
       rescue Kobako::HandleTableError => e
         raise UndefinedTargetError, e.message
-      end
-
-      # Invoke +method+ on +target+ with positional args and string-keyed
-      # kwargs (symbolized at the boundary per {SPEC.md B-12 Notes}[link:../../../SPEC.md]).
-      #
-      # Empty kwargs is wire-uniform ({SPEC.md line 815}[link:../../../SPEC.md]: "empty kwargs is
-      # encoded as empty map +0x80+, never absent"). Methods whose signature
-      # accepts no keyword arguments must still dispatch when the wire carries
-      # an empty kwargs map; the empty-kwargs branch omits the +**+ splat so
-      # Ruby 3.x's strict kwargs separation does not reject the call.
-      def invoke(target, method, args, kwargs)
-        sym_kwargs = symbolize_kwargs(kwargs)
-        if sym_kwargs.empty?
-          target.public_send(method.to_sym, *args)
-        else
-          target.public_send(method.to_sym, *args, **sym_kwargs)
-        end
-      end
-
-      def symbolize_kwargs(kwargs)
-        kwargs.each_with_object({}) do |(key, value), acc|
-          utf8_key = key.encoding == Encoding::UTF_8 ? key : key.dup.force_encoding(Encoding::UTF_8)
-          acc[utf8_key.to_sym] = value
-        end
       end
 
       # Encode +value+ as a +Response.ok+ envelope. When the value is not

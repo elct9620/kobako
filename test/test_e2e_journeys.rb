@@ -312,16 +312,9 @@ class TestE2EJourneys < Minitest::Test
   # +Kobako::mrb_value_to_wire_outcome+ (outcome path, +inspect+ fallback)
   # and +Kobako::mrb_value_to_wire_value+ (RPC path, +to_s+ fallback)
   # intentionally diverge; see the cross-referenced doc-comments on both
-  # methods in +wasm/kobako-wasm/src/kobako.rs+. The two tests below pin
-  # the divergence so a future "DRY cleanup" that unifies them fails
-  # loudly.
-  #
-  # To actually discriminate +inspect+ from +to_s+ the test must use a
-  # type where the two outputs differ — for Hash and Array, mruby
-  # aliases +Object#to_s+ to +#inspect+ on those classes, so they
-  # cannot tell the converters apart. Symbol works for the RPC path
-  # (+:foo.to_s == "foo"+, +:foo.inspect == ":foo"+) and a script-side
-  # custom class works for the outcome path (we control both methods).
+  # methods in +wasm/kobako-wasm/src/kobako.rs+. The script-side Probe
+  # below pins the divergence so a future "DRY cleanup" that unifies
+  # them fails loudly.
 
   # Outcome path: the unknown-type fallback arm uses +Object#inspect+,
   # NOT +Object#to_s+. The Probe class defined inside the script
@@ -346,18 +339,17 @@ class TestE2EJourneys < Minitest::Test
                  "see Kobako::mrb_value_to_wire_outcome doc"
   end
 
-  # RPC path: a Symbol argument is stringified via +Object#to_s+ at the
-  # guest boundary, so the Service receives the bare name without the
-  # leading colon. Distinguishes the RPC path from the outcome path
-  # (whose +inspect+ fallback would yield +":user_42"+).
-  def test_rpc_arg_symbol_stringifies_via_to_s
+  # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol RPC argument
+  # travels on the wire as an ext 0x00 frame and arrives at the Service
+  # as a Ruby Symbol (not as the +to_s+ string form).
+  def test_rpc_arg_symbol_arrives_as_symbol
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg })
+    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg.is_a?(Symbol) ? "sym:#{arg}" : "str:#{arg}" })
 
     result = sandbox.run("Sym::Echo.call(:user_42)")
 
-    assert_equal "user_42", result,
-                 "RPC path: Symbol arg arrives at the Service as the to_s form (\"user_42\"), " \
-                 "not the inspect form (\":user_42\") — see Kobako::mrb_value_to_wire_value doc"
+    assert_equal "sym:user_42", result,
+                 "RPC path: Symbol arg must arrive at the Service as a Ruby Symbol " \
+                 "(ext 0x00), not as a String via Object#to_s"
   end
 end

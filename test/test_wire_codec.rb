@@ -315,8 +315,45 @@ module Kobako
       end
 
       def test_unsupported_ruby_type_at_encode
-        assert_raises(UnsupportedType) { Encoder.encode(:a_symbol) }
+        # Symbol is now native (ext 0x00); only types outside SPEC's
+        # 12-entry mapping (Object, Range, Time, ...) raise UnsupportedType.
         assert_raises(UnsupportedType) { Encoder.encode(Object.new) }
+      end
+
+      # ---------- ext 0x00 Symbol (SPEC Wire Codec Ext Types → ext 0x00) ----
+
+      def test_symbol_roundtrip
+        assert_roundtrip(:hello)
+      end
+
+      def test_symbol_empty_roundtrip
+        # SPEC: empty payload (:""") is wire-legal.
+        assert_roundtrip(:"")
+      end
+
+      def test_symbol_multibyte_utf8_roundtrip
+        assert_roundtrip(:蒼時)
+      end
+
+      def test_symbol_preserved_across_string_distinction
+        # SPEC: a str/bin value carrying the bytes of a symbol's name is
+        # NOT wire-equivalent to that Symbol; both sides must remain
+        # distinguishable end-to-end.
+        _, decoded_sym = roundtrip(:foo)
+        _, decoded_str = roundtrip("foo")
+        assert_kind_of Symbol, decoded_sym
+        assert_kind_of String, decoded_str
+        refute_equal decoded_sym, decoded_str
+      end
+
+      def test_golden_vector_symbol_empty
+        # :"" -> ext 8 len=0 type=0x00 -> 0xc7 0x00 0x00
+        assert_bytes "c70000", :""
+      end
+
+      def test_golden_vector_symbol_short_uses_narrowest_ext
+        # :hello -> ext 8 len=5 type=0x00 followed by "hello" bytes.
+        assert_bytes "c705006865 6c6c6f".tr(" ", ""), :hello
       end
 
       # ---------- bytes-level golden vectors (SPEC compliance) ----------

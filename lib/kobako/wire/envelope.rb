@@ -47,9 +47,10 @@ module Kobako
       # ============================================================
       #
       # 4-element msgpack array: [target, method, args, kwargs]. +target+
-      # is either a String ("Group::Member") or a {Handle}. SPEC's str/bin
-      # Encoding Rules require +kwargs+ keys to be UTF-8 — enforced at
-      # construction so the Value Object is the single source of truth.
+      # is either a String ("Group::Member") or a {Handle}. SPEC pins
+      # +kwargs+ map keys to ext 0x00 Symbol (→ Wire Codec → Ext Types);
+      # enforced at construction so the Value Object is the single source
+      # of truth.
       Request = Data.define(:target, :method_name, :args, :kwargs) do
         def initialize(target:, method:, args: [], kwargs: {})
           unless target.is_a?(String) || target.is_a?(Handle)
@@ -68,7 +69,7 @@ module Kobako
           raise ArgumentError, "Request kwargs must be Hash" unless kwargs.is_a?(Hash)
 
           kwargs.each_key do |k|
-            raise ArgumentError, "Request kwargs keys must be String, got #{k.class}" unless k.is_a?(String)
+            raise ArgumentError, "Request kwargs keys must be Symbol, got #{k.class}" unless k.is_a?(Symbol)
           end
         end
       end

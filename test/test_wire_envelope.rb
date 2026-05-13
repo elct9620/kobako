@@ -44,7 +44,7 @@ module Kobako
           target: "Store::Users",
           method: "find",
           args: [42, "alice"],
-          kwargs: { "active" => true }
+          kwargs: { active: true }
         )
         bytes   = Envelope.encode_request(req)
         decoded = Envelope.decode_request(bytes)
@@ -71,22 +71,23 @@ module Kobako
           target: "G::M",
           method: "link",
           args: [h1, h2, "tag"],
-          kwargs: { "k" => h1 }
+          kwargs: { k: h1 }
         )
         decoded = Envelope.decode_request(Envelope.encode_request(req))
         assert_equal req, decoded
       end
 
-      def test_request_kwargs_must_have_string_keys
-        # Value Object refuses non-String kwargs keys at construction;
-        # the wire-level InvalidType guarantee is preserved via the
-        # decode_request boundary translator.
+      def test_request_kwargs_must_have_symbol_keys
+        # SPEC.md → Wire Codec → Ext Types → ext 0x00 pins kwargs keys
+        # to Symbols. The Value Object refuses non-Symbol kwargs keys at
+        # construction; the wire-level InvalidType guarantee is preserved
+        # via the decode_request boundary translator.
         assert_raises(ArgumentError) do
-          Envelope::Request.new(target: "G::M", method: "x", args: [], kwargs: { active: true })
+          Envelope::Request.new(target: "G::M", method: "x", args: [], kwargs: { "active" => true })
         end
       end
 
-      def test_request_decode_translates_non_string_kwargs_key_to_invalid_type
+      def test_request_decode_translates_non_symbol_kwargs_key_to_invalid_type
         # Forge wire bytes with an int kwargs key — msgpack-legal but
         # envelope-illegal. The decoder must translate the value-object
         # ArgumentError into a wire-layer InvalidType.

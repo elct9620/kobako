@@ -555,9 +555,12 @@ impl Kobako {
     }
 
     /// Decode every key/value pair from an mruby Hash into `out` as
-    /// `(String, codec::Value)` pairs. Keys use `Object#to_s` (handles
-    /// both Symbol and String keys); values go through
-    /// [`Kobako::mrb_value_to_wire_value`].
+    /// `(String, codec::Value)` pairs. The outer `String` carries the
+    /// key's name; [`crate::envelope::encode_request`] re-emits each name
+    /// as a wire-level `Value::Sym` (ext 0x00) per SPEC.md → Wire Codec
+    /// → Ext Types. Keys arriving as either mruby `Symbol` or `String`
+    /// reduce to the same UTF-8 name via `Object#to_s`. Values go
+    /// through [`Kobako::mrb_value_to_wire_value`].
     #[cfg(target_arch = "wasm32")]
     pub fn decode_hash_kwargs(
         &self,
@@ -608,9 +611,9 @@ impl Kobako {
     // ----------------------------------------------------------------
 
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
-    /// for use as an RPC argument or keyword value. Unknown types fall
-    /// back to `Object#to_s` (Symbol stringifies to its name without the
-    /// leading colon; other types use whatever `Object#to_s` produces).
+    /// for use as an RPC argument or keyword value. Symbol values map to
+    /// [`Value::Sym`] (ext 0x00, SPEC.md → Wire Codec → Ext Types).
+    /// Unknown types fall back to `Object#to_s`.
     ///
     /// ## Why two converters
     ///
@@ -619,10 +622,10 @@ impl Kobako {
     /// stray Hash here falls through the `to_s` arm. The sibling
     /// [`Kobako::mrb_value_to_wire_outcome`] handles the **outcome-path**
     /// (the script's last-expression value) and uses `inspect` for the
-    /// fallback instead. Do not unify the two: the RPC path needs the
-    /// bare-name form so a Service sees `"user_42"` rather than
-    /// `":user_42"`, while the outcome path is read as a display
-    /// representation.
+    /// fallback instead. Do not unify the two: the outcome path is read
+    /// as a display representation (`inspect` quotes strings and shows
+    /// class names), while RPC arguments are interchange values that
+    /// reach a Service's `public_send`.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -635,7 +638,8 @@ impl Kobako {
             "Integer" => Value::Int(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0)),
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
-            // Symbol / fallback: route through `.to_s`.
+            "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
+            // Fallback: route through `.to_s`.
             _ => Value::Str(unsafe { val.to_string(self.mrb) }),
         }
     }
@@ -666,6 +670,7 @@ impl Kobako {
             "Integer" => Value::Int(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0)),
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
+            "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
             _ => Value::Str(unsafe {
                 val.call(self.mrb, cstr!("inspect"), &[])
                     .to_string(self.mrb)
@@ -725,6 +730,21 @@ impl Kobako {
                     bytes.as_ptr() as *const core::ffi::c_char,
                     bytes.len() as i32,
                 ),
+                Value::Sym(name) => {
+                    // Build an mruby String holding the UTF-8 name then
+                    // intern it via `String#to_sym`. Going through `to_sym`
+                    // (instead of hand-rolling `mrb_symbol_value`) avoids
+                    // reaching into mruby's boxing bit-layout — the
+                    // wasm32 build uses MRB_WORDBOX_NO_INLINE_FLOAT and
+                    // the symbol packing constants are private to
+                    // `mruby.h`.
+                    let str_val = sys::mrb_str_new(
+                        self.mrb,
+                        name.as_ptr() as *const core::ffi::c_char,
+                        name.len() as i32,
+                    );
+                    str_val.call(self.mrb, cstr!("to_sym"), &[])
+                }
                 Value::Array(_) | Value::Map(_) | Value::ErrEnv(_) => self.nil_value(),
             }
         }

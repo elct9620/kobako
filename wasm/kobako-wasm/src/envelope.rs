@@ -156,7 +156,9 @@ pub enum Outcome {
 
 // ---------------- Request ----------------
 
-/// Encode a [`Request`] to its 4-field msgpack array bytes.
+/// Encode a [`Request`] to its 4-field msgpack array bytes. Per SPEC
+/// (Wire Codec → Ext Types → ext 0x00) `kwargs` keys travel on the wire
+/// as Symbols, so we emit [`Value::Sym`] at every kwargs-key slot.
 pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
     let target_value = match &req.target {
         Target::Path(s) => Value::Str(s.clone()),
@@ -165,7 +167,7 @@ pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
     let kwargs_pairs: Vec<(Value, Value)> = req
         .kwargs
         .iter()
-        .map(|(k, v)| (Value::Str(k.clone()), v.clone()))
+        .map(|(k, v)| (Value::Sym(k.clone()), v.clone()))
         .collect();
     let frame = Value::Array(vec![
         target_value,
@@ -211,10 +213,10 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
             let mut out = Vec::with_capacity(pairs.len());
             for (k, v) in pairs {
                 let key = match k {
-                    Value::Str(s) => s,
+                    Value::Sym(s) => s,
                     _ => {
                         return Err(EnvelopeError::WrongFieldType(
-                            "Request kwargs keys must be str",
+                            "Request kwargs keys must be Symbol (ext 0x00)",
                         ))
                     }
                 };

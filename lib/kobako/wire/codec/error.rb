@@ -17,17 +17,17 @@ module Kobako
       # Input ended before the type prefix or payload was fully consumed.
       class Truncated < Error; end
 
-      # The type byte at the current position is not in the 11-entry kobako
+      # The type byte at the current position is not in the 12-entry kobako
       # type mapping (e.g. an unknown ext code, or a reserved msgpack tag).
       class InvalidType < Error; end
 
-      # A msgpack `str` payload was not valid UTF-8, or a `kwargs` map key
-      # was not UTF-8 — both are wire violations per SPEC.
+      # A msgpack `str` payload was not valid UTF-8, or an ext 0x00 Symbol
+      # payload was not valid UTF-8 — both are wire violations per SPEC.
       class InvalidEncoding < Error; end
 
       # The encoder was handed a Ruby object whose type has no wire
-      # representation (e.g. Symbol, Range, Time). Higher layers may catch
-      # this and re-route the value through Handle allocation, but at the
+      # representation (e.g. Range, Time). Higher layers may catch this
+      # and re-route the value through Handle allocation, but at the
       # codec level it is a hard error.
       class UnsupportedType < Error; end
     end

@@ -1,12 +1,14 @@
 //! MessagePack wire codec — guest-side glue over the `rmp` crate.
 //!
 //! The kobako wire format (SPEC.md "Wire Codec") is plain MessagePack with
-//! two ext type codes — 0x01 Capability Handle (`fixext 4`, big-endian
-//! u32) and 0x02 Exception envelope (variable-length ext wrapping an
-//! embedded msgpack map). The host side encodes through the official
-//! `msgpack` Ruby gem; the guest side encodes through `rmp` here. Both
-//! pickers apply MessagePack's narrowest-encoding rule, which keeps the
-//! two implementations byte-aligned without any cross-language sharing.
+//! three ext type codes — 0x00 Symbol (variable-length ext carrying the
+//! symbol name as UTF-8 bytes), 0x01 Capability Handle (`fixext 4`,
+//! big-endian u32) and 0x02 Exception envelope (variable-length ext
+//! wrapping an embedded msgpack map). The host side encodes through the
+//! official `msgpack` Ruby gem; the guest side encodes through `rmp`
+//! here. Both pickers apply MessagePack's narrowest-encoding rule, which
+//! keeps the two implementations byte-aligned without any cross-language
+//! sharing.
 //!
 //! This module is intentionally a thin shim: the public surface — `Value`,
 //! `Encoder`, `Decoder`, `CodecError` — is the same one downstream callers
@@ -20,6 +22,11 @@ use rmp::encode::{
     write_sint, write_str, write_uint,
 };
 use rmp::Marker;
+
+/// MessagePack ext type code reserved for Symbol (SPEC.md "Ext Types"
+/// → ext 0x00). Module-private — mirrors the `EXT_SYMBOL` constant on
+/// the Ruby Factory side.
+const EXT_SYMBOL: i8 = 0x00;
 
 /// MessagePack ext type code reserved for Capability Handle (SPEC.md
 /// "Ext Types" → ext 0x01). Module-private — every encoder/decoder
@@ -62,7 +69,7 @@ impl std::fmt::Display for CodecError {
 
 impl std::error::Error for CodecError {}
 
-/// A decoded msgpack value, restricted to the 11 wire types the kobako
+/// A decoded msgpack value, restricted to the 12 wire types the kobako
 /// wire accepts (SPEC.md "Type Mapping"). Anything outside this set is
 /// rejected at decode time with `CodecError::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +83,9 @@ pub enum Value {
     Bin(Vec<u8>),
     Array(Vec<Value>),
     Map(Vec<(Value, Value)>),
+    /// Symbol name carried inside an ext 0x00 frame; the payload is the
+    /// symbol's UTF-8 name (zero or more bytes — empty `:""` is wire-legal).
+    Sym(String),
     Handle(u32),
     /// Raw bytes of the embedded msgpack map carried inside an ext 0x02
     /// envelope. Re-decoding the inner map is the boot script's job; the
@@ -182,6 +192,13 @@ impl Encoder {
                     self.write_value(k)?;
                     self.write_value(v)?;
                 }
+            }
+            Value::Sym(name) => {
+                let bytes = name.as_bytes();
+                let len = u32::try_from(bytes.len()).map_err(|_| CodecError::PayloadTooLarge)?;
+                write_ext_meta(&mut self.buf, len, EXT_SYMBOL)
+                    .map_err(|_| CodecError::Truncated)?;
+                self.buf.extend_from_slice(bytes);
             }
             Value::Handle(id) => {
                 if *id > HANDLE_ID_MAX {
@@ -385,6 +402,11 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, CodecError> {
     let ty = cursor[0] as i8;
     *cursor = &cursor[1..];
     match ty {
+        EXT_SYMBOL => {
+            let payload = take(cursor, len)?;
+            let name = String::from_utf8(payload).map_err(|_| CodecError::Utf8)?;
+            Ok(Value::Sym(name))
+        }
         EXT_HANDLE => {
             if len != 4 {
                 return Err(CodecError::InvalidHandle);
@@ -464,6 +486,7 @@ mod tests {
 
     #[test]
     fn ext_codes_match_spec() {
+        assert_eq!(EXT_SYMBOL, 0x00);
         assert_eq!(EXT_HANDLE, 0x01);
         assert_eq!(EXT_ERRENV, 0x02);
     }
@@ -474,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn value_variants_cover_eleven_wire_types() {
+    fn value_variants_cover_twelve_wire_types() {
         let _ = Value::Nil;
         let _ = Value::Bool(true);
         let _ = Value::Int(-1);
@@ -482,6 +505,7 @@ mod tests {
         let _ = Value::Float(1.5);
         let _ = Value::Str(String::from("x"));
         let _ = Value::Bin(Vec::new());
+        let _ = Value::Sym(String::from("x"));
         let _ = Value::Array(Vec::new());
         let _ = Value::Map(Vec::new());
         let _ = Value::Handle(1);
@@ -741,6 +765,45 @@ mod tests {
             ),
         ]);
         assert_eq!(roundtrip(m.clone()), m);
+    }
+
+    #[test]
+    fn roundtrip_sym_payload_sizes() {
+        // Empty Symbol (`:""`) is wire-legal — exercised explicitly so a
+        // future encoder regression that emits no-payload framing fails.
+        for name in [
+            String::new(),
+            "a".to_string(),
+            "ab".to_string(),
+            "abc".to_string(),
+            "abcdefgh".to_string(),
+            "a".repeat(255),
+            "a".repeat(256),
+            "蒼時弦也".to_string(),
+        ] {
+            assert_eq!(roundtrip(Value::Sym(name.clone())), Value::Sym(name));
+        }
+    }
+
+    #[test]
+    fn golden_sym_empty_uses_ext8_with_zero_length() {
+        // SPEC.md → Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
+        assert_eq!(encode(&Value::Sym(String::new())), vec![0xc7, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn golden_sym_5byte_uses_ext8() {
+        let bytes = encode(&Value::Sym("hello".into()));
+        // `c7 05 00 'h' 'e' 'l' 'l' 'o'`
+        assert_eq!(bytes, vec![0xc7, 0x05, 0x00, b'h', b'e', b'l', b'l', b'o']);
+    }
+
+    #[test]
+    fn decode_sym_with_invalid_utf8_returns_utf8_error() {
+        // `c7 02 00 ff fe` — ext 8, len=2, type=0x00, non-UTF-8 bytes.
+        let bytes = [0xc7, 0x02, 0x00, 0xff, 0xfe];
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(dec.read_value(), Err(CodecError::Utf8));
     }
 
     #[test]

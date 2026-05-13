@@ -86,15 +86,15 @@ class TestCodecRoundtripFuzz < Minitest::Test
     initialize_fuzzer_params
   end
 
-  # Coverage report: each of the 11 wire types and both ext types must
-  # have been visited at least once across the run. Boundary lengths get
-  # their own counters so a regression that stops generating large
-  # str/bin/array/map values is caught.
+  # Coverage report: each of the 12 wire types and all three ext types
+  # must have been visited at least once across the run. Boundary
+  # lengths get their own counters so a regression that stops generating
+  # large str/bin/array/map values is caught.
   REQUIRED_COVERAGE_KEYS = %i[
     nil bool int_pos_fix int_neg_fix int_u8 int_u16 int_u32 int_u64
     int_i8 int_i16 int_i32 int_i64 float str_empty str_fix str_8 str_16
     bin_empty bin_8 bin_16 array_empty array_fix array_16 map_empty
-    map_fix map_16 handle exception nesting
+    map_fix map_16 symbol handle exception nesting
   ].freeze
 
   def test_round_trip_fuzz
@@ -256,8 +256,8 @@ class TestCodecRoundtripFuzz < Minitest::Test
   # ---------------------------------------------------------------------
   # Random value generator
   #
-  # Hand-rolled, seeded. Produces values across all 11 wire types plus
-  # both ext types; every msgpack length-class boundary (fixstr/str8/str16,
+  # Hand-rolled, seeded. Produces values across all 12 wire types plus
+  # all three ext types; every msgpack length-class boundary (fixstr/str8/str16,
   # bin8/bin16, fixarray/array16, fixmap/map16) is given non-trivial
   # probability so coverage is hit reliably within 1000 iterations.
   # ---------------------------------------------------------------------
@@ -280,13 +280,14 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def generate_scalar
-    case @rng.rand(8)
+    case @rng.rand(9)
     when 0 then track(:nil) { nil }
     when 1 then track(:bool) { @rng.rand(2).zero? }
     when 2 then generate_integer
     when 3 then generate_float
     when 4, 5 then generate_string
     when 6 then generate_binary
+    when 7 then generate_symbol
     end
   end
 
@@ -452,6 +453,21 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   # ----- ext types -----
+
+  # SPEC.md → Wire Codec → Ext Types → ext 0x00: Symbol payload is UTF-8
+  # bytes; empty payload is wire-legal. Mirror the str/bin band shape so
+  # boundaries (empty, fixext fast paths, ext 8/16 ranges) are exercised.
+  def generate_symbol
+    @coverage[:symbol] += 1
+    pick = @rng.rand(20)
+    name =
+      if pick.zero?
+        ""
+      else
+        random_utf8_string(@rng.rand(1..64))
+      end
+    name.to_sym
+  end
 
   def generate_handle
     @coverage[:handle] += 1

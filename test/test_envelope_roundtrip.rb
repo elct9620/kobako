@@ -98,7 +98,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # ---------- Request ----------
 
   def test_request_with_path_target_round_trips
-    bytes = encode_request("Store::Users", "find", [42, "alice"], { "active" => true })
+    bytes = encode_request("Store::Users", "find", [42, "alice"], { active: true })
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
@@ -108,7 +108,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   end
 
   def test_request_with_handles_in_args_round_trips
-    bytes = encode_request("G::M", "link", [Handle.new(1), Handle.new(2)], { "k" => Handle.new(3) })
+    bytes = encode_request("G::M", "link", [Handle.new(1), Handle.new(2)], { k: Handle.new(3) })
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 

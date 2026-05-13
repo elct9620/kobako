@@ -15,9 +15,9 @@ module Kobako
       #
       # The codec backbone is the official +msgpack+ gem: integers, floats,
       # strings, arrays, and maps go through the gem's narrowest-encoding
-      # logic; the two kobako-specific ext types (0x01 Capability Handle and
-      # 0x02 Exception envelope) are registered on +Factory+ via
-      # {Kobako::Wire::Codec::Factory.instance}.
+      # logic; the three kobako-specific ext types (0x00 Symbol, 0x01
+      # Capability Handle, 0x02 Exception envelope) are registered on
+      # +Factory+ via {Kobako::Wire::Codec::Factory.instance}.
       #
       # Public API is a single function — {.encode}. The codec is stateless;
       # there is no buffer accumulator and no streaming write API. Callers
@@ -25,9 +25,8 @@ module Kobako
       # themselves (see {Envelope.encode_outcome} for the canonical example).
       module Encoder
         # Encode +value+ to wire bytes (binary-encoded String).
-        # Wire violations surface as +UnsupportedType+: SPEC's 10-entry type
+        # Wire violations surface as +UnsupportedType+: SPEC's 12-entry type
         # mapping is a closed set, and anything outside it is rejected by
-        # either the Factory (Symbol — see +register_symbol_rejection+) or
         # the msgpack gem itself (arbitrary objects raise +NoMethodError+
         # from missing +to_msgpack+, integers outside i64..u64 raise
         # +RangeError+).

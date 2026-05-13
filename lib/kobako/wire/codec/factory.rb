@@ -13,10 +13,17 @@ module Kobako
       # registration (SPEC.md → Wire Codec → Ext Types).
       #
       # The factory is the single place in the host gem that touches msgpack
-      # API — both {Encoder} and {Decoder} delegate through it, so the ext
-      # codes 0x01 (Capability Handle) and 0x02 (Exception envelope) are
-      # configured exactly once at module load.
+      # API — both {Encoder} and {Decoder} delegate through it, so the three
+      # kobako ext codes (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception
+      # envelope) are configured exactly once at module load.
       module Factory
+        # MessagePack ext type code reserved for Symbol
+        # (SPEC.md → Wire Codec → Ext Types → ext 0x00). Module-private —
+        # mirrors +codec::EXT_SYMBOL+ on the Rust side. The msgpack gem
+        # ships +Symbol#to_msgpack_ext+ / +Symbol.from_msgpack_ext+ in
+        # +msgpack/symbol.rb+; registering Symbol against this code
+        # activates those built-in (un)packers.
+        EXT_SYMBOL = 0x00
         # MessagePack ext type code reserved for Capability Handle
         # (SPEC.md → Wire Codec → Ext Types → ext 0x01). Module-private —
         # mirrors +codec::EXT_HANDLE+ on the Rust side.
@@ -25,7 +32,7 @@ module Kobako
         # (SPEC.md → Wire Codec → Ext Types → ext 0x02). Module-private —
         # mirrors +codec::EXT_ERRENV+ on the Rust side.
         EXT_ERRENV = 0x02
-        private_constant :EXT_HANDLE, :EXT_ERRENV
+        private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_ERRENV
 
         # Returns the lazily-built process-wide +MessagePack::Factory+.
         def self.instance
@@ -36,11 +43,23 @@ module Kobako
         # instance; production code should call {.instance}.
         def self.build
           factory = MessagePack::Factory.new
+          register_symbol_type(factory)
           register_handle_type(factory)
           register_exception_type(factory)
-          register_symbol_rejection(factory)
           factory
         end
+
+        # Register Symbol against ext 0x00 using the msgpack gem's built-in
+        # +Symbol#to_msgpack_ext+ (alias of +Symbol#name+) and
+        # +Symbol.from_msgpack_ext+ (decodes UTF-8 bytes back to a Symbol).
+        # SPEC pins the payload to UTF-8 bytes of the symbol name with no
+        # additional framing; the gem defaults match this exactly, so no
+        # custom packer/unpacker is needed here.
+        def self.register_symbol_type(factory)
+          require "msgpack/symbol"
+          factory.register_type(EXT_SYMBOL, Symbol)
+        end
+        private_class_method :register_symbol_type
 
         def self.register_handle_type(factory)
           factory.register_type(
@@ -59,21 +78,6 @@ module Kobako
           )
         end
         private_class_method :register_exception_type
-
-        # Register a packer for Symbol that raises +UnsupportedType+ instead
-        # of letting the msgpack gem silently encode it as +str+. Symbols
-        # are not in SPEC's 10-entry type-mapping table; the dispatch layer
-        # uses this signal to route the value through a Capability Handle
-        # ({SPEC.md B-14}[link:../../../SPEC.md]). No ext byte is emitted on
-        # the wire because the packer never returns; ext code +0x7f+ is
-        # reserved here only so the registration is valid.
-        def self.register_symbol_rejection(factory)
-          factory.register_type(
-            0x7f, Symbol,
-            packer: ->(sym) { raise UnsupportedType, "no wire encoding for Symbol: #{sym.inspect}" }
-          )
-        end
-        private_class_method :register_symbol_rejection
 
         # Peel off the fixext-4 frame, hand the bytes to +Handle.new+, and
         # translate the +ArgumentError+ raised by Handle's invariants into
