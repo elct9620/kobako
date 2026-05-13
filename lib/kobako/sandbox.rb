@@ -143,19 +143,12 @@ module Kobako
 
     # Pull the OUTCOME_BUFFER bytes out of guest memory.
     def read_outcome_bytes
-      packed = @instance.take_outcome
-      ptr, len = unpack_packed_u64(packed)
+      ptr, len = Kobako::Wasm.unpack_outcome_ptr_len(@instance.take_outcome)
       raise TrapError, "guest exited without writing an outcome (len=0)" if len.zero?
 
       @instance.read_memory(ptr, len)
     rescue Kobako::Wasm::Error => e
       raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
-    end
-
-    def unpack_packed_u64(packed)
-      ptr = (packed >> 32) & 0xffff_ffff
-      len = packed & 0xffff_ffff
-      [ptr, len]
     end
   end
 end

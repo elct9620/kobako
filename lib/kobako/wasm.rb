@@ -21,5 +21,15 @@ module Kobako
     def self.default_path
       File.expand_path("../../data/kobako.wasm", __dir__)
     end
+
+    # Unpack the +(ptr << 32) | len+ u64 produced by the Rust ext's
+    # +__kobako_take_outcome+ export. Returns +[ptr, len]+ as 32-bit
+    # unsigned integers. Pure-Ruby helper kept near the ABI surface so
+    # Sandbox does not have to carry bit-level wire layout.
+    def self.unpack_outcome_ptr_len(packed)
+      ptr = (packed >> 32) & 0xffff_ffff
+      len = packed & 0xffff_ffff
+      [ptr, len]
+    end
   end
 end
