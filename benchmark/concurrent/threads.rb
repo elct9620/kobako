@@ -8,14 +8,27 @@
 # can be compared before/after.
 #
 #   6a — N Threads each owning a Sandbox, running #run in parallel.
-#        Under Ruby's GVL with no GVL-release call in ext/, total
-#        throughput is expected to remain flat across N.
+#        Under Ruby's GVL with no rb_thread_call_without_gvl call
+#        in ext/, total throughput is expected to stay close to flat
+#        across N — modest scaling can appear because Ruby-side
+#        setup before each #run (preamble pack, buffer init) can
+#        overlap across threads even while wasm execution is
+#        serialised.
 #   6b — N Threads each calling Sandbox.new cold. Measures mutex
 #        contention on the shared MODULE_CACHE in
 #        ext/kobako/src/wasm/cache.rs.
-#   6c — Head-of-line blocking: one Thread running a long #run; a
-#        second Thread tries to start its own #run("nil"). Latency
-#        of the second Thread is the GVL-hold span of the first.
+#   6c — Concurrent contention overhead: one Thread runs a long
+#        #run, a second Thread tries to start its own #run("nil").
+#        The worker signals readiness via a host-bound Service
+#        (Sync::Ready) from inside wasm, so the measurement is
+#        provably taken after the worker has entered the wasm
+#        execution path — eliminating the obvious race in a naive
+#        `Queue << :go` before run pattern. The 2-3x ratio we
+#        observe is NOT "main is blocked for the full long script"
+#        — Queue#<< on the host side itself releases the GVL, so
+#        main interleaves almost immediately. The number captures
+#        the realistic GVL-handoff overhead under any workload
+#        whose host-side sync touches a Ruby primitive that yields.
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("../support", __dir__)
@@ -24,7 +37,14 @@ require "kobako"
 require "runner"
 
 OPS_PER_THREAD_6A = 50
-LONG_SCRIPT = <<~RUBY
+
+# Synchronized long script: the first guest expression calls into
+# the host-side Sync::Ready Service, which pushes onto the ready
+# Queue. By the time `Sync::Ready.call` returns inside wasm, the
+# worker Thread is provably past Sandbox#run setup and inside the
+# wasm execution path.
+SYNCED_LONG_SCRIPT = <<~RUBY
+  Sync::Ready.call
   acc = 0
   500_000.times { |i| acc ^= i }
   acc
@@ -60,20 +80,28 @@ def measure_6b(runner, count)
 end
 
 def measure_6c(runner)
-  short = Kobako::Sandbox.new.tap { |s| s.run("nil") }
-  long = Kobako::Sandbox.new.tap { |s| s.run("nil") }
+  ready = Queue.new
+  short = Kobako::Sandbox.new
+  long = build_synced_long_sandbox(ready)
+  short.run("nil")
+  long.run("nil") # warm — does not trip Sync::Ready
   baseline = time_block { short.run("nil") }
-  contended = run_under_contention(long, short)
+  contended = run_under_contention(long, short, ready)
   record_6c(runner, baseline, contended)
 end
 
-def run_under_contention(long_sandbox, short_sandbox)
-  ready = Queue.new
-  worker = Thread.new do
-    ready << :go
-    long_sandbox.run(LONG_SCRIPT)
+def build_synced_long_sandbox(ready)
+  Kobako::Sandbox.new.tap do |s|
+    s.define(:Sync).bind(:Ready, lambda {
+      ready << :go
+      nil
+    })
   end
-  ready.pop
+end
+
+def run_under_contention(long_sandbox, short_sandbox, ready)
+  worker = Thread.new { long_sandbox.run(SYNCED_LONG_SCRIPT) }
+  ready.pop # blocks until Sync::Ready.call returns inside wasm
   elapsed = time_block { short_sandbox.run("nil") }
   worker.join
   elapsed

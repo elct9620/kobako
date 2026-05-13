@@ -18,18 +18,24 @@
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
 # instances within one invocation share the same file.
 
-RELEASE_BENCHES = %w[
-  benchmark/cold_start.rb
-  benchmark/rpc_roundtrip.rb
-  benchmark/codec.rb
-  benchmark/mruby_eval.rb
-  benchmark/handle_table.rb
-].freeze
+# Hoisted out of the `namespace :bench` block so that constant
+# definitions are not inside a Rake DSL block (Lint/ConstantDefinitionInBlock)
+# — mirrors tasks/wasm.rake's KobakoWasm and tasks/vendor.rake's
+# KobakoVendor patterns.
+module KobakoBench
+  RELEASE_BENCHES = %w[
+    benchmark/cold_start.rb
+    benchmark/rpc_roundtrip.rb
+    benchmark/codec.rb
+    benchmark/mruby_eval.rb
+    benchmark/handle_table.rb
+  ].freeze
+end
 
 namespace :bench do
   desc "Run all five regression benchmarks (SPEC.md #1..#5; <=1 MiB payloads)."
   task :release do
-    RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
+    KobakoBench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
   end
 
   desc "Same as bench:release — CI-friendly, no extra-large payloads."

@@ -28,10 +28,10 @@ require "runner"
 runner = Kobako::Bench::Runner.new("codec")
 
 # 3a — host encode/decode, varying size at depth=1
-SIZE_BYTES = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "1MiB" => 1024 * 1024 }.freeze
-SIZE_BYTES["16MiB"] = 16 * 1024 * 1024 if ENV["BENCH_FULL"] == "1"
+size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "1MiB" => 1024 * 1024 }
+size_bytes["16MiB"] = 16 * 1024 * 1024 if ENV["BENCH_FULL"] == "1"
 
-SIZE_BYTES.each do |label, bytes|
+size_bytes.each do |label, bytes|
   payload = "x" * bytes
   encoded = Kobako::Wire::Codec::Encoder.encode(payload)
   runner.case("3a-host-encode-#{label}") { Kobako::Wire::Codec::Encoder.encode(payload) }
@@ -56,7 +56,7 @@ end
 # Handle (ext 0x01) and Exception envelope (ext 0x02) round-trip
 # through the Factory just like the primitives.
 sample_exception = Kobako::Wire::Exception.new(type: "runtime", message: "boom")
-WIRE_TYPES = {
+wire_types = {
   "nil" => nil,
   "bool" => true,
   "int" => 42,
@@ -68,9 +68,9 @@ WIRE_TYPES = {
   "symbol" => :sym,
   "handle" => Kobako::Wire::Handle.new(7),
   "exception" => sample_exception
-}.freeze
+}
 
-WIRE_TYPES.each do |name, value|
+wire_types.each do |name, value|
   encoded = Kobako::Wire::Codec::Encoder.encode(value)
   runner.case("3c-host-encode-#{name}") { Kobako::Wire::Codec::Encoder.encode(value) }
   runner.case("3c-host-decode-#{name}") { Kobako::Wire::Codec::Decoder.decode(encoded) }
@@ -86,9 +86,9 @@ sandbox.run("nil") # warm
 # parser check is `>= max`, so exactly 1 MiB raises). Cap the
 # largest guest payload at 512 KiB; host-side still tests up to
 # 1 MiB above.
-GUEST_SIZE_BYTES = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "512KiB" => 512 * 1024 }.freeze
+guest_size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "512KiB" => 512 * 1024 }
 
-GUEST_SIZE_BYTES.each do |label, bytes|
+guest_size_bytes.each do |label, bytes|
   script = "\"x\" * #{bytes}"
   runner.case("3a-guest-return-#{label}") { sandbox.run(script) }
 end
