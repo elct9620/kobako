@@ -131,22 +131,35 @@ impl std::error::Error for InstallGroupsError {}
 ///     boot-time entity then return a fully populated handle.
 ///   * [`Kobako::resolve`] / [`Kobako::resolve_raw`] — re-resolve class
 ///     handles produced by a prior install (used by C-bridges).
+///
+/// ## Dual-target layout
+///
+/// On `wasm32-wasip1` (the production target), `Kobako` carries the raw
+/// mruby state pointer and five class handles produced by
+/// `install_raw`. On every other target (used for `cargo test` on the
+/// developer's machine, where `libmruby.a` is not linked), `Kobako` is
+/// an empty braced struct — the install/resolve methods short-circuit
+/// to `Self {}` and the FFI-routed methods are cfg-gated out.
+///
+/// This split keeps the type's name and uniform method shape available
+/// on both targets so the host-side `install_raw_is_safe_no_op_on_host`
+/// test can exercise the cfg gate without an mruby link.
+#[cfg(target_arch = "wasm32")]
 pub struct Kobako {
-    #[cfg(target_arch = "wasm32")]
     mrb: *mut sys::mrb_state,
     /// `Kobako::RPC` base class — parent of every Service Member
     /// installed via [`Kobako::install_groups`].
-    #[cfg(target_arch = "wasm32")]
     rpc_class: *mut sys::RClass,
-    #[cfg(target_arch = "wasm32")]
     handle_class: *mut sys::RClass,
-    #[cfg(target_arch = "wasm32")]
     service_error_class: *mut sys::RClass,
-    #[cfg(target_arch = "wasm32")]
     disconnected_class: *mut sys::RClass,
-    #[cfg(target_arch = "wasm32")]
     wire_error_class: *mut sys::RClass,
 }
+
+/// Host-target stub for [`Kobako`]. See the wasm32 declaration above
+/// for the production-target shape and field-level docs.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Kobako {}
 
 impl Kobako {
     /// Install the Kobako runtime onto `mrb` and return a handle to the
