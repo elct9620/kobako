@@ -93,6 +93,7 @@ These five roles describe the system. All design and behavior content in later l
 - The Host App supplies a valid mruby script string at call time
 - Service objects provided by the Host App respond to whatever methods guest code will call; kobako does not validate Service shape
 - The host machine has Rust/Cargo available to compile the native extension from source at gem install time
+- Each `Kobako::Sandbox` instance is owned by a single Ruby Thread for the duration of any `#run`; concurrent `#run` invocations on the same Sandbox instance from multiple Threads are not supported. Distinct Sandbox instances may be used from distinct Threads (see B-22).
 
 **Output guarantees:**
 - Every `Sandbox#run` call either returns a single deserialized Ruby value (the script's last expression) or raises exactly one of `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError` — no other outcome is possible
@@ -457,6 +458,17 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
 | **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
 | **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
+
+---
+
+### B-22 — Distinct Sandboxes on distinct Threads execute independently
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | Two or more Ruby Threads exist within the same process. The Host App has constructed one `Kobako::Sandbox` per Thread (honoring the input assumption in Scope → Interaction). |
+| **Operation** | Each Thread invokes `#run` only on its own owning Sandbox; no Sandbox is shared across Threads. |
+| **Result / Final State** | Each `#run` executes independently — capability state, Handle IDs, and capture buffers are scoped per Sandbox and never observed by another Thread's run. The wasmtime Engine and the compiled Module for `data/kobako.wasm` are shared at process scope: the first Sandbox in the process pays the Engine init and Module compile cost; subsequent Sandboxes in any Thread amortize against that shared state. |
+| **Notes** | Aggregate throughput across Threads is bounded by Ruby's GVL — Kobako's native extension does not call `rb_thread_call_without_gvl` during wasm execution, so wasm-side work is serialized. Ruby-side setup (preamble pack, buffer init) can overlap across Threads, giving modest but non-linear scaling under contention. The Host App is responsible for the one-Thread-per-Sandbox invariant; Kobako provides no locking on `#run` and concurrent invocations on the same Sandbox are unsupported (Scope → Interaction). |
 
 ---
 
@@ -987,6 +999,7 @@ The following patterns are enforced project-wide and apply at every layer:
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
 - **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, Wire Spec field, HandleTable guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
+- **Process-scope Engine and Module cache.** The wasmtime Engine and the compiled Module for `data/kobako.wasm` are cached at process scope by the native extension. The first `Kobako::Sandbox` constructed in a process pays Engine init and Module compile; every subsequent Sandbox in the same process — regardless of which Thread constructs it — amortizes against this shared state. The cache is implicit; the Host App has no API to inspect, warm, or invalidate it. This pattern is what makes the Sandbox-per-tenant and Sandbox-per-Thread shapes (B-22) practical.
 
 ##### Invariants
 
@@ -1007,6 +1020,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1 | Host Gem, Wire Spec | Test-time |
 | Handles are never individually released by the guest; the host implementation does not use `ObjectSpace.define_finalizer` for HandleTable entries | Host Gem | Documentation |
 | Wire ABI has exactly one host import (`__kobako_rpc_call`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
+| Guest mruby's `MRB_STR_LENGTH_MAX` is 1 MiB — a guest-side String at or above this size raises `ArgumentError` inside the guest. This is independent of the 16 MiB single-RPC wire payload limit; a wire payload can approach the 16 MiB cap via composite values (Array, binary), but a single guest String value cannot. | Guest Binary build (mruby config) | Runtime |
 
 #### Testing Style
 
