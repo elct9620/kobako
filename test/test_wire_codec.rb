@@ -356,6 +356,19 @@ module Kobako
         assert_bytes "c705006865 6c6c6f".tr(" ", ""), :hello
       end
 
+      # SPEC: "The payload bytes MUST decode as UTF-8. ... decoders MUST
+      # reject the message rather than fall back to a binary-encoded
+      # Symbol." Mirrors the Rust guest's
+      # +decode_sym_with_invalid_utf8_returns_utf8_error+ so host↔guest
+      # behaviour is symmetric — without this guard the msgpack gem's
+      # default +Symbol.from_msgpack_ext+ would silently produce a
+      # binary-encoded Symbol.
+      def test_invalid_utf8_in_symbol_rejected
+        # ext 8, len=2, type=0x00, payload=0xff 0xfe (lone UTF-8 continuation bytes)
+        bytes = "\xc7\x02\x00\xff\xfe".b
+        assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+      end
+
       # ---------- bytes-level golden vectors (SPEC compliance) ----------
       #
       # These vectors fix the encoder output to specific byte sequences so

@@ -49,17 +49,34 @@ module Kobako
           factory
         end
 
-        # Register Symbol against ext 0x00 using the msgpack gem's built-in
-        # +Symbol#to_msgpack_ext+ (alias of +Symbol#name+) and
-        # +Symbol.from_msgpack_ext+ (decodes UTF-8 bytes back to a Symbol).
-        # SPEC pins the payload to UTF-8 bytes of the symbol name with no
-        # additional framing; the gem defaults match this exactly, so no
-        # custom packer/unpacker is needed here.
+        # Register Symbol against ext 0x00 with explicit packer/unpacker.
+        # SPEC pins the payload to UTF-8 bytes of the symbol name; a
+        # non-UTF-8 payload is a wire violation and decoders MUST reject
+        # rather than fall back to a binary-encoded Symbol. The msgpack
+        # gem's default +Symbol.from_msgpack_ext+ (in +msgpack/symbol.rb+)
+        # has exactly that binary fallback, so we cannot rely on the gem
+        # defaults — the unpacker below validates UTF-8 before interning
+        # and raises {InvalidEncoding} on failure to match the Rust
+        # guest's +CodecError::Utf8+ rejection in +read_ext+.
         def self.register_symbol_type(factory)
-          require "msgpack/symbol"
-          factory.register_type(EXT_SYMBOL, Symbol)
+          factory.register_type(
+            EXT_SYMBOL, Symbol,
+            packer: lambda(&:name),
+            unpacker: ->(payload) { decode_symbol(payload) }
+          )
         end
         private_class_method :register_symbol_type
+
+        # Force UTF-8 view of the payload, validate, and intern. SPEC
+        # forbids the binary-encoding fallback; reject as
+        # {InvalidEncoding} on invalid bytes.
+        def self.decode_symbol(payload)
+          name = payload.b.force_encoding(Encoding::UTF_8)
+          raise InvalidEncoding, "ext 0x00 payload is not valid UTF-8" unless name.valid_encoding?
+
+          name.to_sym
+        end
+        private_class_method :decode_symbol
 
         def self.register_handle_type(factory)
           factory.register_type(
