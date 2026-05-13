@@ -26,14 +26,24 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-      - name: Set up Ruby & Rust
-        uses: oxidize-rb/actions/setup-ruby-and-rust@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@6aaa311d81eba98ae12eaffbcb63296ace0efcde # v1.307.0
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-          cargo-cache: true
           rubygems: '3.6.9'
-          rustup-targets: wasm32-wasip1
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+          targets: wasm32-wasip1
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          workspaces: |
+            .
+            wasm/kobako-wasm
       - name: Run the default task
         run: bundle exec rake
       - name: Rust unit tests (kobako-wasm, host target)
