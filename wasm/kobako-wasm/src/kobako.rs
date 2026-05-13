@@ -438,7 +438,7 @@ impl Kobako {
     /// As [`Kobako::raise_wire_error`].
     #[cfg(target_arch = "wasm32")]
     pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
-        let target_cls = if ex.r#type == "disconnected" {
+        let target_cls = if ex.kind == "disconnected" {
             self.disconnected_class
         } else {
             self.service_error_class

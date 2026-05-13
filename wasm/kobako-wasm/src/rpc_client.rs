@@ -51,14 +51,16 @@ use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 // ---------------------------------------------------------------------
 
 /// The shape of a Response.err payload after envelope-level decoding.
-/// Item #11's mruby C-bridge raises this as a `Kobako::ServiceError` /
+/// The mruby C-bridge raises this as a `Kobako::ServiceError` /
 /// host-mapped exception; the bridge does not need to inspect more than
-/// `type` and `message` to do so.
+/// `kind` and `message` to do so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExceptionPayload {
-    /// The `type` field of the inner ext 0x02 map (e.g. `"runtime"`,
-    /// `"undefined"`). SPEC.md → "Error Envelope".
-    pub r#type: String,
+    /// The wire `type` field of the inner ext 0x02 map (e.g.
+    /// `"runtime"`, `"undefined"`). Named `kind` on the Rust side to
+    /// avoid the raw-identifier escape for the `type` keyword.
+    /// SPEC.md → "Error Envelope".
+    pub kind: String,
     /// Human-readable message (`message` field of the inner map).
     pub message: String,
     /// Raw payload bytes — preserved so the mruby bridge can hand them
@@ -199,10 +201,10 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
                     }
                 }
             }
-            let r#type = typ.ok_or(InvokeError::Wire(EnvelopeError::MissingField("type")))?;
+            let kind = typ.ok_or(InvokeError::Wire(EnvelopeError::MissingField("type")))?;
             let message = msg.ok_or(InvokeError::Wire(EnvelopeError::MissingField("message")))?;
             Err(InvokeError::ServiceErr(ExceptionPayload {
-                r#type,
+                kind,
                 message,
                 raw: payload_bytes,
             }))
@@ -406,7 +408,7 @@ mod tests {
 
         match out {
             Err(InvokeError::ServiceErr(ex)) => {
-                assert_eq!(ex.r#type, "runtime");
+                assert_eq!(ex.kind, "runtime");
                 assert_eq!(ex.message, "boom");
                 assert!(!ex.raw.is_empty(), "raw payload bytes must be preserved");
             }
