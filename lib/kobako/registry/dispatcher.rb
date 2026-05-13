@@ -43,7 +43,8 @@ module Kobako
       # than a wasm trap
       # ({SPEC.md B-12}[link:../../../SPEC.md]).
       def dispatch(request_bytes, registry)
-        encode_ok(wrap_return(perform_dispatch(request_bytes, registry), registry))
+        value = perform_dispatch(request_bytes, registry)
+        encode_ok_or_wrap(value, registry)
       rescue StandardError => e
         encode_dispatch_error(e)
       end
@@ -151,15 +152,16 @@ module Kobako
         end
       end
 
-      # {SPEC.md B-14}[link:../../../SPEC.md] — When a bound Service method returns a value that is not
-      # wire-representable per B-13's type mapping, the wire layer routes it
-      # through the HandleTable and the guest receives a Capability Handle in
-      # place of the raw object.
-      def wrap_return(value, registry)
-        Kobako::Wire::Codec::Encoder.encode(value)
-        value
+      # Encode +value+ as a +Response.ok+ envelope. When the value is not
+      # wire-representable per {SPEC.md B-13}[link:../../../SPEC.md]'s type
+      # mapping, the +UnsupportedType+ rescue routes it through the
+      # HandleTable and re-encodes with the Capability Handle in place
+      # ({SPEC.md B-14}[link:../../../SPEC.md]). The happy path encodes
+      # exactly once.
+      def encode_ok_or_wrap(value, registry)
+        encode_ok(value)
       rescue Kobako::Wire::Codec::UnsupportedType
-        Kobako::Wire::Handle.new(registry.handle_table.alloc(value))
+        encode_ok(Kobako::Wire::Handle.new(registry.handle_table.alloc(value)))
       end
 
       def encode_ok(value)
