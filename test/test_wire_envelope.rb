@@ -94,16 +94,6 @@ module Kobako
         assert_raises(InvalidType) { Envelope.decode_request(bytes) }
       end
 
-      def test_request_three_field_signature
-        # Convenience signature: encode_request(target, method, args, kwargs)
-        bytes = Envelope.encode_request("G::M", "ping", [], {})
-        decoded = Envelope.decode_request(bytes)
-        assert_equal "G::M", decoded.target
-        assert_equal "ping", decoded.method_name
-        assert_empty decoded.args
-        assert_empty decoded.kwargs
-      end
-
       def test_request_decode_rejects_wrong_arity
         # 3-element array, not 4
         bytes = Encoder.encode(["G::M", "x", []])
@@ -116,7 +106,7 @@ module Kobako
         # Request: ["G::M", "ping", [], {}]
         # fixarray 4 (0x94) | fixstr 4 "G::M" (0xa4 47 3a 3a 4d) |
         # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) | fixmap 0 (0x80)
-        bytes = Envelope.encode_request("G::M", "ping", [], {})
+        bytes = Envelope.encode_request(Envelope::Request.new(target: "G::M", method: "ping"))
         assert_equal "94a4473a3a4da470696e679080", hex(bytes)
       end
 

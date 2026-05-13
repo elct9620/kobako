@@ -459,7 +459,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   end
 
   def encode_request(target, method, args, kwargs)
-    Kobako::Wire::Envelope.encode_request(target, method, args, kwargs)
+    encode_request_with_target(target, method, args, kwargs)
   end
 
   def decode_response(bytes)

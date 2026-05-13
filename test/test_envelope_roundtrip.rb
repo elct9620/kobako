@@ -98,24 +98,27 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # ---------- Request ----------
 
   def test_request_with_path_target_round_trips
-    bytes = Envelope.encode_request("Store::Users", "find", [42, "alice"], { "active" => true })
+    bytes = encode_request("Store::Users", "find", [42, "alice"], { "active" => true })
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
   def test_request_with_handle_target_round_trips
-    bytes = Envelope.encode_request(Handle.new(7), "save", [], {})
+    bytes = encode_request(Handle.new(7), "save", [], {})
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
   def test_request_with_handles_in_args_round_trips
-    bytes = Envelope.encode_request("G::M", "link", [Handle.new(1), Handle.new(2)],
-                                    { "k" => Handle.new(3) })
+    bytes = encode_request("G::M", "link", [Handle.new(1), Handle.new(2)], { "k" => Handle.new(3) })
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
   def test_request_empty_round_trips
-    bytes = Envelope.encode_request("G::M", "ping", [], {})
+    bytes = encode_request("G::M", "ping", [], {})
     assert_equal bytes, oracle_roundtrip("Q", bytes)
+  end
+
+  def encode_request(target, method, args, kwargs)
+    Envelope.encode_request(Envelope::Request.new(target: target, method: method, args: args, kwargs: kwargs))
   end
 
   # ---------- Response ----------

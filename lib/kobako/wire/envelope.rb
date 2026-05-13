@@ -83,16 +83,11 @@ module Kobako
       end
       private_class_method :validate_request_kwargs!
 
-      # Encode a {Request} (or its three constituent fields) to bytes.
-      def self.encode_request(target_or_request, method_name = nil, args = nil, kwargs = nil)
-        req = if target_or_request.is_a?(Request)
-                target_or_request
-              else
-                Request.new(
-                  target: target_or_request, method: method_name, args: args || [], kwargs: kwargs || {}
-                )
-              end
-        Encoder.encode([req.target, req.method_name, req.args, req.kwargs])
+      # Encode a {Request} to bytes.
+      def self.encode_request(request)
+        raise ArgumentError, "encode_request requires Request" unless request.is_a?(Request)
+
+        Encoder.encode([request.target, request.method_name, request.args, request.kwargs])
       end
 
       def self.decode_request(bytes)
