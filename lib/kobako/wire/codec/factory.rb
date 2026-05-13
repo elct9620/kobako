@@ -55,7 +55,7 @@ module Kobako
           factory.register_type(
             EXT_ERRENV, Exception,
             packer: ->(exc) { pack_exception(exc, factory) },
-            unpacker: ->(payload) { unpack_exception(payload, factory) }
+            unpacker: ->(payload) { unpack_exception(payload) }
           )
         end
         private_class_method :register_exception_type
@@ -99,9 +99,11 @@ module Kobako
 
         # Peel the embedded msgpack map and hand it to +Exception.new+;
         # translate the value-object's +ArgumentError+ into +InvalidType+
-        # at the wire boundary.
-        def self.unpack_exception(payload, factory)
-          map = factory.load(payload)
+        # at the wire boundary. Inner decode goes through {Decoder} (not
+        # +factory.load+) so the embedded +str+ payloads flow through the
+        # same UTF-8 validation as a top-level decode.
+        def self.unpack_exception(payload)
+          map = Decoder.new(payload).read
           raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
           Exception.new(type: map["type"], message: map["message"], details: map["details"])
