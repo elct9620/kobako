@@ -19,6 +19,20 @@ Two costs dominate the very first `Kobako::Sandbox` in a process: wasmtime Engin
 
 Practical implication: pre-warm by constructing one Sandbox at boot. After that, every per-request Sandbox costs micro-, not milliseconds.
 
+### Reusing a Sandbox vs constructing one per request
+
+Two execution shapes dominate real use. The first is the "setup-once, run-many" pattern from [README.md](../README.md): one Sandbox per scope, many `#run` calls on it. The second is the per-request construction pattern needed for hard tenant isolation (one Sandbox per request, per submission, or per untrusted script — the shape of journeys J-03 and J-04 in SPEC.md), where every request pays the construction cost.
+
+| Pattern | Cost per request | Source |
+|---|---|---|
+| Reuse the same Sandbox (`#run("nil")` on a warm instance) | **66 µs** | `5c-warm-run-nil-roundtrip` |
+| Fresh Sandbox every request (`Kobako::Sandbox.new.run("nil")`) | **174 µs** | `1b-sandbox-new+run-nil` |
+| Overhead of constructing a new Sandbox per request | **~108 µs / req (~2.6×)** | difference |
+
+The overhead breaks down as ~88 µs `Sandbox.new` (Wasm instance creation, buffer allocation, Registry init — Engine and Module are cached at process scope so this is the warm path) plus the per-`#run` setup that both patterns pay. Per-request construction does NOT pay the 408 ms cold Engine/Module cost again — that cost is amortized to the first Sandbox in the process regardless of pattern.
+
+Practical implication: choose per-request construction when guest scripts are mutually untrusted (so capability state and Handle leaks between requests are unacceptable); choose reuse when a single Sandbox serves repeated requests from the same trust scope. At ~108 µs of extra overhead per request, per-request isolation is affordable for most web/job workloads.
+
 ### Per-request RPC latency ([`rpc_roundtrip.rb`](rpc_roundtrip.rb))
 
 Each row wraps the call inside one `#run`, so the absolute number bundles `#run` setup (~75 µs) with the RPC. The last row amortizes that overhead by making 1000 calls inside a single `#run`, which is the right number to compare against.
