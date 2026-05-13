@@ -13,36 +13,21 @@ module Kobako
     # This object holds the *encoded* form. Reifying the corresponding Ruby
     # exception class (RuntimeError, ArgumentError, Kobako::ServiceError, ...)
     # is the responsibility of the dispatch layer, not the codec.
-    class Exception
-      VALID_TYPES = %w[runtime argument disconnected undefined].freeze
-
-      attr_reader :type, :message, :details
-
+    #
+    # Built on +Data.define+ so equality, hash, and immutability are
+    # inherited from the value-object machinery; only the field invariants
+    # ride on top.
+    Exception = Data.define(:type, :message, :details) do
       def initialize(type:, message:, details: nil)
+        valid_types = self.class::VALID_TYPES
         raise ArgumentError, "type must be String"    unless type.is_a?(String)
         raise ArgumentError, "message must be String" unless message.is_a?(String)
-        raise ArgumentError, "type=#{type.inspect} not one of #{VALID_TYPES.inspect}" unless VALID_TYPES.include?(type)
+        raise ArgumentError, "type=#{type.inspect} not one of #{valid_types.inspect}" unless valid_types.include?(type)
 
-        @type = type
-        @message = message
-        @details = details
-      end
-
-      def ==(other)
-        other.is_a?(Exception) &&
-          other.type == @type &&
-          other.message == @message &&
-          other.details == @details
-      end
-      alias eql? ==
-
-      def hash
-        [self.class, @type, @message, @details].hash
-      end
-
-      def inspect
-        "#<Kobako::Wire::Exception type=#{@type.inspect} message=#{@message.inspect} details=#{@details.inspect}>"
+        super
       end
     end
+
+    Exception::VALID_TYPES = %w[runtime argument disconnected undefined].freeze
   end
 end

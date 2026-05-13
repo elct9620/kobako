@@ -8,35 +8,23 @@ module Kobako
     # payload (Wire Codec → Ext Types → ext 0x01). ID 0 is reserved as the
     # invalid sentinel; the maximum valid ID is 0x7fff_ffff (2^31 - 1).
     #
-    # This is intentionally a thin value object. The runtime-facing
+    # This is intentionally a thin value object built on +Data.define+ so
+    # equality, hash, and immutability are inherited. The runtime-facing
     # +Kobako::Handle+ class lives at a higher layer and may add behaviour
     # (HandleTable bookkeeping, reset semantics). The codec only needs to
     # carry the opaque integer ID across the wire.
-    class Handle
-      MIN_ID = 1
-      MAX_ID = 0x7fff_ffff
-
-      attr_reader :id
-
-      def initialize(id)
+    Handle = Data.define(:id) do
+      def initialize(id:)
+        min = self.class::MIN_ID
+        max = self.class::MAX_ID
         raise ArgumentError, "Handle id must be Integer" unless id.is_a?(Integer)
-        raise ArgumentError, "Handle id #{id} out of range [#{MIN_ID}, #{MAX_ID}]" unless id.between?(MIN_ID, MAX_ID)
+        raise ArgumentError, "Handle id #{id} out of range [#{min}, #{max}]" unless id.between?(min, max)
 
-        @id = id
-      end
-
-      def ==(other)
-        other.is_a?(Handle) && other.id == @id
-      end
-      alias eql? ==
-
-      def hash
-        [self.class, @id].hash
-      end
-
-      def inspect
-        "#<Kobako::Wire::Handle id=#{@id}>"
+        super
       end
     end
+
+    Handle::MIN_ID = 1
+    Handle::MAX_ID = 0x7fff_ffff
   end
 end
