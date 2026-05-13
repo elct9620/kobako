@@ -36,45 +36,17 @@ module Kobako
         attr_reader :buffer
 
         # Encode +value+ and append the resulting bytes to the backing buffer.
+        # Wire violations surface as +UnsupportedType+: SPEC's 10-entry type
+        # mapping is a closed set, and anything outside it is rejected by
+        # either the Factory (Symbol — see +register_symbol_rejection+) or
+        # the msgpack gem itself (arbitrary objects raise +NoMethodError+
+        # from missing +to_msgpack+, integers outside i64..u64 raise
+        # +RangeError+).
         def write(value)
-          check_encodable!(value)
           @buffer << Factory.instance.dump(value)
           self
-        rescue ::RangeError => e
-          # +RangeError+ surfaces from the gem when an Integer falls outside
-          # msgpack's i64..u64 representable range. SPEC's int family covers
-          # exactly that range; anything wider is a wire violation.
+        rescue ::RangeError, ::NoMethodError => e
           raise UnsupportedType, e.message
-        end
-
-        private
-
-        # SPEC's type-mapping table is a closed set: anything outside the 10
-        # supported Ruby idioms (nil / Boolean / Integer / Float / String /
-        # Array / Hash / +Kobako::Wire::Handle+ / +Kobako::Wire::Exception+)
-        # is a wire violation. The msgpack gem will silently encode Symbols as
-        # bin (or, with newer defaults, ext 0x00) and raise +NoMethodError+
-        # for arbitrary objects; we want a single, well-typed
-        # +UnsupportedType+ in both cases.
-        def check_encodable!(value)
-          case value
-          when nil, true, false, Integer, Float, String, Array, Hash, Handle, Exception
-            recurse_check(value)
-          else
-            raise UnsupportedType, "no wire encoding for #{value.class}: #{value.inspect}"
-          end
-        end
-
-        def recurse_check(value)
-          case value
-          when Array
-            value.each { |v| check_encodable!(v) }
-          when Hash
-            value.each do |k, v|
-              check_encodable!(k)
-              check_encodable!(v)
-            end
-          end
         end
       end
     end

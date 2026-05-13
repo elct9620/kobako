@@ -28,6 +28,7 @@ module Kobako
           factory = MessagePack::Factory.new
           register_handle_type(factory)
           register_exception_type(factory)
+          register_symbol_rejection(factory)
           factory
         end
 
@@ -48,6 +49,21 @@ module Kobako
           )
         end
         private_class_method :register_exception_type
+
+        # Register a packer for Symbol that raises +UnsupportedType+ instead
+        # of letting the msgpack gem silently encode it as +str+. Symbols
+        # are not in SPEC's 10-entry type-mapping table; the dispatch layer
+        # uses this signal to route the value through a Capability Handle
+        # ({SPEC.md B-14}[link:../../../SPEC.md]). No ext byte is emitted on
+        # the wire because the packer never returns; ext code +0x7f+ is
+        # reserved here only so the registration is valid.
+        def self.register_symbol_rejection(factory)
+          factory.register_type(
+            0x7f, Symbol,
+            packer: ->(sym) { raise UnsupportedType, "no wire encoding for Symbol: #{sym.inspect}" }
+          )
+        end
+        private_class_method :register_symbol_rejection
 
         # Peel off the fixext-4 frame, hand the bytes to +Handle.new+, and
         # translate the +ArgumentError+ raised by Handle's invariants into
