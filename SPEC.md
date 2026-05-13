@@ -357,7 +357,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox executing a mruby script. A Service Member is bound at `GroupName::MemberName`. The guest script holds a reference to the constant `GroupName::MemberName` and calls a method on it. |
 | **Operation** | Guest code executes `GroupName::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
 | **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `GroupName::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest script's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
-| **Notes** | Each RPC call invokes the bound object's method exactly once. Bound Ruby objects receive keyword arguments as Ruby symbols, matching standard Ruby keyword argument conventions. If the target path is not found in the registry, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
+| **Notes** | Each RPC call invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ Wire Codec → Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in the registry, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
 
 ---
 
@@ -365,10 +365,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Array, or Hash. |
+| **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the RPC response. |
 | **Result / Final State** | The guest script receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
-| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
+| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
 
 ---
 
@@ -634,7 +634,7 @@ Every host↔guest RPC call carries exactly three logical fields:
 | `target` | Service Member path (two-level string `"Group::Member"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
-| `kwargs` | key-value map | Keyword arguments passed to the method. Keys are strings on the wire; the host converts them to Ruby symbols before dispatch. An empty kwargs map is always present (never absent) to keep field positions stable. |
+| `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ Wire Codec → Ext Types → ext 0x00); the host passes them to dispatch unchanged. An empty kwargs map is always present (never absent) to keep field positions stable. |
 
 The `target` string form uses Ruby constant-path syntax (`"Group::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
@@ -731,7 +731,7 @@ MessagePack is the wire codec. It is the only codec used on either side of the W
 
 #### Type Mapping
 
-The following 11 entries constitute the complete set of MessagePack types recognized on the kobako wire. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode the payload.
+The following 12 entries constitute the complete set of MessagePack types recognized on the kobako wire. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode the payload.
 
 | # | msgpack family | Wire use | Host Gem Ruby type | Guest Binary mruby / Rust type |
 |---|----------------|----------|--------------------|-------------------------------|
@@ -743,9 +743,10 @@ The following 11 entries constitute the complete set of MessagePack types recogn
 | 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
 | 7 | array (fixarray / array 16 / array 32) | Ordered sequences; all envelope frames | `Array` | `Array` (mruby) / `Vec<T>` |
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs`; Panic envelope payload | `Hash` | `Hash` (mruby) / struct or `HashMap` |
-| 9 | ext (general channel) | Dispatch point; kobako uses only ext codes 0x01 and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
-| 10 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
-| 11 | ext 0x02 | Exception envelope (see Ext Types below) | deserialized per error type (→ Error Classes) | `Errenv` struct |
+| 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
+| 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
+| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
+| 12 | ext 0x02 | Exception envelope (see Ext Types below) | deserialized per error type (→ Error Classes) | `Errenv` struct |
 
 ---
 
@@ -757,7 +758,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 |---|---|---|
 | Request `target` field (Service Member constant path form, e.g. `"Group::Member"`) | str only | bin → wire violation, reject |
 | Request `method` field | str only | bin → wire violation, reject |
-| Request `kwargs` map keys | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+| Request `kwargs` map keys | ext 0x00 (Symbol) only | str / bin / any other type → wire violation, reject |
 | Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Response Error Envelope `type` field value | str only | bin → wire violation, reject |
 | Response Error Envelope `message` field value | str only | bin → wire violation, reject |
@@ -765,11 +766,26 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | Panic Envelope `origin`, `class`, `message` field values | str only | bin → wire violation, reject |
 | Panic Envelope map keys (`origin`, `class`, `message`, `backtrace`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
-Symbols that appear in Ruby or mruby values do not survive the wire as symbols. After deserialization, values that were symbols on the originating side arrive as strings. The single exception is `kwargs` map keys: `kwargs` map keys received as `bin` are decoded as UTF-8 strings and treated as symbol-equivalent identifiers by the receiving implementation. Both `str`- and `bin`-encoded `kwargs` keys are wire-legal (→ Wire Contract → Request Shape).
+Symbols travel as ext 0x00 (→ Ext Types below). A Symbol encoded on one side and decoded on the other arrives as a Symbol with the same UTF-8 name; symbol identity across the wire is established by name equality, not by interned-id sharing. A `str` or `bin` value carrying the bytes of a symbol name is **not** wire-equivalent to that Symbol; the two are distinguishable on the wire and must remain distinguishable end-to-end.
 
 ---
 
 #### Ext Types
+
+##### ext 0x00 — Symbol
+
+**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x00`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x00`, payload) depending on payload size. The payload is zero or more UTF-8 bytes — the symbol's name. An empty payload (`0xc7 0x00 0x00`) decodes as the empty Symbol (`:""`); this is wire-legal.
+
+| Byte offset | Content |
+|-------------|---------|
+| 0 | `0xc7` or `0xc8` — msgpack `ext 8` / `ext 16` marker |
+| 1 | length byte(s) — 1 byte for `ext 8`, 2 big-endian bytes for `ext 16` |
+| n | `0x00` — kobako ext type code |
+| n+1.. | UTF-8 bytes of the symbol name |
+
+A non-UTF-8 payload is a wire violation; the receiving side rejects the message. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
+
+ext 0x00 may appear in: Request `args` elements, Request `kwargs` keys, Request `kwargs` values, Response `value` field (success variant), Result envelope `value` field, and as elements / keys / values of any nested array or map in those positions. It must not appear in: Request `target` field, Request `method` field, Response Error Envelope `type` / `message` fields, Panic envelope `origin` / `class` / `message` fields, or Exception envelope `type` / `message` fields.
 
 ##### ext 0x01 — Capability Handle
 
@@ -925,7 +941,7 @@ Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec i
 - **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
 - **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
 
-Both directions are required. Coverage must include all 11 wire types (→ Type Mapping), both ext types (0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to the Implementation Standards subsection.
+Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to the Implementation Standards subsection.
 
 ---
 
@@ -963,7 +979,7 @@ The boundary rule is: **`ext/` is private to the Host Gem and must never be impo
 The following patterns are enforced project-wide and apply at every layer:
 
 - **Wire is a release-internal contract.** The Wire Spec couples the Host Gem and Guest Binary at the gem release boundary. No version negotiation field is present on the wire; both sides always speak the single version shipped in the same gem release. One-sided wire evolution is not permitted.
-- **Round-trip fuzz is the consistency guarantee.** Because the host-side (Ruby) and guest-side (Rust/mruby) codec implementations are independent, correctness is established by bidirectional round-trip fuzz covering all 11 wire types and both ext types. There is no shared codec source code.
+- **Round-trip fuzz is the consistency guarantee.** Because the host-side (Ruby) and guest-side (Rust/mruby) codec implementations are independent, correctness is established by bidirectional round-trip fuzz covering all 12 wire types and all three ext types. There is no shared codec source code.
 - **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
@@ -995,10 +1011,10 @@ The test suite is organized into four layers. All four layers must exist and mus
 
 | Layer | Name | Scope | When it must pass |
 |-------|------|-------|------------------|
-| 1 | **Codec round-trip fuzz** | Bidirectional wire codec agreement between Host Gem and Guest Binary codec implementations; covers all 11 wire types, both ext types, and nested compositions | Always — any failure is a wire regression that blocks release unconditionally |
+| 1 | **Codec round-trip fuzz** | Bidirectional wire codec agreement between Host Gem and Guest Binary codec implementations; covers all 12 wire types, all three ext types, and nested compositions | Always — any failure is a wire regression that blocks release unconditionally |
 | 2 | **Wire integration** | Full Request / Response exchange through a live Sandbox, including the disconnected sentinel path and all envelope type variants | Before release |
 | 3 | **Ext unit** | `ext/kobako/` internal Rust unit tests and `lib/kobako/` Ruby specs without starting a Sandbox; includes HandleTable allocation / release / fetch, `HandleTableExhausted` guard at `0x7fff_ffff`, wire encode/decode boundary values, and wasmtime API wrapper correctness | Before release; the HandleTable exhaustion guard is also a required build-pipeline guard (see below) |
-| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs and string-key → symbol-key conversion), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
+| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs, symbol-key wire form, and Symbol round-trip through args / return values), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
 
 The recommended execution order is Layer 3 → Layer 1 → Layer 2 → Layer 4 (cheapest first; fail fast before starting the Sandbox).
 
