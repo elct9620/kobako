@@ -312,9 +312,9 @@ class TestE2EJourneys < Minitest::Test
   # +Kobako::mrb_value_to_wire_outcome+ (outcome path, +inspect+ fallback)
   # and +Kobako::mrb_value_to_wire_value+ (RPC path, +to_s+ fallback)
   # intentionally diverge; see the cross-referenced doc-comments on both
-  # methods in +wasm/kobako-wasm/src/kobako.rs+. The script-side Probe
-  # below pins the divergence so a future "DRY cleanup" that unifies
-  # them fails loudly.
+  # methods in +wasm/kobako-wasm/src/kobako.rs+. The two tests below pin
+  # the divergence — one per direction — so a future "DRY cleanup" that
+  # unifies them fails loudly on whichever side regressed.
 
   # Outcome path: the unknown-type fallback arm uses +Object#inspect+,
   # NOT +Object#to_s+. The Probe class defined inside the script
@@ -337,6 +337,32 @@ class TestE2EJourneys < Minitest::Test
     assert_equal "<probe-inspect>", result,
                  "outcome path: unknown-type fallback must call Object#inspect — " \
                  "see Kobako::mrb_value_to_wire_outcome doc"
+  end
+
+  # RPC path: the unknown-type fallback arm uses +Object#to_s+, NOT
+  # +Object#inspect+. A user-defined mruby class is not in
+  # +mrb_value_to_wire_value+'s named arms (NilClass / Bool / Integer /
+  # Float / String / Symbol), so it falls through the +to_s+ fallback,
+  # arrives at the Service as a plain String, and is echoed back. If
+  # the converter switched to +inspect+, this assertion would surface
+  # +"<rpc-probe-inspect>"+ instead of +"<rpc-probe-to-s>"+.
+  RPC_PROBE_SCRIPT = <<~RUBY
+    class RpcProbe
+      def inspect; "<rpc-probe-inspect>"; end
+      def to_s;    "<rpc-probe-to-s>";    end
+    end
+    Sym::Echo.call(RpcProbe.new)
+  RUBY
+
+  def test_rpc_arg_unknown_type_uses_to_s_not_inspect
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg })
+
+    result = sandbox.run(RPC_PROBE_SCRIPT)
+
+    assert_equal "<rpc-probe-to-s>", result,
+                 "RPC path: unknown-type fallback must call Object#to_s — " \
+                 "see Kobako::mrb_value_to_wire_value doc"
   end
 
   # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol RPC argument
