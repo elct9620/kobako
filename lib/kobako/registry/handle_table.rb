@@ -53,17 +53,15 @@ module Kobako
       # returned by +#alloc+. Returns the bound object. Raises
       # +Kobako::HandleTableError+ if +id+ is not currently bound.
       def fetch(id)
-        return @entries[id] if @entries.key?(id)
-
-        raise HandleTableError, "unknown Handle id: #{id.inspect}"
+        require_bound!(id)
+        @entries[id]
       end
 
       # Remove and return the binding for +id+. +id+ is the Handle ID to
       # release. Returns the previously-bound object. Raises
       # +Kobako::HandleTableError+ if +id+ is not currently bound.
       def release(id)
-        raise HandleTableError, "unknown Handle id: #{id.inspect}" unless @entries.key?(id)
-
+        require_bound!(id)
         @entries.delete(id)
       end
 
@@ -92,6 +90,17 @@ module Kobako
       # Returns +true+ when +id+ is currently bound, +false+ otherwise.
       def include?(id)
         @entries.key?(id)
+      end
+
+      private
+
+      # Single source of truth for the "unknown Handle id" raise shared by
+      # {#fetch} and {#release}. Returns +nil+ on success; raises
+      # +Kobako::HandleTableError+ when +id+ is not currently bound.
+      def require_bound!(id)
+        return if @entries.key?(id)
+
+        raise HandleTableError, "unknown Handle id: #{id.inspect}"
       end
     end
   end

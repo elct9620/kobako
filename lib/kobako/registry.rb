@@ -65,8 +65,7 @@ module Kobako
     # separator. Returns the bound Host object. Raises +KeyError+ when the
     # group or the member is not bound.
     def lookup(target)
-      group_name, member_name = target.to_s.split("::", 2)
-      group = @groups[group_name]
+      group, member_name, group_name = resolve_pair(target)
       raise KeyError, "no service group named #{group_name.inspect}" if group.nil?
       raise KeyError, "no member #{target.inspect} bound in registry" unless member_name
 
@@ -76,11 +75,8 @@ module Kobako
     # Returns +true+ when +target+ (a +"GroupName::MemberName"+ path) resolves
     # to a bound member, +false+ otherwise.
     def bound?(target)
-      group_name, member_name = target.to_s.split("::", 2)
-      return false if member_name.nil?
-
-      group = @groups[group_name]
-      !group.nil? && !group[member_name].nil?
+      group, member_name, = resolve_pair(target)
+      !group.nil? && !member_name.nil? && !group[member_name].nil?
     end
 
     # Returns all declared +Kobako::Registry::ServiceGroup+ instances as an
@@ -149,5 +145,16 @@ module Kobako
     # Expose the +Kobako::Registry::HandleTable+ for tests and wire-layer
     # Handle wrapping.
     attr_reader :handle_table
+
+    private
+
+    # Split +target+ on the +::+ separator and resolve the group half.
+    # Returns +[group_or_nil, member_str_or_nil, group_name_str]+ so each
+    # public method ({#lookup} / {#bound?}) only owns its boundary
+    # semantics (raise vs predicate).
+    def resolve_pair(target)
+      group_name, member_name = target.to_s.split("::", 2)
+      [@groups[group_name], member_name, group_name]
+    end
   end
 end
