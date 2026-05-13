@@ -314,6 +314,15 @@ pub extern "C" fn __kobako_run() {
         // `mrb_load_nstring`. SPEC.md "Panic Envelope" L876 mandates a
         // populated `backtrace` field for Panic envelopes.
         let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
+        if cxt.is_null() {
+            write_panic_outcome(
+                "sandbox",
+                "Kobako::BootError",
+                "mrb_ccontext_new returned NULL",
+                Vec::new(),
+            );
+            return;
+        }
         unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(script)")) };
         let result_val = unsafe {
             sys::mrb_load_nstring_cxt(
@@ -359,26 +368,8 @@ pub extern "C" fn __kobako_run() {
             };
 
             // Collect mruby Exception#backtrace before clearing the
-            // pending exception (SPEC.md "Panic Envelope" L876 — array of
-            // str). mruby's default build keeps the backtrace; the call
-            // returns an Array of String when present. If the runtime is
-            // ever rebuilt without keep-mode, `.backtrace` may yield a
-            // non-Array value — fall back to an empty vec so the Panic
-            // envelope still serializes cleanly.
-            let backtrace = unsafe {
-                let bt_val = exc_val.call(mrb.as_ptr(), cstr!("backtrace"), &[]);
-                if bt_val.classname(mrb.as_ptr()) != "Array" {
-                    Vec::new()
-                } else {
-                    let len = kobako.collection_len(bt_val);
-                    let mut lines = Vec::with_capacity(len);
-                    for i in 0..len {
-                        let line = sys::mrb_ary_entry(bt_val, i as i32);
-                        lines.push(line.to_string(mrb.as_ptr()));
-                    }
-                    lines
-                }
-            };
+            // pending exception (SPEC.md "Panic Envelope" L876).
+            let backtrace = kobako.extract_backtrace(exc_val);
 
             // Clear the exception from mrb state.
             let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };

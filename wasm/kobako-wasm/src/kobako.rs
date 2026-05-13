@@ -530,6 +530,35 @@ impl Kobako {
         unsafe { len_val.to_string(self.mrb) }.parse().unwrap_or(0)
     }
 
+    /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
+    /// Rust `Vec<String>`. Used by the guest panic path
+    /// (`crate::abi::__kobako_run`) to populate the Panic envelope's
+    /// `backtrace` field per SPEC.md "Panic Envelope" L876.
+    ///
+    /// mruby's default build keeps the backtrace, so `.backtrace`
+    /// returns an Array of String. If the runtime is ever rebuilt
+    /// without keep-mode the call yields a non-Array value (typically
+    /// `nil`); fall back to an empty vec so the Panic envelope still
+    /// serializes cleanly.
+    #[cfg(target_arch = "wasm32")]
+    pub fn extract_backtrace(&self, exc_val: sys::mrb_value) -> Vec<String> {
+        // SAFETY: `self.mrb` is live; `exc_val` is an mrb_value produced
+        // by the same VM.
+        unsafe {
+            let bt_val = exc_val.call(self.mrb, cstr!("backtrace"), &[]);
+            if bt_val.classname(self.mrb) != "Array" {
+                return Vec::new();
+            }
+            let len = self.collection_len(bt_val);
+            let mut lines = Vec::with_capacity(len);
+            for i in 0..len {
+                let line = sys::mrb_ary_entry(bt_val, i as i32);
+                lines.push(line.to_string(self.mrb));
+            }
+            lines
+        }
+    }
+
     /// Store `id_val` into a fresh `Kobako::Handle` instance's
     /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
     /// C bridge.

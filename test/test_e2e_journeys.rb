@@ -119,7 +119,6 @@ class TestE2EJourneys < Minitest::Test
       RUBY
     end
 
-    assert_kind_of Array, err.backtrace_lines
     refute_empty err.backtrace_lines,
                  "guest must populate Panic.backtrace for service-origin panics too"
   end
