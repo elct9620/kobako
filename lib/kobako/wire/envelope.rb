@@ -18,7 +18,7 @@ module Kobako
     #
     #   - **RPC path** (lives in this file): Request / Response — guest
     #     calls a Service, host returns a value or an Exception.
-    #   - **Outcome path** (lives in {envelope/payloads.rb}): Result /
+    #   - **Outcome path** (lives in +envelope/payloads.rb+): Result /
     #     Panic wrapped in an Outcome envelope — the host reads this
     #     after +__kobako_run+ to surface either the script's last
     #     expression or a Sandbox/Service panic.

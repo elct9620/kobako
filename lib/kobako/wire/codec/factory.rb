@@ -103,6 +103,15 @@ module Kobako
         # at the wire boundary. Inner decode goes through {Decoder} (not
         # +factory.load+) so the embedded +str+ payloads flow through the
         # same UTF-8 validation as a top-level decode.
+        #
+        # This establishes a runtime cycle Factory → Decoder → Factory:
+        # the cached +.instance+ feeds +Decoder.new+, which re-enters this
+        # method when a nested ext 0x02 appears inside +details+. The
+        # recursion is bounded by msgpack nesting depth — identical to
+        # nested Array / Hash payloads — so no extra guard is needed.
+        # Do not switch back to +factory.load+ to "simplify": that path
+        # bypasses UTF-8 validation and re-opens the Decoder's special
+        # case for Exception (removed in M5).
         def self.unpack_exception(payload)
           map = Decoder.new(payload).read
           raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
