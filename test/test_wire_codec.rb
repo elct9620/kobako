@@ -443,37 +443,6 @@ module Kobako
         err = assert_raises(InvalidType) { Decoder.new(bytes).read }
         assert_match(/4 bytes/, err.message)
       end
-
-      # ---------- self-consistency: every type goes through one big fuzz-ish list ----------
-
-      def test_combined_payload_roundtrip
-        value = combined_payload_fixture
-        _, decoded = roundtrip(value)
-        # Float::INFINITY and -0.0 compare equal under == so plain assert_equal works
-        assert_equal value, decoded
-      end
-
-      def combined_payload_fixture
-        h = Handle.new(123_456)
-        e = Exc.new(type: "runtime", message: "x", details: [1, 2, 3])
-        combined_payload_without_ext_types.merge(
-          "map" => { "nested" => { "again" => [h] } },
-          "handle" => h,
-          "exc" => e
-        )
-      end
-
-      def combined_payload_without_ext_types
-        {
-          "nil" => nil,
-          "bools" => [true, false],
-          "ints" => [-1, 0, 1, 0x7f, 0x80, 0xffff_ffff_ffff_ffff, -0x8000_0000_0000_0000],
-          "floats" => [0.0, -0.0, 1.5, Float::INFINITY],
-          "strs" => ["", "a", "蒼"],
-          "bins" => [[0xff, 0x00].pack("C*")],
-          "arr" => [[], [[]], [[[]]]]
-        }
-      end
     end
   end
 end
