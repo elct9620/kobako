@@ -456,8 +456,11 @@ class TestCodecRoundtripFuzz < Minitest::Test
   # ----- ext types -----
 
   # SPEC.md → Wire Codec → Ext Types → ext 0x00: Symbol payload is UTF-8
-  # bytes; empty payload is wire-legal. Mirror the str/bin band shape so
-  # boundaries (empty, fixext fast paths, ext 8/16 ranges) are exercised.
+  # bytes; empty payload is wire-legal. ~5% empty + 95% random 1..64-byte
+  # UTF-8 names — the random range crosses the fixext1 / 2 / 4 / 8 / 16
+  # and ext 8 boundaries automatically, which is the minimum needed to
+  # catch a regression that breaks one of those framing tiers. The Rust
+  # guest's symbol unit tests cover the ext 16 boundary separately.
   def generate_symbol
     @coverage[:symbol] += 1
     pick = @rng.rand(20)
