@@ -97,9 +97,9 @@ module Kobako
         end
 
         target, method_name, args, kwargs = arr
-        Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
-      rescue ArgumentError => e
-        raise InvalidType, e.message
+        Codec.translate_value_object_error do
+          Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
+        end
       end
 
       # ============================================================
@@ -154,9 +154,7 @@ module Kobako
         end
 
         status, payload = arr
-        Response.new(status: status, payload: payload)
-      rescue ArgumentError => e
-        raise InvalidType, e.message
+        Codec.translate_value_object_error { Response.new(status: status, payload: payload) }
       end
     end
   end

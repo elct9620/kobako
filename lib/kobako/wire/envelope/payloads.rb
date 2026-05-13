@@ -79,12 +79,12 @@ module Kobako
         map = Decoder.decode(bytes)
         raise InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-        Panic.new(
-          origin: map["origin"], klass: map["class"], message: map["message"],
-          backtrace: map["backtrace"] || [], details: map["details"]
-        )
-      rescue ArgumentError => e
-        raise InvalidType, e.message
+        Codec.translate_value_object_error do
+          Panic.new(
+            origin: map["origin"], klass: map["class"], message: map["message"],
+            backtrace: map["backtrace"] || [], details: map["details"]
+          )
+        end
       end
 
       # ============================================================

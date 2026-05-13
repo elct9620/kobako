@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "codec/error"
+
 module Kobako
   module Wire
     # Host-side MessagePack codec for the kobako wire contract — the
@@ -15,11 +17,26 @@ module Kobako
     # ext-code constants live as module-private values on {Factory}
     # alongside +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+ on that side.
     module Codec
+      # Boundary translator: every Value Object in the wire layer
+      # (Handle / Exception / Request / Response / Panic / ...) raises
+      # +ArgumentError+ when an invariant is violated at construction.
+      # The wire boundary surfaces those violations to callers as
+      # +InvalidType+ so the public taxonomy is +Codec::Error+ subclasses
+      # and never +ArgumentError+ from the Ruby standard library.
+      #
+      # Use this helper around any block that constructs a Value Object
+      # from wire-decoded data so the translation is uniform across the
+      # five decode sites (Request / Response / Panic / Handle ext /
+      # Exception ext).
+      def self.translate_value_object_error
+        yield
+      rescue ::ArgumentError => e
+        raise InvalidType, e.message
+      end
     end
   end
 end
 
-require_relative "codec/error"
 require_relative "codec/factory"
 require_relative "codec/encoder"
 require_relative "codec/decoder"
