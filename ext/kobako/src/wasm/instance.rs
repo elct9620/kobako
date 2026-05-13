@@ -313,8 +313,8 @@ fn build_instance(
     // Decodes the Request bytes, dispatches via the Ruby-side
     // `Kobako::Registry` (set per-run via `set_registry`), allocates a guest
     // buffer through `__kobako_alloc`, writes the Response bytes there, and
-    // returns the packed `(ptr<<32)|len`. When no Registry is set (test
-    // scenarios that never RPC), the legacy recorder behaviour is preserved.
+    // returns the packed `(ptr<<32)|len`. The dispatcher returns 0 on any
+    // wire-layer fault (including a missing Registry); see `dispatch_rpc`.
     linker
         .func_wrap(
             "env",

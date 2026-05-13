@@ -13,10 +13,12 @@
 //!   4. Writes the Response bytes into the guest buffer.
 //!   5. Returns packed `(ptr<<32)|len` for the guest to decode.
 //!
-//! Returns 0 when no Registry is bound (legacy recorder path) or when
-//! any step fails — failures during dispatch surface as Response.err
-//! envelopes from the Registry itself, so a 0 return is reserved for
-//! genuine wire-layer breakage and is mapped by the guest to a trap.
+//! Returns 0 on any step failure. `Kobako::Sandbox` always installs a
+//! Registry before invoking the guest, so reaching the dispatcher with
+//! no Registry bound is itself a wire-layer fault; the guest maps a 0
+//! return to a trap. Failures during normal dispatch surface as
+//! Response.err envelopes from the Registry itself — they never reach
+//! this 0-return path.
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{Error as MagnusError, RString, Ruby, Value};
