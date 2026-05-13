@@ -279,6 +279,9 @@ module Kobako
         assert_raises(ArgumentError) do
           Envelope::Panic.new(origin: "sandbox", klass: "E", message: "m", backtrace: "str")
         end
+        assert_raises(ArgumentError) do
+          Envelope::Panic.new(origin: "sandbox", klass: "E", message: "m", backtrace: ["ok", 42])
+        end
       end
 
       # ============================================================
