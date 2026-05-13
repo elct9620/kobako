@@ -33,6 +33,7 @@ jobs:
           bundler-cache: true
           cargo-cache: true
           rubygems: '3.6.9'
+          rustup-targets: wasm32-wasip1
       - name: Run the default task
         run: bundle exec rake
       - name: Rust unit tests (kobako-wasm, host target)
