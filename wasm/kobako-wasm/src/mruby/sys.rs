@@ -11,7 +11,8 @@
 //!
 //! For the boot mechanism the surface we actually call is small and
 //! stable across mruby 3.x — the half-dozen registration functions
-//! used by `boot.rs`. Hand-declaring them as `extern "C"` gives us:
+//! used by `crate::kobako::bridges`. Hand-declaring them as `extern "C"`
+//! gives us:
 //!
 //!   * A wasm32 build that links against `libmruby.a` (host-side build
 //!     pipeline already stages the archive — see `build.rs` and
@@ -202,9 +203,10 @@ extern "C" {
     //   #define mrb_class_ptr(v) ((struct RClass*)(mrb_ptr(v)))
     // With MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32 (wasm32 config),
     // mrb_ptr(val) resolves to the raw pointer stored in the lower 32 bits.
-    // Use `val.w as *mut RClass` inline in boot.rs; do NOT declare it here
-    // as an extern "C" fn (that would produce a wasm import for a symbol that
-    // doesn't exist as a real C function in libmruby.a).
+    // Use `val.w as *mut RClass` inline at bridge call sites; do NOT
+    // declare it here as an extern "C" fn (that would produce a wasm
+    // import for a symbol that doesn't exist as a real C function in
+    // libmruby.a).
 
     /// `mrb_class_name(mrb, c)` — returns the class's full Ruby name
     /// (e.g. `"MyService::KV"`).
@@ -394,7 +396,8 @@ extern "C" {
 
     /// `mrb_class_get(mrb, name)` — fetches a top-level class by name
     /// (e.g. `"RuntimeError"`). Used to resolve the parent class for
-    /// `Kobako::ServiceError` / `Kobako::WireError` in `mrb_kobako_init`.
+    /// `Kobako::ServiceError` / `Kobako::WireError` in
+    /// `crate::kobako::Kobako::install_raw`.
     pub fn mrb_class_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
 
     /// `mrb_module_get(mrb, name)` — fetches a top-level module by name

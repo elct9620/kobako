@@ -13,9 +13,10 @@
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
 //! proves you can talk to the runtime, with no Drop and no lifetime —
 //! liveness is the caller's contract, just as it is for mruby's own C
-//! API. The C-bridges in [`crate::boot`] remain `unsafe extern "C" fn`
-//! callbacks invoked by mruby, but their bodies acquire a [`Kobako`]
-//! through [`Kobako::resolve_raw`] and then call safe methods.
+//! API. The C-bridges in [`crate::kobako::bridges`] remain
+//! `unsafe extern "C" fn` callbacks invoked by mruby, but their bodies
+//! acquire a [`Kobako`] through [`Kobako::resolve_raw`] and then call
+//! safe methods.
 //!
 //! ## Lifecycle
 //!

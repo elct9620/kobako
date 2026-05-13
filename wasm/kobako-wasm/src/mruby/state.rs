@@ -14,17 +14,14 @@
 //! Two problems with the raw pointer:
 //!
 //! 1. Every function that takes one must be `unsafe fn` even when it
-//!    does nothing more than forward to FFI — the "unsafe contagion"
-//!    that currently runs through `boot.rs` (~13 helper functions).
+//!    does nothing more than forward to FFI — "unsafe contagion" across
+//!    every helper that touches the VM.
 //! 2. Manual `mrb_close` calls scatter across every panic-outcome path
 //!    in `__kobako_run`. Forgetting one is a quiet memory leak the
 //!    type system cannot catch.
 //!
 //! `Mrb` fixes both: the owning type makes "the VM is live" provable by
-//! the borrow checker, and `Drop` makes `mrb_close` automatic. Subsequent
-//! items will grow safe methods on `Mrb` (e.g. `define_module`,
-//! `load_nstring`) and a `MrbRef<'a>` borrowed view for C-bridge call
-//! sites that receive a raw `*mut mrb_state` from mruby.
+//! the borrow checker, and `Drop` makes `mrb_close` automatic.
 
 use crate::mruby::sys;
 use core::ptr::NonNull;

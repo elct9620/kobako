@@ -1,7 +1,7 @@
 //! Guest RPC Client — Rust+mruby bridge.
 //!
 //! This module is the glue between the in-VM mruby proxy installed
-//! by `crate::boot::mrb_kobako_init` (mruby C API registrations) and
+//! by `crate::kobako::Kobako::install` (mruby C API registrations) and
 //! the wasm-level `__kobako_rpc_call` host import declared in `abi.rs`.
 //! SPEC.md "Wire Contract" → Request / Response pins the contract this
 //! module implements.
@@ -35,9 +35,9 @@
 //! User-script RPC calls land in C via `Kobako.__rpc_call__`, registered
 //! by `mrb_define_module_function`. That C function body, plus the
 //! `Kobako::RPC` singleton-class `method_missing` shim, lives in
-//! `crate::boot` — not here. This module's role is the Rust-level
-//! encode/transport/decode pipeline that the C bridge delegates to once
-//! item #16 wires the argument unpack.
+//! `crate::kobako::bridges` — not here. This module's role is the
+//! Rust-level encode/transport/decode pipeline that the C bridge
+//! delegates to.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_rpc_call;
@@ -253,14 +253,13 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 }
 
 // ---------------------------------------------------------------------
-// mruby C-bridge — see `crate::boot`.
+// mruby C-bridge — see `crate::kobako::bridges`.
 // ---------------------------------------------------------------------
 //
 // The C-side dispatch entry is `Kobako.__rpc_call__`, registered via
 // `mrb_define_module_function` with `MRB_ARGS_REQ(4)`. That C bridge
 // (and the `Kobako::RPC` singleton-class `method_missing` shim that
-// forwards to it) lives in `crate::boot::mrb_kobako_init` — the
-// previous `mrb_kobako_send` shim is no longer used.
+// forwards to it) lives in `crate::kobako::bridges`.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).
