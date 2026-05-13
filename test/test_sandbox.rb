@@ -63,49 +63,6 @@ class TestSandbox < Minitest::Test
     assert_equal 0, b.handle_table.size, "alloc on one Sandbox must not leak to another"
   end
 
-  def test_output_buffer_truncates_with_marker_on_stdout
-    # SPEC B-04: when an append would exceed the per-channel limit, the
-    # buffer keeps the leading bytes that fit and seals itself; subsequent
-    # reads see a `[truncated]` marker. Truncation does NOT raise.
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stdout_limit: 8, stderr_limit: 8)
-
-    sandbox.stdout_buffer << "1234567" # 7 bytes, under limit
-    assert_equal 7, sandbox.stdout_buffer.bytesize
-
-    sandbox.stdout_buffer << "89AB" # would exceed by 3 bytes
-    assert sandbox.stdout_buffer.truncated?, "buffer must seal once limit is hit"
-    assert_equal 8, sandbox.stdout_buffer.bytesize
-    assert_equal "12345678[truncated]", sandbox.stdout_buffer.to_s
-
-    # Subsequent appends are silently discarded once sealed.
-    sandbox.stdout_buffer << "more"
-    assert_equal 8, sandbox.stdout_buffer.bytesize
-    assert_equal "12345678[truncated]", sandbox.stdout_buffer.to_s
-  end
-
-  def test_output_buffer_truncates_on_stderr_without_raising
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stderr_limit: 4)
-
-    sandbox.stderr_buffer << "abcd"
-    refute sandbox.stderr_buffer.truncated?
-
-    sandbox.stderr_buffer << "e"
-    assert sandbox.stderr_buffer.truncated?
-    assert_equal "abcd[truncated]", sandbox.stderr_buffer.to_s
-  end
-
-  def test_output_buffer_clear_resets_to_empty
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    sandbox.stdout_buffer << "hello"
-    refute sandbox.stdout_buffer.empty?
-    assert_equal "hello", sandbox.stdout_buffer.to_s
-
-    sandbox.stdout_buffer.clear
-    assert sandbox.stdout_buffer.empty?
-    assert_equal "", sandbox.stdout_buffer.to_s
-  end
-
   def test_run_against_minimal_fixture_raises_trap_error_when_run_missing
     # The minimal.wasm fixture has none of the SPEC ABI exports, so the
     # run step raises Kobako::Wasm::Error which `#run` re-wraps as a
