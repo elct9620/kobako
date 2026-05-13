@@ -54,7 +54,7 @@ module Kobako
         def self.register_exception_type(factory)
           factory.register_type(
             EXT_ERRENV, Exception,
-            packer: ->(exc) { pack_exception(exc, factory) },
+            packer: ->(exc) { pack_exception(exc) },
             unpacker: ->(payload) { unpack_exception(payload) }
           )
         end
@@ -89,11 +89,12 @@ module Kobako
         end
         private_class_method :decode_handle
 
-        def self.pack_exception(exc, factory)
-          # Inner payload is itself a msgpack map. We use the *same* factory
-          # so any nested kobako values (e.g. Handle in `details`) round-trip
-          # through the same ext-type registry.
-          factory.dump("type" => exc.type, "message" => exc.message, "details" => exc.details)
+        # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so
+        # the embedded payload flows through the same boundary as a top-level
+        # encode — nested kobako values (Handle, nested Exception) reach the
+        # registered ext-type packers via the cached {.instance}.
+        def self.pack_exception(exc)
+          Encoder.encode("type" => exc.type, "message" => exc.message, "details" => exc.details)
         end
         private_class_method :pack_exception
 
