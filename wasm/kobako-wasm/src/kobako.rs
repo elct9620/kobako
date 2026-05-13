@@ -731,13 +731,9 @@ impl Kobako {
                     bytes.len() as i32,
                 ),
                 Value::Sym(name) => {
-                    // Build an mruby String holding the UTF-8 name then
-                    // intern it via `String#to_sym`. Going through `to_sym`
-                    // (instead of hand-rolling `mrb_symbol_value`) avoids
-                    // reaching into mruby's boxing bit-layout — the
-                    // wasm32 build uses MRB_WORDBOX_NO_INLINE_FLOAT and
-                    // the symbol packing constants are private to
-                    // `mruby.h`.
+                    // Intern via String#to_sym — mruby's mrb_symbol_value
+                    // bit-layout is build-private (we use
+                    // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
                     let str_val = sys::mrb_str_new(
                         self.mrb,
                         name.as_ptr() as *const core::ffi::c_char,

@@ -76,15 +76,11 @@ module Kobako
         invoke(target_object, request.method_name, args, kwargs)
       end
 
-      # Invoke +method+ on +target+ with positional args and Symbol-keyed
-      # kwargs (per {SPEC.md B-12 Notes}[link:../../../SPEC.md]: keyword
-      # argument names travel on the wire as Symbols and the host passes
-      # them to +public_send+ without further conversion).
-      #
-      # Empty kwargs is wire-uniform: methods whose signature accepts no
-      # keyword arguments must still dispatch when the wire carries an
-      # empty kwargs map; the empty-kwargs branch omits the +**+ splat so
-      # Ruby 3.x's strict kwargs separation does not reject the call.
+      # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed
+      # (the +Envelope::Request+ invariant pins it). The empty-kwargs
+      # branch omits the +**+ splat so Ruby 3.x's strict kwargs
+      # separation does not reject calls to no-kwarg methods when the
+      # wire carries the uniform empty-map shape.
       def invoke(target, method, args, kwargs)
         if kwargs.empty?
           target.public_send(method.to_sym, *args)
