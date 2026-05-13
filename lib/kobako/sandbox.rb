@@ -141,11 +141,12 @@ module Kobako
       raise TrapError, "guest __kobako_run trapped: #{e.message}"
     end
 
-    # Pull the OUTCOME_BUFFER bytes out of guest memory.
+    # Pull the OUTCOME_BUFFER bytes out of guest memory. The +len=0+ case
+    # is forwarded to {OutcomeDecoder} as an empty String so a single
+    # boundary attributes every wire-violation outcome
+    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
     def read_outcome_bytes
       ptr, len = Kobako::Wasm.unpack_outcome_ptr_len(@instance.take_outcome)
-      raise TrapError, "guest exited without writing an outcome (len=0)" if len.zero?
-
       @instance.read_memory(ptr, len)
     rescue Kobako::Wasm::Error => e
       raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
