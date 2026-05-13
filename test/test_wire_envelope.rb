@@ -286,7 +286,7 @@ module Kobako
       # ============================================================
 
       def test_outcome_result_round_trip
-        outcome = Envelope::Outcome.result(123)
+        outcome = Envelope::Outcome.new(Envelope::Result.new(123))
         bytes   = Envelope.encode_outcome(outcome)
         assert_equal Envelope::OUTCOME_TAG_RESULT, bytes.getbyte(0)
         decoded = Envelope.decode_outcome(bytes)
@@ -298,7 +298,7 @@ module Kobako
         panic = Envelope::Panic.new(
           origin: "sandbox", klass: "RuntimeError", message: "boom"
         )
-        outcome = Envelope::Outcome.panic(panic)
+        outcome = Envelope::Outcome.new(panic)
         bytes   = Envelope.encode_outcome(outcome)
         assert_equal Envelope::OUTCOME_TAG_PANIC, bytes.getbyte(0)
         decoded = Envelope.decode_outcome(bytes)
@@ -318,14 +318,14 @@ module Kobako
 
       def test_outcome_result_golden_for_42
         # Tag 0x01 + Result envelope (fixarray 1, 0x2a)
-        bytes = Envelope.encode_outcome(Envelope::Outcome.result(42))
+        bytes = Envelope.encode_outcome(Envelope::Outcome.new(Envelope::Result.new(42)))
         assert_equal "01912a", hex(bytes)
       end
 
       def test_outcome_panic_golden_minimum
         # Tag 0x02 + fixmap 3 with origin=sandbox, class=RuntimeError, message=boom
         panic = Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
-        bytes = Envelope.encode_outcome(Envelope::Outcome.panic(panic))
+        bytes = Envelope.encode_outcome(Envelope::Outcome.new(panic))
         # 02 | 83 | a6 origin     a7 sandbox          | a5 class    ac RuntimeError                       | a7 message a4 boom
         expected = "02" \
                    "83" \
@@ -339,7 +339,6 @@ module Kobako
         assert_raises(ArgumentError) { Envelope::Outcome.new(payload: "string") }
         assert_raises(ArgumentError) { Envelope::Outcome.new(payload: 42) }
         assert_raises(ArgumentError) { Envelope::Outcome.new(payload: nil) }
-        assert_raises(ArgumentError) { Envelope::Outcome.panic("not a panic") }
       end
 
       # ============================================================

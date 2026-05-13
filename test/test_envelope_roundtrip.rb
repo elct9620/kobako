@@ -177,16 +177,13 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # ---------- Outcome envelope ----------
 
   def test_outcome_result_round_trips
-    bytes = Envelope.encode_outcome(Envelope::Outcome.result(123))
+    bytes = Envelope.encode_outcome(Envelope::Outcome.new(Envelope::Result.new(123)))
     assert_equal bytes, oracle_roundtrip("O", bytes)
   end
 
   def test_outcome_panic_round_trips
-    bytes = Envelope.encode_outcome(Envelope::Outcome.panic(
-                                      Envelope::Panic.new(origin: "sandbox",
-                                                          klass: "RuntimeError",
-                                                          message: "boom")
-                                    ))
+    panic = Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
+    bytes = Envelope.encode_outcome(Envelope::Outcome.new(panic))
     assert_equal bytes, oracle_roundtrip("O", bytes)
   end
 end

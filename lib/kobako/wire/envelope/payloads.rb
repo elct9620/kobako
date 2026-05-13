@@ -93,17 +93,10 @@ module Kobako
       #
       # OUTCOME_BUFFER wrapper: one-byte tag (+0x01+ Result, +0x02+ Panic)
       # followed by the msgpack payload of the corresponding envelope.
+      # Callers construct an +Outcome+ by wrapping the payload directly —
+      # +Outcome.new(Result.new(value))+ or +Outcome.new(panic)+ — so the
+      # contract reads symmetrically across both variants.
       Outcome = Data.define(:payload) do
-        def self.result(value)
-          new(Result.new(value))
-        end
-
-        def self.panic(panic)
-          raise ArgumentError, "Outcome.panic requires Panic" unless panic.is_a?(Panic)
-
-          new(panic)
-        end
-
         def initialize(payload:)
           unless payload.is_a?(Result) || payload.is_a?(Panic)
             raise ArgumentError, "Outcome payload must be Result or Panic, got #{payload.class}"
