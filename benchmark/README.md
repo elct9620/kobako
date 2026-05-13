@@ -4,7 +4,7 @@ Kobako maintains a regression benchmark suite covering the five performance dime
 
 ## Latest baseline
 
-Captured on **2026-05-13** at commit `55ee78b` — macOS arm64, Ruby 3.4.7, 16 CPUs. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
+Captured on **2026-05-13** at commit `f4da86e` — macOS arm64, Ruby 3.4.7, 16 CPUs. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
 
 ### Sandbox construction and first run ([`cold_start.rb`](cold_start.rb))
 
@@ -117,16 +117,16 @@ The last four rows confirm the Hash stays effectively flat from 1 K to 1 M entri
 
 | Scenario | Result |
 |---|---|
-| 1 Thread, owning one Sandbox | 10.2k `#run`/s |
-| 2 Threads, each owning one Sandbox | 14.2k `#run`/s (1.4× single-Thread) |
-| 4 Threads, each owning one Sandbox | 14.8k `#run`/s |
-| 8 Threads, each owning one Sandbox | 14.2k `#run`/s |
-| Per-Sandbox `Sandbox.new` cost, single-Threaded | 0.124 ms |
-| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel | 0.112 ms (no mutex contention on the cache) |
-| `#run("nil")` baseline | 0.068 ms |
-| `#run("nil")` while another Thread is in a long `#run` | 0.103 ms (**1.5× baseline**) |
+| 1 Thread, owning one Sandbox | ~14k `#run`/s |
+| 2 Threads, each owning one Sandbox | ~14k `#run`/s (essentially flat) |
+| 4 Threads, each owning one Sandbox | ~14k `#run`/s |
+| 8 Threads, each owning one Sandbox | ~14k `#run`/s |
+| Per-Sandbox `Sandbox.new` cost, single-Threaded | 0.146 ms |
+| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel | 0.113 ms (no mutex contention on the cache) |
+| `#run("nil")` baseline | 0.067 ms |
+| `#run("nil")` while another Thread is in a long `#run` | 0.190 ms (1.5-3× baseline depending on the OS scheduler) |
 
-Practical implication for Sidekiq / Puma cluster shapes: a long-running script does NOT block other Threads' short `#run` calls by hundreds of milliseconds. The contention overhead is modest because any host-side synchronization (Queue push from a Service callback, mutex acquisition, IO) yields the GVL and lets the contending Thread interleave.
+Practical implication for Sidekiq / Puma cluster shapes: a long-running script does NOT block other Threads' short `#run` calls by hundreds of milliseconds. The contention overhead is bounded because any host-side synchronization (Queue push from a Service callback, mutex acquisition, IO) yields the GVL and lets the contending Thread interleave. The exact ratio varies run-to-run (1.5-3×) with scheduler quirks; the order of magnitude is the regression signal.
 
 ### Memory cost ([`memory.rb`](memory.rb)) — characterization only
 
@@ -134,16 +134,16 @@ External RSS sampling (`ps -o rss=`) — we only observe what the host process c
 
 | Scenario | Result |
 |---|---|
-| Process RSS at boot (no Sandbox) | 26 MB |
-| RSS after the first `Sandbox.new` + `#run("nil")` | 154 MB (**+128 MB** — Engine init + Module JIT + 1 instance, one-time) |
-| RSS after 10 Sandboxes total | 156 MB (~203 KB per additional Sandbox) |
-| RSS after 100 Sandboxes total | 173 MB (~194 KB per additional Sandbox) |
-| RSS after 1 000 Sandboxes total | 372 MB (~**218 KB per additional Sandbox**) |
-| RSS drift after 10 000 consecutive `#run("nil")` on one Sandbox | +2.2 MB over the whole run (~0.2 KB / run; consistent with allocator page retention, not a B-15 / B-19 violation) |
-| Peak RSS while holding a 512 KiB return value | +2.5 MB above baseline |
-| Retained RSS after GC of the same value | +2.5 MB (allocator does not eagerly return pages to the OS; the Ruby reference is dropped) |
+| Process RSS at boot (no Sandbox) | 25 MB |
+| RSS after the first `Sandbox.new` + `#run("nil")` | 135 MB (**+110 MB** — Engine init + Module JIT + 1 instance, one-time) |
+| RSS after 10 Sandboxes total | 137 MB (~192 KB per additional Sandbox) |
+| RSS after 100 Sandboxes total | 156 MB (~212 KB per additional Sandbox) |
+| RSS after 1 000 Sandboxes total | 342 MB (~**215 KB per additional Sandbox**) |
+| RSS drift after 10 000 consecutive `#run("nil")` on one Sandbox | +2.9 MB over the whole run (~0.3 KB / run; consistent with allocator page retention, not a B-15 / B-19 violation) |
+| Peak RSS while holding a 512 KiB return value | +3.1 MB above baseline |
+| Retained RSS after GC of the same value | +3.1 MB (allocator does not eagerly return pages to the OS; the Ruby reference is dropped) |
 
-Practical implication for tenant isolation: budget ~128 MB up front per worker process (paid by the first Sandbox), plus ~200 KB per concurrent tenant. **1 000 tenants ≈ 330 MB** in one Ruby process — well within a typical Sidekiq / Puma worker's RSS limit. The 200 KB number is dominated by each Sandbox's own Wasm Instance and its linear memory; the Engine and the compiled Module are shared at process scope and not re-paid per Sandbox.
+Practical implication for tenant isolation: budget ~110 MB up front per worker process (paid by the first Sandbox), plus ~200 KB per concurrent tenant. **1 000 tenants ≈ 340 MB** in one Ruby process — well within a typical Sidekiq / Puma worker's RSS limit. The 200 KB number is dominated by each Sandbox's own Wasm Instance and its linear memory; the Engine and the compiled Module are shared at process scope and not re-paid per Sandbox.
 
 The 7b drift is allocator behaviour, not a real leak — the per-`#run` HandleTable reset is honored at the Ruby level; the residual RSS is malloc pages held for reuse. If a host operator needs to bound a long-lived process tightly, monitor RSS over wall-clock hours rather than per-run growth.
 
@@ -174,8 +174,8 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
     "ruby_version": "3.4.7",
     "ruby_platform": "arm64-darwin24",
     "processors": 16,
-    "git_sha": "55ee78b",
-    "captured_at": "2026-05-13T13:19:17Z"
+    "git_sha": "f4da86e",
+    "captured_at": "2026-05-13T13:49:00Z"
   },
   "suites": {
     "cold_start":   [ { "label": "1a-sandbox-new", "ips": 11391.4, "ips_sd": 854, ... } ],

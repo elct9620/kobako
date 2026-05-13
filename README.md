@@ -192,12 +192,31 @@ bundle exec rake install
 
 ## Performance
 
-Kobako maintains a regression benchmark suite covering cold start, RPC round-trip latency, codec throughput, mruby VM speed, HandleTable scaling, and concurrent multi-Thread usage. Release baselines live in [`benchmark/results/`](benchmark/results); a +10% regression on any of the five SPEC-mandated benchmarks blocks release.
+Headline numbers from the current baseline (macOS arm64, Ruby 3.4.7 — full results in [`benchmark/results/`](benchmark/results)):
 
-See [`benchmark/README.md`](benchmark/README.md) for the per-suite breakdown, rake task reference, and known measurement caveats (guest String size cap, GVL bounds on aggregate throughput).
+| What | Cost |
+|---|---|
+| First `Sandbox.new` in a fresh process (Engine init + Module compile) | ~410 ms one-time |
+| Subsequent `Sandbox.new` (cache warm) | ~90 µs |
+| Reusing a Sandbox for one `#run("nil")` | ~67 µs |
+| Fresh Sandbox per request — the tenant-isolation pattern | ~175 µs (+110 µs versus reuse) |
+| Per-RPC cost amortized across many calls in one `#run` | ~5.4 µs |
+| 100 000-iteration integer XOR loop in mruby | ~44 ms |
+| One-time process memory for wasmtime Engine + Module | ~110 MB |
+| Memory per additional Sandbox after the first | ~200 KB |
+| 1 000 isolated tenants in one process (1 Sandbox each) | ~340 MB total |
+| Aggregate throughput across N Threads | GVL-bound — wasm execution is serialized, modest scaling from Ruby-side overlap |
+
+Practical implications:
+
+- **Pre-warm at boot.** The 410 ms first-Sandbox cost is paid once per process; every subsequent Sandbox amortizes to micro-, not milliseconds. Construct one Sandbox at boot before serving requests.
+- **Tenant isolation is affordable.** Per-request Sandbox construction adds ~110 µs of overhead; per-tenant RSS budget is ~200 KB plus one-time ~110 MB for the engine. 1 000 isolated tenants in a single Sidekiq / Puma worker is well within typical RSS limits.
+- **Batch RPCs inside one `#run`.** A single Service call costs ~76 µs because each `#run` carries ~67 µs of setup; 1 000 calls inside one `#run` reduce the per-call cost to ~5.4 µs.
+
+A +10% regression on any of the five SPEC-mandated benchmarks blocks release. See [`benchmark/README.md`](benchmark/README.md) for the full per-suite breakdown, rake task reference, and known measurement caveats (guest String size cap, GVL bounds, allocator retention).
 
 ```bash
-bundle exec rake bench   # run #1..#5 (≤ 1 MiB payloads, ~5-7 min)
+bundle exec rake bench   # five gated regression benchmarks (≤ 1 MiB payloads, ~5-7 min)
 ```
 
 ## Contributing
