@@ -64,11 +64,13 @@ module Kobako
           raise ArgumentError, "Request method must be String" unless method.is_a?(String)
           raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
 
-          self.class.validate_kwargs!(kwargs)
+          validate_kwargs!(kwargs)
           super(target: target, method_name: method, args: args, kwargs: kwargs)
         end
 
-        def self.validate_kwargs!(kwargs)
+        private
+
+        def validate_kwargs!(kwargs)
           raise ArgumentError, "Request kwargs must be Hash" unless kwargs.is_a?(Hash)
 
           kwargs.each_key do |k|
