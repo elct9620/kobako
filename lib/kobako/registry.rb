@@ -32,9 +32,13 @@ module Kobako
     # the validation rule cannot drift between the two boundaries.
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
-    def initialize
+    # Build a fresh Registry. +handle_table+ is an internal seam that
+    # injects a pre-configured +HandleTable+; tests pass one whose +next_id+
+    # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
+    # without 2³¹ allocations. Production callers leave it at the default.
+    def initialize(handle_table: HandleTable.new)
       @groups = {}
-      @handle_table = HandleTable.new
+      @handle_table = handle_table
       @sealed = false
     end
 

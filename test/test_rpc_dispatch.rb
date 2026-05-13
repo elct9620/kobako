@@ -534,9 +534,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1
   # so the next #alloc trips the B-21 cap.
   def registry_with_exhausted_handle_table
-    registry = Kobako::Registry.new
     exhausted = Kobako::Registry::HandleTable.new(next_id: Kobako::Registry::HandleTable::MAX_ID + 1)
-    registry.instance_variable_set(:@handle_table, exhausted)
-    registry
+    Kobako::Registry.new(handle_table: exhausted)
   end
 end
