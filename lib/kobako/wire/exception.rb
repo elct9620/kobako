@@ -18,6 +18,11 @@ module Kobako
     # inherited from the value-object machinery; only the field invariants
     # ride on top.
     Exception = Data.define(:type, :message, :details) do
+      # +VALID_TYPES+ is attached to the Exception class below this block.
+      # Reach it through +self.class::VALID_TYPES+ — Data.define's block
+      # scope resolves bare constants against the enclosing +Wire+ module,
+      # so a bare +VALID_TYPES+ would raise +NameError+. Same pattern as
+      # +Wire::Handle+.
       def initialize(type:, message:, details: nil)
         valid_types = self.class::VALID_TYPES
         raise ArgumentError, "type must be String"    unless type.is_a?(String)

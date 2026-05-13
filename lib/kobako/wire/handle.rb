@@ -14,6 +14,12 @@ module Kobako
     # (HandleTable bookkeeping, reset semantics). The codec only needs to
     # carry the opaque integer ID across the wire.
     Handle = Data.define(:id) do
+      # +MIN_ID+ / +MAX_ID+ live on the Handle class (defined below this
+      # block), not in this block's binding — Data.define's block scope
+      # resolves bare constants against the enclosing +Wire+ module, so
+      # +MIN_ID+ would raise +NameError+. Use +self.class::CONST+ to
+      # reach the constants attached to the Handle class itself. Do not
+      # "simplify" this back to bare +MIN_ID+/+MAX_ID+.
       def initialize(id:)
         min = self.class::MIN_ID
         max = self.class::MAX_ID
