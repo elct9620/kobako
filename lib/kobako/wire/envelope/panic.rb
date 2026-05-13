@@ -20,7 +20,9 @@ module Kobako
           raise ArgumentError, "Panic origin must be String"  unless origin.is_a?(String)
           raise ArgumentError, "Panic class must be String"   unless klass.is_a?(String)
           raise ArgumentError, "Panic message must be String" unless message.is_a?(String)
-          raise ArgumentError, "Panic backtrace must be Array" unless backtrace.is_a?(Array)
+          unless backtrace.is_a?(Array) && backtrace.all?(String)
+            raise ArgumentError, "Panic backtrace must be Array of String"
+          end
 
           super
         end
@@ -55,27 +57,18 @@ module Kobako
         map = Decoder.decode(bytes)
         raise InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-        origin, klass, message = validate_panic_required_fields!(map)
-        backtrace = map["backtrace"] || []
-        unless backtrace.is_a?(Array) && backtrace.all?(String)
-          raise InvalidType, "Panic backtrace must be array of str"
-        end
-
-        Panic.new(origin: origin, klass: klass, message: message,
-                  backtrace: backtrace, details: map["details"])
+        panic_from_map(map)
+      rescue ArgumentError => e
+        raise InvalidType, e.message
       end
 
-      def self.validate_panic_required_fields!(map)
-        origin  = map["origin"]
-        klass   = map["class"]
-        message = map["message"]
-        raise InvalidType, "Panic envelope missing 'origin' (str)"  unless origin.is_a?(String)
-        raise InvalidType, "Panic envelope missing 'class' (str)"   unless klass.is_a?(String)
-        raise InvalidType, "Panic envelope missing 'message' (str)" unless message.is_a?(String)
-
-        [origin, klass, message]
+      def self.panic_from_map(map)
+        Panic.new(
+          origin: map["origin"], klass: map["class"], message: map["message"],
+          backtrace: map["backtrace"] || [], details: map["details"]
+        )
       end
-      private_class_method :validate_panic_required_fields!
+      private_class_method :panic_from_map
     end
   end
 end

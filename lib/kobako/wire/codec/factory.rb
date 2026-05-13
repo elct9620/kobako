@@ -49,18 +49,17 @@ module Kobako
         end
         private_class_method :register_exception_type
 
-        # Pre-validates the payload here so failures surface as +InvalidType+
-        # (wire-error taxonomy) rather than the +ArgumentError+ that
-        # +Handle#initialize+ would raise — the duplicate checks are intentional.
+        # Peel off the fixext-4 frame, hand the bytes to +Handle.new+, and
+        # translate the +ArgumentError+ raised by Handle's invariants into
+        # a wire-layer +InvalidType+. The Value Object owns the id-range
+        # contract; this method only owns the frame shape.
         def self.decode_handle(payload)
           bytes = payload.b
           raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
-          id = bytes.unpack1("N")
-          raise InvalidType, "ext 0x01 Handle id 0 is reserved" if id.zero?
-          raise InvalidType, "ext 0x01 Handle id #{id} exceeds max #{Handle::MAX_ID}" if id > Handle::MAX_ID
-
-          Handle.new(id)
+          Handle.new(bytes.unpack1("N"))
+        rescue ArgumentError => e
+          raise InvalidType, e.message
         end
         private_class_method :decode_handle
 
@@ -72,30 +71,18 @@ module Kobako
         end
         private_class_method :pack_exception
 
+        # Peel the embedded msgpack map and hand it to +Exception.new+;
+        # translate the value-object's +ArgumentError+ into +InvalidType+
+        # at the wire boundary.
         def self.unpack_exception(payload, factory)
           map = factory.load(payload)
           raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
-          type, message = validate_exception_map!(map)
-          Exception.new(type: type, message: message, details: map["details"])
+          Exception.new(type: map["type"], message: map["message"], details: map["details"])
+        rescue ArgumentError => e
+          raise InvalidType, e.message
         end
         private_class_method :unpack_exception
-
-        # Pre-validates map keys and type here so failures surface as +InvalidType+
-        # rather than the +ArgumentError+ that +Exception#initialize+ would raise —
-        # the duplicate checks are intentional.
-        def self.validate_exception_map!(map)
-          type    = map["type"]
-          message = map["message"]
-          raise InvalidType, "ext 0x02 missing 'type' (str)"    unless type.is_a?(String)
-          raise InvalidType, "ext 0x02 missing 'message' (str)" unless message.is_a?(String)
-          unless Exception::VALID_TYPES.include?(type)
-            raise InvalidType, "ext 0x02 type #{type.inspect} not in #{Exception::VALID_TYPES.inspect}"
-          end
-
-          [type, message]
-        end
-        private_class_method :validate_exception_map!
       end
     end
   end

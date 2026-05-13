@@ -18,18 +18,36 @@ module Kobako
       # +hash+ are provided automatically based on field values. The public
       # constructor keyword is +method:+ (not +method_name:+); the
       # +initialize+ override maps it to the Data field +method_name:+.
+      # SPEC.md Wire Codec → str/bin Encoding Rules: Request +kwargs+ keys
+      # must be UTF-8. We enforce String-typed keys at construction so the
+      # Value Object is the single source of this invariant; +decode_request+
+      # translates the resulting ArgumentError into a wire-layer +InvalidType+.
       Request = Data.define(:target, :method_name, :args, :kwargs) do
         def initialize(target:, method:, args: [], kwargs: {})
-          unless target.is_a?(String) || target.is_a?(Handle)
-            raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
-          end
-          raise ArgumentError, "Request method must be String" unless method.is_a?(String)
-          raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
-          raise ArgumentError, "Request kwargs must be Hash"   unless kwargs.is_a?(Hash)
-
+          Envelope.send(:validate_request_fields!, target, method, args, kwargs)
           super(target: target, method_name: method, args: args, kwargs: kwargs)
         end
       end
+
+      def self.validate_request_fields!(target, method_name, args, kwargs)
+        unless target.is_a?(String) || target.is_a?(Handle)
+          raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
+        end
+        raise ArgumentError, "Request method must be String" unless method_name.is_a?(String)
+        raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
+
+        validate_request_kwargs!(kwargs)
+      end
+      private_class_method :validate_request_fields!
+
+      def self.validate_request_kwargs!(kwargs)
+        raise ArgumentError, "Request kwargs must be Hash" unless kwargs.is_a?(Hash)
+
+        kwargs.each_key do |k|
+          raise ArgumentError, "Request kwargs keys must be String, got #{k.class}" unless k.is_a?(String)
+        end
+      end
+      private_class_method :validate_request_kwargs!
 
       # ---------------- Request encode / decode ----------------
 
@@ -42,7 +60,6 @@ module Kobako
                             kwargs: kwargs || {})
               end
 
-        validate_kwargs_keys!(req.kwargs)
         Encoder.encode([req.target, req.method_name, req.args, req.kwargs])
       end
 
@@ -54,30 +71,9 @@ module Kobako
         end
 
         target, method_name, args, kwargs = arr
-        validate_request_fields!(target, method_name, args, kwargs)
         Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
-      end
-
-      def self.validate_request_fields!(target, method_name, args, kwargs)
-        unless target.is_a?(String) || target.is_a?(Handle)
-          raise InvalidType, "Request target must be str or Handle, got #{target.class}"
-        end
-        raise InvalidType, "Request method must be str" unless method_name.is_a?(String)
-        raise InvalidType, "Request args must be array" unless args.is_a?(Array)
-        raise InvalidType, "Request kwargs must be map" unless kwargs.is_a?(Hash)
-
-        validate_kwargs_keys!(kwargs)
-      end
-      private_class_method :validate_request_fields!
-
-      # SPEC.md Wire Codec → str/bin Encoding Rules: Request `kwargs` keys
-      # must be UTF-8 (str family or bin-with-UTF-8-validated bytes). At the
-      # envelope layer we only have the high-level Hash; reject keys that
-      # are not String to keep the boundary tight.
-      def self.validate_kwargs_keys!(kwargs)
-        kwargs.each_key do |k|
-          raise InvalidType, "Request kwargs keys must be String, got #{k.class}" unless k.is_a?(String)
-        end
+      rescue ArgumentError => e
+        raise InvalidType, e.message
       end
     end
   end

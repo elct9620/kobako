@@ -78,10 +78,20 @@ module Kobako
       end
 
       def test_request_kwargs_must_have_string_keys
-        req = Envelope::Request.new(
-          target: "G::M", method: "x", args: [], kwargs: { active: true }
-        )
-        assert_raises(InvalidType) { Envelope.encode_request(req) }
+        # Value Object refuses non-String kwargs keys at construction;
+        # the wire-level InvalidType guarantee is preserved via the
+        # decode_request boundary translator.
+        assert_raises(ArgumentError) do
+          Envelope::Request.new(target: "G::M", method: "x", args: [], kwargs: { active: true })
+        end
+      end
+
+      def test_request_decode_translates_non_string_kwargs_key_to_invalid_type
+        # Forge wire bytes with an int kwargs key — msgpack-legal but
+        # envelope-illegal. The decoder must translate the value-object
+        # ArgumentError into a wire-layer InvalidType.
+        bytes = Encoder.encode(["G::M", "x", [], { 42 => "v" }])
+        assert_raises(InvalidType) { Envelope.decode_request(bytes) }
       end
 
       def test_request_three_field_signature

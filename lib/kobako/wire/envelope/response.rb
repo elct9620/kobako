@@ -64,22 +64,11 @@ module Kobako
           raise InvalidType, "Response must be a 2-element array, got #{arr.inspect}"
         end
 
-        decode_response_status(*arr)
+        status, payload = arr
+        Response.new(status: status, payload: payload)
+      rescue ArgumentError => e
+        raise InvalidType, e.message
       end
-
-      def self.decode_response_status(status, payload)
-        case status
-        when STATUS_OK
-          Response.new(status: STATUS_OK, payload: payload)
-        when STATUS_ERROR
-          raise InvalidType, "Response status=1 payload must be ext 0x02 Exception" unless payload.is_a?(Exception)
-
-          Response.new(status: STATUS_ERROR, payload: payload)
-        else
-          raise InvalidType, "Response status must be 0 or 1, got #{status.inspect}"
-        end
-      end
-      private_class_method :decode_response_status
     end
   end
 end
