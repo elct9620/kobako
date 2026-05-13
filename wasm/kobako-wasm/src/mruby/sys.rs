@@ -77,6 +77,12 @@ pub type mrb_protect_error_func =
 /// Opaque pointer to mruby state (`mrb_state *`).
 pub type mrb_state = c_void;
 
+/// Opaque pointer to an mruby compiler context (`mrb_ccontext *`). Used
+/// to attach a filename to a compile unit so the produced IREP carries
+/// `debug_info`, which `pack_backtrace` in `vendor/mruby/src/backtrace.c`
+/// requires to record stack frames.
+pub type mrb_ccontext = c_void;
+
 /// Opaque mruby value. The layout is target-specific:
 ///
 /// - **wasm32-wasip1** (production target): `mrb_value` is `struct { uintptr_t w }`
@@ -254,6 +260,36 @@ extern "C" {
     /// Ruby source string `s[0..len]`. Returns the last expression
     /// value; sets `mrb->exc` on parse or runtime error.
     pub fn mrb_load_nstring(mrb: *mut mrb_state, s: *const c_char, len: usize) -> mrb_value;
+
+    /// `mrb_load_nstring_cxt(mrb, s, len, cxt)` — context-aware variant
+    /// of `mrb_load_nstring`. Compiling under a `mrb_ccontext` with a
+    /// filename set populates the resulting IREP's `debug_info`, which
+    /// is what `pack_backtrace` in `vendor/mruby/src/backtrace.c`
+    /// requires to record a stack frame — without it `Exception#backtrace`
+    /// returns an empty array (SPEC.md "Panic Envelope" L876).
+    pub fn mrb_load_nstring_cxt(
+        mrb: *mut mrb_state,
+        s: *const c_char,
+        len: usize,
+        cxt: *mut mrb_ccontext,
+    ) -> mrb_value;
+
+    /// `mrb_ccontext_new(mrb)` — allocate a compiler context. Returned
+    /// pointer is owned by the caller and must be released with
+    /// `mrb_ccontext_free`.
+    pub fn mrb_ccontext_new(mrb: *mut mrb_state) -> *mut mrb_ccontext;
+
+    /// `mrb_ccontext_free(mrb, cxt)` — release a compiler context.
+    pub fn mrb_ccontext_free(mrb: *mut mrb_state, cxt: *mut mrb_ccontext);
+
+    /// `mrb_ccontext_filename(mrb, c, s)` — set the script filename used
+    /// for debug info. The pointer is interned by mruby; the input
+    /// string only has to live for the duration of the call.
+    pub fn mrb_ccontext_filename(
+        mrb: *mut mrb_state,
+        cxt: *mut mrb_ccontext,
+        s: *const c_char,
+    ) -> *const c_char;
 
     /// `mrb_obj_classname(mrb, obj)` — returns a pointer to the class
     /// name C string of `obj`. The pointer is owned by mruby and must

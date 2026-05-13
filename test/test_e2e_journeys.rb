@@ -70,6 +70,26 @@ class TestE2EJourneys < Minitest::Test
     refute_kind_of Kobako::TrapError, err
   end
 
+  # SPEC.md "Panic Envelope" L876 — the +backtrace+ field is an array of
+  # str carrying the mruby backtrace. The guest must populate it from the
+  # mruby Exception object so the Host App can see where the failure
+  # originated inside the user script; an empty array hides which line the
+  # author needs to fix and forces blind debugging. Wire layer already
+  # pins the Array-of-String type invariant via +Wire::Envelope::Panic+,
+  # so this E2E only asserts the non-empty contract.
+  def test_j01_script_ruby_error_exposes_mruby_backtrace
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.run(<<~RUBY)
+        def boom
+          raise "model produced bad code"
+        end
+        boom
+      RUBY
+    end
+    refute_empty err.backtrace_lines, "SPEC L876: guest must populate Panic.backtrace"
+  end
+
   # SPEC.md L157: Service capability call that errors → ServiceError.
   def test_j01_capability_error_raises_service_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -83,6 +103,25 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "service", err.origin
     refute_kind_of Kobako::SandboxError, err
+  end
+
+  # SPEC.md L876 again — an unrescued Service call equally flows through
+  # the Panic envelope, so its backtrace must also reach the Host App.
+  # Otherwise an LLM-generated script that calls a misbehaving capability
+  # would surface as ServiceError with no debugging context at all.
+  def test_j01_unrescued_service_error_exposes_mruby_backtrace
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.run(<<~RUBY)
+        Log::Sink.call("secret")
+      RUBY
+    end
+
+    assert_kind_of Array, err.backtrace_lines
+    refute_empty err.backtrace_lines,
+                 "guest must populate Panic.backtrace for service-origin panics too"
   end
 
   # ── J-02 — Host App developer integrates kobako into an existing service ──

@@ -173,12 +173,12 @@ pub extern "C" fn __kobako_run() {
             Some(groups)
         }
 
-        fn write_panic_outcome(origin: &str, class: &str, message: &str) {
+        fn write_panic_outcome(origin: &str, class: &str, message: &str, backtrace: Vec<String>) {
             let panic = Panic {
                 origin: origin.to_string(),
                 class: class.to_string(),
                 message: message.to_string(),
-                backtrace: vec![],
+                backtrace,
                 details: None,
             };
             if let Ok(bytes) = encode_outcome(&Outcome::Panic(panic)) {
@@ -204,6 +204,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::BootError",
                     "failed to read preamble frame",
+                    Vec::new(),
                 );
                 return;
             }
@@ -216,6 +217,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::BootError",
                     "failed to decode preamble msgpack",
+                    Vec::new(),
                 );
                 return;
             }
@@ -230,6 +232,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::BootError",
                     "failed to read script frame",
+                    Vec::new(),
                 );
                 return;
             }
@@ -244,7 +247,12 @@ pub extern "C" fn __kobako_run() {
         let mrb = match crate::mruby::Mrb::open() {
             Ok(m) => m,
             Err(_) => {
-                write_panic_outcome("sandbox", "Kobako::BootError", "mrb_open returned NULL");
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "mrb_open returned NULL",
+                    Vec::new(),
+                );
                 return;
             }
         };
@@ -267,6 +275,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::BootError",
                     "group name contains NUL byte",
+                    Vec::new(),
                 );
                 return;
             }
@@ -275,6 +284,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::BootError",
                     "member name contains NUL byte",
+                    Vec::new(),
                 );
                 return;
             }
@@ -296,13 +306,24 @@ pub extern "C" fn __kobako_run() {
         // shim accesses `mrb->exc` through mruby's own headers, so the field
         // offset is always correct for the compiler and mruby version in use.
 
+        // Compile under a context with a filename so the resulting IREP
+        // carries `debug_info`; `pack_backtrace` in
+        // `vendor/mruby/src/backtrace.c` skips any frame whose IREP has
+        // no debug info, which is why `Exception#backtrace` returns an
+        // empty array when scripts are loaded via the bare
+        // `mrb_load_nstring`. SPEC.md "Panic Envelope" L876 mandates a
+        // populated `backtrace` field for Panic envelopes.
+        let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
+        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(script)")) };
         let result_val = unsafe {
-            sys::mrb_load_nstring(
+            sys::mrb_load_nstring_cxt(
                 mrb.as_ptr(),
                 frame2.as_ptr() as *const core::ffi::c_char,
                 frame2.len(),
+                cxt,
             )
         };
+        unsafe { sys::mrb_ccontext_free(mrb.as_ptr(), cxt) };
 
         // Retrieve the pending exception (if any) via the layout-safe C shim.
         // `kobako_get_exc` returns `mrb_nil_value()` (w == 0 on wasm32) when
@@ -337,6 +358,28 @@ pub extern "C" fn __kobako_run() {
                 }
             };
 
+            // Collect mruby Exception#backtrace before clearing the
+            // pending exception (SPEC.md "Panic Envelope" L876 — array of
+            // str). mruby's default build keeps the backtrace; the call
+            // returns an Array of String when present. If the runtime is
+            // ever rebuilt without keep-mode, `.backtrace` may yield a
+            // non-Array value — fall back to an empty vec so the Panic
+            // envelope still serializes cleanly.
+            let backtrace = unsafe {
+                let bt_val = exc_val.call(mrb.as_ptr(), cstr!("backtrace"), &[]);
+                if bt_val.classname(mrb.as_ptr()) != "Array" {
+                    Vec::new()
+                } else {
+                    let len = kobako.collection_len(bt_val);
+                    let mut lines = Vec::with_capacity(len);
+                    for i in 0..len {
+                        let line = sys::mrb_ary_entry(bt_val, i as i32);
+                        lines.push(line.to_string(mrb.as_ptr()));
+                    }
+                    lines
+                }
+            };
+
             // Clear the exception from mrb state.
             let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
 
@@ -347,7 +390,7 @@ pub extern "C" fn __kobako_run() {
                 "sandbox"
             };
 
-            write_panic_outcome(origin, &class_name, &message);
+            write_panic_outcome(origin, &class_name, &message, backtrace);
         } else {
             // Success: convert mrb_value to wire Value and encode as Result envelope.
             // We use mrb_inspect to get a string representation for conversion.
@@ -367,6 +410,7 @@ pub extern "C" fn __kobako_run() {
                     "sandbox",
                     "Kobako::WireError",
                     "result envelope encode failed",
+                    Vec::new(),
                 ),
             }
         }
