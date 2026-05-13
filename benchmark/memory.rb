@@ -13,11 +13,21 @@
 #        after N=10/100/1000 total Sandboxes. The delta divided by
 #        (N - 1) approximates per-additional-Sandbox cost.
 #   7b — Per-#run RSS drift. Run #run("nil") 10 000 times on a
-#        single Sandbox; sample RSS every 1 000 runs. A flat curve
-#        verifies SPEC B-15 / B-19 per-run reset is not leaking.
+#        single Sandbox; sample RSS every 1 000 runs. Bounded
+#        sub-linear drift (a few MB at 10k runs) is allocator page
+#        retention and is expected — the SPEC B-15 / B-19 per-run
+#        reset is enforced at the Ruby/Handle level, not at the
+#        malloc level. A real reset violation would show drift
+#        scaling with run count across orders of magnitude longer
+#        runs; that is the regression signal, not a non-zero number
+#        at 10k runs.
 #   7c — Large-payload retention. Measure RSS before, while holding
-#        the 512 KiB return value, and after GC. A retained delta
-#        of zero verifies the peak is released.
+#        a 512 KiB return value, and after GC. The retained delta
+#        documents how much the allocator keeps in reserve for
+#        large-payload paths after the Ruby reference is dropped;
+#        non-zero is normal (the allocator does not eagerly return
+#        pages to the OS). A sudden jump versus a prior baseline
+#        indicates a regression, not the absolute value.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
