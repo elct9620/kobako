@@ -38,48 +38,19 @@
 #     with the cycle-5 pattern in test_wasm_crate.rb).
 
 require "minitest/autorun"
-require "open3"
+require_relative "support/cargo_oracle"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/wire"
 
 class TestCodecRoundtripFuzz < Minitest::Test
-  PROJECT_ROOT  = File.expand_path("..", __dir__)
-  CRATE_DIR     = File.join(PROJECT_ROOT, "wasm", "kobako-wasm")
-  ORACLE_BIN    = File.join(CRATE_DIR, "target", "release", "roundtrip_oracle")
-  CARGO_MANIFEST = File.join(CRATE_DIR, "Cargo.toml")
+  CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
+  ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "roundtrip_oracle")
 
-  Encoder  = Kobako::Wire::Codec::Encoder
-  Decoder  = Kobako::Wire::Codec::Decoder
-  Handle   = Kobako::Wire::Handle
-  Exc      = Kobako::Wire::Exception
-
-  ERROR_FLAG = 0x8000_0000
-
-  # ---------------------------------------------------------------------
-  # One-time oracle build + spawn (memoised across the suite).
-  # ---------------------------------------------------------------------
-
-  @@oracle_build_status = nil # :ok / :no_cargo / :build_failed
-  @@oracle_build_error  = nil
-
-  def self.ensure_oracle_built
-    @@oracle_build_status ||= cargo_build_oracle
-  end
-
-  def self.cargo_build_oracle
-    return :no_cargo unless system("command -v cargo > /dev/null 2>&1")
-
-    out, status = Open3.capture2e(
-      "cargo", "build", "--release",
-      "--manifest-path", CARGO_MANIFEST,
-      "--bin", "roundtrip_oracle"
-    )
-    return :ok if status.success? && File.executable?(ORACLE_BIN)
-
-    @@oracle_build_error = out
-    :build_failed
-  end
+  Encoder = Kobako::Wire::Codec::Encoder
+  Decoder = Kobako::Wire::Codec::Decoder
+  Handle  = Kobako::Wire::Handle
+  Exc     = Kobako::Wire::Exception
 
   def setup
     check_oracle_status
@@ -98,9 +69,9 @@ class TestCodecRoundtripFuzz < Minitest::Test
   ].freeze
 
   def test_round_trip_fuzz
-    with_oracle_subprocess do |stdin, stdout|
+    ORACLE.open do |process|
       @iterations.times do |i|
-        run_one(generate_value(depth: 0), i, stdin, stdout)
+        run_one(generate_value(depth: 0), i, process)
       end
     end
     assert_coverage_complete
@@ -110,11 +81,11 @@ class TestCodecRoundtripFuzz < Minitest::Test
   private
 
   def check_oracle_status
-    case self.class.ensure_oracle_built
+    case (build = ORACLE.ensure_built).status
     when :no_cargo
       skip "cargo not on PATH — skipping codec round-trip fuzz (install rustup to enable)"
     when :build_failed
-      flunk "cargo build --release roundtrip_oracle failed:\n#{@@oracle_build_error}"
+      flunk "cargo build --release roundtrip_oracle failed:\n#{build.error}"
     end
   end
 
@@ -126,38 +97,27 @@ class TestCodecRoundtripFuzz < Minitest::Test
     @coverage = Hash.new(0)
   end
 
-  def with_oracle_subprocess
-    stdin, stdout, wait_thr = Open3.popen2(ORACLE_BIN)
-    stdin.binmode
-    stdout.binmode
-    yield stdin, stdout
-  ensure
-    stdin&.close unless stdin&.closed?
-    drain_stdout(stdout)
-    stdout&.close unless stdout&.closed?
-    wait_thr&.join
-  end
-
-  def drain_stdout(stdout)
-    stdout&.read
-  rescue StandardError
-    # ignore — we only care about clean shutdown
-  end
-
   def assert_coverage_complete
     missing = REQUIRED_COVERAGE_KEYS.reject { |k| @coverage[k].positive? }
     msg = "fuzz coverage gap (seed=#{@seed}): #{missing.inspect}; counters=#{@coverage.inspect}"
     assert missing.empty?, msg
   end
 
-  def run_one(value, iter, stdin, stdout)
+  def run_one(value, iter, process)
     encoded_a = Encoder.encode(value)
-    write_frame(stdin, encoded_a)
-    stdin.flush
-    encoded_b = read_frame(stdout, iter, value)
+    encoded_b = exchange_frame(process, iter, value, encoded_a)
     assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
     assert_ruby_roundtrip(iter, value, encoded_a, "Ruby encode -> Ruby decode mismatch")
     assert_ruby_roundtrip(iter, value, encoded_b, "Ruby encode -> Rust re-encode -> Ruby decode mismatch")
+  end
+
+  def exchange_frame(process, iter, value, encoded_a)
+    process.send_frame(encoded_a)
+    body, error = process.read_frame
+    flunk_oracle_error(iter, value, body) if error
+    body
+  rescue IOError => e
+    flunk fuzz_failure(iter, value, e.message)
   end
 
   def assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
@@ -172,28 +132,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
     return if values_equal?(value, recovered)
 
     flunk fuzz_failure(iter, value, message, decoded: recovered)
-  end
-
-  def write_frame(io, bytes)
-    io.write([bytes.bytesize].pack("N"))
-    io.write(bytes)
-  end
-
-  def read_frame(io, iter, value)
-    is_error, len = read_frame_header(io, iter, value)
-    payload = len.zero? ? "".b : io.read(len)
-    if payload.nil? || payload.bytesize < len
-      flunk fuzz_failure(iter, value, "oracle stdout truncated (header said #{len} bytes)")
-    end
-    flunk_oracle_error(iter, value, payload) if is_error
-    payload.b
-  end
-
-  def read_frame_header(io, iter, value)
-    hdr = io.read(4)
-    flunk fuzz_failure(iter, value, "oracle stdout closed unexpectedly (no header)") if hdr.nil? || hdr.bytesize < 4
-    word = hdr.unpack1("N")
-    [word.anybits?(ERROR_FLAG), word & ~ERROR_FLAG]
   end
 
   def flunk_oracle_error(iter, value, payload)

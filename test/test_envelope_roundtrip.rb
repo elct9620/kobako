@@ -2,21 +2,21 @@
 
 # Cross-side envelope round-trip E2E (SPEC item #8).
 #
-# Builds the `envelope_oracle` Rust binary, spawns it as a long-lived
-# subprocess, and feeds it Ruby-encoded envelopes (Request, Response,
-# Result, Panic, Outcome). The oracle decodes each envelope with the
-# guest envelope module, re-encodes it, and writes the bytes back. The
-# Ruby side asserts byte-identical round-trip — proving the host and
-# guest envelope modules agree on the SPEC framing (field order, tag
-# bytes, optional-field handling), not just the underlying msgpack
-# codec already covered by test_codec_roundtrip_fuzz.rb.
+# Drives the Rust `envelope_oracle` subprocess from the host: each test
+# Ruby-encodes one envelope variant (Request, Response, Result, Panic,
+# Outcome), prefixes a single-byte kind tag, and asks the oracle to
+# decode + re-encode it. The Ruby side then asserts byte-identical
+# round-trip — proving the host and guest envelope modules agree on the
+# SPEC framing (field order, tag bytes, optional-field handling), not
+# just the underlying msgpack codec already covered by
+# test_codec_roundtrip_fuzz.rb.
 #
 # This test does NOT need fuzz scale: a handful of representative
 # envelopes per variant is enough; the codec fuzz from item #7 already
 # covers byte-level wire shapes underneath.
 
 require "minitest/autorun"
-require "open3"
+require_relative "support/cargo_oracle"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/wire"
@@ -26,72 +26,30 @@ class TestEnvelopeRoundtrip < Minitest::Test
   Handle   = Kobako::Wire::Handle
   Exc      = Kobako::Wire::Exception
 
-  PROJECT_ROOT = File.expand_path("..", __dir__)
-  CRATE_DIR    = File.join(PROJECT_ROOT, "wasm", "kobako-wasm")
-  ORACLE_BIN   = File.join(CRATE_DIR, "target", "release", "envelope_oracle")
-  ERROR_FLAG   = 0x8000_0000
-
-  @@build_status = nil
-  @@build_error  = nil
-
-  def self.ensure_oracle_built
-    @@build_status ||= cargo_build_oracle
-  end
-
-  def self.cargo_build_oracle
-    return :no_cargo if `which cargo 2>/dev/null`.strip.empty?
-
-    out, status = Open3.capture2e(
-      { "CARGO_TARGET_DIR" => File.join(CRATE_DIR, "target") },
-      "cargo", "build", "--release", "--bin", "envelope_oracle",
-      chdir: CRATE_DIR
-    )
-    return :ok if status.success?
-
-    @@build_error = out
-    :build_failed
-  end
+  CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
+  ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")
 
   def setup
-    case self.class.ensure_oracle_built
+    case (build = ORACLE.ensure_built).status
     when :no_cargo
       skip "cargo not on PATH; envelope oracle E2E requires Rust toolchain"
     when :build_failed
-      flunk "cargo build --release envelope_oracle failed:\n#{@@build_error}"
+      flunk "cargo build --release envelope_oracle failed:\n#{build.error}"
     end
-    @stdin, @stdout, @wait_thr = Open3.popen2(ORACLE_BIN)
-    @stdin.binmode
-    @stdout.binmode
+    @process = ORACLE.spawn
   end
 
   def teardown
-    @stdin&.close
-    @stdout&.close
-    @wait_thr&.value
+    @process&.close
   end
 
   # Send one envelope frame to the oracle and read its response.
   # +kind+ is a single-byte tag picked by the oracle protocol
   # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome).
   def oracle_roundtrip(kind, payload)
-    send_frame(kind, payload)
-    read_response_frame
-  end
-
-  def send_frame(kind, payload)
-    frame = +"".b << kind << payload.b
-    @stdin.write([frame.bytesize].pack("N"))
-    @stdin.write(frame)
-    @stdin.flush
-  end
-
-  def read_response_frame
-    hdr = @stdout.read(4) or flunk "oracle stdout closed; no header"
-    hdr_word = hdr.unpack1("N")
-    len = hdr_word & 0x7fff_ffff
-    body = len.zero? ? "".b : @stdout.read(len)
-    flunk "oracle stdout truncated (expected #{len} bytes)" if body.nil? || body.bytesize != len
-    flunk "oracle reported error: #{body}" if hdr_word.anybits?(ERROR_FLAG)
+    @process.send_frame(+"".b << kind << payload.b)
+    body, error = @process.read_frame
+    flunk "oracle reported error: #{body}" if error
     body
   end
 

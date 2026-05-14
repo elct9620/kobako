@@ -18,7 +18,6 @@ Metrics/ClassLength:
   Exclude:
     - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_e2e_journeys.rb"
-    - "test/test_envelope_roundtrip.rb"
     - "test/test_handle_table.rb"
     - "test/test_rpc_dispatch.rb"
     - "test/test_service_registry.rb"
@@ -55,14 +54,6 @@ Naming/VariableNumber:
   Exclude:
     - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_wire_envelope.rb"
-
-# Test fixtures memoise expensive build status (cargo/wasm builds) across
-# per-method test instances; class instance vars don't survive `Minitest::Test`
-# instantiating a fresh instance per test method, so @@class_var is required.
-Style/ClassVars:
-  Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
-    - "test/test_envelope_roundtrip.rb"
 
 # `namespace :vendor` in tasks/vendor.rake iterates KobakoVendor::TARBALL_TOOLCHAINS
 # and declares per-toolchain `file` / `setup:<name>` tasks via loops; the
