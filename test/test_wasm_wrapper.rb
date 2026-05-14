@@ -25,31 +25,6 @@ class TestWasmWrapper < Minitest::Test
     assert Kobako::Wasm.default_path.start_with?("/"), "default_path must be absolute"
   end
 
-  # ---------- unpack_outcome_ptr_len (ABI bit-level helper) ----------
-  #
-  # Pure-Ruby decomposition of the +(ptr << 32) | len+ packed u64 that the
-  # Rust ext returns from +__kobako_take_outcome+. Covered by unit tests
-  # so the bit layout is locked in without depending on a real wasm build.
-
-  def test_unpack_outcome_ptr_len_splits_high_and_low_u32
-    packed = (0x1234 << 32) | 0x5678
-    assert_equal [0x1234, 0x5678], Kobako::Wasm.unpack_outcome_ptr_len(packed)
-  end
-
-  def test_unpack_outcome_ptr_len_handles_zero_value
-    assert_equal [0, 0], Kobako::Wasm.unpack_outcome_ptr_len(0)
-  end
-
-  def test_unpack_outcome_ptr_len_handles_max_u64
-    assert_equal [0xffff_ffff, 0xffff_ffff],
-                 Kobako::Wasm.unpack_outcome_ptr_len((1 << 64) - 1)
-  end
-
-  def test_unpack_outcome_ptr_len_masks_high_bits_only_in_high_word
-    # len-only payload: ptr=0, len=0xffff_ffff
-    assert_equal [0, 0xffff_ffff], Kobako::Wasm.unpack_outcome_ptr_len(0xffff_ffff)
-  end
-
   def test_from_path_raises_module_not_built_for_missing_path
     err = assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
       Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm")

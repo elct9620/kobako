@@ -61,7 +61,7 @@ module Kobako
       @stdout_buffer = OutputBuffer.new(@stdout_limit)
       @stderr_buffer = OutputBuffer.new(@stderr_limit)
       @services = Kobako::Registry.new
-      @instance.set_registry(@services)
+      @instance.registry = @services
     end
 
     # Declare or retrieve the Service Group named +name+ on this Sandbox
@@ -94,13 +94,10 @@ module Kobako
 
       @services.seal!
       reset_run_state!
-      preamble = @services.guest_preamble
-      @instance.setup_wasi_pipes(@stdout_limit, @stderr_limit, preamble, source.b)
 
-      invoke_guest_run
-      drain_wasi_output
-      outcome_bytes = read_outcome_bytes
-      OutcomeDecoder.decode(outcome_bytes)
+      invoke_guest_run(@services.guest_preamble, source.b)
+      drain_captured_output
+      OutcomeDecoder.decode(read_outcome_bytes)
     end
 
     private
@@ -113,34 +110,36 @@ module Kobako
       @stderr_buffer.clear
     end
 
-    # Drain the WASI stdout/stderr pipes populated during the most recent
+    # Append the WASI stdout/stderr bytes captured during the most recent
     # guest execution into the bounded OutputBuffers
     # ({SPEC.md B-04}[link:../../SPEC.md]). Must be called after
-    # `invoke_guest_run` and before the next reset.
-    def drain_wasi_output
-      stdout_bytes = @instance.take_stdout
-      stderr_bytes = @instance.take_stderr
+    # `invoke_guest_run` and before the next reset. The per-channel cap is
+    # enforced inside +OutputBuffer+; the underlying WASI transport pipes
+    # are uncapped because SPEC.md B-04 requires truncation be a non-error
+    # outcome.
+    def drain_captured_output
+      stdout_bytes = @instance.stdout
+      stderr_bytes = @instance.stderr
       @stdout_buffer << stdout_bytes unless stdout_bytes.empty?
       @stderr_buffer << stderr_bytes unless stderr_bytes.empty?
     end
 
-    # Invoke `__kobako_run`. Wraps wasmtime / wire errors in TrapError.
-    # Source was already delivered via the stdin two-frame protocol in
-    # `setup_wasi_pipes` before this call
-    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
-    def invoke_guest_run
-      @instance.run
+    # Drive +Instance#run+ with the two stdin frames (preamble + source).
+    # Wraps wasmtime / wire errors in TrapError so the Sandbox layer maps
+    # cleanly to the three-class taxonomy.
+    def invoke_guest_run(preamble, source)
+      @instance.run(preamble, source)
     rescue Kobako::Wasm::Error => e
       raise TrapError, "guest __kobako_run trapped: #{e.message}"
     end
 
-    # Pull the OUTCOME_BUFFER bytes out of guest memory. The +len=0+ case
-    # is forwarded to {OutcomeDecoder} as an empty String so a single
-    # boundary attributes every wire-violation outcome
+    # Pull the OUTCOME_BUFFER bytes out of guest memory via
+    # +Instance#outcome!+. A zero-length outcome is delivered to
+    # {OutcomeDecoder} as an empty String so a single boundary attributes
+    # every wire-violation outcome
     # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
     def read_outcome_bytes
-      ptr, len = Kobako::Wasm.unpack_outcome_ptr_len(@instance.take_outcome)
-      @instance.read_memory(ptr, len)
+      @instance.outcome!
     rescue Kobako::Wasm::Error => e
       raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
     end

@@ -18,24 +18,25 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 ///
 /// WASI p1 state is embedded as `Option<WasiP1Ctx>` so it can be replaced
 /// fresh before each `#run` without rebuilding the Store. The `stdout_pipe`
-/// and `stderr_pipe` clones are kept alongside so the Ruby layer can drain
+/// and `stderr_pipe` clones are kept alongside so the Ruby layer can read
 /// captured bytes after execution without touching the WASI internals.
 #[derive(Default)]
 pub(crate) struct HostState {
-    /// Buffer mirror of guest's OUTCOME_BUFFER. Filled by `__kobako_take_outcome`
-    /// post-execution. Reserved for a future streaming-outcome path; not yet
-    /// consumed on the Rust side (the Ruby layer reads outcome via read_memory).
-    #[allow(dead_code)]
-    pub outcome: Vec<u8>,
     /// WASI p1 context for the current (or most-recent) run. Replaced before
     /// each `#run` so stdin/stdout/stderr pipes are always fresh (SPEC.md B-03).
     pub wasi: Option<WasiP1Ctx>,
     /// Clone of the MemoryOutputPipe wired to guest fd 1 (stdout). Retained
-    /// here so `take_stdout` can call `contents()` after execution without
-    /// having to dig into the WASI ctx internals.
+    /// here so the Ruby `#stdout` reader can call `contents()` after execution
+    /// without having to dig into the WASI ctx internals.
     pub stdout_pipe: Option<MemoryOutputPipe>,
     /// Clone of the MemoryOutputPipe wired to guest fd 2 (stderr).
     pub stderr_pipe: Option<MemoryOutputPipe>,
+    /// Cached OUTCOME_BUFFER bytes from the most-recent `#run`. Populated on
+    /// the first `#outcome!` call (which invokes `__kobako_take_outcome` —
+    /// guest-side destructive) and reused on subsequent calls within the same
+    /// run, so the Ruby reader is idempotent. Cleared at the start of every
+    /// new `#run`.
+    pub outcome_cache: Option<Vec<u8>>,
     /// Ruby-side `Kobako::Registry`. When set, the `__kobako_dispatch`
     /// import calls `registry.dispatch(req_bytes)` and hands the returned
     /// Response bytes back to the guest. `Opaque<Value>` is `Send + Sync`;

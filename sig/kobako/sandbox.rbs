@@ -28,9 +28,9 @@ module Kobako
 
     def reset_run_state!: () -> void
 
-    def drain_wasi_output: () -> void
+    def drain_captured_output: () -> void
 
-    def invoke_guest_run: () -> void
+    def invoke_guest_run: (String preamble, String source) -> void
 
     def read_outcome_bytes: () -> String
   end

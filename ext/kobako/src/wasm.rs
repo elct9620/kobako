@@ -66,15 +66,11 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 1))?;
-    instance.define_method("alloc", method!(Instance::alloc, 1))?;
-    instance.define_method("write_memory", method!(Instance::write_memory, 2))?;
-    instance.define_method("read_memory", method!(Instance::read_memory, 2))?;
-    instance.define_method("run", method!(Instance::run_call, 0))?;
-    instance.define_method("take_outcome", method!(Instance::take_outcome, 0))?;
-    instance.define_method("set_registry", method!(Instance::set_registry, 1))?;
-    instance.define_method("setup_wasi_pipes", method!(Instance::setup_wasi_pipes, 4))?;
-    instance.define_method("take_stdout", method!(Instance::take_stdout, 0))?;
-    instance.define_method("take_stderr", method!(Instance::take_stderr, 0))?;
+    instance.define_method("registry=", method!(Instance::set_registry, 1))?;
+    instance.define_method("run", method!(Instance::run, 2))?;
+    instance.define_method("stdout", method!(Instance::stdout, 0))?;
+    instance.define_method("stderr", method!(Instance::stderr, 0))?;
+    instance.define_method("outcome!", method!(Instance::outcome, 0))?;
 
     Ok(())
 }
