@@ -172,8 +172,80 @@ unless defined?(KobakoBuildConfig)
 
       raise "[kobako] missing #{src} — run `rake vendor:setup:onigmo_build_aux`"
     end
+
+    # Resolves a system tool to its absolute path at config-eval time
+    # via +which+, captured *before* the CrossBuild block mutates
+    # +ENV["PATH"]+ to expose +vendor/wasi-sdk/bin+ for Onigmo's
+    # autotools. Pinning the host build (declared below) to these
+    # captured absolute paths means it naturally selects the system
+    # compiler regardless of any later PATH mutation; the cross build
+    # already pins to wasi-sdk absolute paths and is similarly immune.
+    # Overridable via +HOST_CC+ / +HOST_CXX+ / +HOST_AR+ for operators
+    # who want to point the host build at a non-default compiler.
+    def self.resolve_system_tool(env_key, command)
+      override = ENV.fetch(env_key, nil)
+      return override if override && !override.empty?
+
+      path = `command -v #{command}`.chomp
+      return path unless path.empty?
+
+      raise "[kobako] system tool `#{command}` not found on PATH — " \
+            "set #{env_key} to override"
+    end
+
+    HOST_CC  = resolve_system_tool("HOST_CC",  "cc").freeze
+    HOST_CXX = resolve_system_tool("HOST_CXX", "c++").freeze
+    HOST_AR  = resolve_system_tool("HOST_AR",  "ar").freeze
+
+    # Prepends +vendor/wasi-sdk/bin+ to +ENV["PATH"]+ so that bare tool
+    # names invoked outside mruby's +run_command(e, ...)+ path resolve to
+    # the LLVM variants. The specific culprit is mruby-onig-regexp's
+    # +mrbgem.rake+ +`ar x ...`+ (a Ruby backtick), where macOS's BSD
+    # +ar+ corrupts wasm member extraction. Called from the CrossBuild
+    # block so the mutation is scoped to the build that needs it — the
+    # host build, declared earlier, has already captured its absolute
+    # tool paths via +resolve_system_tool+ and is therefore immune.
+    def self.prepend_wasi_sdk_to_path!
+      wasi_sdk_bin = File.join(WASI_SDK, "bin")
+      ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
+    end
   end
 end
+
+# ---- Host build (Stage B sidecar) --------------------------------------
+# Declared BEFORE the CrossBuild so its presence short-circuits mruby's
+# auto-host-creation in +MRuby::CrossBuild#initialize+
+# (vendor/mruby/lib/mruby/build.rb:573). The auto path calls
+# +conf.toolchain+ with no argument, which on macOS resolves to +"clang"+
+# via +Toolchain.guess+ (because +RUBY_PLATFORM =~ /darwin/+) and ends
+# up with a bare +clang+ as its +cc.command+ — that bare name then
+# resolves through PATH at compile time, which the CrossBuild block
+# below prepends with +vendor/wasi-sdk/bin+ for Onigmo's autotools,
+# silently pulling host presym scanning into the wasi-sdk clang and
+# tripping +wasm32-wasi/setjmp.h+'s sjlj +#error+ guard.
+#
+# Pinning the host toolchain to the absolute paths +KobakoBuildConfig+
+# captured at config-eval time lets the host build naturally pick the
+# system compiler (whatever +command -v cc+ resolved to) without
+# depending on PATH state. +disable_libmruby+ keeps the host build
+# minimal — it exists solely to produce +mrbc+ for the cross build to
+# consume (see +MRuby.targets['host'].mrbcfile+, build.rb:584).
+MRuby::Build.new("host") do |conf|
+  conf.toolchain :gcc
+  conf.cc.command       = KobakoBuildConfig::HOST_CC
+  conf.cxx.command      = KobakoBuildConfig::HOST_CXX
+  conf.linker.command   = KobakoBuildConfig::HOST_CC
+  conf.archiver.command = KobakoBuildConfig::HOST_AR
+  conf.build_mrbc_exec
+  conf.disable_libmruby
+end
+
+# Expose LLVM ar/ranlib/nm to the cross build's Onigmo autotools child
+# processes (see +prepend_wasi_sdk_to_path!+ for the BSD-ar wasm-
+# corruption rationale). Done after the host build declaration above so
+# the host build's +command -v+-resolved absolute tool paths are already
+# captured, leaving the host immune to this process-wide PATH mutation.
+KobakoBuildConfig.prepend_wasi_sdk_to_path!
 
 MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # ---- Toolchain (rule #2: CC / AR / LD all pinned to vendor/wasi-sdk) ---

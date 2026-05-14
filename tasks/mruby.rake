@@ -38,48 +38,15 @@ module KobakoMruby
     File.join(MRUBY_DIR, "minirake")
   end
 
-  # Curated symlink farm exposing only the three LLVM binutils that
-  # autotools-driven mrbgems need to find on PATH. Prepending the
-  # *whole* `vendor/wasi-sdk/bin` would also shadow `clang`, which
-  # mruby's auto-created host build (spawned by MRuby::CrossBuild for
-  # mrbc / presym scanning) resolves through PATH on macOS — picking
-  # up wasi-sdk's clang there compiles `error.c` against the
-  # wasm32-wasi sysroot's `setjmp.h`, whose `#error` gate fires when
-  # the cross-build sjlj flags are absent (and the host build has no
-  # business carrying those flags).
-  WASI_TOOL_SHIM_DIR = File.join(VENDOR_DIR, "wasi-tool-shims").freeze
-  WASI_TOOL_SHIM_NAMES = %w[ar ranlib nm].freeze
-
-  # Build (idempotently) the shim farm at `vendor/wasi-tool-shims/`
-  # exposing `vendor/wasi-sdk/bin/llvm-{ar,ranlib,nm}` as bare
-  # `ar` / `ranlib` / `nm`. The `vendor:setup` rake task — a hard
-  # dependency of `mruby:build` — places wasi-sdk under
-  # `vendor/wasi-sdk/` before this runs, so the symlink targets exist.
-  def self.ensure_wasi_tool_shims
-    wasi_sdk_bin = File.join(VENDOR_DIR, "wasi-sdk", "bin")
-    FileUtils.mkdir_p(WASI_TOOL_SHIM_DIR)
-    WASI_TOOL_SHIM_NAMES.each do |name|
-      FileUtils.ln_sf(File.join(wasi_sdk_bin, "llvm-#{name}"),
-                      File.join(WASI_TOOL_SHIM_DIR, name))
-    end
-    WASI_TOOL_SHIM_DIR
-  end
-
   # Run mruby's minirake with our build config wired in via MRUBY_CONFIG.
-  # The mruby build system reads MRUBY_CONFIG (absolute path or basename of
-  # a file under build_config/) to choose its top-level Build definition.
-  #
-  # PATH is prepended with the `wasi-tool-shims` directory (NOT the full
-  # `vendor/wasi-sdk/bin`) so bare `ar` / `ranlib` / `nm` used by
-  # mruby-onig-regexp's libtool-built Onigmo resolve to the LLVM variants
-  # without also redirecting `clang` away from the system compiler. See
-  # `WASI_TOOL_SHIM_DIR` above for the host-clang regression this guards.
+  # The mruby build system reads MRUBY_CONFIG (absolute path or basename
+  # of a file under build_config/) to choose its top-level Build
+  # definition. Per-build toolchain plumbing (including the wasi-sdk
+  # PATH prepend that mruby-onig-regexp's autotools need) lives in
+  # `build_config/wasi.rb` itself, co-located with the cross build it
+  # serves, so this wrapper stays a thin invocation shim.
   def self.invoke_minirake(*args)
-    shim_dir = ensure_wasi_tool_shims
-    env = {
-      "MRUBY_CONFIG" => BUILD_CONFIG,
-      "PATH" => "#{shim_dir}:#{ENV.fetch("PATH", "")}"
-    }
+    env = { "MRUBY_CONFIG" => BUILD_CONFIG }
     cmd = [RbConfig.ruby, minirake, *args]
     puts "[mruby] cd #{MRUBY_DIR} && MRUBY_CONFIG=#{BUILD_CONFIG} #{cmd.join(" ")}"
     system(env, *cmd, chdir: MRUBY_DIR, exception: true)
