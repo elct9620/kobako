@@ -521,4 +521,43 @@ class TestE2EJourneys < Minitest::Test
     assert_equal NESTED_AOH, seen.first, "RPC arg: nested Array-of-Hash must arrive natively"
     assert_equal NESTED_AOH, result, "RPC return: nested Array-of-Hash must round-trip losslessly"
   end
+
+  # ── Regexp — mruby-onig-regexp brings Onigmo-backed Regexp into the
+  #    guest. These journeys cover the surface a guest script needs:
+  #    literal compilation, +=~+ index return, +String#match+ → MatchData,
+  #    and runtime +Regexp.new+. Regexp objects do NOT cross the
+  #    host↔guest wire — guests use them internally and project to wire-
+  #    compatible types (String / Integer / Array) before returning.
+
+  def test_regexp_literal_eq_tilde_returns_match_index
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('"hello-2026-mruby" =~ /\\d{4}/')
+
+    assert_equal 6, result,
+                 "Regexp: =~ must return the byte index of the first match"
+  end
+
+  def test_regexp_string_match_returns_capture_groups
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('"abc123def".match(/(\\d+)/).to_a')
+
+    assert_equal %w[123 123], result,
+                 "Regexp: String#match must yield MatchData populated " \
+                 "with the captured groups (full match + group 1)"
+  end
+
+  def test_regexp_runtime_compilation
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run(<<~RUBY)
+      pattern = Regexp.new("a(b+)c")
+      pattern.match("xxabbbcxx")[1]
+    RUBY
+
+    assert_equal "bbb", result,
+                 "Regexp.new: dynamic Regexp construction must round-trip " \
+                 "through the host and yield captures inside the guest"
+  end
 end

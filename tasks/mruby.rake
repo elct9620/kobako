@@ -41,9 +41,18 @@ module KobakoMruby
   # Run mruby's minirake with our build config wired in via MRUBY_CONFIG.
   # The mruby build system reads MRUBY_CONFIG (absolute path or basename of
   # a file under build_config/) to choose its top-level Build definition.
+  #
+  # PATH is prepended with `vendor/wasi-sdk/bin` so that bare tool names
+  # (`ar`, `ranlib`, `nm`) used by autotools-driven mrbgems (in particular
+  # mruby-onig-regexp's libtool-built Onigmo) resolve to the LLVM/wasi-sdk
+  # variants rather than the host BSD tools. Host BSD ar handles wasm
+  # object extraction with subtle corruption (LLVM tools then reject the
+  # extracted .o with "section too large").
   def self.invoke_minirake(*args)
+    wasi_sdk_bin = File.join(KobakoMruby::VENDOR_DIR, "wasi-sdk", "bin")
     env = {
-      "MRUBY_CONFIG" => BUILD_CONFIG
+      "MRUBY_CONFIG" => BUILD_CONFIG,
+      "PATH" => "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
     }
     cmd = [RbConfig.ruby, minirake, *args]
     puts "[mruby] cd #{MRUBY_DIR} && MRUBY_CONFIG=#{BUILD_CONFIG} #{cmd.join(" ")}"
