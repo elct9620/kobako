@@ -416,4 +416,88 @@ class TestE2EJourneys < Minitest::Test
                  "RPC path: Symbol arg must arrive at the Service as a Ruby Symbol " \
                  "(ext 0x00), not as a String via Object#to_s"
   end
+
+  # ── Native Array / Hash round-trips (SPEC.md Type Mapping #7-#8) ──────
+  #
+  # The 12-entry Type Mapping (SPEC.md → Wire Codec → Type Mapping) maps
+  # msgpack array → mruby Array and msgpack map → mruby Hash. Both
+  # directions must travel by value with element-level fidelity (SPEC.md
+  # B-13: "Collections (Array, Hash) whose elements are all
+  # wire-representable are transmitted in full by value"). These tests
+  # pin the guarantee through the real guest binary.
+
+  # Outcome path: a script whose last expression is an mruby Array must
+  # serialize as +Value::Array+ on the wire, not as the +inspect+
+  # string. Mixed-element fidelity (Integer + String + Symbol) is part
+  # of the contract.
+  def test_outcome_array_returns_native_array
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('[1, "a", :b]')
+
+    assert_equal [1, "a", :b], result,
+                 "outcome path: mruby Array must arrive as a Ruby Array with " \
+                 "preserved element types (SPEC.md Type Mapping #7)"
+  end
+
+  # Outcome path: an mruby Hash must serialize as +Value::Map+ and
+  # arrive as a Ruby Hash. Symbol-vs-String key distinction is part of
+  # the wire contract — SPEC.md Ext Types pins that
+  # +"a"+ and +:a+ are not wire-equivalent.
+  def test_outcome_hash_returns_native_hash
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('{a: 1, "b" => 2}')
+
+    assert_equal({ a: 1, "b" => 2 }, result,
+                 "outcome path: mruby Hash must arrive as a Ruby Hash preserving " \
+                 "the Symbol-vs-String key distinction (SPEC.md Type Mapping #8 + ext 0x00)")
+  end
+
+  # RPC path: a Service returning an Array must reach the guest as an
+  # mruby Array (callable methods like +#length+, +#first+), not as
+  # +nil+. Reproduces the +examples/codemode+ failure where
+  # +KV::Store.keys+ — an +Array+ of +String+ — was deserialized to
+  # +nil+ inside the guest.
+  def test_rpc_service_returning_array_arrives_as_array_in_guest
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:KV).bind(:Keys, -> { %w[a b c] })
+
+    result = sandbox.run("KV::Keys.call.length")
+
+    assert_equal 3, result,
+                 "RPC path: Service-returned Array must materialize as an mruby Array " \
+                 "in the guest (currently regressed to nil — see codemode failure)"
+  end
+
+  # RPC path: a Service returning a Hash must reach the guest as an
+  # mruby Hash with usable subscript access; Symbol keys returned by
+  # the host arrive as Symbols on the guest side.
+  def test_rpc_service_returning_hash_arrives_as_hash_in_guest
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:KV).bind(:Snapshot, -> { { a: 1, b: 2 } })
+
+    result = sandbox.run("KV::Snapshot.call[:a]")
+
+    assert_equal 1, result,
+                 "RPC path: Service-returned Hash must materialize as an mruby Hash " \
+                 "with Symbol keys preserved (SPEC.md Type Mapping #8)"
+  end
+
+  # RPC path: nested Array of Hash passes from guest → host → guest with
+  # element-level fidelity. The Service captures into +seen+ before
+  # echoing so the assertion can prove both the host-side arrival shape
+  # and the guest-side round-trip shape match the original structure.
+  NESTED_AOH = [{ x: 1 }, { y: 2 }].freeze
+
+  def test_rpc_nested_array_of_hash_round_trip
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    seen = []
+    sandbox.define(:Echo).bind(:Identity, ->(arg) { seen << arg and arg })
+
+    result = sandbox.run("Echo::Identity.call([{x: 1}, {y: 2}])")
+
+    assert_equal NESTED_AOH, seen.first, "RPC arg: nested Array-of-Hash must arrive natively"
+    assert_equal NESTED_AOH, result, "RPC return: nested Array-of-Hash must round-trip losslessly"
+  end
 end

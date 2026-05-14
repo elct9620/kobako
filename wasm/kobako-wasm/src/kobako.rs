@@ -645,19 +645,23 @@ impl Kobako {
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for use as an RPC argument or keyword value. Symbol values map to
     /// [`Value::Sym`] (ext 0x00, SPEC.md → Wire Codec → Ext Types).
-    /// Unknown types fall back to `Object#to_s`.
+    /// Array / Hash values map to [`Value::Array`] / [`Value::Map`]
+    /// recursively (SPEC.md Type Mapping #7-#8). Unknown types fall
+    /// back to `Object#to_s`.
     ///
     /// ## Why two converters
     ///
-    /// This is the **RPC-path** converter — Hash arguments are decoded
-    /// elsewhere into kwargs ([`Kobako::decode_hash_kwargs`]), so a
-    /// stray Hash here falls through the `to_s` arm. The sibling
-    /// [`Kobako::mrb_value_to_wire_outcome`] handles the **outcome-path**
-    /// (the script's last-expression value) and uses `inspect` for the
-    /// fallback instead. Do not unify the two: the outcome path is read
-    /// as a display representation (`inspect` quotes strings and shows
-    /// class names), while RPC arguments are interchange values that
-    /// reach a Service's `public_send`.
+    /// This is the **RPC-path** converter. Hash arguments are still
+    /// decoded into kwargs separately via [`Kobako::decode_hash_kwargs`]
+    /// when they trail the positional list; a Hash that arrives here is
+    /// either nested inside an Array argument or sitting in a non-final
+    /// positional slot, and travels natively as [`Value::Map`]. The
+    /// sibling [`Kobako::mrb_value_to_wire_outcome`] handles the
+    /// **outcome-path** (the script's last-expression value) and uses
+    /// `inspect` for its unknown-type fallback instead. Do not unify
+    /// the two: the outcome path is read as a display representation,
+    /// while RPC arguments are interchange values that reach a
+    /// Service's `public_send`.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -671,6 +675,31 @@ impl Kobako {
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
             "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
+            "Array" => {
+                let len = self.collection_len(val);
+                let mut items = Vec::with_capacity(len);
+                for i in 0..len {
+                    // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
+                    let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
+                    items.push(self.mrb_value_to_wire_value(elem));
+                }
+                Value::Array(items)
+            }
+            "Hash" => {
+                // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
+                let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
+                let len = self.collection_len(keys_ary);
+                let mut pairs = Vec::with_capacity(len);
+                for i in 0..len {
+                    let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
+                    let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
+                    pairs.push((
+                        self.mrb_value_to_wire_value(key),
+                        self.mrb_value_to_wire_value(v),
+                    ));
+                }
+                Value::Map(pairs)
+            }
             // Fallback: route through `.to_s`.
             _ => Value::Str(unsafe { val.to_string(self.mrb) }),
         }
@@ -679,17 +708,19 @@ impl Kobako {
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for inclusion in the outcome Result envelope. Used by
     /// `__kobako_run` to serialize the user script's last-expression
-    /// value.
+    /// value. Array / Hash values map to [`Value::Array`] /
+    /// [`Value::Map`] recursively (SPEC.md Type Mapping #7-#8) so a
+    /// script returning a collection retains element-level fidelity.
     ///
     /// ## Why this differs from [`Kobako::mrb_value_to_wire_value`]
     ///
     /// Unknown types fall back to `Object#inspect` rather than
     /// `Object#to_s`. The outcome envelope is read by host-side callers
     /// as a *display* representation, not an interchange value, so
-    /// `inspect` (which quotes strings, shows class names, formats
-    /// Array / Hash with their punctuation) is the right shape. Array
-    /// and Hash currently flow through this `inspect` fallback —
-    /// native wire-level Array / Hash encoding is a separate follow-up.
+    /// `inspect` (which quotes strings, shows class names) is the right
+    /// shape. Nested values inside an Array or Hash also flow through
+    /// `inspect` for unknown types — the recursive call lands back in
+    /// this same arm.
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
@@ -703,6 +734,31 @@ impl Kobako {
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
             "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
+            "Array" => {
+                let len = self.collection_len(val);
+                let mut items = Vec::with_capacity(len);
+                for i in 0..len {
+                    // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
+                    let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
+                    items.push(self.mrb_value_to_wire_outcome(elem));
+                }
+                Value::Array(items)
+            }
+            "Hash" => {
+                // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
+                let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
+                let len = self.collection_len(keys_ary);
+                let mut pairs = Vec::with_capacity(len);
+                for i in 0..len {
+                    let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
+                    let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
+                    pairs.push((
+                        self.mrb_value_to_wire_outcome(key),
+                        self.mrb_value_to_wire_outcome(v),
+                    ));
+                }
+                Value::Map(pairs)
+            }
             _ => Value::Str(unsafe {
                 val.call(self.mrb, cstr!("inspect"), &[])
                     .to_string(self.mrb)
@@ -773,7 +829,28 @@ impl Kobako {
                     );
                     str_val.call(self.mrb, cstr!("to_sym"), &[])
                 }
-                Value::Array(_) | Value::Map(_) | Value::ErrEnv(_) => self.nil_value(),
+                Value::Array(items) => {
+                    let ary = sys::mrb_ary_new(self.mrb);
+                    for item in items {
+                        let elem = self.wire_value_to_mrb(item);
+                        sys::mrb_ary_push(self.mrb, ary, elem);
+                    }
+                    ary
+                }
+                Value::Map(pairs) => {
+                    let hash = sys::mrb_hash_new(self.mrb);
+                    for (k, v) in pairs {
+                        let key = self.wire_value_to_mrb(k);
+                        let val = self.wire_value_to_mrb(v);
+                        sys::mrb_hash_set(self.mrb, hash, key, val);
+                    }
+                    hash
+                }
+                // ext 0x02 envelopes are consumed by the exception path
+                // (`raise_service_error`) before reaching value
+                // conversion; the defensive nil here covers any
+                // malformed Response that smuggles one through.
+                Value::ErrEnv(_) => self.nil_value(),
             }
         }
     }
