@@ -80,7 +80,6 @@ Metrics/BlockLength:
 Layout/LineLength:
   Exclude:
     - "test/test_wire_envelope.rb"
-    - "test/test_abi_wasm_invariant.rb"
     - "*.gemspec"
 
 # These two test files host a primary test class plus a small E2E sibling
