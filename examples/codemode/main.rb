@@ -167,8 +167,10 @@ module CodeMode
 
   SYSTEM_PROMPT = <<~PROMPT
     You can run mruby code in a Wasm sandbox by calling the tool
-    `execute(code:)`. Inside the script the constants `KV::Store` and
-    `WebFetch::Client` are available; their APIs in RBS are:
+    `execute(code:)`. The runtime is mruby and has no `require`/`load`
+    and no gem system — every capability is a pre-loaded host constant
+    listed below. Do not write `require` lines; call the constants
+    directly. Available constants in RBS:
 
         module KV
           module Store
