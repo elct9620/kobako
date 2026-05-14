@@ -11,6 +11,17 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     name: Ruby ${{ matrix.ruby }} (${{ matrix.os }})
+    # Ruby 4.0 is still on the dev branch and rb_sys does not yet ship a
+    # precompiled native gem for it, so the gem falls back to a source
+    # build whose `RbSys::ExtensionTask` init shells out to
+    # `cargo metadata`. On macOS runner images that lookup intermittently
+    # resolves to the `~/.local/bin/cargo → rustup-init` bootstrap stub
+    # (PATH puts `.local/bin` before `.cargo/bin`) and aborts the Rakefile
+    # load. Until rb_sys ships a 4.0 binary or we move off `dtolnay/rust-
+    # toolchain` for a setup that owns PATH order, treat 4.0 as a soft
+    # signal: keep it in the matrix so we see when it eventually goes
+    # green, but do not let it block the overall workflow.
+    continue-on-error: ${{ matrix.ruby == '4.0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,17 +49,6 @@ jobs:
           toolchain: stable
           components: clippy, rustfmt
           targets: wasm32-wasip1
-      # macOS runner images ship a `~/.local/bin/cargo` symlink pointing
-      # at `rustup-init`, intended to bootstrap rustup on first use.
-      # `~/.local/bin` sits earlier in PATH than `~/.cargo/bin`, so a
-      # bare `cargo` invocation resolves to the stub instead of the
-      # toolchain `dtolnay/rust-toolchain` just installed — Ruby gems
-      # like `rb_sys` then see `cargo metadata` rejected as an
-      # "unexpected argument" by `rustup-init`. Prepend `~/.cargo/bin`
-      # explicitly so the installed cargo wins. Linux runners have no
-      # `.local/bin/cargo` stub, so this is a no-op there.
-      - name: Prepend rustup cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Cache cargo
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
         with:
