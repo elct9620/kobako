@@ -57,11 +57,3 @@ Metrics/BlockLength:
 Layout/LineLength:
   Exclude:
     - "*.gemspec"
-
-# test_codec_roundtrip_fuzz.rb defines data-table constants (bands, samplers,
-# coverage keys) directly in the class body under a top-level `private` keyword.
-# The `private` modifier is a no-op for constants in Ruby (the cop is correct),
-# but the co-location with the private methods that consume them is intentional.
-Lint/UselessConstantScoping:
-  Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
