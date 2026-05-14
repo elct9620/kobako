@@ -560,4 +560,52 @@ class TestE2EJourneys < Minitest::Test
                  "Regexp.new: dynamic Regexp construction must round-trip " \
                  "through the host and yield captures inside the guest"
   end
+
+  # +=~+ on a non-matching pattern must return +nil+, NOT 0 / -1 / false.
+  # This is the contract guest scripts rely on to write idiomatic
+  # +str =~ /pat/ or default+ conditionals; nil also has to round-trip
+  # through the host wire as Ruby +nil+, not as +Integer 0+ (a likely
+  # bug if the codec sees an unset +int+ field).
+  def test_regexp_no_match_returns_nil
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('"abc" =~ /\\d+/')
+
+    assert_nil result, "Regexp: =~ must return nil when no match"
+  end
+
+  # An invalid pattern compiled at runtime is a guest-side Ruby error
+  # (Onigmo's RegexpError), so it must surface to the host as
+  # +Kobako::SandboxError+ — the same shape +raise "..."+ takes
+  # (see test_j01_script_ruby_error_raises_sandbox_error). Onigmo's
+  # error text mentions "invalid regular expression"; pin the substring
+  # so a future encoding-related rewording surfaces here.
+  def test_regexp_invalid_pattern_raises_sandbox_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.run('Regexp.new("(unclosed")')
+    end
+
+    assert_equal "sandbox", err.origin
+    assert_match(/invalid regular expression/i, err.message,
+                 "Regexp: invalid pattern must surface Onigmo's diagnostic")
+  end
+
+  # Onigmo's encoding tables (unicode.o, utf_8.o, etc.) are vendored
+  # by mruby-onig-regexp's bundled Onigmo source and linked into
+  # libmruby.a. A literal pattern matching a multibyte UTF-8 string
+  # proves those tables made it through the autotools + libtool +
+  # llvm-ar pipeline intact — a regression here would mean the build
+  # silently dropped encoding objects (which has happened in earlier
+  # iterations of this patch chain).
+  def test_regexp_matches_utf8_string_literal
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.run('"abc漢字def".match(/(漢字)/).to_a')
+
+    assert_equal %w[漢字 漢字], result,
+                 "Regexp: UTF-8 string match must round-trip multibyte " \
+                 "captures (proves Onigmo's encoding tables are linked)"
+  end
 end
