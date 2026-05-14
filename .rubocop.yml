@@ -45,7 +45,6 @@ Metrics/AbcSize:
 Naming/VariableNumber:
   Exclude:
     - "test/support/wire_value_generator.rb"
-    - "test/test_wire_envelope.rb"
 
 # `namespace :vendor` in tasks/vendor.rake iterates KobakoVendor::TARBALL_TOOLCHAINS
 # and declares per-toolchain `file` / `setup:<name>` tasks via loops; the
@@ -58,11 +57,8 @@ Metrics/BlockLength:
     - "tasks/vendor.rake"
     - "*.gemspec"
 
-# Long line is a binary-format alignment comment (hex bytes laid out under
-# their semantic meaning); breaking the line would destroy the diagram.
 Layout/LineLength:
   Exclude:
-    - "test/test_wire_envelope.rb"
     - "*.gemspec"
 
 # test_codec_roundtrip_fuzz.rb defines data-table constants (bands, samplers,

@@ -162,7 +162,7 @@ module Kobako
 
       # ---------- Response golden vector ----------
 
-      def test_response_ok_golden_for_42
+      def test_response_ok_golden_for_int
         # Response: [0, 42]  =>  fixarray 2 (0x92) | 0x00 | 0x2a
         bytes = Envelope.encode_response(Envelope::Response.ok(42))
         assert_equal "92002a", hex(bytes)
@@ -199,7 +199,7 @@ module Kobako
 
       # ---------- Result golden vector (matches Rust codec test) ----------
 
-      def test_result_golden_value_42
+      def test_result_golden_for_int
         # SPEC.md "Outcome Envelope" example: fixarray len=1 + 42.
         bytes = Envelope.encode_result(42)
         assert_equal "912a", hex(bytes)
@@ -310,7 +310,7 @@ module Kobako
 
       # ---------- Outcome golden vector (matches Rust codec test) ----------
 
-      def test_outcome_result_golden_for_42
+      def test_outcome_result_golden_for_int
         # Tag 0x01 + Result envelope (fixarray 1, 0x2a)
         bytes = Envelope.encode_outcome(Envelope::Outcome.new(Envelope::Result.new(42)))
         assert_equal "01912a", hex(bytes)
@@ -320,7 +320,11 @@ module Kobako
         # Tag 0x02 + fixmap 3 with origin=sandbox, class=RuntimeError, message=boom
         panic = Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
         bytes = Envelope.encode_outcome(Envelope::Outcome.new(panic))
-        # 02 | 83 | a6 origin     a7 sandbox          | a5 class    ac RuntimeError                       | a7 message a4 boom
+        # 02              outcome-tag panic
+        # 83              fixmap len=3
+        #   a6 origin     a7 sandbox
+        #   a5 class      ac RuntimeError
+        #   a7 message    a4 boom
         expected = "02" \
                    "83" \
                    "a66f726967696ea773616e64626f78" \
