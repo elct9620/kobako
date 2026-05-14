@@ -55,17 +55,24 @@ class TestServiceRegistry < Minitest::Test
     [klass, instance, mod]
   end
 
-  # B-09: multiple groups coexist; cross-group paths do not leak.
-  def test_b09_multiple_groups_coexist_and_are_isolated
+  # B-09: multiple groups coexist; each binding resolves independently.
+  def test_b09_multiple_groups_resolve_independently
     @sandbox.define(:Auth).bind(:Token, "tk")
     @sandbox.define(:Logger).bind(:Info, "lg")
 
     assert_equal "tk", @sandbox.services.lookup("Auth::Token")
     assert_equal "lg", @sandbox.services.lookup("Logger::Info")
+    assert_equal 2, @sandbox.services.size
+  end
+
+  # B-09: cross-group paths do not leak — a member of one group is not
+  # reachable via another group's name.
+  def test_b09_cross_group_paths_are_not_bound
+    @sandbox.define(:Auth).bind(:Token, "tk")
+    @sandbox.define(:Logger).bind(:Info, "lg")
 
     refute @sandbox.services.bound?("Auth::Info")
     refute @sandbox.services.bound?("Logger::Token")
-    assert_equal 2, @sandbox.services.size
   end
 
   # B-10: re-declaring the same group is idempotent — same object identity.

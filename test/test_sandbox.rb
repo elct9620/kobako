@@ -33,6 +33,11 @@ class TestSandbox < Minitest::Test
     assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit
     assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stderr_limit
     assert_equal 1 << 20, sandbox.stdout_limit
+  end
+
+  def test_default_construction_starts_with_empty_output_buffers
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
     assert sandbox.stdout_buffer.empty?
     assert sandbox.stderr_buffer.empty?
   end
@@ -52,13 +57,20 @@ class TestSandbox < Minitest::Test
     end
   end
 
-  def test_handle_table_is_per_sandbox_instance
+  def test_handle_tables_have_distinct_identity_per_sandbox
     a = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     b = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     refute_same a.services.handle_table, b.services.handle_table
+  end
+
+  def test_handle_table_alloc_does_not_leak_across_sandboxes
+    a = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+    b = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
     a.services.handle_table.alloc(:x)
     a.services.handle_table.alloc(:y)
+
     assert_equal 2, a.services.handle_table.size
     assert_equal 0, b.services.handle_table.size, "alloc on one Sandbox must not leak to another"
   end

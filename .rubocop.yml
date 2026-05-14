@@ -29,15 +29,12 @@ Metrics/ClassLength:
     # consume them without improving readability.
     - "test/support/wire_value_generator.rb"
 
-# Long E2E / fuzz assertion bodies set up multi-step round-trip state; the
+# Long E2E assertion bodies set up multi-step round-trip state; the
 # AbcSize budget penalises that shape without improving the tests.
 Metrics/AbcSize:
   Exclude:
     - "test/test_e2e_journeys.rb"
-    - "test/test_handle_table.rb"
     - "test/test_rpc_dispatch.rb"
-    - "test/test_sandbox.rb"
-    - "test/test_service_registry.rb"
 
 # MessagePack format names embed bit-width suffixes (int_8, fixarray_16, map_32)
 # matching the SPEC wire-format vocabulary; renaming them to "int8" would lose

@@ -165,18 +165,28 @@ module Kobako
       refute table.include?(99)
     end
 
-    def test_size_and_include_predicate_after_release_and_reset
+    def test_size_and_include_predicate_after_release
       table = Table.new
       id1 = table.alloc(Object.new)
       id2 = table.alloc(Object.new)
+
       table.release(id1)
+
       assert_equal 1, table.size
       refute table.include?(id1)
       assert table.include?(id2)
+    end
+
+    def test_size_and_include_predicate_after_reset
+      table = Table.new
+      table.alloc(Object.new)
+      stale_id = table.alloc(Object.new)
 
       table.reset!
+
       assert_equal 0, table.size
-      refute table.include?(id2)
+      refute table.include?(stale_id),
+             "ids issued before reset must not resolve afterward (B-19)"
     end
 
     # ---------- mark_disconnected: ABA protection sentinel ----------
