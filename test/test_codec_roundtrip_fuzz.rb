@@ -153,29 +153,29 @@ class TestCodecRoundtripFuzz < Minitest::Test
   # so we don't need to compare bit patterns either.
   # ---------------------------------------------------------------------
 
-  def values_equal?(actual, expected)
-    return float_equal?(actual, expected) if actual.is_a?(Float) && expected.is_a?(Float)
-    return array_equal?(actual, expected) if actual.is_a?(Array) && expected.is_a?(Array)
-    return hash_equal?(actual, expected) if actual.is_a?(Hash) && expected.is_a?(Hash)
+  def values_equal?(lhs, rhs)
+    return float_equal?(lhs, rhs) if lhs.is_a?(Float) && rhs.is_a?(Float)
+    return array_equal?(lhs, rhs) if lhs.is_a?(Array) && rhs.is_a?(Array)
+    return hash_equal?(lhs, rhs) if lhs.is_a?(Hash) && rhs.is_a?(Hash)
 
-    actual == expected
+    lhs == rhs
   end
 
-  def float_equal?(actual, expected)
-    return true if actual.nan? && expected.nan?
+  def float_equal?(lhs, rhs)
+    return true if lhs.nan? && rhs.nan?
 
-    actual == expected
+    lhs == rhs
   end
 
-  def array_equal?(actual, expected)
-    return false unless actual.length == expected.length
+  def array_equal?(lhs, rhs)
+    return false unless lhs.length == rhs.length
 
-    actual.each_with_index.all? { |x, i| values_equal?(x, expected[i]) }
+    lhs.each_with_index.all? { |element, i| values_equal?(element, rhs[i]) }
   end
 
-  def hash_equal?(actual, expected)
-    return false unless actual.size == expected.size
+  def hash_equal?(lhs, rhs)
+    return false unless lhs.size == rhs.size
 
-    actual.all? { |k, v| expected.key?(k) && values_equal?(v, expected[k]) }
+    lhs.all? { |k, v| rhs.key?(k) && values_equal?(v, rhs[k]) }
   end
 end
