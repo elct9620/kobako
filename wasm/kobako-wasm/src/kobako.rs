@@ -642,6 +642,54 @@ impl Kobako {
     // Wire ↔ mrb_value conversion.
     // ----------------------------------------------------------------
 
+    /// Iterate an mruby Array and convert each element via `convert`,
+    /// returning a `Vec<Value>` ready to wrap in [`Value::Array`].
+    /// `convert` is a function pointer so the two consumer converters
+    /// ([`Kobako::mrb_value_to_wire_value`] and
+    /// [`Kobako::mrb_value_to_wire_outcome`]) can share the iteration
+    /// while preserving their per-converter recursion target — the
+    /// outcome path must keep recursing on `mrb_value_to_wire_outcome`
+    /// so unknown nested types fall back to `inspect`, not `to_s`.
+    #[cfg(target_arch = "wasm32")]
+    fn array_to_wire(
+        &self,
+        val: sys::mrb_value,
+        convert: fn(&Self, sys::mrb_value) -> crate::codec::Value,
+    ) -> Vec<crate::codec::Value> {
+        let len = self.collection_len(val);
+        let mut items = Vec::with_capacity(len);
+        for i in 0..len {
+            // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
+            let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
+            items.push(convert(self, elem));
+        }
+        items
+    }
+
+    /// Iterate an mruby Hash and convert each key/value pair via
+    /// `convert`, returning a `Vec<(Value, Value)>` ready to wrap in
+    /// [`Value::Map`]. Both the key and the value flow through the
+    /// same `convert` so a `Symbol` key arrives as [`Value::Sym`]
+    /// (ext 0x00) and a `String` key as [`Value::Str`] — distinct on
+    /// the wire per SPEC.md Ext Types.
+    #[cfg(target_arch = "wasm32")]
+    fn hash_to_wire(
+        &self,
+        val: sys::mrb_value,
+        convert: fn(&Self, sys::mrb_value) -> crate::codec::Value,
+    ) -> Vec<(crate::codec::Value, crate::codec::Value)> {
+        // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
+        let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
+        let len = self.collection_len(keys_ary);
+        let mut pairs = Vec::with_capacity(len);
+        for i in 0..len {
+            let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
+            let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
+            pairs.push((convert(self, key), convert(self, v)));
+        }
+        pairs
+    }
+
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for use as an RPC argument or keyword value. Symbol values map to
     /// [`Value::Sym`] (ext 0x00, SPEC.md → Wire Codec → Ext Types).
@@ -675,31 +723,8 @@ impl Kobako {
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
             "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
-            "Array" => {
-                let len = self.collection_len(val);
-                let mut items = Vec::with_capacity(len);
-                for i in 0..len {
-                    // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
-                    let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
-                    items.push(self.mrb_value_to_wire_value(elem));
-                }
-                Value::Array(items)
-            }
-            "Hash" => {
-                // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
-                let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
-                let len = self.collection_len(keys_ary);
-                let mut pairs = Vec::with_capacity(len);
-                for i in 0..len {
-                    let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
-                    let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
-                    pairs.push((
-                        self.mrb_value_to_wire_value(key),
-                        self.mrb_value_to_wire_value(v),
-                    ));
-                }
-                Value::Map(pairs)
-            }
+            "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_value)),
+            "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_value)),
             // Fallback: route through `.to_s`.
             _ => Value::Str(unsafe { val.to_string(self.mrb) }),
         }
@@ -734,31 +759,8 @@ impl Kobako {
             "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
             "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
             "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
-            "Array" => {
-                let len = self.collection_len(val);
-                let mut items = Vec::with_capacity(len);
-                for i in 0..len {
-                    // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
-                    let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
-                    items.push(self.mrb_value_to_wire_outcome(elem));
-                }
-                Value::Array(items)
-            }
-            "Hash" => {
-                // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
-                let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
-                let len = self.collection_len(keys_ary);
-                let mut pairs = Vec::with_capacity(len);
-                for i in 0..len {
-                    let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
-                    let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
-                    pairs.push((
-                        self.mrb_value_to_wire_outcome(key),
-                        self.mrb_value_to_wire_outcome(v),
-                    ));
-                }
-                Value::Map(pairs)
-            }
+            "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_outcome)),
+            "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_outcome)),
             _ => Value::Str(unsafe {
                 val.call(self.mrb, cstr!("inspect"), &[])
                     .to_string(self.mrb)
