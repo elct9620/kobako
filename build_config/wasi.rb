@@ -59,6 +59,14 @@ unless defined?(KobakoBuildConfig)
     # clang accepts on the command line.
     WASI_TARGET = "wasm32-wasi"
 
+    # mruby `CrossBuild` name — controls the build subdirectory layout
+    # (`vendor/mruby/build/<name>/`) and the artifact path the rake
+    # wrapper expects (`KobakoMruby::TARGET_NAME` in tasks/mruby.rake
+    # MUST agree). Bumping requires touching both files; the constant
+    # is hoisted here so paths derived from the build subdir stay in
+    # sync.
+    MRUBY_BUILD_NAME = "wasi"
+
     # Target / sysroot flags applied to every translation unit AND the link
     # step. Frozen so a stray `<<` in the build block raises instead of
     # silently mutating the shared reference.
@@ -121,7 +129,7 @@ unless defined?(KobakoBuildConfig)
     # the modern wasm-aware aux scripts. Hooking the rake task graph
     # directly is not viable: mruby's build system registers gem file
     # tasks later in a separate pass than the build_config DSL.
-    ONIGMO_RELATIVE_BUILD_DIR = "vendor/mruby/build/wasi/mrbgems/mruby-onig-regexp"
+    ONIGMO_RELATIVE_BUILD_DIR = "vendor/mruby/build/#{MRUBY_BUILD_NAME}/mrbgems/mruby-onig-regexp".freeze
     ONIGMO_RELATIVE_TARBALL   = "vendor/mruby-onig-regexp/onigmo-6.2.0.tar.gz"
     ONIGMO_VERSION_DIR        = "onigmo-6.2.0"
 
@@ -167,7 +175,7 @@ unless defined?(KobakoBuildConfig)
   end
 end
 
-MRuby::CrossBuild.new("wasi") do |conf|
+MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # ---- Toolchain (rule #2: CC / AR / LD all pinned to vendor/wasi-sdk) ---
   conf.toolchain :clang
 
