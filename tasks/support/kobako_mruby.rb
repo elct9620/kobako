@@ -26,11 +26,6 @@ module KobakoMruby
   TARGET_NAME   = "wasi"
   LIBMRUBY_PATH = File.join(MRUBY_DIR, "build", TARGET_NAME, "lib", "libmruby.a").freeze
 
-  def self.minirake
-    # mruby ships a vendored copy of `minirake` at the top of its tree.
-    File.join(MRUBY_DIR, "minirake")
-  end
-
   # Run mruby's minirake with our build config wired in via
   # MRUBY_CONFIG. mruby reads that env var (absolute path or basename
   # of a file under build_config/) to choose its top-level Build.
@@ -40,4 +35,12 @@ module KobakoMruby
     puts "[mruby] cd #{MRUBY_DIR} && MRUBY_CONFIG=#{BUILD_CONFIG} #{cmd.join(" ")}"
     system(env, *cmd, chdir: MRUBY_DIR, exception: true)
   end
+
+  # mruby ships a vendored copy of +minirake+ at the top of its tree.
+  # Internal helper for +invoke_minirake+; not part of the public surface.
+  def self.minirake
+    File.join(MRUBY_DIR, "minirake")
+  end
+
+  private_class_method :minirake
 end
