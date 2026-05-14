@@ -97,9 +97,15 @@ unless defined?(KobakoBuildConfig)
     #   * mruby-onig-regexp — Onigmo regex engine (mruby 4.0 ships no
     #     built-in Regexp). Onigmo is a guest-side compute capability;
     #     Regexp objects do NOT cross the host↔guest wire (no SPEC.md
-    #     wire codec change). Be aware that Onigmo, like any regex
-    #     engine, is a known ReDoS surface — host enforces compute
-    #     bounds via Sandbox limits, not via this list.
+    #     wire codec change). The Onigmo source bundled by the gem is
+    #     frozen at 6.2.0 (2019) and carries known CVEs covering
+    #     ReDoS, OOB reads, and OOB writes; upgrading requires forking
+    #     the gem because the version is hard-coded in its
+    #     mrbgem.rake. The wasm sandbox isolates the host from any
+    #     guest-side crash, but a malicious / malformed pattern can
+    #     still corrupt guest state — host-side Sandbox limits (fuel,
+    #     memory) bound compute exhaustion but cannot bound engine-
+    #     internal memory-safety bugs.
     THIRD_PARTY_GEM_DIRS = [
       File.join(VENDOR_DIR, "mruby-onig-regexp")
     ].freeze
