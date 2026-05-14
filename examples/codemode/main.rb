@@ -92,6 +92,12 @@ module CodeMode
   # (disallowed host, bad scheme, oversized body, timeout) raise on the
   # host side; the Registry::Dispatcher reifies those as Response.err
   # envelopes so the guest sees a normal Ruby exception.
+  #
+  # DEMO ONLY — the allowlist matches hostnames textually. Production
+  # deployments must layer on IP-level egress controls (block link-local,
+  # RFC1918, cloud metadata endpoints) and DNS-rebind protection; the
+  # textual check alone does not prevent an allowed name from resolving
+  # to an internal address between the lookup here and the TCP connect.
   class WebFetchClient
     MAX_BODY_BYTES = 512 * 1024
     TIMEOUT_SECONDS = 10
@@ -123,10 +129,11 @@ module CodeMode
     end
 
     def enforce_allowlist!(uri)
-      host = uri.host.downcase
-      return if @allowlist.allowed?(host)
+      return if @allowlist.allowed?(uri.host)
 
-      raise "domain not allowed: #{host} (operator must `/allow #{host}` in the REPL first)"
+      display_host = uri.host.downcase
+      raise "domain not allowed: #{display_host} " \
+            "(operator must `/allow #{display_host}` in the REPL first)"
     end
 
     def perform_get(uri)
@@ -279,11 +286,11 @@ module CodeMode
       when "/help"     then puts(HELP) || :handled
       when "/allow"    then handle_allow(args, allowlist)
       when "/disallow" then handle_disallow(args, allowlist)
-      else                  unknown(verb)
+      else                  unknown_command(verb)
       end
     end
 
-    def unknown(verb)
+    def unknown_command(verb)
       warn "unknown command: #{verb}. Type /help for the list."
       :handled
     end
