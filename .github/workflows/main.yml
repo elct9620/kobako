@@ -11,17 +11,21 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     name: Ruby ${{ matrix.ruby }} (${{ matrix.os }})
-    # Ruby 4.0 is still on the dev branch and rb_sys does not yet ship a
-    # precompiled native gem for it, so the gem falls back to a source
-    # build whose `RbSys::ExtensionTask` init shells out to
-    # `cargo metadata`. On macOS runner images that lookup intermittently
-    # resolves to the `~/.local/bin/cargo → rustup-init` bootstrap stub
-    # (PATH puts `.local/bin` before `.cargo/bin`) and aborts the Rakefile
-    # load. Until rb_sys ships a 4.0 binary or we move off `dtolnay/rust-
-    # toolchain` for a setup that owns PATH order, treat 4.0 as a soft
-    # signal: keep it in the matrix so we see when it eventually goes
-    # green, but do not let it block the overall workflow.
-    continue-on-error: ${{ matrix.ruby == '4.0' }}
+    # macOS runner images ship a `~/.local/bin/cargo → rustup-init`
+    # bootstrap stub that precedes `~/.cargo/bin/cargo` on PATH.
+    # `rb_sys`'s `RbSys::ExtensionTask.new` (loaded by our Rakefile)
+    # always shells out to `cargo metadata`, which resolves via PATH and
+    # intermittently hits the stub — the failure mode is non-
+    # deterministic: any Ruby version, any runner, depending on whether
+    # the stub was already overridden on that worker. The earlier
+    # narrower `matrix.ruby == '4.0'` gate did not cover the real
+    # surface (3.3 / 3.4 hit it too in a later run).
+    #
+    # Soft-fail the whole macOS row until we either move off
+    # `dtolnay/rust-toolchain` for a setup that owns PATH ordering on
+    # macOS, or rb_sys / rake-compiler stops bare-PATH-resolving cargo.
+    # Linux runners do not ship the stub, so they remain a hard gate.
+    continue-on-error: ${{ runner.os == 'macOS' }}
     strategy:
       fail-fast: false
       matrix:
