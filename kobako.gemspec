@@ -29,17 +29,25 @@ Gem::Specification.new do |spec|
   #
   # The deny prefixes exclude dev-only / non-runtime artifacts:
   #   * source-tree tooling: bin/ tasks/ build_config/ .github/ .powerloop/
-  #     .claude/ Rakefile .rubocop.yml Steepfile — `gem install` uses
-  #     extconf.rb, not rake
+  #     .claude/ Rakefile .rubocop.yml Steepfile rbs_collection.yaml
+  #     rbs_collection.lock.yaml — `gem install` uses extconf.rb, not rake
   #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/ SPEC.md CLAUDE.md
   #   * placeholder: data/.keep — superseded by the appended data/kobako.wasm
+  #
+  # `sig/` is intentionally **kept** so downstream gems can consume kobako's
+  # RBS via Steep / RBS tooling. (The steep gem itself excludes sig/ because
+  # it self-hosts; rbs ships its sig/. We follow the rbs convention.)
+  # `sig/_external/` holds dev-only stubs for upstream gems whose
+  # maintainers have not yet published RBS — kept out of the gem so
+  # downstream consumers are not handed our partial third-party signatures.
   gemspec = File.basename(__FILE__)
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
-                          SPEC.md .claude/ CLAUDE.md Rakefile Steepfile data/.keep])
+                          SPEC.md .claude/ CLAUDE.md Rakefile Steepfile rbs_collection.yaml
+                          rbs_collection.lock.yaml sig/_external/ data/.keep])
     end
   end
   # Bypass-path guard: `gem build kobako.gemspec` direct invocation would
