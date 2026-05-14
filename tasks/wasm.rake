@@ -37,27 +37,19 @@ namespace :wasm do
   desc "cargo check the kobako-wasm crate (wasm32-wasip1 if available, host otherwise)"
   task :check do
     abort "cargo not on PATH; install Rust toolchain to run wasm:check" unless KobakoWasm.cargo_available?
-
-    target = KobakoWasm.wasm_target_or_host
-    args = ["cargo", "check", "--manifest-path", KobakoWasm::MANIFEST]
-    args.push("--target", target) if target
-    puts "==> #{args.join(" ")}"
-    abort "wasm:check failed" unless system(*args)
+    target_flag = (t = KobakoWasm.wasm_target_or_host) ? ["--target", t] : []
+    sh "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, *target_flag
   end
 
   desc "cargo test the kobako-wasm crate on the host (wasm32 has no test runner)"
   task :test do
     abort "cargo not on PATH; install Rust toolchain to run wasm:test" unless KobakoWasm.cargo_available?
-
-    args = ["cargo", "test", "--manifest-path", KobakoWasm::MANIFEST]
-    puts "==> #{args.join(" ")}"
-    abort "wasm:test failed" unless system(*args)
+    sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST
   end
 
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
   task build: ["vendor:setup", "mruby:build"] do
     abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
-
     KobakoWasm::GuestBuilder.new.build
   end
 
@@ -65,7 +57,6 @@ namespace :wasm do
   task :clean do
     FileUtils.rm_f(KobakoWasm::DATA_WASM)
     FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)
-    puts "[wasm:clean] removed #{KobakoWasm::DATA_WASM} and " \
-         "#{KobakoWasm::CRATE_TARGET_DIR}"
+    puts "[wasm:clean] removed #{KobakoWasm::DATA_WASM} and #{KobakoWasm::CRATE_TARGET_DIR}"
   end
 end

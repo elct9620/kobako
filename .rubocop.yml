@@ -64,13 +64,15 @@ Style/ClassVars:
     - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_envelope_roundtrip.rb"
 
-# Rake `namespace` blocks group N child task declarations; their size is
-# the sum of the task DSL inside, so any namespace with 3+ tasks naturally
-# exceeds the default 25-line budget. Confined to .rake files so the cop
-# still applies to pure Ruby under tasks/support/.
+# `namespace :vendor` in tasks/vendor.rake iterates KobakoVendor::TARBALL_TOOLCHAINS
+# and declares per-toolchain `file` / `setup:<name>` tasks via loops; the
+# block still exceeds the default 25-line budget because every additional
+# toolchain or per-artifact namespace expands the parent. Other .rake files
+# (mruby/wasm/benchmark) fit the default after their per-task work moved
+# into support classes — they are no longer exempt.
 Metrics/BlockLength:
   Exclude:
-    - "tasks/*.rake"
+    - "tasks/vendor.rake"
     - "*.gemspec"
 
 # Long line is a binary-format alignment comment (hex bytes laid out under
