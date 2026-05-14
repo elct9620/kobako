@@ -96,10 +96,3 @@ Style/OneClassPerFile:
 Lint/UselessConstantScoping:
   Exclude:
     - "test/test_codec_roundtrip_fuzz.rb"
-
-# Platform-detection branches intentionally collapse to identical defaults
-# (e.g. "x86_64-linux") for unrecognised host triples; the duplication keeps
-# the case-statement parallel and easy to extend.
-Lint/DuplicateBranch:
-  Exclude:
-    - "tasks/**/*"

@@ -50,13 +50,17 @@ module KobakoVendor
   CONFIG_AUX_COMMIT = "a2287c3041a3f2a204eb942e09c015eab00dc7dd"
 
   # ---- Platform detection (wasi-sdk only; mruby tarball is host-agnostic).
+  # The +else+ branch intentionally repeats the +x86_64-linux+ default
+  # to keep the case-statement parallel and easy to extend with new
+  # host triples; rubocop's +Lint/DuplicateBranch+ flags this shape
+  # which is why the inline disable lives here.
   WASI_SDK_PLATFORM =
     case RUBY_PLATFORM
     when /arm64-darwin|aarch64-darwin/ then "arm64-macos"
     when /x86_64-darwin/               then "x86_64-macos"
     when /aarch64-linux|arm64-linux/   then "arm64-linux"
     when /x86_64-linux/                then "x86_64-linux"
-    else "x86_64-linux"
+    else "x86_64-linux" # rubocop:disable Lint/DuplicateBranch
     end
 
   WASI_SDK_TARBALL_NAME = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz".freeze
