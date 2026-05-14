@@ -3,19 +3,29 @@
 # Vendor toolchain support module
 # ===============================
 #
-# Pure-Ruby helpers backing +tasks/vendor.rake+. Owns pinned versions,
-# tarball asset URLs, and unpacked-tree preparation. Network download
-# lives in +KobakoVendor::Downloader+ and SHA256 verification lives in
-# +KobakoVendor::Checksum+; the .rake wrapper is the rake DSL surface
-# that glues these helpers to +file+ / +task+ declarations.
+# Pure-Ruby helpers backing +tasks/vendor.rake+. Owns pinned versions
+# and declarative +Toolchain+ instances; the rake DSL surface in the
+# .rake wrapper iterates +TARBALL_TOOLCHAINS+ to wire +file+ / +task+
+# declarations. Network download lives in +KobakoVendor::Downloader+,
+# SHA256 verification in +KobakoVendor::Checksum+, tarball extraction
+# in +KobakoVendor::Tarball+, and the per-toolchain pipeline composition
+# in +KobakoVendor::Toolchain+.
 #
 # Honors +KOBAKO_VENDOR_BASE_URL+ to point downloads at a local fixture
 # during tests, and +KOBAKO_VENDOR_DIR+ to relocate the entire vendor
 # tree (also test-only).
+#
+# Extending: a new tarball-based vendor artifact is added by appending
+# one +Toolchain.new(...)+ to +TARBALL_TOOLCHAINS+ and (if its hash
+# pinning is enforced via CI env var) adding a +KOBAKO_VENDOR_<KEY>_SHA256+
+# entry to the deployment env. Artifacts whose pipeline does not match
+# the tarball shape (plain file fetch, multi-file copy) stay declared
+# by hand in +vendor.rake+.
 
 require_relative "kobako_vendor/downloader"
 require_relative "kobako_vendor/checksum"
 require_relative "kobako_vendor/tarball"
+require_relative "kobako_vendor/toolchain"
 
 # Vendor toolchain façade.
 module KobakoVendor
@@ -60,47 +70,52 @@ module KobakoVendor
     else "x86_64-linux"
     end
 
-  WASI_SDK_TARBALL_NAME = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz".freeze
-  WASI_SDK_UNPACKED_DIR = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}".freeze
-
-  # GitHub archive tarballs for mruby are served at
-  # refs/tags/{VERSION}.tar.gz (no +mruby-+ prefix in the URL filename).
-  # The extracted top-level directory inside the tarball is mruby-{VERSION}/.
-  MRUBY_TARBALL_NAME = "#{MRUBY_VERSION}.tar.gz".freeze
-  MRUBY_UNPACKED_DIR = "mruby-#{MRUBY_VERSION}".freeze
-
-  # GitHub archive tarballs for commits are served at
-  # archive/{SHA}.tar.gz; the extracted top-level directory is
-  # mruby-onig-regexp-{SHA}/.
-  MRUBY_ONIG_REGEXP_TARBALL_NAME = "#{MRUBY_ONIG_REGEXP_COMMIT}.tar.gz".freeze
-  MRUBY_ONIG_REGEXP_UNPACKED_DIR = "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}".freeze
-
-  DEFAULT_WASI_SDK_BASE =
-    "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-#{WASI_SDK_VERSION}".freeze
-  DEFAULT_MRUBY_BASE = "https://github.com/mruby/mruby/archive/refs/tags"
-  DEFAULT_MRUBY_ONIG_REGEXP_BASE = "https://github.com/mattn/mruby-onig-regexp/archive"
   # savannah cgit serves raw blobs as +plain/<path>?id=<sha>+; pinning to
   # a commit makes the response byte-stable (TOFU sidecar in CACHE_DIR
   # detects any drift).
   CONFIG_AUX_FILES = %w[config.sub config.guess].freeze
+  CONFIG_AUX_FINAL = File.join(VENDOR_DIR, "onigmo-build-aux").freeze
 
-  WASI_SDK_FINAL          = File.join(VENDOR_DIR, "wasi-sdk").freeze
-  MRUBY_FINAL             = File.join(VENDOR_DIR, "mruby").freeze
-  MRUBY_ONIG_REGEXP_FINAL = File.join(VENDOR_DIR, "mruby-onig-regexp").freeze
-  CONFIG_AUX_FINAL        = File.join(VENDOR_DIR, "onigmo-build-aux").freeze
-  WASI_SDK_SENTINEL          = "bin/clang"
-  MRUBY_SENTINEL             = "Rakefile"
-  MRUBY_ONIG_REGEXP_SENTINEL = "mrbgem.rake"
+  WASI_SDK = Toolchain.new(
+    name: "wasi-sdk",
+    version_label: "#{WASI_SDK_FULL_VERSION} (#{WASI_SDK_PLATFORM})",
+    base_url: "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-#{WASI_SDK_VERSION}",
+    tarball_name: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz",
+    unpacked_top_dir: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}",
+    final_dir: File.join(VENDOR_DIR, "wasi-sdk"),
+    sentinel: "bin/clang",
+    sha_key: :WASI_SDK
+  )
 
-  WASI_TARBALL_PATH             = File.join(CACHE_DIR, WASI_SDK_TARBALL_NAME).freeze
-  MRUBY_TARBALL_PATH            = File.join(CACHE_DIR, MRUBY_TARBALL_NAME).freeze
-  MRUBY_ONIG_REGEXP_TARBALL_PATH = File.join(CACHE_DIR, MRUBY_ONIG_REGEXP_TARBALL_NAME).freeze
+  MRUBY = Toolchain.new(
+    name: "mruby",
+    version_label: MRUBY_VERSION,
+    base_url: "https://github.com/mruby/mruby/archive/refs/tags",
+    tarball_name: "#{MRUBY_VERSION}.tar.gz",
+    unpacked_top_dir: "mruby-#{MRUBY_VERSION}",
+    final_dir: File.join(VENDOR_DIR, "mruby"),
+    sentinel: "Rakefile",
+    sha_key: :MRUBY
+  )
+
+  MRUBY_ONIG_REGEXP = Toolchain.new(
+    name: "mruby-onig-regexp",
+    version_label: MRUBY_ONIG_REGEXP_COMMIT[0, 8],
+    base_url: "https://github.com/mattn/mruby-onig-regexp/archive",
+    tarball_name: "#{MRUBY_ONIG_REGEXP_COMMIT}.tar.gz",
+    unpacked_top_dir: "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}",
+    final_dir: File.join(VENDOR_DIR, "mruby-onig-regexp"),
+    sentinel: "mrbgem.rake",
+    sha_key: :MRUBY_ONIG_REGEXP
+  )
+
+  TARBALL_TOOLCHAINS = [WASI_SDK, MRUBY, MRUBY_ONIG_REGEXP].freeze
 
   module_function
 
   # When KOBAKO_VENDOR_BASE_URL is set, both tarballs are fetched from that
   # base URL (test fixture). The base URL must serve files named exactly
-  # +WASI_SDK_TARBALL_NAME+ and +MRUBY_TARBALL_NAME+.
+  # +tarball_name+ for each toolchain.
   def base_url_for(default)
     override = ENV.fetch("KOBAKO_VENDOR_BASE_URL", nil)
     return default if override.nil? || override.empty?

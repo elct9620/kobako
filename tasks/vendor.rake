@@ -3,65 +3,34 @@
 # Vendor toolchain rake task
 # ==========================
 #
-# Fetches and unpacks the build-time toolchain into `vendor/`:
+# Fetches and unpacks the build-time toolchain into `vendor/`. The
+# tarball-based artifacts (wasi-sdk, mruby, mruby-onig-regexp) are
+# declared as +KobakoVendor::Toolchain+ values in
+# +tasks/support/kobako_vendor.rb+; this file iterates over
+# +KobakoVendor::TARBALL_TOOLCHAINS+ to wire one +file+ task and one
+# +setup:<name>+ task per artifact. Adding a new tarball artifact is a
+# single +Toolchain.new(...)+ entry — no rake DSL surgery required.
 #
-#   * wasi-sdk          — Clang + wasi-sysroot + libsetjmp, used to
-#                         cross-compile both mruby (Stage B) and the wasm
-#                         crate (Stage C). Version must be >= 26 (see
-#                         SPEC.md "Implementation Standards" §setjmp/longjmp).
-#   * mruby             — pinned release tarball used as the guest VM source.
-#   * mruby-onig-regexp — pinned-commit tarball of the third-party regex
-#                         mrbgem (Onigmo engine, vendored inside the gem
-#                         tarball as `onigmo-6.2.0.tar.gz`). Loaded by
-#                         `build_config/wasi.rb` via `conf.gem <path>`.
-#   * onigmo-build-aux  — pinned-commit GNU config.sub / config.guess
-#                         (single-file shell scripts) that overwrite the
-#                         pre-wasm copies shipped inside Onigmo 6.2.0.
-#                         Same pattern CRuby's wasm build uses; the actual
-#                         overwrite happens in
-#                         `KobakoBuildConfig.pre_extract_and_patch_onigmo!`
-#                         (build_config/wasi.rb), called from the
-#                         CrossBuild block right after `conf.gem` loads
-#                         the mrbgem.
+# The fourth artifact (+onigmo-build-aux+: a pair of plain files
+# overwriting Onigmo's pre-wasm config scripts, same pattern CRuby's
+# wasm build uses) does not fit the tarball pipeline and stays declared
+# by hand below the loop.
 #
-# Versions are pinned as constants in `KobakoVendor` (see
-# tasks/support/kobako_vendor.rb). Bumping a version is the entire
-# upgrade workflow; no git submodule pointer dance.
+# Idempotency: every step is a +file+ task targeting a sentinel path
+# inside the cache or unpacked tree; re-runs short-circuit when the
+# sentinel exists.
 #
-# Idempotency: every step is a `file` task that targets a sentinel path inside
-# the unpacked tree. Re-runs short-circuit when the sentinel exists.
-#
-# Honors `KOBAKO_VENDOR_BASE_URL` to point downloads at a local fixture during
-# tests, and `KOBAKO_VENDOR_DIR` to relocate the entire vendor tree (also
-# test-only).
+# Honors +KOBAKO_VENDOR_BASE_URL+ to point downloads at a local fixture
+# during tests, and +KOBAKO_VENDOR_DIR+ to relocate the entire vendor
+# tree (also test-only).
 
 require_relative "support/kobako_vendor"
 
 namespace :vendor do
-  # File-level cache: tarballs land in vendor/.cache/.
-  file KobakoVendor::WASI_TARBALL_PATH do |t|
-    url = "#{KobakoVendor.base_url_for(KobakoVendor::DEFAULT_WASI_SDK_BASE)}/" \
-          "#{KobakoVendor::WASI_SDK_TARBALL_NAME}"
-    puts "[vendor] downloading wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} " \
-         "(#{KobakoVendor::WASI_SDK_PLATFORM}) from #{url}"
-    KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:WASI_SDK)).verify_or_pin
-  end
-
-  file KobakoVendor::MRUBY_TARBALL_PATH do |t|
-    url = "#{KobakoVendor.base_url_for(KobakoVendor::DEFAULT_MRUBY_BASE)}/" \
-          "#{KobakoVendor::MRUBY_TARBALL_NAME}"
-    puts "[vendor] downloading mruby #{KobakoVendor::MRUBY_VERSION} from #{url}"
-    KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:MRUBY)).verify_or_pin
-  end
-
-  file KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH do |t|
-    url = "#{KobakoVendor.base_url_for(KobakoVendor::DEFAULT_MRUBY_ONIG_REGEXP_BASE)}/" \
-          "#{KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_NAME}"
-    puts "[vendor] downloading mruby-onig-regexp #{KobakoVendor::MRUBY_ONIG_REGEXP_COMMIT[0, 8]} from #{url}"
-    KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP)).verify_or_pin
+  KobakoVendor::TARBALL_TOOLCHAINS.each do |toolchain|
+    file toolchain.tarball_path do
+      toolchain.fetch
+    end
   end
 
   KobakoVendor::CONFIG_AUX_FILES.each do |filename|
@@ -77,41 +46,11 @@ namespace :vendor do
   end
 
   namespace :setup do
-    desc "Download and unpack wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} into vendor/wasi-sdk/"
-    task wasi_sdk: KobakoVendor::WASI_TARBALL_PATH do
-      KobakoVendor::Checksum.new(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.expected_sha256(:WASI_SDK)).verify_or_pin
-      KobakoVendor::Tarball.new(
-        tarball: KobakoVendor::WASI_TARBALL_PATH,
-        top_level_dir: KobakoVendor::WASI_SDK_UNPACKED_DIR,
-        final_dir: KobakoVendor::WASI_SDK_FINAL,
-        sentinel: KobakoVendor::WASI_SDK_SENTINEL
-      ).prepare
-      puts "[vendor] wasi-sdk ready at #{KobakoVendor::WASI_SDK_FINAL}"
-    end
-
-    desc "Download and unpack mruby #{KobakoVendor::MRUBY_VERSION} into vendor/mruby/"
-    task mruby: KobakoVendor::MRUBY_TARBALL_PATH do
-      KobakoVendor::Checksum.new(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.expected_sha256(:MRUBY)).verify_or_pin
-      KobakoVendor::Tarball.new(
-        tarball: KobakoVendor::MRUBY_TARBALL_PATH,
-        top_level_dir: KobakoVendor::MRUBY_UNPACKED_DIR,
-        final_dir: KobakoVendor::MRUBY_FINAL,
-        sentinel: KobakoVendor::MRUBY_SENTINEL
-      ).prepare
-      puts "[vendor] mruby ready at #{KobakoVendor::MRUBY_FINAL}"
-    end
-
-    desc "Download and unpack mruby-onig-regexp into vendor/mruby-onig-regexp/"
-    task mruby_onig_regexp: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH do
-      KobakoVendor::Checksum.new(KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
-                                 KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP)).verify_or_pin
-      KobakoVendor::Tarball.new(
-        tarball: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
-        top_level_dir: KobakoVendor::MRUBY_ONIG_REGEXP_UNPACKED_DIR,
-        final_dir: KobakoVendor::MRUBY_ONIG_REGEXP_FINAL,
-        sentinel: KobakoVendor::MRUBY_ONIG_REGEXP_SENTINEL
-      ).prepare
-      puts "[vendor] mruby-onig-regexp ready at #{KobakoVendor::MRUBY_ONIG_REGEXP_FINAL}"
+    KobakoVendor::TARBALL_TOOLCHAINS.each do |toolchain|
+      desc "Download and unpack #{toolchain.name} #{toolchain.version_label} into #{toolchain.final_dir}"
+      task toolchain.task_name => toolchain.tarball_path do
+        toolchain.install
+      end
     end
 
     desc "Download GNU config.sub / config.guess into vendor/onigmo-build-aux/"
@@ -130,13 +69,11 @@ namespace :vendor do
   end
 
   desc "Fetch and unpack all build-time vendor toolchains (wasi-sdk + mruby + mruby-onig-regexp + onigmo-build-aux)"
-  task setup: ["setup:wasi_sdk", "setup:mruby", "setup:mruby_onig_regexp", "setup:onigmo_build_aux"]
+  task setup: KobakoVendor::TARBALL_TOOLCHAINS.map { |t| "setup:#{t.task_name}" } + ["setup:onigmo_build_aux"]
 
   desc "Remove unpacked vendor toolchains (keeps cached tarballs)"
   task :clean do
-    FileUtils.rm_rf(KobakoVendor::WASI_SDK_FINAL)
-    FileUtils.rm_rf(KobakoVendor::MRUBY_FINAL)
-    FileUtils.rm_rf(KobakoVendor::MRUBY_ONIG_REGEXP_FINAL)
+    KobakoVendor::TARBALL_TOOLCHAINS.each { |t| FileUtils.rm_rf(t.final_dir) }
     FileUtils.rm_rf(KobakoVendor::CONFIG_AUX_FINAL)
   end
 
