@@ -52,7 +52,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MRUBY_LIB_DIR");
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/mrb_exc_helper.c");
+    println!("cargo:rerun-if-changed=src/mruby/exc.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -99,7 +99,7 @@ fn main() {
         // in the include path, mirroring how mruby's own build system
         // sets up include dirs for C files that include <mruby.h>.
         let mut build = cc::Build::new();
-        build.file("src/mrb_exc_helper.c").include(&mruby_include);
+        build.file("src/mruby/exc.c").include(&mruby_include);
 
         // Add the wasi build's generated include dir if we can locate it.
         // MRUBY_LIB_DIR is `vendor/mruby/build/wasi/lib`; the generated
@@ -113,7 +113,7 @@ fn main() {
             }
         }
 
-        build.compile("kobako_exc_helper");
+        build.compile("kobako_exc");
     }
 
     // wasm32 path: emit link directives only when the Rake driver has staged

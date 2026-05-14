@@ -1,5 +1,5 @@
 /*
- * mrb_exc_helper.c — layout-safe mrb->exc accessor shim.
+ * exc.c — layout-safe mrb->exc accessor shim.
  *
  * Purpose
  * -------
@@ -17,6 +17,18 @@
  * `mrb_nil_value()` if there is no pending exception. Does NOT clear the
  * exception — callers must call `mrb_check_error` (or `mrb_clear_error`)
  * after consuming the returned value.
+ *
+ * Why the read/clear split is deliberate
+ * --------------------------------------
+ * `mrb->exc` is the only GC root for the pending exception object during
+ * inspection. The returned `mrb_value` lives on the Rust stack, which
+ * mruby's collector cannot scan — so the exception is rooted solely via
+ * `mrb->exc` until the caller explicitly clears it. Callers typically need
+ * to invoke `.message` / `.backtrace` (both of which allocate and may
+ * trigger GC) before the data is consumed; clearing `mrb->exc` first would
+ * make the exception eligible for collection mid-extraction, leaving Rust
+ * holding a dangling reference. This mirrors mruby's own `mrb_print_error`
+ * idiom: read, inspect, then clear.
  *
  * Usage pattern in abi.rs
  * -----------------------

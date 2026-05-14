@@ -37,7 +37,7 @@ crate-type = ["cdylib", "rlib"]
 rmp = { version = "0.8", default-features = false }
 
 [build-dependencies]
-# `cc` compiles the layout-safe C shim (`src/mrb_exc_helper.c`) that exposes
+# `cc` compiles the layout-safe C shim (`src/mruby/exc.c`) that exposes
 # `mrb->exc` through mruby's own headers rather than Rust-side offset arithmetic.
 # Only active on wasm32 (build.rs gates compilation behind target_arch check).
 cc = "1"

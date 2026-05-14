@@ -465,7 +465,7 @@ extern "C" {
     ///
     /// Returns `mrb_obj_value(mrb->exc)` if an exception is pending, or
     /// `mrb_nil_value()` if `mrb->exc` is NULL. Implemented in
-    /// `src/mrb_exc_helper.c` using mruby's own headers so that the
+    /// `src/mruby/exc.c` using mruby's own headers so that the
     /// struct field offset is always correct for the compiler and mruby
     /// version in use — no Rust-side byte-offset arithmetic required.
     ///

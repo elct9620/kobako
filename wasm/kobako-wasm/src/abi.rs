@@ -307,7 +307,7 @@ pub extern "C" fn __kobako_run() {
         // consumed internally by the VM before it reaches the outer protect frame.
         //
         // Correct pattern: call `mrb_load_nstring` directly, then retrieve the
-        // pending exception via `kobako_get_exc` (src/mrb_exc_helper.c). That
+        // pending exception via `kobako_get_exc` (src/mruby/exc.c). That
         // shim accesses `mrb->exc` through mruby's own headers, so the field
         // offset is always correct for the compiler and mruby version in use.
 
