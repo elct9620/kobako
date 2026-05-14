@@ -69,6 +69,7 @@ These five roles describe the system. All design and behavior content in later l
 
 **Does:**
 - Provide an in-process mruby execution environment isolated by a Wasm boundary
+- Bundle a curated mruby standard library in the Guest Binary: the core extension gems (Array / Enum / Hash / Numeric / Object / Proc / Range / String / Symbol / Error / Metaprog) plus pure-compute third-party mrbgems that cover common scripting scenarios. Inclusion is gated by a strict allowlist whose security trade-offs (engine-internal risk vs. guest-side I/O exposure) are documented inline with the build config; the allowlist is the single source of truth for stdlib composition.
 - Expose a Ruby API for Host Apps to declare Service namespaces and bind host objects as callable members
 - Execute a mruby script synchronously and return its last expression as a deserialized Ruby value
 - Route guest-initiated RPC calls to the correct host Service object and return the serialized result
@@ -82,6 +83,7 @@ These five roles describe the system. All design and behavior content in later l
 - LLM integration, agent frameworks, or prompt engineering — the Host App connects kobako to any LLM
 - General-purpose Wasm runtime binding — the native extension is a private implementation detail and exposes no Wasm engine types to the Host App or downstream gems
 - mruby upstream development or redistribution — kobako consumes a pinned mruby release tarball unchanged
+- Bundle any guest mrbgem that grants access to I/O, networking, sleep, random-seed sources, or syscalls beyond compute and memory — the host capability surface is mediated exclusively through Service injection. This exclusion is enforced by the strict allowlist mechanism above, not by sandboxing alone.
 - Async or yield-resume execution — all execution is synchronous and blocking; snapshot/resume is not provided
 - Guest-side closure invocation on the host — guest blocks cannot be passed to Service methods; iteration is handled by returning collections
 - Multi-tenant billing, SLA management, deployment, or operational tooling
