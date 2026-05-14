@@ -19,20 +19,10 @@
 # Each script writes its suite into
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
 # instances within one invocation share the same file.
+#
+# Release-gate benchmark roster lives in tasks/support/kobako_bench.rb.
 
-# Hoisted out of the `namespace :bench` block so that constant
-# definitions are not inside a Rake DSL block (Lint/ConstantDefinitionInBlock)
-# — mirrors tasks/wasm.rake's KobakoWasm and tasks/vendor.rake's
-# KobakoVendor patterns.
-module KobakoBench
-  RELEASE_BENCHES = %w[
-    benchmark/cold_start.rb
-    benchmark/rpc_roundtrip.rb
-    benchmark/codec.rb
-    benchmark/mruby_eval.rb
-    benchmark/handle_table.rb
-  ].freeze
-end
+require_relative "support/kobako_bench"
 
 namespace :bench do
   desc "Run all five regression benchmarks (SPEC.md #1..#5; <=1 MiB payloads)."
