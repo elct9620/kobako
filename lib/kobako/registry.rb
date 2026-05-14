@@ -37,7 +37,7 @@ module Kobako
     # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
     # without 2³¹ allocations. Production callers leave it at the default.
     def initialize(handle_table: HandleTable.new)
-      @groups = {}
+      @groups = {} # : Hash[String, ServiceGroup]
       @handle_table = handle_table
       @sealed = false
     end

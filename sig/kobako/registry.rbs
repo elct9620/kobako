@@ -1,0 +1,37 @@
+module Kobako
+  class Registry
+    NAME_PATTERN: Regexp
+
+    attr_reader handle_table: HandleTable
+
+    def initialize: (?handle_table: HandleTable) -> void
+
+    def define: (Symbol | String name) -> ServiceGroup
+
+    def lookup: (String target) -> untyped
+
+    def bound?: (String target) -> bool
+
+    def groups: () -> Array[ServiceGroup]
+
+    def size: () -> Integer
+
+    def empty?: () -> bool
+
+    def to_preamble: () -> Array[[String, Array[String]]]
+
+    def guest_preamble: () -> String
+
+    def seal!: () -> self
+
+    def sealed?: () -> bool
+
+    def reset_handles!: () -> HandleTable
+
+    def dispatch: (String request_bytes) -> String
+
+    private
+
+    def resolve_pair: (String target) -> [ServiceGroup?, String?, String?]
+  end
+end

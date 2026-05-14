@@ -1,0 +1,84 @@
+module Kobako
+  module Wire
+    module Envelope
+      class Result
+        attr_reader value: untyped
+
+        def initialize: (untyped value) -> void
+                      | (value: untyped) -> void
+
+        def with: (?value: untyped) -> Result
+
+        def ==: (untyped other) -> bool
+
+        def hash: () -> Integer
+      end
+
+      def self.encode_result: (untyped value) -> String
+
+      def self.decode_result: (String bytes) -> Result
+
+      class Panic
+        ORIGIN_SANDBOX: String
+        ORIGIN_SERVICE: String
+
+        attr_reader origin: String
+        attr_reader klass: String
+        attr_reader message: String
+        attr_reader backtrace: Array[String]
+        attr_reader details: untyped
+
+        def initialize: (
+          origin: String,
+          klass: String,
+          message: String,
+          ?backtrace: Array[String],
+          ?details: untyped
+        ) -> void
+
+        def with: (
+          ?origin: String,
+          ?klass: String,
+          ?message: String,
+          ?backtrace: Array[String],
+          ?details: untyped
+        ) -> Panic
+
+        def ==: (untyped other) -> bool
+
+        def hash: () -> Integer
+      end
+
+      def self.encode_panic: (Panic panic) -> String
+
+      def self.panic_map: (Panic panic) -> Hash[String, untyped]
+
+      def self.decode_panic: (String bytes) -> Panic
+
+      class Outcome
+        attr_reader payload: Result | Panic
+
+        def initialize: (Result | Panic payload) -> void
+                      | (payload: Result | Panic) -> void
+
+        def with: (?payload: Result | Panic) -> Outcome
+
+        def result?: () -> bool
+
+        def panic?: () -> bool
+
+        def ==: (untyped other) -> bool
+
+        def hash: () -> Integer
+      end
+
+      def self.encode_outcome: (Outcome outcome) -> String
+
+      def self.encode_outcome_payload: (Result | Panic payload) -> [Integer, String]
+
+      def self.decode_outcome: (String bytes) -> Outcome
+
+      def self.decode_outcome_payload: (Integer tag, String body) -> (Result | Panic)
+    end
+  end
+end

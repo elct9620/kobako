@@ -1,0 +1,19 @@
+module Kobako
+  module Wire
+    class Handle
+      MIN_ID: Integer
+      MAX_ID: Integer
+
+      attr_reader id: Integer
+
+      def initialize: (Integer id) -> void
+                    | (id: Integer) -> void
+
+      def with: (?id: Integer) -> Handle
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+    end
+  end
+end

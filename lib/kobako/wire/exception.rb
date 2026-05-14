@@ -23,6 +23,7 @@ module Kobako
       # scope resolves bare constants against the enclosing +Wire+ module,
       # so a bare +VALID_TYPES+ would raise +NameError+. Same pattern as
       # +Wire::Handle+.
+      # steep:ignore:start
       def initialize(type:, message:, details: nil)
         valid_types = self.class::VALID_TYPES
         raise ArgumentError, "type must be String"    unless type.is_a?(String)
@@ -31,6 +32,7 @@ module Kobako
 
         super
       end
+      # steep:ignore:end
     end
 
     Exception::VALID_TYPES = %w[runtime argument disconnected undefined].freeze

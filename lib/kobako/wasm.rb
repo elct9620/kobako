@@ -19,7 +19,8 @@ module Kobako
     # `Kobako::Wasm::Module.from_file`, which raises `ModuleNotBuiltError`
     # with a clear remediation message.
     def self.default_path
-      File.expand_path("../../data/kobako.wasm", __dir__)
+      dir = __dir__ or raise Error, "Kobako::Wasm.default_path requires __dir__"
+      File.expand_path("../../data/kobako.wasm", dir)
     end
 
     # Unpack the +(ptr << 32) | len+ u64 produced by the Rust ext's

@@ -41,6 +41,7 @@ module Kobako
       # Required: "origin" / "class" / "message". Optional: "backtrace"
       # (array of str), "details" (any wire-legal value).
       Panic = Data.define(:origin, :klass, :message, :backtrace, :details) do
+        # steep:ignore:start
         def initialize(origin:, klass:, message:, backtrace: [], details: nil)
           raise ArgumentError, "Panic origin must be String"  unless origin.is_a?(String)
           raise ArgumentError, "Panic class must be String"   unless klass.is_a?(String)
@@ -51,6 +52,7 @@ module Kobako
 
           super
         end
+        # steep:ignore:end
       end
 
       Panic::ORIGIN_SANDBOX = "sandbox"
@@ -66,7 +68,7 @@ module Kobako
       # insertion order so the resulting msgpack map carries the keys in
       # the order added below.
       def self.panic_map(panic)
-        map = { "origin" => panic.origin, "class" => panic.klass, "message" => panic.message }
+        map = { "origin" => panic.origin, "class" => panic.klass, "message" => panic.message } # : Hash[String, untyped]
         map["backtrace"] = panic.backtrace unless panic.backtrace.empty?
         map["details"]   = panic.details   unless panic.details.nil?
         map
@@ -95,6 +97,7 @@ module Kobako
       # +Outcome.new(Result.new(value))+ or +Outcome.new(panic)+ — so the
       # contract reads symmetrically across both variants.
       Outcome = Data.define(:payload) do
+        # steep:ignore:start
         def initialize(payload:)
           unless payload.is_a?(Result) || payload.is_a?(Panic)
             raise ArgumentError, "Outcome payload must be Result or Panic, got #{payload.class}"
@@ -105,6 +108,7 @@ module Kobako
 
         def result? = payload.is_a?(Result)
         def panic?  = payload.is_a?(Panic)
+        # steep:ignore:end
       end
 
       def self.encode_outcome(outcome)
@@ -127,8 +131,8 @@ module Kobako
         bytes = bytes.b
         raise Codec::InvalidType, "Outcome bytes must not be empty" if bytes.empty?
 
-        tag = bytes.getbyte(0)
-        body = bytes.byteslice(1, bytes.bytesize - 1)
+        tag = bytes.getbyte(0) # : Integer
+        body = bytes.byteslice(1, bytes.bytesize - 1) # : String
         Outcome.new(decode_outcome_payload(tag, body))
       end
 

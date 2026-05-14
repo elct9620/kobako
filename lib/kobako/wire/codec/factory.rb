@@ -49,11 +49,19 @@ module Kobako
         def self.register_symbol_type(factory)
           factory.register_type(
             EXT_SYMBOL, Symbol,
-            packer: lambda(&:name),
-            unpacker: ->(payload) { decode_symbol(payload) }
+            packer: method(:pack_symbol),
+            unpacker: method(:decode_symbol)
           )
         end
         private_class_method :register_symbol_type
+
+        # Symbol-to-name packer — extracted to a real method so Steep can
+        # resolve the proc shape without tripping on +lambda(&:name)+'s
+        # +Symbol#to_proc+ inference path.
+        def self.pack_symbol(symbol)
+          symbol.name
+        end
+        private_class_method :pack_symbol
 
         # Validate the ext-0x00 payload as UTF-8 and intern. Raises
         # {InvalidEncoding} on invalid bytes — SPEC forbids the
@@ -94,7 +102,8 @@ module Kobako
           bytes = payload.b
           raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
-          Codec.translate_value_object_error { Handle.new(bytes.unpack1("N")) }
+          id = bytes.unpack1("N") # : Integer
+          Codec.translate_value_object_error { Handle.new(id) }
         end
         private_class_method :decode_handle
 

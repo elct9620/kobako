@@ -1,0 +1,40 @@
+module Kobako
+  module Wasm
+    class Error < StandardError
+    end
+
+    class ModuleNotBuiltError < Error
+    end
+
+    def self.default_path: () -> String
+
+    def self.unpack_outcome_ptr_len: (Integer packed) -> [Integer, Integer]
+
+    class Instance
+      def self.from_path: (String path) -> Instance
+
+      def alloc: (Integer size) -> Integer
+
+      def write_memory: (Integer ptr, String bytes) -> void
+
+      def read_memory: (Integer ptr, Integer len) -> String
+
+      def run: () -> void
+
+      def take_outcome: () -> Integer
+
+      def set_registry: (Kobako::Registry registry) -> void
+
+      def setup_wasi_pipes: (
+        Integer stdout_cap,
+        Integer stderr_cap,
+        String preamble_bytes,
+        String source_bytes
+      ) -> void
+
+      def take_stdout: () -> String
+
+      def take_stderr: () -> String
+    end
+  end
+end

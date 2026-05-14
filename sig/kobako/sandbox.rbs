@@ -1,0 +1,37 @@
+module Kobako
+  class Sandbox
+    DEFAULT_OUTPUT_LIMIT: Integer
+
+    attr_reader wasm_path: String
+    attr_reader instance: Kobako::Wasm::Instance
+    attr_reader stdout_buffer: OutputBuffer
+    attr_reader stderr_buffer: OutputBuffer
+    attr_reader stdout_limit: Integer
+    attr_reader stderr_limit: Integer
+    attr_reader services: Kobako::Registry
+
+    def initialize: (
+      ?wasm_path: String?,
+      ?stdout_limit: Integer?,
+      ?stderr_limit: Integer?
+    ) -> void
+
+    def stdout: () -> String
+
+    def stderr: () -> String
+
+    def define: (Symbol | String name) -> Kobako::Registry::ServiceGroup
+
+    def run: (String source) -> untyped
+
+    private
+
+    def reset_run_state!: () -> void
+
+    def drain_wasi_output: () -> void
+
+    def invoke_guest_run: () -> void
+
+    def read_outcome_bytes: () -> String
+  end
+end

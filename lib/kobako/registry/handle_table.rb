@@ -29,7 +29,7 @@ module Kobako
       # B-15); tests pass a value near +Wire::Handle::MAX_ID+ to exercise
       # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
-        @entries = {}
+        @entries = {} # : Hash[Integer, untyped]
         @next_id = next_id
       end
 

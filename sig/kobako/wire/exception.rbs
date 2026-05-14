@@ -1,0 +1,20 @@
+module Kobako
+  module Wire
+    class Exception
+      VALID_TYPES: Array[String]
+
+      attr_reader type: String
+      attr_reader message: String
+      attr_reader details: untyped
+
+      def initialize: (String type, String message, untyped details) -> void
+                    | (type: String, message: String, ?details: untyped) -> void
+
+      def with: (?type: String, ?message: String, ?details: untyped) -> Exception
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+    end
+  end
+end

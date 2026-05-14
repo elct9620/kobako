@@ -39,7 +39,11 @@ module Kobako
 
       def split_outcome_tag(bytes)
         bytes = bytes.b
-        [bytes.getbyte(0), bytes.byteslice(1, bytes.bytesize - 1)]
+        return [nil, "".b] if bytes.empty?
+
+        tag = bytes.getbyte(0) # : Integer
+        body = bytes.byteslice(1, bytes.bytesize - 1) # : String
+        [tag, body]
       end
 
       # Decode failure on a known Result tag is a SandboxError (E-09): the

@@ -20,6 +20,7 @@ module Kobako
       # +MIN_ID+ would raise +NameError+. Use +self.class::CONST+ to
       # reach the constants attached to the Handle class itself. Do not
       # "simplify" this back to bare +MIN_ID+/+MAX_ID+.
+      # steep:ignore:start
       def initialize(id:)
         min = self.class::MIN_ID
         max = self.class::MAX_ID
@@ -28,6 +29,7 @@ module Kobako
 
         super
       end
+      # steep:ignore:end
     end
 
     Handle::MIN_ID = 1

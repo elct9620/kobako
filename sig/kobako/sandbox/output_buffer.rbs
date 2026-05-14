@@ -1,0 +1,23 @@
+module Kobako
+  class Sandbox
+    class OutputBuffer
+      OUTPUT_TRUNCATION_MARKER: String
+
+      attr_reader limit: Integer
+
+      def initialize: (Integer limit) -> void
+
+      def <<: (String bytes) -> self
+
+      def truncated?: () -> bool
+
+      def bytesize: () -> Integer
+
+      def empty?: () -> bool
+
+      def to_s: () -> String
+
+      def clear: () -> self
+    end
+  end
+end

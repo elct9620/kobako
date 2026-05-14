@@ -1,0 +1,22 @@
+module Kobako
+  class Registry
+    class ServiceGroup
+      attr_reader name: String
+      attr_reader members: Hash[String, untyped]
+
+      def initialize: (String name) -> void
+
+      def bind: (Symbol | String member, untyped object) -> self
+
+      def []: (Symbol | String member) -> untyped
+
+      def fetch: (Symbol | String member) -> untyped
+
+      def to_preamble: () -> [String, Array[String]]
+
+      private
+
+      def validate_member_name!: (Symbol | String member) -> String
+    end
+  end
+end

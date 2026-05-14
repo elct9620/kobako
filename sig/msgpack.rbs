@@ -1,0 +1,27 @@
+module MessagePack
+  class UnpackError < StandardError
+  end
+
+  class UnknownExtTypeError < UnpackError
+  end
+
+  class MalformedFormatError < UnpackError
+  end
+
+  class StackError < UnpackError
+  end
+
+  def self.pack: (untyped value) -> String
+
+  def self.unpack: (String bytes) -> untyped
+
+  class Factory
+    def initialize: () -> void
+
+    def register_type: (Integer ext_type, Class type, ?packer: ^(untyped) -> untyped, ?unpacker: ^(untyped) -> untyped) -> void
+
+    def dump: (untyped value) -> String
+
+    def load: (String bytes) -> untyped
+  end
+end

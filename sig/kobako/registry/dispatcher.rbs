@@ -1,0 +1,35 @@
+module Kobako
+  class Registry
+    module Dispatcher
+      class UndefinedTargetError < StandardError
+      end
+
+      class DisconnectedTargetError < StandardError
+      end
+
+      def self?.dispatch: (String request_bytes, Registry registry) -> String
+
+      def self?.encode_dispatch_error: (StandardError error) -> String
+
+      def self?.perform_dispatch: (String request_bytes, Registry registry) -> untyped
+
+      def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs) -> untyped
+
+      def self?.resolve_arg: (untyped value, HandleTable handle_table) -> untyped
+
+      def self?.resolve_target: (String | Kobako::Wire::Handle target, Registry registry, HandleTable handle_table) -> untyped
+
+      def self?.resolve_path: (String path, Registry registry) -> untyped
+
+      def self?.resolve_handle: (Kobako::Wire::Handle handle, HandleTable handle_table) -> untyped
+
+      def self?.fetch_live_object: (Integer id, HandleTable handle_table) -> untyped
+
+      def self?.encode_ok_or_wrap: (untyped value, Registry registry) -> String
+
+      def self?.encode_ok: (untyped value) -> String
+
+      def self?.encode_err: (String type, String message) -> String
+    end
+  end
+end

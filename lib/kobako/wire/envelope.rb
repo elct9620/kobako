@@ -52,6 +52,7 @@ module Kobako
       # enforced at construction so the Value Object is the single source
       # of truth.
       Request = Data.define(:target, :method_name, :args, :kwargs) do
+        # steep:ignore:start
         def initialize(target:, method:, args: [], kwargs: {})
           unless target.is_a?(String) || target.is_a?(Handle)
             raise ArgumentError, "Request target must be String or Handle, got #{target.class}"
@@ -72,6 +73,7 @@ module Kobako
             raise ArgumentError, "Request kwargs keys must be Symbol, got #{k.class}" unless k.is_a?(Symbol)
           end
         end
+        # steep:ignore:end
       end
 
       # Encode a {Request} to bytes. The Value Object's own invariants
@@ -100,6 +102,7 @@ module Kobako
       # (success) or 1 (error). For success the second element is the
       # return value; for error it is an {Exception} (ext 0x02 envelope).
       Response = Data.define(:status, :payload) do
+        # steep:ignore:start
         def self.ok(value)
           new(status: STATUS_OK, payload: value)
         end
@@ -125,6 +128,7 @@ module Kobako
 
         def ok?  = status == STATUS_OK
         def err? = status == STATUS_ERROR
+        # steep:ignore:end
       end
 
       def self.encode_response(response)

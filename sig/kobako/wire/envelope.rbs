@@ -1,0 +1,55 @@
+module Kobako
+  module Wire
+    module Envelope
+      OUTCOME_TAG_RESULT: Integer
+      OUTCOME_TAG_PANIC: Integer
+      STATUS_OK: Integer
+      STATUS_ERROR: Integer
+
+      class Request
+        attr_reader target: String | Handle
+        attr_reader method_name: String
+        attr_reader args: Array[untyped]
+        attr_reader kwargs: Hash[Symbol, untyped]
+
+        def initialize: (target: String | Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> void
+
+        def with: (?target: String | Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> Request
+
+        def ==: (untyped other) -> bool
+
+        def hash: () -> Integer
+      end
+
+      def self.encode_request: (Request request) -> String
+
+      def self.decode_request: (String bytes) -> Request
+
+      class Response
+        attr_reader status: Integer
+        attr_reader payload: untyped
+
+        def self.ok: (untyped value) -> Response
+
+        def self.err: (Exception exception) -> Response
+
+        def initialize: (Integer status, untyped payload) -> void
+                      | (status: Integer, payload: untyped) -> void
+
+        def with: (?status: Integer, ?payload: untyped) -> Response
+
+        def ok?: () -> bool
+
+        def err?: () -> bool
+
+        def ==: (untyped other) -> bool
+
+        def hash: () -> Integer
+      end
+
+      def self.encode_response: (Response response) -> String
+
+      def self.decode_response: (String bytes) -> Response
+    end
+  end
+end
