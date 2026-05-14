@@ -24,8 +24,9 @@ module KobakoVendor
   #                          can override via +KOBAKO_VENDOR_BASE_URL+.
   #   * +tarball_name+     — filename joined to both +base_url+ (download)
   #                          and +CACHE_DIR+ (cache location).
-  #   * +unpacked_top_dir+ — the single top-level directory produced when
-  #                          the tarball is extracted.
+  #   * +top_level_dir+    — the single top-level directory produced when
+  #                          the tarball is extracted; passed through to
+  #                          +Tarball#prepare+ under the same name.
   #   * +final_dir+        — destination under +VENDOR_DIR+ where the
   #                          unpacked tree is moved.
   #   * +sentinel+         — relative path inside +final_dir+ whose
@@ -36,7 +37,7 @@ module KobakoVendor
   #                          environment variable.
   Toolchain = Data.define(
     :name, :version_label, :base_url, :tarball_name,
-    :unpacked_top_dir, :final_dir, :sentinel, :sha_key
+    :top_level_dir, :final_dir, :sentinel, :sha_key
   ) do
     # Symbol used to identify the +setup:<task_name>+ rake task. Dashes
     # in +name+ are not valid in rake task identifiers, so we map them
@@ -83,7 +84,7 @@ module KobakoVendor
       verify
       Tarball.new(
         tarball: tarball_path,
-        top_level_dir: unpacked_top_dir,
+        top_level_dir: top_level_dir,
         final_dir: final_dir,
         sentinel: sentinel
       ).prepare

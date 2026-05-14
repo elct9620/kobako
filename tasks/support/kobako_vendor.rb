@@ -81,7 +81,7 @@ module KobakoVendor
     version_label: "#{WASI_SDK_FULL_VERSION} (#{WASI_SDK_PLATFORM})",
     base_url: "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-#{WASI_SDK_VERSION}",
     tarball_name: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz",
-    unpacked_top_dir: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}",
+    top_level_dir: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}",
     final_dir: File.join(VENDOR_DIR, "wasi-sdk"),
     sentinel: "bin/clang",
     sha_key: :WASI_SDK
@@ -92,7 +92,7 @@ module KobakoVendor
     version_label: MRUBY_VERSION,
     base_url: "https://github.com/mruby/mruby/archive/refs/tags",
     tarball_name: "#{MRUBY_VERSION}.tar.gz",
-    unpacked_top_dir: "mruby-#{MRUBY_VERSION}",
+    top_level_dir: "mruby-#{MRUBY_VERSION}",
     final_dir: File.join(VENDOR_DIR, "mruby"),
     sentinel: "Rakefile",
     sha_key: :MRUBY
@@ -103,7 +103,7 @@ module KobakoVendor
     version_label: MRUBY_ONIG_REGEXP_COMMIT[0, 8],
     base_url: "https://github.com/mattn/mruby-onig-regexp/archive",
     tarball_name: "#{MRUBY_ONIG_REGEXP_COMMIT}.tar.gz",
-    unpacked_top_dir: "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}",
+    top_level_dir: "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}",
     final_dir: File.join(VENDOR_DIR, "mruby-onig-regexp"),
     sentinel: "mrbgem.rake",
     sha_key: :MRUBY_ONIG_REGEXP
