@@ -1,31 +1,19 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for Kobako::Registry::ServiceGroup edge cases and
-# Sandbox outcome-attribution edge cases not covered by the existing suite.
+# Layer 3 unit tests for Kobako::Registry::ServiceGroup edge cases.
 #
-# Does NOT require the native extension: ServiceGroup is pure Ruby, and
-# the outcome-attribution tests use Sandbox.allocate + send to bypass the
-# wasmtime pipeline.
+# Does NOT require the native extension: ServiceGroup is pure Ruby.
 #
 # Cross-references:
 #   - SPEC.md B-07 — Group name validation
 #   - SPEC.md B-08 — Member name validation (non-symbol/non-string input)
 #   - SPEC.md B-10 — define idempotence (duplicate Group)
 #   - SPEC.md B-11 — duplicate bind raises, existing binding preserved
-#   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError
 
 require "minitest/autorun"
-require_relative "support/outcome_bytes_helpers"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/registry"
-require "kobako/sandbox"
-require "kobako/wire"
-require "kobako/errors"
-
-# ---------------------------------------------------------------------------
-# ServiceGroup edge cases
-# ---------------------------------------------------------------------------
 
 module Kobako
   class ServiceGroupEdgeCasesTest < Minitest::Test
@@ -111,90 +99,5 @@ module Kobako
       err = assert_raises(KeyError) { group.fetch("Unknown") }
       assert_match(/Unknown/, err.message)
     end
-  end
-end
-
-# ---------------------------------------------------------------------------
-# Sandbox outcome-attribution edge cases (Layer 3 — no wasmtime pipeline)
-# ---------------------------------------------------------------------------
-
-class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
-  include OutcomeBytesHelpers
-
-  # Decode a raw outcome byte-string through the OutcomeDecoder module
-  # without building a wasmtime pipeline.
-  def decode(bytes)
-    Kobako::Sandbox::OutcomeDecoder.decode(bytes)
-  end
-
-  # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---
-  #
-  # SPEC: origin values other than "service" and "sandbox" are treated as
-  # sandbox-side failures (the panic_target_class method returns SandboxError
-  # for any origin that is not exactly "service").  This is the third branch
-  # of the origin decision tree.
-  def test_panic_with_unknown_origin_raises_sandbox_error
-    bytes = panic_outcome_bytes(origin: "unknown", klass: "Kobako::SomeError", message: "strange")
-
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
-    refute_kind_of Kobako::ServiceError, err,
-                   "unknown origin must not produce ServiceError"
-    assert_equal "strange", err.message
-    # The unknown origin value is propagated verbatim (not overwritten).
-    assert_equal "unknown", err.origin
-  end
-
-  # --- Panic with origin "sandbox" explicitly raises SandboxError (not ServiceError) ---
-  #
-  # Belt-and-suspenders: pin the canonical "sandbox" origin path at unit
-  # level, independent of the fixture-driven test in test_sandbox_errors.rb.
-  def test_panic_with_sandbox_origin_raises_sandbox_error_not_service_error
-    panic = Kobako::Wire::Envelope::Panic.new(
-      origin: "sandbox", klass: "RuntimeError", message: "box-side error"
-    )
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC,
-      Kobako::Wire::Envelope.encode_panic(panic)
-    )
-
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
-    refute_kind_of Kobako::ServiceError, err
-    assert_equal "box-side error", err.message
-  end
-
-  # --- Panic with missing "class" field raises SandboxError (SPEC E-08) ---
-  #
-  # decode_panic calls Envelope.decode_panic, which raises Wire::Codec::InvalidType
-  # when a required key is absent.  The Sandbox rescue chain wraps that as
-  # SandboxError with klass="Kobako::WireError".
-  def test_panic_with_missing_class_field_raises_sandbox_error
-    # Hand-roll a panic map that omits "class" — cannot use Panic.new because
-    # it requires the field; build the raw bytes directly.
-    raw_map = Kobako::Wire::Codec::Encoder.encode(
-      "origin" => "sandbox", "message" => "missing class"
-    )
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC, raw_map
-    )
-
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
-    refute_kind_of Kobako::TrapError, err
-    assert_equal "Kobako::WireError", err.klass
-  end
-
-  # --- Result envelope with empty bytes body raises SandboxError (SPEC E-09) ---
-  #
-  # An empty result body is not a valid msgpack value, so decode_result raises
-  # Wire::Codec::Truncated (a Wire::Codec::Error subclass).  The Sandbox rescue chain wraps
-  # that as SandboxError (E-09: result envelope decode failed).
-  def test_result_envelope_with_empty_body_raises_sandbox_error
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_RESULT, "".b
-    )
-
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
-    refute_kind_of Kobako::TrapError, err
-    assert_equal "Kobako::WireError", err.klass
-    assert_match(/result envelope decode failed/, err.message)
   end
 end

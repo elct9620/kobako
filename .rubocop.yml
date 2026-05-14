@@ -82,14 +82,6 @@ Layout/LineLength:
     - "test/test_wire_envelope.rb"
     - "*.gemspec"
 
-# These two test files host a primary test class plus a small E2E sibling
-# class guarded by an env var; splitting them would obscure the shared
-# scaffolding.
-Style/OneClassPerFile:
-  Exclude:
-    - "test/test_registry_internals.rb"
-    - "test/test_sandbox_errors.rb"
-
 # test_codec_roundtrip_fuzz.rb defines data-table constants (bands, samplers,
 # coverage keys) directly in the class body under a top-level `private` keyword.
 # The `private` modifier is a no-op for constants in Ruby (the cop is correct),
