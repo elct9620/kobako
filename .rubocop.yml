@@ -16,43 +16,35 @@ Style/StringLiteralsInInterpolation:
 # new tests are expected to stay inside the cop's defaults.
 Metrics/ClassLength:
   Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_e2e_journeys.rb"
     - "test/test_handle_table.rb"
     - "test/test_rpc_dispatch.rb"
     - "test/test_service_registry.rb"
     - "test/test_wire_codec.rb"
     - "test/test_wire_envelope.rb"
+    # WireValueGenerator owns ten generation concerns (ints / floats /
+    # strings / binary / arrays / maps / symbols / handles / exceptions /
+    # scalar dispatch) sharing @rng and @coverage; splitting them into
+    # mixins would scatter the band tables away from the methods that
+    # consume them without improving readability.
+    - "test/support/wire_value_generator.rb"
 
 # Long E2E / fuzz assertion bodies set up multi-step round-trip state; the
 # AbcSize budget penalises that shape without improving the tests.
 Metrics/AbcSize:
   Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_e2e_journeys.rb"
     - "test/test_handle_table.rb"
     - "test/test_rpc_dispatch.rb"
     - "test/test_sandbox.rb"
     - "test/test_service_registry.rb"
 
-# Codec fuzz harness dispatches on MessagePack tag families; the cyclomatic
-# shape mirrors the format spec and is intentional.
-Metrics/CyclomaticComplexity:
-  Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
-
-# Codec helpers take single short-name byte/length parameters (n, s, f);
-# longer names would reduce, not improve, readability.
-Naming/MethodParameterName:
-  Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
-
 # MessagePack format names embed bit-width suffixes (int_8, fixarray_16, map_32)
 # matching the SPEC wire-format vocabulary; renaming them to "int8" would lose
 # the SPEC alignment and is rejected.
 Naming/VariableNumber:
   Exclude:
-    - "test/test_codec_roundtrip_fuzz.rb"
+    - "test/support/wire_value_generator.rb"
     - "test/test_wire_envelope.rb"
 
 # `namespace :vendor` in tasks/vendor.rake iterates KobakoVendor::TARBALL_TOOLCHAINS
