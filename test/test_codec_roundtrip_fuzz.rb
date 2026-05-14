@@ -57,9 +57,9 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   def test_round_trip_fuzz
-    ORACLE.open do |process|
+    ORACLE.open do |channel|
       @iterations.times do |i|
-        run_one(@generator.generate, i, process)
+        run_one(@generator.generate, i, channel)
       end
     end
     assert_coverage_complete

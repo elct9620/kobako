@@ -56,21 +56,21 @@ class CargoOracle
     self.class.builds[@bin_name] ||= cargo_build
   end
 
-  # Spawn the oracle subprocess and return a +Process+ facade. The
+  # Spawn the oracle subprocess and return a +Channel+ facade. The
   # caller owns the lifecycle — call +#close+ in +teardown+ or wrap
   # the whole exchange in +#open+ to get automatic cleanup.
   def spawn
-    Process.new(*Open3.popen2(@binary_path))
+    Channel.new(*Open3.popen2(@binary_path))
   end
 
-  # Spawn the oracle, yield the +Process+ facade, and close it on block
+  # Spawn the oracle, yield the +Channel+ facade, and close it on block
   # exit (including on exception). Preferred for tests that exchange
   # many frames inside a single test method.
   def open
-    process = spawn
-    yield process
+    channel = spawn
+    yield channel
   ensure
-    process&.close
+    channel&.close
   end
 
   private
@@ -92,12 +92,17 @@ class CargoOracle
     system("command -v cargo > /dev/null 2>&1")
   end
 
-  # Wraps the subprocess I/O. +send_frame+ writes a length-prefixed
-  # frame; +read_frame+ returns +[body, error_flag]+ where +body+ is
-  # the binary payload and +error_flag+ is +true+ when the oracle set
-  # the high bit of the length word. Both pipes are forced to
-  # +binmode+ at construction so callers never need to remember.
-  class Process
+  # Framed I/O channel to a spawned oracle subprocess. +send_frame+
+  # writes a length-prefixed frame; +read_frame+ returns +[body,
+  # error_flag]+ where +body+ is the binary payload and +error_flag+ is
+  # +true+ when the oracle set the high bit of the length word. Both
+  # pipes are forced to +binmode+ at construction so callers never
+  # need to remember.
+  #
+  # Named +Channel+ rather than +Process+ to leave +::Process+ usable
+  # for future +Process.kill+ / +Process.detach+ wiring inside the
+  # parent class.
+  class Channel
     def initialize(stdin, stdout, wait_thr)
       @stdin = stdin
       @stdout = stdout
@@ -118,7 +123,7 @@ class CargoOracle
     def read_frame
       word = read_header
       body = read_body(word & ~ERROR_FLAG)
-      [body.b, word.anybits?(ERROR_FLAG)]
+      [body, word.anybits?(ERROR_FLAG)]
     end
 
     def close

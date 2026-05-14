@@ -36,19 +36,19 @@ class TestEnvelopeRoundtrip < Minitest::Test
     when :build_failed
       flunk "cargo build --release envelope_oracle failed:\n#{build.error}"
     end
-    @process = ORACLE.spawn
+    @channel = ORACLE.spawn
   end
 
   def teardown
-    @process&.close
+    @channel&.close
   end
 
   # Send one envelope frame to the oracle and read its response.
   # +kind+ is a single-byte tag picked by the oracle protocol
   # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome).
   def oracle_roundtrip(kind, payload)
-    @process.send_frame(+"".b << kind << payload.b)
-    body, error = @process.read_frame
+    @channel.send_frame(+"".b << kind << payload.b)
+    body, error = @channel.read_frame
     flunk "oracle reported error: #{body}" if error
     body
   end
