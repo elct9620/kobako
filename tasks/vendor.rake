@@ -45,7 +45,7 @@ namespace :vendor do
     puts "[vendor] downloading wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} " \
          "(#{KobakoVendor::WASI_SDK_PLATFORM}) from #{url}"
     KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:WASI_SDK))
+    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:WASI_SDK)).verify_or_pin
   end
 
   file KobakoVendor::MRUBY_TARBALL_PATH do |t|
@@ -53,7 +53,7 @@ namespace :vendor do
           "#{KobakoVendor::MRUBY_TARBALL_NAME}"
     puts "[vendor] downloading mruby #{KobakoVendor::MRUBY_VERSION} from #{url}"
     KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:MRUBY))
+    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:MRUBY)).verify_or_pin
   end
 
   file KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH do |t|
@@ -61,7 +61,7 @@ namespace :vendor do
           "#{KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_NAME}"
     puts "[vendor] downloading mruby-onig-regexp #{KobakoVendor::MRUBY_ONIG_REGEXP_COMMIT[0, 8]} from #{url}"
     KobakoVendor::Downloader.new(url, t.name).download
-    KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP))
+    KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP)).verify_or_pin
   end
 
   KobakoVendor::CONFIG_AUX_FILES.each do |filename|
@@ -72,14 +72,14 @@ namespace :vendor do
       puts "[vendor] downloading #{filename}@#{commit[0, 8]} from #{url}"
       KobakoVendor::Downloader.new(url, t.name).download
       sha_key = :"CONFIG_#{filename.split(".").last.upcase}"
-      KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(sha_key))
+      KobakoVendor::Checksum.new(t.name, KobakoVendor.expected_sha256(sha_key)).verify_or_pin
     end
   end
 
   namespace :setup do
     desc "Download and unpack wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} into vendor/wasi-sdk/"
     task wasi_sdk: KobakoVendor::WASI_TARBALL_PATH do
-      KobakoVendor::Checksum.verify_or_pin(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.expected_sha256(:WASI_SDK))
+      KobakoVendor::Checksum.new(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.expected_sha256(:WASI_SDK)).verify_or_pin
       KobakoVendor.prepare_unpacked(
         tarball: KobakoVendor::WASI_TARBALL_PATH,
         top_level_dir: KobakoVendor::WASI_SDK_UNPACKED_DIR,
@@ -91,7 +91,7 @@ namespace :vendor do
 
     desc "Download and unpack mruby #{KobakoVendor::MRUBY_VERSION} into vendor/mruby/"
     task mruby: KobakoVendor::MRUBY_TARBALL_PATH do
-      KobakoVendor::Checksum.verify_or_pin(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.expected_sha256(:MRUBY))
+      KobakoVendor::Checksum.new(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.expected_sha256(:MRUBY)).verify_or_pin
       KobakoVendor.prepare_unpacked(
         tarball: KobakoVendor::MRUBY_TARBALL_PATH,
         top_level_dir: KobakoVendor::MRUBY_UNPACKED_DIR,
@@ -103,8 +103,8 @@ namespace :vendor do
 
     desc "Download and unpack mruby-onig-regexp into vendor/mruby-onig-regexp/"
     task mruby_onig_regexp: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH do
-      KobakoVendor::Checksum.verify_or_pin(KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
-                                           KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP))
+      KobakoVendor::Checksum.new(KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
+                                 KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP)).verify_or_pin
       KobakoVendor.prepare_unpacked(
         tarball: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
         top_level_dir: KobakoVendor::MRUBY_ONIG_REGEXP_UNPACKED_DIR,
