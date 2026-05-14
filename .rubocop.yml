@@ -64,9 +64,13 @@ Style/ClassVars:
     - "test/test_codec_roundtrip_fuzz.rb"
     - "test/test_envelope_roundtrip.rb"
 
+# Rake `namespace` blocks group N child task declarations; their size is
+# the sum of the task DSL inside, so any namespace with 3+ tasks naturally
+# exceeds the default 25-line budget. Confined to .rake files so the cop
+# still applies to pure Ruby under tasks/support/.
 Metrics/BlockLength:
   Exclude:
-    - "tasks/**/*"
+    - "tasks/*.rake"
     - "*.gemspec"
 
 # Long line is a binary-format alignment comment (hex bytes laid out under

@@ -58,35 +58,7 @@ namespace :wasm do
   task build: ["vendor:setup", "mruby:build"] do
     abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
 
-    if KobakoWasm.guest_wasm_up_to_date?
-      puts "[wasm:build] #{KobakoWasm::DATA_WASM} is up to date — skipping"
-      next
-    end
-
-    unless File.exist?(KobakoWasm::LIBMRUBY_PATH)
-      raise "[wasm:build] expected libmruby.a at #{KobakoWasm::LIBMRUBY_PATH}; " \
-            "run `rake mruby:build` (Stage B) first"
-    end
-
-    args = [
-      "cargo", "build",
-      "--manifest-path", KobakoWasm::MANIFEST,
-      "--release",
-      "--target", KobakoWasm::WASM_TARGET
-    ]
-    env = KobakoWasm.cargo_build_env
-    puts "[wasm:build] env=#{env.inspect}"
-    puts "[wasm:build] ==> #{args.join(" ")}"
-    raise "[wasm:build] cargo build failed" unless system(env, *args)
-
-    unless File.exist?(KobakoWasm::CRATE_WASM_OUTPUT)
-      raise "[wasm:build] cargo build succeeded but #{KobakoWasm::CRATE_WASM_OUTPUT} is missing"
-    end
-
-    FileUtils.mkdir_p(KobakoWasm::DATA_DIR)
-    FileUtils.cp(KobakoWasm::CRATE_WASM_OUTPUT, KobakoWasm::DATA_WASM)
-    puts "[wasm:build] Guest Binary ready at #{KobakoWasm::DATA_WASM} " \
-         "(#{File.size(KobakoWasm::DATA_WASM)} bytes)"
+    KobakoWasm.build_guest_binary
   end
 
   desc "Remove data/kobako.wasm and the wasm crate target/ cache"

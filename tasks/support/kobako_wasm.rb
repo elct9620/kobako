@@ -118,4 +118,42 @@ module KobakoWasm
       "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
     }
   end
+
+  # Orchestrate Stage C: cross-compile +kobako-wasm+ and copy the
+  # produced wasm into +data/kobako.wasm+. The caller (rake +wasm:build+
+  # task) is responsible for guarding +cargo_available?+ and Stage B
+  # ordering; the up-to-date short-circuit and Stage B sentinel check
+  # live here so the orchestration is testable as a single unit.
+  def build_guest_binary
+    if guest_wasm_up_to_date?
+      puts "[wasm:build] #{DATA_WASM} is up to date — skipping"
+      return
+    end
+
+    unless File.exist?(LIBMRUBY_PATH)
+      raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
+            "run `rake mruby:build` (Stage B) first"
+    end
+
+    run_cargo_release_build
+    copy_wasm_into_data_dir
+  end
+
+  def run_cargo_release_build
+    args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
+    env  = cargo_build_env
+    puts "[wasm:build] env=#{env.inspect}"
+    puts "[wasm:build] ==> #{args.join(" ")}"
+    raise "[wasm:build] cargo build failed" unless system(env, *args)
+
+    return if File.exist?(CRATE_WASM_OUTPUT)
+
+    raise "[wasm:build] cargo build succeeded but #{CRATE_WASM_OUTPUT} is missing"
+  end
+
+  def copy_wasm_into_data_dir
+    FileUtils.mkdir_p(DATA_DIR)
+    FileUtils.cp(CRATE_WASM_OUTPUT, DATA_WASM)
+    puts "[wasm:build] Guest Binary ready at #{DATA_WASM} (#{File.size(DATA_WASM)} bytes)"
+  end
 end
