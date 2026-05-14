@@ -4,16 +4,15 @@
 # ============================================
 #
 # Pure-Ruby helpers backing +tasks/wasm.rake+. Owns crate paths,
-# wasm32-wasip1 target detection, mtime-based idempotency for the Stage C
-# build, and the env-var bundle threaded into +cargo build+. The .rake
-# wrapper is the rake DSL surface that glues these helpers to
+# wasm32-wasip1 target detection, and the Stage C orchestrator. The
+# .rake wrapper is the rake DSL surface that glues these helpers to
 # +rake wasm:check+ / +rake wasm:test+ / +rake wasm:build+.
 
-require "fileutils"
 require "open3"
 
 # Stage C build helpers for the kobako-wasm crate. See sibling
-# +tasks/wasm.rake+ for the rake DSL.
+# +tasks/wasm.rake+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
+# the orchestrator class.
 module KobakoWasm
   ROOT       = File.expand_path("../..", __dir__)
   CRATE_DIR  = File.join(ROOT, "wasm", "kobako-wasm").freeze
@@ -59,102 +58,6 @@ module KobakoWasm
   rescue StandardError
     nil
   end
-
-  # ---- Stage C helpers ---------------------------------------------------
-
-  # Returns the latest mtime among the wasm crate's Rust + Cargo sources.
-  # Used to short-circuit +wasm:build+ when +data/kobako.wasm+ already
-  # reflects the current source tree, honouring the idempotency rule in
-  # SPEC.md "Implementation Standards" for +tasks/*.rake+.
-  def self.newest_source_mtime
-    files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
-    files << CRATE_BUILD_RS if File.exist?(CRATE_BUILD_RS)
-    files << MANIFEST
-    files << LIBMRUBY_PATH if File.exist?(LIBMRUBY_PATH)
-    files.map { |f| File.mtime(f) }.max
-  end
-
-  # True when `data/kobako.wasm` already exists and is newer than every
-  # input file the build would consume. Skips re-running cargo in that case.
-  def self.guest_wasm_up_to_date?
-    return false unless File.exist?(DATA_WASM)
-
-    src_mtime = newest_source_mtime
-    return false if src_mtime.nil?
-
-    File.mtime(DATA_WASM) >= src_mtime
-  end
-
-  # Build the env hash passed to `cargo build` for Stage C. Exports
-  # `MRUBY_LIB_DIR` so build.rs can wire the libmruby.a search path.
-  #
-  # ## Linker choice: rust-lld (not wasi-sdk clang)
-  #
-  # We intentionally do NOT set CARGO_TARGET_WASM32_WASIP1_LINKER.
-  # Cargo's default for wasm32-wasip1 is rust's built-in rust-lld which
-  # links the cdylib with `--no-entry` (WASI reactor model) without the
-  # `-shared` flag. wasi-sdk clang, by contrast, drives wasm-ld with
-  # `-static -shared` which enforces PIC relocations on all input objects.
-  # Neither libmruby.a nor the Rust standard library wasm32-wasip1 prebuilts
-  # are compiled with -fPIC, causing wasm-ld to reject them. rust-lld's
-  # `--no-entry` mode does not enforce PIC, so the link succeeds cleanly.
-  #
-  # The CC_wasm32_wasip1 / AR_wasm32_wasip1 / WASI_SDK_PATH env vars remain
-  # set for any future build.rs steps (e.g. bindgen C compilation) that need
-  # the wasi-sdk toolchain; they do not affect the Rust+mruby link step.
-  def self.cargo_build_env
-    clang   = File.join(WASI_SDK_DIR, "bin", "clang")
-    llvm_ar = File.join(WASI_SDK_DIR, "bin", "llvm-ar")
-
-    {
-      # cc-rs / build.rs convention for any C compilation that cargo or a
-      # downstream crate may invoke. We don't currently compile C from the
-      # wasm crate, but pinning these keeps a future bindgen / cc-rs hop
-      # honest without requiring another env-var pass.
-      "CC_wasm32_wasip1" => clang,
-      "AR_wasm32_wasip1" => llvm_ar,
-      "WASI_SDK_PATH" => WASI_SDK_DIR,
-      "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
-    }
-  end
-
-  # Orchestrate Stage C: cross-compile +kobako-wasm+ and copy the
-  # produced wasm into +data/kobako.wasm+. The caller (rake +wasm:build+
-  # task) is responsible for guarding +cargo_available?+; the up-to-date
-  # short-circuit and the Stage B pre-condition live here.
-  def self.build_guest_binary
-    if guest_wasm_up_to_date?
-      puts "[wasm:build] #{DATA_WASM} is up to date — skipping"
-      return
-    end
-
-    ensure_libmruby_present
-    run_cargo_release_build
-    copy_wasm_into_data_dir
-  end
-
-  # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
-  # so we assert it explicitly with a message that points at the rake
-  # task that produces it.
-  def self.ensure_libmruby_present
-    return if File.exist?(LIBMRUBY_PATH)
-
-    raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
-          "run `rake mruby:build` (Stage B) first"
-  end
-
-  def self.run_cargo_release_build
-    args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
-    env  = cargo_build_env
-    puts "[wasm:build] env=#{env.inspect}"
-    puts "[wasm:build] ==> #{args.join(" ")}"
-    raise "[wasm:build] cargo build failed" unless system(env, *args)
-    raise "[wasm:build] cargo built but #{CRATE_WASM_OUTPUT} is missing" unless File.exist?(CRATE_WASM_OUTPUT)
-  end
-
-  def self.copy_wasm_into_data_dir
-    FileUtils.mkdir_p(DATA_DIR)
-    FileUtils.cp(CRATE_WASM_OUTPUT, DATA_WASM)
-    puts "[wasm:build] Guest Binary ready at #{DATA_WASM} (#{File.size(DATA_WASM)} bytes)"
-  end
 end
+
+require_relative "kobako_wasm/guest_builder"

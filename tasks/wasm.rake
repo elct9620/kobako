@@ -58,7 +58,7 @@ namespace :wasm do
   task build: ["vendor:setup", "mruby:build"] do
     abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
 
-    KobakoWasm.build_guest_binary
+    KobakoWasm::GuestBuilder.new.build
   end
 
   desc "Remove data/kobako.wasm and the wasm crate target/ cache"
