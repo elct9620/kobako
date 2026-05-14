@@ -13,7 +13,7 @@ gemfile do
   source "https://rubygems.org"
   gem "ruby_llm"
   gem "reline"
-  gem "kobako", path: File.expand_path("../..", __dir__)
+  gem "kobako", "~> 0.1.2"
 end
 
 require "kobako"
