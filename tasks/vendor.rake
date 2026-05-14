@@ -80,24 +80,24 @@ namespace :vendor do
     desc "Download and unpack wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} into vendor/wasi-sdk/"
     task wasi_sdk: KobakoVendor::WASI_TARBALL_PATH do
       KobakoVendor::Checksum.new(KobakoVendor::WASI_TARBALL_PATH, KobakoVendor.expected_sha256(:WASI_SDK)).verify_or_pin
-      KobakoVendor.prepare_unpacked(
+      KobakoVendor::Tarball.new(
         tarball: KobakoVendor::WASI_TARBALL_PATH,
         top_level_dir: KobakoVendor::WASI_SDK_UNPACKED_DIR,
         final_dir: KobakoVendor::WASI_SDK_FINAL,
         sentinel: KobakoVendor::WASI_SDK_SENTINEL
-      )
+      ).prepare
       puts "[vendor] wasi-sdk ready at #{KobakoVendor::WASI_SDK_FINAL}"
     end
 
     desc "Download and unpack mruby #{KobakoVendor::MRUBY_VERSION} into vendor/mruby/"
     task mruby: KobakoVendor::MRUBY_TARBALL_PATH do
       KobakoVendor::Checksum.new(KobakoVendor::MRUBY_TARBALL_PATH, KobakoVendor.expected_sha256(:MRUBY)).verify_or_pin
-      KobakoVendor.prepare_unpacked(
+      KobakoVendor::Tarball.new(
         tarball: KobakoVendor::MRUBY_TARBALL_PATH,
         top_level_dir: KobakoVendor::MRUBY_UNPACKED_DIR,
         final_dir: KobakoVendor::MRUBY_FINAL,
         sentinel: KobakoVendor::MRUBY_SENTINEL
-      )
+      ).prepare
       puts "[vendor] mruby ready at #{KobakoVendor::MRUBY_FINAL}"
     end
 
@@ -105,12 +105,12 @@ namespace :vendor do
     task mruby_onig_regexp: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH do
       KobakoVendor::Checksum.new(KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
                                  KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP)).verify_or_pin
-      KobakoVendor.prepare_unpacked(
+      KobakoVendor::Tarball.new(
         tarball: KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_PATH,
         top_level_dir: KobakoVendor::MRUBY_ONIG_REGEXP_UNPACKED_DIR,
         final_dir: KobakoVendor::MRUBY_ONIG_REGEXP_FINAL,
         sentinel: KobakoVendor::MRUBY_ONIG_REGEXP_SENTINEL
-      )
+      ).prepare
       puts "[vendor] mruby-onig-regexp ready at #{KobakoVendor::MRUBY_ONIG_REGEXP_FINAL}"
     end
 

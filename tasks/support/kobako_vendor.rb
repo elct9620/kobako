@@ -13,10 +13,9 @@
 # during tests, and +KOBAKO_VENDOR_DIR+ to relocate the entire vendor
 # tree (also test-only).
 
-require "fileutils"
-
 require_relative "kobako_vendor/downloader"
 require_relative "kobako_vendor/checksum"
+require_relative "kobako_vendor/tarball"
 
 # Vendor toolchain façade.
 module KobakoVendor
@@ -114,28 +113,5 @@ module KobakoVendor
   # +:MRUBY_ONIG_REGEXP+.
   def self.expected_sha256(key)
     ENV.fetch("KOBAKO_VENDOR_#{key}_SHA256", "")
-  end
-
-  # Prepare an unpacked tree at +final_dir+ from +tarball+'s +top_level_dir+.
-  # If +final_dir+ already exists with +sentinel+ inside, this is a no-op.
-  def self.prepare_unpacked(tarball:, top_level_dir:, final_dir:, sentinel:)
-    return if File.exist?(File.join(final_dir, sentinel))
-
-    staging = extract_to_staging(tarball, final_dir)
-    src = File.join(staging, top_level_dir)
-    raise "expected #{src} after extracting #{tarball}, missing" unless File.directory?(src)
-
-    FileUtils.rm_rf(final_dir)
-    FileUtils.mkdir_p(File.dirname(final_dir))
-    FileUtils.mv(src, final_dir)
-    FileUtils.rm_rf(staging)
-  end
-
-  def self.extract_to_staging(tarball, final_dir)
-    staging = "#{final_dir}.staging"
-    FileUtils.rm_rf(staging)
-    FileUtils.mkdir_p(staging)
-    system("tar", "-xzf", tarball, "-C", staging, exception: true)
-    staging
   end
 end
