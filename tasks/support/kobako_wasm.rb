@@ -38,16 +38,14 @@ module KobakoWasm
   MRUBY_LIB_DIR  = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib").freeze
   LIBMRUBY_PATH  = File.join(MRUBY_LIB_DIR, "libmruby.a").freeze
 
-  module_function
-
-  def cargo_available?
+  def self.cargo_available?
     system("which cargo > /dev/null 2>&1")
   end
 
   # Returns WASM_TARGET if the toolchain has it provisioned, otherwise nil
   # so the caller falls back to the host target. Keeps the task useful in
   # CI lanes that haven't yet installed the cross target.
-  def wasm_target_or_host
+  def self.wasm_target_or_host
     out, status = Open3.capture2("rustc", "--print", "target-list")
     return nil unless status.success?
     return nil unless out.include?(WASM_TARGET)
@@ -65,9 +63,10 @@ module KobakoWasm
   # ---- Stage C helpers ---------------------------------------------------
 
   # Returns the latest mtime among the wasm crate's Rust + Cargo sources.
-  # Used to short-circuit `wasm:build` when `data/kobako.wasm` already
-  # reflects the current source tree (idempotency contract from item #11).
-  def newest_source_mtime
+  # Used to short-circuit +wasm:build+ when +data/kobako.wasm+ already
+  # reflects the current source tree, honouring the idempotency rule in
+  # SPEC.md "Implementation Standards" for +tasks/*.rake+.
+  def self.newest_source_mtime
     files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
     files << CRATE_BUILD_RS if File.exist?(CRATE_BUILD_RS)
     files << MANIFEST
@@ -77,7 +76,7 @@ module KobakoWasm
 
   # True when `data/kobako.wasm` already exists and is newer than every
   # input file the build would consume. Skips re-running cargo in that case.
-  def guest_wasm_up_to_date?
+  def self.guest_wasm_up_to_date?
     return false unless File.exist?(DATA_WASM)
 
     src_mtime = newest_source_mtime
@@ -103,7 +102,7 @@ module KobakoWasm
   # The CC_wasm32_wasip1 / AR_wasm32_wasip1 / WASI_SDK_PATH env vars remain
   # set for any future build.rs steps (e.g. bindgen C compilation) that need
   # the wasi-sdk toolchain; they do not affect the Rust+mruby link step.
-  def cargo_build_env
+  def self.cargo_build_env
     clang   = File.join(WASI_SDK_DIR, "bin", "clang")
     llvm_ar = File.join(WASI_SDK_DIR, "bin", "llvm-ar")
 
@@ -124,7 +123,7 @@ module KobakoWasm
   # task) is responsible for guarding +cargo_available?+ and Stage B
   # ordering; the up-to-date short-circuit and Stage B sentinel check
   # live here so the orchestration is testable as a single unit.
-  def build_guest_binary
+  def self.build_guest_binary
     if guest_wasm_up_to_date?
       puts "[wasm:build] #{DATA_WASM} is up to date — skipping"
       return
@@ -139,19 +138,23 @@ module KobakoWasm
     copy_wasm_into_data_dir
   end
 
-  def run_cargo_release_build
+  # Runs the cargo release build for Stage C. Both post-condition checks
+  # (cargo exit status, output artefact present) are written as parallel
+  # +raise ... unless+ guards; the +Style/GuardClause+ disable preserves
+  # that parallel shape against rubocop's auto-correction.
+  def self.run_cargo_release_build
     args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
     env  = cargo_build_env
     puts "[wasm:build] env=#{env.inspect}"
     puts "[wasm:build] ==> #{args.join(" ")}"
     raise "[wasm:build] cargo build failed" unless system(env, *args)
 
-    return if File.exist?(CRATE_WASM_OUTPUT)
-
-    raise "[wasm:build] cargo build succeeded but #{CRATE_WASM_OUTPUT} is missing"
+    unless File.exist?(CRATE_WASM_OUTPUT) # rubocop:disable Style/GuardClause
+      raise "[wasm:build] cargo build succeeded but #{CRATE_WASM_OUTPUT} is missing"
+    end
   end
 
-  def copy_wasm_into_data_dir
+  def self.copy_wasm_into_data_dir
     FileUtils.mkdir_p(DATA_DIR)
     FileUtils.cp(CRATE_WASM_OUTPUT, DATA_WASM)
     puts "[wasm:build] Guest Binary ready at #{DATA_WASM} (#{File.size(DATA_WASM)} bytes)"
