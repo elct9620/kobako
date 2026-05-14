@@ -117,9 +117,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   def assert_ruby_roundtrip(iter, value, encoded, message)
     recovered = Decoder.decode(encoded)
-    return if values_equal?(value, recovered)
-
-    flunk fuzz_failure(iter, value, message, decoded: recovered)
+    assert_equal value, recovered, fuzz_failure(iter, value, message, decoded: recovered)
   end
 
   def flunk_oracle_error(iter, value, payload)
@@ -142,40 +140,5 @@ class TestCodecRoundtripFuzz < Minitest::Test
     return value.unpack1("H*")[0, 200] if value.is_a?(String) && value.encoding == Encoding::ASCII_8BIT
 
     value.inspect[0, 200]
-  end
-
-  # ---------------------------------------------------------------------
-  # Value comparison
-  #
-  # NaN edge case: per IEEE 754, NaN != NaN. We compare floats with
-  # NaN-awareness so that round-tripping a NaN counts as success. SPEC.md
-  # does not constrain NaN bit patterns; the Rust codec always emits f64,
-  # so we don't need to compare bit patterns either.
-  # ---------------------------------------------------------------------
-
-  def values_equal?(lhs, rhs)
-    return float_equal?(lhs, rhs) if lhs.is_a?(Float) && rhs.is_a?(Float)
-    return array_equal?(lhs, rhs) if lhs.is_a?(Array) && rhs.is_a?(Array)
-    return hash_equal?(lhs, rhs) if lhs.is_a?(Hash) && rhs.is_a?(Hash)
-
-    lhs == rhs
-  end
-
-  def float_equal?(lhs, rhs)
-    return true if lhs.nan? && rhs.nan?
-
-    lhs == rhs
-  end
-
-  def array_equal?(lhs, rhs)
-    return false unless lhs.length == rhs.length
-
-    lhs.each_with_index.all? { |element, i| values_equal?(element, rhs[i]) }
-  end
-
-  def hash_equal?(lhs, rhs)
-    return false unless lhs.size == rhs.size
-
-    lhs.all? { |k, v| rhs.key?(k) && values_equal?(v, rhs[k]) }
   end
 end
