@@ -24,7 +24,8 @@ module KobakoVendor
     # Verify the tarball against +expected_sha+ (if non-empty) or TOFU-pin
     # against the +.sha256+ sidecar. Returns the computed SHA256 hex digest
     # on success. Raises +RuntimeError+ on mismatch (explicit mode) or drift
-    # (TOFU mode).
+    # (TOFU mode); both error messages carry a +[vendor]+ prefix for CI log
+    # grepping.
     def verify_or_pin
       actual = sha256
       sidecar = "#{@path}.sha256"
@@ -44,7 +45,7 @@ module KobakoVendor
 
     def verify_against_expected(actual, sidecar)
       unless actual == @expected_sha
-        raise "checksum mismatch for #{File.basename(@path)}: " \
+        raise "[vendor] checksum mismatch for #{File.basename(@path)}: " \
               "expected #{@expected_sha}, got #{actual}"
       end
       File.write(sidecar, "#{actual}\n")
@@ -55,7 +56,7 @@ module KobakoVendor
         pinned = File.read(sidecar).strip
         return if actual == pinned
 
-        raise "checksum drift for #{File.basename(@path)}: " \
+        raise "[vendor] checksum drift for #{File.basename(@path)}: " \
               "pinned #{pinned}, got #{actual}"
       end
       File.write(sidecar, "#{actual}\n")

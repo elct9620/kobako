@@ -27,7 +27,7 @@ module KobakoVendor
 
       staging = extract_to_staging
       src = File.join(staging, @top_level_dir)
-      raise "expected #{src} after extracting #{@tarball}, missing" unless File.directory?(src)
+      raise "[vendor] expected #{src} after extracting #{@tarball}, missing" unless File.directory?(src)
 
       FileUtils.rm_rf(@final_dir)
       FileUtils.mkdir_p(File.dirname(@final_dir))
