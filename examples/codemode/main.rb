@@ -277,6 +277,11 @@ module CodeMode
         /exit                Quit the REPL
     HELP
 
+    # Slash verbs the dispatcher recognises. Centralised so the Reline
+    # tab-completion and highlight hooks stay in sync with +#handle+ —
+    # adding a verb means updating one list and one case branch.
+    COMMANDS = %w[/allow /disallow /exit /help].freeze
+
     module_function
 
     def handle(input, allowlist)
@@ -360,6 +365,26 @@ chat.on_tool_call do |call|
   CodeMode::Trace.tool_call(call)
 end
 chat.on_tool_result { |result| CodeMode::Trace.tool_result(last_tool_name, result) }
+
+# Reline UX sugar for slash commands: tab-complete the verb and paint
+# it inline so the operator sees at a glance whether the dispatcher
+# will accept it. The default Reline word-break characters do not
+# include +/+, so the leading +/verb+ token reaches +completion_proc+
+# whole. Argument completion (host names, etc.) is out of scope.
+Reline.completion_proc = lambda do |word|
+  next [] unless word.start_with?("/")
+
+  CodeMode::ReplCommands::COMMANDS.select { |cmd| cmd.start_with?(word) }
+end
+
+Reline.output_modifier_proc = lambda do |line, **|
+  next line unless line.start_with?("/")
+
+  verb, rest = line.split(" ", 2)
+  colour = CodeMode::ReplCommands::COMMANDS.include?(verb.downcase) ? :cyan : :red
+  painted = CodeMode::Trace.paint(verb, colour)
+  rest ? "#{painted} #{rest}" : painted
+end
 
 puts "Kobako CodeMode — model=#{model}  (type /help for commands, /exit to quit)"
 
