@@ -182,14 +182,18 @@ unless defined?(KobakoBuildConfig)
     # already pins to wasi-sdk absolute paths and is similarly immune.
     # Overridable via +HOST_CC+ / +HOST_CXX+ / +HOST_AR+ for operators
     # who want to point the host build at a non-default compiler.
-    def self.resolve_system_tool(env_key, command)
+    #
+    # Uses +IO.popen+ with array-form arguments so +tool_name+ is passed
+    # directly to +execve+ without traversing a shell, sidestepping any
+    # shell-metacharacter handling in the operator-provided value.
+    def self.resolve_system_tool(env_key, tool_name)
       override = ENV.fetch(env_key, nil)
       return override if override && !override.empty?
 
-      path = `command -v #{command}`.chomp
+      path = IO.popen(["which", tool_name], err: File::NULL, &:read).chomp
       return path unless path.empty?
 
-      raise "[kobako] system tool `#{command}` not found on PATH — " \
+      raise "[kobako] system tool `#{tool_name}` not found on PATH — " \
             "set #{env_key} to override"
     end
 
