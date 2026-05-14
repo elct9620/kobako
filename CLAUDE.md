@@ -50,13 +50,14 @@ Apply these in order — earlier principles override later ones on conflict.
 
 The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:build`. `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake` `cargo_build_env`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxidize-rb/actions/setup-ruby-and-rust` — the default task (`compile + test + rubocop`) is the canonical gate.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxidize-rb/actions/setup-ruby-and-rust` — the default task (`compile + test + rubocop + steep`) is the canonical gate.
 
 ## Common Commands
 
 | Task | Command |
 |------|---------|
-| Default CI task (compile + test + rubocop) | `bundle exec rake` |
+| Default CI task (compile + test + rubocop + steep) | `bundle exec rake` |
+| Run steep type check only | `bundle exec rake steep` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
 | Build Guest Binary (full chain) | `bundle exec rake wasm:build` |
 | Run all Ruby tests | `bundle exec rake test` |

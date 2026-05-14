@@ -9,6 +9,10 @@ require "rubocop/rake_task"
 
 RuboCop::RakeTask.new
 
+require "steep/rake_task"
+
+Steep::RakeTask.new
+
 require "rb_sys/extensiontask"
 
 # `bundler/gem_tasks` exposes `rake build` (and therefore `rake release`,
@@ -34,4 +38,4 @@ Dir.glob("tasks/*.rake").each { |t| load t }
 # the wasm crate source changes.
 task test: "wasm:build"
 
-task default: %i[compile test rubocop]
+task default: %i[compile test rubocop steep]
