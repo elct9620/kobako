@@ -94,13 +94,10 @@ impl Instance {
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the two-frame stdin protocol carries +preamble+ then +source+ —
-    /// SPEC.md ABI Signatures), clears the outcome cache, then invokes
-    /// `__kobako_run`. Bound to Ruby as `Instance#__run`; the public
-    /// kwargs surface (`#run(preamble:, source:)`) lives in
-    /// `lib/kobako/wasm.rb`.
+    /// SPEC.md ABI Signatures), then invokes `__kobako_run`.
     pub(crate) fn run(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        self.refresh_wasi(&ruby, preamble, source)?;
+        self.refresh_wasi(preamble, source)?;
 
         let run = self
             .run
@@ -143,24 +140,15 @@ impl Instance {
     }
 
     /// Read OUTCOME_BUFFER bytes captured during the most recent run.
-    /// Bound to Ruby as `Instance#outcome!` — the bang reflects that the
+    /// Bound to Ruby as `Instance#outcome!`. The bang signals that the
     /// underlying `__kobako_take_outcome` export is guest-side destructive
-    /// (the buffer pointer is invalidated after this call) and that any
-    /// failure path (missing export, length overflow, OOB read) raises
+    /// — the buffer pointer is invalidated after this call, so a second
+    /// invocation within the same run is undefined — and that any failure
+    /// (missing export, length overflow, OOB read) raises
     /// `Kobako::Wasm::Error`.
-    ///
-    /// Idempotent at the Ruby layer: the first call drains the guest's
-    /// OUTCOME_BUFFER into a host-side cache; subsequent calls within the
-    /// same run return the cached bytes. The cache is cleared by `#run`.
     pub(crate) fn outcome(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-
-        if let Some(bytes) = self.store.0.borrow().data().outcome_cache.as_ref() {
-            return Ok(ruby.str_from_slice(bytes));
-        }
-
         let bytes = self.fetch_outcome_bytes(&ruby)?;
-        self.store.0.borrow_mut().data_mut().outcome_cache = Some(bytes.clone());
         Ok(ruby.str_from_slice(&bytes))
     }
 
@@ -169,14 +157,9 @@ impl Instance {
     // -----------------------------------------------------------------
 
     /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
-    /// source) plus fresh stdout/stderr pipes, and clear the outcome cache.
-    /// Called at the top of every `#run`.
-    fn refresh_wasi(
-        &self,
-        _ruby: &Ruby,
-        preamble: RString,
-        source: RString,
-    ) -> Result<(), MagnusError> {
+    /// source) plus fresh stdout/stderr pipes. Called at the top of every
+    /// `#run`.
+    fn refresh_wasi(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
         // SAFETY: `as_slice` borrows are scoped to building the stdin Vec
         // below — no Ruby allocations happen between the borrow and the
         // copy, so the underlying RString cannot move.
@@ -207,7 +190,6 @@ impl Instance {
         data.wasi = Some(wasi);
         data.stdout_pipe = Some(stdout_pipe);
         data.stderr_pipe = Some(stderr_pipe);
-        data.outcome_cache = None;
 
         Ok(())
     }

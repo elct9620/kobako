@@ -31,12 +31,6 @@ pub(crate) struct HostState {
     pub stdout_pipe: Option<MemoryOutputPipe>,
     /// Clone of the MemoryOutputPipe wired to guest fd 2 (stderr).
     pub stderr_pipe: Option<MemoryOutputPipe>,
-    /// Cached OUTCOME_BUFFER bytes from the most-recent `#run`. Populated on
-    /// the first `#outcome!` call (which invokes `__kobako_take_outcome` —
-    /// guest-side destructive) and reused on subsequent calls within the same
-    /// run, so the Ruby reader is idempotent. Cleared at the start of every
-    /// new `#run`.
-    pub outcome_cache: Option<Vec<u8>>,
     /// Ruby-side `Kobako::Registry`. When set, the `__kobako_dispatch`
     /// import calls `registry.dispatch(req_bytes)` and hands the returned
     /// Response bytes back to the guest. `Opaque<Value>` is `Send + Sync`;
