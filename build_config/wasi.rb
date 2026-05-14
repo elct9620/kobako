@@ -172,156 +172,97 @@ unless defined?(KobakoBuildConfig)
 
       raise "[kobako] missing #{src} — run `rake vendor:setup:onigmo_build_aux`"
     end
-
-    # Resolves a system tool to its absolute path at config-eval time
-    # via +which+, captured *before* the CrossBuild block mutates
-    # +ENV["PATH"]+ to expose +vendor/wasi-sdk/bin+ for Onigmo's
-    # autotools. Pinning the host build (declared below) to these
-    # captured absolute paths means it naturally selects the system
-    # compiler regardless of any later PATH mutation; the cross build
-    # already pins to wasi-sdk absolute paths and is similarly immune.
-    # Overridable via +HOST_CC+ / +HOST_CXX+ / +HOST_AR+ for operators
-    # who want to point the host build at a non-default compiler.
-    #
-    # Uses +IO.popen+ with array-form arguments so +tool_name+ is passed
-    # directly to +execve+ without traversing a shell, sidestepping any
-    # shell-metacharacter handling in the operator-provided value.
-    def self.resolve_system_tool(env_key, tool_name)
-      override = ENV.fetch(env_key, nil)
-      return override if override && !override.empty?
-
-      path = IO.popen(["which", tool_name], err: File::NULL, &:read).chomp
-      return path unless path.empty?
-
-      raise "[kobako] system tool `#{tool_name}` not found on PATH — " \
-            "set #{env_key} to override"
-    end
-
-    HOST_CC  = resolve_system_tool("HOST_CC",  "cc").freeze
-    HOST_CXX = resolve_system_tool("HOST_CXX", "c++").freeze
-    HOST_AR  = resolve_system_tool("HOST_AR",  "ar").freeze
-
-    # Prepends +vendor/wasi-sdk/bin+ to +ENV["PATH"]+ so that bare tool
-    # names invoked outside mruby's +run_command(e, ...)+ path resolve to
-    # the LLVM variants. The specific culprit is mruby-onig-regexp's
-    # +mrbgem.rake+ +`ar x ...`+ (a Ruby backtick), where macOS's BSD
-    # +ar+ corrupts wasm member extraction. Called from the CrossBuild
-    # block so the mutation is scoped to the build that needs it — the
-    # host build, declared earlier, has already captured its absolute
-    # tool paths via +resolve_system_tool+ and is therefore immune.
-    def self.prepend_wasi_sdk_to_path!
-      wasi_sdk_bin = File.join(WASI_SDK, "bin")
-      ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
-    end
   end
 end
 
-# ---- Host build (Stage B sidecar) --------------------------------------
-# Declared BEFORE the CrossBuild so its presence short-circuits mruby's
-# auto-host-creation in +MRuby::CrossBuild#initialize+
-# (vendor/mruby/lib/mruby/build.rb:573). The auto path calls
-# +conf.toolchain+ with no argument, which on macOS resolves to +"clang"+
-# via +Toolchain.guess+ (because +RUBY_PLATFORM =~ /darwin/+) and ends
-# up with a bare +clang+ as its +cc.command+ — that bare name then
-# resolves through PATH at compile time, which the CrossBuild block
-# below prepends with +vendor/wasi-sdk/bin+ for Onigmo's autotools,
-# silently pulling host presym scanning into the wasi-sdk clang and
-# tripping +wasm32-wasi/setjmp.h+'s sjlj +#error+ guard.
+# Register the +:wasi+ toolchain encapsulating wasi-sdk absolute paths,
+# the wasm32-wasi target / sysroot flags, the setjmp/longjmp three-flag
+# set, the GNU archive format, and the wire-ABI +-D+ flags (rules #2-#4
+# of the file header). Cross builds opt in via +conf.toolchain :wasi+;
+# the host build stays on +:gcc+ so each target picks the toolchain
+# that matches it.
 #
-# Pinning the host toolchain to the absolute paths +KobakoBuildConfig+
-# captured at config-eval time lets the host build naturally pick the
-# system compiler (whatever +command -v cc+ resolved to) without
-# depending on PATH state. +disable_libmruby+ keeps the host build
-# minimal — it exists solely to produce +mrbc+ for the cross build to
-# consume (see +MRuby.targets['host'].mrbcfile+, build.rb:584).
-MRuby::Build.new("host") do |conf|
-  conf.toolchain :gcc
-  conf.cc.command       = KobakoBuildConfig::HOST_CC
-  conf.cxx.command      = KobakoBuildConfig::HOST_CXX
-  conf.linker.command   = KobakoBuildConfig::HOST_CC
-  conf.archiver.command = KobakoBuildConfig::HOST_AR
-  conf.build_mrbc_exec
-  conf.disable_libmruby
-end
+# The PATH prepend lives in this block because the only consumer of
+# bare-name LLVM tools is autotools child processes spawned during the
+# cross build (mruby-onig-regexp's +mrbgem.rake+ +`ar x ...`+). The
+# +vendor/wasi-sdk/bin+ directory ships no +gcc+ / +g+++ binary, so
+# the host build's bare +gcc+ / +g+++ default (gcc.rake) is unaffected.
+MRuby::Toolchain.new(:wasi) do |conf, _params|
+  wasi_sdk_bin = File.join(KobakoBuildConfig::WASI_SDK, "bin")
 
-# Expose LLVM ar/ranlib/nm to the cross build's Onigmo autotools child
-# processes (see +prepend_wasi_sdk_to_path!+ for the BSD-ar wasm-
-# corruption rationale). Done after the host build declaration above so
-# the host build's +command -v+-resolved absolute tool paths are already
-# captured, leaving the host immune to this process-wide PATH mutation.
-KobakoBuildConfig.prepend_wasi_sdk_to_path!
-
-MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
-  # ---- Toolchain (rule #2: CC / AR / LD all pinned to vendor/wasi-sdk) ---
   conf.toolchain :clang
 
-  # Cross-compile signal: third-party mrbgems (mruby-onig-regexp ships its
-  # own Onigmo source and runs `./configure --host=<value>` against it).
-  # Autotools reads `--host` to decide whether it is cross-compiling; if the
-  # value differs from the build machine triple it switches to compile-only
-  # feature detection (no test-binary execution, which would otherwise fail
-  # for wasm targets). Without this attribute, mruby-onig-regexp falls back
-  # to `build.name` ("wasi"), which autotools does not recognise as a
-  # canonical triple.
-  conf.host_target = KobakoBuildConfig::WASI_TARGET
-
-  conf.cc.command       = File.join(KobakoBuildConfig::WASI_SDK, "bin", "clang")
-  conf.cxx.command      = File.join(KobakoBuildConfig::WASI_SDK, "bin", "clang++")
-  conf.linker.command   = File.join(KobakoBuildConfig::WASI_SDK, "bin", "clang")
-  conf.archiver.command = File.join(KobakoBuildConfig::WASI_SDK, "bin", "llvm-ar")
+  # ---- Tool commands pinned to wasi-sdk absolute paths -----------------
+  conf.cc.command       = File.join(wasi_sdk_bin, "clang")
+  conf.cxx.command      = File.join(wasi_sdk_bin, "clang++")
+  conf.linker.command   = File.join(wasi_sdk_bin, "clang")
+  conf.archiver.command = File.join(wasi_sdk_bin, "llvm-ar")
   # llvm-ar on macOS hosts defaults to Darwin (BSD) archive format,
   # which can fail with "section too large" when the archive contains
   # many wasm objects with long member paths (mruby + Onigmo together
-  # cross that threshold). GNU format uses an extended string table and
-  # avoids the limit.
+  # cross that threshold). GNU format uses an extended string table.
   conf.archiver.archive_options = "--format=gnu rs %<outfile>s %<objs>s"
 
-  # ---- Cross-compile target ---------------------------------------------
+  # ---- Bare-tool PATH for autotools-driven mrbgems ---------------------
+  ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
+
+  # ---- Cross-compile target / sysroot ----------------------------------
   conf.cc.flags     << KobakoBuildConfig::TARGET_FLAGS
   conf.cxx.flags    << KobakoBuildConfig::TARGET_FLAGS
   conf.linker.flags << KobakoBuildConfig::TARGET_FLAGS
 
-  # ---- setjmp/longjmp (rule #3) -----------------------------------------
+  # ---- setjmp/longjmp (rule #3) ----------------------------------------
   # Apply at compile AND link stages — three-flag set is non-negotiable.
   conf.cc.flags     << KobakoBuildConfig::SJLJ_FLAGS
   conf.cxx.flags    << KobakoBuildConfig::SJLJ_FLAGS
   conf.linker.flags << KobakoBuildConfig::SJLJ_FLAGS
   conf.linker.libraries << "setjmp" # expands to `-lsetjmp` (wasi-libc libsetjmp.a)
 
-  # ---- `-D` flags (rule #4) ---------------------------------------------
+  # ---- `-D` flags (rule #4) --------------------------------------------
   # MRB_WORDBOX_NO_INLINE_FLOAT — pin mrb_value layout to the wasm32
-  # default. This is the layout the host-side wire codec assumes;
-  # changing it breaks the ABI.
+  # default; the host-side wire codec assumes this layout, changing it
+  # breaks the ABI. MRB_INT32 pins the integer width.
   conf.cc.defines  << "MRB_WORDBOX_NO_INLINE_FLOAT"
   conf.cxx.defines << "MRB_WORDBOX_NO_INLINE_FLOAT"
-
-  # MRB_INT32 — pinned integer width. MRB_INT64 would force 64-bit int
-  # wire alignment work.
   conf.cc.defines  << "MRB_INT32"
   conf.cxx.defines << "MRB_INT32"
 
   # Rule #5: we deliberately do NOT add `MRB_USE_VM_SWITCH_DISPATCH`.
   # mruby's default computed-goto path is rewritten by LLVM
-  # IndirectBrExpandPass into a switch+br_table on the wasm32 backend — the
-  # produced code is structurally equivalent to switch dispatch.
+  # IndirectBrExpandPass into a switch+br_table on the wasm32 backend —
+  # the produced code is structurally equivalent to switch dispatch.
+end
 
-  # ---- mrbgem allowlist (rule #1) ---------------------------------------
-  # Pull each allowed gem from mruby's bundled gembox source tree. Anything
-  # not listed here is omitted by construction.
-  KobakoBuildConfig::MRBGEM_ALLOWLIST.each do |gem_name|
-    conf.gem core: gem_name
-  end
+# Host build short-circuits mruby's auto-host-creation
+# (vendor/mruby/lib/mruby/build.rb:573). Explicit +:gcc+ keeps
+# +cc.command+ as bare +gcc+ — wasi-sdk/bin has no +gcc+/+g+++, so the
+# +:wasi+ toolchain's PATH prepend does not shadow the system compiler.
+MRuby::Build.new("host") do |conf|
+  conf.toolchain :gcc
+  conf.build_mrbc_exec
+  conf.disable_libmruby
+end
 
-  # Third-party mrbgems loaded from `vendor/<name>/` (populated by
-  # `rake vendor:setup`). Same strict-allowlist contract; see
-  # `KobakoBuildConfig::THIRD_PARTY_GEM_DIRS` for the security rationale.
-  KobakoBuildConfig::THIRD_PARTY_GEM_DIRS.each do |gem_dir|
-    conf.gem gem_dir
-  end
+MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
+  conf.toolchain :wasi
+
+  # Cross-compile signal: third-party mrbgems (mruby-onig-regexp ships
+  # its own Onigmo source and runs `./configure --host=<value>` against
+  # it). Without this attribute, mruby-onig-regexp falls back to
+  # `build.name` ("wasi"), which autotools does not recognise as a
+  # canonical triple.
+  conf.host_target = KobakoBuildConfig::WASI_TARGET
+
+  # mrbgem allowlist (rule #1) — anything not enumerated is omitted by
+  # construction. Bumping the list is a security-review-bearing change.
+  KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
+
+  # Third-party mrbgems loaded from `vendor/<name>/`. Same strict-
+  # allowlist contract; see KobakoBuildConfig::THIRD_PARTY_GEM_DIRS.
+  KobakoBuildConfig::THIRD_PARTY_GEM_DIRS.each { |gem_dir| conf.gem gem_dir }
 
   # Pre-extract Onigmo and overwrite its pre-wasm config.sub/config.guess
   # so mrbgem.rake's file rule skips its own extraction and ./configure
-  # sees the wasm-aware aux scripts. See
-  # KobakoBuildConfig.pre_extract_and_patch_onigmo!.
+  # sees the wasm-aware aux scripts.
   KobakoBuildConfig.pre_extract_and_patch_onigmo!
 end
