@@ -297,6 +297,30 @@ module CodeMode
       end
     end
 
+    # Reline +completion_proc+ hook: return verbs from COMMANDS whose
+    # prefix matches +word+. Case-insensitive so +/H<TAB>+ still
+    # completes to +/help+, matching the case-folding +#handle+ already
+    # applies. Returns +[]+ for non-slash words so chat input is left
+    # untouched.
+    def complete(word)
+      return [] unless word.start_with?("/")
+
+      COMMANDS.select { |cmd| cmd.start_with?(word.downcase) }
+    end
+
+    # Reline +output_modifier_proc+ hook: paint the leading verb of a
+    # slash command cyan when the dispatcher will accept it, red
+    # otherwise. Lines that do not begin with +/+ pass through
+    # unchanged so chat input renders as the user typed it.
+    def colourise(line)
+      return line unless line.start_with?("/")
+
+      verb, rest = line.split(" ", 2)
+      colour = COMMANDS.include?(verb.downcase) ? :cyan : :red
+      painted = Trace.paint(verb, colour)
+      rest ? "#{painted} #{rest}" : painted
+    end
+
     def unknown_command(verb)
       warn "unknown command: #{verb}. Type /help for the list."
       :handled
@@ -366,25 +390,12 @@ chat.on_tool_call do |call|
 end
 chat.on_tool_result { |result| CodeMode::Trace.tool_result(last_tool_name, result) }
 
-# Reline UX sugar for slash commands: tab-complete the verb and paint
-# it inline so the operator sees at a glance whether the dispatcher
-# will accept it. The default Reline word-break characters do not
-# include +/+, so the leading +/verb+ token reaches +completion_proc+
-# whole. Argument completion (host names, etc.) is out of scope.
-Reline.completion_proc = lambda do |word|
-  next [] unless word.start_with?("/")
-
-  CodeMode::ReplCommands::COMMANDS.select { |cmd| cmd.start_with?(word) }
-end
-
-Reline.output_modifier_proc = lambda do |line, **|
-  next line unless line.start_with?("/")
-
-  verb, rest = line.split(" ", 2)
-  colour = CodeMode::ReplCommands::COMMANDS.include?(verb.downcase) ? :cyan : :red
-  painted = CodeMode::Trace.paint(verb, colour)
-  rest ? "#{painted} #{rest}" : painted
-end
+# Reline UX sugar for slash commands: delegate tab-completion and
+# inline colouring to ReplCommands so the verb list lives next to the
+# dispatcher. The default Reline word-break characters do not include
+# +/+, so the leading +/verb+ token reaches +complete+ whole.
+Reline.completion_proc = ->(word) { CodeMode::ReplCommands.complete(word) }
+Reline.output_modifier_proc = ->(line, **) { CodeMode::ReplCommands.colourise(line) }
 
 puts "Kobako CodeMode — model=#{model}  (type /help for commands, /exit to quit)"
 
