@@ -454,6 +454,27 @@ class TestE2EJourneys < Minitest::Test
                  "the Symbol-vs-String key distinction (SPEC.md Type Mapping #8 + ext 0x00)")
   end
 
+  # Empty collection round-trips. The previous converter had a
+  # +"Hash" => "{}"+ string sentinel for the empty-Hash case; this
+  # commit's predecessor removed it on the premise that
+  # +Value::Map(vec![])+ is the canonical wire encoding for an empty
+  # Hash. These two tests pin the canonical encoding end-to-end so any
+  # regression that re-introduces an empty-sentinel string surfaces
+  # immediately.
+  def test_outcome_empty_array_round_trips
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    assert_equal [], sandbox.run("[]"),
+                 "outcome path: empty Array must arrive as `[]`, not the inspect string"
+  end
+
+  def test_outcome_empty_hash_round_trips
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    assert_equal({}, sandbox.run("{}"),
+                 "outcome path: empty Hash must arrive as `{}`, not the legacy `\"{}\"` sentinel")
+  end
+
   # RPC path: a Service returning an Array must reach the guest as an
   # mruby Array (callable methods like +#length+, +#first+), not as
   # +nil+. Reproduces the +examples/codemode+ failure where
@@ -493,7 +514,7 @@ class TestE2EJourneys < Minitest::Test
   def test_rpc_nested_array_of_hash_round_trip
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []
-    sandbox.define(:Echo).bind(:Identity, ->(arg) { seen << arg and arg })
+    sandbox.define(:Echo).bind(:Identity, ->(arg) { arg.tap { seen << arg } })
 
     result = sandbox.run("Echo::Identity.call([{x: 1}, {y: 2}])")
 
