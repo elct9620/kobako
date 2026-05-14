@@ -5,7 +5,7 @@
 #
 # Pure-Ruby helpers backing +tasks/vendor.rake+. Owns pinned versions,
 # tarball asset URLs, and unpacked-tree preparation. Network download
-# lives in +KobakoVendor::Download+ and SHA256 verification lives in
+# lives in +KobakoVendor::Downloader+ and SHA256 verification lives in
 # +KobakoVendor::Checksum+; the .rake wrapper is the rake DSL surface
 # that glues these helpers to +file+ / +task+ declarations.
 #
@@ -15,7 +15,7 @@
 
 require "fileutils"
 
-require_relative "kobako_vendor/download"
+require_relative "kobako_vendor/downloader"
 require_relative "kobako_vendor/checksum"
 
 # Vendor toolchain façade.

@@ -44,7 +44,7 @@ namespace :vendor do
           "#{KobakoVendor::WASI_SDK_TARBALL_NAME}"
     puts "[vendor] downloading wasi-sdk #{KobakoVendor::WASI_SDK_FULL_VERSION} " \
          "(#{KobakoVendor::WASI_SDK_PLATFORM}) from #{url}"
-    KobakoVendor::Download.download(url, t.name)
+    KobakoVendor::Downloader.new(url, t.name).download
     KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:WASI_SDK))
   end
 
@@ -52,7 +52,7 @@ namespace :vendor do
     url = "#{KobakoVendor.base_url_for(KobakoVendor::DEFAULT_MRUBY_BASE)}/" \
           "#{KobakoVendor::MRUBY_TARBALL_NAME}"
     puts "[vendor] downloading mruby #{KobakoVendor::MRUBY_VERSION} from #{url}"
-    KobakoVendor::Download.download(url, t.name)
+    KobakoVendor::Downloader.new(url, t.name).download
     KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:MRUBY))
   end
 
@@ -60,7 +60,7 @@ namespace :vendor do
     url = "#{KobakoVendor.base_url_for(KobakoVendor::DEFAULT_MRUBY_ONIG_REGEXP_BASE)}/" \
           "#{KobakoVendor::MRUBY_ONIG_REGEXP_TARBALL_NAME}"
     puts "[vendor] downloading mruby-onig-regexp #{KobakoVendor::MRUBY_ONIG_REGEXP_COMMIT[0, 8]} from #{url}"
-    KobakoVendor::Download.download(url, t.name)
+    KobakoVendor::Downloader.new(url, t.name).download
     KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(:MRUBY_ONIG_REGEXP))
   end
 
@@ -70,7 +70,7 @@ namespace :vendor do
     file cache_path do |t|
       url = "https://git.savannah.gnu.org/cgit/config.git/plain/#{filename}?id=#{commit}"
       puts "[vendor] downloading #{filename}@#{commit[0, 8]} from #{url}"
-      KobakoVendor::Download.download(url, t.name)
+      KobakoVendor::Downloader.new(url, t.name).download
       sha_key = :"CONFIG_#{filename.split(".").last.upcase}"
       KobakoVendor::Checksum.verify_or_pin(t.name, KobakoVendor.expected_sha256(sha_key))
     end
