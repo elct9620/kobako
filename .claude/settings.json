@@ -15,6 +15,10 @@
           {
             "type": "command",
             "command": "file=$(jq -r '.tool_input.file_path | select(endswith(\".rs\"))'); if [ -n \"$file\" ]; then dir=$(dirname \"$file\"); while [ \"$dir\" != \"/\" ] && [ ! -f \"$dir/Cargo.toml\" ]; do dir=$(dirname \"$dir\"); done; if [ -f \"$dir/Cargo.toml\" ]; then case \"$dir\" in */wasm/*) if rustc --target wasm32-wasip1 --print sysroot >/dev/null 2>&1; then cargo clippy --target wasm32-wasip1 --manifest-path \"$dir/Cargo.toml\" -q -- -D warnings >&2 || exit 2; fi ;; *) cargo clippy --manifest-path \"$dir/Cargo.toml\" -q -- -D warnings >&2 || exit 2 ;; esac; fi; fi"
+          },
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path | select(test(\"\\\\.(rb|rbs)$\"))'); if [ -n \"$file\" ]; then bundle exec steep check >&2 || exit 2; fi"
           }
         ]
       }
