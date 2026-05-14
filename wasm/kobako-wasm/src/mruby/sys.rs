@@ -32,7 +32,6 @@
 //!
 //!   * `mrb_define_module`
 //!   * `mrb_define_class_under`
-//!   * `mrb_define_module_function`
 //!   * `mrb_define_singleton_method`
 //!   * `mrb_class_ptr`
 //!   * `mrb_class_name`
@@ -139,9 +138,8 @@ pub type RObject = c_void;
 pub type mrb_sym = u32;
 
 /// C function pointer matching mruby's method-implementation signature
-/// `mrb_value (*)(mrb_state*, mrb_value)`. Used by
-/// `mrb_define_method` / `mrb_define_module_function` /
-/// `mrb_define_singleton_method`.
+/// `mrb_value (*)(mrb_state*, mrb_value)`. Used by `mrb_define_method`
+/// and `mrb_define_singleton_method`.
 pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: mrb_value) -> mrb_value;
 
 /// `mrb_aspec` — packed argument specification (e.g. `MRB_ARGS_REQ(4)`).
@@ -184,16 +182,6 @@ extern "C" {
         name: *const c_char,
         super_: *mut RClass,
     ) -> *mut RClass;
-
-    /// `mrb_define_module_function(mrb, mod_, name, func, aspec)` —
-    /// defines a module function on `mod_`.
-    pub fn mrb_define_module_function(
-        mrb: *mut mrb_state,
-        mod_: *mut RClass,
-        name: *const c_char,
-        func: mrb_func_t,
-        aspec: mrb_aspec,
-    );
 
     /// `mrb_define_singleton_method(mrb, obj, name, func, aspec)` —
     /// defines a singleton-class method on `obj`.

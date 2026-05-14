@@ -11,8 +11,13 @@
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
 //!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
-//! The wasm-binary invariant test (`test/test_wasm_guest_build.rb`)
-//! inspects the emitted wasm and verifies exactly these names appear.
+//! The import/export name set is enforced at link time: a guest import
+//! the host does not provide traps inside wasmtime, and a missing
+//! export fails the `link_func_wrap` lookup on the host side or the
+//! `Caller::get_export` lookup inside dispatch. E2E journeys
+//! (`test/test_e2e_journeys.rb`) drive a full host↔guest round-trip
+//! against the real `data/kobako.wasm`, so any name drift surfaces
+//! before any other test runs.
 //!
 //! ## Packed u64 layout
 //!
