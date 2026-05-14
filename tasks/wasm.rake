@@ -37,7 +37,8 @@ namespace :wasm do
   desc "cargo check the kobako-wasm crate (wasm32-wasip1 if available, host otherwise)"
   task :check do
     abort "cargo not on PATH; install Rust toolchain to run wasm:check" unless KobakoWasm.cargo_available?
-    target_flag = (t = KobakoWasm.wasm_target_or_host) ? ["--target", t] : []
+    target = KobakoWasm.wasm_target_or_host
+    target_flag = target ? ["--target", target] : []
     sh "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, *target_flag
   end
 
