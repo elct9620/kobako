@@ -47,8 +47,8 @@ module KobakoWasm
     private
 
     # True when +data/kobako.wasm+ exists and is newer than every input
-    # file the build would consume. Honours the idempotency rule in
-    # SPEC.md "Implementation Standards" for +tasks/*.rake+.
+    # file the build would consume — lets a second +wasm:build+ skip the
+    # cargo invocation when nothing under the crate has changed.
     def up_to_date?
       return false unless File.exist?(DATA_WASM)
 
