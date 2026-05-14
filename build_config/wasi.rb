@@ -206,6 +206,21 @@ MRuby::Toolchain.new(:wasi) do |conf, _params|
   # ---- Bare-tool PATH for autotools-driven mrbgems ---------------------
   ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
 
+  # ---- pkg-config sysroot isolation ------------------------------------
+  # Anchor +pkg-config+ to the wasm32-wasi sysroot's pkgconfig dir
+  # (which currently ships no +.pc+ files) and clear +PKG_CONFIG_PATH+,
+  # following the standard autotools cross-compile convention. This
+  # ensures +spec.search_package 'foo'+ in mrbgems returns false instead
+  # of matching a host package. The concrete trigger is mruby-onig-
+  # regexp's +mrbgem.rake:107+, which calls
+  # +spec.search_package 'onigmo'+ and, on a macOS runner with brew
+  # Onigmo installed, would link the host +libonigmo+ into the wasm
+  # output — wasi-sdk has no +libonigmo.a+, so the wasm module ends up
+  # with +onig_new+ as an unresolved import.
+  ENV["PKG_CONFIG_LIBDIR"] =
+    File.join(KobakoBuildConfig::WASI_SYSROOT, "lib", KobakoBuildConfig::WASI_TARGET, "pkgconfig")
+  ENV["PKG_CONFIG_PATH"] = ""
+
   # ---- Cross-compile target / sysroot ----------------------------------
   conf.cc.flags     << KobakoBuildConfig::TARGET_FLAGS
   conf.cxx.flags    << KobakoBuildConfig::TARGET_FLAGS
