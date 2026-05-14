@@ -3,9 +3,9 @@
 //! This module declares the wasm import/export contract pinned by SPEC.md
 //! "ABI Signatures". The contract is:
 //!
-//! * **Exactly 1 host import**: `__kobako_rpc_call` — the RPC bridge guest
+//! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge guest
 //!   uses to dispatch a Service call to the host. Lives in the `env`
-//!   wasm namespace (`(import "env" "__kobako_rpc_call" ...)`).
+//!   wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
 //! * **Exactly 3 guest exports**:
 //!   - `__kobako_run`             — reactor entry; runs boot script
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
@@ -16,7 +16,7 @@
 //!
 //! ## Packed u64 layout
 //!
-//! Both `__kobako_rpc_call` (host import) and `__kobako_take_outcome`
+//! Both `__kobako_dispatch` (host import) and `__kobako_take_outcome`
 //! (guest export) return a u64 (i64 at the wasm type level) carrying two
 //! u32 values: the high 32 bits are the wasm linear memory ptr, the low 32
 //! bits are the byte length.
@@ -41,7 +41,7 @@ use crate::cstr;
 pub const IMPORT_MODULE: &str = "env";
 
 /// Sole host-provided import function name.
-pub const IMPORT_NAME: &str = "__kobako_rpc_call";
+pub const IMPORT_NAME: &str = "__kobako_dispatch";
 
 /// All three guest-provided export names, in declaration order.
 pub const EXPORT_NAMES: [&str; 3] = ["__kobako_run", "__kobako_alloc", "__kobako_take_outcome"];
@@ -61,7 +61,7 @@ extern "C" {
     /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a packed
     /// u64 holding (response_ptr, response_len) of a buffer the host
     /// allocated via `__kobako_alloc` inside the same call frame.
-    pub fn __kobako_rpc_call(req_ptr: u32, req_len: u32) -> u64;
+    pub fn __kobako_dispatch(req_ptr: u32, req_len: u32) -> u64;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +423,7 @@ static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
 /// Delegates to `malloc` from wasi-libc. The allocated buffer is intentionally
 /// not freed — its lifetime is bounded by the wasm instance lifetime (one
 /// `Sandbox#run` invocation). The host writes the RPC response into this
-/// buffer inside the `__kobako_rpc_call` callback, then the response is
+/// buffer inside the `__kobako_dispatch` callback, then the response is
 /// consumed synchronously before the RPC call returns, so the buffer does
 /// not need to outlive the call frame. Instance drop frees all linear memory
 /// (SPEC.md Wire ABI exports).
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn import_name_matches_spec() {
-        assert_eq!(IMPORT_NAME, "__kobako_rpc_call");
+        assert_eq!(IMPORT_NAME, "__kobako_dispatch");
     }
 
     #[test]

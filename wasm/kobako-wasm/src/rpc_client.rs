@@ -2,7 +2,7 @@
 //!
 //! This module is the glue between the in-VM mruby proxy installed
 //! by `crate::kobako::Kobako::install` (mruby C API registrations) and
-//! the wasm-level `__kobako_rpc_call` host import declared in `abi.rs`.
+//! the wasm-level `__kobako_dispatch` host import declared in `abi.rs`.
 //! SPEC.md "Wire Contract" → Request / Response pins the contract this
 //! module implements.
 //!
@@ -15,7 +15,7 @@
 //!    vectors so that any drift surfaces in `cargo test`.
 //!
 //! 2. [`invoke_rpc`] — full round-trip. Builds the Request bytes, calls
-//!    the host via `__kobako_rpc_call` on `wasm32`, then decodes the
+//!    the host via `__kobako_dispatch` on `wasm32`, then decodes the
 //!    response. On the host target (`#[cfg(not(target_arch = "wasm32"))]`)
 //!    a thread-local **loopback** hook stands in for the host so that
 //!    integration-style tests can drive the full RPC path without a
@@ -40,7 +40,7 @@
 //! delegates to.
 
 #[cfg(target_arch = "wasm32")]
-use crate::abi::__kobako_rpc_call;
+use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{CodecError, Decoder, Value};
@@ -168,7 +168,7 @@ pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
     LOOPBACK.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), hook))
 }
 
-/// Invoke the host via `__kobako_rpc_call` (or the loopback hook on
+/// Invoke the host via `__kobako_dispatch` (or the loopback hook on
 /// host targets). On success, returns the value out of `Response::Ok`;
 /// on a Response.err path returns [`InvokeError::ServiceErr`]; on a
 /// wire fault returns [`InvokeError::Wire`].
@@ -249,7 +249,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     // a `__kobako_alloc(req.len())` round trip.
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
-    let packed = unsafe { __kobako_rpc_call(req_ptr, req_len) };
+    let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };
     let (ptr, len) = unpack_u64(packed);
     if len == 0 {
         // Wire violation per SPEC.md → ABI Signatures.

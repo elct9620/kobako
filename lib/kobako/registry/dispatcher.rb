@@ -33,7 +33,7 @@ module Kobako
 
       # Dispatch a single RPC request and return the encoded response bytes.
       # Called by +Kobako::Registry#dispatch+ which is invoked from the Rust
-      # ext inside +__kobako_rpc_call+. +request_bytes+ is the msgpack-encoded
+      # ext inside +__kobako_dispatch+. +request_bytes+ is the msgpack-encoded
       # Request envelope. +registry+ is the live registry for this run, used
       # to resolve path-based targets via +#lookup+ and to access the
       # +#handle_table+ for Handle-based targets and return-value wrapping.

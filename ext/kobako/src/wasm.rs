@@ -15,7 +15,7 @@
 //   * `cache`       — process-wide Engine + per-path Module cache.
 //   * `host_state`  — HostState (per-Store context) + StoreCell wrapper.
 //   * `instance`    — Kobako::Wasm::Instance and its run-path methods.
-//   * `dispatch`    — `__kobako_rpc_call` host-import dispatch helpers.
+//   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //
 // This file is the façade: it owns the Ruby error class lazy-resolvers,
 // the `wasm_err` constructor shared by every submodule, and the Ruby

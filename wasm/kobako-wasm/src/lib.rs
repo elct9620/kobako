@@ -8,11 +8,11 @@
 //! * `envelope` — Request / Response / Result / Panic / Outcome
 //!   envelope encoders and decoders on top of `codec` (SPEC.md
 //!   "Wire Contract").
-//! * `abi` — Wire ABI surface: the `__kobako_rpc_call` host import and
+//! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome`
 //!   guest exports (SPEC.md "ABI Signatures").
 //! * `rpc_client` — RPC round-trip pipeline used by the guest-side
-//!   mruby bridge to dispatch a call through `__kobako_rpc_call`.
+//!   mruby bridge to dispatch a call through `__kobako_dispatch`.
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in

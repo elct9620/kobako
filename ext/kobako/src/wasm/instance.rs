@@ -70,7 +70,7 @@ impl Instance {
 
     /// Install the Ruby-side `Kobako::Registry` into HostState. Called by
     /// `Kobako::Sandbox` after constructing the Registry; from this point
-    /// on, every `__kobako_rpc_call` import invocation routes through
+    /// on, every `__kobako_dispatch` import invocation routes through
     /// `registry.dispatch(req_bytes)`.
     pub(crate) fn set_registry(&self, registry: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.0.borrow_mut();
@@ -285,7 +285,7 @@ impl Instance {
 
 /// Build an `Instance` from an engine, module, and store cell. The store
 /// cell is moved in and ends up owned by the returned Instance. Wires
-/// the WASI p1 imports plus the `__kobako_rpc_call` host import.
+/// the WASI p1 imports plus the `__kobako_dispatch` host import.
 fn build_instance(
     engine: &WtEngine,
     module: &WtModule,
@@ -308,7 +308,7 @@ fn build_instance(
     })
     .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
 
-    // `__kobako_rpc_call` host import. Signature per SPEC Wire ABI:
+    // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
     //   (req_ptr: i32, req_len: i32) -> i64
     // Decodes the Request bytes, dispatches via the Ruby-side
     // `Kobako::Registry` (set per-run via `set_registry`), allocates a guest
@@ -318,12 +318,12 @@ fn build_instance(
     linker
         .func_wrap(
             "env",
-            "__kobako_rpc_call",
+            "__kobako_dispatch",
             |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
                 dispatch_rpc(&mut caller, req_ptr, req_len)
             },
         )
-        .map_err(|e| wasm_err(&ruby, format!("define __kobako_rpc_call: {}", e)))?;
+        .map_err(|e| wasm_err(&ruby, format!("define __kobako_dispatch: {}", e)))?;
 
     let instance = {
         let mut store_ref = store_cell.0.borrow_mut();

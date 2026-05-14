@@ -1,4 +1,4 @@
-//! Host-side dispatch for the `__kobako_rpc_call` import.
+//! Host-side dispatch for the `__kobako_dispatch` import.
 //!
 //! When the guest invokes the wasm import declared in
 //! `wasm/kobako-wasm/src/abi.rs`, wasmtime calls back into the host
@@ -26,7 +26,7 @@ use wasmtime::{Caller, Extern};
 
 use super::host_state::HostState;
 
-/// Drive a single `__kobako_rpc_call` invocation end-to-end. Entry point
+/// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
 /// from the wasmtime closure built in [`super::instance::build_instance`].
 pub(crate) fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
     let req_bytes = match read_caller_memory(caller, req_ptr, req_len) {
@@ -61,7 +61,7 @@ fn invoke_registry(registry: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>,
     // Architecture pins for the host gem — so `Ruby::get()` is always
     // available here. Panicking with `expect` localises the violation
     // rather than letting a nonsense error propagate.
-    let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_rpc_call");
+    let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
     let registry_value: Value = ruby.get_inner(registry);
     let req_str = ruby.str_from_slice(req_bytes);
     let resp: RString = registry_value.funcall("dispatch", (req_str,))?;

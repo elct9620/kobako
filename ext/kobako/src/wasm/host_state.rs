@@ -1,7 +1,7 @@
 //! Per-Store host state shared with every wasmtime callback.
 //!
 //! Owned by [`StoreCell`] (a `RefCell` shim wrapping `wasmtime::Store`)
-//! and threaded through every host import — the `__kobako_rpc_call`
+//! and threaded through every host import — the `__kobako_dispatch`
 //! dispatcher reads `registry`, while the run-path methods on
 //! [`crate::wasm::Instance`] mutate `wasi`, `stdout_pipe`, `stderr_pipe`
 //! when refreshing the WASI context before each `#run` (SPEC.md B-03 /
@@ -36,7 +36,7 @@ pub(crate) struct HostState {
     pub stdout_pipe: Option<MemoryOutputPipe>,
     /// Clone of the MemoryOutputPipe wired to guest fd 2 (stderr).
     pub stderr_pipe: Option<MemoryOutputPipe>,
-    /// Ruby-side `Kobako::Registry`. When set, the `__kobako_rpc_call`
+    /// Ruby-side `Kobako::Registry`. When set, the `__kobako_dispatch`
     /// import calls `registry.dispatch(req_bytes)` and hands the returned
     /// Response bytes back to the guest. `Opaque<Value>` is `Send + Sync`;
     /// calling `get_inner` requires a `Ruby` handle, which we obtain on
