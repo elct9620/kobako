@@ -139,13 +139,24 @@ unless defined?(KobakoBuildConfig)
     def self.overwrite_config_aux(oniguruma_dir)
       aux_dir = File.join(VENDOR_DIR, "onigmo-build-aux")
       %w[config.sub config.guess].each do |name|
-        src = File.join(aux_dir, name)
-        next unless File.exist?(src)
-
+        src = require_aux_script(aux_dir, name)
         dst = File.join(oniguruma_dir, name)
         FileUtils.cp(src, dst)
         File.chmod(0o755, dst)
       end
+    end
+
+    # Returns the absolute path to a vendored GNU config aux script, or
+    # raises with an actionable +rake+ hint when the script is missing
+    # (typically the operator forgot +rake vendor:setup:onigmo_build_aux+
+    # before +rake mruby:build+). Failing here means Onigmo's pre-wasm
+    # +./configure+ never runs, which would otherwise blow up downstream
+    # with the cryptic +"Invalid configuration 'wasm32-wasi'"+ error.
+    def self.require_aux_script(aux_dir, name)
+      src = File.join(aux_dir, name)
+      return src if File.exist?(src)
+
+      raise "[kobako] missing #{src} — run `rake vendor:setup:onigmo_build_aux`"
     end
   end
 end
