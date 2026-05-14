@@ -919,9 +919,9 @@ The following function names and byte-level signatures are fixed cross-implement
 
 | Function name | Wasm signature | Return convention |
 |---|---|---|
-| `__kobako_rpc_call` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = response buffer ptr (zero-extended u32 wasm linear memory offset); low 32 bits = response byte length (u32) |
+| `__kobako_dispatch` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = response buffer ptr (zero-extended u32 wasm linear memory offset); low 32 bits = response byte length (u32) |
 
-The Guest Binary calls `__kobako_rpc_call` after writing a Request payload into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the Request, dispatches it, serializes the Response, allocates a response buffer via `__kobako_alloc`, writes the Response bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Response error-variant path), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
+The Guest Binary calls `__kobako_dispatch` after writing a Request payload into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the Request, dispatches it, serializes the Response, allocates a response buffer via `__kobako_alloc`, writes the Response bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Response error-variant path), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
 
 Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding this limit are a wire violation; the Host Gem walks the trap path.
 
@@ -935,7 +935,7 @@ Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding th
 
 ##### Packed u64 return layout
 
-Both `__kobako_rpc_call` and `__kobako_take_outcome` return a packed i64 (Wasm type) carrying two u32 values:
+Both `__kobako_dispatch` and `__kobako_take_outcome` return a packed i64 (Wasm type) carrying two u32 values:
 
 ```
  63        32 31         0
@@ -985,7 +985,7 @@ The following principles govern how all names in this specification and in the `
 The kobako codebase is split into two top-level source areas with a strict boundary between them:
 
 - **`lib/`** — the Host Gem Ruby surface. Contains `kobako.rb` (the main entry point that loads the native extension and defines the public API) and `lib/kobako/` sub-modules (error class definitions, wire helpers). This is the only layer the Host App interacts with directly.
-- **`ext/kobako/`** — the private native extension (`kobako-ext` Rust crate). Wraps wasmtime, owns the Wasm engine lifecycle, and implements the host-side import function `__kobako_rpc_call`. This is a private implementation detail of the Host Gem; it is never intended as a reusable wasmtime binding and exposes no Wasm engine types to the Host App or downstream gems.
+- **`ext/kobako/`** — the private native extension (`kobako-ext` Rust crate). Wraps wasmtime, owns the Wasm engine lifecycle, and implements the host-side import function `__kobako_dispatch`. This is a private implementation detail of the Host Gem; it is never intended as a reusable wasmtime binding and exposes no Wasm engine types to the Host App or downstream gems.
 - **`wasm/`** — the Guest Binary source (`kobako-wasm` Rust crate, target `wasm32-wasip1`). This is build-time only; it is compiled to `data/kobako.wasm` and excluded from the published gem alongside build tools (`vendor/`, `tasks/`, `build_config/`).
 - **`data/kobako.wasm`** — the pre-built Guest Binary artifact. Produced at release time on the publisher's machine and shipped inside the gem. End users receive this file at install time; they never need to recompile the Wasm side.
 
@@ -1021,7 +1021,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | `ext/kobako/` is a private binding for the kobako gem only; no downstream gem may depend on it directly | Architecture | Documentation |
 | Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1 | Host Gem, Wire Spec | Test-time |
 | Handles are never individually released by the guest; the host implementation does not use `ObjectSpace.define_finalizer` for HandleTable entries | Host Gem | Documentation |
-| Wire ABI has exactly one host import (`__kobako_rpc_call`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
+| Wire ABI has exactly one host import (`__kobako_dispatch`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
 | Guest mruby's `MRB_STR_LENGTH_MAX` is 1 MiB — a guest-side String at or above this size raises `ArgumentError` inside the guest. This is independent of the 16 MiB single-RPC wire payload limit; a wire payload can approach the 16 MiB cap via composite values (Array, binary), but a single guest String value cannot. | Guest Binary build (mruby config) | Runtime |
 
 #### Testing Style
