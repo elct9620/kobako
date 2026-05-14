@@ -17,8 +17,12 @@
 #   * onigmo-build-aux  — pinned-commit GNU config.sub / config.guess
 #                         (single-file shell scripts) that overwrite the
 #                         pre-wasm copies shipped inside Onigmo 6.2.0.
-#                         Same pattern CRuby's wasm build uses; see the
-#                         `enhance` hook in `build_config/wasi.rb`.
+#                         Same pattern CRuby's wasm build uses; the actual
+#                         overwrite happens in
+#                         `KobakoBuildConfig.pre_extract_and_patch_onigmo!`
+#                         (build_config/wasi.rb), called from the
+#                         CrossBuild block right after `conf.gem` loads
+#                         the mrbgem.
 #
 # Versions are pinned as constants in `KobakoVendor` below. Bumping a version
 # is the entire upgrade workflow; no git submodule pointer dance.
