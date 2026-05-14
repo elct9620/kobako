@@ -37,11 +37,21 @@
 require "digest"
 require "fileutils"
 require "open-uri"
+# net/http transitively defines Net::ReadTimeout / Net::OpenTimeout.
+# open-uri only auto-requires net/http on first URI.open call, so we
+# load it eagerly here — DOWNLOAD_TRANSIENT_ERRORS below names those
+# constants at module-eval time.
+require "net/http"
 
 # Hoisted out of the `namespace :vendor` block so that constant definitions
 # don't trigger Lint/ConstantDefinitionInBlock and are introspectable from
 # the test suite without re-loading the rake DSL.
-module KobakoVendor
+#
+# TODO: KobakoVendor exceeded Metrics/ModuleLength (100 lines) after the
+# download-retry helpers landed. Carry an inline disable for now; a
+# follow-up should extract download / SHA verification into a sub-module
+# so the cop can be re-enabled cleanly.
+module KobakoVendor # rubocop:disable Metrics/ModuleLength
   ROOT       = File.expand_path("..", __dir__)
   VENDOR_DIR = (ENV["KOBAKO_VENDOR_DIR"] || File.join(ROOT, "vendor")).freeze
   CACHE_DIR  = File.join(VENDOR_DIR, ".cache").freeze
@@ -138,11 +148,56 @@ module KobakoVendor
   # Helpers
   # -----------------------------------------------------------------------
 
+  # Maximum retry attempts for transient download failures. Each retry
+  # waits +2 ** attempt+ seconds, so 3 retries spread over 2 + 4 + 8 =
+  # 14 seconds — enough to ride out a GitHub archive 502 / TCP read
+  # timeout without making +rake vendor:setup+ feel hung.
+  DOWNLOAD_MAX_RETRIES = 3
+
+  # Errors classified as transient network failures, retried via the
+  # exponential backoff in +download+. +OpenURI::HTTPError+ is
+  # included but +retry-or-raise+ further narrows it to 5xx server
+  # responses; 4xx (URL typo, repo deleted, expired ref) is permanent
+  # and bypasses the retry path so the operator sees the failure
+  # immediately.
+  DOWNLOAD_TRANSIENT_ERRORS = [
+    OpenURI::HTTPError, Net::ReadTimeout, Net::OpenTimeout,
+    Errno::ECONNRESET, SocketError
+  ].freeze
+
   def self.download(url, dest)
     FileUtils.mkdir_p(File.dirname(dest))
     tmp = "#{dest}.part"
-    URI.parse(url).open("rb") { |io| File.open(tmp, "wb") { |f| IO.copy_stream(io, f) } }
+    with_download_retry do
+      URI.parse(url).open("rb") { |io| File.open(tmp, "wb") { |f| IO.copy_stream(io, f) } }
+    end
     File.rename(tmp, dest)
+  end
+
+  # Exponential-backoff retry wrapper for transient download failures.
+  # +OpenURI::HTTPError+ is narrowed to 5xx so 4xx (URL typo, repo
+  # deleted, expired ref) bypasses the retry path and surfaces
+  # immediately.
+  def self.with_download_retry
+    attempts = 0
+    begin
+      yield
+    rescue *DOWNLOAD_TRANSIENT_ERRORS => e
+      raise if permanent_download_error?(e) || (attempts += 1) > DOWNLOAD_MAX_RETRIES
+
+      warn_and_sleep_for_retry(e, attempts)
+      retry
+    end
+  end
+
+  def self.permanent_download_error?(error)
+    error.is_a?(OpenURI::HTTPError) && !error.message.match?(/\A5\d\d\b/)
+  end
+
+  def self.warn_and_sleep_for_retry(error, attempt)
+    warn "[vendor] retry #{attempt}/#{DOWNLOAD_MAX_RETRIES} after #{error.class}: " \
+         "#{error.message.lines.first&.strip}"
+    sleep(2**attempt)
   end
 
   def self.sha256_of(path)
