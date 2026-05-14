@@ -96,10 +96,12 @@ module KobakoVendor
   MRUBY_TARBALL_PATH            = File.join(CACHE_DIR, MRUBY_TARBALL_NAME).freeze
   MRUBY_ONIG_REGEXP_TARBALL_PATH = File.join(CACHE_DIR, MRUBY_ONIG_REGEXP_TARBALL_NAME).freeze
 
+  module_function
+
   # When KOBAKO_VENDOR_BASE_URL is set, both tarballs are fetched from that
   # base URL (test fixture). The base URL must serve files named exactly
   # +WASI_SDK_TARBALL_NAME+ and +MRUBY_TARBALL_NAME+.
-  def self.base_url_for(default)
+  def base_url_for(default)
     override = ENV.fetch("KOBAKO_VENDOR_BASE_URL", nil)
     return default if override.nil? || override.empty?
 
@@ -108,10 +110,10 @@ module KobakoVendor
 
   # Expected SHA256 for a vendored tarball, sourced from
   # +KOBAKO_VENDOR_<KEY>_SHA256+ env vars (empty string falls back to TOFU
-  # sidecar pinning in +Checksum.verify_or_pin+). +key+ is the artifact
+  # sidecar pinning in +Checksum#verify_or_pin+). +key+ is the artifact
   # slug in upper snake case, e.g. +:WASI_SDK+, +:MRUBY+,
   # +:MRUBY_ONIG_REGEXP+.
-  def self.expected_sha256(key)
+  def expected_sha256(key)
     ENV.fetch("KOBAKO_VENDOR_#{key}_SHA256", "")
   end
 end
