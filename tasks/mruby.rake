@@ -38,13 +38,9 @@ module KobakoMruby
     File.join(MRUBY_DIR, "minirake")
   end
 
-  # Run mruby's minirake with our build config wired in via MRUBY_CONFIG.
-  # The mruby build system reads MRUBY_CONFIG (absolute path or basename
-  # of a file under build_config/) to choose its top-level Build
-  # definition. Per-build toolchain plumbing (including the wasi-sdk
-  # PATH prepend that mruby-onig-regexp's autotools need) lives in
-  # `build_config/wasi.rb` itself, co-located with the cross build it
-  # serves, so this wrapper stays a thin invocation shim.
+  # Run mruby's minirake with our build config wired in via
+  # MRUBY_CONFIG. mruby reads that env var (absolute path or basename
+  # of a file under build_config/) to choose its top-level Build.
   def self.invoke_minirake(*args)
     env = { "MRUBY_CONFIG" => BUILD_CONFIG }
     cmd = [RbConfig.ruby, minirake, *args]

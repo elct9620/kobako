@@ -175,18 +175,11 @@ unless defined?(KobakoBuildConfig)
   end
 end
 
-# Register the +:wasi+ toolchain encapsulating wasi-sdk absolute paths,
-# the wasm32-wasi target / sysroot flags, the setjmp/longjmp three-flag
-# set, the GNU archive format, and the wire-ABI +-D+ flags (rules #2-#4
-# of the file header). Cross builds opt in via +conf.toolchain :wasi+;
-# the host build stays on +:gcc+ so each target picks the toolchain
-# that matches it.
-#
-# The PATH prepend lives in this block because the only consumer of
-# bare-name LLVM tools is autotools child processes spawned during the
-# cross build (mruby-onig-regexp's +mrbgem.rake+ +`ar x ...`+). The
-# +vendor/wasi-sdk/bin+ directory ships no +gcc+ / +g+++ binary, so
-# the host build's bare +gcc+ / +g+++ default (gcc.rake) is unaffected.
+# +:wasi+ toolchain — wasi-sdk absolute tool paths, wasm32-wasi target
+# / sysroot flags, the setjmp/longjmp three-flag set, the GNU archive
+# format, and the wire-ABI +-D+ flags (rules #2-#4 of the file header).
+# Cross builds opt in via +conf.toolchain :wasi+; the host build stays
+# on +:gcc+ so each target picks the toolchain that matches it.
 MRuby::Toolchain.new(:wasi) do |conf, _params|
   wasi_sdk_bin = File.join(KobakoBuildConfig::WASI_SDK, "bin")
 
@@ -207,16 +200,10 @@ MRuby::Toolchain.new(:wasi) do |conf, _params|
   ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
 
   # ---- pkg-config sysroot isolation ------------------------------------
-  # Anchor +pkg-config+ to the wasm32-wasi sysroot's pkgconfig dir
-  # (which currently ships no +.pc+ files) and clear +PKG_CONFIG_PATH+,
-  # following the standard autotools cross-compile convention. This
-  # ensures +spec.search_package 'foo'+ in mrbgems returns false instead
-  # of matching a host package. The concrete trigger is mruby-onig-
-  # regexp's +mrbgem.rake:107+, which calls
-  # +spec.search_package 'onigmo'+ and, on a macOS runner with brew
-  # Onigmo installed, would link the host +libonigmo+ into the wasm
-  # output — wasi-sdk has no +libonigmo.a+, so the wasm module ends up
-  # with +onig_new+ as an unresolved import.
+  # Anchor pkg-config to the wasm32-wasi sysroot pkgconfig dir (empty
+  # today) per the standard autotools cross-compile convention, so
+  # +spec.search_package+ in mrbgems cannot match a host package and
+  # link host libraries into the wasm output.
   ENV["PKG_CONFIG_LIBDIR"] =
     File.join(KobakoBuildConfig::WASI_SYSROOT, "lib", KobakoBuildConfig::WASI_TARGET, "pkgconfig")
   ENV["PKG_CONFIG_PATH"] = ""
@@ -248,10 +235,10 @@ MRuby::Toolchain.new(:wasi) do |conf, _params|
   # the produced code is structurally equivalent to switch dispatch.
 end
 
-# Host build short-circuits mruby's auto-host-creation
-# (vendor/mruby/lib/mruby/build.rb:573). Explicit +:gcc+ keeps
-# +cc.command+ as bare +gcc+ — wasi-sdk/bin has no +gcc+/+g+++, so the
-# +:wasi+ toolchain's PATH prepend does not shadow the system compiler.
+# Explicit host build short-circuits mruby's auto-host-creation
+# (vendor/mruby/lib/mruby/build.rb:573). +:gcc+ forces a bare +gcc+ so
+# +Toolchain.guess+ cannot pick +:clang+ on macOS and resolve through
+# PATH into wasi-sdk's clang.
 MRuby::Build.new("host") do |conf|
   conf.toolchain :gcc
   conf.build_mrbc_exec

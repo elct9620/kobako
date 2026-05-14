@@ -37,11 +37,7 @@
 require "digest"
 require "fileutils"
 require "open-uri"
-# net/http transitively defines Net::ReadTimeout / Net::OpenTimeout.
-# open-uri only auto-requires net/http on first URI.open call, so we
-# load it eagerly here — DOWNLOAD_TRANSIENT_ERRORS below names those
-# constants at module-eval time.
-require "net/http"
+require "net/http" # eager — DOWNLOAD_TRANSIENT_ERRORS names Net::* at module-eval
 
 # Hoisted out of the `namespace :vendor` block so that constant definitions
 # don't trigger Lint/ConstantDefinitionInBlock and are introspectable from
@@ -148,18 +144,13 @@ module KobakoVendor # rubocop:disable Metrics/ModuleLength
   # Helpers
   # -----------------------------------------------------------------------
 
-  # Maximum retry attempts for transient download failures. Each retry
-  # waits +2 ** attempt+ seconds, so 3 retries spread over 2 + 4 + 8 =
-  # 14 seconds — enough to ride out a GitHub archive 502 / TCP read
-  # timeout without making +rake vendor:setup+ feel hung.
+  # Retry attempts wait +2 ** attempt+ seconds (2 + 4 + 8 = 14s total)
+  # — enough to ride out a GitHub archive 502 / TCP read timeout.
   DOWNLOAD_MAX_RETRIES = 3
 
-  # Errors classified as transient network failures, retried via the
-  # exponential backoff in +download+. +OpenURI::HTTPError+ is
-  # included but +retry-or-raise+ further narrows it to 5xx server
-  # responses; 4xx (URL typo, repo deleted, expired ref) is permanent
-  # and bypasses the retry path so the operator sees the failure
-  # immediately.
+  # Transient network errors retried by +with_download_retry+.
+  # +OpenURI::HTTPError+ is narrowed to 5xx; 4xx (URL typo, deleted
+  # repo) bypasses the retry path.
   DOWNLOAD_TRANSIENT_ERRORS = [
     OpenURI::HTTPError, Net::ReadTimeout, Net::OpenTimeout,
     Errno::ECONNRESET, SocketError
