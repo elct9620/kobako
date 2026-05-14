@@ -32,12 +32,13 @@
 //!
 //! ## Where the mruby C-side bridge lives
 //!
-//! User-script RPC calls land in C via `Kobako.__rpc_call__`, registered
-//! by `mrb_define_module_function`. That C function body, plus the
-//! `Kobako::RPC` singleton-class `method_missing` shim, lives in
-//! `crate::kobako::bridges` — not here. This module's role is the
-//! Rust-level encode/transport/decode pipeline that the C bridge
-//! delegates to.
+//! User-script RPC calls land in C via the `Kobako::RPC` singleton-class
+//! `method_missing` shim (and `Kobako::Handle#method_missing` for the
+//! Handle chaining path, SPEC.md B-17). Both shims live in
+//! `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
+//! which in turn calls [`invoke_rpc`] here. This module's role is the
+//! Rust-level encode/transport/decode pipeline that the C bridges
+//! delegate to.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_dispatch;
@@ -278,10 +279,10 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 // mruby C-bridge — see `crate::kobako::bridges`.
 // ---------------------------------------------------------------------
 //
-// The C-side dispatch entry is `Kobako.__rpc_call__`, registered via
-// `mrb_define_module_function` with `MRB_ARGS_REQ(4)`. That C bridge
-// (and the `Kobako::RPC` singleton-class `method_missing` shim that
-// forwards to it) lives in `crate::kobako::bridges`.
+// The C-side dispatch entries are the `Kobako::RPC` singleton-class
+// `method_missing` shim and `Kobako::Handle#method_missing`. Both
+// live in `crate::kobako::bridges` and reach this module through
+// `Kobako::dispatch_invoke`.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).

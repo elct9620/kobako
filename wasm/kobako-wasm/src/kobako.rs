@@ -53,8 +53,6 @@ const RPC_NAME: &[u8] = b"RPC\0";
 #[cfg(target_arch = "wasm32")]
 const HANDLE_NAME: &[u8] = b"Handle\0";
 #[cfg(target_arch = "wasm32")]
-const RPC_CALL_NAME: &[u8] = b"__rpc_call__\0";
-#[cfg(target_arch = "wasm32")]
 const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
 #[cfg(target_arch = "wasm32")]
 const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
@@ -240,17 +238,7 @@ impl Kobako {
                     sys::MRB_ARGS_ANY,
                 );
 
-                // (4) `Kobako.__rpc_call__` module function with 4
-                //     required args.
-                sys::mrb_define_module_function(
-                    mrb,
-                    kobako_mod,
-                    cstr_ptr(RPC_CALL_NAME),
-                    bridges::kobako_rpc_call,
-                    sys::mrb_args_req(4),
-                );
-
-                // (5) `Kobako::Handle` instance class.
+                // (4) `Kobako::Handle` instance class.
                 let handle_class = sys::mrb_define_class_under(
                     mrb,
                     kobako_mod,
@@ -279,7 +267,7 @@ impl Kobako {
                     sys::MRB_ARGS_ANY,
                 );
 
-                // (6) `Kobako::ServiceError` /
+                // (5) `Kobako::ServiceError` /
                 //     `Kobako::ServiceError::Disconnected` /
                 //     `Kobako::WireError` — all subclass `RuntimeError`.
                 let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
@@ -302,7 +290,7 @@ impl Kobako {
                     runtime_error_class,
                 );
 
-                // (7) `Kernel#puts` / `Kernel#p` shims. mruby's core
+                // (6) `Kernel#puts` / `Kernel#p` shims. mruby's core
                 //     `kernel.c` registers `Kernel#print` unconditionally,
                 //     but `puts` / `p` only exist when the `mruby-io`
                 //     mrbgem is linked in. `mruby-io` requires POSIX
@@ -771,8 +759,9 @@ impl Kobako {
     /// Convert a kobako wire [`crate::codec::Value`] into an `mrb_value`
     /// suitable for handing back to the mruby VM. Handle values are
     /// boxed into a fresh `Kobako::Handle` instance carrying the id
-    /// (subsequent method calls on it route to the host via
-    /// `Kobako.__rpc_call__`, SPEC.md B-17).
+    /// (subsequent method calls on it route to the host through
+    /// `Kobako::Handle#method_missing` → [`Self::dispatch_invoke`],
+    /// SPEC.md B-17).
     #[cfg(target_arch = "wasm32")]
     pub fn wire_value_to_mrb(&self, val: crate::codec::Value) -> sys::mrb_value {
         use crate::codec::Value;

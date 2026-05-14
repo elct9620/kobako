@@ -21,14 +21,15 @@
 //!        │  trailing Hash if present; resolve target string via
 //!        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
 //!        ▼
-//!   forwards to Kobako.__rpc_call__(target, method, args, kwargs)
-//!        │
-//!        ▼
-//!   kobako_rpc_call(mrb, self=Kobako module)
+//!   super::Kobako::dispatch_invoke(target, method, args, kwargs)
 //!        │
 //!        ▼
 //!   crate::rpc_client::invoke_rpc(...)
 //! ```
+//!
+//! Handle dispatch (`Kobako::Handle#method_missing`, SPEC.md B-17)
+//! follows the same shape: `handle_method_missing` builds a Handle
+//! target and calls `dispatch_invoke` directly.
 //!
 //! ## Safety
 //!
@@ -41,99 +42,6 @@
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
-
-/// `Kobako.__rpc_call__(target, method, args, kwargs)` C bridge.
-///
-/// Receives four positional args assembled by [`rpc_method_missing`]:
-///   - `target`: String path (e.g. `"MyService::KV"`) or `Kobako::Handle` instance.
-///   - `method`: String method name.
-///   - `args`: Array of positional Wire values.
-///   - `kwargs`: Hash of String key → Wire value pairs.
-///
-/// Delegates to [`crate::rpc_client::invoke_rpc`] through
-/// [`super::Kobako::dispatch_invoke`]. On success, returns the
-/// wire-decoded mruby value; on service error, raises
-/// `Kobako::ServiceError`; on wire error, raises `Kobako::WireError`.
-#[allow(unused_variables)]
-pub(crate) unsafe extern "C" fn kobako_rpc_call(
-    mrb: *mut sys::mrb_state,
-    _self_: sys::mrb_value,
-) -> sys::mrb_value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::envelope::Target;
-
-        // SAFETY: `mrb` is live by the bridge contract (mruby invoked us
-        // through a registration done at install time). Construct a
-        // `Kobako` token once at the top — everything below uses safe
-        // methods.
-        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-
-        // Unpack 4 required positional args: target, method, args_ary, kwargs_hash.
-        let mut target_val = sys::mrb_value::zeroed();
-        let mut method_val = sys::mrb_value::zeroed();
-        let mut args_ary = sys::mrb_value::zeroed();
-        let mut kwargs_hash = sys::mrb_value::zeroed();
-        unsafe {
-            sys::mrb_get_args(
-                mrb,
-                cstr!("oooo"),
-                &mut target_val as *mut sys::mrb_value,
-                &mut method_val as *mut sys::mrb_value,
-                &mut args_ary as *mut sys::mrb_value,
-                &mut kwargs_hash as *mut sys::mrb_value,
-            );
-        }
-
-        // Decode target: String path or Kobako::Handle instance.
-        let target = match unsafe { target_val.classname(mrb) } {
-            "Kobako::Handle" => Target::Handle(kobako.extract_handle_id(target_val)),
-            _ => Target::Path(unsafe { target_val.to_string(mrb) }),
-        };
-
-        // Decode method name string. NULL pointer (not just an empty
-        // string) is the wire violation — preserve the distinction by
-        // checking the raw `mrb_str_to_cstr` pointer instead of going
-        // through `to_string`, which collapses NULL into "".
-        let method_ptr = unsafe { sys::mrb_str_to_cstr(mrb, method_val) };
-        let method_name = if method_ptr.is_null() {
-            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            unsafe { kobako.raise_wire_error(b"RPC method name is null\0") };
-        } else {
-            unsafe { core::ffi::CStr::from_ptr(method_ptr) }
-                .to_str()
-                .unwrap_or("")
-        };
-
-        // Decode positional args from the Array.
-        let args_len = kobako.collection_len(args_ary);
-        let mut wire_args = Vec::with_capacity(args_len);
-        for i in 0..args_len {
-            let elem = unsafe { sys::mrb_ary_entry(args_ary, i as i32) };
-            wire_args.push(kobako.mrb_value_to_wire_value(elem));
-        }
-
-        // Decode kwargs from the Hash. Skip silently when kwargs_hash is
-        // not actually a Hash (defensive — `oooo` unpack accepts any
-        // object).
-        let mut wire_kwargs = Vec::new();
-        if unsafe { kwargs_hash.classname(mrb) } == "Hash" {
-            kobako.decode_hash_kwargs(kwargs_hash, &mut wire_kwargs);
-        }
-
-        kobako.dispatch_invoke(
-            target,
-            method_name,
-            &wire_args,
-            &wire_kwargs,
-            b"RPC wire error during invoke_rpc\0",
-        )
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        sys::mrb_value::zeroed()
-    }
-}
 
 /// `Kobako::RPC.method_missing(name, *args)` C bridge — singleton-class
 /// level, so `self` is the class object (e.g. `MyService::KV`).
@@ -246,8 +154,8 @@ pub(crate) unsafe extern "C" fn handle_initialize(
 
 /// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards every
 /// method call on a Handle instance to the host via
-/// `Kobako.__rpc_call__(id, method, args, kwargs)` with the Handle id
-/// as an integer target (SPEC.md B-17 — Handle chaining).
+/// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
+/// (SPEC.md B-17 — Handle chaining).
 #[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
@@ -442,12 +350,11 @@ mod tests {
         // compile if the bridge functions drift from `mrb_func_t`. This
         // is the host-target replacement for an mruby-link-level
         // signature check.
-        let _f1: sys::mrb_func_t = kobako_rpc_call;
-        let _f2: sys::mrb_func_t = rpc_method_missing;
-        let _f3: sys::mrb_func_t = rpc_respond_to_missing;
-        let _f4: sys::mrb_func_t = handle_initialize;
-        let _f5: sys::mrb_func_t = handle_method_missing;
-        let _f6: sys::mrb_func_t = kernel_puts;
-        let _f7: sys::mrb_func_t = kernel_p;
+        let _f1: sys::mrb_func_t = rpc_method_missing;
+        let _f2: sys::mrb_func_t = rpc_respond_to_missing;
+        let _f3: sys::mrb_func_t = handle_initialize;
+        let _f4: sys::mrb_func_t = handle_method_missing;
+        let _f5: sys::mrb_func_t = kernel_puts;
+        let _f6: sys::mrb_func_t = kernel_p;
     }
 }

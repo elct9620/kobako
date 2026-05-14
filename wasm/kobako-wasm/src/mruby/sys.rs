@@ -27,8 +27,8 @@
 //!
 //! ## What is bound
 //!
-//! Only the C API functions needed for the three boot-script
-//! registrations and the `Kobako.__rpc_call__` argument unpacking:
+//! Only the C API functions needed for the boot-script registrations
+//! and the `method_missing` argument unpacking:
 //!
 //!   * `mrb_define_module`
 //!   * `mrb_define_class_under`
@@ -402,7 +402,7 @@ extern "C" {
     /// `mrb_define_method(mrb, c, name, func, aspec)` — defines an instance
     /// method on class `c`. Used to register instance-level `method_missing`
     /// on `Kobako::Handle` so handle objects forward method calls to the
-    /// host via `Kobako.__rpc_call__`.
+    /// host through `Kobako::dispatch_invoke` (SPEC.md B-17).
     pub fn mrb_define_method(
         mrb: *mut mrb_state,
         c: *mut RClass,
