@@ -18,8 +18,7 @@ require "fileutils"
 require_relative "kobako_vendor/download"
 require_relative "kobako_vendor/checksum"
 
-# Vendor toolchain façade. See sibling files under +kobako_vendor/+
-# for the download and checksum helpers.
+# Vendor toolchain façade.
 module KobakoVendor
   ROOT       = File.expand_path("../..", __dir__)
   VENDOR_DIR = (ENV["KOBAKO_VENDOR_DIR"] || File.join(ROOT, "vendor")).freeze
@@ -50,17 +49,16 @@ module KobakoVendor
   CONFIG_AUX_COMMIT = "a2287c3041a3f2a204eb942e09c015eab00dc7dd"
 
   # ---- Platform detection (wasi-sdk only; mruby tarball is host-agnostic).
-  # The +else+ branch intentionally repeats the +x86_64-linux+ default
-  # to keep the case-statement parallel and easy to extend with new
-  # host triples; rubocop's +Lint/DuplicateBranch+ flags this shape
-  # which is why the inline disable lives here.
+  # +x86_64-linux+ is both the most common host triple and the safest
+  # fallback for unrecognised ones, so we collapse both cases into the
+  # +else+ branch rather than carrying an explicit +when+ that would
+  # duplicate the default.
   WASI_SDK_PLATFORM =
     case RUBY_PLATFORM
     when /arm64-darwin|aarch64-darwin/ then "arm64-macos"
     when /x86_64-darwin/               then "x86_64-macos"
     when /aarch64-linux|arm64-linux/   then "arm64-linux"
-    when /x86_64-linux/                then "x86_64-linux"
-    else "x86_64-linux" # rubocop:disable Lint/DuplicateBranch
+    else "x86_64-linux"
     end
 
   WASI_SDK_TARBALL_NAME = "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz".freeze

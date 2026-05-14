@@ -120,38 +120,36 @@ module KobakoWasm
 
   # Orchestrate Stage C: cross-compile +kobako-wasm+ and copy the
   # produced wasm into +data/kobako.wasm+. The caller (rake +wasm:build+
-  # task) is responsible for guarding +cargo_available?+ and Stage B
-  # ordering; the up-to-date short-circuit and Stage B sentinel check
-  # live here so the orchestration is testable as a single unit.
+  # task) is responsible for guarding +cargo_available?+; the up-to-date
+  # short-circuit and the Stage B pre-condition live here.
   def self.build_guest_binary
     if guest_wasm_up_to_date?
       puts "[wasm:build] #{DATA_WASM} is up to date — skipping"
       return
     end
 
-    unless File.exist?(LIBMRUBY_PATH)
-      raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
-            "run `rake mruby:build` (Stage B) first"
-    end
-
+    ensure_libmruby_present
     run_cargo_release_build
     copy_wasm_into_data_dir
   end
 
-  # Runs the cargo release build for Stage C. Both post-condition checks
-  # (cargo exit status, output artefact present) are written as parallel
-  # +raise ... unless+ guards; the +Style/GuardClause+ disable preserves
-  # that parallel shape against rubocop's auto-correction.
+  # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
+  # so we assert it explicitly with a message that points at the rake
+  # task that produces it.
+  def self.ensure_libmruby_present
+    return if File.exist?(LIBMRUBY_PATH)
+
+    raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
+          "run `rake mruby:build` (Stage B) first"
+  end
+
   def self.run_cargo_release_build
     args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
     env  = cargo_build_env
     puts "[wasm:build] env=#{env.inspect}"
     puts "[wasm:build] ==> #{args.join(" ")}"
     raise "[wasm:build] cargo build failed" unless system(env, *args)
-
-    unless File.exist?(CRATE_WASM_OUTPUT) # rubocop:disable Style/GuardClause
-      raise "[wasm:build] cargo build succeeded but #{CRATE_WASM_OUTPUT} is missing"
-    end
+    raise "[wasm:build] cargo built but #{CRATE_WASM_OUTPUT} is missing" unless File.exist?(CRATE_WASM_OUTPUT)
   end
 
   def self.copy_wasm_into_data_dir
