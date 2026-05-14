@@ -30,15 +30,15 @@ Gem::Specification.new do |spec|
   # The deny prefixes exclude dev-only / non-runtime artifacts:
   #   * source-tree tooling: bin/ tasks/ build_config/ .github/ .powerloop/
   #     .claude/ Rakefile .rubocop.yml — `gem install` uses extconf.rb, not rake
-  #   * non-runtime content: test/ wasm/ docs/ benchmark/ SPEC.md CLAUDE.md
+  #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/ SPEC.md CLAUDE.md
   #   * placeholder: data/.keep — superseded by the appended data/kobako.wasm
   gemspec = File.basename(__FILE__)
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
-                          tasks/ build_config/ wasm/ docs/ benchmark/ .powerloop/ SPEC.md
-                          .claude/ CLAUDE.md Rakefile data/.keep])
+                          tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
+                          SPEC.md .claude/ CLAUDE.md Rakefile data/.keep])
     end
   end
   # Bypass-path guard: `gem build kobako.gemspec` direct invocation would
