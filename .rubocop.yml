@@ -26,10 +26,6 @@ Metrics/CyclomaticComplexity:
   Exclude:
     - "test/**/*"
 
-Metrics/PerceivedComplexity:
-  Exclude:
-    - "test/**/*"
-
 # Codec helpers take single short-name byte/length parameters (n, s, f);
 # longer names would reduce, not improve, readability. Same convention applies
 # to test helpers that mirror the codec API surface.
@@ -84,4 +80,3 @@ Lint/UselessConstantScoping:
 Lint/DuplicateBranch:
   Exclude:
     - "tasks/**/*"
-    - "test/**/*"
