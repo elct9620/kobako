@@ -25,7 +25,7 @@ jobs:
     # `dtolnay/rust-toolchain` for a setup that owns PATH ordering on
     # macOS, or rb_sys / rake-compiler stops bare-PATH-resolving cargo.
     # Linux runners do not ship the stub, so they remain a hard gate.
-    continue-on-error: ${{ runner.os == 'macOS' }}
+    continue-on-error: ${{ startsWith(matrix.os, 'macos') }}
     strategy:
       fail-fast: false
       matrix:
