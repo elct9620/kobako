@@ -9,21 +9,11 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    name: Ruby ${{ matrix.ruby }} (${{ matrix.os }})
-    # Soft-fail the macOS row: rb_sys' Rakefile-load `cargo metadata`
-    # resolves via PATH and intermittently hits the runner image's
-    # `~/.local/bin/cargo → rustup-init` bootstrap stub. Linux runners
-    # do not ship the stub and stay a hard gate. Re-tighten once we
-    # move to a Rust setup action that owns PATH ordering on macOS, or
-    # rb_sys stops bare-PATH-resolving cargo.
-    continue-on-error: ${{ startsWith(matrix.os, 'macos') }}
+    runs-on: ubuntu-latest
+    name: Ruby ${{ matrix.ruby }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
         ruby:
           - '3.3'
           - '3.4'
