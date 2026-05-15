@@ -5,12 +5,17 @@
 //!
 //! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
-//! * `rpc` — RPC layer mirroring the host's `lib/kobako/rpc/`. Holds
-//!   `rpc::envelope` (Request / Response / Result / Panic / Outcome
-//!   value objects and their encoders/decoders on top of `codec` —
-//!   SPEC.md "Wire Contract") and `rpc::client` (the round-trip
-//!   pipeline used by the guest-side mruby bridge to dispatch a call
-//!   through `__kobako_dispatch`).
+//! * `rpc` — Per-call RPC layer mirroring the host's `lib/kobako/rpc/`.
+//!   Holds `rpc::envelope` (Request / Response value objects and their
+//!   encoders/decoders on top of `codec` — SPEC.md "Wire Contract")
+//!   and `rpc::client` (the round-trip pipeline used by the guest-side
+//!   mruby bridge to dispatch a call through `__kobako_dispatch`).
+//! * `outcome` — Per-run Outcome envelope mirroring the host's
+//!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
+//!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
+//!   `decode_panic` / `encode_result` / `decode_result` helpers
+//!   (SPEC.md "Outcome Envelope"). Shares [`rpc::envelope::EnvelopeError`]
+//!   for codec-shape faults.
 //! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome`
 //!   guest exports (SPEC.md "ABI Signatures").
@@ -38,13 +43,17 @@ pub mod abi;
 pub mod codec;
 pub mod kobako;
 pub mod mruby;
+pub mod outcome;
 pub mod rpc;
 
 pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
 pub use codec::{CodecError, Decoder, Encoder, Value};
+pub use outcome::{
+    decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
+    Outcome, Panic,
+};
 pub use rpc::client::{build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError};
 pub use rpc::envelope::{
-    decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
-    encode_panic, encode_request, encode_response, encode_result, EnvelopeError, Outcome, Panic,
-    Request, Response, Target,
+    decode_request, decode_response, encode_request, encode_response, EnvelopeError, Request,
+    Response, Target,
 };

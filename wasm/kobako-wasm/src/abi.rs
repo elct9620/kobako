@@ -127,7 +127,7 @@ pub extern "C" fn __kobako_run() {
     {
         use crate::codec::Value;
         use crate::mruby::sys;
-        use crate::rpc::envelope::{encode_outcome, Outcome, Panic};
+        use crate::outcome::{encode_outcome, Outcome, Panic};
         use std::io::Read;
 
         // --- helpers ---

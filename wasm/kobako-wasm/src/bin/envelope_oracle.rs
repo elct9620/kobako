@@ -28,9 +28,11 @@
 
 use std::io::{self, Read, Write};
 
+use kobako_wasm::outcome::{
+    decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
+};
 use kobako_wasm::rpc::envelope::{
-    decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
-    encode_panic, encode_request, encode_response, encode_result, EnvelopeError,
+    decode_request, decode_response, encode_request, encode_response, EnvelopeError,
 };
 use kobako_wasm::FRAME_LEN_SIZE;
 

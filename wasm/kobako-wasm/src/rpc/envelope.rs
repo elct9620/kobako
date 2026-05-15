@@ -1,12 +1,12 @@
-//! Envelope-layer encoders/decoders for the kobako wire contract.
+//! Per-call RPC envelope encoders/decoders.
 //!
 //! SPEC.md → Wire Contract pins the logical shape of every host↔guest
-//! message; SPEC.md → Wire Codec → Envelope Frame Layout pins the binary
-//! framing. This module assembles Request, Response, and Panic envelopes
-//! plus the outer Outcome wrapper on top of the lower-level [`Encoder`]
-//! / [`Decoder`] primitives in `codec/`. The success branch of an Outcome
-//! has no enclosing envelope: SPEC pins it as the raw msgpack encoding of
-//! the value, discriminated solely by the Outcome tag byte.
+//! Request / Response; SPEC.md → Wire Codec → Envelope Frame Layout
+//! pins the binary framing. This module assembles the per-RPC Request
+//! and Response envelopes on top of the lower-level [`Encoder`] /
+//! [`Decoder`] primitives in `codec/`. The per-`#run` Outcome envelope
+//! (Result / Panic) lives next door at `crate::outcome` — mirroring the
+//! host's `lib/kobako/rpc/envelope.rb` vs `lib/kobako/outcome.rb` split.
 //!
 //! No `unsafe`. No third-party dependencies. Like the underlying codec,
 //! this module is an independent re-implementation of SPEC; the Ruby
@@ -22,21 +22,16 @@ const STATUS_OK: i64 = 0;
 /// Response variant marker for the error branch. Module-private.
 const STATUS_ERROR: i64 = 1;
 
-/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome
-/// Envelope"). Module-private — `Outcome::Value` is the public
-/// surface and reifies this value.
-const OUTCOME_TAG_RESULT: u8 = 0x01;
-
-/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome
-/// Envelope"). Module-private.
-const OUTCOME_TAG_PANIC: u8 = 0x02;
-
 /// Errors raised by envelope-level encode/decode on top of [`CodecError`].
 ///
 /// A pure codec fault (truncated input, bad UTF-8, etc.) bubbles up as
 /// [`EnvelopeError::Codec`]. Envelope-shape faults (wrong arity, missing
 /// required field, illegal tag byte) get their own variants so the host
 /// can classify them per SPEC's attribution rules.
+///
+/// Shared with `crate::outcome` — both layers raise codec-shape faults
+/// the same way, and deduplicating the error type avoids a parallel
+/// hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvelopeError {
     /// Underlying wire codec rejected the input bytes.
@@ -86,8 +81,9 @@ impl std::error::Error for EnvelopeError {
 // ============================================================
 
 /// SPEC.md → Wire Codec → Request: 4-element msgpack array
-/// `[target, method, args, kwargs]`. `target` is either a Service Member
-/// constant path (str, e.g. `"Group::Member"`) or a Capability Handle.
+/// `[target, method, args, kwargs]`. `target` is either a Member
+/// constant path (str, e.g. `"Namespace::Member"`) or a Capability
+/// Handle.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
     pub target: Target,
@@ -100,7 +96,7 @@ pub struct Request {
 /// Codec → Request: "the two forms are distinguishable on the wire").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    /// Service Member constant path, e.g. `"Group::Member"`.
+    /// Member constant path, e.g. `"Namespace::Member"`.
     Path(String),
     /// Capability Handle reference (ext 0x01).
     Handle(u32),
@@ -113,33 +109,9 @@ pub enum Target {
 pub enum Response {
     /// Success: `status=0`, `value` carries the return value.
     Ok(Value),
-    /// Error: `status=1`, payload is a SPEC ext 0x02 Exception envelope
+    /// Error: `status=1`, payload is a SPEC ext 0x02 Fault envelope
     /// (we keep it as the raw payload bytes, matching `Value::ErrEnv`).
     Err(Vec<u8>),
-}
-
-/// SPEC.md → Outcome Envelope → Panic envelope: msgpack **map** keyed by
-/// name (SPEC: unknown keys must be silently ignored). Required keys:
-/// `"origin"`, `"class"`, `"message"`. Optional keys: `"backtrace"`,
-/// `"details"`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Panic {
-    pub origin: String,
-    pub class: String,
-    pub message: String,
-    pub backtrace: Vec<String>,
-    pub details: Option<Value>,
-}
-
-/// SPEC.md → Outcome Envelope: 1-byte tag (`0x01` success-value,
-/// `0x02` Panic) followed by the msgpack payload of the corresponding
-/// branch. The success branch is the bare msgpack encoding of the
-/// returned [`Value`]; the tag alone discriminates the variant, so no
-/// enclosing wrapper is added.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Outcome {
-    Value(Value),
-    Panic(Panic),
 }
 
 // ============================================================
@@ -255,144 +227,10 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
         STATUS_ERROR => match payload {
             Value::ErrEnv(bytes) => Ok(Response::Err(bytes)),
             _ => Err(EnvelopeError::WrongFieldType(
-                "Response status=1 payload must be ext 0x02 Exception",
+                "Response status=1 payload must be ext 0x02 Fault",
             )),
         },
         _ => Err(EnvelopeError::Shape("Response status must be 0 or 1")),
-    }
-}
-
-// ---------------- Result envelope ----------------
-
-/// Encode the success branch of an Outcome: the raw msgpack encoding of
-/// `value`. SPEC pins this as direct (no enclosing array); the Outcome
-/// tag byte is the sole discriminator.
-pub fn encode_result(value: &Value) -> Result<Vec<u8>, EnvelopeError> {
-    let mut enc = Encoder::new();
-    enc.write_value(value)?;
-    Ok(enc.into_bytes())
-}
-
-/// Decode the success branch of an Outcome into the carried [`Value`].
-pub fn decode_result(bytes: &[u8]) -> Result<Value, EnvelopeError> {
-    let mut dec = Decoder::new(bytes);
-    Ok(dec.read_value()?)
-}
-
-// ---------------- Panic envelope ----------------
-
-pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, EnvelopeError> {
-    let mut pairs: Vec<(Value, Value)> = Vec::with_capacity(5);
-    pairs.push((
-        Value::Str("origin".into()),
-        Value::Str(panic.origin.clone()),
-    ));
-    pairs.push((Value::Str("class".into()), Value::Str(panic.class.clone())));
-    pairs.push((
-        Value::Str("message".into()),
-        Value::Str(panic.message.clone()),
-    ));
-    if !panic.backtrace.is_empty() {
-        let bt = panic
-            .backtrace
-            .iter()
-            .map(|s| Value::Str(s.clone()))
-            .collect();
-        pairs.push((Value::Str("backtrace".into()), Value::Array(bt)));
-    }
-    if let Some(d) = &panic.details {
-        pairs.push((Value::Str("details".into()), d.clone()));
-    }
-    let mut enc = Encoder::new();
-    enc.write_value(&Value::Map(pairs))?;
-    Ok(enc.into_bytes())
-}
-
-pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
-    let mut dec = Decoder::new(bytes);
-    let frame = dec.read_value()?;
-    let pairs = match frame {
-        Value::Map(p) => p,
-        _ => return Err(EnvelopeError::Shape("Panic envelope must be a map")),
-    };
-    let mut origin = None;
-    let mut class = None;
-    let mut message = None;
-    let mut backtrace: Vec<String> = Vec::new();
-    let mut details: Option<Value> = None;
-    for (k, v) in pairs {
-        let key = match k {
-            Value::Str(s) => s,
-            _ => continue, // SPEC: unknown / non-str keys are silently ignored
-        };
-        match key.as_str() {
-            "origin" => match v {
-                Value::Str(s) => origin = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic origin must be str")),
-            },
-            "class" => match v {
-                Value::Str(s) => class = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic class must be str")),
-            },
-            "message" => match v {
-                Value::Str(s) => message = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic message must be str")),
-            },
-            "backtrace" => match v {
-                Value::Array(items) => {
-                    for line in items {
-                        match line {
-                            Value::Str(s) => backtrace.push(s),
-                            _ => {
-                                return Err(EnvelopeError::WrongFieldType(
-                                    "Panic backtrace lines must be str",
-                                ))
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    return Err(EnvelopeError::WrongFieldType(
-                        "Panic backtrace must be array",
-                    ))
-                }
-            },
-            "details" => details = Some(v),
-            _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
-        }
-    }
-    Ok(Panic {
-        origin: origin.ok_or(EnvelopeError::MissingField("origin"))?,
-        class: class.ok_or(EnvelopeError::MissingField("class"))?,
-        message: message.ok_or(EnvelopeError::MissingField("message"))?,
-        backtrace,
-        details,
-    })
-}
-
-// ---------------- Outcome envelope ----------------
-
-pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, EnvelopeError> {
-    let (tag, body) = match outcome {
-        Outcome::Value(v) => (OUTCOME_TAG_RESULT, encode_result(v)?),
-        Outcome::Panic(p) => (OUTCOME_TAG_PANIC, encode_panic(p)?),
-    };
-    let mut out = Vec::with_capacity(1 + body.len());
-    out.push(tag);
-    out.extend_from_slice(&body);
-    Ok(out)
-}
-
-pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, EnvelopeError> {
-    if bytes.is_empty() {
-        return Err(EnvelopeError::Shape("Outcome bytes must not be empty"));
-    }
-    let tag = bytes[0];
-    let body = &bytes[1..];
-    match tag {
-        OUTCOME_TAG_RESULT => Ok(Outcome::Value(decode_result(body)?)),
-        OUTCOME_TAG_PANIC => Ok(Outcome::Panic(decode_panic(body)?)),
-        _ => Err(EnvelopeError::Shape("Outcome tag must be 0x01 or 0x02")),
     }
 }
 
@@ -546,155 +384,5 @@ mod tests {
     fn response_ok_golden_for_42() {
         let bytes = encode_response(&Response::Ok(Value::Int(42))).unwrap();
         assert_eq!(bytes, vec![0x92, 0x00, 0x2a]);
-    }
-
-    // ---------------- Result envelope ----------------
-
-    #[test]
-    fn result_round_trip_primitive() {
-        let bytes = encode_result(&Value::Int(42)).unwrap();
-        let out = decode_result(&bytes).unwrap();
-        assert_eq!(out, Value::Int(42));
-    }
-
-    #[test]
-    fn result_round_trip_nil() {
-        let out = decode_result(&encode_result(&Value::Nil).unwrap()).unwrap();
-        assert_eq!(out, Value::Nil);
-    }
-
-    #[test]
-    fn result_round_trip_handle() {
-        let out = decode_result(&encode_result(&Value::Handle(5)).unwrap()).unwrap();
-        assert_eq!(out, Value::Handle(5));
-    }
-
-    #[test]
-    fn result_golden_value_42() {
-        let bytes = encode_result(&Value::Int(42)).unwrap();
-        // SPEC.md → Result Envelope: the value is emitted directly without
-        // an enclosing array, so the success body is just msgpack(42) = 0x2a.
-        assert_eq!(bytes, vec![0x2a]);
-    }
-
-    // ---------------- Panic envelope ----------------
-
-    #[test]
-    fn panic_round_trip_minimum() {
-        let p = Panic {
-            origin: "sandbox".into(),
-            class: "RuntimeError".into(),
-            message: "boom".into(),
-            backtrace: vec![],
-            details: None,
-        };
-        let out = decode_panic(&encode_panic(&p).unwrap()).unwrap();
-        assert_eq!(p, out);
-    }
-
-    #[test]
-    fn panic_round_trip_with_backtrace_and_details() {
-        let p = Panic {
-            origin: "service".into(),
-            class: "Kobako::ServiceError".into(),
-            message: "service failed".into(),
-            backtrace: vec!["a.rb:1".into(), "b.rb:2".into()],
-            details: Some(Value::Map(vec![(
-                Value::Str("type".into()),
-                Value::Str("runtime".into()),
-            )])),
-        };
-        let out = decode_panic(&encode_panic(&p).unwrap()).unwrap();
-        assert_eq!(p, out);
-    }
-
-    #[test]
-    fn panic_decode_silently_ignores_unknown_keys() {
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Map(vec![
-            (Value::Str("origin".into()), Value::Str("sandbox".into())),
-            (
-                Value::Str("class".into()),
-                Value::Str("RuntimeError".into()),
-            ),
-            (Value::Str("message".into()), Value::Str("boom".into())),
-            (
-                Value::Str("future_key".into()),
-                Value::Str("ignored".into()),
-            ),
-        ]))
-        .unwrap();
-        let p = decode_panic(&enc.into_bytes()).unwrap();
-        assert_eq!(p.origin, "sandbox");
-    }
-
-    #[test]
-    fn panic_decode_rejects_missing_required_key() {
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Map(vec![
-            (Value::Str("origin".into()), Value::Str("sandbox".into())),
-            (Value::Str("message".into()), Value::Str("boom".into())),
-        ]))
-        .unwrap();
-        assert!(matches!(
-            decode_panic(&enc.into_bytes()),
-            Err(EnvelopeError::MissingField("class"))
-        ));
-    }
-
-    #[test]
-    fn panic_decode_rejects_non_map_payload() {
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Array(vec![Value::Int(1)])).unwrap();
-        assert!(matches!(
-            decode_panic(&enc.into_bytes()),
-            Err(EnvelopeError::Shape(_))
-        ));
-    }
-
-    // ---------------- Outcome envelope ----------------
-
-    #[test]
-    fn outcome_result_round_trip() {
-        let o = Outcome::Value(Value::Int(123));
-        let bytes = encode_outcome(&o).unwrap();
-        assert_eq!(bytes[0], OUTCOME_TAG_RESULT);
-        assert_eq!(decode_outcome(&bytes).unwrap(), o);
-    }
-
-    #[test]
-    fn outcome_panic_round_trip() {
-        let p = Panic {
-            origin: "sandbox".into(),
-            class: "RuntimeError".into(),
-            message: "boom".into(),
-            backtrace: vec![],
-            details: None,
-        };
-        let o = Outcome::Panic(p);
-        let bytes = encode_outcome(&o).unwrap();
-        assert_eq!(bytes[0], OUTCOME_TAG_PANIC);
-        assert_eq!(decode_outcome(&bytes).unwrap(), o);
-    }
-
-    #[test]
-    fn outcome_decode_rejects_unknown_tag() {
-        let bytes = [0x03_u8, 0x90];
-        assert!(matches!(
-            decode_outcome(&bytes),
-            Err(EnvelopeError::Shape(_))
-        ));
-    }
-
-    #[test]
-    fn outcome_decode_rejects_empty_bytes() {
-        assert!(matches!(decode_outcome(&[]), Err(EnvelopeError::Shape(_))));
-    }
-
-    #[test]
-    fn outcome_result_golden_for_42() {
-        let bytes = encode_outcome(&Outcome::Value(Value::Int(42))).unwrap();
-        // Tag 0x01 + bare msgpack value 0x2a (no enclosing array).
-        assert_eq!(bytes, vec![0x01, 0x2a]);
     }
 }
