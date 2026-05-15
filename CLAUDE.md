@@ -50,7 +50,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 8. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
 
-9. **Lock external interfaces before pruning internals.** When a module has accumulated delegate / pass-through layers, do not refactor the internals until the outward-facing API is settled. A stable outer interface is a stable target for inner cleanup; reshuffling internals against a moving target compounds churn. Concretely: `Kobako::Outcome` is the host-facing outcome boundary that is now locked in; `Wire::Envelope::Outcome` and the surrounding `wire/**` delegate stack beneath it are next-pass residue.
+9. **Lock external interfaces before pruning internals.** When a module has accumulated delegate / pass-through layers, settle the outward-facing API first, then prune what sits behind it. A stable outer interface is a stable target for inner cleanup; reshuffling internals against a moving target compounds churn. The `Kobako::Outcome` migration is the worked example — the host-facing decode boundary landed first (rename + lift to top level), then the wire-format change dropped the 1-elem array wrap, then the internal Wire residue (Result / Panic / Outcome envelope types and their encoders) got absorbed under `Kobako::Outcome`. Each step kept the previous step's external surface intact.
 
 ## Build Pipeline
 
