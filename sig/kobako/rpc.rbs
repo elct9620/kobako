@@ -1,0 +1,4 @@
+module Kobako
+  module RPC
+  end
+end

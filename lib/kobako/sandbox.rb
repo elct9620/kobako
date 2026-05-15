@@ -97,10 +97,9 @@ module Kobako
       clear_captures!
     end
 
-    # Declare or retrieve the Service Group named +name+ on this Sandbox
+    # Declare or retrieve the Namespace named +name+ on this Sandbox
     # ({SPEC.md B-07, B-09, B-10}[link:../../SPEC.md]). +name+ must be a
-    # Symbol or String in constant form. Returns the
-    # +Kobako::Registry::ServiceGroup+.
+    # Symbol or String in constant form. Returns the +Kobako::RPC::Namespace+.
     #
     # Raises +ArgumentError+ when called after +#run+, or when +name+ does
     # not match the constant-name pattern.

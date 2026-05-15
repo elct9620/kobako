@@ -30,7 +30,7 @@ module Kobako
 
     def stderr_truncated?: () -> bool
 
-    def define: (Symbol | String name) -> Kobako::Registry::ServiceGroup
+    def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
     def run: (String source) -> untyped
 

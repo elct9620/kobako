@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Kobako::Registry + Kobako::Registry::ServiceGroup + bind/define API.
+# Kobako::Registry + Kobako::RPC::Namespace + bind/define API.
 #
 # This is an integration-flavored Minitest covering SPEC B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
@@ -17,14 +17,14 @@ class TestServiceRegistry < Minitest::Test
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
-  # B-07: define returns a Kobako::Registry::ServiceGroup; bind happy path
-  # resolves via the two-level path on the Sandbox-owned Registry.
-  def test_b07_define_returns_group_and_bind_resolves_member
+  # B-07: define returns a Kobako::RPC::Namespace; bind happy path resolves
+  # via the two-level path on the Sandbox-owned Registry.
+  def test_b07_define_returns_namespace_and_bind_resolves_member
     logger = Object.new
     def logger.info(msg) = "logged:#{msg}"
 
     group = @sandbox.define(:Logger)
-    assert_instance_of Kobako::Registry::ServiceGroup, group
+    assert_instance_of Kobako::RPC::Namespace, group
 
     chain_target = group.bind(:Info, logger)
     assert_same group, chain_target, "bind must return self for chaining (B-08)"

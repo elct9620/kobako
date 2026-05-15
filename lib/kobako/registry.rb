@@ -3,33 +3,33 @@
 require "msgpack"
 require_relative "errors"
 require_relative "wire"
-require_relative "registry/service_group"
+require_relative "rpc/namespace"
 require_relative "registry/handle_table"
 require_relative "registry/dispatcher"
 
 module Kobako
-  # Kobako::Registry — per-Sandbox container of Service Groups and Handle
+  # Kobako::Registry — per-Sandbox container of Namespaces and Handle
   # state. Manages capability injection and guest-initiated RPC dispatch
   # ({SPEC.md B-07..B-21}[link:../../SPEC.md]).
   #
   # Public API:
   #
   #   registry = Kobako::Registry.new
-  #   group = registry.define(:MyService)    # => ServiceGroup
-  #   group.bind(:KV, kv_object)             # => group (chainable)
-  #   registry.to_preamble                   # => array for Frame 1
-  #   registry.dispatch(request_bytes)       # => msgpack bytes (delegated to Dispatcher)
+  #   namespace = registry.define(:MyService)  # => Kobako::RPC::Namespace
+  #   namespace.bind(:KV, kv_object)           # => namespace (chainable)
+  #   registry.to_preamble                     # => array for Frame 1
+  #   registry.dispatch(request_bytes)         # => msgpack bytes (delegated to Dispatcher)
   #
-  # Service Groups are defined in +Kobako::Registry::ServiceGroup+
-  # (lib/kobako/registry/service_group.rb). The opaque Handle allocator lives
+  # Namespaces are defined in +Kobako::RPC::Namespace+
+  # (lib/kobako/rpc/namespace.rb). The opaque Handle allocator lives
   # in +Kobako::Registry::HandleTable+ (lib/kobako/registry/handle_table.rb).
   # Dispatch helpers live in +Kobako::Registry::Dispatcher+
   # (lib/kobako/registry/dispatcher.rb).
   class Registry
-    # Ruby constant-name pattern shared by Group and Member names
+    # Ruby constant-name pattern shared by Namespace and Member names
     # ({SPEC.md B-07/B-08 Notes}[link:../../SPEC.md]). Referenced by both
-    # +#define+ here and +ServiceGroup#bind+ — single source of truth so
-    # the validation rule cannot drift between the two boundaries.
+    # +#define+ here and +Kobako::RPC::Namespace#bind+ — single source of
+    # truth so the validation rule cannot drift between the two boundaries.
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
     # Build a fresh Registry. +handle_table+ is an internal seam that
@@ -37,77 +37,76 @@ module Kobako
     # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
     # without 2³¹ allocations. Production callers leave it at the default.
     def initialize(handle_table: HandleTable.new)
-      @groups = {} # : Hash[String, ServiceGroup]
+      @namespaces = {} # : Hash[String, Kobako::RPC::Namespace]
       @handle_table = handle_table
       @sealed = false
     end
 
-    # Declare or retrieve the Group named +name+ (idempotent — SPEC.md B-10).
+    # Declare or retrieve the Namespace named +name+ (idempotent — SPEC.md B-10).
     # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
-    # +NAME_PATTERN+). Returns the +Kobako::Registry::ServiceGroup+ for that
-    # name, creating it if it does not exist. Raises +ArgumentError+ when
-    # +name+ is malformed, or when called after the owning Sandbox has been
-    # sealed by +#run+.
+    # +NAME_PATTERN+). Returns the +Kobako::RPC::Namespace+ for that name,
+    # creating it if it does not exist. Raises +ArgumentError+ when +name+
+    # is malformed, or when called after the owning Sandbox has been sealed
+    # by +#run+.
     def define(name)
       raise ArgumentError, "cannot define after Sandbox#run has been invoked" if @sealed
 
       name_str = name.to_s
       unless NAME_PATTERN.match?(name_str)
         raise ArgumentError,
-              "GroupName must match #{NAME_PATTERN.inspect} (got #{name.inspect})"
+              "Namespace name must match #{NAME_PATTERN.inspect} (got #{name.inspect})"
       end
 
-      @groups[name_str] ||= ServiceGroup.new(name_str)
+      @namespaces[name_str] ||= Kobako::RPC::Namespace.new(name_str)
     end
 
-    # Resolve a +target+ path of the form +"GroupName::MemberName"+ to the
+    # Resolve a +target+ path of the form +"Namespace::Member"+ to the
     # bound Host object. +target+ is a two-level path using the +::+
     # separator. Returns the bound Host object. Raises +KeyError+ when the
-    # group or the member is not bound.
+    # namespace or the member is not bound.
     def lookup(target)
-      group, member_name, group_name = resolve_pair(target)
-      raise KeyError, "no service group named #{group_name.inspect}" if group.nil?
+      namespace, member_name, namespace_name = resolve_pair(target)
+      raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
       raise KeyError, "no member #{target.inspect} bound in registry" unless member_name
 
-      group.fetch(member_name)
+      namespace.fetch(member_name)
     end
 
-    # Returns +true+ when +target+ (a +"GroupName::MemberName"+ path) resolves
+    # Returns +true+ when +target+ (a +"Namespace::Member"+ path) resolves
     # to a bound member, +false+ otherwise.
     def bound?(target)
-      group, member_name, = resolve_pair(target)
-      !group.nil? && !member_name.nil? && !group[member_name].nil?
+      namespace, member_name, = resolve_pair(target)
+      !namespace.nil? && !member_name.nil? && !namespace[member_name].nil?
     end
 
-    # Returns all declared +Kobako::Registry::ServiceGroup+ instances as an
-    # +Array+.
-    def groups
-      @groups.values
+    # Returns all declared +Kobako::RPC::Namespace+ instances as an +Array+.
+    def namespaces
+      @namespaces.values
     end
 
-    # Returns the number of declared groups as an +Integer+.
+    # Returns the number of declared namespaces as an +Integer+.
     def size
-      @groups.size
+      @namespaces.size
     end
 
-    # Returns +true+ when no groups have been declared, +false+ otherwise.
+    # Returns +true+ when no namespaces have been declared, +false+ otherwise.
     def empty?
-      @groups.empty?
+      @namespaces.empty?
     end
 
     # Structured Frame 1 description. Called by +Sandbox#run+ when assembling
     # stdin Frame 1 ({SPEC.md B-02}[link:../../SPEC.md]). Returns an
     # unencoded preamble array — an +Array+ of two-element +[name, members]+
-    # arrays, one per declared group.
+    # arrays, one per declared namespace.
     def to_preamble
-      @groups.values.map(&:to_preamble)
+      @namespaces.values.map(&:to_preamble)
     end
 
     # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
     # ({SPEC.md B-02}[link:../../SPEC.md]). Uses plain MessagePack (no
     # kobako ext types) because the preamble contains only strings — no
-    # Handles or Exception envelopes. Structure:
-    # +[["GroupName", ["MemberA", "MemberB"]], ...]+. Returns a binary
+    # Handles or Fault envelopes. Structure:
+    # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
     # +String+ of msgpack bytes.
     def guest_preamble
       MessagePack.pack(to_preamble)
@@ -148,13 +147,13 @@ module Kobako
 
     private
 
-    # Split +target+ on the +::+ separator and resolve the group half.
-    # Returns +[group_or_nil, member_str_or_nil, group_name_str]+ so each
-    # public method ({#lookup} / {#bound?}) only owns its boundary
+    # Split +target+ on the +::+ separator and resolve the namespace half.
+    # Returns +[namespace_or_nil, member_str_or_nil, namespace_name_str]+ so
+    # each public method ({#lookup} / {#bound?}) only owns its boundary
     # semantics (raise vs predicate).
     def resolve_pair(target)
-      group_name, member_name = target.to_s.split("::", 2)
-      [@groups[group_name], member_name, group_name]
+      namespace_name, member_name = target.to_s.split("::", 2)
+      [@namespaces[namespace_name], member_name, namespace_name]
     end
   end
 end

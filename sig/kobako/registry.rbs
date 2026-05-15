@@ -6,13 +6,13 @@ module Kobako
 
     def initialize: (?handle_table: HandleTable) -> void
 
-    def define: (Symbol | String name) -> ServiceGroup
+    def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
     def lookup: (String target) -> untyped
 
     def bound?: (String target) -> bool
 
-    def groups: () -> Array[ServiceGroup]
+    def namespaces: () -> Array[Kobako::RPC::Namespace]
 
     def size: () -> Integer
 
@@ -32,6 +32,6 @@ module Kobako
 
     private
 
-    def resolve_pair: (String target) -> [ServiceGroup?, String?, String?]
+    def resolve_pair: (String target) -> [Kobako::RPC::Namespace?, String?, String?]
   end
 end

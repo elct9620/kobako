@@ -99,7 +99,7 @@ class TestSandbox < Minitest::Test
     assert_instance_of Kobako::Registry, sandbox.services
     assert sandbox.services.empty?
     group = sandbox.services.define(:Foo)
-    assert_instance_of Kobako::Registry::ServiceGroup, group
+    assert_instance_of Kobako::RPC::Namespace, group
   end
 
   # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`

@@ -1,6 +1,8 @@
 module Kobako
-  class Registry
-    class ServiceGroup
+  module RPC
+    class Namespace
+      NAME_PATTERN: Regexp
+
       attr_reader name: String
       attr_reader members: Hash[String, untyped]
 

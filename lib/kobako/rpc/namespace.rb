@@ -1,23 +1,31 @@
 # frozen_string_literal: true
 
 module Kobako
-  class Registry
-    # A named namespace of Service Members for one Sandbox ({SPEC.md B-07..B-11}[link:../../../SPEC.md]).
-    class ServiceGroup
+  module RPC
+    # A named grouping of Members for one Sandbox
+    # ({SPEC.md B-07..B-11}[link:../../../SPEC.md]). Returned by
+    # +Sandbox#define+. Each instance owns a flat name→object table of
+    # Members; member binding is validated against {NAME_PATTERN}.
+    class Namespace
+      # Ruby constant-name pattern shared by Namespace and Member names
+      # ({SPEC.md B-07/B-08 Notes}[link:../../../SPEC.md]).
+      NAME_PATTERN = /\A[A-Z]\w*\z/
+
       attr_reader :name, :members
 
-      # Build a new ServiceGroup. +name+ is an already-validated Group name
-      # (must satisfy +NAME_PATTERN+; validation is the caller's responsibility).
+      # Build a new Namespace. +name+ is an already-validated Namespace
+      # name (must satisfy {NAME_PATTERN}; validation is the caller's
+      # responsibility).
       def initialize(name)
         @name = name
         @members = {}
       end
 
-      # Bind +object+ under +member+ inside this group. +member+ is a
+      # Bind +object+ under +member+ inside this Namespace. +member+ is a
       # constant-form name as a +Symbol+ or +String+. +object+ is any Ruby
       # object that responds to the methods guest code will invoke. Returns
       # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
-      # match the constant pattern, or a member of the same name is already
+      # match the constant pattern, or a Member of the same name is already
       # bound ({SPEC.md B-11}[link:../../../SPEC.md]).
       def bind(member, object)
         member_str = validate_member_name!(member)
@@ -32,12 +40,13 @@ module Kobako
         @members[member.to_s]
       end
 
-      # Strict variant of {#[]}; raises +KeyError+ when no member is
+      # Strict variant of {#[]}; raises +KeyError+ when no Member is
       # registered under +member+.
       def fetch(member)
         member_str = member.to_s
         unless @members.key?(member_str)
-          raise KeyError, "no member named #{member_str.inspect} in group #{@name.inspect}"
+          raise KeyError,
+                "no member named #{member_str.inspect} in namespace #{@name.inspect}"
         end
 
         @members[member_str]
@@ -53,9 +62,9 @@ module Kobako
 
       def validate_member_name!(member)
         member_str = member.to_s
-        unless Registry::NAME_PATTERN.match?(member_str)
+        unless NAME_PATTERN.match?(member_str)
           raise ArgumentError,
-                "MemberName must match #{Registry::NAME_PATTERN.inspect} (got #{member.inspect})"
+                "MemberName must match #{NAME_PATTERN.inspect} (got #{member.inspect})"
         end
 
         member_str
