@@ -65,7 +65,7 @@ module Kobako
     # +timeout+ is the wall-clock cap on a single +#run+ in seconds
     # ({SPEC.md B-01}[link:../../SPEC.md]; default 60.0, +nil+ disables);
     # +memory_limit+ caps guest linear memory growth in bytes
-    # ({SPEC.md B-01, E-20}[link:../../SPEC.md]; default 1 MiB, +nil+
+    # ({SPEC.md B-01, E-20}[link:../../SPEC.md]; default 5 MiB, +nil+
     # disables).
     def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
                    timeout: DEFAULT_TIMEOUT_SECONDS,
