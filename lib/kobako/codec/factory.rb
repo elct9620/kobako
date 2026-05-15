@@ -5,6 +5,7 @@ require "forwardable"
 require "msgpack"
 
 require_relative "error"
+require_relative "utils"
 require_relative "../wire/handle"
 require_relative "../wire/exception"
 
@@ -82,11 +83,12 @@ module Kobako
       # Validate the ext-0x00 payload as UTF-8 and intern. Raises
       # {InvalidEncoding} on invalid bytes — SPEC forbids the
       # binary-encoding fallback that msgpack-gem's default unpacker
-      # would otherwise apply.
+      # would otherwise apply. The re-tag step lives here because the
+      # msgpack ext-type unpacker hands us binary bytes; the assertion
+      # itself is shared with {Decoder} via {Utils.assert_utf8!}.
       def decode_symbol(payload)
         name = payload.b.force_encoding(Encoding::UTF_8)
-        raise InvalidEncoding, "ext 0x00 payload is not valid UTF-8" unless name.valid_encoding?
-
+        Utils.assert_utf8!(name, "ext 0x00 payload")
         name.to_sym
       end
 

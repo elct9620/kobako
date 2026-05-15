@@ -40,6 +40,7 @@ module Kobako
   end
 end
 
+require_relative "codec/utils"
 require_relative "codec/factory"
 require_relative "codec/encoder"
 require_relative "codec/decoder"

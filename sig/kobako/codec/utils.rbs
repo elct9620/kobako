@@ -1,0 +1,7 @@
+module Kobako
+  module Codec
+    module Utils
+      def self.assert_utf8!: (String string, String label) -> void
+    end
+  end
+end
