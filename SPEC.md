@@ -128,7 +128,7 @@ The following features constitute the complete observable surface of the `kobako
 |---|---------|------|
 | F-01 | Sandbox instantiation | Host Gem |
 | F-02 | Namespace declaration | Host Gem |
-| F-03 | Service member binding | Host Gem |
+| F-03 | Member binding | Host Gem |
 | F-04 | Synchronous script execution | Host Gem + Guest Binary |
 | F-05 | Guest-initiated RPC dispatch | Host Gem + Wire Spec |
 | F-06 | Capability Handle encoding and referencing | Host Gem + Wire Spec |
@@ -157,7 +157,7 @@ An LLM agent framework author has a pipeline that feeds model-generated Ruby scr
 3. The Host App reads the return value of `#run` as the structured result of the script's final expression.
 
 **Outcome**
-The Host App receives a deserialized Ruby value for every successful execution. Generated scripts that exceed their declared capabilities receive a `Kobako::ServiceError` (undefined member), scripts with Ruby errors raise `Kobako::SandboxError`, and Wasm-level failures raise `Kobako::TrapError` — the agent framework routes each class differently (retry, log, restart sandbox). At no point can a generated script read host memory or call methods not bound as Service members.
+The Host App receives a deserialized Ruby value for every successful execution. Generated scripts that exceed their declared capabilities receive a `Kobako::ServiceError` (undefined member), scripts with Ruby errors raise `Kobako::SandboxError`, and Wasm-level failures raise `Kobako::TrapError` — the agent framework routes each class differently (retry, log, restart sandbox). At no point can a generated script read host memory or call methods not bound as Members.
 
 ---
 
@@ -199,7 +199,7 @@ Each submission executes inside an isolated Wasm boundary. A submission that cra
 A no-code or low-code platform builder allows end users to write Ruby expressions in formula fields or webhook filter rules. These expressions are evaluated on every incoming event or record. The platform needs sub-second evaluation latency, per-user capability scoping, and the guarantee that a broken user expression does not disrupt the platform's own process.
 
 **Action**
-1. The platform creates one `Kobako::Sandbox` per tenant, binding a Service member that exposes the current record or event payload as a read-only object.
+1. The platform creates one `Kobako::Sandbox` per tenant, binding a Member that exposes the current record or event payload as a read-only object.
 2. On each incoming event, the platform calls `Sandbox#run` with the user's expression string.
 3. The platform reads the return value as the expression result and uses it to drive downstream logic (filter pass/fail, computed field value).
 
@@ -245,7 +245,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
+| **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
 | **Result / Final State** | Each `#run` call executes with a fresh capability state — the HandleTable counter is reset and no Handles from prior runs are reachable. Service bindings registered on this Sandbox remain active across runs. `#run` blocks until execution completes, up to the configured `timeout`. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution, bounded by `stdout_limit` / `stderr_limit` (B-04). Per-run cap exhaustion surfaces as `Kobako::TimeoutError` (wall-clock `timeout` exceeded; E-19) or `Kobako::MemoryLimitError` (guest `memory.grow` exceeds `memory_limit`; E-20), both subclasses of `Kobako::TrapError`. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
 | **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
@@ -256,7 +256,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Service members bound before the first `#run` remain registered. |
+| **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Members bound before the first `#run` remain registered. |
 | **Operation** | `sandbox.run(script_string)` — any invocation after the first. |
 | **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior runs) from previous runs is fully discarded before the new run begins. All Service bindings registered on this Sandbox at any point remain active across runs and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation; the per-channel truncation predicates (B-04) reset together with the buffers. Per-run cap enforcement (B-02 Result) applies identically to every `#run` invocation. |
 | **Notes** | A Handle issued during run N is not reachable during run N+1. This isolation guarantee is unconditional — it holds whether the previous run succeeded or raised an error. Service bindings are never cleared between runs; only capability state is reset. |
@@ -291,7 +291,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Service members bound. |
+| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Members bound. |
 | **Operation** | `sandbox.run(script_string)` — same invocation as B-02 / B-03. |
 | **Result / Final State** | When the guest script completes without raising `Kobako::TrapError`, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the script's last expression produces an object that cannot be returned as a Ruby value, `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
 | **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. This error is attributed to the script (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
