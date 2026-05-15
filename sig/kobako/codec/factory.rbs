@@ -23,7 +23,7 @@ module Kobako
       def decode_symbol: (String payload) -> Symbol
       def register_handle_type: () -> void
       def register_exception_type: () -> void
-      def decode_handle: (String payload) -> Kobako::Wire::Handle
+      def decode_handle: (String payload) -> Kobako::RPC::Handle
       def pack_exception: (Kobako::Wire::Exception exc) -> String
       def unpack_exception: (String payload) -> Kobako::Wire::Exception
     end

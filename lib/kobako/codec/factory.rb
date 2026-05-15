@@ -6,7 +6,7 @@ require "msgpack"
 
 require_relative "error"
 require_relative "utils"
-require_relative "../wire/handle"
+require_relative "../rpc/handle"
 require_relative "../wire/exception"
 
 module Kobako
@@ -94,7 +94,7 @@ module Kobako
 
       def register_handle_type
         @factory.register_type(
-          EXT_HANDLE, Wire::Handle,
+          EXT_HANDLE, RPC::Handle,
           packer: ->(handle) { [handle.id].pack("N") },
           unpacker: ->(payload) { decode_handle(payload) }
         )
@@ -108,7 +108,7 @@ module Kobako
         )
       end
 
-      # Peel off the fixext-4 frame, hand the bytes to +Wire::Handle.new+, and
+      # Peel off the fixext-4 frame, hand the bytes to +RPC::Handle.new+, and
       # translate the +ArgumentError+ raised by Handle's invariants into
       # a wire-layer +InvalidType+ via {Codec::Utils.translate_value_object_error}.
       # The Value Object owns the id-range contract; this method only
@@ -118,7 +118,7 @@ module Kobako
         raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
-        Codec::Utils.translate_value_object_error { Wire::Handle.new(id) }
+        Codec::Utils.translate_value_object_error { RPC::Handle.new(id) }
       end
 
       # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so

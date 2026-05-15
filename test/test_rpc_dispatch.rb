@@ -178,7 +178,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # SPEC B-14: a Service method whose return value falls outside the wire
   # type set (B-13) is automatically allocated a HandleTable entry, and
-  # the guest sees a Wire::Handle in the Response.ok payload.
+  # the guest sees a RPC::Handle in the Response.ok payload.
   def test_non_wire_return_value_is_wrapped_as_handle
     @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
     req = encode_request("Factory::Make", "call", ["Alice"], {})
@@ -186,7 +186,7 @@ class TestRPCDispatchUnit < Minitest::Test
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
-    assert_kind_of Kobako::Wire::Handle, resp.payload
+    assert_kind_of Kobako::RPC::Handle, resp.payload
     bound = @handle_table.fetch(resp.payload.id)
     assert_equal "hi,Alice", bound.greet
   end
@@ -204,7 +204,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # ---------- B-16 — guest passes Handle as argument ----------
 
-  # SPEC B-16: a Wire::Handle arriving as an argument is resolved against
+  # SPEC B-16: a RPC::Handle arriving as an argument is resolved against
   # the HandleTable before dispatch, and the bound Service method receives
   # the live Ruby object.
   def test_handle_arg_is_resolved_to_bound_object_before_dispatch
@@ -214,7 +214,7 @@ class TestRPCDispatchUnit < Minitest::Test
     end.new("Alice")
     handle_id = @handle_table.alloc(greeter)
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
-    req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::RPC::Handle.new(handle_id)], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -228,7 +228,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     capture = []
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
-    req = encode_request("K::Run", "run", [], { target: Kobako::Wire::Handle.new(handle_id) })
+    req = encode_request("K::Run", "run", [], { target: Kobako::RPC::Handle.new(handle_id) })
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -238,7 +238,7 @@ class TestRPCDispatchUnit < Minitest::Test
   end
 
   def test_unknown_handle_arg_returns_undefined_exception
-    req = encode_request("Logger::Echo", "call", [Kobako::Wire::Handle.new(999)], {})
+    req = encode_request("Logger::Echo", "call", [Kobako::RPC::Handle.new(999)], {})
     @registry.define(:Logger).bind(:Echo, ->(x) { x })
 
     resp = decode_response(@registry.dispatch(req))
@@ -249,14 +249,14 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # ---------- B-17 — guest passes Handle as target (chained composition) -
 
-  # SPEC B-17: a Wire::Handle target resolves to the bound object directly;
+  # SPEC B-17: a RPC::Handle target resolves to the bound object directly;
   # the Server is bypassed and dispatch goes straight to public_send.
   def test_handle_target_is_dispatched_to_bound_object
     obj = Class.new do
       def find(id) = "row:#{id}"
     end.new
     handle_id = @handle_table.alloc(obj)
-    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "find", [42], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id), "find", [42], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -268,18 +268,18 @@ class TestRPCDispatchUnit < Minitest::Test
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
     parent_id = @handle_table.alloc(leaf_factory)
-    req = encode_request_with_target(Kobako::Wire::Handle.new(parent_id), "make", [], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(parent_id), "make", [], {})
 
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.ok?
-    assert_kind_of Kobako::Wire::Handle, resp.payload
+    assert_kind_of Kobako::RPC::Handle, resp.payload
     refute_equal parent_id, resp.payload.id
     assert_equal "leaf", @handle_table.fetch(resp.payload.id).kind
   end
 
   def test_unknown_handle_target_returns_undefined_exception
-    req = encode_request_with_target(Kobako::Wire::Handle.new(7), "any", [], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(7), "any", [], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -295,7 +295,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     @handle_table.reset!
 
-    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "tag", [], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id), "tag", [], {})
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
@@ -317,7 +317,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     @handle_table.mark_disconnected(handle_id)
 
-    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id), "any", [], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id), "any", [], {})
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.err?
@@ -343,7 +343,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     # The integer id presented as a Handle target against B's registry
     # must NOT cross over: B's HandleTable does not contain that id.
-    req = encode_request_with_target(Kobako::Wire::Handle.new(handle_id_in_a), "ping", [], {})
+    req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id_in_a), "ping", [], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.err?
@@ -363,7 +363,7 @@ class TestRPCDispatchUnit < Minitest::Test
     obj = Object.new
     handle_id_in_a = table_a.alloc(obj)
 
-    req = encode_request("Echo::Wrap", "call", [Kobako::Wire::Handle.new(handle_id_in_a)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::RPC::Handle.new(handle_id_in_a)], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.err?
@@ -436,7 +436,7 @@ class TestRPCDispatchUnit < Minitest::Test
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
 
     table = Kobako::RPC::HandleTable.new(
-      next_id: Kobako::Wire::Handle::MAX_ID + 1
+      next_id: Kobako::RPC::Handle::MAX_ID + 1
     )
     error = assert_raises(Kobako::SandboxError) do
       table.alloc(Object.new)
@@ -528,7 +528,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # Build a Server whose HandleTable counter is pinned at MAX_ID + 1
   # so the next #alloc trips the B-21 cap.
   def registry_with_exhausted_handle_table
-    exhausted = Kobako::RPC::HandleTable.new(next_id: Kobako::Wire::Handle::MAX_ID + 1)
+    exhausted = Kobako::RPC::HandleTable.new(next_id: Kobako::RPC::Handle::MAX_ID + 1)
     Kobako::RPC::Server.new(handle_table: exhausted)
   end
 end

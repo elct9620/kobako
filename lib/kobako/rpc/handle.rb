@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Kobako
-  module Wire
+  module RPC
     # Wire-level value object for an ext-0x01 Capability Handle.
     #
     # SPEC pins the binary layout to fixext 4 with a 4-byte big-endian u32

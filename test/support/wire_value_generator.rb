@@ -17,7 +17,7 @@ require "kobako/wire"
 # it landed in; tests assert on the counter through the +coverage+
 # reader.
 class WireValueGenerator
-  Handle = Kobako::Wire::Handle
+  Handle = Kobako::RPC::Handle
   Exc    = Kobako::Wire::Exception
 
   MAX_DEPTH = 4

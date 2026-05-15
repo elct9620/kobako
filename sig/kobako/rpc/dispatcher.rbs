@@ -17,11 +17,11 @@ module Kobako
 
       def self?.resolve_arg: (untyped value, HandleTable handle_table) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Wire::Handle target, Server server, HandleTable handle_table) -> untyped
+      def self?.resolve_target: (String | Kobako::RPC::Handle target, Server server, HandleTable handle_table) -> untyped
 
       def self?.resolve_path: (String path, Server server) -> untyped
 
-      def self?.resolve_handle: (Kobako::Wire::Handle handle, HandleTable handle_table) -> untyped
+      def self?.resolve_handle: (Kobako::RPC::Handle handle, HandleTable handle_table) -> untyped
 
       def self?.fetch_live_object: (Integer id, HandleTable handle_table) -> untyped
 

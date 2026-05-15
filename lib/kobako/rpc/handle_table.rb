@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../wire/handle"
+require_relative "handle"
 
 module Kobako
   module RPC
@@ -26,7 +26,7 @@ module Kobako
     class HandleTable
       # Build a fresh, empty HandleTable. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1 per
-      # B-15); tests pass a value near +Wire::Handle::MAX_ID+ to exercise
+      # B-15); tests pass a value near +RPC::Handle::MAX_ID+ to exercise
       # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {} # : Hash[Integer, untyped]
@@ -35,13 +35,13 @@ module Kobako
 
       # Bind +object+ in the table and return its newly-allocated Handle ID.
       # +object+ is any host-side Ruby object to bind. Returns a freshly-
-      # allocated Handle ID in +[1, Wire::Handle::MAX_ID]+. Raises
+      # allocated Handle ID in +[1, RPC::Handle::MAX_ID]+. Raises
       # +Kobako::HandleTableExhausted+ if the next ID would exceed the cap.
-      # The cap is anchored on +Wire::Handle+ — the wire codec and the
+      # The cap is anchored on +RPC::Handle+ — the wire codec and the
       # allocator share the same invariant ({SPEC.md B-21}[link:../../../SPEC.md]).
       def alloc(object)
         id = @next_id
-        cap = Wire::Handle::MAX_ID
+        cap = RPC::Handle::MAX_ID
         raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{cap}" if id > cap
 
         @entries[id] = object

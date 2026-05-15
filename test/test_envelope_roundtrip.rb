@@ -28,7 +28,7 @@ require "kobako/wire"
 
 class TestEnvelopeRoundtrip < Minitest::Test
   Envelope = Kobako::Wire::Envelope
-  Handle   = Kobako::Wire::Handle
+  Handle   = Kobako::RPC::Handle
   Exc      = Kobako::Wire::Exception
 
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)

@@ -1,5 +1,5 @@
 module Kobako
-  module Wire
+  module RPC
     class Handle
       MIN_ID: Integer
       MAX_ID: Integer

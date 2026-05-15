@@ -13,7 +13,7 @@ module Kobako
   module Wire
     class WireEnvelopeTest < Minitest::Test
       Envelope    = Kobako::Wire::Envelope
-      Handle      = Kobako::Wire::Handle
+      Handle      = Kobako::RPC::Handle
       Exc         = Kobako::Wire::Exception
       Encoder     = Kobako::Codec::Encoder
       InvalidType = Kobako::Codec::InvalidType

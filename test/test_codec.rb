@@ -5,7 +5,7 @@
 # Intentionally does NOT require "test_helper" — like the other clean-checkout
 # tests in this suite, the codec must be exercisable without the native
 # extension being compiled. Requires +kobako/codec+ for Encoder / Decoder /
-# Error classes and +kobako/wire+ for the +Wire::Handle+ / +Wire::Exception+
+# Error classes and +kobako/wire+ for the +RPC::Handle+ / +Wire::Exception+
 # value objects this test exercises through the codec.
 
 require "minitest/autorun"
@@ -17,7 +17,7 @@ require "kobako/wire"
 class TestCodec < Minitest::Test
   Encoder         = Kobako::Codec::Encoder
   Decoder         = Kobako::Codec::Decoder
-  Handle          = Kobako::Wire::Handle
+  Handle          = Kobako::RPC::Handle
   Exc             = Kobako::Wire::Exception
   Truncated       = Kobako::Codec::Truncated
   InvalidType     = Kobako::Codec::InvalidType

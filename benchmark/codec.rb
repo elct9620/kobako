@@ -66,7 +66,7 @@ wire_types = {
   "array" => [1, 2, 3],
   "map" => { "a" => 1 },
   "symbol" => :sym,
-  "handle" => Kobako::Wire::Handle.new(7),
+  "handle" => Kobako::RPC::Handle.new(7),
   "exception" => sample_exception
 }
 

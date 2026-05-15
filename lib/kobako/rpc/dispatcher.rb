@@ -89,7 +89,7 @@ module Kobako
         end
       end
 
-      # {SPEC.md B-16}[link:../../../SPEC.md] — A Wire::Handle arriving as a positional or keyword
+      # {SPEC.md B-16}[link:../../../SPEC.md] — A RPC::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the
@@ -97,7 +97,7 @@ module Kobako
       # the dispatcher emits a Response.err with type="disconnected".
       def resolve_arg(value, handle_table)
         case value
-        when Kobako::Wire::Handle
+        when Kobako::RPC::Handle
           fetch_live_object(value.id, handle_table)
         else
           value
@@ -115,7 +115,7 @@ module Kobako
         case target
         when String
           resolve_path(target, server)
-        when Kobako::Wire::Handle
+        when Kobako::RPC::Handle
           resolve_handle(target, handle_table)
         end
       end
@@ -150,7 +150,7 @@ module Kobako
       def encode_ok_or_wrap(value, server)
         encode_ok(value)
       rescue Kobako::Codec::UnsupportedType
-        encode_ok(Kobako::Wire::Handle.new(server.handle_table.alloc(value)))
+        encode_ok(Kobako::RPC::Handle.new(server.handle_table.alloc(value)))
       end
 
       def encode_ok(value)

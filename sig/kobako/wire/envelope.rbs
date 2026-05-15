@@ -5,14 +5,14 @@ module Kobako
       STATUS_ERROR: Integer
 
       class Request
-        attr_reader target: String | Handle
+        attr_reader target: String | Kobako::RPC::Handle
         attr_reader method_name: String
         attr_reader args: Array[untyped]
         attr_reader kwargs: Hash[Symbol, untyped]
 
-        def initialize: (target: String | Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> void
+        def initialize: (target: String | Kobako::RPC::Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> void
 
-        def with: (?target: String | Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> Request
+        def with: (?target: String | Kobako::RPC::Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> Request
 
         def ==: (untyped other) -> bool
 
