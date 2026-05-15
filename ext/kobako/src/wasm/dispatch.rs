@@ -38,7 +38,7 @@ pub(crate) fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req
     // maps a 0 return to a trap. `Kobako::Sandbox` always installs a
     // Registry before invoking the guest, so reaching this branch indicates
     // a misuse rather than a normal control path.
-    let registry = match caller.data().registry {
+    let registry = match caller.data().registry() {
         Some(d) => d,
         None => return 0,
     };

@@ -78,7 +78,7 @@ impl Instance {
     /// `registry.dispatch(req_bytes)`.
     pub(crate) fn set_registry(&self, registry: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.borrow_mut();
-        store_ref.data_mut().registry = Some(Opaque::from(registry));
+        store_ref.data_mut().bind_registry(Opaque::from(registry));
         Ok(())
     }
 
@@ -114,13 +114,7 @@ impl Instance {
     /// pipe. Returns an empty binary String before any run.
     pub(crate) fn stdout(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let store_ref = self.store.borrow();
-        let bytes = store_ref
-            .data()
-            .stdout_pipe
-            .as_ref()
-            .map(|p| p.contents())
-            .unwrap_or_default();
+        let bytes = self.store.borrow().data().stdout_bytes();
         Ok(ruby.str_from_slice(&bytes))
     }
 
@@ -128,13 +122,7 @@ impl Instance {
     /// Same semantics as [`Instance::stdout`].
     pub(crate) fn stderr(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let store_ref = self.store.borrow();
-        let bytes = store_ref
-            .data()
-            .stderr_pipe
-            .as_ref()
-            .map(|p| p.contents())
-            .unwrap_or_default();
+        let bytes = self.store.borrow().data().stderr_bytes();
         Ok(ruby.str_from_slice(&bytes))
     }
 
@@ -184,11 +172,10 @@ impl Instance {
         builder.stderr(stderr_pipe.clone());
         let wasi = builder.build_p1();
 
-        let mut store_ref = self.store.borrow_mut();
-        let data = store_ref.data_mut();
-        data.wasi = Some(wasi);
-        data.stdout_pipe = Some(stdout_pipe);
-        data.stderr_pipe = Some(stderr_pipe);
+        self.store
+            .borrow_mut()
+            .data_mut()
+            .install_wasi(wasi, stdout_pipe, stderr_pipe);
 
         Ok(())
     }
@@ -247,17 +234,11 @@ fn build_instance(
 
     // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2 to
     // the MemoryOutputPipes set up before each run via `Instance::run`.
-    // The closure extracts `&mut WasiP1Ctx` from HostState; if none is set
-    // (e.g. a test module that never invokes WASI functions), the Option
-    // unwrap will panic — but `Instance::run` always refreshes the context
-    // before invoking any WASI-enabled guest export.
-    p1::add_to_linker_sync(&mut linker, |state: &mut HostState| {
-        state
-            .wasi
-            .as_mut()
-            .expect("WASI context not initialised — call Instance#run before any WASI use")
-    })
-    .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
+    // The closure pulls a `&mut WasiP1Ctx` out of HostState; the panic
+    // semantics live inside `HostState::wasi_mut` so the wiring stays
+    // honest about its precondition.
+    p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut())
+        .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
 
     // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
     //   (req_ptr: i32, req_len: i32) -> i64
