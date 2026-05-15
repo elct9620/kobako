@@ -1,9 +1,6 @@
 module Kobako
   module Codec
     module Decoder
-      INVALID_TYPE_ERRORS: Array[Class]
-      TRUNCATED_ERRORS: Array[Class]
-
       def self.decode: (String bytes) -> untyped
 
       private

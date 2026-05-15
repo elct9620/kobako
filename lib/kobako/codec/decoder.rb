@@ -20,22 +20,6 @@ module Kobako
     # stateless; the +MessagePack::Unpacker+ instance is built per call
     # because callers always decode exactly one wire value at a time.
     module Decoder
-      # The msgpack gem raises these for type/format violations; +ArgumentError+
-      # also comes from our ext-type validators (Handle id range, Exception
-      # type whitelist). All surface as {InvalidType}.
-      INVALID_TYPE_ERRORS = [
-        ::MessagePack::UnknownExtTypeError,
-        ::MessagePack::MalformedFormatError,
-        ::MessagePack::StackError,
-        ::ArgumentError
-      ].freeze
-      private_constant :INVALID_TYPE_ERRORS
-
-      # +UnpackError+ is the gem's umbrella class for short-read / incomplete-buffer
-      # faults; +EOFError+ covers underflow at the buffer edge. Both map to {Truncated}.
-      TRUNCATED_ERRORS = [::MessagePack::UnpackError, ::EOFError].freeze
-      private_constant :TRUNCATED_ERRORS
-
       # Decode +bytes+ into one Ruby value and validate transitively
       # against the SPEC type mapping. Raises {Truncated}, {InvalidType},
       # or {InvalidEncoding} on wire violations.
@@ -43,9 +27,16 @@ module Kobako
         value = Factory.load(bytes.b)
         validate_utf8!(value)
         value
-      rescue *INVALID_TYPE_ERRORS => e
+      # msgpack gem raises these for type/format violations; +ArgumentError+
+      # also comes from our ext-type validators (Handle id range, Exception
+      # type whitelist).
+      rescue ::MessagePack::UnknownExtTypeError, ::MessagePack::MalformedFormatError,
+             ::MessagePack::StackError, ::ArgumentError => e
         raise InvalidType, e.message
-      rescue *TRUNCATED_ERRORS => e
+      # +UnpackError+ is the gem's umbrella class for short-read /
+      # incomplete-buffer faults; +EOFError+ covers underflow at the
+      # buffer edge.
+      rescue ::MessagePack::UnpackError, ::EOFError => e
         raise Truncated, e.message
       rescue ::EncodingError => e
         raise InvalidEncoding, e.message
