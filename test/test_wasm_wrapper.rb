@@ -27,7 +27,7 @@ class TestWasmWrapper < Minitest::Test
 
   def test_from_path_raises_module_not_built_for_missing_path
     err = assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
-      Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm")
+      Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm", nil, nil)
     end
     assert_match(/rake wasm:build/, err.message)
   end
@@ -40,15 +40,15 @@ class TestWasmWrapper < Minitest::Test
   def test_from_path_works_with_fixture_module
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
-    instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
+    instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil)
     assert_instance_of Kobako::Wasm::Instance, instance
   end
 
   def test_from_path_repeated_calls_return_independent_instances
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
-    a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
-    b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH)
+    a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil)
+    b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil)
     refute_same a, b, "each call must return a fresh Instance with its own Store"
   end
 end

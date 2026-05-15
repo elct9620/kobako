@@ -22,18 +22,28 @@
 //! (transport pipes are uncapped because SPEC.md B-04 requires that
 //! overflow is a non-error outcome — a capped WASI pipe would trap).
 //!
+//! Per-run cap enforcement (SPEC.md B-01, E-19, E-20): every Store
+//! installs an epoch-deadline callback for wall-clock timeout and a
+//! [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
+//! limiter / callback errors into traps; `Instance::run` downcasts the
+//! trap source to surface as `Kobako::Wasm::TimeoutError` or
+//! `Kobako::Wasm::MemoryLimitError` so the `Sandbox` layer can map them
+//! to the named `Kobako::TrapError` subclasses.
+//!
 //! [`Engine`]: wasmtime::Engine
 //! [`Module`]: wasmtime::Module
 //! [`TypedFunc`]: wasmtime::TypedFunc
 //! [`MemoryOutputPipe`]: wasmtime_wasi::p2::pipe::MemoryOutputPipe
+//! [`ResourceLimiter`]: wasmtime::ResourceLimiter
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use magnus::RString;
 use magnus::{value::Opaque, Error as MagnusError, Ruby, Value};
 use wasmtime::{
-    AsContextMut, Caller, Engine as WtEngine, Extern, Instance as WtInstance, Linker, Memory,
-    Module as WtModule, Store as WtStore, TypedFunc,
+    AsContextMut, Caller, Extern, Instance as WtInstance, Linker, Memory, Module as WtModule,
+    ResourceLimiter, Store as WtStore, StoreContextMut, TypedFunc, UpdateDeadline,
 };
 use wasmtime_wasi::p1;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -41,8 +51,8 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use super::cache::{cached_module, shared_engine};
 use super::dispatch;
-use super::host_state::{HostState, StoreCell};
-use super::wasm_err;
+use super::host_state::{HostState, MemoryLimitTrap, StoreCell, TimeoutTrap};
+use super::{memory_limit_err, timeout_err, wasm_err};
 
 #[magnus::wrap(class = "Kobako::Wasm::Instance", free_immediately, size)]
 pub(crate) struct Instance {
@@ -57,6 +67,10 @@ pub(crate) struct Instance {
     // and it does so through `Caller::get_export` on the wasmtime side.
     run: Option<TypedFunc<(), ()>>,
     take_outcome: Option<TypedFunc<(), u64>>,
+    // Wall-clock cap for one guest `#run` (SPEC.md B-01); `None` disables
+    // the cap. Translated into an `Instant`-based deadline stamped into
+    // [`HostState`] at the top of every `Instance::run`.
+    timeout: Option<Duration>,
 }
 
 impl Instance {
@@ -64,21 +78,48 @@ impl Instance {
     /// shared Engine and per-path Module cache. The single Ruby-facing
     /// constructor for `Kobako::Wasm::Instance` — Engine and Module are
     /// never visible to Ruby.
-    pub(crate) fn from_path(path: String) -> Result<Self, MagnusError> {
+    ///
+    /// `timeout_seconds` is the SPEC.md B-01 wall-clock cap in seconds
+    /// (`None` disables); `memory_limit` is the linear-memory cap in
+    /// bytes (`None` disables). Both are validated by the caller
+    /// (`Kobako::Sandbox`); this method only refuses non-finite or
+    /// non-positive timeouts as a defence in depth.
+    pub(crate) fn from_path(
+        path: String,
+        timeout_seconds: Option<f64>,
+        memory_limit: Option<usize>,
+    ) -> Result<Self, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let timeout = match timeout_seconds {
+            None => None,
+            Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
+            Some(secs) => {
+                return Err(wasm_err(
+                    &ruby,
+                    format!("timeout_seconds must be > 0 and finite, got {secs}"),
+                ));
+            }
+        };
+
         let engine = shared_engine()?;
         let module = cached_module(Path::new(&path))?;
-        let store = WtStore::new(engine, HostState::default());
+
+        let mut store = WtStore::new(engine, HostState::new(memory_limit));
+        store.limiter(|state: &mut HostState| -> &mut dyn ResourceLimiter { state.limiter_mut() });
+        store.epoch_deadline_callback(epoch_deadline_callback);
+
         let store_cell = StoreCell::new(store);
-        Self::build(engine, &module, store_cell)
+        Self::build(engine, &module, store_cell, timeout)
     }
 
     /// Build an `Instance` from an engine, module, and store cell. The
     /// store cell is moved in and ends up owned by the returned Instance.
     /// Wires the WASI p1 imports plus the `__kobako_dispatch` host import.
     fn build(
-        engine: &WtEngine,
+        engine: &wasmtime::Engine,
         module: &WtModule,
         store_cell: StoreCell,
+        timeout: Option<Duration>,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let mut linker: Linker<HostState> = Linker::new(engine);
@@ -113,7 +154,7 @@ impl Instance {
             let mut store_ref = store_cell.borrow_mut();
             linker
                 .instantiate(store_ref.as_context_mut(), module)
-                .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
+                .map_err(|e| instantiate_err(&ruby, e))?
         };
 
         // Best-effort export lookup. Missing exports are not an error here
@@ -138,6 +179,7 @@ impl Instance {
             store: store_cell,
             run,
             take_outcome,
+            timeout,
         })
     }
 
@@ -162,18 +204,32 @@ impl Instance {
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the two-frame stdin protocol carries +preamble+ then +source+ —
-    /// SPEC.md ABI Signatures), then invokes `__kobako_run`.
+    /// SPEC.md ABI Signatures), then invokes `__kobako_run`. Per-run
+    /// caps (SPEC.md B-01) are primed here: the wall-clock deadline is
+    /// stamped into [`HostState`] and the epoch deadline is set to fire
+    /// at the next ticker tick; the memory-cap limiter is already wired.
     pub(crate) fn run(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         self.refresh_wasi(preamble, source)?;
+        self.prime_caps();
 
         let run = self
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        let mut store_ref = self.store.borrow_mut();
-        run.call(store_ref.as_context_mut(), ())
-            .map_err(|e| wasm_err(&ruby, format!("__kobako_run(): {}", e)))
+        let result = {
+            let mut store_ref = self.store.borrow_mut();
+            run.call(store_ref.as_context_mut(), ())
+        };
+        // Drop the cap as soon as the guest call returns so that any
+        // post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER
+        // bytes, which can grow guest memory transiently) is not
+        // attributed to the user script.
+        self.store
+            .borrow_mut()
+            .data_mut()
+            .set_memory_cap_active(false);
+        result.map_err(|e| run_call_err(&ruby, e))
     }
 
     /// Return the stdout bytes captured during the most recent run.
@@ -211,6 +267,27 @@ impl Instance {
     // -----------------------------------------------------------------
     // Private helpers.
     // -----------------------------------------------------------------
+
+    /// Stamp the per-run wall-clock deadline into [`HostState`] and prime
+    /// the wasmtime epoch deadline so the next ticker tick wakes the
+    /// epoch-deadline callback. When `timeout` is disabled, the deadline
+    /// is set far enough in the future that the callback effectively
+    /// never fires.
+    fn prime_caps(&self) {
+        let mut store_ref = self.store.borrow_mut();
+        match self.timeout {
+            Some(timeout) => {
+                let deadline = Instant::now() + timeout;
+                store_ref.data_mut().set_deadline(Some(deadline));
+                store_ref.set_epoch_deadline(1);
+            }
+            None => {
+                store_ref.data_mut().set_deadline(None);
+                store_ref.set_epoch_deadline(u64::MAX);
+            }
+        }
+        store_ref.data_mut().set_memory_cap_active(true);
+    }
 
     /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
     /// source) plus fresh stdout/stderr pipes. Called at the top of every
@@ -288,4 +365,49 @@ impl Instance {
         }
         Ok(data[ptr..end].to_vec())
     }
+}
+
+/// Epoch-deadline callback installed on every Store. Read the per-run
+/// wall-clock deadline from [`HostState`] (SPEC.md B-01) and trap with
+/// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
+/// next check by one tick of the process-wide epoch ticker. When the
+/// deadline is `None` the callback should not fire under normal
+/// `Instance::run` flow because `set_epoch_deadline(u64::MAX)` is used;
+/// returning a long extension keeps the callback inert as a defence in
+/// depth.
+fn epoch_deadline_callback(
+    ctx: StoreContextMut<'_, HostState>,
+) -> wasmtime::Result<UpdateDeadline> {
+    match ctx.data().deadline() {
+        Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
+        Some(_) => Ok(UpdateDeadline::Continue(1)),
+        None => Ok(UpdateDeadline::Continue(u64::MAX / 2)),
+    }
+}
+
+/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
+/// exception class. `__kobako_run` traps are downcast to identify the
+/// configured-cap path (SPEC.md E-19 / E-20); everything else surfaces
+/// as the base `Kobako::Wasm::Error`.
+fn run_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    if err.downcast_ref::<TimeoutTrap>().is_some() {
+        return timeout_err(ruby, format!("__kobako_run(): {}", err));
+    }
+    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
+        return memory_limit_err(ruby, format!("__kobako_run(): {}", err));
+    }
+    wasm_err(ruby, format!("__kobako_run(): {}", err))
+}
+
+/// Map an instantiation error to the right `Kobako::Wasm::*` Ruby
+/// exception. The memory cap is dormant during instantiation by design
+/// (see [`HostState::set_memory_cap_active`]), but [`MemoryLimitTrap`]
+/// is still possible if a future Sandbox configuration enables it
+/// during instantiation — keep the mapping symmetric with
+/// [`run_call_err`].
+fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
+        return memory_limit_err(ruby, format!("instantiate: {}", err));
+    }
+    wasm_err(ruby, format!("instantiate: {}", err))
 }

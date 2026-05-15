@@ -5,11 +5,18 @@
 //! dispatcher reads the registry handle, while the run-path methods on
 //! [`crate::wasm::Instance`] install fresh WASI context + pipes before
 //! every `#run` (SPEC.md B-03 / B-04).
+//!
+//! The state also carries the per-run wall-clock deadline (SPEC.md B-01,
+//! E-19) and the linear-memory cap [`KobakoLimiter`] (SPEC.md B-01,
+//! E-20). Both are read from the wasmtime `epoch_deadline_callback` /
+//! `ResourceLimiter` callbacks installed in
+//! [`crate::wasm::Instance::from_path`].
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::time::Instant;
 
 use magnus::{value::Opaque, Value};
-use wasmtime::Store as WtStore;
+use wasmtime::{ResourceLimiter, Store as WtStore};
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
@@ -21,15 +28,31 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 /// captured stdout/stderr bytes are read after the run via
 /// [`HostState::stdout_bytes`] / [`HostState::stderr_bytes`]. The fields
 /// are private so the mutation surface stays narrow.
-#[derive(Default)]
 pub(super) struct HostState {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
     registry: Option<Opaque<Value>>,
+    deadline: Option<Instant>,
+    limiter: KobakoLimiter,
 }
 
 impl HostState {
+    /// Build a fresh per-Store host state. `memory_limit` carries the
+    /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
+    /// it is read from the wasmtime [`ResourceLimiter`] callback every
+    /// time the guest grows linear memory (SPEC.md B-01, E-20).
+    pub(super) fn new(memory_limit: Option<usize>) -> Self {
+        Self {
+            wasi: None,
+            stdout_pipe: None,
+            stderr_pipe: None,
+            registry: None,
+            deadline: None,
+            limiter: KobakoLimiter::new(memory_limit),
+        }
+    }
+
     /// Install a freshly-built WASI context plus the matching stdout/stderr
     /// pipe clones. Called from [`crate::wasm::Instance::run`] at the top
     /// of every guest invocation (SPEC.md B-03 / B-04).
@@ -84,7 +107,131 @@ impl HostState {
             .as_mut()
             .expect("WASI context not initialised — call Instance#run before any WASI use")
     }
+
+    /// Replace the per-run wall-clock deadline. `Some(at)` makes the
+    /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
+    /// disables the cap. Called at the top of every `#run` (SPEC.md B-01).
+    pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
+    }
+
+    /// Return the current per-run deadline. Read from the epoch-deadline
+    /// callback installed by [`crate::wasm::Instance::from_path`].
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// Mutable handle to the embedded [`KobakoLimiter`]. The wasmtime
+    /// [`ResourceLimiter`] callback closes over this; the limiter itself
+    /// is configured once at Store construction time.
+    pub(super) fn limiter_mut(&mut self) -> &mut KobakoLimiter {
+        &mut self.limiter
+    }
+
+    /// Toggle whether the memory cap is enforced on `memory.grow`. The
+    /// cap is dormant by default — the module's declared initial memory
+    /// is allocated during `Linker::instantiate` and SPEC.md E-20
+    /// scopes the trap to `memory.grow` (not the instantiation-time
+    /// initial allocation). [`crate::wasm::Instance::run`] activates the
+    /// cap right before `__kobako_run` and deactivates it once the call
+    /// returns.
+    pub(super) fn set_memory_cap_active(&mut self, active: bool) {
+        self.limiter.cap_active = active;
+    }
 }
+
+/// Resource limiter that enforces the `memory_limit` cap from SPEC.md
+/// B-01 / E-20 on every guest `memory.grow`.
+///
+/// `max_memory` is the byte cap (`None` disables the cap). `cap_active`
+/// gates whether the cap is enforced — wasmtime's `ResourceLimiter`
+/// fires for both the module's declared initial allocation and every
+/// subsequent `memory.grow`, but SPEC.md E-20 scopes the trap to
+/// `memory.grow` specifically. [`HostState::set_memory_cap_active`]
+/// flips the flag for the lifetime of an `Instance::run` call. When
+/// `cap_active` is `false`, the limiter always allows growth.
+///
+/// When `memory.grow` would push linear memory past the cap, the
+/// limiter returns [`MemoryLimitTrap`] from `memory_growing`; wasmtime
+/// turns that into the trap surfaced to the host as `__kobako_run`
+/// failure.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct KobakoLimiter {
+    max_memory: Option<usize>,
+    cap_active: bool,
+}
+
+impl KobakoLimiter {
+    fn new(max_memory: Option<usize>) -> Self {
+        Self {
+            max_memory,
+            cap_active: false,
+        }
+    }
+}
+
+impl ResourceLimiter for KobakoLimiter {
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        if !self.cap_active {
+            return Ok(true);
+        }
+        if let Some(limit) = self.max_memory {
+            if desired > limit {
+                return Err(wasmtime::Error::new(MemoryLimitTrap { desired, limit }));
+            }
+        }
+        Ok(true)
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        Ok(true)
+    }
+}
+
+/// Marker error returned from [`KobakoLimiter::memory_growing`] on
+/// SPEC.md E-20. Downcast from the wasmtime trap error to surface as
+/// `Kobako::Wasm::MemoryLimitError` on the Ruby side.
+#[derive(Debug)]
+pub(crate) struct MemoryLimitTrap {
+    pub(crate) desired: usize,
+    pub(crate) limit: usize,
+}
+
+impl std::fmt::Display for MemoryLimitTrap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "guest memory.grow would exceed memory_limit: desired={} bytes, limit={} bytes",
+            self.desired, self.limit
+        )
+    }
+}
+
+impl std::error::Error for MemoryLimitTrap {}
+
+/// Marker error returned from the epoch-deadline callback on SPEC.md
+/// E-19. Downcast from the wasmtime trap error to surface as
+/// `Kobako::Wasm::TimeoutError` on the Ruby side.
+#[derive(Debug)]
+pub(crate) struct TimeoutTrap;
+
+impl std::fmt::Display for TimeoutTrap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "guest exceeded the configured wall-clock timeout")
+    }
+}
+
+impl std::error::Error for TimeoutTrap {}
 
 /// Interior-mutability wrapper around `wasmtime::Store<HostState>`.
 ///

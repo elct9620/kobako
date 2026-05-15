@@ -608,4 +608,50 @@ class TestE2EJourneys < Minitest::Test
                  "Regexp: UTF-8 string match must round-trip multibyte " \
                  "captures (proves Onigmo's encoding tables are linked)"
   end
+
+  # SPEC.md B-01 / E-19: a wall-clock `timeout` cap interrupts an
+  # infinite loop at the next guest safepoint after the deadline. The
+  # cap raises `Kobako::TimeoutError`, which is a `Kobako::TrapError`
+  # subclass — callers that only care about the unrecoverable outcome
+  # can rescue the base class.
+  def test_timeout_cap_traps_infinite_loop
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+
+    started = Time.now
+    err = assert_raises(Kobako::TimeoutError) { sandbox.run("loop { }") }
+    elapsed = Time.now - started
+
+    assert_kind_of Kobako::TrapError, err,
+                   "TimeoutError must be a TrapError subclass per SPEC.md E-19"
+    assert_operator elapsed, :<, 2.0,
+                    "timeout must fire within the configured budget (epoch ticker latency aside)"
+    assert_match(/timeout|wall-clock/i, err.message)
+  end
+
+  # SPEC.md B-01 / E-20: `memory_limit` traps when guest `memory.grow`
+  # would exceed the cap. The cap is dormant during instantiation so
+  # the module's declared initial memory is allowed through; only
+  # script-driven growth past the cap surfaces.
+  def test_memory_limit_cap_traps_runaway_allocation
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 2 << 20)
+
+    err = assert_raises(Kobako::MemoryLimitError) do
+      sandbox.run('a = []; 200.times { a << ("x" * 100_000) }; nil')
+    end
+
+    assert_kind_of Kobako::TrapError, err,
+                   "MemoryLimitError must be a TrapError subclass per SPEC.md E-20"
+    assert_match(/memory_limit/, err.message)
+  end
+
+  # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
+  # the corresponding cap. With caps off, a small script must complete
+  # normally — the guards are dormant rather than always-firing.
+  def test_disabled_caps_allow_normal_execution
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
+
+    assert_nil sandbox.timeout
+    assert_nil sandbox.memory_limit
+    assert_equal 3, sandbox.run("1 + 2")
+  end
 end

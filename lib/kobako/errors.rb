@@ -34,7 +34,30 @@ module Kobako
   # (trap, OOM, unreachable) or when the wire layer detected a structural
   # violation that signals a corrupted guest execution environment
   # (zero-length OUTCOME_BUFFER, unknown outcome tag — SPEC E-02 / E-03).
+  #
+  # Two named subclasses cover the configured per-run caps from B-01:
+  #
+  #   * {TimeoutError}     — wall-clock +timeout+ exceeded (E-19).
+  #   * {MemoryLimitError} — guest +memory.grow+ would exceed
+  #                          +memory_limit+ (E-20).
+  #
+  # Host Apps that only care about "guest is unrecoverable, discard the
+  # Sandbox" can rescue +TrapError+ and ignore the subclass; Host Apps that
+  # want to surface a specific reason to operators can rescue the subclass
+  # first.
   class TrapError < Error; end
+
+  # Wall-clock timeout cap exhausted. {SPEC.md E-19}[link:../../SPEC.md]:
+  # the absolute deadline +entry_time + timeout+ passed and the next guest
+  # wasm safepoint trapped. The Sandbox is unrecoverable after this point;
+  # discard and recreate before another execution.
+  class TimeoutError < TrapError; end
+
+  # Linear-memory cap exhausted. {SPEC.md E-20}[link:../../SPEC.md]:
+  # a guest +memory.grow+ would have pushed linear memory past the
+  # configured +memory_limit+. The Sandbox is unrecoverable after this
+  # point; discard and recreate before another execution.
+  class MemoryLimitError < TrapError; end
 
   # Sandbox / wire layer. Raised when the guest ran to completion but
   # execution failed due to a mruby script error, a protocol fault, or a

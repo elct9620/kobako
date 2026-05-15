@@ -8,8 +8,18 @@ module Kobako
 
     def self.default_path: () -> String
 
+    class TimeoutError < Error
+    end
+
+    class MemoryLimitError < Error
+    end
+
     class Instance
-      def self.from_path: (String path) -> Instance
+      def self.from_path: (
+        String path,
+        (Float | Integer)? timeout_seconds,
+        Integer? memory_limit
+      ) -> Instance
 
       def registry=: (Kobako::Registry registry) -> void
 

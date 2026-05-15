@@ -2,18 +2,26 @@ module Kobako
   class Sandbox
     DEFAULT_OUTPUT_LIMIT: Integer
 
+    DEFAULT_TIMEOUT_SECONDS: Float
+
+    DEFAULT_MEMORY_LIMIT: Integer
+
     attr_reader wasm_path: String
     attr_reader instance: Kobako::Wasm::Instance
     attr_reader stdout_buffer: OutputBuffer
     attr_reader stderr_buffer: OutputBuffer
     attr_reader stdout_limit: Integer
     attr_reader stderr_limit: Integer
+    attr_reader timeout: Float?
+    attr_reader memory_limit: Integer?
     attr_reader services: Kobako::Registry
 
     def initialize: (
       ?wasm_path: String?,
       ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?
+      ?stderr_limit: Integer?,
+      ?timeout: (Float | Integer)?,
+      ?memory_limit: Integer?
     ) -> void
 
     def stdout: () -> String
@@ -25,6 +33,10 @@ module Kobako
     def run: (String source) -> untyped
 
     private
+
+    def normalize_timeout: ((Float | Integer)? timeout) -> Float?
+
+    def normalize_memory_limit: (Integer? memory_limit) -> Integer?
 
     def reset_run_state!: () -> void
 

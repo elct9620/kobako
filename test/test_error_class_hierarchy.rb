@@ -23,6 +23,18 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::ServiceError::Disconnected < Kobako::ServiceError
   end
 
+  # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named
+  # TrapError subclasses for the configured per-run caps from B-01.
+  def test_timeout_error_chains_under_trap_error
+    assert Kobako::TimeoutError < Kobako::TrapError
+    assert Kobako::TimeoutError < Kobako::Error
+  end
+
+  def test_memory_limit_error_chains_under_trap_error
+    assert Kobako::MemoryLimitError < Kobako::TrapError
+    assert Kobako::MemoryLimitError < Kobako::Error
+  end
+
   def test_sandbox_output_limit_exceeded_placeholder_is_gone
     # Cycle 14 left `Kobako::Sandbox::OutputLimitExceeded < StandardError`
     # as a placeholder; SPEC B-04 specifies truncate-with-marker, not

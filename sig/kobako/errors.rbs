@@ -5,6 +5,12 @@ module Kobako
   class TrapError < Error
   end
 
+  class TimeoutError < TrapError
+  end
+
+  class MemoryLimitError < TrapError
+  end
+
   class SandboxError < Error
     attr_reader origin: String?
     attr_reader klass: String?

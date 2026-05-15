@@ -99,4 +99,49 @@ class TestSandbox < Minitest::Test
     group = sandbox.services.define(:Foo)
     assert_instance_of Kobako::Registry::ServiceGroup, group
   end
+
+  # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`
+  # to the SPEC-aligned cap. Both surface as readonly attributes for
+  # introspection by Host Apps that need to log policy.
+  def test_default_caps_match_spec_b01
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
+
+    assert_equal Kobako::Sandbox::DEFAULT_TIMEOUT_SECONDS, sandbox.timeout
+    assert_equal 60.0, sandbox.timeout
+    assert_equal Kobako::Sandbox::DEFAULT_MEMORY_LIMIT, sandbox.memory_limit
+    assert_operator sandbox.memory_limit, :>, 0
+  end
+
+  def test_custom_caps_reflected
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 1.5, memory_limit: 2 << 20)
+
+    assert_in_delta 1.5, sandbox.timeout, 1e-9
+    assert_equal 2 << 20, sandbox.memory_limit
+  end
+
+  def test_nil_caps_disable_enforcement
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: nil, memory_limit: nil)
+
+    assert_nil sandbox.timeout
+    assert_nil sandbox.memory_limit
+  end
+
+  def test_integer_timeout_is_coerced_to_float
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 5)
+
+    assert_kind_of Float, sandbox.timeout
+    assert_equal 5.0, sandbox.timeout
+  end
+
+  def test_invalid_timeout_raises_argument_error
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 0) }
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: -1.0) }
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: "60") }
+  end
+
+  def test_invalid_memory_limit_raises_argument_error
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: 0) }
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: -1) }
+    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: 1.5) }
+  end
 end
