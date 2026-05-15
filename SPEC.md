@@ -32,7 +32,7 @@ The following are explicitly outside the scope of kobako:
 - A general-purpose wasmtime Ruby gem
 - mruby upstream development or distribution
 - Multi-tenant billing, SLA management, or deployment/operations tooling
-- Per-run resource usage metrics or quota enforcement instrumentation (e.g., CPU instruction counts, memory consumption per `#run`)
+- Multi-tenant quota / billing instrumentation, cross-Sandbox fairness scheduling, or per-process aggregate resource metrics (the in-Sandbox per-run wall-clock timeout and linear memory cap from B-01 are in scope; cross-Sandbox aggregation is not)
 - Async or yield-resume execution models and interpreter state snapshot/resume
 - Passing guest-side blocks to Service methods
 
@@ -99,7 +99,7 @@ These five roles describe the system. All design and behavior content in later l
 
 **Output guarantees:**
 - Every `Sandbox#run` call either returns a single deserialized Ruby value (the script's last expression) or raises exactly one of `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError` — no other outcome is possible
-- Guest stdout and stderr are always available as separate byte buffers after execution and contain no protocol bytes
+- Guest stdout and stderr are always available as separate byte buffers after execution and contain no protocol bytes; truncation, when triggered by a configured cap, is observable via separate predicates on the Sandbox and never appears as inline content within the byte streams
 - Capability state is fully reset between successive `#run` invocations on the same Sandbox instance
 - The `kobako` gem name and the public Ruby class names `Kobako::Sandbox`, `Kobako::Handle`, `Kobako::TrapError`, `Kobako::SandboxError`, and `Kobako::ServiceError` are stable public contracts
 
@@ -189,7 +189,7 @@ A teaching platform or CI system operator receives student-submitted Ruby script
 4. The operator repeats this for each submission without restarting the host process.
 
 **Outcome**
-Each submission executes inside an isolated Wasm boundary. A submission that crashes or attempts to escape receives a `Kobako::TrapError` or `Kobako::SandboxError`; neither outcome affects subsequent submissions. kobako does not enforce execution-time quotas (see Non-Goals); submissions that loop indefinitely block the calling thread, and the Host App is responsible for any timeout policy. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
+Each submission executes inside an isolated Wasm boundary. A submission that crashes or attempts to escape receives a `Kobako::TrapError` (or one of its subclasses) or `Kobako::SandboxError`; neither outcome affects subsequent submissions. Each Sandbox enforces a configurable per-run wall-clock timeout (default 60 s) and linear memory cap (default 1 MiB); submissions exceeding either raise `Kobako::TimeoutError` or `Kobako::MemoryLimitError` respectively, and never block the calling thread beyond the configured timeout. The Host App owns higher-level policy (queue-level fairness, per-student daily caps, retry semantics) above these per-run caps. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
 
 ---
 
@@ -235,9 +235,9 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | Field | Value |
 |-------|-------|
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
-| **Operation** | `Kobako::Sandbox.new` — optionally with `stdout_limit:` and/or `stderr_limit:` keyword arguments (each defaults to 1 MiB). |
+| **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
 | **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
-| **Notes** | `stdout_limit` and `stderr_limit` control the per-run capture ceiling (see B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
+| **Notes** | `timeout` bounds wall-clock execution of guest wasm code only; time spent inside a Service callback executing on the host is not bounded by this mechanism — the Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` cap per-run output capture (B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
 
 ---
 
@@ -247,7 +247,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Service members have been bound. The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
-| **Result / Final State** | Each `#run` call executes with a fresh capability state — the HandleTable counter is reset and no Handles from prior runs are reachable. Service bindings registered on this Sandbox remain active across runs. `#run` blocks until execution completes. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
+| **Result / Final State** | Each `#run` call executes with a fresh capability state — the HandleTable counter is reset and no Handles from prior runs are reachable. Service bindings registered on this Sandbox remain active across runs. `#run` blocks until execution completes, up to the configured `timeout`. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution, bounded by `stdout_limit` / `stderr_limit` (B-04). Per-run cap exhaustion surfaces as `Kobako::TimeoutError` (wall-clock `timeout` exceeded; E-19) or `Kobako::MemoryLimitError` (guest `memory.grow` exceeds `memory_limit`; E-20), both subclasses of `Kobako::TrapError`. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
 | **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
 
 ---
@@ -258,7 +258,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 |-------|-------|
 | **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Service members bound before the first `#run` remain registered. |
 | **Operation** | `sandbox.run(script_string)` — any invocation after the first. |
-| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior runs) from previous runs is fully discarded before the new run begins. All Service bindings registered on this Sandbox at any point remain active across runs and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation. |
+| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior runs) from previous runs is fully discarded before the new run begins. All Service bindings registered on this Sandbox at any point remain active across runs and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation; the per-channel truncation predicates (B-04) reset together with the buffers. Per-run cap enforcement (B-02 Result) applies identically to every `#run` invocation. |
 | **Notes** | A Handle issued during run N is not reachable during run N+1. This isolation guarantee is unconditional — it holds whether the previous run succeeded or raised an error. Service bindings are never cleared between runs; only capability state is reset. |
 
 ---
@@ -268,9 +268,9 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | Field | Value |
 |-------|-------|
 | **Initial State** | A Sandbox instance on which `#run` has been called and has returned (either with a value or by raising an error). |
-| **Operation** | `sandbox.stdout` or `sandbox.stderr` — either or both, in any order, any number of times. |
-| **Result / Final State** | Each reader returns the complete byte content (as a UTF-8 String) that the guest script wrote to its respective output channel during the most recent `#run` invocation. The buffers do not change between successive reads. The content contains no kobako protocol bytes. If the accumulated output exceeded the configured limit, the buffer contains the captured bytes up to that limit followed by a `[truncated]` marker; this truncation does not cause `#run` to raise an error. |
-| **Notes** | The buffers remain readable after an error-raising `#run`; the Host App reads them after catching the error. Buffer limits are set at construction time (B-01). |
+| **Operation** | `sandbox.stdout`, `sandbox.stderr`, `sandbox.stdout_truncated?`, or `sandbox.stderr_truncated?` — any combination, any order, any number of times. |
+| **Result / Final State** | Each byte reader returns the content (as a UTF-8 String) the guest script wrote to its respective output channel during the most recent `#run` invocation, up to the configured `stdout_limit` / `stderr_limit`. The buffers do not change between successive reads. The content contains no kobako protocol bytes and no truncation sentinels. When a channel's cap was reached, the guest's underlying write call observed an I/O error (which the script may rescue or ignore) and the host buffer ends at the cap boundary; this does not cause `#run` to raise an error. Each truncation predicate returns `true` iff its channel hit its cap during the most recent `#run`, otherwise `false`. |
+| **Notes** | The buffers and the truncation predicates remain accessible after an error-raising `#run`; the Host App reads them after catching the error. Per-channel byte caps are set at construction time (B-01). Truncation predicates reset together with the buffers at the start of the next `#run` (B-03). |
 
 ---
 
@@ -479,7 +479,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 Every `Sandbox#run` invocation terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after `__kobako_run` returns:
 
 **Step 1 — Trap detection (highest priority).**
-If the Wasm engine reports a trap (e.g., wasmtime raises a native trap exception), the outcome is `Kobako::TrapError` regardless of any other state. No outcome bytes are inspected.
+If the Wasm engine reports a trap (e.g., wasmtime raises a native trap exception), the outcome is `Kobako::TrapError` or one of its named subclasses regardless of any other state. No outcome bytes are inspected. The trap kind determines the raised class: wall-clock timeout traps raise `Kobako::TimeoutError` (E-19), linear-memory-cap traps raise `Kobako::MemoryLimitError` (E-20), and all other engine or wire-violation traps raise the base `Kobako::TrapError` (E-01..E-03).
 
 **Step 2 — Outcome envelope tag (non-trap outcomes only).**
 If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_take_outcome` and dispatches on the first-byte tag:
@@ -498,17 +498,19 @@ If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_
 
 ---
 
-#### `Kobako::TrapError`
+#### `Kobako::TrapError` and its subclasses
 
-Raised when the Wasm execution engine crashes or when the wire layer detects a structural violation that signals a corrupted guest execution environment. After a `TrapError`, the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next execution.
+Raised when the Wasm execution engine crashes, when the wire layer detects a structural violation that signals a corrupted guest execution environment, or when a configured per-run cap is exceeded. The base class `Kobako::TrapError` covers engine and wire-violation traps; the named subclasses `Kobako::TimeoutError` and `Kobako::MemoryLimitError` cover the configured-cap cases. After any TrapError (base class or subclass), the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next execution.
 
-| # | Trigger | Detection point |
-|---|---------|-----------------|
-| E-01 | Wasm engine trap: OOM, `unreachable` instruction, stack overflow, or import signature mismatch | Wasm engine reports a native trap; Step 1 fires |
-| E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback |
-| E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback |
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-01 | Wasm engine trap: `unreachable` instruction, stack overflow, or import signature mismatch | Wasm engine reports a native trap; Step 1 fires | `Kobako::TrapError` |
+| E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback | `Kobako::TrapError` |
+| E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback | `Kobako::TrapError` |
+| E-19 | Wall-clock execution of guest wasm code exceeded the configured `timeout` (B-01) | Wasm engine reports a wall-clock interrupt; Step 1 fires | `Kobako::TimeoutError` |
+| E-20 | Guest `memory.grow` would exceed the configured `memory_limit` (B-01) | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
 
-**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`.
+**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`. E-19 bounds only guest wasm execution; time spent inside Service callbacks running on the host is not bounded by `timeout` (B-01 Notes).
 
 ---
 
@@ -583,7 +585,7 @@ These are sub-components and runtime concepts owned by the Host Gem. They are no
 
 | Term | Definition | Public? |
 |------|-----------|---------|
-| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
+| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Enforces three configurable per-run bounds — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
 | **Registry** | The Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable. Not exposed to the Host App. | No |
 | **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
 | **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::Handle` runs in the host process; the `Kobako::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
@@ -606,6 +608,8 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 
 | Term | Ruby Class | Superclass | Meaning |
 |------|-----------|-----------|---------|
+| **TimeoutError** | `Kobako::TimeoutError` | `Kobako::TrapError` | Wall-clock execution of guest wasm code exceeded the configured per-run `timeout` (default 60 s); see E-19. Bounds wasm execution only, not Service callbacks. |
+| **MemoryLimitError** | `Kobako::MemoryLimitError` | `Kobako::TrapError` | Guest `memory.grow` would exceed the configured per-run `memory_limit` (default 1 MiB); see E-20 |
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
 
@@ -1013,6 +1017,9 @@ The following invariants hold across every layer of the system. Each is a hard r
 | Wire `target` for Service calls uses the Ruby constant-path form `"Group::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
 | Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling | Test-time |
 | stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem | Test-time |
+| `#stdout` and `#stderr` byte content never includes truncation sentinels; truncation status is observable only via `#stdout_truncated?` / `#stderr_truncated?` | Host Gem | Test-time |
+| `#run` exceeding the configured `timeout` raises `Kobako::TimeoutError` via the trap-attribution path; no other outcome is possible for wall-clock cap exhaustion | Host Gem | Runtime |
+| Guest `memory.grow` exceeding the configured `memory_limit` traps unconditionally and raises `Kobako::MemoryLimitError`; the host never observes a silent `memory.grow` failure from cap exhaustion | Host Gem | Runtime |
 | `Sandbox#run` returns the last mruby expression value via the Result envelope path; objects without a wire representation take the Panic envelope path — no implicit `inspect` or `to_h` conversion | Guest Binary, Wire Spec | Test-time |
 | `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts | Build-time |
 | mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build | Build-time |
