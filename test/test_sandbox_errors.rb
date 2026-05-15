@@ -86,7 +86,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   end
 
   def test_result_envelope_returns_value
-    body = Kobako::Wire::Codec::Encoder.encode(42)
+    body = Kobako::Codec::Encoder.encode(42)
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
     bytes << Kobako::Outcome::TYPE_VALUE.chr(Encoding::ASCII_8BIT)
     bytes << body

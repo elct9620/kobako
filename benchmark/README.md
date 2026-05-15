@@ -46,7 +46,7 @@ Each row wraps the call inside one `#run`, so the absolute number bundles `#run`
 
 ### Wire codec — host side ([`codec.rb`](codec.rb))
 
-Encoding and decoding through `Kobako::Wire::Codec` directly from Ruby. These numbers do not cross the wasm boundary; they characterize the host-side codec on its own.
+Encoding and decoding through `Kobako::Codec` directly from Ruby. These numbers do not cross the wasm boundary; they characterize the host-side codec on its own.
 
 | Payload | Encode | Decode |
 |---|---|---|

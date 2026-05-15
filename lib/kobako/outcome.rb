@@ -12,7 +12,7 @@ module Kobako
   # Self-contained: this module owns the wire framing (tag bytes,
   # body decoding), and the +Panic+ wire record lives at
   # +Kobako::Outcome::Panic+. The byte-level msgpack codec at
-  # +Kobako::Wire::Codec+ is invoked for the body itself; otherwise
+  # +Kobako::Codec+ is invoked for the body itself; otherwise
   # nothing in +Wire::Envelope+ participates.
   #
   #   * tag 0x01, decode OK                 → return decoded value
@@ -65,8 +65,8 @@ module Kobako
     # Decode failure on the success tag is a SandboxError (E-09): the
     # framing was fine, but the carried value is unrepresentable.
     def decode_value(body)
-      Kobako::Wire::Codec::Decoder.decode(body)
-    rescue Kobako::Wire::Codec::Error => e
+      Kobako::Codec::Decoder.decode(body)
+    rescue Kobako::Codec::Error => e
       raise wire_violation_error("result envelope decode failed: #{e.message}")
     end
 
@@ -76,19 +76,19 @@ module Kobako
     # failure the rescue path raises the wire-violation +SandboxError+.
     def decode_panic(body)
       raise build_panic_error(decode_panic_map(body))
-    rescue Kobako::Wire::Codec::Error => e
+    rescue Kobako::Codec::Error => e
       raise wire_violation_error("panic envelope decode failed: #{e.message}")
     end
 
     # Build a +Panic+ value object from the msgpack-decoded body. Raises
-    # +Kobako::Wire::Codec::InvalidType+ when the body is not a map or
+    # +Kobako::Codec::InvalidType+ when the body is not a map or
     # when required keys are missing — both routed by +decode_panic+ to
     # +wire_violation_error+.
     def decode_panic_map(body)
-      map = Kobako::Wire::Codec::Decoder.decode(body)
-      raise Kobako::Wire::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
+      map = Kobako::Codec::Decoder.decode(body)
+      raise Kobako::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-      Kobako::Wire::Codec.translate_value_object_error do
+      Kobako::Codec.translate_value_object_error do
         Panic.new(
           origin: map["origin"], klass: map["class"], message: map["message"],
           backtrace: map["backtrace"] || [], details: map["details"]

@@ -120,7 +120,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # is a wire violation; the envelope decoder rejects the message and
   # the dispatcher surfaces a wire-decode error.
   def test_string_kwargs_key_is_wire_violation
-    bad_request_bytes = Kobako::Wire::Codec::Encoder.encode(
+    bad_request_bytes = Kobako::Codec::Encoder.encode(
       ["Logger::Echo", "call", [], { "name" => "alice" }]
     )
 
@@ -134,7 +134,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # SPEC: non-Symbol keys (e.g. Integer) are a wire violation — the
   # envelope decoder rejects them at the boundary.
   def test_non_symbol_kwargs_key_is_wire_violation
-    bad_request_bytes = Kobako::Wire::Codec::Encoder.encode(
+    bad_request_bytes = Kobako::Codec::Encoder.encode(
       ["Logger::Echo", "call", [], { 42 => "v" }]
     )
 
@@ -382,15 +382,15 @@ class TestRegistryDispatchUnit < Minitest::Test
   #
   # The test seam: we cannot construct such a Request via Request.new
   # (its constructor rejects non-String/Handle target types). We hand-roll
-  # the msgpack bytes via Wire::Codec::Encoder so the malformed payload reaches
+  # the msgpack bytes via Kobako::Codec::Encoder so the malformed payload reaches
   # the dispatcher exactly as a misbehaving guest would emit it.
   def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
-    bad_request_bytes = Kobako::Wire::Codec::Encoder.encode([42, "call", ["x"], {}])
+    bad_request_bytes = Kobako::Codec::Encoder.encode([42, "call", ["x"], {}])
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 
     assert resp.err?
-    # Wire::Codec::Error rescues to type="runtime" with a "wire decode failed"
+    # Kobako::Codec::Error rescues to type="runtime" with a "wire decode failed"
     # prefix; the dispatcher's contract pins this taxonomy and the guest
     # observes a normal RPC error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type

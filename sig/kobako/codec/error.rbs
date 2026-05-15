@@ -1,0 +1,18 @@
+module Kobako
+  module Codec
+    class Error < StandardError
+    end
+
+    class Truncated < Error
+    end
+
+    class InvalidType < Error
+    end
+
+    class InvalidEncoding < Error
+    end
+
+    class UnsupportedType < Error
+    end
+  end
+end

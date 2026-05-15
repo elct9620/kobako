@@ -13,7 +13,7 @@
 #        Type Mapping table (12 wire types).
 #
 # Host side is measured directly against
-# Kobako::Wire::Codec::Encoder / Decoder. Guest side is measured by
+# Kobako::Codec::Encoder / Decoder. Guest side is measured by
 # Sandbox#run returning a constructed value — the absolute number
 # bundles guest-side encode + host-side decode + the constant #run
 # overhead; comparison across sizes / depths isolates the codec
@@ -33,9 +33,9 @@ size_bytes["16MiB"] = 16 * 1024 * 1024 if ENV["BENCH_FULL"] == "1"
 
 size_bytes.each do |label, bytes|
   payload = "x" * bytes
-  encoded = Kobako::Wire::Codec::Encoder.encode(payload)
-  runner.case("3a-host-encode-#{label}") { Kobako::Wire::Codec::Encoder.encode(payload) }
-  runner.case("3a-host-decode-#{label}") { Kobako::Wire::Codec::Decoder.decode(encoded) }
+  encoded = Kobako::Codec::Encoder.encode(payload)
+  runner.case("3a-host-encode-#{label}") { Kobako::Codec::Encoder.encode(payload) }
+  runner.case("3a-host-decode-#{label}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
 # 3b — host encode/decode, varying nesting depth at fixed 1 KiB leaf
@@ -47,9 +47,9 @@ end
 [1, 4, 16, 64].each do |depth|
   leaf = "x" * 1024
   payload = nest(leaf, depth)
-  encoded = Kobako::Wire::Codec::Encoder.encode(payload)
-  runner.case("3b-host-encode-depth-#{depth}") { Kobako::Wire::Codec::Encoder.encode(payload) }
-  runner.case("3b-host-decode-depth-#{depth}") { Kobako::Wire::Codec::Decoder.decode(encoded) }
+  encoded = Kobako::Codec::Encoder.encode(payload)
+  runner.case("3b-host-encode-depth-#{depth}") { Kobako::Codec::Encoder.encode(payload) }
+  runner.case("3b-host-decode-depth-#{depth}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
 # 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 12 entries).
@@ -71,9 +71,9 @@ wire_types = {
 }
 
 wire_types.each do |name, value|
-  encoded = Kobako::Wire::Codec::Encoder.encode(value)
-  runner.case("3c-host-encode-#{name}") { Kobako::Wire::Codec::Encoder.encode(value) }
-  runner.case("3c-host-decode-#{name}") { Kobako::Wire::Codec::Decoder.decode(encoded) }
+  encoded = Kobako::Codec::Encoder.encode(value)
+  runner.case("3c-host-encode-#{name}") { Kobako::Codec::Encoder.encode(value) }
+  runner.case("3c-host-decode-#{name}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
 # 3a / 3b — guest side: Sandbox#run returning a constructed value.

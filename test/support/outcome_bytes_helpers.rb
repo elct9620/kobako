@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # Shared byte-builders for tests that drive Kobako::Outcome and the
-# Wire::Codec directly. Methods reference Kobako::Outcome and
-# Kobako::Wire::Codec at call time only, so this file can be required
+# Kobako::Codec directly. Methods reference Kobako::Outcome and
+# Kobako::Codec at call time only, so this file can be required
 # from tests that opt out of the full +require "kobako"+ chain (which
 # would pull in the native ext).
 #
@@ -27,7 +27,7 @@ module OutcomeBytesHelpers
     map = { "origin" => panic.origin, "class" => panic.klass, "message" => panic.message }
     map["backtrace"] = panic.backtrace unless panic.backtrace.empty?
     map["details"]   = panic.details unless panic.details.nil?
-    Kobako::Wire::Codec::Encoder.encode(map)
+    Kobako::Codec::Encoder.encode(map)
   end
 
   def panic_outcome_bytes(origin:, klass:, message:, backtrace: [])

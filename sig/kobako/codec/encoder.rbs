@@ -1,0 +1,7 @@
+module Kobako
+  module Codec
+    module Encoder
+      def self.encode: (untyped value) -> String
+    end
+  end
+end

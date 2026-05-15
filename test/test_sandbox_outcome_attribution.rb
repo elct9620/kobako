@@ -60,13 +60,13 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
 
   # --- Panic with missing "class" field raises SandboxError (SPEC E-08) ---
   #
-  # decode_panic calls Envelope.decode_panic, which raises Wire::Codec::InvalidType
+  # decode_panic calls Envelope.decode_panic, which raises Kobako::Codec::InvalidType
   # when a required key is absent.  The Sandbox rescue chain wraps that as
   # SandboxError with klass="Kobako::WireError".
   def test_panic_with_missing_class_field_raises_sandbox_error
     # Hand-roll a panic map that omits "class" — cannot use Panic.new because
     # it requires the field; build the raw bytes directly.
-    raw_map = Kobako::Wire::Codec::Encoder.encode(
+    raw_map = Kobako::Codec::Encoder.encode(
       "origin" => "sandbox", "message" => "missing class"
     )
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
@@ -79,7 +79,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # --- Result envelope with empty bytes body raises SandboxError (SPEC E-09) ---
   #
   # An empty result body is not a valid msgpack value, so decode_result raises
-  # Wire::Codec::Truncated (a Wire::Codec::Error subclass).  The Sandbox rescue chain wraps
+  # Kobako::Codec::Truncated (a Kobako::Codec::Error subclass).  The Sandbox rescue chain wraps
   # that as SandboxError (E-09: result envelope decode failed).
   def test_result_envelope_with_empty_body_raises_sandbox_error
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)

@@ -83,7 +83,7 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 
 When changing behavior, start at the listed files and follow the SPEC anchors they cite. Each entry names only the **load-bearing** files — incidental helpers are reachable from there.
 
-- **Wire format / codec** — `lib/kobako/wire/` (host) + `wasm/kobako-wasm/src/codec/`, `wasm/kobako-wasm/src/envelope.rs` (guest). SPEC anchors: B-01..B-14.
+- **Wire format / codec** — `lib/kobako/codec/` (host byte codec) + `lib/kobako/wire/` (host RPC envelope on top of the codec) + `wasm/kobako-wasm/src/codec/`, `wasm/kobako-wasm/src/envelope.rs` (guest). SPEC anchors: B-01..B-14.
 - **Error taxonomy / outcome attribution** — `lib/kobako/errors.rb` + `lib/kobako/outcome.rb`. SPEC anchors: E-xx.
 - **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` + `lib/kobako/capture.rb` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/abi.rs` (guest entry — `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome` exports).
 - **RPC dispatch** — `lib/kobako/registry/dispatcher.rb` (host; **never raises** — every failure becomes a `Response.err` envelope) + `wasm/kobako-wasm/src/rpc_client.rs` (guest).

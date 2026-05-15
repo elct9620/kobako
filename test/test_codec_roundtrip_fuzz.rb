@@ -18,14 +18,14 @@
 #      would dominate the wall-clock budget.
 #   3. For each iteration:
 #        a. Generate a random Ruby value with a seeded RNG.
-#        b. Encode with `Kobako::Wire::Codec::Encoder` -> bytes A.
+#        b. Encode with `Kobako::Codec::Encoder` -> bytes A.
 #        c. Send bytes A to the oracle; receive bytes B (oracle decoded with
 #           the Rust codec, then re-encoded with the Rust encoder).
 #        d. Assert A == B (byte-identical: narrowest-encoding rule means two
 #           SPEC-compliant encoders must agree).
-#        e. Decode A with `Kobako::Wire::Codec::Decoder` -> recovered_a; assert
+#        e. Decode A with `Kobako::Codec::Decoder` -> recovered_a; assert
 #           recovered_a == original.
-#        f. Decode B with `Kobako::Wire::Codec::Decoder` -> recovered_b; assert
+#        f. Decode B with `Kobako::Codec::Decoder` -> recovered_b; assert
 #           recovered_b == original (covers Rust-encoded -> Ruby-decoded).
 #
 # Configuration:
@@ -48,8 +48,8 @@ class TestCodecRoundtripFuzz < Minitest::Test
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "roundtrip_oracle")
 
-  Encoder = Kobako::Wire::Codec::Encoder
-  Decoder = Kobako::Wire::Codec::Decoder
+  Encoder = Kobako::Codec::Encoder
+  Decoder = Kobako::Codec::Decoder
 
   def setup
     check_oracle_status

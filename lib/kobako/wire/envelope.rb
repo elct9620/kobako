@@ -2,7 +2,7 @@
 
 require_relative "handle"
 require_relative "exception"
-require_relative "codec"
+require_relative "../codec"
 
 module Kobako
   module Wire

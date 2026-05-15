@@ -14,14 +14,14 @@ require "kobako/wire"
 module Kobako
   module Wire
     class WireCodecTest < Minitest::Test
-      Encoder         = Kobako::Wire::Codec::Encoder
-      Decoder         = Kobako::Wire::Codec::Decoder
+      Encoder         = Kobako::Codec::Encoder
+      Decoder         = Kobako::Codec::Decoder
       Handle          = Kobako::Wire::Handle
       Exc             = Kobako::Wire::Exception
-      Truncated       = Kobako::Wire::Codec::Truncated
-      InvalidType     = Kobako::Wire::Codec::InvalidType
-      InvalidEncoding = Kobako::Wire::Codec::InvalidEncoding
-      UnsupportedType = Kobako::Wire::Codec::UnsupportedType
+      Truncated       = Kobako::Codec::Truncated
+      InvalidType     = Kobako::Codec::InvalidType
+      InvalidEncoding = Kobako::Codec::InvalidEncoding
+      UnsupportedType = Kobako::Codec::UnsupportedType
 
       # ---------- helpers ----------
 

@@ -15,8 +15,8 @@ module Kobako
       Envelope    = Kobako::Wire::Envelope
       Handle      = Kobako::Wire::Handle
       Exc         = Kobako::Wire::Exception
-      Encoder     = Kobako::Wire::Codec::Encoder
-      InvalidType = Kobako::Wire::Codec::InvalidType
+      Encoder     = Kobako::Codec::Encoder
+      InvalidType = Kobako::Codec::InvalidType
 
       def hex(bytes)
         bytes.b.unpack1("H*")

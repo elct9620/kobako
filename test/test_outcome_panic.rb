@@ -8,7 +8,7 @@ require "test_helper"
 # value object is the single source of truth for field-type invariants;
 # the host can rely on a successfully constructed Panic to carry the
 # right shapes without re-checking. The decode path uses
-# +Kobako::Wire::Codec.translate_value_object_error+ to surface these
+# +Kobako::Codec.translate_value_object_error+ to surface these
 # +ArgumentError+s as +Codec::InvalidType+, but the rejection itself is
 # pinned here at the value-object level.
 class TestOutcomePanic < Minitest::Test
