@@ -12,11 +12,15 @@ Apply these in order — earlier principles override later ones on conflict.
 
 1. **SPEC.md is the source of truth.** Behavior contracts (Wire Codec, error taxonomy, Sandbox lifecycle, HandleTable rules) live in `SPEC.md`. Cite anchors (B-xx / E-xx) from committed code as an RDoc link resolved from the file's location — e.g. `{SPEC.md B-04}[link:../../SPEC.md]` from `lib/kobako/*.rb`. When SPEC is silent, extend `SPEC.md` first, then cite the new anchor.
 
-2. **One thing per file; keep files small.** When a class grows, split it into a façade plus per-responsibility files in a sibling directory. `Registry`, `Wire::Envelope`, and `Sandbox` all follow this pattern (`<name>.rb` façade + `<name>/` directory of focused files). Prefer adding a new file over expanding an existing one.
+2. **One thing per file; keep files small.** When a class grows, split it into a façade plus per-responsibility files in a sibling directory. `Registry` and `Wire::Envelope` follow this pattern (`<name>.rb` façade + `<name>/` directory of focused files). Prefer adding a new file over expanding an existing one.
+
+   **Types nest under a Module, not a Class.** A stateful Class is per-instance and should not double as the namespace for sibling types. Place new types at the top level (`Kobako::Capture`, `Kobako::Outcome`) or under a Module (`Kobako::Wire::Envelope::Panic`). The `Registry::HandleTable` family — Classes nested under a Class — is residue from earlier development; do not extend the pattern.
 
 3. **Keep it simple. Don't pre-abstract.** Model exactly what SPEC requires — no speculative interfaces, parallel hierarchies, or defensive layers. Three similar lines beats a premature abstraction; a one-shot operation does not need a helper. Avoid feature flags and backwards-compatibility shims when the code can just change.
 
 4. **Follow language community conventions via tooling.** Ruby: Rubocop (auto-applied on `.rb` Edit/Write via PostToolUse hook) plus Steep (`bundle exec steep check` runs on every `.rb` / `.rbs` Edit/Write — failures block the edit). Rust: `cargo fmt` and `cargo clippy` (both auto-applied on `.rs` Edit/Write via PostToolUse hook; clippy runs with `-D warnings`, and uses `--target wasm32-wasip1` for `wasm/*` manifests when the cross-toolchain is provisioned). When a cop or lint fires, **shrink the code to fit the tool** — don't widen `.rubocop.yml` exclusions or add `#[allow]` / `# steep:ignore`. Existing exclusions on `lib/kobako/wire/**`, `tasks/*.rake`, and `test/**` are anchored to specific SPEC-to-code mappings; add new ones only with an inline comment naming the mapping.
+
+   **Tool-vs-tool conflicts are the one justified widening.** When a Rubocop cop and Steep / RBS upstream disagree on the same code shape — currently `Style/DataInheritance` rejects `class X < Data.define(...)` while ruby/rbs ([`docs/data_and_struct.md`](https://github.com/ruby/rbs/blob/master/docs/data_and_struct.md)) documents the subclass form as the Steep-friendly pattern — prefer the type-system guidance and disable the cop at the `.rubocop.yml` level with a comment citing the upstream source. The six `Data.define` types in `lib/kobako/wire/**` still pay the `# steep:ignore` tax because that migration has not yet happened; the transitional state is known, the target is the subclass form.
 
 5. **Document Ruby in RDoc prose.** No tool enforces this — match the existing style. Class doc explains purpose, ownership, and SPEC invariants; method doc describes parameters, return value, and raised exceptions in prose paragraphs. Wrap identifiers in `+code+`. Cite SPEC as `{SPEC.md B-XX}[link:<relative path>]` in plain text (no glyphs like the section sign). Do not use YARD tags (`@param` / `@return` / `@raise`); migrate them when touching nearby code.
 
@@ -40,11 +44,13 @@ Apply these in order — earlier principles override later ones on conflict.
    end
    ```
 
-6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `OutcomeDecoder` / `Registry::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
+6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `Kobako::Outcome` / `Registry::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
 
 7. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
 
 8. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
+
+9. **Lock external interfaces before pruning internals.** When a module has accumulated delegate / pass-through layers, do not refactor the internals until the outward-facing API is settled. A stable outer interface is a stable target for inner cleanup; reshuffling internals against a moving target compounds churn. Concretely: `Kobako::Outcome` is the host-facing outcome boundary that is now locked in; `Wire::Envelope::Outcome` and the surrounding `wire/**` delegate stack beneath it are next-pass residue.
 
 ## Build Pipeline
 
@@ -78,8 +84,8 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 When changing behavior, start at the listed files and follow the SPEC anchors they cite. Each entry names only the **load-bearing** files — incidental helpers are reachable from there.
 
 - **Wire format / codec** — `lib/kobako/wire/` (host) + `wasm/kobako-wasm/src/codec/`, `wasm/kobako-wasm/src/envelope.rs` (guest). SPEC anchors: B-01..B-14.
-- **Error taxonomy / outcome attribution** — `lib/kobako/errors.rb` + `lib/kobako/sandbox/outcome_decoder.rb`. SPEC anchors: E-xx.
-- **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` (façade) + `lib/kobako/sandbox/*` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/abi.rs` (guest entry — `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome` exports).
+- **Error taxonomy / outcome attribution** — `lib/kobako/errors.rb` + `lib/kobako/outcome.rb`. SPEC anchors: E-xx.
+- **Sandbox lifecycle / per-run flow** — `lib/kobako/sandbox.rb` + `lib/kobako/capture.rb` + `ext/kobako/src/wasm.rs` (host orchestration) + `wasm/kobako-wasm/src/abi.rs` (guest entry — `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome` exports).
 - **RPC dispatch** — `lib/kobako/registry/dispatcher.rb` (host; **never raises** — every failure becomes a `Response.err` envelope) + `wasm/kobako-wasm/src/rpc_client.rs` (guest).
 - **HandleTable / capability handles** — `lib/kobako/registry/handle_table.rb` + `lib/kobako/wire/handle.rb`.
 - **Service registration** — `lib/kobako/registry.rb` + `lib/kobako/registry/service_group.rb`.
