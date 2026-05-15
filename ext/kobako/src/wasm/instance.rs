@@ -275,7 +275,7 @@ impl Instance {
                 store_ref.set_epoch_deadline(u64::MAX);
             }
         }
-        store_ref.data_mut().activate_memory_cap();
+        store_ref.data_mut().limiter_mut().activate();
     }
 
     /// Drop the memory cap as soon as the guest call returns so that
@@ -283,7 +283,11 @@ impl Instance {
     /// which can grow guest memory transiently) is not attributed to
     /// the user script. Paired with [`Instance::prime_caps`].
     fn disarm_caps(&self) {
-        self.store.borrow_mut().data_mut().deactivate_memory_cap();
+        self.store
+            .borrow_mut()
+            .data_mut()
+            .limiter_mut()
+            .deactivate();
     }
 
     /// Invoke the cached `__kobako_run` TypedFunc against the live
