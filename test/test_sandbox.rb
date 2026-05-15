@@ -2,13 +2,13 @@
 
 require "test_helper"
 
-# Item #14: Kobako::Sandbox.new + stdout/stderr buffers with limits.
+# Item #14: Kobako::Sandbox.new + stdout/stderr capture with limits.
 #
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
 # Instance) against the test fixture wasm, owns a per-instance HandleTable,
-# and creates two bounded OutputBuffers for stdout / stderr capture. The
-# `#run` execution path (item #16) and the Service Registry (item #15) are
-# stubbed and raise NotImplementedError.
+# and holds the per-channel byte caches that back `#stdout` / `#stderr` /
+# `#stdout_truncated?` / `#stderr_truncated?` (SPEC.md B-04). The per-
+# channel cap itself is enforced inside the ext-owned WASI pipe.
 class TestSandbox < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
@@ -25,21 +25,23 @@ class TestSandbox < Minitest::Test
     assert_instance_of Kobako::Registry::HandleTable, sandbox.services.handle_table
   end
 
-  def test_default_construction_initializes_output_buffers_at_default_limit
+  def test_default_construction_exposes_default_output_limits
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
-    assert_instance_of Kobako::Sandbox::OutputBuffer, sandbox.stdout_buffer
-    assert_instance_of Kobako::Sandbox::OutputBuffer, sandbox.stderr_buffer
     assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit
     assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stderr_limit
     assert_equal 1 << 20, sandbox.stdout_limit
   end
 
-  def test_default_construction_starts_with_empty_output_buffers
+  # SPEC.md B-05: reading the capture channels before any +#run+ returns
+  # an empty String; the truncation predicates default to +false+.
+  def test_pre_run_capture_state_matches_b05
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
-    assert sandbox.stdout_buffer.empty?
-    assert sandbox.stderr_buffer.empty?
+    assert_equal "", sandbox.stdout
+    assert_equal "", sandbox.stderr
+    refute sandbox.stdout_truncated?
+    refute sandbox.stderr_truncated?
   end
 
   def test_custom_limits_reflected
@@ -47,8 +49,6 @@ class TestSandbox < Minitest::Test
 
     assert_equal 100, sandbox.stdout_limit
     assert_equal 200, sandbox.stderr_limit
-    assert_equal 100, sandbox.stdout_buffer.limit
-    assert_equal 200, sandbox.stderr_buffer.limit
   end
 
   def test_missing_wasm_raises_module_not_built_error

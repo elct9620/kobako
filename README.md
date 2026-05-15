@@ -11,7 +11,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 - **Structured outcome** — `#run` returns the deserialized last expression of the guest script as a normal Ruby value.
 - **Three-class error taxonomy** — every failure is exactly one of `TrapError` (Wasm engine), `SandboxError` (script / wire fault), or `ServiceError` (Service capability fault), so you can route errors without inspecting messages.
 - **Per-run state reset** — Handles issued during one `#run` are invalidated before the next; Service bindings remain.
-- **Separated stdout / stderr capture** — guest `puts`/`warn` output is buffered (1 MiB default cap, configurable, with a `[truncated]` marker on overflow) and is independent of the RPC channel.
+- **Separated stdout / stderr capture** — guest `puts`/`warn` output is buffered (1 MiB default cap, configurable). The cap is enforced inside the WASI pipe; `#stdout_truncated?` / `#stderr_truncated?` report whether output was clipped. The channels are independent of the RPC channel.
 - **Capability Handles** — Services may return stateful host objects; the guest receives an opaque token it can use as the target of follow-up RPC calls, with no way to dereference it.
 
 ## Requirements
@@ -101,10 +101,13 @@ sandbox.stdout  # => "hello\n"
 sandbox.stderr  # => "be careful\n"
 ```
 
-Each `#run` clears the buffers at start. Output past the per-channel cap is truncated; the buffer ends with `[truncated]` and `#run` still returns normally.
+Each `#run` clears the buffers at start. Output past the per-channel cap is clipped at the cap boundary — `#run` still returns normally, the bytes carry no truncation sentinel, and `#stdout_truncated?` / `#stderr_truncated?` flip to `true` so the caller can detect overflow.
 
 ```ruby
-Kobako::Sandbox.new(stdout_limit: 64 * 1024, stderr_limit: 64 * 1024)
+sandbox = Kobako::Sandbox.new(stdout_limit: 64 * 1024, stderr_limit: 64 * 1024)
+sandbox.run('puts "a" * 100_000')
+sandbox.stdout.bytesize     # => 65_536
+sandbox.stdout_truncated?   # => true
 ```
 
 ## Error handling

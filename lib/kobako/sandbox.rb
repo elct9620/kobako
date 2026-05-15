@@ -3,7 +3,6 @@
 require_relative "errors"
 require_relative "registry"
 require_relative "wire"
-require_relative "sandbox/output_buffer"
 require_relative "sandbox/outcome_decoder"
 
 module Kobako
@@ -12,17 +11,20 @@ module Kobako
   # ({SPEC.md B-01}[link:../../SPEC.md]).
   #
   # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance Registry
-  # (which itself owns the per-run HandleTable), and bounded stdout / stderr
-  # capture buffers. The underlying wasmtime Engine and compiled Module are
-  # cached at process scope by the native ext and never surface to Ruby —
-  # constructing many Sandboxes amortises both costs automatically.
+  # (which itself owns the per-run HandleTable), and the per-channel byte
+  # caches for guest stdout / stderr capture. The underlying wasmtime Engine
+  # and compiled Module are cached at process scope by the native ext and
+  # never surface to Ruby — constructing many Sandboxes amortises both costs
+  # automatically.
   #
-  # Buffer overflow policy ({SPEC.md B-04}[link:../../SPEC.md]): once an
-  # append would push the cumulative byte count past the per-channel
-  # `*_limit`, the OutputBuffer truncates — it stores a prefix that fits
-  # under the cap and appends a +[truncated]+ marker on the next read.
-  # Truncation does NOT raise. The marker constant lives on
-  # +Kobako::Sandbox::OutputBuffer::OUTPUT_TRUNCATION_MARKER+.
+  # Output capture policy ({SPEC.md B-04}[link:../../SPEC.md]): the
+  # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
+  # WASI pipe — the host buffer stops growing at the cap, subsequent guest
+  # writes on that channel fail or are dropped, and +#run+ still returns
+  # normally. +#stdout+ / +#stderr+ return the captured prefix as a UTF-8
+  # String; the byte content never carries a truncation sentinel.
+  # +#stdout_truncated?+ / +#stderr_truncated?+ are the only way to observe
+  # that the cap was hit.
   class Sandbox
     # Default per-channel capture ceiling: 1 MiB
     # ({SPEC.md B-01}[link:../../SPEC.md]).
@@ -37,36 +39,49 @@ module Kobako
     DEFAULT_MEMORY_LIMIT = 5 << 20
 
     attr_reader :wasm_path, :instance,
-                :stdout_buffer, :stderr_buffer,
                 :stdout_limit, :stderr_limit,
                 :timeout, :memory_limit, :services
 
-    # Returns the complete byte content guest wrote to stdout during the most
-    # recent +#run+ as a UTF-8 String, or an empty String before any +#run+
-    # call. {SPEC.md B-04}[link:../../SPEC.md]: may contain a +[truncated]+
-    # marker when the cap was hit.
+    # Returns the bytes the guest wrote to stdout during the most recent
+    # +#run+ as a UTF-8 String, clipped at +stdout_limit+. Empty before any
+    # +#run+ call. {SPEC.md B-04}[link:../../SPEC.md] — the byte content
+    # never contains a truncation sentinel; use +#stdout_truncated?+ to
+    # observe overflow.
     def stdout
-      @stdout_buffer.to_s
+      @stdout_bytes
     end
 
-    # Returns the complete byte content guest wrote to stderr during the most
-    # recent +#run+ as a UTF-8 String, or an empty String before any +#run+
-    # call. {SPEC.md B-04}[link:../../SPEC.md]: may contain a +[truncated]+
-    # marker when the cap was hit.
+    # Returns the bytes the guest wrote to stderr during the most recent
+    # +#run+ as a UTF-8 String, clipped at +stderr_limit+. Empty before any
+    # +#run+ call. Mirror of +#stdout+.
     def stderr
-      @stderr_buffer.to_s
+      @stderr_bytes
+    end
+
+    # Returns +true+ iff stdout capture during the most recent +#run+
+    # exceeded +stdout_limit+ ({SPEC.md B-04}[link:../../SPEC.md]). Resets
+    # to +false+ at the start of the next +#run+ ({SPEC.md
+    # B-03}[link:../../SPEC.md]).
+    def stdout_truncated?
+      @stdout_truncated
+    end
+
+    # Returns +true+ iff stderr capture during the most recent +#run+
+    # exceeded +stderr_limit+. Mirror of +#stdout_truncated?+.
+    def stderr_truncated?
+      @stderr_truncated
     end
 
     # Build a fresh Sandbox.
     #
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
     # gem-bundled +data/kobako.wasm+. +stdout_limit+ and +stderr_limit+ cap
-    # the per-run byte ceiling for each capture channel (default 1 MiB).
-    # +timeout+ is the wall-clock cap on a single +#run+ in seconds
-    # ({SPEC.md B-01}[link:../../SPEC.md]; default 60.0, +nil+ disables);
-    # +memory_limit+ caps guest linear memory growth in bytes
-    # ({SPEC.md B-01, E-20}[link:../../SPEC.md]; default 5 MiB, +nil+
-    # disables).
+    # the per-run byte ceiling for each capture channel (default 1 MiB;
+    # +nil+ disables the cap). +timeout+ is the wall-clock cap on a single
+    # +#run+ in seconds ({SPEC.md B-01}[link:../../SPEC.md]; default 60.0,
+    # +nil+ disables); +memory_limit+ caps guest linear memory growth in
+    # bytes ({SPEC.md B-01, E-20}[link:../../SPEC.md]; default 5 MiB,
+    # +nil+ disables).
     def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
                    timeout: DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: DEFAULT_MEMORY_LIMIT)
@@ -75,11 +90,10 @@ module Kobako
       @stderr_limit = stderr_limit || DEFAULT_OUTPUT_LIMIT
       @timeout = normalize_timeout(timeout)
       @memory_limit = normalize_memory_limit(memory_limit)
-      @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit)
-      @stdout_buffer = OutputBuffer.new(@stdout_limit)
-      @stderr_buffer = OutputBuffer.new(@stderr_limit)
       @services = Kobako::Registry.new
+      @instance = build_instance
       @instance.registry = @services
+      reset_run_state!
     end
 
     # Declare or retrieve the Service Group named +name+ on this Sandbox
@@ -120,6 +134,16 @@ module Kobako
 
     private
 
+    # Build the per-Sandbox +Kobako::Wasm::Instance+. Lives in its own
+    # helper so +#initialize+ stays readable as a sequence of single-
+    # responsibility steps.
+    def build_instance
+      Kobako::Wasm::Instance.from_path(
+        @wasm_path, @timeout, @memory_limit,
+        @stdout_limit, @stderr_limit
+      )
+    end
+
     # Coerce +timeout+ into the Float seconds the ext expects, or +nil+ to
     # mean the cap is disabled ({SPEC.md B-01}[link:../../SPEC.md]). Any
     # finite non-positive value is rejected — a zero or negative timeout
@@ -149,25 +173,37 @@ module Kobako
     end
 
     # Per-run state reset ({SPEC.md B-03}[link:../../SPEC.md]). Capture
-    # buffers and the HandleTable counter are zeroed before the guest runs.
+    # buffers, truncation predicates, and the HandleTable counter are
+    # zeroed before the guest runs.
     def reset_run_state!
       @services.reset_handles!
-      @stdout_buffer.clear
-      @stderr_buffer.clear
+      @stdout_bytes = String.new(encoding: Encoding::UTF_8)
+      @stderr_bytes = String.new(encoding: Encoding::UTF_8)
+      @stdout_truncated = false
+      @stderr_truncated = false
     end
 
-    # Append the WASI stdout/stderr bytes captured during the most recent
-    # guest execution into the bounded OutputBuffers
-    # ({SPEC.md B-04}[link:../../SPEC.md]). Must be called after
-    # `invoke_guest_run` and before the next reset. The per-channel cap is
-    # enforced inside +OutputBuffer+; the underlying WASI transport pipes
-    # are uncapped because SPEC.md B-04 requires truncation be a non-error
-    # outcome.
+    # Read the per-channel capture pairs (+[bytes, truncated]+) from the
+    # ext after a guest run completes and store them on the Sandbox. The
+    # ext clips +bytes+ to the configured cap and sets +truncated+ when
+    # the guest produced strictly more than +cap+ bytes
+    # ({SPEC.md B-04}[link:../../SPEC.md]).
     def drain_captured_output
-      stdout_bytes = @instance.stdout
-      stderr_bytes = @instance.stderr
-      @stdout_buffer << stdout_bytes unless stdout_bytes.empty?
-      @stderr_buffer << stderr_bytes unless stderr_bytes.empty?
+      out_bytes, out_truncated = @instance.stdout
+      err_bytes, err_truncated = @instance.stderr
+      @stdout_bytes = utf8_capture(out_bytes)
+      @stderr_bytes = utf8_capture(err_bytes)
+      @stdout_truncated = out_truncated
+      @stderr_truncated = err_truncated
+    end
+
+    # Coerce ext-provided binary bytes into a UTF-8 String when the bytes
+    # are valid UTF-8, otherwise fall back to ASCII-8BIT so invalid
+    # sequences remain inspectable without raising.
+    def utf8_capture(bytes)
+      copy = bytes.to_s.dup
+      copy.force_encoding(Encoding::UTF_8)
+      copy.valid_encoding? ? copy : copy.dup.force_encoding(Encoding::ASCII_8BIT)
     end
 
     # Drive +Instance#run+ with the two stdin frames (preamble + source).

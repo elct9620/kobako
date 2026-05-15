@@ -18,16 +18,18 @@ module Kobako
       def self.from_path: (
         String path,
         (Float | Integer)? timeout_seconds,
-        Integer? memory_limit
+        Integer? memory_limit,
+        Integer? stdout_limit_bytes,
+        Integer? stderr_limit_bytes
       ) -> Instance
 
       def registry=: (Kobako::Registry registry) -> void
 
       def run: (String preamble, String source) -> void
 
-      def stdout: () -> String
+      def stdout: () -> [String, bool]
 
-      def stderr: () -> String
+      def stderr: () -> [String, bool]
 
       def outcome!: () -> String
     end

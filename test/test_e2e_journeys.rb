@@ -280,13 +280,35 @@ class TestE2EJourneys < Minitest::Test
     assert_raises(Kobako::HandleTableError) { sandbox.services.handle_table.fetch(handle_id) }
   end
 
-  # SPEC.md B-04: output past +stdout_limit+ is truncated with a
-  # +[truncated]+ marker rather than raising; the cap is enforced even
-  # under real WASI capture from the mruby guest.
-  def test_stdout_truncation_marker_when_output_exceeds_cap
+  # +puts+ on a capped stdout channel may surface as a script-level
+  # IOError once the WASI write is rejected; the rescue keeps the
+  # truncation test focused on the host-observable contract.
+  OVERFLOW_SCRIPT = 'begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; 1'
+
+  # SPEC.md B-04: output past +stdout_limit+ is clipped at the cap
+  # boundary, +#stdout+ carries no truncation sentinel, and
+  # +#stdout_truncated?+ flips to +true+. The cap is enforced inside the
+  # WASI pipe — +#run+ still returns the script's last expression.
+  def test_stdout_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
-    sandbox.run('puts "long enough to overflow the 5-byte cap"; 1')
-    assert_includes sandbox.stdout, "[truncated]"
+    result = sandbox.run(OVERFLOW_SCRIPT)
+
+    assert_equal 1, result
+    assert_operator sandbox.stdout.bytesize, :<=, 5
+    refute_includes sandbox.stdout, "[truncated]"
+    assert sandbox.stdout_truncated?
+  end
+
+  # SPEC.md B-03: truncation predicates reset together with the capture
+  # buffers at the start of the next +#run+.
+  def test_stdout_truncated_predicate_resets_between_runs
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
+    sandbox.run(OVERFLOW_SCRIPT)
+    assert sandbox.stdout_truncated?, "setup: first run must overflow the cap"
+
+    sandbox.run("nil")
+    refute sandbox.stdout_truncated?, "B-03: stdout_truncated? must reset on the next run"
+    assert_equal "", sandbox.stdout
   end
 
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.

@@ -8,8 +8,6 @@ module Kobako
 
     attr_reader wasm_path: String
     attr_reader instance: Kobako::Wasm::Instance
-    attr_reader stdout_buffer: OutputBuffer
-    attr_reader stderr_buffer: OutputBuffer
     attr_reader stdout_limit: Integer
     attr_reader stderr_limit: Integer
     attr_reader timeout: Float?
@@ -28,11 +26,17 @@ module Kobako
 
     def stderr: () -> String
 
+    def stdout_truncated?: () -> bool
+
+    def stderr_truncated?: () -> bool
+
     def define: (Symbol | String name) -> Kobako::Registry::ServiceGroup
 
     def run: (String source) -> untyped
 
     private
+
+    def build_instance: () -> Kobako::Wasm::Instance
 
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?
 
@@ -41,6 +45,8 @@ module Kobako
     def reset_run_state!: () -> void
 
     def drain_captured_output: () -> void
+
+    def utf8_capture: (String bytes) -> String
 
     def invoke_guest_run: (String preamble, String source) -> void
 

@@ -4,7 +4,8 @@
 //
 //   Kobako::Wasm::Instance — wraps wasmtime::Instance + cached TypedFuncs
 //
-// constructed via `Kobako::Wasm::Instance.from_path(path, timeout, memory_limit)`.
+// constructed via `Kobako::Wasm::Instance.from_path(path, timeout, memory_limit,
+// stdout_limit, stderr_limit)`.
 // The underlying wasmtime Engine and compiled Module live in a process-scope
 // cache (see the `cache` submodule) and never surface to Ruby (SPEC.md "Code
 // Organization": `ext/` "exposes no Wasm engine types to the Host App or
@@ -99,7 +100,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     wasm.define_error("MemoryLimitError", base_err)?;
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
-    instance.define_singleton_method("from_path", function!(Instance::from_path, 3))?;
+    instance.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
     instance.define_method("registry=", method!(Instance::set_registry, 1))?;
     instance.define_method("run", method!(Instance::run, 2))?;
     instance.define_method("stdout", method!(Instance::stdout, 0))?;

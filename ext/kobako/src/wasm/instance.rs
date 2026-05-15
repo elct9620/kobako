@@ -16,11 +16,13 @@
 //!
 //! WASI stdout/stderr capture (SPEC.md B-04): wasmtime-wasi p1 bindings
 //! route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`] instances
-//! rebuilt at the start of every [`Instance::run`]. The Ruby `#stdout` /
-//! `#stderr` readers expose the raw captured bytes; the [`crate::wasm`]
-//! façade and `Kobako::Sandbox` enforce the per-channel cap on top
-//! (transport pipes are uncapped because SPEC.md B-04 requires that
-//! overflow is a non-error outcome — a capped WASI pipe would trap).
+//! rebuilt at the start of every [`Instance::run`]. The per-channel cap
+//! is enforced directly on the pipe — the pipe is sized at `cap + 1` so
+//! a guest that writes exactly `cap` bytes is distinguishable from one
+//! that exceeded the cap, and `#stdout` / `#stderr` slice the captured
+//! bytes back to `cap` before returning them paired with a truncation
+//! flag. Uncapped channels (`None`) build the pipe at `usize::MAX`;
+//! `memory_limit` provides the real upper bound in that case.
 //!
 //! Per-run cap enforcement (SPEC.md B-01, E-19, E-20): every Store
 //! installs an epoch-deadline callback for wall-clock timeout and a
@@ -39,8 +41,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use magnus::RString;
-use magnus::{value::Opaque, Error as MagnusError, Ruby, Value};
+use magnus::{value::Opaque, Error as MagnusError, RArray, RString, Ruby, Value};
 use wasmtime::{
     AsContextMut, Caller, Extern, Instance as WtInstance, Linker, Memory, Module as WtModule,
     ResourceLimiter, Store as WtStore, StoreContextMut, TypedFunc, UpdateDeadline,
@@ -71,6 +72,14 @@ pub(crate) struct Instance {
     // the cap. Translated into an `Instant`-based deadline stamped into
     // [`HostState`] at the top of every `Instance::run`.
     timeout: Option<Duration>,
+    // Per-channel byte caps for guest stdout / stderr capture (SPEC.md
+    // B-01 / B-04). `None` disables the cap on that channel. Read by
+    // [`Instance::refresh_wasi`] to size the MemoryOutputPipe and by
+    // [`Instance::stdout`] / [`Instance::stderr`] to compute the
+    // truncation flag. See the module-level note above for the `cap + 1`
+    // sizing rationale.
+    stdout_limit_bytes: Option<usize>,
+    stderr_limit_bytes: Option<usize>,
 }
 
 impl Instance {
@@ -81,13 +90,17 @@ impl Instance {
     ///
     /// `timeout_seconds` is the SPEC.md B-01 wall-clock cap in seconds
     /// (`None` disables); `memory_limit` is the linear-memory cap in
-    /// bytes (`None` disables). Both are validated by the caller
+    /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
+    /// are the per-channel output caps (SPEC.md B-01 / B-04; `None`
+    /// disables). All four are validated by the caller
     /// (`Kobako::Sandbox`); this method only refuses non-finite or
     /// non-positive timeouts as a defence in depth.
     pub(crate) fn from_path(
         path: String,
         timeout_seconds: Option<f64>,
         memory_limit: Option<usize>,
+        stdout_limit_bytes: Option<usize>,
+        stderr_limit_bytes: Option<usize>,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let timeout = match timeout_seconds {
@@ -109,7 +122,14 @@ impl Instance {
         store.epoch_deadline_callback(epoch_deadline_callback);
 
         let store_cell = StoreCell::new(store);
-        Self::build(engine, &module, store_cell, timeout)
+        Self::build(
+            engine,
+            &module,
+            store_cell,
+            timeout,
+            stdout_limit_bytes,
+            stderr_limit_bytes,
+        )
     }
 
     /// Build an `Instance` from an engine, module, and store cell. The
@@ -120,6 +140,8 @@ impl Instance {
         module: &WtModule,
         store_cell: StoreCell,
         timeout: Option<Duration>,
+        stdout_limit_bytes: Option<usize>,
+        stderr_limit_bytes: Option<usize>,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let mut linker: Linker<HostState> = Linker::new(engine);
@@ -180,6 +202,8 @@ impl Instance {
             run,
             take_outcome,
             timeout,
+            stdout_limit_bytes,
+            stderr_limit_bytes,
         })
     }
 
@@ -221,23 +245,25 @@ impl Instance {
         result.map_err(|e| run_call_err(&ruby, e))
     }
 
-    /// Return the stdout bytes captured during the most recent run.
-    ///
-    /// Non-destructive snapshot of the MemoryOutputPipe contents — calling
-    /// repeatedly returns the same bytes until the next `#run` rebuilds the
-    /// pipe. Returns an empty binary String before any run.
-    pub(crate) fn stdout(&self) -> Result<RString, MagnusError> {
+    /// Return the stdout capture from the most recent run as a Ruby
+    /// `[bytes, truncated]` Array — `bytes` is a binary String containing
+    /// the captured prefix (clipped to `stdout_limit_bytes` when set),
+    /// and `truncated` is a boolean that is `true` only when the guest
+    /// wrote strictly more than the cap. The pair is recomputed from the
+    /// underlying pipe contents on every call; the pipe itself is not
+    /// drained until the next `#run` rebuilds it.
+    pub(crate) fn stdout(&self) -> Result<RArray, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let bytes = self.store.borrow().data().stdout_bytes();
-        Ok(ruby.str_from_slice(&bytes))
+        let raw = self.store.borrow().data().stdout_bytes();
+        capture_pair(&ruby, &raw, self.stdout_limit_bytes)
     }
 
-    /// Return the stderr bytes captured during the most recent run.
-    /// Same semantics as [`Instance::stdout`].
-    pub(crate) fn stderr(&self) -> Result<RString, MagnusError> {
+    /// Return the stderr capture from the most recent run. Same shape
+    /// and semantics as [`Instance::stdout`].
+    pub(crate) fn stderr(&self) -> Result<RArray, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let bytes = self.store.borrow().data().stderr_bytes();
-        Ok(ruby.str_from_slice(&bytes))
+        let raw = self.store.borrow().data().stderr_bytes();
+        capture_pair(&ruby, &raw, self.stderr_limit_bytes)
     }
 
     /// Read OUTCOME_BUFFER bytes captured during the most recent run.
@@ -302,7 +328,10 @@ impl Instance {
 
     /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
     /// source) plus fresh stdout/stderr pipes. Called at the top of every
-    /// `#run`.
+    /// `#run`. Each pipe is sized at `cap + 1` so [`Instance::stdout`] /
+    /// [`Instance::stderr`] can distinguish "wrote exactly cap bytes"
+    /// from "exceeded cap"; uncapped channels fall back to `usize::MAX`
+    /// and rely on `memory_limit` (E-20) for the real ceiling.
     fn refresh_wasi(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
         // SAFETY: `as_slice` borrows are scoped to building the stdin Vec
         // below — no Ruby allocations happen between the borrow and the
@@ -320,8 +349,8 @@ impl Instance {
         stdin_content.extend_from_slice(source_bytes);
 
         let stdin_pipe = MemoryInputPipe::new(stdin_content);
-        let stdout_pipe = MemoryOutputPipe::new(usize::MAX);
-        let stderr_pipe = MemoryOutputPipe::new(usize::MAX);
+        let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));
+        let stderr_pipe = MemoryOutputPipe::new(pipe_capacity(self.stderr_limit_bytes));
 
         let mut builder = WasiCtxBuilder::new();
         builder.stdin(stdin_pipe);
@@ -376,6 +405,34 @@ impl Instance {
         }
         Ok(data[ptr..end].to_vec())
     }
+}
+
+/// Translate a per-channel byte cap into the MemoryOutputPipe capacity:
+/// `cap + 1` (saturated against `usize::MAX`) when a cap is set so the
+/// "wrote exactly cap" and "exceeded cap" cases stay distinguishable;
+/// `usize::MAX` when the channel is uncapped.
+fn pipe_capacity(cap: Option<usize>) -> usize {
+    match cap {
+        Some(c) => c.saturating_add(1),
+        None => usize::MAX,
+    }
+}
+
+/// Build the `[bytes, truncated]` Ruby Array surfaced by
+/// [`Instance::stdout`] / [`Instance::stderr`]. `raw` is the unclipped
+/// pipe snapshot (up to `cap + 1` bytes when a cap is set); `cap` is
+/// the configured per-channel limit. The bytes returned to Ruby are
+/// clipped to `cap`, and `truncated` is `true` only when the snapshot
+/// strictly exceeded the cap.
+fn capture_pair(ruby: &Ruby, raw: &[u8], cap: Option<usize>) -> Result<RArray, MagnusError> {
+    let (visible, truncated): (&[u8], bool) = match cap {
+        Some(c) if raw.len() > c => (&raw[..c], true),
+        _ => (raw, false),
+    };
+    let arr = ruby.ary_new_capa(2);
+    arr.push(ruby.str_from_slice(visible))?;
+    arr.push(truncated)?;
+    Ok(arr)
 }
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
