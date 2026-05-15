@@ -13,9 +13,12 @@
 #     +__kobako_run+) is owned by +Kobako::Outcome+ — it does not
 #     live under +Wire+.
 #
-# {Handle} and {Exception} are value objects that travel through both
-# the codec and envelope layers; they live directly under +Wire+ so
-# neither layer "owns" them.
+# {Handle} and {Exception} are wire-level value objects shared by
+# +Kobako::Codec+ (for ext-type registration) and {Envelope} (for
+# Request +target+ and Response.err payload). They currently live
+# under +Wire+ as a transitional placement; relocating them to their
+# semantic owners (Handle → Registry, Exception → RPC framing) is
+# part of the planned Wire→RPC umbrella restructure.
 #
 # The namespace is intentionally self-contained — it does not depend
 # on the native extension or on +lib/kobako.rb+ — so it can be required

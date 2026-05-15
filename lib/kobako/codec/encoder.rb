@@ -19,7 +19,7 @@ module Kobako
     # Public API is a single function — {.encode}. The codec is stateless;
     # there is no buffer accumulator and no streaming write API. Callers
     # that need to concatenate multiple encodings build the bytes
-    # themselves (see +Kobako::Wire::Envelope+ for the canonical caller).
+    # themselves.
     module Encoder
       # Encode +value+ to wire bytes (binary-encoded String).
       # Wire violations surface as +UnsupportedType+: SPEC's 12-entry type
