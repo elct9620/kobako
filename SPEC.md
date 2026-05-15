@@ -189,7 +189,7 @@ A teaching platform or CI system operator receives student-submitted Ruby script
 4. The operator repeats this for each submission without restarting the host process.
 
 **Outcome**
-Each submission executes inside an isolated Wasm boundary. A submission that crashes or attempts to escape receives a `Kobako::TrapError` (or one of its subclasses) or `Kobako::SandboxError`; neither outcome affects subsequent submissions. Each Sandbox enforces a configurable per-run wall-clock timeout (default 60 s) and linear memory cap (default 1 MiB); submissions exceeding either raise `Kobako::TimeoutError` or `Kobako::MemoryLimitError` respectively, and never block the calling thread beyond the configured timeout. The Host App owns higher-level policy (queue-level fairness, per-student daily caps, retry semantics) above these per-run caps. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
+Each submission executes inside an isolated Wasm boundary. A submission that crashes or attempts to escape receives a `Kobako::TrapError` (or one of its subclasses) or `Kobako::SandboxError`; neither outcome affects subsequent submissions. Each Sandbox enforces a configurable per-run wall-clock timeout (default 60 s) and linear memory cap (default 5 MiB); submissions exceeding either raise `Kobako::TimeoutError` or `Kobako::MemoryLimitError` respectively, and never block the calling thread beyond the configured timeout. The Host App owns higher-level policy (queue-level fairness, per-student daily caps, retry semantics) above these per-run caps. The operator receives the script's result value and captured output for every submission that completes. No submission can read another submission's guest output or access host resources beyond the bound grading Service.
 
 ---
 
@@ -235,7 +235,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | Field | Value |
 |-------|-------|
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
-| **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
+| **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `5 << 20` = 5 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
 | **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
 | **Notes** | `timeout` is measured as absolute wall-clock time from `Sandbox#run` invocation; the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. Time spent inside a Service callback executing on the host does not itself trigger a trap — no trap fires while host code runs — but the wall-clock time it consumes counts against the deadline, so a long-running callback can cause the next guest wasm safepoint to trap immediately on return. The Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
 
@@ -609,7 +609,7 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 | Term | Ruby Class | Superclass | Meaning |
 |------|-----------|-----------|---------|
 | **TimeoutError** | `Kobako::TimeoutError` | `Kobako::TrapError` | Absolute wall-clock time since `Sandbox#run` invocation reached the configured per-run `timeout` (default 60 s); trap fires at the next guest wasm safepoint after the deadline. See E-19; B-01 Notes covers host-callback accounting. |
-| **MemoryLimitError** | `Kobako::MemoryLimitError` | `Kobako::TrapError` | Guest `memory.grow` would exceed the configured per-run `memory_limit` (default 1 MiB); see E-20 |
+| **MemoryLimitError** | `Kobako::MemoryLimitError` | `Kobako::TrapError` | Guest `memory.grow` would exceed the configured per-run `memory_limit` (default 5 MiB); see E-20 |
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
 
