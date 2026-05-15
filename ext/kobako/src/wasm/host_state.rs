@@ -22,7 +22,7 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 /// [`HostState::stdout_bytes`] / [`HostState::stderr_bytes`]. The fields
 /// are private so the mutation surface stays narrow.
 #[derive(Default)]
-pub(crate) struct HostState {
+pub(super) struct HostState {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
@@ -68,8 +68,8 @@ impl HostState {
             .unwrap_or_default()
     }
 
-    /// Return the bound Registry handle. `Opaque<Value>` is `Copy`, so this
-    /// hands back a value clone rather than a reference. None means no
+    /// Return the bound Registry handle. `Opaque<Value>` is `Copy`, so the
+    /// handle is returned by value rather than by reference. None means no
     /// Registry has been bound yet via [`HostState::bind_registry`].
     pub(super) fn registry(&self) -> Option<Opaque<Value>> {
         self.registry
@@ -92,14 +92,14 @@ impl HostState {
 /// `Sync`, so we wrap it in a `RefCell`. `RefCell` alone is sufficient
 /// because magnus enforces single-threaded GVL access from Ruby; `Send` and
 /// `Sync` are asserted via the unsafe impls below.
-pub(crate) struct StoreCell {
+pub(super) struct StoreCell {
     inner: RefCell<WtStore<HostState>>,
 }
 
 impl StoreCell {
     /// Wrap a freshly-built `wasmtime::Store<HostState>` so it can be owned
     /// by the magnus-wrapped `Instance`.
-    pub(crate) fn new(store: WtStore<HostState>) -> Self {
+    pub(super) fn new(store: WtStore<HostState>) -> Self {
         Self {
             inner: RefCell::new(store),
         }
@@ -107,13 +107,13 @@ impl StoreCell {
 
     /// Immutable borrow of the wrapped Store. Panics if a `borrow_mut()`
     /// is currently live — matches `RefCell::borrow` semantics.
-    pub(crate) fn borrow(&self) -> Ref<'_, WtStore<HostState>> {
+    pub(super) fn borrow(&self) -> Ref<'_, WtStore<HostState>> {
         self.inner.borrow()
     }
 
     /// Mutable borrow of the wrapped Store. Panics if any other borrow is
     /// currently live — matches `RefCell::borrow_mut` semantics.
-    pub(crate) fn borrow_mut(&self) -> RefMut<'_, WtStore<HostState>> {
+    pub(super) fn borrow_mut(&self) -> RefMut<'_, WtStore<HostState>> {
         self.inner.borrow_mut()
     }
 }
