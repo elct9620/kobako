@@ -958,7 +958,7 @@ Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec i
 - **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
 - **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
 
-Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. Test harness details belong to the Implementation Standards subsection.
+Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. The harness contract for this fuzz layer is specified in Implementation Standards § Testing Style.
 
 ---
 
@@ -996,7 +996,7 @@ The boundary rule is: **`ext/` is private to the Host Gem and must never be impo
 The following patterns are enforced project-wide and apply at every layer:
 
 - **Wire is a release-internal contract.** The Wire Spec couples the Host Gem and Guest Binary at the gem release boundary. No version negotiation field is present on the wire; both sides always speak the single version shipped in the same gem release. One-sided wire evolution is not permitted.
-- **Round-trip fuzz is the consistency guarantee.** Because the host-side (Ruby) and guest-side (Rust/mruby) codec implementations are independent, correctness is established by bidirectional round-trip fuzz covering all 12 wire types and all three ext types. There is no shared codec source code.
+- **Round-trip fuzz is the consistency guarantee.** The host-side codec is implemented in pure Ruby under `lib/kobako/wire/` and is loadable at `require` time before the native extension is available; the guest-side codec is implemented in Rust under `wasm/kobako-wasm/src/codec/` for the `wasm32-wasip1` target. The two implementations share no source code — the deployment model (the gem must `require` cleanly without a built native extension, and `wasm32-wasip1` cannot embed Ruby) forbids a single codec. Correctness is established by bidirectional round-trip fuzz covering all 12 wire types and all three ext types.
 - **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
@@ -1036,6 +1036,13 @@ The test suite is organized into four layers. All four layers must exist and mus
 | 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs, symbol-key wire form, and Symbol round-trip through args / return values), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
 
 The recommended execution order is Layer 3 → Layer 1 → Layer 2 → Layer 4 (cheapest first; fail fast before starting the Sandbox).
+
+**Layer 1 harness contract** — the Codec round-trip fuzz harness must satisfy two cross-implementer requirements regardless of transport mechanism (in-process FFI, subprocess IPC, or wasmtime-embedded invocation):
+
+- The random seed for each run is sourced from an environment variable, and any failing iteration's failure output includes the seed in use; a failing run is reproducible from the seed alone.
+- The generator records which wire types and ext types it exercises; at the end of each run, the harness asserts that all 12 wire types and all three ext types were observed at least once. A coverage gap fails the harness independently of any byte-equality failure.
+
+Iteration count and the transport between the two codec implementations are implementer-chosen.
 
 **Build-pipeline guards** — the following checks must run as part of the build step, before the full test suite:
 
