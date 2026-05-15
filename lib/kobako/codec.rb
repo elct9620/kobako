@@ -5,7 +5,7 @@ require_relative "codec/error"
 module Kobako
   # Host-side MessagePack codec for the kobako wire contract — the
   # byte-level layer (SPEC.md → Wire Codec). Two consumers sit on top:
-  # +Kobako::Wire::Envelope+ pins the RPC framing (Request / Response)
+  # +Kobako::RPC+ pins the RPC framing (Request / Response)
   # and +Kobako::Outcome+ owns the per-+#run+ outcome envelope (Result
   # body / Panic map).
   #

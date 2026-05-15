@@ -68,7 +68,7 @@ module Kobako
       end
 
       def perform_dispatch(request_bytes, server)
-        request = Kobako::Wire::Envelope.decode_request(request_bytes)
+        request = Kobako::RPC.decode_request(request_bytes)
         handle_table = server.handle_table
         target_object = resolve_target(request.target, server, handle_table)
         args = request.args.map { |v| resolve_arg(v, handle_table) }
@@ -108,7 +108,7 @@ module Kobako
       # HandleTable) holds. String targets go through the Server;
       # Handle targets (ext 0x01) go through the HandleTable.
       #
-      # Target type is already validated by +Wire::Envelope.decode_request+
+      # Target type is already validated by +RPC.decode_request+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
       def resolve_target(target, server, handle_table)
@@ -154,14 +154,14 @@ module Kobako
       end
 
       def encode_ok(value)
-        response = Kobako::Wire::Envelope::Response.ok(value)
-        Kobako::Wire::Envelope.encode_response(response)
+        response = Kobako::RPC::Response.ok(value)
+        Kobako::RPC.encode_response(response)
       end
 
       def encode_err(type, message)
         exception = Kobako::RPC::Fault.new(type: type, message: message)
-        response = Kobako::Wire::Envelope::Response.err(exception)
-        Kobako::Wire::Envelope.encode_response(response)
+        response = Kobako::RPC::Response.err(exception)
+        Kobako::RPC.encode_response(response)
       end
     end
   end

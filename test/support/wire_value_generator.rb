@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "kobako/wire"
+require "kobako/rpc/envelope"
 
 # Seeded random generator for kobako wire-encodable values, used by the
 # round-trip fuzz harness (SPEC item #7).

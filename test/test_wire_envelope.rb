@@ -7,12 +7,12 @@
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/wire"
+require "kobako/rpc/envelope"
 
 module Kobako
   module Wire
     class WireEnvelopeTest < Minitest::Test
-      Envelope    = Kobako::Wire::Envelope
+      Envelope    = Kobako::RPC
       Handle      = Kobako::RPC::Handle
       Exc         = Kobako::RPC::Fault
       Encoder     = Kobako::Codec::Encoder

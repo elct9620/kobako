@@ -4,7 +4,7 @@ require_relative "capture"
 require_relative "errors"
 require_relative "outcome"
 require_relative "rpc/server"
-require_relative "wire"
+require_relative "rpc/envelope"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby

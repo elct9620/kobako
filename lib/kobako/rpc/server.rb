@@ -2,7 +2,7 @@
 
 require "msgpack"
 require_relative "../errors"
-require_relative "../wire"
+require_relative "envelope"
 require_relative "namespace"
 require_relative "handle_table"
 require_relative "dispatcher"

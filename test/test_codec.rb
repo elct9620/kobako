@@ -12,7 +12,7 @@ require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/codec"
-require "kobako/wire"
+require "kobako/rpc/envelope"
 
 class TestCodec < Minitest::Test
   Encoder         = Kobako::Codec::Encoder

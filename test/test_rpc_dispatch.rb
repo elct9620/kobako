@@ -447,8 +447,8 @@ class TestRPCDispatchUnit < Minitest::Test
   private
 
   def encode_request_with_target(target, method, args, kwargs)
-    Kobako::Wire::Envelope.encode_request(
-      Kobako::Wire::Envelope::Request.new(target: target, method: method, args: args, kwargs: kwargs)
+    Kobako::RPC.encode_request(
+      Kobako::RPC::Request.new(target: target, method: method, args: args, kwargs: kwargs)
     )
   end
 
@@ -457,7 +457,7 @@ class TestRPCDispatchUnit < Minitest::Test
   end
 
   def decode_response(bytes)
-    Kobako::Wire::Envelope.decode_response(bytes)
+    Kobako::RPC.decode_response(bytes)
   end
 
   # Fixture: service member that records each `tag(arg, key:)` invocation
