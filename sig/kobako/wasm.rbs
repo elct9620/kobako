@@ -23,7 +23,7 @@ module Kobako
         Integer? stderr_limit_bytes
       ) -> Instance
 
-      def registry=: (Kobako::RPC::Server registry) -> void
+      def server=: (Kobako::RPC::Server server) -> void
 
       def run: (String preamble, String source) -> void
 

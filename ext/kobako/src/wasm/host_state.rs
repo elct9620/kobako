@@ -2,7 +2,7 @@
 //!
 //! Owned by [`StoreCell`] (a `RefCell` shim wrapping `wasmtime::Store`)
 //! and threaded through every host import — the `__kobako_dispatch`
-//! dispatcher reads the registry handle, while the run-path methods on
+//! dispatcher reads the server handle, while the run-path methods on
 //! [`crate::wasm::Instance`] install fresh WASI context + pipes before
 //! every `#run` (SPEC.md B-03 / B-04).
 //!
@@ -24,7 +24,7 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 ///
 /// All field access is mediated by methods on this type — the WASI ctx is
 /// rebuilt fresh before each `#run` via [`HostState::install_wasi`], the
-/// Ruby Registry handle is set once via [`HostState::bind_registry`], and
+/// Ruby Server handle is set once via [`HostState::bind_server`], and
 /// captured stdout/stderr bytes are read after the run via
 /// [`HostState::stdout_bytes`] / [`HostState::stderr_bytes`]. The fields
 /// are private so the mutation surface stays narrow.
@@ -32,7 +32,7 @@ pub(super) struct HostState {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
-    registry: Option<Opaque<Value>>,
+    server: Option<Opaque<Value>>,
     deadline: Option<Instant>,
     limiter: KobakoLimiter,
 }
@@ -47,7 +47,7 @@ impl HostState {
             wasi: None,
             stdout_pipe: None,
             stderr_pipe: None,
-            registry: None,
+            server: None,
             deadline: None,
             limiter: KobakoLimiter::new(memory_limit),
         }
@@ -67,10 +67,10 @@ impl HostState {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Bind the Ruby-side `Kobako::Registry` handle. From this point on,
+    /// Bind the Ruby-side `Kobako::RPC::Server` handle. From this point on,
     /// every `__kobako_dispatch` host import invocation routes through it.
-    pub(super) fn bind_registry(&mut self, registry: Opaque<Value>) {
-        self.registry = Some(registry);
+    pub(super) fn bind_server(&mut self, server: Opaque<Value>) {
+        self.server = Some(server);
     }
 
     /// Snapshot the bytes captured on guest fd 1 during the most recent
@@ -91,11 +91,11 @@ impl HostState {
             .unwrap_or_default()
     }
 
-    /// Return the bound Registry handle. `Opaque<Value>` is `Copy`, so the
+    /// Return the bound Server handle. `Opaque<Value>` is `Copy`, so the
     /// handle is returned by value rather than by reference. None means no
-    /// Registry has been bound yet via [`HostState::bind_registry`].
-    pub(super) fn registry(&self) -> Option<Opaque<Value>> {
-        self.registry
+    /// Server has been bound yet via [`HostState::bind_server`].
+    pub(super) fn server(&self) -> Option<Opaque<Value>> {
+        self.server
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has

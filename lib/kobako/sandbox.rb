@@ -93,7 +93,7 @@ module Kobako
       @memory_limit = normalize_memory_limit(memory_limit)
       @services = Kobako::RPC::Server.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
-      @instance.registry = @services
+      @instance.server = @services
       clear_captures!
     end
 

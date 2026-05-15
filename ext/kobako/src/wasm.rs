@@ -101,7 +101,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
-    instance.define_method("registry=", method!(Instance::set_registry, 1))?;
+    instance.define_method("server=", method!(Instance::set_server, 1))?;
     instance.define_method("run", method!(Instance::run, 2))?;
     instance.define_method("stdout", method!(Instance::stdout, 0))?;
     instance.define_method("stderr", method!(Instance::stderr, 0))?;

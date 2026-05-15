@@ -12,7 +12,7 @@
 //! outcome encoding, and `__kobako_alloc` / `__kobako_take_outcome` /
 //! `__kobako_run` exports are all wrapped inside [`Instance::run`] and
 //! [`Instance::outcome`]; Ruby callers see only `#run(preamble, source)`,
-//! `#stdout`, `#stderr`, `#outcome!`, and `#registry=`.
+//! `#stdout`, `#stderr`, `#outcome!`, and `#server=`.
 //!
 //! WASI stdout/stderr capture (SPEC.md B-04): wasmtime-wasi p1 bindings
 //! route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`] instances
@@ -160,11 +160,11 @@ impl Instance {
         // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::Registry` (set per-run via `set_registry`), allocates a
+        // `Kobako::RPC::Server` (set per-run via `set_server`), allocates a
         // guest buffer through `__kobako_alloc`, writes the Response bytes
         // there, and returns the packed `(ptr<<32)|len`. The dispatcher
         // returns 0 on any wire-layer fault (including a missing
-        // Registry); see `dispatch::handle`.
+        // Server); see `dispatch::handle`.
         linker
             .func_wrap(
                 "env",
@@ -210,13 +210,13 @@ impl Instance {
         })
     }
 
-    /// Install the Ruby-side `Kobako::Registry` into HostState. Bound to
-    /// Ruby as `Instance#registry=`. From this point on, every
+    /// Install the Ruby-side `Kobako::RPC::Server` into HostState. Bound to
+    /// Ruby as `Instance#server=`. From this point on, every
     /// `__kobako_dispatch` import invocation routes through
-    /// `registry.dispatch(req_bytes)`.
-    pub(crate) fn set_registry(&self, registry: Value) -> Result<(), MagnusError> {
+    /// `server.dispatch(req_bytes)`.
+    pub(crate) fn set_server(&self, server: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.borrow_mut();
-        store_ref.data_mut().bind_registry(Opaque::from(registry));
+        store_ref.data_mut().bind_server(Opaque::from(server));
         Ok(())
     }
 

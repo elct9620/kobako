@@ -6,7 +6,7 @@
 //! That closure delegates here. The dispatcher (SPEC.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
-//!   2. Hands them to the Ruby-side `Kobako::Registry` and recovers
+//!   2. Hands them to the Ruby-side `Kobako::RPC::Server` and recovers
 //!      Response bytes.
 //!   3. Allocates a guest buffer via `__kobako_alloc(len)` invoked
 //!      through `Caller::get_export`.
@@ -14,10 +14,10 @@
 //!   5. Returns packed `(ptr<<32)|len` for the guest to decode.
 //!
 //! Returns 0 on any step failure. `Kobako::Sandbox` always installs a
-//! Registry before invoking the guest, so reaching the dispatcher with
-//! no Registry bound is itself a wire-layer fault; the guest maps a 0
+//! Server before invoking the guest, so reaching the dispatcher with
+//! no Server bound is itself a wire-layer fault; the guest maps a 0
 //! return to a trap. Failures during normal dispatch surface as
-//! Response.err envelopes from the Registry itself — they never reach
+//! Response.err envelopes from the Server itself — they never reach
 //! this 0-return path.
 
 use magnus::value::{Opaque, ReprValue};
@@ -34,16 +34,16 @@ pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
         None => return 0,
     };
 
-    // No Registry bound — return 0 to signal a wire-layer fault; the guest
+    // No Server bound — return 0 to signal a wire-layer fault; the guest
     // maps a 0 return to a trap. `Kobako::Sandbox` always installs a
-    // Registry before invoking the guest, so reaching this branch indicates
+    // Server before invoking the guest, so reaching this branch indicates
     // a misuse rather than a normal control path.
-    let registry = match caller.data().registry() {
+    let server = match caller.data().server() {
         Some(d) => d,
         None => return 0,
     };
 
-    let resp_bytes = match invoke_registry(registry, &req_bytes) {
+    let resp_bytes = match invoke_server(server, &req_bytes) {
         Ok(b) => b,
         Err(_) => return 0,
     };
@@ -51,20 +51,20 @@ pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
     write_response(caller, &resp_bytes).unwrap_or(0)
 }
 
-/// Call the Ruby Registry's `#dispatch(request_bytes)` method and return
-/// the encoded Response bytes. Errors here mean the Registry itself
+/// Call the Ruby Server's `#dispatch(request_bytes)` method and return
+/// the encoded Response bytes. Errors here mean the Server itself
 /// failed (it is contracted never to raise — see
-/// `Kobako::Registry#dispatch`), which we treat as a wire-layer fault.
-fn invoke_registry(registry: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
+/// `Kobako::RPC::Server#dispatch`), which we treat as a wire-layer fault.
+fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called
     // Sandbox#run — the invariant SPEC Implementation Standards
     // Architecture pins for the host gem — so `Ruby::get()` is always
     // available here. Panicking with `expect` localises the violation
     // rather than letting a nonsense error propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
-    let registry_value: Value = ruby.get_inner(registry);
+    let server_value: Value = ruby.get_inner(server);
     let req_str = ruby.str_from_slice(req_bytes);
-    let resp: RString = registry_value.funcall("dispatch", (req_str,))?;
+    let resp: RString = server_value.funcall("dispatch", (req_str,))?;
     // SAFETY: the returned RString is held by the Ruby VM for the duration of
     // this scope; copying its bytes into a Vec is a defensive standard pattern.
     let bytes = unsafe { resp.as_slice() }.to_vec();
