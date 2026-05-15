@@ -346,7 +346,7 @@ class TestE2EJourneys < Minitest::Test
   # the Response.err +type="disconnected"+ field onto the
   # +Kobako::ServiceError::Disconnected+ mruby class before +mrb_raise+,
   # so the class name propagates into the Panic envelope's +class+ field
-  # and the host-side +OutcomeDecoder.panic_target_class+ selects the
+  # and the host-side +Kobako::Outcome.panic_target_class+ selects the
   # Disconnected subclass (pinned in unit form by
   # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+).
   def test_e14_disconnected_handle_target_raises_disconnected_subclass

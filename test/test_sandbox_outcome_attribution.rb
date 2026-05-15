@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for Kobako::Sandbox::OutcomeDecoder edge cases that
+# Layer 3 unit tests for Kobako::Outcome edge cases that
 # don't need a live wasmtime pipeline. Uses Sandbox.allocate + send to
 # bypass instance construction.
 #
@@ -20,10 +20,10 @@ require "kobako/errors"
 class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   include OutcomeBytesHelpers
 
-  # Decode a raw outcome byte-string through the OutcomeDecoder module
+  # Decode a raw outcome byte-string through the Kobako::Outcome module
   # without building a wasmtime pipeline.
   def decode(bytes)
-    Kobako::Sandbox::OutcomeDecoder.decode(bytes)
+    Kobako::Outcome.decode(bytes)
   end
 
   # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---

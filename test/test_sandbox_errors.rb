@@ -6,14 +6,13 @@ require "test_helper"
 # live Sandbox: zero-length / unknown-tag wire violations, malformed
 # envelope payloads, and Panic envelope class-to-Ruby-class mapping
 # (including the +ServiceError::Disconnected+ subclass selection). The
-# decode logic lives on +Kobako::Sandbox::OutcomeDecoder+ as a stateless
-# module of pure functions, so we call it directly without instantiating
-# Sandbox.
+# decode logic lives on +Kobako::Outcome+ as a stateless module of pure
+# functions, so we call it directly without instantiating Sandbox.
 class TestSandboxOutcomeDecoding < Minitest::Test
   include OutcomeBytesHelpers
 
   def decode(bytes)
-    Kobako::Sandbox::OutcomeDecoder.decode(bytes)
+    Kobako::Outcome.decode(bytes)
   end
 
   # SPEC.md ABI Signatures: "len == 0 is a wire violation; host walks trap path."
@@ -71,7 +70,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   # SPEC.md E-14 + "Error Classes": a Service-origin Panic whose
   # +class+ field names +Kobako::ServiceError::Disconnected+ resolves to
   # the Disconnected subclass, letting Host Apps rescue the disconnected
-  # path specifically. Pins +OutcomeDecoder.panic_target_class+ — the
+  # path specifically. Pins +Outcome.panic_target_class+ — the
   # only branch that selects the subclass over the +ServiceError+ parent.
   def test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass
     bytes = panic_outcome_bytes(
