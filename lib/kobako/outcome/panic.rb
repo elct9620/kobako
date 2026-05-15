@@ -18,8 +18,15 @@ module Kobako
     # wire-legal value, nil when absent). Required-field validation is
     # enforced at construction; the +ORIGIN_SANDBOX+ / +ORIGIN_SERVICE+
     # constants pin the two SPEC-defined origin values.
-    Panic = Data.define(:origin, :klass, :message, :backtrace, :details) do
-      # steep:ignore:start
+    #
+    # Built on the +class X < Data.define(...)+ subclass form so the
+    # class body is fully Steep-visible; ruby/rbs upstream documents
+    # this as the Steep-friendly shape and the +Style/DataInheritance+
+    # cop is disabled on that basis (see +.rubocop.yml+).
+    class Panic < Data.define(:origin, :klass, :message, :backtrace, :details)
+      ORIGIN_SANDBOX = "sandbox"
+      ORIGIN_SERVICE = "service"
+
       def initialize(origin:, klass:, message:, backtrace: [], details: nil)
         raise ArgumentError, "Panic origin must be String"  unless origin.is_a?(String)
         raise ArgumentError, "Panic class must be String"   unless klass.is_a?(String)
@@ -30,10 +37,6 @@ module Kobako
 
         super
       end
-      # steep:ignore:end
     end
-
-    Panic::ORIGIN_SANDBOX = "sandbox"
-    Panic::ORIGIN_SERVICE = "service"
   end
 end

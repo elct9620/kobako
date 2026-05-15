@@ -57,3 +57,14 @@ Metrics/BlockLength:
 Layout/LineLength:
   Exclude:
     - "*.gemspec"
+
+# ruby/rbs upstream documents `class X < Data.define(...)` as the
+# Steep-friendly form for typed Value Objects — the assignment form
+# (`X = Data.define(...)`) leaves Data's auto-generated methods inside
+# a `do ... end` block that Steep cannot see, forcing every type
+# carrying validation logic to wrap its body in `# steep:ignore`.
+# We pick Steep over Rubocop here; the only visible cost is one
+# anonymous superclass entry in `.ancestors`.
+# https://github.com/ruby/rbs/blob/master/docs/data_and_struct.md
+Style/DataInheritance:
+  Enabled: false
