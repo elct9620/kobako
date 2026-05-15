@@ -133,7 +133,7 @@ module Kobako
       raise TrapError, "guest __kobako_run trapped: #{e.message}"
     end
 
-    # Drain OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+
+    # Take OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+
     # and decode them into the Sandbox-level result — the unwrapped mruby
     # return value, or a raised three-layer
     # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception. A zero-
