@@ -280,9 +280,18 @@ class TestE2EJourneys < Minitest::Test
     assert_raises(Kobako::HandleTableError) { sandbox.services.handle_table.fetch(handle_id) }
   end
 
-  # +puts+ on a capped stdout channel may surface as a script-level
-  # IOError once the WASI write is rejected; the rescue keeps the
-  # truncation test focused on the host-observable contract.
+  # mruby's +puts+ on a capped channel may raise +IOError+ once the
+  # WASI write is rejected. The rescue swallows that script-level
+  # failure so these tests pin only the host-observable contract
+  # (clipped bytes + predicate); whether the failure surfaces as a
+  # raised error or a silently-short write is intentionally not pinned.
+  #
+  # stderr (fd 2) has no symmetric guest-side test because the kobako
+  # mrbgem allowlist (`build_config/wasi.rb`) intentionally omits all
+  # I/O gems — `STDERR`, `IO`, and `warn` are undefined in the guest,
+  # so no script can produce stderr output. Host-side symmetry for the
+  # stderr channel is covered by the +clip_capture+ unit tests in
+  # `ext/kobako/src/wasm/instance.rs`.
   OVERFLOW_SCRIPT = 'begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; 1'
 
   # SPEC.md B-04: output past +stdout_limit+ is clipped at the cap
@@ -312,7 +321,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
-  def test_stdout_buffer_is_per_run_b04
+  def test_stdout_is_per_run_b04
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     sandbox.run('puts "first"; 1')

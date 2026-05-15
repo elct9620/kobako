@@ -34,12 +34,14 @@ class TestSandbox < Minitest::Test
   end
 
   # SPEC.md B-05: reading the capture channels before any +#run+ returns
-  # an empty String; the truncation predicates default to +false+.
+  # an empty UTF-8 String; the truncation predicates default to +false+.
   def test_pre_run_capture_state_matches_b05
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal "", sandbox.stdout
     assert_equal "", sandbox.stderr
+    assert_equal Encoding::UTF_8, sandbox.stdout.encoding
+    assert_equal Encoding::UTF_8, sandbox.stderr.encoding
     refute sandbox.stdout_truncated?
     refute sandbox.stderr_truncated?
   end
