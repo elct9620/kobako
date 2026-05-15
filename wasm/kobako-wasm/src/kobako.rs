@@ -40,7 +40,7 @@ use crate::mruby::sys;
 use crate::mruby::value::cstr_ptr;
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
-use crate::rpc_client::ExceptionPayload;
+use crate::rpc::client::ExceptionPayload;
 
 // --------------------------------------------------------------------
 // C-string constants — NUL-terminated names passed to the mruby C API.
@@ -589,7 +589,7 @@ impl Kobako {
 
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; [`crate::envelope::encode_request`] re-emits each name
+    /// key's name; [`crate::rpc::envelope::encode_request`] re-emits each name
     /// as a wire-level `Value::Sym` (ext 0x00) per SPEC.md → Wire Codec
     /// → Ext Types. Keys arriving as either mruby `Symbol` or `String`
     /// reduce to the same UTF-8 name via `Object#to_s`. Values go
@@ -871,16 +871,16 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn dispatch_invoke(
         &self,
-        target: crate::envelope::Target,
+        target: crate::rpc::envelope::Target,
         method_name: &str,
         wire_args: &[crate::codec::Value],
         wire_kwargs: &[(String, crate::codec::Value)],
         wire_err_msg: &[u8],
     ) -> sys::mrb_value {
-        use crate::rpc_client::invoke_rpc;
+        use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
             Ok(wire_val) => self.wire_value_to_mrb(wire_val),
-            Err(crate::rpc_client::InvokeError::ServiceErr(ex)) => {
+            Err(crate::rpc::client::InvokeError::ServiceErr(ex)) => {
                 // SAFETY: bridge frame — mruby will unwind through
                 // `mrb_raise`.
                 unsafe { self.raise_service_error(&ex) };

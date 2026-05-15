@@ -126,8 +126,8 @@ pub extern "C" fn __kobako_run() {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::codec::Value;
-        use crate::envelope::{encode_outcome, Outcome, Panic};
         use crate::mruby::sys;
+        use crate::rpc::envelope::{encode_outcome, Outcome, Panic};
         use std::io::Read;
 
         // --- helpers ---

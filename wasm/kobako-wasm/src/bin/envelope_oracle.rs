@@ -28,7 +28,7 @@
 
 use std::io::{self, Read, Write};
 
-use kobako_wasm::envelope::{
+use kobako_wasm::rpc::envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
     encode_panic, encode_request, encode_response, encode_result, EnvelopeError,
 };

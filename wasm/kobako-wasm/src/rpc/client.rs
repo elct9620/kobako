@@ -10,7 +10,7 @@
 //!
 //! 1. [`build_request_bytes`] — pure encoder. Given a [`Target`],
 //!    method, args, and kwargs, produces a Request envelope per
-//!    [`crate::envelope::encode_request`]. Trivially testable on the
+//!    [`crate::rpc::envelope::encode_request`]. Trivially testable on the
 //!    host target; cross-checked against the envelope-layer golden
 //!    vectors so that any drift surfaces in `cargo test`.
 //!
@@ -45,7 +45,7 @@ use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{CodecError, Decoder, Value};
-use crate::envelope::{encode_request, EnvelopeError, Request, Response, Target};
+use crate::rpc::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -181,7 +181,7 @@ pub fn invoke_rpc(
 ) -> Result<Value, InvokeError> {
     let req_bytes = build_request_bytes(target, method, args, kwargs)?;
     let resp_bytes = host_call(&req_bytes)?;
-    let resp = crate::envelope::decode_response(&resp_bytes)?;
+    let resp = crate::rpc::envelope::decode_response(&resp_bytes)?;
     classify_response(resp)
 }
 
@@ -292,7 +292,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 mod tests {
     use super::*;
     use crate::codec::Encoder;
-    use crate::envelope::{encode_request, encode_response, Response};
+    use crate::rpc::envelope::{encode_request, encode_response, Response};
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.

@@ -5,14 +5,15 @@
 //!
 //! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
-//! * `envelope` — Request / Response / Result / Panic / Outcome
-//!   envelope encoders and decoders on top of `codec` (SPEC.md
-//!   "Wire Contract").
+//! * `rpc` — RPC layer mirroring the host's `lib/kobako/rpc/`. Holds
+//!   `rpc::envelope` (Request / Response / Result / Panic / Outcome
+//!   value objects and their encoders/decoders on top of `codec` —
+//!   SPEC.md "Wire Contract") and `rpc::client` (the round-trip
+//!   pipeline used by the guest-side mruby bridge to dispatch a call
+//!   through `__kobako_dispatch`).
 //! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome`
 //!   guest exports (SPEC.md "ABI Signatures").
-//! * `rpc_client` — RPC round-trip pipeline used by the guest-side
-//!   mruby bridge to dispatch a call through `__kobako_dispatch`.
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::RPC::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
@@ -35,16 +36,15 @@ pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;
 pub mod codec;
-pub mod envelope;
 pub mod kobako;
 pub mod mruby;
-pub mod rpc_client;
+pub mod rpc;
 
 pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
 pub use codec::{CodecError, Decoder, Encoder, Value};
-pub use envelope::{
+pub use rpc::client::{build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError};
+pub use rpc::envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
     encode_panic, encode_request, encode_response, encode_result, EnvelopeError, Outcome, Panic,
     Request, Response, Target,
 };
-pub use rpc_client::{build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError};
