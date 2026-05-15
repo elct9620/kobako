@@ -77,7 +77,10 @@ pub(crate) struct Instance {
     // [`Instance::refresh_wasi`] to size the MemoryOutputPipe and by
     // [`Instance::stdout`] / [`Instance::stderr`] to compute the
     // truncation flag. See the module-level note above for the `cap + 1`
-    // sizing rationale.
+    // sizing rationale. Unlike `memory_limit` (which lives on
+    // [`HostState`] because the wasmtime [`ResourceLimiter`] callback
+    // consumes it from within the wasm engine), these caps are read only
+    // by Instance methods, so they live on Instance itself.
     stdout_limit_bytes: Option<usize>,
     stderr_limit_bytes: Option<usize>,
 }
@@ -418,21 +421,93 @@ fn pipe_capacity(cap: Option<usize>) -> usize {
     }
 }
 
-/// Build the `[bytes, truncated]` Ruby Array surfaced by
-/// [`Instance::stdout`] / [`Instance::stderr`]. `raw` is the unclipped
-/// pipe snapshot (up to `cap + 1` bytes when a cap is set); `cap` is
-/// the configured per-channel limit. The bytes returned to Ruby are
-/// clipped to `cap`, and `truncated` is `true` only when the snapshot
-/// strictly exceeded the cap.
-fn capture_pair(ruby: &Ruby, raw: &[u8], cap: Option<usize>) -> Result<RArray, MagnusError> {
-    let (visible, truncated): (&[u8], bool) = match cap {
+/// Pure slicing core shared by [`Instance::stdout`] / [`Instance::stderr`]:
+/// given the unclipped pipe snapshot and the configured cap, return the
+/// bytes Ruby should observe (clipped to `cap`) plus the truncation flag.
+/// `truncated` is `true` only when the snapshot strictly exceeded the cap
+/// — this is the "wrote `cap + 1` bytes into a `cap + 1`-sized pipe" case;
+/// "wrote exactly `cap` bytes" stays `false`.
+fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
+    match cap {
         Some(c) if raw.len() > c => (&raw[..c], true),
         _ => (raw, false),
-    };
+    }
+}
+
+/// Build the `[bytes, truncated]` Ruby Array surfaced by
+/// [`Instance::stdout`] / [`Instance::stderr`]. Delegates the slicing
+/// to [`clip_capture`] so the channel-agnostic logic stays unit-
+/// testable from `cargo test`.
+fn capture_pair(ruby: &Ruby, raw: &[u8], cap: Option<usize>) -> Result<RArray, MagnusError> {
+    let (visible, truncated) = clip_capture(raw, cap);
     let arr = ruby.ary_new_capa(2);
     arr.push(ruby.str_from_slice(visible))?;
     arr.push(truncated)?;
     Ok(arr)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Host-side unit tests for the pure capture helpers. The Ruby-
+    //! facing E2E suite exercises stdout only (the kobako mrbgem
+    //! allowlist excludes guest fd 2 writes); these tests pin the
+    //! channel-agnostic slicing so a regression that only breaks one
+    //! channel cannot sneak through.
+    use super::{clip_capture, pipe_capacity};
+
+    #[test]
+    fn pipe_capacity_adds_one_when_cap_is_set() {
+        assert_eq!(pipe_capacity(Some(5)), 6);
+        assert_eq!(pipe_capacity(Some(0)), 1);
+    }
+
+    #[test]
+    fn pipe_capacity_falls_back_to_usize_max_when_uncapped() {
+        assert_eq!(pipe_capacity(None), usize::MAX);
+    }
+
+    #[test]
+    fn pipe_capacity_saturates_at_usize_max() {
+        assert_eq!(pipe_capacity(Some(usize::MAX)), usize::MAX);
+    }
+
+    #[test]
+    fn clip_capture_returns_full_bytes_when_under_cap() {
+        let (bytes, truncated) = clip_capture(b"abc", Some(5));
+        assert_eq!(bytes, b"abc");
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn clip_capture_does_not_flag_truncation_at_exactly_cap_bytes() {
+        let (bytes, truncated) = clip_capture(b"abcde", Some(5));
+        assert_eq!(bytes, b"abcde");
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn clip_capture_clips_to_cap_and_flags_truncation_on_overflow() {
+        // The pipe is sized `cap + 1`, so the snapshot can be at most
+        // 6 bytes when `cap == 5`; that surface is what triggers the
+        // truncation flag.
+        let (bytes, truncated) = clip_capture(b"abcdef", Some(5));
+        assert_eq!(bytes, b"abcde");
+        assert!(truncated);
+    }
+
+    #[test]
+    fn clip_capture_treats_none_as_uncapped() {
+        let (bytes, truncated) = clip_capture(b"abcdef", None);
+        assert_eq!(bytes, b"abcdef");
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn clip_capture_handles_empty_input() {
+        let (bytes, truncated) = clip_capture(b"", Some(5));
+        assert_eq!(bytes, b"");
+        assert!(!truncated);
+    }
 }
 
 /// Epoch-deadline callback installed on every Store. Read the per-run

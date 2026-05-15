@@ -91,9 +91,9 @@ module Kobako
       @timeout = normalize_timeout(timeout)
       @memory_limit = normalize_memory_limit(memory_limit)
       @services = Kobako::Registry.new
-      @instance = build_instance
+      @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
       @instance.registry = @services
-      reset_run_state!
+      clear_captures!
     end
 
     # Declare or retrieve the Service Group named +name+ on this Sandbox
@@ -134,16 +134,6 @@ module Kobako
 
     private
 
-    # Build the per-Sandbox +Kobako::Wasm::Instance+. Lives in its own
-    # helper so +#initialize+ stays readable as a sequence of single-
-    # responsibility steps.
-    def build_instance
-      Kobako::Wasm::Instance.from_path(
-        @wasm_path, @timeout, @memory_limit,
-        @stdout_limit, @stderr_limit
-      )
-    end
-
     # Coerce +timeout+ into the Float seconds the ext expects, or +nil+ to
     # mean the cap is disabled ({SPEC.md B-01}[link:../../SPEC.md]). Any
     # finite non-positive value is rejected — a zero or negative timeout
@@ -177,6 +167,14 @@ module Kobako
     # zeroed before the guest runs.
     def reset_run_state!
       @services.reset_handles!
+      clear_captures!
+    end
+
+    # Zero the four capture ivars to their pre-run state ({SPEC.md
+    # B-05}[link:../../SPEC.md]). Shared by +#initialize+ (first-run
+    # setup) and +#reset_run_state!+ (between-run reset) so both paths
+    # agree on what "empty capture" means.
+    def clear_captures!
       @stdout_bytes = String.new(encoding: Encoding::UTF_8)
       @stderr_bytes = String.new(encoding: Encoding::UTF_8)
       @stdout_truncated = false
@@ -201,7 +199,7 @@ module Kobako
     # are valid UTF-8, otherwise fall back to ASCII-8BIT so invalid
     # sequences remain inspectable without raising.
     def utf8_capture(bytes)
-      copy = bytes.to_s.dup
+      copy = bytes.dup
       copy.force_encoding(Encoding::UTF_8)
       copy.valid_encoding? ? copy : copy.dup.force_encoding(Encoding::ASCII_8BIT)
     end

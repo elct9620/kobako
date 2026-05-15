@@ -36,7 +36,7 @@ module Kobako
 
     private
 
-    def build_instance: () -> Kobako::Wasm::Instance
+    def clear_captures!: () -> void
 
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?
 
