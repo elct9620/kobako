@@ -45,9 +45,10 @@ module Kobako
 
       # Instance-level pass-through onto the wrapped +MessagePack::Factory+.
       # Spelled +def_instance_delegators+ rather than +def_delegators+ because
-      # +SingleForwardable+ (also extended below) defines its own
-      # +def_delegators+ that shadows +Forwardable+'s — the unambiguous
-      # forms keep both delegation tiers wired to the right scope.
+      # the class also extends +SingleForwardable+ (see the +extend+ block
+      # above), which defines its own +def_delegators+ that shadows
+      # +Forwardable+'s — the unambiguous forms keep both delegation tiers
+      # wired to the right scope.
       def_instance_delegators :@factory, :dump, :load
 
       # Class-level shortcuts so callers can write +Factory.dump(v)+ instead
