@@ -17,7 +17,7 @@
 # +Kobako::Codec+ (for ext-type registration) and {Envelope} (for
 # Request +target+ and Response.err payload). They currently live
 # under +Wire+ as a transitional placement; relocating them to their
-# semantic owners (Handle → Registry, Exception → RPC framing) is
+# semantic owners (Handle → RPC Server, Exception → RPC framing) is
 # part of the planned Wire→RPC umbrella restructure.
 #
 # The namespace is intentionally self-contained — it does not depend

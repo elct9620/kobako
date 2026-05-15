@@ -11,7 +11,7 @@ module Kobako
   # scripts inside a wasmtime-hosted Wasm module
   # ({SPEC.md B-01}[link:../../SPEC.md]).
   #
-  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance Registry
+  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance RPC Server
   # (which itself owns the per-run HandleTable), and the per-channel byte
   # caches for guest stdout / stderr capture. The underlying wasmtime Engine
   # and compiled Module are cached at process scope by the native ext and

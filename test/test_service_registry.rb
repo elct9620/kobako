@@ -7,7 +7,7 @@ require "test_helper"
 # This is an integration-flavored Minitest covering SPEC B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
 # constructs the wasmtime pipeline; tests skip when it is absent.
-class TestServiceRegistry < Minitest::Test
+class TestNamespaceBinding < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
   def setup
@@ -18,7 +18,7 @@ class TestServiceRegistry < Minitest::Test
   end
 
   # B-07: define returns a Kobako::RPC::Namespace; bind happy path resolves
-  # via the two-level path on the Sandbox-owned Registry.
+  # via the two-level path on the Sandbox-owned Server.
   def test_b07_define_returns_namespace_and_bind_resolves_member
     logger = Object.new
     def logger.info(msg) = "logged:#{msg}"

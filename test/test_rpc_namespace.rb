@@ -57,7 +57,7 @@ module Kobako
 
     # SPEC B-07 Notes: an empty Namespace (no Members) is legal and its
     # to_preamble form is [name, []].  Verifies that guest_preamble does not
-    # blow up on a Registry that contains only empty Namespaces.
+    # blow up on a Server that contains only empty Namespaces.
     def test_empty_namespace_to_preamble_returns_empty_members_list
       namespace = Klass.new("Empty")
       assert_equal ["Empty", []], namespace.to_preamble

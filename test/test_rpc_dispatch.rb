@@ -2,14 +2,14 @@
 
 require "test_helper"
 
-# Unit-level coverage of Registry#dispatch — fast and deterministic,
-# exercises the Registry/Wire integration directly without a live
+# Unit-level coverage of RPC::Dispatcher.dispatch — fast and deterministic,
+# exercises the RPC::Dispatcher / Wire integration directly without a live
 # Sandbox. Path-target dispatch, kwargs symbolization, Handle target /
 # argument resolution, disconnected sentinel, cross-Sandbox invalidity,
 # and HandleTable exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
 # +test/test_e2e_journeys.rb+ via real mruby.
-class TestRegistryDispatchUnit < Minitest::Test
+class TestRPCDispatchUnit < Minitest::Test
   def setup
     @registry = Kobako::RPC::Server.new
     @handle_table = @registry.handle_table
@@ -250,7 +250,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # ---------- B-17 — guest passes Handle as target (chained composition) -
 
   # SPEC B-17: a Wire::Handle target resolves to the bound object directly;
-  # the Registry is bypassed and dispatch goes straight to public_send.
+  # the Server is bypassed and dispatch goes straight to public_send.
   def test_handle_target_is_dispatched_to_bound_object
     obj = Class.new do
       def find(id) = "row:#{id}"
@@ -353,7 +353,7 @@ class TestRegistryDispatchUnit < Minitest::Test
 
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
-    # positional arg rather than the target. The Registry path resolves;
+    # positional arg rather than the target. The Server path resolves;
     # arg resolution fails when the id misses B's HandleTable.
     registry_a = Kobako::RPC::Server.new
     registry_b = Kobako::RPC::Server.new
@@ -525,7 +525,7 @@ class TestRegistryDispatchUnit < Minitest::Test
     Class.new { def make = Object.new }.new
   end
 
-  # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1
+  # Build a Server whose HandleTable counter is pinned at MAX_ID + 1
   # so the next #alloc trips the B-21 cap.
   def registry_with_exhausted_handle_table
     exhausted = Kobako::RPC::HandleTable.new(next_id: Kobako::Wire::Handle::MAX_ID + 1)
