@@ -1,29 +1,31 @@
 module Kobako
   module Codec
-    module Factory
+    class Factory
+      include Singleton
+      extend Forwardable
+      extend SingleForwardable
+
       EXT_SYMBOL: Integer
       EXT_HANDLE: Integer
       EXT_ERRENV: Integer
 
-      def self.instance: () -> untyped
+      def dump: (untyped value) -> String
+      def load: (String bytes) -> untyped
 
-      def self.build: () -> untyped
+      def self.dump: (untyped value) -> String
+      def self.load: (String bytes) -> untyped
 
-      def self.register_symbol_type: (untyped factory) -> untyped
+      private
 
-      def self.pack_symbol: (Symbol symbol) -> String
-
-      def self.decode_symbol: (String payload) -> Symbol
-
-      def self.register_handle_type: (untyped factory) -> untyped
-
-      def self.register_exception_type: (untyped factory) -> untyped
-
-      def self.decode_handle: (String payload) -> Kobako::Wire::Handle
-
-      def self.pack_exception: (Kobako::Wire::Exception exc) -> String
-
-      def self.unpack_exception: (String payload) -> Kobako::Wire::Exception
+      def initialize: () -> void
+      def register_symbol_type: () -> void
+      def pack_symbol: (Symbol symbol) -> String
+      def decode_symbol: (String payload) -> Symbol
+      def register_handle_type: () -> void
+      def register_exception_type: () -> void
+      def decode_handle: (String payload) -> Kobako::Wire::Handle
+      def pack_exception: (Kobako::Wire::Exception exc) -> String
+      def unpack_exception: (String payload) -> Kobako::Wire::Exception
     end
   end
 end

@@ -39,7 +39,7 @@ module Kobako
       # against the SPEC type mapping. Raises {Truncated}, {InvalidType},
       # or {InvalidEncoding} on wire violations.
       def self.decode(bytes)
-        value = Factory.instance.load(bytes.b)
+        value = Factory.load(bytes.b)
         validate_utf8!(value)
         value
       rescue *INVALID_TYPE_ERRORS => e
