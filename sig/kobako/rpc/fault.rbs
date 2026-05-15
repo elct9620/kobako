@@ -1,6 +1,6 @@
 module Kobako
-  module Wire
-    class Exception
+  module RPC
+    class Fault
       VALID_TYPES: Array[String]
 
       attr_reader type: String
@@ -10,7 +10,7 @@ module Kobako
       def initialize: (String type, String message, untyped details) -> void
                     | (type: String, message: String, ?details: untyped) -> void
 
-      def with: (?type: String, ?message: String, ?details: untyped) -> Exception
+      def with: (?type: String, ?message: String, ?details: untyped) -> Fault
 
       def ==: (untyped other) -> bool
 

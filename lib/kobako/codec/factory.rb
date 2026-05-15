@@ -7,7 +7,7 @@ require "msgpack"
 require_relative "error"
 require_relative "utils"
 require_relative "../rpc/handle"
-require_relative "../wire/exception"
+require_relative "../rpc/fault"
 
 module Kobako
   module Codec
@@ -102,7 +102,7 @@ module Kobako
 
       def register_exception_type
         @factory.register_type(
-          EXT_ERRENV, Wire::Exception,
+          EXT_ERRENV, RPC::Fault,
           packer: ->(exc) { pack_exception(exc) },
           unpacker: ->(payload) { unpack_exception(payload) }
         )
@@ -129,7 +129,7 @@ module Kobako
         Encoder.encode("type" => exc.type, "message" => exc.message, "details" => exc.details)
       end
 
-      # Peel the embedded msgpack map and hand it to +Wire::Exception.new+;
+      # Peel the embedded msgpack map and hand it to +RPC::Fault.new+;
       # translate the value-object's +ArgumentError+ into +InvalidType+
       # at the wire boundary. Inner decode goes through {Decoder} (not
       # +factory.load+) so the embedded +str+ payloads flow through the
@@ -147,7 +147,7 @@ module Kobako
         raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
         Codec::Utils.translate_value_object_error do
-          Wire::Exception.new(type: map["type"], message: map["message"], details: map["details"])
+          RPC::Fault.new(type: map["type"], message: map["message"], details: map["details"])
         end
       end
     end

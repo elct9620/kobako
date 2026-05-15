@@ -18,7 +18,7 @@ require "kobako/wire"
 # reader.
 class WireValueGenerator
   Handle = Kobako::RPC::Handle
-  Exc    = Kobako::Wire::Exception
+  Exc    = Kobako::RPC::Fault
 
   MAX_DEPTH = 4
 

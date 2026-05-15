@@ -159,7 +159,7 @@ module Kobako
       end
 
       def encode_err(type, message)
-        exception = Kobako::Wire::Exception.new(type: type, message: message)
+        exception = Kobako::RPC::Fault.new(type: type, message: message)
         response = Kobako::Wire::Envelope::Response.err(exception)
         Kobako::Wire::Envelope.encode_response(response)
       end

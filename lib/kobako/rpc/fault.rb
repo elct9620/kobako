@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Kobako
-  module Wire
+  module RPC
     # Wire-level value object for an ext-0x02 Exception envelope.
     #
     # SPEC pins the payload (Wire Codec → Ext Types → ext 0x02) to a
@@ -17,7 +17,7 @@ module Kobako
     # Built on +Data.define+ so equality, hash, and immutability are
     # inherited from the value-object machinery; only the field invariants
     # ride on top.
-    Exception = Data.define(:type, :message, :details) do
+    Fault = Data.define(:type, :message, :details) do
       # +VALID_TYPES+ is attached to the Exception class below this block.
       # Reach it through +self.class::VALID_TYPES+ — Data.define's block
       # scope resolves bare constants against the enclosing +Wire+ module,
@@ -35,6 +35,6 @@ module Kobako
       # steep:ignore:end
     end
 
-    Exception::VALID_TYPES = %w[runtime argument disconnected undefined].freeze
+    Fault::VALID_TYPES = %w[runtime argument disconnected undefined].freeze
   end
 end

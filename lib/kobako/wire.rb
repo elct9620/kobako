@@ -26,7 +26,7 @@
 module Kobako
   # See the file-level documentation above. The module body is
   # intentionally empty: the logical framing lives in {Wire::Envelope}
-  # and the shared value objects ({RPC::Handle} / {Wire::Exception})
+  # and the shared value objects ({RPC::Handle} / {RPC::Fault})
   # load themselves into this namespace via the +require_relative+
   # calls below. The byte-level codec lives at +Kobako::Codec+ and is
   # pulled in transitively by +wire/envelope+.
@@ -35,5 +35,5 @@ module Kobako
 end
 
 require_relative "rpc/handle"
-require_relative "wire/exception"
+require_relative "rpc/fault"
 require_relative "wire/envelope"

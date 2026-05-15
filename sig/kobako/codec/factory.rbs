@@ -24,8 +24,8 @@ module Kobako
       def register_handle_type: () -> void
       def register_exception_type: () -> void
       def decode_handle: (String payload) -> Kobako::RPC::Handle
-      def pack_exception: (Kobako::Wire::Exception exc) -> String
-      def unpack_exception: (String payload) -> Kobako::Wire::Exception
+      def pack_exception: (Kobako::RPC::Fault exc) -> String
+      def unpack_exception: (String payload) -> Kobako::RPC::Fault
     end
   end
 end

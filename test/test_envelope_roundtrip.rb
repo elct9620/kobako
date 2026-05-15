@@ -29,7 +29,7 @@ require "kobako/wire"
 class TestEnvelopeRoundtrip < Minitest::Test
   Envelope = Kobako::Wire::Envelope
   Handle   = Kobako::RPC::Handle
-  Exc      = Kobako::Wire::Exception
+  Exc      = Kobako::RPC::Fault
 
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")

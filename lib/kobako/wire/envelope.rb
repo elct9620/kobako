@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../rpc/handle"
-require_relative "exception"
+require_relative "../rpc/fault"
 require_relative "../codec"
 
 module Kobako
@@ -94,8 +94,8 @@ module Kobako
         end
 
         def self.err(exception)
-          unless exception.is_a?(Exception)
-            raise ArgumentError, "Response.err requires Kobako::Wire::Exception, got #{exception.class}"
+          unless exception.is_a?(Kobako::RPC::Fault)
+            raise ArgumentError, "Response.err requires Kobako::RPC::Fault, got #{exception.class}"
           end
 
           new(status: STATUS_ERROR, payload: exception)
@@ -105,8 +105,8 @@ module Kobako
           unless [STATUS_OK, STATUS_ERROR].include?(status)
             raise ArgumentError, "Response status must be 0 or 1, got #{status.inspect}"
           end
-          if status == STATUS_ERROR && !payload.is_a?(Exception)
-            raise ArgumentError, "Response status=1 payload must be Kobako::Wire::Exception"
+          if status == STATUS_ERROR && !payload.is_a?(Kobako::RPC::Fault)
+            raise ArgumentError, "Response status=1 payload must be Kobako::RPC::Fault"
           end
 
           super
