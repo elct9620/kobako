@@ -237,7 +237,7 @@ The behaviors below specify observable outcomes for the Sandbox object and its e
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
 | **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
 | **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
-| **Notes** | `timeout` bounds wall-clock execution of guest wasm code only; time spent inside a Service callback executing on the host is not bounded by this mechanism — the Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` cap per-run output capture (B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
+| **Notes** | `timeout` is measured as absolute wall-clock time from `Sandbox#run` invocation; the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. Time spent inside a Service callback executing on the host does not itself trigger a trap — no trap fires while host code runs — but the wall-clock time it consumes counts against the deadline, so a long-running callback can cause the next guest wasm safepoint to trap immediately on return. The Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
 
 ---
 
@@ -507,10 +507,10 @@ Raised when the Wasm execution engine crashes, when the wire layer detects a str
 | E-01 | Wasm engine trap: `unreachable` instruction, stack overflow, or import signature mismatch | Wasm engine reports a native trap; Step 1 fires | `Kobako::TrapError` |
 | E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback | `Kobako::TrapError` |
 | E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback | `Kobako::TrapError` |
-| E-19 | Wall-clock execution of guest wasm code exceeded the configured `timeout` (B-01) | Wasm engine reports a wall-clock interrupt; Step 1 fires | `Kobako::TimeoutError` |
+| E-19 | Absolute wall-clock time since `Sandbox#run` invocation reached the configured `timeout` and a guest wasm safepoint was hit thereafter (B-01) | Wasm engine reports a wall-clock interrupt at the first guest wasm safepoint after the absolute deadline; Step 1 fires | `Kobako::TimeoutError` |
 | E-20 | Guest `memory.grow` would exceed the configured `memory_limit` (B-01) | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
 
-**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`. E-19 bounds only guest wasm execution; time spent inside Service callbacks running on the host is not bounded by `timeout` (B-01 Notes).
+**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`. E-19 fires only at guest wasm safepoints — a Service callback running on the host cannot itself trigger E-19 — but the wall-clock time consumed by host callbacks counts against the `timeout` budget (B-01 Notes).
 
 ---
 
@@ -585,7 +585,7 @@ These are sub-components and runtime concepts owned by the Host Gem. They are no
 
 | Term | Definition | Public? |
 |------|-----------|---------|
-| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Enforces three configurable per-run bounds — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
+| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Enforces three configurable per-run caps — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
 | **Registry** | The Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable. Not exposed to the Host App. | No |
 | **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
 | **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::Handle` runs in the host process; the `Kobako::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
@@ -608,7 +608,7 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 
 | Term | Ruby Class | Superclass | Meaning |
 |------|-----------|-----------|---------|
-| **TimeoutError** | `Kobako::TimeoutError` | `Kobako::TrapError` | Wall-clock execution of guest wasm code exceeded the configured per-run `timeout` (default 60 s); see E-19. Bounds wasm execution only, not Service callbacks. |
+| **TimeoutError** | `Kobako::TimeoutError` | `Kobako::TrapError` | Absolute wall-clock time since `Sandbox#run` invocation reached the configured per-run `timeout` (default 60 s); trap fires at the next guest wasm safepoint after the deadline. See E-19; B-01 Notes covers host-callback accounting. |
 | **MemoryLimitError** | `Kobako::MemoryLimitError` | `Kobako::TrapError` | Guest `memory.grow` would exceed the configured per-run `memory_limit` (default 1 MiB); see E-20 |
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
@@ -979,6 +979,7 @@ The following principles govern how all names in this specification and in the `
 | N-5 | Internal Rust crates are named with a hyphen prefix matching the gem: `kobako-wasm` (Guest Binary crate), `kobako-ext` (native extension crate) | `Cargo.toml` package names; not exposed to Ruby |
 | N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface | All layers of this specification |
 | N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |
+| N-8 | `B-xx` and `E-xx` anchors are assigned monotonically and append-only across the document; existing anchors are never renumbered, and a new entry takes the next unused number regardless of which subsection it belongs to | All Behavior and Error Scenario entries |
 
 ---
 
