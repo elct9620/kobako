@@ -128,15 +128,23 @@ impl HostState {
         &mut self.limiter
     }
 
-    /// Toggle whether the memory cap is enforced on `memory.grow`. The
-    /// cap is dormant by default — the module's declared initial memory
-    /// is allocated during `Linker::instantiate` and SPEC.md E-20
-    /// scopes the trap to `memory.grow` (not the instantiation-time
-    /// initial allocation). [`crate::wasm::Instance::run`] activates the
-    /// cap right before `__kobako_run` and deactivates it once the call
-    /// returns.
-    pub(super) fn set_memory_cap_active(&mut self, active: bool) {
-        self.limiter.cap_active = active;
+    /// Arm the memory cap so subsequent `memory.grow` calls are checked
+    /// against `memory_limit`. The cap is dormant by default — the
+    /// module's declared initial memory is allocated during
+    /// `Linker::instantiate` and SPEC.md E-20 scopes the trap to
+    /// `memory.grow` (not the instantiation-time initial allocation).
+    /// [`crate::wasm::Instance::run`] calls this right before
+    /// `__kobako_run`.
+    pub(super) fn activate_memory_cap(&mut self) {
+        self.limiter.activate();
+    }
+
+    /// Disarm the memory cap so post-run host bookkeeping (e.g. fetching
+    /// the OUTCOME_BUFFER, which can grow guest memory transiently) is
+    /// not attributed to the user script. Paired with
+    /// [`HostState::activate_memory_cap`].
+    pub(super) fn deactivate_memory_cap(&mut self) {
+        self.limiter.deactivate();
     }
 }
 
@@ -147,9 +155,10 @@ impl HostState {
 /// gates whether the cap is enforced — wasmtime's `ResourceLimiter`
 /// fires for both the module's declared initial allocation and every
 /// subsequent `memory.grow`, but SPEC.md E-20 scopes the trap to
-/// `memory.grow` specifically. [`HostState::set_memory_cap_active`]
-/// flips the flag for the lifetime of an `Instance::run` call. When
-/// `cap_active` is `false`, the limiter always allows growth.
+/// `memory.grow` specifically. [`HostState::activate_memory_cap`] /
+/// [`HostState::deactivate_memory_cap`] flip the flag for the lifetime
+/// of an `Instance::run` call. When `cap_active` is `false`, the
+/// limiter always allows growth.
 ///
 /// When `memory.grow` would push linear memory past the cap, the
 /// limiter returns [`MemoryLimitTrap`] from `memory_growing`; wasmtime
@@ -167,6 +176,14 @@ impl KobakoLimiter {
             max_memory,
             cap_active: false,
         }
+    }
+
+    fn activate(&mut self) {
+        self.cap_active = true;
+    }
+
+    fn deactivate(&mut self) {
+        self.cap_active = false;
     }
 }
 
@@ -200,11 +217,13 @@ impl ResourceLimiter for KobakoLimiter {
 
 /// Marker error returned from [`KobakoLimiter::memory_growing`] on
 /// SPEC.md E-20. Downcast from the wasmtime trap error to surface as
-/// `Kobako::Wasm::MemoryLimitError` on the Ruby side.
+/// `Kobako::Wasm::MemoryLimitError` on the Ruby side. Callers use the
+/// `Display` impl below — no field is read directly — so the inner
+/// state stays private.
 #[derive(Debug)]
 pub(crate) struct MemoryLimitTrap {
-    pub(crate) desired: usize,
-    pub(crate) limit: usize,
+    desired: usize,
+    limit: usize,
 }
 
 impl std::fmt::Display for MemoryLimitTrap {

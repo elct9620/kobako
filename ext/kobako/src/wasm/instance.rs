@@ -225,10 +225,7 @@ impl Instance {
         // post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER
         // bytes, which can grow guest memory transiently) is not
         // attributed to the user script.
-        self.store
-            .borrow_mut()
-            .data_mut()
-            .set_memory_cap_active(false);
+        self.store.borrow_mut().data_mut().deactivate_memory_cap();
         result.map_err(|e| run_call_err(&ruby, e))
     }
 
@@ -286,7 +283,7 @@ impl Instance {
                 store_ref.set_epoch_deadline(u64::MAX);
             }
         }
-        store_ref.data_mut().set_memory_cap_active(true);
+        store_ref.data_mut().activate_memory_cap();
     }
 
     /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
