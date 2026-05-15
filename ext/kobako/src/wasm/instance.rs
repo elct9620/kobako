@@ -27,7 +27,6 @@
 //! [`TypedFunc`]: wasmtime::TypedFunc
 //! [`MemoryOutputPipe`]: wasmtime_wasi::p2::pipe::MemoryOutputPipe
 
-use std::cell::RefCell;
 use std::path::Path;
 
 use magnus::RString;
@@ -69,7 +68,7 @@ impl Instance {
         let engine = shared_engine()?;
         let module = cached_module(Path::new(&path))?;
         let store = WtStore::new(engine, HostState::default());
-        let store_cell = StoreCell(RefCell::new(store));
+        let store_cell = StoreCell::new(store);
         build_instance(engine, &module, store_cell)
     }
 
@@ -78,7 +77,7 @@ impl Instance {
     /// `__kobako_dispatch` import invocation routes through
     /// `registry.dispatch(req_bytes)`.
     pub(crate) fn set_registry(&self, registry: Value) -> Result<(), MagnusError> {
-        let mut store_ref = self.store.0.borrow_mut();
+        let mut store_ref = self.store.borrow_mut();
         store_ref.data_mut().registry = Some(Opaque::from(registry));
         Ok(())
     }
@@ -103,7 +102,7 @@ impl Instance {
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        let mut store_ref = self.store.0.borrow_mut();
+        let mut store_ref = self.store.borrow_mut();
         run.call(store_ref.as_context_mut(), ())
             .map_err(|e| wasm_err(&ruby, format!("__kobako_run(): {}", e)))
     }
@@ -115,7 +114,7 @@ impl Instance {
     /// pipe. Returns an empty binary String before any run.
     pub(crate) fn stdout(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let store_ref = self.store.0.borrow();
+        let store_ref = self.store.borrow();
         let bytes = store_ref
             .data()
             .stdout_pipe
@@ -129,7 +128,7 @@ impl Instance {
     /// Same semantics as [`Instance::stdout`].
     pub(crate) fn stderr(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let store_ref = self.store.0.borrow();
+        let store_ref = self.store.borrow();
         let bytes = store_ref
             .data()
             .stderr_pipe
@@ -185,7 +184,7 @@ impl Instance {
         builder.stderr(stderr_pipe.clone());
         let wasi = builder.build_p1();
 
-        let mut store_ref = self.store.0.borrow_mut();
+        let mut store_ref = self.store.borrow_mut();
         let data = store_ref.data_mut();
         data.wasi = Some(wasi);
         data.stdout_pipe = Some(stdout_pipe);
@@ -205,7 +204,7 @@ impl Instance {
             .as_ref()
             .ok_or_else(|| wasm_err(ruby, "guest does not export __kobako_take_outcome"))?;
 
-        let mut store_ref = self.store.0.borrow_mut();
+        let mut store_ref = self.store.borrow_mut();
         let packed = take
             .call(store_ref.as_context_mut(), ())
             .map_err(|e| wasm_err(ruby, format!("__kobako_take_outcome(): {}", e)))?;
@@ -278,7 +277,7 @@ fn build_instance(
         .map_err(|e| wasm_err(&ruby, format!("define __kobako_dispatch: {}", e)))?;
 
     let instance = {
-        let mut store_ref = store_cell.0.borrow_mut();
+        let mut store_ref = store_cell.borrow_mut();
         linker
             .instantiate(store_ref.as_context_mut(), module)
             .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
@@ -290,7 +289,7 @@ fn build_instance(
     // cached Option is None. Only the SPEC ABI `() -> ()` shape is
     // accepted for `__kobako_run`.
     let (run, take_outcome) = {
-        let mut store_ref = store_cell.0.borrow_mut();
+        let mut store_ref = store_cell.borrow_mut();
         let mut ctx = store_ref.as_context_mut();
         let run = instance
             .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")

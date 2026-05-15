@@ -7,7 +7,7 @@
 //! when refreshing the WASI context before each `#run` (SPEC.md B-03 /
 //! B-04).
 
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 
 use magnus::{value::Opaque, Value};
 use wasmtime::Store as WtStore;
@@ -45,7 +45,31 @@ pub(crate) struct HostState {
 /// `Sync`, so we wrap it in a `RefCell`. `RefCell` alone is sufficient
 /// because magnus enforces single-threaded GVL access from Ruby; `Send` and
 /// `Sync` are asserted via the unsafe impls below.
-pub(crate) struct StoreCell(pub(crate) RefCell<WtStore<HostState>>);
+pub(crate) struct StoreCell {
+    inner: RefCell<WtStore<HostState>>,
+}
+
+impl StoreCell {
+    /// Wrap a freshly-built `wasmtime::Store<HostState>` so it can be owned
+    /// by the magnus-wrapped `Instance`.
+    pub(crate) fn new(store: WtStore<HostState>) -> Self {
+        Self {
+            inner: RefCell::new(store),
+        }
+    }
+
+    /// Immutable borrow of the wrapped Store. Panics if a `borrow_mut()`
+    /// is currently live — matches `RefCell::borrow` semantics.
+    pub(crate) fn borrow(&self) -> Ref<'_, WtStore<HostState>> {
+        self.inner.borrow()
+    }
+
+    /// Mutable borrow of the wrapped Store. Panics if any other borrow is
+    /// currently live — matches `RefCell::borrow_mut` semantics.
+    pub(crate) fn borrow_mut(&self) -> RefMut<'_, WtStore<HostState>> {
+        self.inner.borrow_mut()
+    }
+}
 
 // SAFETY: Ruby's GVL serialises access to magnus-wrapped objects on a single
 // OS thread at a time. `wasmtime::Store` is `Send` (verified upstream); the
