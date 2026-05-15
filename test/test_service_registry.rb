@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Kobako::Registry + Kobako::RPC::Namespace + bind/define API.
+# Kobako::RPC::Server + Kobako::RPC::Namespace + bind/define API.
 #
 # This is an integration-flavored Minitest covering SPEC B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
@@ -171,7 +171,7 @@ class TestServiceRegistry < Minitest::Test
 
   # Sandbox#services replacement check — no longer the placeholder.
   def test_services_is_no_longer_placeholder
-    assert_instance_of Kobako::Registry, @sandbox.services
+    assert_instance_of Kobako::RPC::Server, @sandbox.services
     refute @sandbox.services.class.name.include?("Placeholder"),
            "ServicesPlaceholder must be gone after item #15"
   end

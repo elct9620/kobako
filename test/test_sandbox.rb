@@ -22,7 +22,7 @@ class TestSandbox < Minitest::Test
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
     assert_instance_of Kobako::Wasm::Instance, sandbox.instance
-    assert_instance_of Kobako::Registry::HandleTable, sandbox.services.handle_table
+    assert_instance_of Kobako::RPC::Server::HandleTable, sandbox.services.handle_table
   end
 
   def test_default_construction_exposes_default_output_limits
@@ -96,7 +96,7 @@ class TestSandbox < Minitest::Test
 
   def test_services_attribute_is_real_registry
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    assert_instance_of Kobako::Registry, sandbox.services
+    assert_instance_of Kobako::RPC::Server, sandbox.services
     assert sandbox.services.empty?
     group = sandbox.services.define(:Foo)
     assert_instance_of Kobako::RPC::Namespace, group

@@ -1,0 +1,37 @@
+module Kobako
+  module RPC
+    class Server
+      attr_reader handle_table: Server::HandleTable
+
+      def initialize: (?handle_table: Server::HandleTable) -> void
+
+      def define: (Symbol | String name) -> Kobako::RPC::Namespace
+
+      def lookup: (String target) -> untyped
+
+      def bound?: (String target) -> bool
+
+      def namespaces: () -> Array[Kobako::RPC::Namespace]
+
+      def size: () -> Integer
+
+      def empty?: () -> bool
+
+      def to_preamble: () -> Array[[String, Array[String]]]
+
+      def guest_preamble: () -> String
+
+      def seal!: () -> self
+
+      def sealed?: () -> bool
+
+      def reset_handles!: () -> Server::HandleTable
+
+      def dispatch: (String request_bytes) -> String
+
+      private
+
+      def resolve_pair: (String target) -> [Kobako::RPC::Namespace?, String?, String?]
+    end
+  end
+end

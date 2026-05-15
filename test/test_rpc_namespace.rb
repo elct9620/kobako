@@ -13,7 +13,7 @@
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/registry"
+require "kobako/rpc/server"
 
 module Kobako
   class RPCNamespaceEdgeCasesTest < Minitest::Test
@@ -65,7 +65,7 @@ module Kobako
 
     def test_registry_with_only_empty_namespace_produces_valid_preamble
       require "msgpack"
-      registry = Kobako::Registry.new
+      registry = Kobako::RPC::Server.new
       registry.define(:Empty)
 
       bytes = registry.guest_preamble

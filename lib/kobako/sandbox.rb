@@ -3,7 +3,7 @@
 require_relative "capture"
 require_relative "errors"
 require_relative "outcome"
-require_relative "registry"
+require_relative "rpc/server"
 require_relative "wire"
 
 module Kobako
@@ -91,7 +91,7 @@ module Kobako
       @stderr_limit = stderr_limit || DEFAULT_OUTPUT_LIMIT
       @timeout = normalize_timeout(timeout)
       @memory_limit = normalize_memory_limit(memory_limit)
-      @services = Kobako::Registry.new
+      @services = Kobako::RPC::Server.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
       @instance.registry = @services
       clear_captures!

@@ -11,7 +11,7 @@ require "test_helper"
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestRegistryDispatchUnit < Minitest::Test
   def setup
-    @registry = Kobako::Registry.new
+    @registry = Kobako::RPC::Server.new
     @handle_table = @registry.handle_table
   end
 
@@ -334,8 +334,8 @@ class TestRegistryDispatchUnit < Minitest::Test
   # two physically separate HandleTable instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
-    registry_a = Kobako::Registry.new
-    registry_b = Kobako::Registry.new
+    registry_a = Kobako::RPC::Server.new
+    registry_b = Kobako::RPC::Server.new
     handle_id_in_a = registry_a.handle_table.alloc(pinger)
 
     # Sanity: the integer id has meaning in A.
@@ -355,8 +355,8 @@ class TestRegistryDispatchUnit < Minitest::Test
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Registry path resolves;
     # arg resolution fails when the id misses B's HandleTable.
-    registry_a = Kobako::Registry.new
-    registry_b = Kobako::Registry.new
+    registry_a = Kobako::RPC::Server.new
+    registry_b = Kobako::RPC::Server.new
     registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     table_a = registry_a.handle_table
 
@@ -435,7 +435,7 @@ class TestRegistryDispatchUnit < Minitest::Test
     assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
 
-    table = Kobako::Registry::HandleTable.new(
+    table = Kobako::RPC::Server::HandleTable.new(
       next_id: Kobako::Wire::Handle::MAX_ID + 1
     )
     error = assert_raises(Kobako::SandboxError) do
@@ -528,7 +528,7 @@ class TestRegistryDispatchUnit < Minitest::Test
   # Build a Registry whose HandleTable counter is pinned at MAX_ID + 1
   # so the next #alloc trips the B-21 cap.
   def registry_with_exhausted_handle_table
-    exhausted = Kobako::Registry::HandleTable.new(next_id: Kobako::Wire::Handle::MAX_ID + 1)
-    Kobako::Registry.new(handle_table: exhausted)
+    exhausted = Kobako::RPC::Server::HandleTable.new(next_id: Kobako::Wire::Handle::MAX_ID + 1)
+    Kobako::RPC::Server.new(handle_table: exhausted)
   end
 end

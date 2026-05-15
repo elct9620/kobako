@@ -12,7 +12,7 @@ module Kobako
     attr_reader stderr_limit: Integer
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
-    attr_reader services: Kobako::Registry
+    attr_reader services: Kobako::RPC::Server
 
     def initialize: (
       ?wasm_path: String?,

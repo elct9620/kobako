@@ -5,7 +5,7 @@
 # Intentionally does NOT require "test_helper" — HandleTable is pure Ruby and
 # must be exercisable without the native extension being compiled. We require
 # lib/kobako/registry.rb directly (HandleTable is an internal class of
-# Kobako::Registry per SPEC.md Architecture).
+# Kobako::RPC::Server per SPEC.md Architecture).
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
@@ -16,11 +16,11 @@
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/registry"
+require "kobako/rpc/server"
 
 module Kobako
   class HandleTableTest < Minitest::Test
-    Table = Kobako::Registry::HandleTable
+    Table = Kobako::RPC::Server::HandleTable
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 
