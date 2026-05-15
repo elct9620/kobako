@@ -45,14 +45,14 @@ These five roles describe the system. All design and behavior content in later l
 | **Host App** | The Ruby application (Rails / Rack / CLI) that uses kobako; holds all credentials and policy | Out of scope — must be named but not designed here |
 | **Host Gem** | The kobako gem itself: Ruby API layer (`lib/`) + private native extension (`ext/`); exposes the sandbox interface, routes RPC, and manages Handle lifecycle | In scope |
 | **Guest Binary** | `kobako.wasm` — compiled from the `wasm/` Rust crate; contains the mruby interpreter and RPC client; is the isolation boundary | In scope |
-| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Group::Member`); the only mechanism by which guest code can access host resources | In scope |
+| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Namespace::Member`); the only mechanism by which guest code can access host resources | In scope |
 | **Wire Spec** | The MessagePack contract governing all host↔guest RPC messages; not a runtime object but a shared protocol both sides implement | In scope |
 
 **Key internal concepts** (refined in later layers):
 
 - **Sandbox** (`Kobako::Sandbox`): the runtime unit that instantiates the Guest Binary, injects Services, executes a mruby script, and returns a structured outcome or raises a typed error.
 - **Handle**: an opaque integer token the guest holds to reference a host-side object returned by a Service call; the guest can use it in subsequent RPC calls but cannot dereference it directly. Handle lifecycle is fully managed by the Host Gem; the guest holds only an opaque integer ID and cannot dereference it.
-- **Service Group / Member**: `Group` is a declared namespace visible to guest as a Ruby module; `Member` is a named binding within the group visible to guest as a module constant.
+- **Namespace / Member**: `Namespace` is a declared grouping visible to guest as a Ruby module; `Member` is a named binding within a Namespace visible to guest as a module constant.
 - **Three-layer error taxonomy**: `Kobako::TrapError` (Wasm trap), `Kobako::SandboxError` (wire or runtime fault), `Kobako::ServiceError` (guest application error) — each with distinct attribution and handling semantics.
 
 ---
@@ -70,7 +70,7 @@ These five roles describe the system. All design and behavior content in later l
 **Does:**
 - Provide an in-process mruby execution environment isolated by a Wasm boundary
 - Bundle a curated mruby standard library in the Guest Binary: the core extension gems (Array / Enum / Hash / Numeric / Object / Proc / Range / String / Symbol / Error / Metaprog) plus pure-compute third-party mrbgems that cover common scripting scenarios. Inclusion is gated by a strict allowlist whose security trade-offs (engine-internal risk vs. guest-side I/O exposure) are documented inline with the build config; the allowlist is the single source of truth for stdlib composition.
-- Expose a Ruby API for Host Apps to declare Service namespaces and bind host objects as callable members
+- Expose a Ruby API for Host Apps to declare Namespaces and bind host objects as callable Members
 - Execute a mruby script synchronously and return its last expression as a deserialized Ruby value
 - Route guest-initiated RPC calls to the correct host Service object and return the serialized result
 - Represent stateful host-side objects returned by Service methods as opaque Capability Handles; allow the guest to reference those handles in subsequent calls
@@ -101,14 +101,14 @@ These five roles describe the system. All design and behavior content in later l
 - Every `Sandbox#run` call either returns a single deserialized Ruby value (the script's last expression) or raises exactly one of `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError` — no other outcome is possible
 - Guest stdout and stderr are always available as separate byte buffers after execution and contain no protocol bytes; truncation, when triggered by a configured cap, is observable via separate predicates on the Sandbox and never appears as inline content within the byte streams
 - Capability state is fully reset between successive `#run` invocations on the same Sandbox instance
-- The `kobako` gem name and the public Ruby class names `Kobako::Sandbox`, `Kobako::Handle`, `Kobako::TrapError`, `Kobako::SandboxError`, and `Kobako::ServiceError` are stable public contracts
+- The `kobako` gem name and the public Ruby class names `Kobako::Sandbox`, `Kobako::RPC::Handle`, `Kobako::RPC::Namespace`, `Kobako::TrapError`, `Kobako::SandboxError`, and `Kobako::ServiceError` are stable public contracts
 
 #### Control — what kobako controls / depends on
 
 **Controls:**
 - The entire guest execution environment: mruby interpreter lifecycle, Wasm memory, and capability state
 - Handle lifecycle — the guest holds only an opaque integer ID; the Host Gem owns the mapping from ID to host object and all allocation/deallocation decisions
-- The host↔guest message codec: MessagePack encoding with two registered ext types (Capability Handle `0x01`, Exception envelope `0x02`)
+- The host↔guest message codec: MessagePack encoding with two registered ext types (Capability Handle `0x01`, Fault envelope `0x02`)
 - Error attribution: the decision logic that maps execution outcomes to the three error classes
 
 **Depends on:**
@@ -127,7 +127,7 @@ The following features constitute the complete observable surface of the `kobako
 | # | Feature | Role |
 |---|---------|------|
 | F-01 | Sandbox instantiation | Host Gem |
-| F-02 | Service namespace declaration | Host Gem |
+| F-02 | Namespace declaration | Host Gem |
 | F-03 | Service member binding | Host Gem |
 | F-04 | Synchronous script execution | Host Gem + Guest Binary |
 | F-05 | Guest-initiated RPC dispatch | Host Gem + Wire Spec |
@@ -152,7 +152,7 @@ The following journeys describe the primary ways actors use kobako end-to-end. E
 An LLM agent framework author has a pipeline that feeds model-generated Ruby scripts to kobako at runtime. The Host App holds credentials (API keys, database connections); the generated scripts are untrusted and structurally unknown in advance. The author needs structured results back and must ensure no generated script can exfiltrate credentials or corrupt host state.
 
 **Action**
-1. The Host App creates a `Kobako::Sandbox` and declares Service namespaces for the capabilities the generated scripts may legally call (e.g., a key-value lookup, a write-access log sink).
+1. The Host App creates a `Kobako::Sandbox` and declares Namespaces for the capabilities the generated scripts may legally call (e.g., a key-value lookup, a write-access log sink).
 2. For each model-generated script, the Host App calls `Sandbox#run` with the script string, passing no additional configuration at call time.
 3. The Host App reads the return value of `#run` as the structured result of the script's final expression.
 
@@ -168,7 +168,7 @@ A Host App developer is adding kobako to a running Rails or Rack application for
 
 **Action**
 1. The developer adds kobako to the project's gem dependencies and installs it; the native extension compiles from source.
-2. The developer creates a `Kobako::Sandbox`, calls `define` to declare one or more Service namespaces, and calls `bind` on each group to attach host objects as named members.
+2. The developer creates a `Kobako::Sandbox`, calls `define` to declare one or more Namespaces, and calls `bind` on each namespace to attach host objects as named Members.
 3. At request time, the developer calls `Sandbox#run` with a script string and uses the return value as the execution result; they also read `Sandbox#stdout` and `Sandbox#stderr` for any guest log output.
 4. The developer repeats step 3 for subsequent requests on the same Sandbox instance.
 
@@ -298,57 +298,57 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
-### B-07 — Declare a Service Group on a Sandbox
+### B-07 — Declare a Namespace on a Sandbox
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance on which `#run` has not yet been called. No Service Group named `GroupName` exists on this Sandbox. |
-| **Operation** | `sandbox.define(:GroupName)` where `:GroupName` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
-| **Result / Final State** | A `Kobako::Service::Group` instance is created and associated with this Sandbox under the name `GroupName`. The group has no members yet. The method returns the new `Kobako::Service::Group` instance. The Sandbox registry now contains one additional group entry. |
-| **Notes** | `GroupName` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. Calling `sandbox.define` after `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent `#run` calls with the bindings that existed at the time of the first `#run`. A group may have zero members at declaration time; members are added via B-08. |
+| **Initial State** | A Sandbox instance on which `#run` has not yet been called. No Namespace named `Name` exists on this Sandbox. |
+| **Operation** | `sandbox.define(:Name)` where `:Name` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
+| **Result / Final State** | A `Kobako::RPC::Namespace` instance is created and associated with this Sandbox under the name `Name`. The namespace has no members yet. The method returns the new `Kobako::RPC::Namespace` instance. The Sandbox's Server now tracks one additional namespace entry. |
+| **Notes** | `Name` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. Calling `sandbox.define` after `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent `#run` calls with the bindings that existed at the time of the first `#run`. A namespace may have zero members at declaration time; members are added via B-08. |
 
 ---
 
-### B-08 — Bind a Service Member to a declared Group
+### B-08 — Bind a Member to a declared Namespace
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Service::Group` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. |
-| **Operation** | `group.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
-| **Result / Final State** | `object` is registered as the member named `MemberName` within the group. Guest code can now reach this object via the two-level path `GroupName::MemberName`. The method returns the `Kobako::Service::Group` instance (`self`) to allow chaining. |
+| **Initial State** | A `Kobako::RPC::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. |
+| **Operation** | `namespace.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
+| **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `Name::MemberName`. The method returns the `Kobako::RPC::Namespace` instance (`self`) to allow chaining. |
 | **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). |
 
 ---
 
-### B-09 — Declare multiple Service Groups on the same Sandbox
+### B-09 — Declare multiple Namespaces on the same Sandbox
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance with one or more Service Groups already declared. |
-| **Operation** | `sandbox.define(:OtherGroup)` with a name distinct from all already-declared groups on this Sandbox. |
-| **Result / Final State** | A new, independent `Kobako::Service::Group` is created alongside the existing groups. Each group's members are accessible to guest code only via that group's own namespace (e.g., `GroupA::Member` and `GroupB::Member` are distinct paths with no cross-group visibility). Groups on different Sandbox instances are fully isolated from each other. |
-| **Notes** | There is no declared upper limit on the number of groups per Sandbox. Each group name within a Sandbox must be unique (duplicate-declare behavior is specified in B-10). |
+| **Initial State** | A Sandbox instance with one or more Namespaces already declared. |
+| **Operation** | `sandbox.define(:OtherName)` with a name distinct from all already-declared namespaces on this Sandbox. |
+| **Result / Final State** | A new, independent `Kobako::RPC::Namespace` is created alongside the existing namespaces. Each namespace's members are accessible to guest code only via that namespace's own path (e.g., `NamespaceA::Member` and `NamespaceB::Member` are distinct paths with no cross-namespace visibility). Namespaces on different Sandbox instances are fully isolated from each other. |
+| **Notes** | There is no declared upper limit on the number of namespaces per Sandbox. Each namespace name within a Sandbox must be unique (duplicate-declare behavior is specified in B-10). |
 
 ---
 
-### B-10 — Re-declare a Service Group that already exists (idempotent define)
+### B-10 — Re-declare a Namespace that already exists (idempotent define)
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance with a Service Group already declared under the name `GroupName`. |
-| **Operation** | `sandbox.define(:GroupName)` — same name as an existing group. |
-| **Result / Final State** | No new group is created. `sandbox.define(:GroupName)` returns the identical `Kobako::Service::Group` object previously created — the same object identity (Ruby `equal?`), not a new instance wrapping the same registry entry. All previously bound members remain in place. The Sandbox registry is not modified. |
-| **Notes** | Idempotent re-declaration allows Host Apps to retrieve an existing group handle without tracking it externally (e.g., in configuration code spread across multiple files). |
+| **Initial State** | A Sandbox instance with a Namespace already declared under the name `Name`. |
+| **Operation** | `sandbox.define(:Name)` — same name as an existing namespace. |
+| **Result / Final State** | No new namespace is created. `sandbox.define(:Name)` returns the identical `Kobako::RPC::Namespace` object previously created — the same object identity (Ruby `equal?`), not a new instance wrapping the same Server entry. All previously bound members remain in place. The Sandbox's Server is not modified. |
+| **Notes** | Idempotent re-declaration allows Host Apps to retrieve an existing namespace handle without tracking it externally (e.g., in configuration code spread across multiple files). |
 
 ---
 
-### B-11 — Attempt to bind a Member name that is already bound in the same Group
+### B-11 — Attempt to bind a Member name that is already bound in the same Namespace
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Service::Group` instance with a member already bound under the name `MemberName`. |
-| **Operation** | `group.bind(:MemberName, new_object)` — same member name as an already-bound member. |
-| **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten. The group's member registry is unchanged. |
+| **Initial State** | A `Kobako::RPC::Namespace` instance with a member already bound under the name `MemberName`. |
+| **Operation** | `namespace.bind(:MemberName, new_object)` — same member name as an already-bound member. |
+| **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten. The namespace's member registry is unchanged. |
 | **Notes** | Duplicate binding raises `ArgumentError`; the existing binding is preserved. Error scenarios are covered in full in the Error Scenarios subsection. |
 
 ---
@@ -357,10 +357,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing a mruby script. A Service Member is bound at `GroupName::MemberName`. The guest script holds a reference to the constant `GroupName::MemberName` and calls a method on it. |
-| **Operation** | Guest code executes `GroupName::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
-| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `GroupName::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest script's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
-| **Notes** | Each RPC call invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ Wire Codec → Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in the registry, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
+| **Initial State** | A Sandbox executing a mruby script. A Member is bound at `Name::MemberName`. The guest script holds a reference to the constant `Name::MemberName` and calls a method on it. |
+| **Operation** | Guest code executes `Name::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
+| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `Name::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest script's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
+| **Notes** | Each RPC call invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ Wire Codec → Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in the Server, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
 
 ---
 
@@ -371,7 +371,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the RPC response. |
 | **Result / Final State** | The guest script receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
-| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
+| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::RPC::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
 
 ---
 
@@ -401,10 +401,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. The guest holds a `Kobako::Handle` (mruby object) obtained from a prior RPC response in the same run. The Handle's internal ID resolves to a live entry in the HandleTable. |
-| **Operation** | Guest code invokes a method on a `Kobako::RPC` Service member and passes the `Kobako::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
+| **Initial State** | A `#run` invocation is in progress. The guest holds a `Kobako::RPC::Handle` (mruby object) obtained from a prior RPC response in the same run. The Handle's internal ID resolves to a live entry in the HandleTable. |
+| **Operation** | Guest code invokes a method on a Member and passes the `Kobako::RPC::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
 | **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the HandleTable, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. |
-| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in the Error Scenarios subsection. |
+| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::RPC::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in the Error Scenarios subsection. |
 
 ---
 
@@ -412,7 +412,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. Service A has been called via RPC and returned a stateful object; the guest holds `handle_a` (a `Kobako::Handle` proxy). |
+| **Initial State** | A `#run` invocation is in progress. Service A has been called via RPC and returned a stateful object; the guest holds `handle_a` (a `Kobako::RPC::Handle` proxy). |
 | **Operation** | Guest code calls a method directly on `handle_a` (e.g., `handle_a.find(id)`), using the Handle as the RPC target. The wire layer encodes `handle_a` as the `target` field of the Request. |
 | **Result / Final State** | The Host Gem resolves `handle_a`'s ID against the HandleTable and invokes `public_send(:find, id)` on the host-side Ruby object that `handle_a` represents. If that call returns another stateful object, a new Handle `handle_b` is allocated and returned to the guest. Each step in the chain is an independent, synchronous RPC; there is no implicit multi-hop traversal within a single wire call. |
 | **Notes** | Chain depth is unbounded within a single `#run` as long as each step produces a Handle that survives to the next call. Each intermediate Handle is a first-class entry in the HandleTable and follows the same lifecycle rules as any other Handle. Every host object reachable by the guest must have been explicitly returned by a Service method; there is no implicit intermediate binding path. |
@@ -446,9 +446,9 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | Field | Value |
 |-------|-------|
 | **Initial State** | A `#run` invocation is in progress. The guest mruby script has access to an arbitrary integer value (e.g., `42` or any computed integer). |
-| **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
-| **Result / Final State** | No valid `Kobako::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the host-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
-| **Notes** | The `Kobako::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
+| **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::RPC::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
+| **Result / Final State** | No valid `Kobako::RPC::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the host-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
+| **Notes** | The `Kobako::RPC::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
 
 ---
 
@@ -527,11 +527,11 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
-| E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid GroupName |
-| E-17 | Host App calls `group.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
+| E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid Namespace Name |
+| E-17 | Host App calls `namespace.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
 | E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
 
-`sandbox.define(:name)` where `:name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `group.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
+`sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
 ---
 
@@ -544,7 +544,7 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
 | E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the RPC response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — RPC dispatch |
-| E-12 | The RPC `target` path (e.g., `"GroupName::MemberName"`) does not match any registered Service Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
+| E-12 | The RPC `target` path (e.g., `"Name::MemberName"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
 | E-13 | The RPC `target` is a Handle ID that does not exist in the current run (stale Handle from a prior run presented as target in a new run); error `type="undefined"` | B-18 — stale Handle cross-run |
 | E-14 | The RPC `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable; error `type="disconnected"` | B-16 — Handle referencing |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby script does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — RPC dispatch |
@@ -572,7 +572,7 @@ These five roles describe every actor and artifact in the system. All sections o
 | **Host App** | The Ruby application (Rails / Rack / Sidekiq / CLI) that uses kobako; holds all credentials, policy, and Service objects. Out of scope for design but referenced throughout. | External |
 | **Host Gem** | The `kobako` gem itself: the Ruby API layer (`lib/`) plus the private native extension (`ext/`). Exposes the sandbox interface to the Host App, routes RPC calls, and manages Handle lifecycle. | In scope |
 | **Guest Binary** | The file `kobako.wasm`, compiled from the `wasm/` Rust crate. Contains the mruby interpreter and RPC client. Is the isolation boundary between host and guest execution environments. | In scope |
-| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Group::Member`). The only mechanism by which guest code can access host resources. | In scope |
+| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`Namespace::Member`). The only mechanism by which guest code can access host resources. | In scope |
 | **Wire Spec** | The MessagePack contract governing all host↔guest RPC messages. Not a runtime object — it is a protocol that both Host Gem and Guest Binary implement independently. | In scope |
 
 *Layer values: **In scope** — designed in this specification; **External** — outside this design, referenced for contract completeness.*
@@ -581,16 +581,16 @@ These five roles describe every actor and artifact in the system. All sections o
 
 #### Internal Concepts
 
-These are sub-components and runtime concepts owned by the Host Gem. They are not exposed as a public API to the Host App unless explicitly stated.
+These are sub-components and runtime concepts internal to kobako. They are not exposed as a public API to the Host App unless explicitly stated. The **Server** / **Client** pair forms the host↔guest **RPC** roles: Server lives in the Host Gem and routes inbound calls; Client lives in the Guest Binary and initiates outbound calls.
 
 | Term | Definition | Public? |
 |------|-----------|---------|
-| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, Service registry, HandleTable, and output buffers for a single logical execution context. Enforces three configurable per-run caps — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
-| **Registry** | The Host Gem sub-component that maintains Service Group / Member registrations, routes incoming RPC calls to the correct host object, and owns the HandleTable. Not exposed to the Host App. | No |
-| **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Registry. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
-| **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::Handle` runs in the host process; the `Kobako::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
+| **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns the Guest Binary lifecycle, RPC Server, HandleTable, and output buffers for a single logical execution context. Enforces three configurable per-run caps — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
+| **Server** | The host-side RPC coordinator. Maintains Namespace / Member registrations, routes incoming Requests to the resolved Service object, and owns the HandleTable. Maps to Ruby class `Kobako::RPC::Server`. Not exposed to the Host App. | No |
+| **Client** | The base mruby class representing a remote Member inside the Guest Binary. Maps to mruby class `Kobako::RPC::Client`. Guest scripts do not reference Client directly; they see module constants under their declared Namespace. All method calls on a Client are forwarded as Requests to the host Server. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
+| **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Server. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
+| **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::RPC::Handle` runs in the host process; the `Kobako::RPC::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::RPC::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
 | **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No — same visibility as Handle; no distinct class exists |
-| **Stub** | `Stub` is the canonical term. Its Ruby class name inside the Guest Binary is `Kobako::RPC`; both names refer to the same concept. The base class represents a remote Service Member inside the guest. Guest scripts do not reference Stub directly; they see module constants under their declared Service Group. All method calls on a Stub are forwarded as RPC calls to the host. Internal to the Guest Binary; not visible to the Host App or guest scripts as a named class. | No |
 
 ---
 
@@ -613,18 +613,18 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
 
-**Wire-level error string (not a Ruby class):** The string `"Kobako::WireError"` appears only as the `class` field value in a Panic envelope (defined in `### Wire Contract` → Outcome Envelope below) to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::WireError` Ruby class.
+**Wire-level error string (not a Ruby class):** The string `"Kobako::RPC::WireError"` appears only as the `class` field value in a Panic envelope (defined in `### Wire Contract` → Outcome Envelope below) to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::RPC::WireError` Ruby class on the host. (The guest mruby class `Kobako::RPC::WireError` exists only to be raised inside the Guest Binary; it is captured by the guest's top-level handler and converted into the panic envelope string.)
 
 ---
 
-#### Service Concepts
+#### Namespace and Member
 
-These terms describe the two-level Service injection model used to expose host capabilities to guest scripts.
+These terms describe the two-level injection model used to expose host capabilities to guest scripts.
 
 | Term | Definition | Guest-visible form |
 |------|-----------|-------------------|
-| **Service Group** | A named namespace declared by the Host App via `sandbox.define(:Name)`. Groups are declared at setup time before the first `#run`. The group itself holds no state — it is a container for Service Members. | Ruby module (e.g., `MyService`) |
-| **Service Member** | A Host Ruby object bound into a Service Group via `group.bind(:Name, object)`. The Member is the object that receives RPC calls dispatched from guest scripts. | Module constant (e.g., `MyService::KV`) |
+| **Namespace** | A named grouping declared by the Host App via `sandbox.define(:Name)`. Namespaces are declared at setup time before the first `#run`. The namespace itself holds no state — it is a container for Members. Maps to Ruby class `Kobako::RPC::Namespace`. | Ruby module (e.g., `MyService`) |
+| **Member** | A Host Ruby object bound into a Namespace via `namespace.bind(:Name, object)`. The Member is the object that receives RPC calls dispatched from guest scripts. | Module constant (e.g., `MyService::KV`) |
 
 ---
 
@@ -649,12 +649,12 @@ Every host↔guest RPC call carries exactly three logical fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `target` | Service Member path (two-level string `"Group::Member"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
+| `target` | Member path (two-level string `"Namespace::Member"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ Wire Codec → Ext Types → ext 0x00); the host passes them to dispatch unchanged. An empty kwargs map is always present (never absent) to keep field positions stable. |
 
-The `target` string form uses Ruby constant-path syntax (`"Group::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
+The `target` string form uses Ruby constant-path syntax (`"Namespace::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
 ---
 
@@ -665,7 +665,7 @@ Every Response carries one of two mutually exclusive variants:
 | Variant | Fields | Meaning |
 |---------|--------|---------|
 | **Success** | `status=0`, `value` | The call completed successfully. `value` carries the return value (a primitive or a Capability Handle reference). |
-| **Error** | `status=1`, error envelope | The call failed. The error envelope (see Error Envelope below) describes the failure category and message. |
+| **Fault** | `status=1`, fault envelope | The call failed. The fault envelope (see Fault Envelope below) describes the failure category and message. |
 
 A Response always matches exactly one variant. There is no partial success or streaming response.
 
@@ -685,9 +685,9 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ---
 
-#### Error Envelope
+#### Fault Envelope
 
-The error envelope appears inside a Response `status=1` variant and describes a Service-layer failure. It carries three fields:
+The fault envelope appears inside a Response `status=1` variant and describes a Service-layer failure. Maps to the Ruby value object `Kobako::RPC::Fault`. It carries three fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -702,7 +702,7 @@ The four reserved `type` values are:
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
 | `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable (ABA protection rule — the ID exists but the entry is invalidated) |
-| `"undefined"` | The `target` string path does not match any registered Service Member, or the `target` Handle ID does not exist in the current run's HandleTable |
+| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current run's HandleTable |
 
 These four names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 
@@ -763,8 +763,8 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs`; Panic envelope payload | `Hash` | `Hash` (mruby) / struct or `HashMap` |
 | 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
-| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
-| 12 | ext 0x02 | Exception envelope (see Ext Types below) | deserialized per error type (→ Error Classes) | `Errenv` struct |
+| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::RPC::Handle` | `Kobako::RPC::Handle` (mruby) / `Handle(u32)` |
+| 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::RPC::Fault` (deserialized per error type, → Error Classes) | `Errenv` struct |
 
 ---
 
@@ -774,12 +774,12 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 
 | Wire position | Accepted family | Violation handling |
 |---|---|---|
-| Request `target` field (Service Member constant path form, e.g. `"Group::Member"`) | str only | bin → wire violation, reject |
+| Request `target` field (Member constant path form, e.g. `"Namespace::Member"`) | str only | bin → wire violation, reject |
 | Request `method` field | str only | bin → wire violation, reject |
 | Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
-| Response Error Envelope `type` field value | str only | bin → wire violation, reject |
-| Response Error Envelope `message` field value | str only | bin → wire violation, reject |
-| Error Envelope map keys (`type`, `message`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+| Response Fault Envelope `type` field value | str only | bin → wire violation, reject |
+| Response Fault Envelope `message` field value | str only | bin → wire violation, reject |
+| Fault Envelope map keys (`type`, `message`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 | Panic Envelope `origin`, `class`, `message` field values | str only | bin → wire violation, reject |
 | Panic Envelope map keys (`origin`, `class`, `message`, `backtrace`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
@@ -806,7 +806,7 @@ Position rules for ext 0x00:
 
 - **MUST be ext 0x00** at: Request `kwargs` map keys (no other wire type is accepted at this position; a `str`, `bin`, or other-type key is a wire violation).
 - **MAY appear** at: Request `args` elements, Request `kwargs` values, Response `value` field (success variant), Result envelope `value` field, and as elements / keys / values of any nested array or map within those positions (other wire types are also permitted).
-- **MUST NOT appear** at: Request `target` field, Request `method` field, Response Error Envelope `type` / `message` fields, Panic envelope `origin` / `class` / `message` fields, or Exception envelope `type` / `message` fields.
+- **MUST NOT appear** at: Request `target` field, Request `method` field, Fault Envelope `type` / `message` fields, or Panic envelope `origin` / `class` / `message` fields.
 
 ##### ext 0x01 — Capability Handle
 
@@ -822,17 +822,17 @@ The Handle ID field carries the opaque identifier allocated by the HandleTable (
 
 ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field. It must not appear in any other position.
 
-##### ext 0x02 — Exception Envelope
+##### ext 0x02 — Fault Envelope
 
 **Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x02`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x02`, payload) depending on payload size. The payload is an embedded msgpack **map** with exactly three keys:
 
 | Map key | Value type | Meaning |
 |---------|-----------|---------|
-| `"type"` | str | One of the four reserved error type names: `"runtime"`, `"argument"`, `"disconnected"`, `"undefined"` (→ Wire Contract → Error Envelope) |
+| `"type"` | str | One of the four reserved error type names: `"runtime"`, `"argument"`, `"disconnected"`, `"undefined"` (→ Wire Contract → Fault Envelope) |
 | `"message"` | str | Human-readable description |
 | `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
 
-ext 0x02 may appear only in the Response error variant's envelope field. It must not appear in Request `args` or any other position.
+ext 0x02 may appear only in the Response fault variant's envelope field. It must not appear in Request `args` or any other position.
 
 ---
 
@@ -846,12 +846,12 @@ A 4-element msgpack array with fixed field positions:
 
 | Index | Field | Type |
 |-------|-------|------|
-| 0 | `target` | str (Service Member constant path, e.g. `"Group::Member"`) or ext 0x01 (Capability Handle reference) |
+| 0 | `target` | str (Member constant path, e.g. `"Namespace::Member"`) or ext 0x01 (Capability Handle reference) |
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
 | 3 | `kwargs` | map (str keys; empty kwargs is encoded as empty map `0x80`, never absent) |
 
-The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Service Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
+The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
 
 ##### Response
 
@@ -860,7 +860,7 @@ A 2-element msgpack array with fixed field positions:
 | Index | Field | Type |
 |-------|-------|------|
 | 0 | `status` | int — `0` (success) or `1` (error) |
-| 1 | `value` (status=0) or error envelope (status=1) | any wire-legal type including ext 0x01, or ext 0x02 |
+| 1 | `value` (status=0) or fault envelope (status=1) | any wire-legal type including ext 0x01, or ext 0x02 |
 
 ##### Result Envelope (Outcome payload — success)
 
@@ -961,7 +961,7 @@ Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec i
 - **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
 - **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
 
-Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. The harness contract for this fuzz layer is specified in Implementation Standards § Testing Style.
+Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Fault envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. The harness contract for this fuzz layer is specified in Implementation Standards § Testing Style.
 
 ---
 
@@ -972,7 +972,7 @@ The following principles govern how all names in this specification and in the `
 | # | Principle | Applies to |
 |---|----------|-----------|
 | N-1 | Role names are PascalCase with every word capitalized: `Host App`, `Host Gem`, `Guest Binary`, `Wire Spec` | All role names in this document and in code comments |
-| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle`, `Kobako::Service::Group` |
+| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::RPC::Handle`, `Kobako::RPC::Namespace` |
 | N-3 | The gem name is always lowercase: `kobako` | Gemspec, `require` statements, Bundler references |
 | N-4 | The Wasm artifact name is fixed: `kobako.wasm` | Build output, gem packaging, documentation |
 | N-5 | Internal Rust crates are named with a hyphen prefix matching the gem: `kobako-wasm` (Guest Binary crate), `kobako-ext` (native extension crate) | `Cargo.toml` package names; not exposed to Ruby |
@@ -988,7 +988,7 @@ The following principles govern how all names in this specification and in the `
 
 The kobako codebase is split into two top-level source areas with a strict boundary between them:
 
-- **`lib/`** — the Host Gem Ruby surface. Contains `kobako.rb` (the main entry point that loads the native extension and defines the public API) and `lib/kobako/` sub-modules (error class definitions, wire helpers). This is the only layer the Host App interacts with directly.
+- **`lib/`** — the Host Gem Ruby surface. Contains `kobako.rb` (the main entry point that loads the native extension and defines the public API) and `lib/kobako/` sub-modules (error class definitions, codec helpers, RPC value objects, and the RPC Server). This is the only layer the Host App interacts with directly.
 - **`ext/kobako/`** — the private native extension (`kobako-ext` Rust crate). Wraps wasmtime, owns the Wasm engine lifecycle, and implements the host-side import function `__kobako_dispatch`. This is a private implementation detail of the Host Gem; it is never intended as a reusable wasmtime binding and exposes no Wasm engine types to the Host App or downstream gems.
 - **`wasm/`** — the Guest Binary source (`kobako-wasm` Rust crate, target `wasm32-wasip1`). This is build-time only; it is compiled to `data/kobako.wasm` and excluded from the published gem alongside build tools (`vendor/`, `tasks/`, `build_config/`).
 - **`data/kobako.wasm`** — the pre-built Guest Binary artifact. Produced at release time on the publisher's machine and shipped inside the gem. End users receive this file at install time; they never need to recompile the Wasm side.
@@ -1001,6 +1001,7 @@ The following patterns are enforced project-wide and apply at every layer:
 
 - **Wire is a release-internal contract.** The Wire Spec couples the Host Gem and Guest Binary at the gem release boundary. No version negotiation field is present on the wire; both sides always speak the single version shipped in the same gem release. One-sided wire evolution is not permitted.
 - **Round-trip fuzz is the consistency guarantee.** The host-side codec is implemented in pure Ruby under `lib/kobako/codec/` and is loadable at `require` time before the native extension is available; the guest-side codec is implemented in Rust under `wasm/kobako-wasm/src/codec/` for the `wasm32-wasip1` target. The two implementations share no source code — the deployment model (the gem must `require` cleanly without a built native extension, and `wasm32-wasip1` cannot embed Ruby) forbids a single codec. Correctness is established by bidirectional round-trip fuzz covering all 12 wire types and all three ext types.
+- **Codec depends on RPC value objects.** The Codec layer registers `Kobako::RPC::Handle` as its ext 0x01 decode target and `Kobako::RPC::Fault` as its ext 0x02 decode target. The dependency direction is Codec → RPC value objects; the RPC layer does not depend on Codec. This makes RPC value objects loadable without the codec available and keeps the codec a pure transformation over a known set of host-side types.
 - **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
@@ -1013,8 +1014,8 @@ The following invariants hold across every layer of the system. Each is a hard r
 
 | Invariant | Applies to | Enforcement |
 |-----------|-----------|-------------|
-| The terms `Service Group` and `Service Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers | Documentation |
-| Wire `target` for Service calls uses the Ruby constant-path form `"Group::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
+| The terms `Namespace` and `Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers | Documentation |
+| Wire `target` for RPC calls uses the Ruby constant-path form `"Namespace::Member"`; Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
 | Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling | Test-time |
 | stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem | Test-time |
 | `#stdout` and `#stderr` byte content never includes truncation sentinels; truncation status is observable only via `#stdout_truncated?` / `#stderr_truncated?` | Host Gem | Test-time |
