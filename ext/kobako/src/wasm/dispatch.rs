@@ -2,7 +2,7 @@
 //!
 //! When the guest invokes the wasm import declared in
 //! `wasm/kobako-wasm/src/abi.rs`, wasmtime calls back into the host
-//! through the closure built in [`super::instance::build_instance`].
+//! through the closure built in [`super::instance::Instance::build`].
 //! That closure delegates here. The dispatcher (SPEC.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
@@ -27,8 +27,8 @@ use wasmtime::{Caller, Extern};
 use super::host_state::HostState;
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
-/// from the wasmtime closure built in [`super::instance::build_instance`].
-pub(crate) fn dispatch_rpc(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
+/// from the wasmtime closure built in [`super::instance::Instance::build`].
+pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
     let req_bytes = match read_caller_memory(caller, req_ptr, req_len) {
         Some(b) => b,
         None => return 0,

@@ -40,7 +40,7 @@ use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use super::cache::{cached_module, shared_engine};
-use super::dispatch::dispatch_rpc;
+use super::dispatch;
 use super::host_state::{HostState, StoreCell};
 use super::wasm_err;
 
@@ -69,7 +69,76 @@ impl Instance {
         let module = cached_module(Path::new(&path))?;
         let store = WtStore::new(engine, HostState::default());
         let store_cell = StoreCell::new(store);
-        build_instance(engine, &module, store_cell)
+        Self::build(engine, &module, store_cell)
+    }
+
+    /// Build an `Instance` from an engine, module, and store cell. The
+    /// store cell is moved in and ends up owned by the returned Instance.
+    /// Wires the WASI p1 imports plus the `__kobako_dispatch` host import.
+    fn build(
+        engine: &WtEngine,
+        module: &WtModule,
+        store_cell: StoreCell,
+    ) -> Result<Self, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let mut linker: Linker<HostState> = Linker::new(engine);
+
+        // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
+        // to the MemoryOutputPipes set up before each run via
+        // `Instance::run`. The closure pulls a `&mut WasiP1Ctx` out of
+        // HostState; the panic semantics live inside `HostState::wasi_mut`
+        // so the wiring stays honest about its precondition.
+        p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut())
+            .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
+
+        // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
+        //   (req_ptr: i32, req_len: i32) -> i64
+        // Decodes the Request bytes, dispatches via the Ruby-side
+        // `Kobako::Registry` (set per-run via `set_registry`), allocates a
+        // guest buffer through `__kobako_alloc`, writes the Response bytes
+        // there, and returns the packed `(ptr<<32)|len`. The dispatcher
+        // returns 0 on any wire-layer fault (including a missing
+        // Registry); see `dispatch::handle`.
+        linker
+            .func_wrap(
+                "env",
+                "__kobako_dispatch",
+                |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
+                    dispatch::handle(&mut caller, req_ptr, req_len)
+                },
+            )
+            .map_err(|e| wasm_err(&ruby, format!("define __kobako_dispatch: {}", e)))?;
+
+        let instance = {
+            let mut store_ref = store_cell.borrow_mut();
+            linker
+                .instantiate(store_ref.as_context_mut(), module)
+                .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
+        };
+
+        // Best-effort export lookup. Missing exports are not an error here
+        // (test fixture is a bare module); the host enforces presence at
+        // invocation time by raising a Ruby `Kobako::Wasm::Error` when the
+        // cached Option is None. Only the SPEC ABI `() -> ()` shape is
+        // accepted for `__kobako_run`.
+        let (run, take_outcome) = {
+            let mut store_ref = store_cell.borrow_mut();
+            let mut ctx = store_ref.as_context_mut();
+            let run = instance
+                .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
+                .ok();
+            let take_outcome = instance
+                .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
+                .ok();
+            (run, take_outcome)
+        };
+
+        Ok(Self {
+            inner: instance,
+            store: store_cell,
+            run,
+            take_outcome,
+        })
     }
 
     /// Install the Ruby-side `Kobako::Registry` into HostState. Bound to
@@ -219,72 +288,4 @@ impl Instance {
         }
         Ok(data[ptr..end].to_vec())
     }
-}
-
-/// Build an `Instance` from an engine, module, and store cell. The store
-/// cell is moved in and ends up owned by the returned Instance. Wires
-/// the WASI p1 imports plus the `__kobako_dispatch` host import.
-fn build_instance(
-    engine: &WtEngine,
-    module: &WtModule,
-    store_cell: StoreCell,
-) -> Result<Instance, MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
-    let mut linker: Linker<HostState> = Linker::new(engine);
-
-    // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2 to
-    // the MemoryOutputPipes set up before each run via `Instance::run`.
-    // The closure pulls a `&mut WasiP1Ctx` out of HostState; the panic
-    // semantics live inside `HostState::wasi_mut` so the wiring stays
-    // honest about its precondition.
-    p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut())
-        .map_err(|e| wasm_err(&ruby, format!("add WASI p1 to linker: {}", e)))?;
-
-    // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
-    //   (req_ptr: i32, req_len: i32) -> i64
-    // Decodes the Request bytes, dispatches via the Ruby-side
-    // `Kobako::Registry` (set per-run via `set_registry`), allocates a guest
-    // buffer through `__kobako_alloc`, writes the Response bytes there, and
-    // returns the packed `(ptr<<32)|len`. The dispatcher returns 0 on any
-    // wire-layer fault (including a missing Registry); see `dispatch_rpc`.
-    linker
-        .func_wrap(
-            "env",
-            "__kobako_dispatch",
-            |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
-                dispatch_rpc(&mut caller, req_ptr, req_len)
-            },
-        )
-        .map_err(|e| wasm_err(&ruby, format!("define __kobako_dispatch: {}", e)))?;
-
-    let instance = {
-        let mut store_ref = store_cell.borrow_mut();
-        linker
-            .instantiate(store_ref.as_context_mut(), module)
-            .map_err(|e| wasm_err(&ruby, format!("instantiate: {}", e)))?
-    };
-
-    // Best-effort export lookup. Missing exports are not an error here
-    // (test fixture is a bare module); the host enforces presence at
-    // invocation time by raising a Ruby `Kobako::Wasm::Error` when the
-    // cached Option is None. Only the SPEC ABI `() -> ()` shape is
-    // accepted for `__kobako_run`.
-    let (run, take_outcome) = {
-        let mut store_ref = store_cell.borrow_mut();
-        let mut ctx = store_ref.as_context_mut();
-        let run = instance
-            .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
-            .ok();
-        let take_outcome = instance
-            .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
-            .ok();
-        (run, take_outcome)
-    };
-
-    Ok(Instance {
-        inner: instance,
-        store: store_cell,
-        run,
-        take_outcome,
-    })
 }
