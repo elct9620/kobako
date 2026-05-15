@@ -110,7 +110,7 @@ module Kobako
 
       # Peel off the fixext-4 frame, hand the bytes to +Wire::Handle.new+, and
       # translate the +ArgumentError+ raised by Handle's invariants into
-      # a wire-layer +InvalidType+ via {Codec.translate_value_object_error}.
+      # a wire-layer +InvalidType+ via {Codec::Utils.translate_value_object_error}.
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape.
       def decode_handle(payload)
@@ -118,7 +118,7 @@ module Kobako
         raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
-        Codec.translate_value_object_error { Wire::Handle.new(id) }
+        Codec::Utils.translate_value_object_error { Wire::Handle.new(id) }
       end
 
       # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so
@@ -146,7 +146,7 @@ module Kobako
         map = Decoder.decode(payload)
         raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
-        Codec.translate_value_object_error do
+        Codec::Utils.translate_value_object_error do
           Wire::Exception.new(type: map["type"], message: map["message"], details: map["details"])
         end
       end

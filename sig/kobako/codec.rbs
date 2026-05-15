@@ -1,5 +1,0 @@
-module Kobako
-  module Codec
-    def self.translate_value_object_error: [T] () { () -> T } -> T
-  end
-end

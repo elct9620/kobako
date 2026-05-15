@@ -88,7 +88,7 @@ module Kobako
       map = Kobako::Codec::Decoder.decode(body)
       raise Kobako::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-      Kobako::Codec.translate_value_object_error do
+      Kobako::Codec::Utils.translate_value_object_error do
         Panic.new(
           origin: map["origin"], klass: map["class"], message: map["message"],
           backtrace: map["backtrace"] || [], details: map["details"]
