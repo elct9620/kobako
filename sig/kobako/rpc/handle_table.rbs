@@ -1,0 +1,25 @@
+module Kobako
+  module RPC
+    class HandleTable
+      def initialize: (?next_id: Integer) -> void
+
+      def alloc: (untyped object) -> Integer
+
+      def fetch: (Integer id) -> untyped
+
+      def release: (Integer id) -> untyped
+
+      def reset!: () -> self
+
+      def mark_disconnected: (Integer id) -> self
+
+      def size: () -> Integer
+
+      def include?: (Integer id) -> bool
+
+      private
+
+      def require_bound!: (Integer id) -> void
+    end
+  end
+end

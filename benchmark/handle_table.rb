@@ -33,13 +33,13 @@ runner = Kobako::Bench::Runner.new("handle_table")
 
 { "0" => 0, "100" => 100, "10_000" => 10_000, "100_000" => 100_000 }.each do |label, prefill|
   runner.case("5a-alloc-#{label}-from-empty") do
-    table = Kobako::RPC::Server::HandleTable.new
+    table = Kobako::RPC::HandleTable.new
     prefill.times { table.alloc(Object.new) }
     table.alloc(Object.new)
   end
 end
 
-batch_table = Kobako::RPC::Server::HandleTable.new
+batch_table = Kobako::RPC::HandleTable.new
 batch_obj = Object.new
 [1_000, 10_000, 100_000, 1_000_000].each do |target|
   (target - batch_table.size - 1000).times { batch_table.alloc(batch_obj) }

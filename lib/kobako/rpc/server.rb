@@ -4,8 +4,8 @@ require "msgpack"
 require_relative "../errors"
 require_relative "../wire"
 require_relative "namespace"
-require_relative "server/handle_table"
-require_relative "server/dispatcher"
+require_relative "handle_table"
+require_relative "dispatcher"
 
 module Kobako
   module RPC
@@ -24,10 +24,10 @@ module Kobako
     #
     # Namespaces live at +Kobako::RPC::Namespace+
     # (lib/kobako/rpc/namespace.rb). The opaque Handle allocator lives at
-    # +Kobako::RPC::Server::HandleTable+
-    # (lib/kobako/rpc/server/handle_table.rb). Dispatch helpers live at
-    # +Kobako::RPC::Server::Dispatcher+
-    # (lib/kobako/rpc/server/dispatcher.rb).
+    # +Kobako::RPC::HandleTable+
+    # (lib/kobako/rpc/handle_table.rb). Dispatch helpers live at
+    # +Kobako::RPC::Dispatcher+
+    # (lib/kobako/rpc/dispatcher.rb).
     class Server
       # Build a fresh Server. +handle_table+ is an internal seam that
       # injects a pre-configured +HandleTable+; tests pass one whose +next_id+

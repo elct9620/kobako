@@ -1,9 +1,9 @@
 module Kobako
   module RPC
     class Server
-      attr_reader handle_table: Server::HandleTable
+      attr_reader handle_table: HandleTable
 
-      def initialize: (?handle_table: Server::HandleTable) -> void
+      def initialize: (?handle_table: HandleTable) -> void
 
       def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
@@ -25,7 +25,7 @@ module Kobako
 
       def sealed?: () -> bool
 
-      def reset_handles!: () -> Server::HandleTable
+      def reset_handles!: () -> HandleTable
 
       def dispatch: (String request_bytes) -> String
 
