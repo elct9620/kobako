@@ -21,7 +21,7 @@ Metrics/ClassLength:
     - "test/test_rpc_dispatch.rb"
     - "test/test_namespace_binding.rb"
     - "test/test_codec.rb"
-    - "test/test_wire_envelope.rb"
+    - "test/test_rpc_envelope.rb"
     # WireValueGenerator owns ten generation concerns (ints / floats /
     # strings / binary / arrays / maps / symbols / handles / exceptions /
     # scalar dispatch) sharing @rng and @coverage; splitting them into

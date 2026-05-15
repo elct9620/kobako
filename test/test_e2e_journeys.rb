@@ -41,7 +41,7 @@ class TestE2EJourneys < Minitest::Test
   # scripts that exceed declared capabilities receive ServiceError; scripts
   # with Ruby errors raise SandboxError; Wasm-level failures raise TrapError.
 
-  # SPEC.md L152-156: model-generated script calls a curated Service Member
+  # SPEC.md L152-156: model-generated script calls a curated Member
   # and the Host App receives a deserialized return value.
   def test_j01_curated_capability_call_returns_deserialized_result
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

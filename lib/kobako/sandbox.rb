@@ -114,7 +114,7 @@ module Kobako
     #
     # Source delivery uses the WASI stdin two-frame protocol
     # ({SPEC.md ABI Signatures}[link:../../SPEC.md]): Frame 1 carries the
-    # msgpack-encoded preamble (Service Group registry snapshot) and Frame 2
+    # msgpack-encoded preamble (Namespace / Member registry snapshot) and Frame 2
     # carries the user script UTF-8 bytes. Each frame is prefixed by a
     # 4-byte big-endian u32 length.
     #

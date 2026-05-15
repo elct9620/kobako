@@ -107,9 +107,9 @@ pub extern "C" fn _initialize() {
 /// Responsibilities:
 ///
 /// 1. Read stdin Frame 1 (4-byte BE u32 length prefix + msgpack preamble).
-///    Decode the preamble array (`[["GroupName", ["MemberA"]], ...]`) and
+///    Decode the preamble array (`[["Name", ["MemberA"]], ...]`) and
 ///    install proxy classes via the mruby C API so user scripts can call
-///    `GroupName::MemberA.method(...)`.
+///    `Name::MemberA.method(...)`.
 ///
 /// 2. Read stdin Frame 2 (4-byte BE u32 length prefix + UTF-8 user script).
 ///    Evaluate via `mrb_load_nstring`; capture the last-expression value.
@@ -142,7 +142,7 @@ pub extern "C" fn __kobako_run() {
             Some(payload)
         }
 
-        // Decode `[["GroupName", ["MemberA", "MemberB"]], ...]` from the
+        // Decode `[["Name", ["MemberA", "MemberB"]], ...]` from the
         // Frame 1 msgpack bytes using the kobako wire codec Decoder.
         fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
             use crate::codec::Decoder;
@@ -262,7 +262,7 @@ pub extern "C" fn __kobako_run() {
             }
         };
 
-        // --- Install Kobako runtime and Frame 1 Service Groups ---
+        // --- Install Kobako runtime and Frame 1 Namespaces ---
         //
         // `Kobako::install` registers `Kobako`, `Kobako::RPC` (module),
         // `Kobako::RPC::Client`, `Kobako::RPC::Handle`, `Kobako::RPC::WireError`, the error classes and `Kernel#puts` / `p`

@@ -3,7 +3,7 @@
 # E2E round-trip fuzz harness for the kobako wire codec (SPEC item #7).
 #
 # This is THE proof that the two independent codec implementations (the
-# pure-Ruby `Kobako::Wire` codec under lib/kobako/wire and the hand-written
+# pure-Ruby `Kobako::Codec` under lib/kobako/codec and the hand-written
 # Rust codec under wasm/kobako-wasm/src/codec) agree on the wire. SPEC.md
 # pins round-trip fuzz as the *sole* consistency mechanism between the two
 # implementations — there is no shared codec source — so a passing fuzz run

@@ -398,7 +398,7 @@ impl Kobako {
         }
     }
 
-    /// Install Service Group → Member proxy classes from a Frame 1
+    /// Install Namespace / Member proxy classes from a Frame 1
     /// preamble. Each Group becomes a top-level Ruby module; each Member
     /// becomes a subclass of `Kobako::RPC::Client` under its Namespace so the
     /// singleton-class `method_missing` shim is inherited.

@@ -89,7 +89,7 @@ module Kobako
         end
       end
 
-      # {SPEC.md B-16}[link:../../../SPEC.md] — A RPC::Handle arriving as a positional or keyword
+      # {SPEC.md B-16}[link:../../../SPEC.md] — An RPC::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the

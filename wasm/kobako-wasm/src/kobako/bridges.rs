@@ -216,7 +216,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 }
 
 /// `Kobako::RPC.respond_to_missing?(name, include_private)` C bridge.
-/// Always returns `true` — every method call on a Service Member class
+/// Always returns `true` — every method call on a Member class
 /// is dispatched through `method_missing` to the host, so probing via
 /// `respond_to?` must succeed.
 #[allow(unused_variables)]
