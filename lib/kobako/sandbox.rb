@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "capture"
 require_relative "errors"
 require_relative "registry"
 require_relative "wire"
@@ -48,14 +49,14 @@ module Kobako
     # never contains a truncation sentinel; use +#stdout_truncated?+ to
     # observe overflow.
     def stdout
-      @stdout_bytes
+      @stdout_capture.bytes
     end
 
     # Returns the bytes the guest wrote to stderr during the most recent
     # +#run+ as a UTF-8 String, clipped at +stderr_limit+. Empty before any
     # +#run+ call. Mirror of +#stdout+.
     def stderr
-      @stderr_bytes
+      @stderr_capture.bytes
     end
 
     # Returns +true+ iff stdout capture during the most recent +#run+
@@ -63,13 +64,13 @@ module Kobako
     # to +false+ at the start of the next +#run+ ({SPEC.md
     # B-03}[link:../../SPEC.md]).
     def stdout_truncated?
-      @stdout_truncated
+      @stdout_capture.truncated?
     end
 
     # Returns +true+ iff stderr capture during the most recent +#run+
     # exceeded +stderr_limit+. Mirror of +#stdout_truncated?+.
     def stderr_truncated?
-      @stderr_truncated
+      @stderr_capture.truncated?
     end
 
     # Build a fresh Sandbox.
@@ -170,38 +171,25 @@ module Kobako
       clear_captures!
     end
 
-    # Zero the four capture ivars to their pre-run state ({SPEC.md
-    # B-05}[link:../../SPEC.md]). Shared by +#initialize+ (first-run
-    # setup) and +#reset_run_state!+ (between-run reset) so both paths
-    # agree on what "empty capture" means.
+    # Reset both per-channel captures to the pre-run sentinel
+    # ({SPEC.md B-05}[link:../../SPEC.md]). Shared by +#initialize+
+    # (first-run setup) and +#reset_run_state!+ (between-run reset) so
+    # both paths agree on what "empty capture" means.
     def clear_captures!
-      @stdout_bytes = String.new(encoding: Encoding::UTF_8)
-      @stderr_bytes = String.new(encoding: Encoding::UTF_8)
-      @stdout_truncated = false
-      @stderr_truncated = false
+      @stdout_capture = Capture::EMPTY
+      @stderr_capture = Capture::EMPTY
     end
 
     # Read the per-channel capture pairs (+[bytes, truncated]+) from the
-    # ext after a guest run completes and store them on the Sandbox. The
-    # ext clips +bytes+ to the configured cap and sets +truncated+ when
-    # the guest produced strictly more than +cap+ bytes
+    # ext after a guest run completes and wrap each as a +Capture+ value
+    # object. The ext clips +bytes+ to the configured cap and sets
+    # +truncated+ when the guest produced strictly more than +cap+ bytes
     # ({SPEC.md B-04}[link:../../SPEC.md]).
     def drain_captured_output
       out_bytes, out_truncated = @instance.stdout
       err_bytes, err_truncated = @instance.stderr
-      @stdout_bytes = utf8_capture(out_bytes)
-      @stderr_bytes = utf8_capture(err_bytes)
-      @stdout_truncated = out_truncated
-      @stderr_truncated = err_truncated
-    end
-
-    # Coerce ext-provided binary bytes into a UTF-8 String when the bytes
-    # are valid UTF-8, otherwise fall back to ASCII-8BIT so invalid
-    # sequences remain inspectable without raising.
-    def utf8_capture(bytes)
-      copy = bytes.dup
-      copy.force_encoding(Encoding::UTF_8)
-      copy.valid_encoding? ? copy : copy.dup.force_encoding(Encoding::ASCII_8BIT)
+      @stdout_capture = Capture.from_ext(out_bytes, out_truncated)
+      @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
     end
 
     # Drive +Instance#run+ with the two stdin frames (preamble + source).

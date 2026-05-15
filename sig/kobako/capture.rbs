@@ -1,0 +1,13 @@
+module Kobako
+  class Capture
+    EMPTY: Capture
+
+    attr_reader bytes: String
+
+    def initialize: (bytes: String, truncated: bool) -> void
+
+    def truncated?: () -> bool
+
+    def self.from_ext: (String bytes, bool truncated) -> Capture
+  end
+end

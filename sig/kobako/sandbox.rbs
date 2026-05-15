@@ -46,8 +46,6 @@ module Kobako
 
     def drain_captured_output: () -> void
 
-    def utf8_capture: (String bytes) -> String
-
     def invoke_guest_run: (String preamble, String source) -> void
 
     def take_result!: () -> untyped
