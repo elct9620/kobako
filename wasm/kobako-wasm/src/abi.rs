@@ -126,7 +126,7 @@ pub extern "C" fn __kobako_run() {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::codec::Value;
-        use crate::envelope::{encode_outcome, Outcome, Panic, ResultEnv};
+        use crate::envelope::{encode_outcome, Outcome, Panic};
         use crate::mruby::sys;
         use std::io::Read;
 
@@ -399,7 +399,7 @@ pub extern "C" fn __kobako_run() {
             // mrb_str_to_cstr, other → Str via mrb_inspect.
             let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
 
-            let outcome = Outcome::Result(ResultEnv { value: wire_value });
+            let outcome = Outcome::Value(wire_value);
             match encode_outcome(&outcome) {
                 Ok(bytes) => write_outcome(bytes),
                 Err(_) => write_panic_outcome(

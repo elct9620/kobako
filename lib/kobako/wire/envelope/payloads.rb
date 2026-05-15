@@ -10,26 +10,19 @@ module Kobako
     # the parent +envelope.rb+ file.
     module Envelope
       # ============================================================
-      # Result (SPEC.md Outcome Envelope → Result)
+      # Result envelope (SPEC.md Outcome Envelope → Result)
       # ============================================================
       #
-      # Success Outcome payload. SPEC pins the Result envelope as a
-      # 1-element msgpack array carrying the value, keeping framing
-      # symmetric with the Panic envelope so the value position is never
-      # ambiguous.
-      Result = Data.define(:value)
+      # Success Outcome payload. SPEC pins the Result envelope as the
+      # raw msgpack encoding of the value, with no enclosing array —
+      # the outer Outcome tag byte (0x01) is the sole discriminator.
 
       def self.encode_result(value)
-        Codec::Encoder.encode([value])
+        Codec::Encoder.encode(value)
       end
 
       def self.decode_result(bytes)
-        arr = Codec::Decoder.decode(bytes)
-        unless arr.is_a?(Array) && arr.length == 1
-          raise Codec::InvalidType, "Result envelope must be a 1-element array, got #{arr.inspect}"
-        end
-
-        Result.new(arr[0])
+        Codec::Decoder.decode(bytes)
       end
 
       # ============================================================
@@ -91,22 +84,14 @@ module Kobako
       # Outcome (SPEC.md Outcome Envelope)
       # ============================================================
       #
-      # OUTCOME_BUFFER wrapper: one-byte tag (+0x01+ Result, +0x02+ Panic)
-      # followed by the msgpack payload of the corresponding envelope.
-      # Callers construct an +Outcome+ by wrapping the payload directly —
-      # +Outcome.new(Result.new(value))+ or +Outcome.new(panic)+ — so the
-      # contract reads symmetrically across both variants.
+      # OUTCOME_BUFFER wrapper: one-byte tag (+0x01+ success-value, +0x02+
+      # Panic) followed by the msgpack payload. The success payload is the
+      # bare msgpack encoding of the returned value; the failure payload
+      # is a Panic map. Construct +Outcome.new(value)+ for the success
+      # branch or +Outcome.new(panic)+ for the failure branch.
       Outcome = Data.define(:payload) do
         # steep:ignore:start
-        def initialize(payload:)
-          unless payload.is_a?(Result) || payload.is_a?(Panic)
-            raise ArgumentError, "Outcome payload must be Result or Panic, got #{payload.class}"
-          end
-
-          super
-        end
-
-        def result? = payload.is_a?(Result)
+        def result? = !payload.is_a?(Panic)
         def panic?  = payload.is_a?(Panic)
         # steep:ignore:end
       end
@@ -120,9 +105,10 @@ module Kobako
       end
 
       def self.encode_outcome_payload(payload)
-        case payload
-        when Result then [OUTCOME_TAG_RESULT, encode_result(payload.value)]
-        when Panic  then [OUTCOME_TAG_PANIC, encode_panic(payload)]
+        if payload.is_a?(Panic)
+          [OUTCOME_TAG_PANIC, encode_panic(payload)]
+        else
+          [OUTCOME_TAG_RESULT, encode_result(payload)]
         end
       end
       private_class_method :encode_outcome_payload

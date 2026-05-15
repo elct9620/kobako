@@ -96,8 +96,8 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
             encode_response(&resp).map_err(stringify)
         }
         b'R' => {
-            let r = decode_result(body).map_err(stringify)?;
-            encode_result(&r.value).map_err(stringify)
+            let v = decode_result(body).map_err(stringify)?;
+            encode_result(&v).map_err(stringify)
         }
         b'X' => {
             let p = decode_panic(body).map_err(stringify)?;

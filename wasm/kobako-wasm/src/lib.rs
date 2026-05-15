@@ -45,6 +45,6 @@ pub use codec::{CodecError, Decoder, Encoder, Value};
 pub use envelope::{
     decode_outcome, decode_panic, decode_request, decode_response, decode_result, encode_outcome,
     encode_panic, encode_request, encode_response, encode_result, EnvelopeError, Outcome, Panic,
-    Request, Response, ResultEnv, Target,
+    Request, Response, Target,
 };
 pub use rpc_client::{build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError};

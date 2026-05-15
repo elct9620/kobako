@@ -174,35 +174,32 @@ module Kobako
 
       def test_result_round_trip_primitive
         bytes = Envelope.encode_result(42)
-        result = Envelope.decode_result(bytes)
-        assert_equal 42, result.value
+        assert_equal 42, Envelope.decode_result(bytes)
       end
 
       def test_result_round_trip_nil
         bytes = Envelope.encode_result(nil)
-        result = Envelope.decode_result(bytes)
-        assert_nil result.value
+        assert_nil Envelope.decode_result(bytes)
       end
 
       def test_result_round_trip_handle
         h = Handle.new(5)
         bytes = Envelope.encode_result(h)
-        result = Envelope.decode_result(bytes)
-        assert_equal h, result.value
+        assert_equal h, Envelope.decode_result(bytes)
       end
 
       def test_result_round_trip_complex_value
         v = { "list" => [1, 2.5, "three"], "nested" => { "ok" => true } }
-        result = Envelope.decode_result(Envelope.encode_result(v))
-        assert_equal v, result.value
+        assert_equal v, Envelope.decode_result(Envelope.encode_result(v))
       end
 
       # ---------- Result golden vector (matches Rust codec test) ----------
 
       def test_result_golden_for_int
-        # SPEC.md "Outcome Envelope" example: fixarray len=1 + 42.
+        # SPEC.md "Outcome Envelope → Result Envelope": the value is emitted
+        # directly without an enclosing array, so msgpack(42) = 0x2a.
         bytes = Envelope.encode_result(42)
-        assert_equal "912a", hex(bytes)
+        assert_equal "2a", hex(bytes)
       end
 
       # ============================================================
@@ -280,12 +277,12 @@ module Kobako
       # ============================================================
 
       def test_outcome_result_round_trip
-        outcome = Envelope::Outcome.new(Envelope::Result.new(123))
+        outcome = Envelope::Outcome.new(123)
         bytes   = Envelope.encode_outcome(outcome)
         assert_equal Envelope::OUTCOME_TAG_RESULT, bytes.getbyte(0)
         decoded = Envelope.decode_outcome(bytes)
         assert decoded.result?
-        assert_equal 123, decoded.payload.value
+        assert_equal 123, decoded.payload
       end
 
       def test_outcome_panic_round_trip
@@ -311,9 +308,9 @@ module Kobako
       # ---------- Outcome golden vector (matches Rust codec test) ----------
 
       def test_outcome_result_golden_for_int
-        # Tag 0x01 + Result envelope (fixarray 1, 0x2a)
-        bytes = Envelope.encode_outcome(Envelope::Outcome.new(Envelope::Result.new(42)))
-        assert_equal "01912a", hex(bytes)
+        # Tag 0x01 + bare msgpack value 0x2a (no enclosing array)
+        bytes = Envelope.encode_outcome(Envelope::Outcome.new(42))
+        assert_equal "012a", hex(bytes)
       end
 
       def test_outcome_panic_golden_minimum
@@ -331,12 +328,6 @@ module Kobako
                    "a5636c617373ac52756e74696d654572726f72" \
                    "a76d657373616765a4626f6f6d"
         assert_equal expected, hex(bytes)
-      end
-
-      def test_outcome_construction_validates_payload_type
-        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: "string") }
-        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: 42) }
-        assert_raises(ArgumentError) { Envelope::Outcome.new(payload: nil) }
       end
 
       # ============================================================

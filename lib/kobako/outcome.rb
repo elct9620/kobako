@@ -48,7 +48,7 @@ module Kobako
     # Decode failure on a known Result tag is a SandboxError (E-09): the
     # framing was fine, but the wrapped value is unrepresentable.
     def decode_result(body)
-      Kobako::Wire::Envelope.decode_result(body).value
+      Kobako::Wire::Envelope.decode_result(body)
     rescue Kobako::Wire::Codec::Error => e
       raise wire_violation_error("result envelope decode failed: #{e.message}")
     end

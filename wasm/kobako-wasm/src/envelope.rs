@@ -2,14 +2,11 @@
 //!
 //! SPEC.md → Wire Contract pins the logical shape of every host↔guest
 //! message; SPEC.md → Wire Codec → Envelope Frame Layout pins the binary
-//! framing. This module assembles the four envelope kinds (Request,
-//! Response, Result, Panic) and the outer Outcome wrapper on top of the
-//! lower-level [`Encoder`] / [`Decoder`] primitives in `codec/`.
-//!
-//! Renamed `Result` => [`ResultEnv`] in the public surface to avoid a
-//! clash with `core::result::Result` in this crate's pervasive
-//! `Result<T, EnvelopeError>` return type. The wire-layer concept is
-//! still the SPEC's "Result envelope".
+//! framing. This module assembles Request, Response, and Panic envelopes
+//! plus the outer Outcome wrapper on top of the lower-level [`Encoder`]
+//! / [`Decoder`] primitives in `codec/`. The success branch of an Outcome
+//! has no enclosing envelope: SPEC pins it as the raw msgpack encoding of
+//! the value, discriminated solely by the Outcome tag byte.
 //!
 //! No `unsafe`. No third-party dependencies. Like the underlying codec,
 //! this module is an independent re-implementation of SPEC; the Ruby
@@ -26,7 +23,7 @@ const STATUS_OK: i64 = 0;
 const STATUS_ERROR: i64 = 1;
 
 /// Outcome envelope tag for a Result envelope (SPEC.md "Outcome
-/// Envelope"). Module-private — `Outcome::Result` is the public
+/// Envelope"). Module-private — `Outcome::Value` is the public
 /// surface and reifies this value.
 const OUTCOME_TAG_RESULT: u8 = 0x01;
 
@@ -121,14 +118,6 @@ pub enum Response {
     Err(Vec<u8>),
 }
 
-/// SPEC.md → Outcome Envelope → Result envelope: 1-element msgpack
-/// array carrying the deserialized last expression. Renamed in the
-/// public surface to avoid a clash with `core::result::Result`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResultEnv {
-    pub value: Value,
-}
-
 /// SPEC.md → Outcome Envelope → Panic envelope: msgpack **map** keyed by
 /// name (SPEC: unknown keys must be silently ignored). Required keys:
 /// `"origin"`, `"class"`, `"message"`. Optional keys: `"backtrace"`,
@@ -142,11 +131,14 @@ pub struct Panic {
     pub details: Option<Value>,
 }
 
-/// SPEC.md → Outcome Envelope: 1-byte tag (`0x01` Result, `0x02` Panic)
-/// followed by the msgpack payload of the corresponding envelope.
+/// SPEC.md → Outcome Envelope: 1-byte tag (`0x01` success-value,
+/// `0x02` Panic) followed by the msgpack payload of the corresponding
+/// branch. The success branch is the bare msgpack encoding of the
+/// returned [`Value`]; the tag alone discriminates the variant, so no
+/// enclosing wrapper is added.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    Result(ResultEnv),
+    Value(Value),
     Panic(Panic),
 }
 
@@ -272,24 +264,19 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
 
 // ---------------- Result envelope ----------------
 
+/// Encode the success branch of an Outcome: the raw msgpack encoding of
+/// `value`. SPEC pins this as direct (no enclosing array); the Outcome
+/// tag byte is the sole discriminator.
 pub fn encode_result(value: &Value) -> Result<Vec<u8>, EnvelopeError> {
     let mut enc = Encoder::new();
-    enc.write_value(&Value::Array(vec![value.clone()]))?;
+    enc.write_value(value)?;
     Ok(enc.into_bytes())
 }
 
-pub fn decode_result(bytes: &[u8]) -> Result<ResultEnv, EnvelopeError> {
+/// Decode the success branch of an Outcome into the carried [`Value`].
+pub fn decode_result(bytes: &[u8]) -> Result<Value, EnvelopeError> {
     let mut dec = Decoder::new(bytes);
-    let frame = dec.read_value()?;
-    let [value]: [Value; 1] = match frame {
-        Value::Array(items) if items.len() == 1 => items.try_into().unwrap(),
-        _ => {
-            return Err(EnvelopeError::Shape(
-                "Result envelope must be a 1-element array",
-            ))
-        }
-    };
-    Ok(ResultEnv { value })
+    Ok(dec.read_value()?)
 }
 
 // ---------------- Panic envelope ----------------
@@ -387,7 +374,7 @@ pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
 
 pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, EnvelopeError> {
     let (tag, body) = match outcome {
-        Outcome::Result(r) => (OUTCOME_TAG_RESULT, encode_result(&r.value)?),
+        Outcome::Value(v) => (OUTCOME_TAG_RESULT, encode_result(v)?),
         Outcome::Panic(p) => (OUTCOME_TAG_PANIC, encode_panic(p)?),
     };
     let mut out = Vec::with_capacity(1 + body.len());
@@ -403,7 +390,7 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, EnvelopeError> {
     let tag = bytes[0];
     let body = &bytes[1..];
     match tag {
-        OUTCOME_TAG_RESULT => Ok(Outcome::Result(decode_result(body)?)),
+        OUTCOME_TAG_RESULT => Ok(Outcome::Value(decode_result(body)?)),
         OUTCOME_TAG_PANIC => Ok(Outcome::Panic(decode_panic(body)?)),
         _ => Err(EnvelopeError::Shape("Outcome tag must be 0x01 or 0x02")),
     }
@@ -567,26 +554,27 @@ mod tests {
     fn result_round_trip_primitive() {
         let bytes = encode_result(&Value::Int(42)).unwrap();
         let out = decode_result(&bytes).unwrap();
-        assert_eq!(out.value, Value::Int(42));
+        assert_eq!(out, Value::Int(42));
     }
 
     #[test]
     fn result_round_trip_nil() {
         let out = decode_result(&encode_result(&Value::Nil).unwrap()).unwrap();
-        assert_eq!(out.value, Value::Nil);
+        assert_eq!(out, Value::Nil);
     }
 
     #[test]
     fn result_round_trip_handle() {
         let out = decode_result(&encode_result(&Value::Handle(5)).unwrap()).unwrap();
-        assert_eq!(out.value, Value::Handle(5));
+        assert_eq!(out, Value::Handle(5));
     }
 
     #[test]
     fn result_golden_value_42() {
         let bytes = encode_result(&Value::Int(42)).unwrap();
-        // Same hex as the Ruby golden test.
-        assert_eq!(bytes, vec![0x91, 0x2a]);
+        // SPEC.md → Result Envelope: the value is emitted directly without
+        // an enclosing array, so the success body is just msgpack(42) = 0x2a.
+        assert_eq!(bytes, vec![0x2a]);
     }
 
     // ---------------- Panic envelope ----------------
@@ -668,9 +656,7 @@ mod tests {
 
     #[test]
     fn outcome_result_round_trip() {
-        let o = Outcome::Result(ResultEnv {
-            value: Value::Int(123),
-        });
+        let o = Outcome::Value(Value::Int(123));
         let bytes = encode_outcome(&o).unwrap();
         assert_eq!(bytes[0], OUTCOME_TAG_RESULT);
         assert_eq!(decode_outcome(&bytes).unwrap(), o);
@@ -707,11 +693,8 @@ mod tests {
 
     #[test]
     fn outcome_result_golden_for_42() {
-        let bytes = encode_outcome(&Outcome::Result(ResultEnv {
-            value: Value::Int(42),
-        }))
-        .unwrap();
-        // Tag 0x01 + Result envelope (fixarray 1, 0x2a).
-        assert_eq!(bytes, vec![0x01, 0x91, 0x2a]);
+        let bytes = encode_outcome(&Outcome::Value(Value::Int(42))).unwrap();
+        // Tag 0x01 + bare msgpack value 0x2a (no enclosing array).
+        assert_eq!(bytes, vec![0x01, 0x2a]);
     }
 }

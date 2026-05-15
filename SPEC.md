@@ -759,7 +759,7 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 | 4 | float (float 32 / float 64) | Floating-point values | `Float` | `Float` (mruby) / `f64` |
 | 5 | str (fixstr / str 8 / str 16 / str 32) | UTF-8 text strings (see str/bin rules below) | `String` (UTF-8 encoding) | `String` (mruby) / `&str` / `String` |
 | 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
-| 7 | array (fixarray / array 16 / array 32) | Ordered sequences; all envelope frames | `Array` | `Array` (mruby) / `Vec<T>` |
+| 7 | array (fixarray / array 16 / array 32) | Ordered sequences; Request / Response envelope framing | `Array` | `Array` (mruby) / `Vec<T>` |
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs`; Panic envelope payload | `Hash` | `Hash` (mruby) / struct or `HashMap` |
 | 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
@@ -838,7 +838,7 @@ ext 0x02 may appear only in the Response error variant's envelope field. It must
 
 #### Envelope Encoding
 
-Most envelope frames — Request, Response, Result envelope, Outcome envelope — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release. The Panic envelope is the single exception: it is encoded as a msgpack **map** keyed by name (see Panic Envelope below) because its fields (`origin`, `class`, `message`, `backtrace`, `details`) are forward-compatibility points where unknown keys must be silently ignored.
+Multi-field envelope frames — Request and Response — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release. The Panic envelope is encoded as a msgpack **map** keyed by name (see Panic Envelope below) because its fields (`origin`, `class`, `message`, `backtrace`, `details`) are forward-compatibility points where unknown keys must be silently ignored. The Result envelope carries a single value and is emitted as that value's msgpack encoding directly, without an enclosing array — the Outcome tag byte already discriminates the variant.
 
 ##### Request
 
@@ -864,11 +864,11 @@ A 2-element msgpack array with fixed field positions:
 
 ##### Result Envelope (Outcome payload — success)
 
-A 1-element msgpack array. The single element carries the last mruby expression value of the user script:
+The msgpack encoding of the user script's last mruby expression value, emitted directly without further framing. The Outcome tag byte (`0x01`) is the sole discriminator; no enclosing array is added.
 
-| Index | Field | Type |
-|-------|-------|------|
-| 0 | `value` | any wire-legal type including ext 0x01 (if the script returned a stateful host object) |
+| Field | Type |
+|-------|------|
+| `value` | any wire-legal type including ext 0x01 (if the script returned a stateful host object) |
 
 ##### Panic Envelope (Outcome payload — failure)
 
@@ -896,9 +896,8 @@ The Outcome envelope is the binary layout of OUTCOME_BUFFER — the shared memor
 Tag `0x01` example (script returns integer 42):
 
 ```
-01 91 2a
-│  │  └─ msgpack positive fixint 42
-│  └─ msgpack fixarray len=1
+01 2a
+│  └─ msgpack positive fixint 42 (the value, encoded directly)
 └─ outcome tag 0x01 (result)
 ```
 

@@ -1,22 +1,9 @@
 module Kobako
   module Wire
     module Envelope
-      class Result
-        attr_reader value: untyped
-
-        def initialize: (untyped value) -> void
-                      | (value: untyped) -> void
-
-        def with: (?value: untyped) -> Result
-
-        def ==: (untyped other) -> bool
-
-        def hash: () -> Integer
-      end
-
       def self.encode_result: (untyped value) -> String
 
-      def self.decode_result: (String bytes) -> Result
+      def self.decode_result: (String bytes) -> untyped
 
       class Panic
         ORIGIN_SANDBOX: String
@@ -56,12 +43,12 @@ module Kobako
       def self.decode_panic: (String bytes) -> Panic
 
       class Outcome
-        attr_reader payload: Result | Panic
+        attr_reader payload: untyped
 
-        def initialize: (Result | Panic payload) -> void
-                      | (payload: Result | Panic) -> void
+        def initialize: (untyped payload) -> void
+                      | (payload: untyped) -> void
 
-        def with: (?payload: Result | Panic) -> Outcome
+        def with: (?payload: untyped) -> Outcome
 
         def result?: () -> bool
 
@@ -74,11 +61,11 @@ module Kobako
 
       def self.encode_outcome: (Outcome outcome) -> String
 
-      def self.encode_outcome_payload: (Result | Panic payload) -> [Integer, String]
+      def self.encode_outcome_payload: (untyped payload) -> [Integer, String]
 
       def self.decode_outcome: (String bytes) -> Outcome
 
-      def self.decode_outcome_payload: (Integer tag, String body) -> (Result | Panic)
+      def self.decode_outcome_payload: (Integer tag, String body) -> untyped
     end
   end
 end

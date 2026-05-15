@@ -138,7 +138,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # ---------- Outcome envelope ----------
 
   def test_outcome_result_round_trips
-    bytes = Envelope.encode_outcome(Envelope::Outcome.new(Envelope::Result.new(123)))
+    bytes = Envelope.encode_outcome(Envelope::Outcome.new(123))
     assert_equal bytes, oracle_roundtrip("O", bytes)
   end
 
