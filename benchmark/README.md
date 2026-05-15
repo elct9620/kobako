@@ -29,7 +29,7 @@ Two execution shapes dominate real use. The first is the "setup-once, run-many" 
 | Fresh Sandbox every request (`Kobako::Sandbox.new.run("nil")`) | **174 µs** | `1b-sandbox-new+run-nil` |
 | Overhead of constructing a new Sandbox per request | **~108 µs / req (~2.6×)** | difference |
 
-The overhead breaks down as ~88 µs `Sandbox.new` (Wasm instance creation, buffer allocation, Registry init — Engine and Module are cached at process scope so this is the warm path) plus the per-`#run` setup that both patterns pay. Per-request construction does NOT pay the 408 ms cold Engine/Module cost again — that cost is amortized to the first Sandbox in the process regardless of pattern.
+The overhead breaks down as ~88 µs `Sandbox.new` (Wasm instance creation, buffer allocation, RPC Server init — Engine and Module are cached at process scope so this is the warm path) plus the per-`#run` setup that both patterns pay. Per-request construction does NOT pay the 408 ms cold Engine/Module cost again — that cost is amortized to the first Sandbox in the process regardless of pattern.
 
 Practical implication: choose per-request construction when guest scripts are mutually untrusted (so capability state and Handle leaks between requests are unacceptable); choose reuse when a single Sandbox serves repeated requests from the same trust scope. At ~108 µs of extra overhead per request, per-request isolation is affordable for most web/job workloads.
 

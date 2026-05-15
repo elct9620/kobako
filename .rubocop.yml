@@ -19,7 +19,7 @@ Metrics/ClassLength:
     - "test/test_e2e_journeys.rb"
     - "test/test_handle_table.rb"
     - "test/test_rpc_dispatch.rb"
-    - "test/test_service_registry.rb"
+    - "test/test_namespace_binding.rb"
     - "test/test_codec.rb"
     - "test/test_wire_envelope.rb"
     # WireValueGenerator owns ten generation concerns (ints / floats /
