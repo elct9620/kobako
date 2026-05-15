@@ -48,13 +48,10 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # Belt-and-suspenders: pin the canonical "sandbox" origin path at unit
   # level, independent of the fixture-driven test in test_sandbox_errors.rb.
   def test_panic_with_sandbox_origin_raises_sandbox_error_not_service_error
-    panic = Kobako::Wire::Envelope::Panic.new(
+    panic = Kobako::Outcome::Panic.new(
       origin: "sandbox", klass: "RuntimeError", message: "box-side error"
     )
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC,
-      Kobako::Wire::Envelope.encode_panic(panic)
-    )
+    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, encode_panic_body(panic))
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::ServiceError, err
@@ -72,9 +69,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     raw_map = Kobako::Wire::Codec::Encoder.encode(
       "origin" => "sandbox", "message" => "missing class"
     )
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_PANIC, raw_map
-    )
+    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
@@ -87,9 +82,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # Wire::Codec::Truncated (a Wire::Codec::Error subclass).  The Sandbox rescue chain wraps
   # that as SandboxError (E-09: result envelope decode failed).
   def test_result_envelope_with_empty_body_raises_sandbox_error
-    bytes = build_outcome_bytes(
-      Kobako::Wire::Envelope::OUTCOME_TAG_RESULT, "".b
-    )
+    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err

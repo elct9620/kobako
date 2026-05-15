@@ -12,13 +12,12 @@
 #     Factory, where the numeric codes live as module-private constants
 #     alongside the Rust-side +codec::EXT_HANDLE+ / +codec::EXT_ERRENV+.
 #
-#   - {Envelope} — logical message framing (SPEC.md → Wire Contract):
-#     {Envelope::Request} / {Envelope::Response} / {Envelope::Panic} /
-#     {Envelope::Outcome} value objects and their encode/decode
-#     helpers, built on top of {Codec}. The Result envelope has no
-#     value object — its wire form is the bare msgpack encoding of
-#     the returned value (no enclosing array), so the encode/decode
-#     pair operates directly on the value.
+#   - {Envelope} — RPC-path message framing (SPEC.md → Wire Contract):
+#     {Envelope::Request} / {Envelope::Response} value objects and
+#     their encode/decode helpers, built on top of {Codec}. The
+#     Outcome path (success-value or Panic returned from
+#     +__kobako_run+) is owned by +Kobako::Outcome+ — it does not
+#     live under +Wire+.
 #
 # {Handle} and {Exception} are value objects that travel through both
 # layers; they live directly under +Wire+ so neither layer "owns" them.

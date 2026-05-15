@@ -1,18 +1,23 @@
 module Kobako
   module Outcome
+    TYPE_VALUE: Integer
+    TYPE_PANIC: Integer
+
     def self?.decode: (String bytes) -> untyped
 
     def self?.trap_for_tag: (Integer? tag) -> TrapError
 
     def self?.split_outcome_tag: (String bytes) -> [Integer?, String]
 
-    def self?.decode_result: (String body) -> untyped
+    def self?.decode_value: (String body) -> untyped
 
     def self?.decode_panic: (String body) -> void
 
-    def self?.build_panic_error: (Kobako::Wire::Envelope::Panic panic) -> (SandboxError | ServiceError)
+    def self?.decode_panic_map: (String body) -> Panic
 
-    def self?.panic_target_class: (Kobako::Wire::Envelope::Panic panic) -> (singleton(SandboxError) | singleton(ServiceError))
+    def self?.build_panic_error: (Panic panic) -> (SandboxError | ServiceError)
+
+    def self?.panic_target_class: (Panic panic) -> (singleton(SandboxError) | singleton(ServiceError))
 
     def self?.wire_violation_error: (String message) -> SandboxError
   end

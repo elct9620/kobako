@@ -1,26 +1,43 @@
 # frozen_string_literal: true
 
+require_relative "outcome/panic"
+
 module Kobako
-  # Pure-function decoder for the OUTCOME_BUFFER bytes returned by
-  # +__kobako_run+. Maps a tagged msgpack envelope to either the unwrapped
+  # Host-facing boundary for the OUTCOME_BUFFER produced by
+  # +__kobako_run+. Takes raw outcome bytes — a one-byte tag followed by
+  # the msgpack-encoded body — and maps them to either the unwrapped
   # mruby return value or a raised three-layer
   # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception.
   #
-  #   * tag 0x01, decode OK                 → return Result.value
+  # Self-contained: this module owns the wire framing (tag bytes,
+  # body decoding), and the +Panic+ wire record lives at
+  # +Kobako::Outcome::Panic+. The byte-level msgpack codec at
+  # +Kobako::Wire::Codec+ is invoked for the body itself; otherwise
+  # nothing in +Wire::Envelope+ participates.
+  #
+  #   * tag 0x01, decode OK                 → return decoded value
   #   * tag 0x01, decode fails              → SandboxError (E-09)
   #   * tag 0x02, origin="service"          → ServiceError (E-13)
   #   * tag 0x02, origin="sandbox"/missing  → SandboxError (E-04..E-07)
   #   * tag 0x02, decode fails              → SandboxError (E-08)
   #   * unknown tag                         → TrapError    (E-03)
   module Outcome
+    # First byte of the OUTCOME_BUFFER for the success branch — body is
+    # the bare msgpack encoding of the returned value
+    # ({SPEC.md Outcome Envelope}[link:../../SPEC.md]).
+    TYPE_VALUE = 0x01
+    # First byte of the OUTCOME_BUFFER for the failure branch — body is
+    # the msgpack Panic map.
+    TYPE_PANIC = 0x02
+
     module_function
 
     def decode(bytes)
       tag, body = split_outcome_tag(bytes)
       case tag
-      when Kobako::Wire::Envelope::OUTCOME_TAG_RESULT
-        decode_result(body)
-      when Kobako::Wire::Envelope::OUTCOME_TAG_PANIC
+      when TYPE_VALUE
+        decode_value(body)
+      when TYPE_PANIC
         decode_panic(body)
       else
         raise trap_for_tag(tag)
@@ -45,27 +62,41 @@ module Kobako
       [tag, body]
     end
 
-    # Decode failure on a known Result tag is a SandboxError (E-09): the
-    # framing was fine, but the wrapped value is unrepresentable.
-    def decode_result(body)
-      Kobako::Wire::Envelope.decode_result(body)
+    # Decode failure on the success tag is a SandboxError (E-09): the
+    # framing was fine, but the carried value is unrepresentable.
+    def decode_value(body)
+      Kobako::Wire::Codec::Decoder.decode(body)
     rescue Kobako::Wire::Codec::Error => e
       raise wire_violation_error("result envelope decode failed: #{e.message}")
     end
 
-    # Decode failure on a known Panic tag is a SandboxError (E-08). Either
+    # Decode failure on the panic tag is a SandboxError (E-08). Either
     # path raises — on success the decoded Panic is mapped to its three-
     # layer exception via +build_panic_error+ and raised; on wire-decode
     # failure the rescue path raises the wire-violation +SandboxError+.
-    # Symmetric with +decode_result+ — both have signature
-    # "decode body and return value, or raise".
     def decode_panic(body)
-      raise build_panic_error(Kobako::Wire::Envelope.decode_panic(body))
+      raise build_panic_error(decode_panic_map(body))
     rescue Kobako::Wire::Codec::Error => e
       raise wire_violation_error("panic envelope decode failed: #{e.message}")
     end
 
-    # Map a decoded Panic envelope into the corresponding three-layer
+    # Build a +Panic+ value object from the msgpack-decoded body. Raises
+    # +Kobako::Wire::Codec::InvalidType+ when the body is not a map or
+    # when required keys are missing — both routed by +decode_panic+ to
+    # +wire_violation_error+.
+    def decode_panic_map(body)
+      map = Kobako::Wire::Codec::Decoder.decode(body)
+      raise Kobako::Wire::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
+
+      Kobako::Wire::Codec.translate_value_object_error do
+        Panic.new(
+          origin: map["origin"], klass: map["class"], message: map["message"],
+          backtrace: map["backtrace"] || [], details: map["details"]
+        )
+      end
+    end
+
+    # Map a decoded Panic record into the corresponding three-layer
     # Ruby exception. +origin == "service"+ → ServiceError (with the
     # +::Disconnected+ subclass selected when the panic carries the
     # disconnected sentinel —
@@ -86,7 +117,7 @@ module Kobako
     # +ServiceError::Disconnected+, surface that subclass so callers can
     # rescue the disconnected path specifically (E-14).
     def panic_target_class(panic)
-      return SandboxError unless panic.origin == Kobako::Wire::Envelope::Panic::ORIGIN_SERVICE
+      return SandboxError unless panic.origin == Panic::ORIGIN_SERVICE
 
       panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
     end
@@ -94,7 +125,7 @@ module Kobako
     def wire_violation_error(message)
       SandboxError.new(
         message,
-        origin: Kobako::Wire::Envelope::Panic::ORIGIN_SANDBOX,
+        origin: Panic::ORIGIN_SANDBOX,
         klass: "Kobako::WireError"
       )
     end

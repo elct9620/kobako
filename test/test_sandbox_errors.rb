@@ -35,9 +35,9 @@ class TestSandboxOutcomeDecoding < Minitest::Test
 
   def test_malformed_result_envelope_raises_sandbox_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_RESULT.chr(Encoding::ASCII_8BIT)
-    # Garbage payload that is not a valid 1-element msgpack array.
-    bytes << "\xff\xff\xff".b
+    bytes << Kobako::Outcome::TYPE_VALUE.chr(Encoding::ASCII_8BIT)
+    # Garbage payload that is not valid msgpack.
+    bytes << "\xc1\xc1\xc1".b
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
@@ -47,9 +47,9 @@ class TestSandboxOutcomeDecoding < Minitest::Test
 
   def test_malformed_panic_envelope_raises_sandbox_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_PANIC.chr(Encoding::ASCII_8BIT)
+    bytes << Kobako::Outcome::TYPE_PANIC.chr(Encoding::ASCII_8BIT)
     # Garbage payload that is not a valid panic-shaped msgpack map.
-    bytes << "\xff\xff\xff".b
+    bytes << "\xc1\xc1\xc1".b
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
@@ -86,9 +86,9 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   end
 
   def test_result_envelope_returns_value
-    body = Kobako::Wire::Envelope.encode_result(42)
+    body = Kobako::Wire::Codec::Encoder.encode(42)
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
-    bytes << Kobako::Wire::Envelope::OUTCOME_TAG_RESULT.chr(Encoding::ASCII_8BIT)
+    bytes << Kobako::Outcome::TYPE_VALUE.chr(Encoding::ASCII_8BIT)
     bytes << body
 
     assert_equal 42, decode(bytes)

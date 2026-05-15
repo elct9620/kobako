@@ -6,35 +6,21 @@ require_relative "codec"
 
 module Kobako
   module Wire
-    # Envelope-layer encoders/decoders for the kobako wire contract.
+    # RPC-path envelope codecs for the kobako wire contract.
     #
     # SPEC.md → Wire Contract pins the logical shape of every host↔guest
-    # message and SPEC.md → Wire Codec → Envelope Frame Layout pins the
-    # binary framing. This module assembles the four envelope kinds
-    # (Request, Response, Result, Panic) and the outer Outcome wrapper on
-    # top of the lower-level {Codec::Encoder} / {Codec::Decoder} primitives.
-    #
-    # The contract collapses into two wire paths:
-    #
-    #   - **RPC path** (lives in this file): Request / Response — guest
-    #     calls a Service, host returns a value or an Exception.
-    #   - **Outcome path** (lives in +envelope/payloads.rb+): Result /
-    #     Panic wrapped in an Outcome envelope — the host reads this
-    #     after +__kobako_run+ to surface either the script's last
-    #     expression or a Sandbox/Service panic.
+    # RPC message; SPEC.md → Wire Codec → Envelope Frame Layout pins the
+    # binary framing. This module assembles the Request and Response
+    # envelopes on top of the lower-level {Codec::Encoder} /
+    # {Codec::Decoder} primitives. The Outcome path (success-value or
+    # Panic returned from +__kobako_run+) is owned by
+    # +Kobako::Outcome+ — Wire only sees the bytes the Codec handles.
     #
     # The envelope objects are plain Value Objects; they own the field
     # invariants (raising +ArgumentError+ on violation). The encode/decode
     # helpers around them own the msgpack framing and translate value-
     # object faults into the wire-layer +Codec::InvalidType+ taxonomy.
     module Envelope
-      # ---------------- Outcome tag bytes (SPEC.md Outcome Envelope) -----
-
-      # First byte of the OUTCOME_BUFFER for a Result envelope.
-      OUTCOME_TAG_RESULT = 0x01
-      # First byte of the OUTCOME_BUFFER for a Panic envelope.
-      OUTCOME_TAG_PANIC  = 0x02
-
       # ---------------- Response status bytes (SPEC.md Response Shape) ---
 
       # Response variant marker for the success branch.
@@ -147,5 +133,3 @@ module Kobako
     end
   end
 end
-
-require_relative "envelope/payloads"

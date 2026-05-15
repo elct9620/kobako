@@ -1,8 +1,6 @@
 module Kobako
   module Wire
     module Envelope
-      OUTCOME_TAG_RESULT: Integer
-      OUTCOME_TAG_PANIC: Integer
       STATUS_OK: Integer
       STATUS_ERROR: Integer
 

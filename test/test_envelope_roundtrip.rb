@@ -3,13 +3,18 @@
 # Cross-side envelope round-trip E2E (SPEC item #8).
 #
 # Drives the Rust `envelope_oracle` subprocess from the host: each test
-# Ruby-encodes one envelope variant (Request, Response, Result, Panic,
-# Outcome), prefixes a single-byte kind tag, and asks the oracle to
-# decode + re-encode it. The Ruby side then asserts byte-identical
-# round-trip — proving the host and guest envelope modules agree on the
-# SPEC framing (field order, tag bytes, optional-field handling), not
-# just the underlying msgpack codec already covered by
-# test_codec_roundtrip_fuzz.rb.
+# Ruby-encodes one RPC envelope variant (Request, Response), prefixes a
+# single-byte kind tag, and asks the oracle to decode + re-encode it.
+# The Ruby side then asserts byte-identical round-trip — proving the
+# host and guest envelope modules agree on the SPEC framing (field
+# order, tag bytes, optional-field handling), not just the underlying
+# msgpack codec already covered by test_codec_roundtrip_fuzz.rb.
+#
+# Outcome-path envelopes (Result / Panic / Outcome) are not covered
+# here: the host never emits them in production — only the Rust guest
+# does — so there is no lib-level Ruby encoder for the oracle to
+# round-trip against. The host-side decode path is exercised through
+# +Kobako::Outcome.decode+ unit tests against hand-rolled bytes.
 #
 # This test does NOT need fuzz scale: a handful of representative
 # envelopes per variant is enough; the codec fuzz from item #7 already
@@ -45,7 +50,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
 
   # Send one envelope frame to the oracle and read its response.
   # +kind+ is a single-byte tag picked by the oracle protocol
-  # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome).
+  # ('Q' Request, 'P' Response).
   def oracle_roundtrip(kind, payload)
     @channel.send_frame(+"".b << kind << payload.b)
     body, error = @channel.read_frame
@@ -95,56 +100,5 @@ class TestEnvelopeRoundtrip < Minitest::Test
     exc = Exc.new(type: "runtime", message: "boom", details: nil)
     bytes = Envelope.encode_response(Envelope::Response.err(exc))
     assert_equal bytes, oracle_roundtrip("P", bytes)
-  end
-
-  # ---------- Result envelope ----------
-
-  def test_result_primitive_round_trips
-    bytes = Envelope.encode_result(42)
-    assert_equal bytes, oracle_roundtrip("R", bytes)
-  end
-
-  def test_result_nil_round_trips
-    bytes = Envelope.encode_result(nil)
-    assert_equal bytes, oracle_roundtrip("R", bytes)
-  end
-
-  def test_result_handle_round_trips
-    bytes = Envelope.encode_result(Handle.new(5))
-    assert_equal bytes, oracle_roundtrip("R", bytes)
-  end
-
-  # ---------- Panic envelope ----------
-
-  def test_panic_minimum_round_trips
-    bytes = Envelope.encode_panic(
-      Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
-    )
-    assert_equal bytes, oracle_roundtrip("X", bytes)
-  end
-
-  def test_panic_with_backtrace_round_trips
-    bytes = Envelope.encode_panic(
-      Envelope::Panic.new(
-        origin: "service",
-        klass: "Kobako::ServiceError",
-        message: "service failed",
-        backtrace: ["a.rb:1", "b.rb:2"]
-      )
-    )
-    assert_equal bytes, oracle_roundtrip("X", bytes)
-  end
-
-  # ---------- Outcome envelope ----------
-
-  def test_outcome_result_round_trips
-    bytes = Envelope.encode_outcome(Envelope::Outcome.new(123))
-    assert_equal bytes, oracle_roundtrip("O", bytes)
-  end
-
-  def test_outcome_panic_round_trips
-    panic = Envelope::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
-    bytes = Envelope.encode_outcome(Envelope::Outcome.new(panic))
-    assert_equal bytes, oracle_roundtrip("O", bytes)
   end
 end

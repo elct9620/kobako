@@ -1,0 +1,34 @@
+module Kobako
+  module Outcome
+    class Panic
+      ORIGIN_SANDBOX: String
+      ORIGIN_SERVICE: String
+
+      attr_reader origin: String
+      attr_reader klass: String
+      attr_reader message: String
+      attr_reader backtrace: Array[String]
+      attr_reader details: untyped
+
+      def initialize: (
+        origin: String,
+        klass: String,
+        message: String,
+        ?backtrace: Array[String],
+        ?details: untyped
+      ) -> void
+
+      def with: (
+        ?origin: String,
+        ?klass: String,
+        ?message: String,
+        ?backtrace: Array[String],
+        ?details: untyped
+      ) -> Panic
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+    end
+  end
+end
