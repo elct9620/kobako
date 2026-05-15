@@ -3,8 +3,6 @@
 require "msgpack"
 
 require_relative "error"
-require_relative "../wire/handle"
-require_relative "../wire/exception"
 require_relative "factory"
 
 module Kobako
