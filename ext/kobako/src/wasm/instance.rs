@@ -210,22 +210,14 @@ impl Instance {
     /// at the next ticker tick; the memory-cap limiter is already wired.
     pub(crate) fn run(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        self.refresh_wasi(preamble, source)?;
-        self.prime_caps();
-
         let run = self
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        let result = {
-            let mut store_ref = self.store.borrow_mut();
-            run.call(store_ref.as_context_mut(), ())
-        };
-        // Drop the cap as soon as the guest call returns so that any
-        // post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER
-        // bytes, which can grow guest memory transiently) is not
-        // attributed to the user script.
-        self.store.borrow_mut().data_mut().deactivate_memory_cap();
+        self.refresh_wasi(preamble, source)?;
+        self.prime_caps();
+        let result = self.call_guest(run);
+        self.disarm_caps();
         result.map_err(|e| run_call_err(&ruby, e))
     }
 
@@ -284,6 +276,24 @@ impl Instance {
             }
         }
         store_ref.data_mut().activate_memory_cap();
+    }
+
+    /// Drop the memory cap as soon as the guest call returns so that
+    /// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
+    /// which can grow guest memory transiently) is not attributed to
+    /// the user script. Paired with [`Instance::prime_caps`].
+    fn disarm_caps(&self) {
+        self.store.borrow_mut().data_mut().deactivate_memory_cap();
+    }
+
+    /// Invoke the cached `__kobako_run` TypedFunc against the live
+    /// Store. Lives in its own helper so [`Instance::run`] reads as
+    /// the run-path outline (export check → refresh WASI → prime caps
+    /// → call guest → disarm caps → map errors) without the
+    /// `RefCell::borrow_mut` boilerplate inline.
+    fn call_guest(&self, run: &TypedFunc<(), ()>) -> wasmtime::Result<()> {
+        let mut store_ref = self.store.borrow_mut();
+        run.call(store_ref.as_context_mut(), ())
     }
 
     /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
