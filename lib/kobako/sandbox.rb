@@ -97,7 +97,7 @@ module Kobako
 
       invoke_guest_run(@services.guest_preamble, source.b)
       drain_captured_output
-      OutcomeDecoder.decode(read_outcome_bytes)
+      take_result!
     end
 
     private
@@ -133,13 +133,19 @@ module Kobako
       raise TrapError, "guest __kobako_run trapped: #{e.message}"
     end
 
-    # Pull the OUTCOME_BUFFER bytes out of guest memory via
-    # +Instance#outcome!+. A zero-length outcome is delivered to
-    # {OutcomeDecoder} as an empty String so a single boundary attributes
-    # every wire-violation outcome
+    # Drain OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+
+    # and decode them into the Sandbox-level result — the unwrapped mruby
+    # return value, or a raised three-layer
+    # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception. A zero-
+    # length outcome is delivered to {OutcomeDecoder} as an empty String so a
+    # single boundary attributes every wire-violation outcome
     # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
-    def read_outcome_bytes
-      @instance.outcome!
+    #
+    # The bang reflects the destructive ext call beneath: the underlying
+    # +__kobako_take_outcome+ export invalidates the buffer pointer, so this
+    # method must be called at most once per +#run+.
+    def take_result!
+      OutcomeDecoder.decode(@instance.outcome!)
     rescue Kobako::Wasm::Error => e
       raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
     end

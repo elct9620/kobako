@@ -32,6 +32,6 @@ module Kobako
 
     def invoke_guest_run: (String preamble, String source) -> void
 
-    def read_outcome_bytes: () -> String
+    def take_result!: () -> untyped
   end
 end
