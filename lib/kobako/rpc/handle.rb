@@ -10,7 +10,7 @@ module Kobako
     #
     # This is intentionally a thin value object built on +Data.define+ so
     # equality, hash, and immutability are inherited. The runtime-facing
-    # +Kobako::Handle+ class lives at a higher layer and may add behaviour
+    # +Kobako::RPC::Handle+ class lives at a higher layer and may add behaviour
     # (HandleTable bookkeeping, reset semantics). The codec only needs to
     # carry the opaque integer ID across the wire.
     Handle = Data.define(:id) do

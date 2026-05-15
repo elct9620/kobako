@@ -174,6 +174,14 @@ extern "C" {
     /// named `name` at top level.
     pub fn mrb_define_module(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
 
+    /// `mrb_define_module_under(mrb, outer, name)` — defines or returns
+    /// the module `name` nested under `outer`.
+    pub fn mrb_define_module_under(
+        mrb: *mut mrb_state,
+        outer: *mut RClass,
+        name: *const c_char,
+    ) -> *mut RClass;
+
     /// `mrb_define_class_under(mrb, outer, name, super_)` — defines a
     /// class `name` under `outer`, inheriting from `super_`.
     pub fn mrb_define_class_under(
@@ -216,7 +224,7 @@ extern "C" {
     pub fn mrb_raise(mrb: *mut mrb_state, c: *mut RClass, msg: *const c_char) -> !;
 
     /// `mrb_class_get_under(mrb, outer, name)` — fetches a class by
-    /// name under `outer`. Used to resolve `Kobako::WireError` etc.
+    /// name under `outer`. Used to resolve `Kobako::RPC::WireError` etc.
     /// when raising from the C bridge.
     pub fn mrb_class_get_under(
         mrb: *mut mrb_state,
@@ -389,7 +397,7 @@ extern "C" {
 
     /// `mrb_define_method(mrb, c, name, func, aspec)` — defines an instance
     /// method on class `c`. Used to register instance-level `method_missing`
-    /// on `Kobako::Handle` so handle objects forward method calls to the
+    /// on `Kobako::RPC::Handle` so handle objects forward method calls to the
     /// host through `Kobako::dispatch_invoke` (SPEC.md B-17).
     pub fn mrb_define_method(
         mrb: *mut mrb_state,
@@ -401,7 +409,7 @@ extern "C" {
 
     /// `mrb_obj_new(mrb, c, argc, argv)` — allocates and initializes a new
     /// instance of class `c`, calling `initialize` with `argc` arguments
-    /// from `argv`. Used to create `Kobako::Handle` instances.
+    /// from `argv`. Used to create `Kobako::RPC::Handle` instances.
     pub fn mrb_obj_new(
         mrb: *mut mrb_state,
         c: *mut RClass,
@@ -420,7 +428,7 @@ extern "C" {
 
     /// `mrb_class_get(mrb, name)` — fetches a top-level class by name
     /// (e.g. `"RuntimeError"`). Used to resolve the parent class for
-    /// `Kobako::ServiceError` / `Kobako::WireError` in
+    /// `Kobako::ServiceError` / `Kobako::RPC::WireError` in
     /// `crate::kobako::Kobako::install_raw`.
     pub fn mrb_class_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
 

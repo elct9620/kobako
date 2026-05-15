@@ -6,8 +6,8 @@
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
 //! kobako-specific registrations (`Kobako` module, `Kobako::RPC` base
-//! class, `Kobako::Handle`, `Kobako::ServiceError` /
-//! `Kobako::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
+//! class, `Kobako::RPC::Handle`, `Kobako::ServiceError` /
+//! `Kobako::RPC::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
 //! different concern and live behind this domain boundary.
 //!
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
@@ -51,6 +51,8 @@ const KOBAKO_NAME: &[u8] = b"Kobako\0";
 #[cfg(target_arch = "wasm32")]
 const RPC_NAME: &[u8] = b"RPC\0";
 #[cfg(target_arch = "wasm32")]
+const CLIENT_NAME: &[u8] = b"Client\0";
+#[cfg(target_arch = "wasm32")]
 const HANDLE_NAME: &[u8] = b"Handle\0";
 #[cfg(target_arch = "wasm32")]
 const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
@@ -78,7 +80,7 @@ const P_NAME: &[u8] = b"p\0";
 #[cfg(target_arch = "wasm32")]
 const PRINT_NAME: &[u8] = b"print\0";
 /// `b"@__kobako_id__\0"` — mangled instance-variable name that
-/// `Kobako::Handle#initialize` stores the Handle id under. Used by the
+/// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by the
 /// handle-id setter / getter on [`Kobako`].
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
@@ -148,9 +150,9 @@ impl std::error::Error for InstallGroupsError {}
 #[cfg(target_arch = "wasm32")]
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
-    /// `Kobako::RPC` base class — parent of every Service Member
+    /// `Kobako::RPC::Client` base class — parent of every Member
     /// installed via [`Kobako::install_groups`].
-    rpc_class: *mut sys::RClass,
+    client_class: *mut sys::RClass,
     handle_class: *mut sys::RClass,
     service_error_class: *mut sys::RClass,
     disconnected_class: *mut sys::RClass,
@@ -204,44 +206,51 @@ impl Kobako {
                 // (1) Kobako module.
                 let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
 
-                // (2) Kobako::RPC base class.
+                // (2) Kobako::RPC module — protocol namespace shared
+                // with the host gem's lib/kobako/rpc.rb. Houses the
+                // Client base class plus Handle / WireError value
+                // objects that ride on the wire.
+                let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
+
+                // (3) Kobako::RPC::Client base class — parent of every
+                // Member installed via `Kobako::install_groups`.
                 //
                 // mruby's `mrb_define_class_under` accepts a NULL
                 // super_ as a request to inherit from
-                // `mrb->object_class` in current 3.x releases. Service
-                // Member subclasses inherit from this `Kobako::RPC`
-                // (see `Kobako::install_groups`), not from `Object`
-                // directly, so the precise base-of-RPC choice is
+                // `mrb->object_class` in current 3.x releases. Member
+                // subclasses inherit from this Client, not from Object
+                // directly, so the precise base-of-Client choice is
                 // invisible to user code.
-                let rpc_class = sys::mrb_define_class_under(
+                let client_class = sys::mrb_define_class_under(
                     mrb,
-                    kobako_mod,
-                    cstr_ptr(RPC_NAME),
+                    rpc_mod,
+                    cstr_ptr(CLIENT_NAME),
                     core::ptr::null_mut(),
                 );
 
-                // (3) Singleton-class `method_missing` /
-                //     `respond_to_missing?` on `Kobako::RPC`. Subclasses
-                //     inherit through metaclass-chain dispatch.
+                // (4) Singleton-class `method_missing` /
+                //     `respond_to_missing?` on `Kobako::RPC::Client`.
+                //     Subclasses inherit through metaclass-chain
+                //     dispatch.
                 sys::mrb_define_singleton_method(
                     mrb,
-                    rpc_class as *mut sys::RObject,
+                    client_class as *mut sys::RObject,
                     cstr_ptr(METHOD_MISSING_NAME),
                     bridges::rpc_method_missing,
                     sys::MRB_ARGS_ANY,
                 );
                 sys::mrb_define_singleton_method(
                     mrb,
-                    rpc_class as *mut sys::RObject,
+                    client_class as *mut sys::RObject,
                     cstr_ptr(RESPOND_TO_MISSING_NAME),
                     bridges::rpc_respond_to_missing,
                     sys::MRB_ARGS_ANY,
                 );
 
-                // (4) `Kobako::Handle` instance class.
+                // (5) `Kobako::RPC::Handle` instance class.
                 let handle_class = sys::mrb_define_class_under(
                     mrb,
-                    kobako_mod,
+                    rpc_mod,
                     cstr_ptr(HANDLE_NAME),
                     core::ptr::null_mut(),
                 );
@@ -267,9 +276,12 @@ impl Kobako {
                     sys::MRB_ARGS_ANY,
                 );
 
-                // (5) `Kobako::ServiceError` /
+                // (6) `Kobako::ServiceError` /
                 //     `Kobako::ServiceError::Disconnected` /
-                //     `Kobako::WireError` — all subclass `RuntimeError`.
+                //     `Kobako::RPC::WireError` — all subclass
+                //     `RuntimeError`. ServiceError stays at the Kobako
+                //     top level (L104 public API); WireError lives
+                //     under RPC since it is an RPC-layer fault.
                 let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
                 let service_error_class = sys::mrb_define_class_under(
                     mrb,
@@ -285,7 +297,7 @@ impl Kobako {
                 );
                 let wire_error_class = sys::mrb_define_class_under(
                     mrb,
-                    kobako_mod,
+                    rpc_mod,
                     cstr_ptr(WIRE_ERROR_NAME),
                     runtime_error_class,
                 );
@@ -316,7 +328,7 @@ impl Kobako {
 
                 Self {
                     mrb,
-                    rpc_class,
+                    client_class,
                     handle_class,
                     service_error_class,
                     disconnected_class,
@@ -361,17 +373,18 @@ impl Kobako {
             // already-registered class produced by `install_raw`.
             unsafe {
                 let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-                let rpc_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
-                let handle_class = sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(HANDLE_NAME));
+                let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
+                let client_class = sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(CLIENT_NAME));
+                let handle_class = sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(HANDLE_NAME));
                 let service_error_class =
                     sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
                 let disconnected_class =
                     sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
                 let wire_error_class =
-                    sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(WIRE_ERROR_NAME));
+                    sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(WIRE_ERROR_NAME));
                 Self {
                     mrb,
-                    rpc_class,
+                    client_class,
                     handle_class,
                     service_error_class,
                     disconnected_class,
@@ -387,7 +400,7 @@ impl Kobako {
 
     /// Install Service Group → Member proxy classes from a Frame 1
     /// preamble. Each Group becomes a top-level Ruby module; each Member
-    /// becomes a subclass of `Kobako::RPC` under its Group so the
+    /// becomes a subclass of `Kobako::RPC::Client` under its Namespace so the
     /// singleton-class `method_missing` shim is inherited.
     pub fn install_groups(
         &self,
@@ -403,14 +416,14 @@ impl Kobako {
                 for member_name in members {
                     let member_cstr = std::ffi::CString::new(member_name.as_str())
                         .map_err(|_| InstallGroupsError::NulInMemberName)?;
-                    // SAFETY: as above; `self.rpc_class` was produced by
+                    // SAFETY: as above; `self.client_class` was produced by
                     // install_raw.
                     unsafe {
                         sys::mrb_define_class_under(
                             self.mrb,
                             group_mod,
                             member_cstr.as_ptr(),
-                            self.rpc_class,
+                            self.client_class,
                         )
                     };
                 }
@@ -424,7 +437,7 @@ impl Kobako {
         }
     }
 
-    /// Raise `Kobako::WireError` with `msg`. Diverges — `mrb_raise` does
+    /// Raise `Kobako::RPC::WireError` with `msg`. Diverges — `mrb_raise` does
     /// not return.
     ///
     /// # Safety
@@ -547,8 +560,8 @@ impl Kobako {
         }
     }
 
-    /// Store `id_val` into a fresh `Kobako::Handle` instance's
-    /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
+    /// Store `id_val` into a fresh `Kobako::RPC::Handle` instance's
+    /// `@__kobako_id__` ivar. Used by the `Kobako::RPC::Handle#initialize`
     /// C bridge.
     #[cfg(target_arch = "wasm32")]
     pub fn set_handle_id(&self, target: sys::mrb_value, id_val: sys::mrb_value) {
@@ -560,7 +573,7 @@ impl Kobako {
         }
     }
 
-    /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's
+    /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
     /// missing or non-numeric — the resolver downstream treats id 0 as
     /// undefined per SPEC.md B-19.
@@ -758,9 +771,9 @@ impl Kobako {
 
     /// Convert a kobako wire [`crate::codec::Value`] into an `mrb_value`
     /// suitable for handing back to the mruby VM. Handle values are
-    /// boxed into a fresh `Kobako::Handle` instance carrying the id
+    /// boxed into a fresh `Kobako::RPC::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
-    /// `Kobako::Handle#method_missing` → [`Self::dispatch_invoke`],
+    /// `Kobako::RPC::Handle#method_missing` → [`Self::dispatch_invoke`],
     /// SPEC.md B-17).
     #[cfg(target_arch = "wasm32")]
     pub fn wire_value_to_mrb(&self, val: crate::codec::Value) -> sys::mrb_value {
@@ -852,7 +865,7 @@ impl Kobako {
 
     /// Invoke `invoke_rpc` and convert the result to an `mrb_value`. On
     /// `Response.err`, raises a matching `Kobako::ServiceError`
-    /// subclass; on any other wire-layer fault, raises `Kobako::WireError`
+    /// subclass; on any other wire-layer fault, raises `Kobako::RPC::WireError`
     /// with `wire_err_msg`. Both raise paths diverge — `mrb_raise` does
     /// not return.
     #[cfg(target_arch = "wasm32")]

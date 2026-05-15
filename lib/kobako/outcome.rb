@@ -126,7 +126,7 @@ module Kobako
       SandboxError.new(
         message,
         origin: Panic::ORIGIN_SANDBOX,
-        klass: "Kobako::WireError"
+        klass: "Kobako::RPC::WireError"
       )
     end
   end

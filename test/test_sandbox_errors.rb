@@ -41,7 +41,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
-    assert_equal "Kobako::WireError", err.klass
+    assert_equal "Kobako::RPC::WireError", err.klass
     assert_equal "sandbox", err.origin
   end
 
@@ -53,7 +53,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
-    assert_equal "Kobako::WireError", err.klass
+    assert_equal "Kobako::RPC::WireError", err.klass
   end
 
   def test_panic_envelope_with_service_origin_dispatches_service_error

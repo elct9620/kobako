@@ -14,7 +14,7 @@
 //! * `rpc_client` — RPC round-trip pipeline used by the guest-side
 //!   mruby bridge to dispatch a call through `__kobako_dispatch`.
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
-//!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::Handle` /
+//!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::RPC::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
 //!   its `bridges` submodule. No Ruby boot text.
 //! * `mruby` — façade for the mruby C API binding. Submodule `mruby::sys`

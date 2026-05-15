@@ -264,8 +264,8 @@ pub extern "C" fn __kobako_run() {
 
         // --- Install Kobako runtime and Frame 1 Service Groups ---
         //
-        // `Kobako::install` registers `Kobako`, `Kobako::RPC`,
-        // `Kobako::Handle`, the error classes and `Kernel#puts` / `p`
+        // `Kobako::install` registers `Kobako`, `Kobako::RPC` (module),
+        // `Kobako::RPC::Client`, `Kobako::RPC::Handle`, `Kobako::RPC::WireError`, the error classes and `Kernel#puts` / `p`
         // shims. `install_groups` walks the preamble and installs each
         // Group module + Member subclass. Neither runs Ruby source —
         // every entity is registered through the mruby C API.
@@ -404,7 +404,7 @@ pub extern "C" fn __kobako_run() {
                 Ok(bytes) => write_outcome(bytes),
                 Err(_) => write_panic_outcome(
                     "sandbox",
-                    "Kobako::WireError",
+                    "Kobako::RPC::WireError",
                     "result envelope encode failed",
                     Vec::new(),
                 ),

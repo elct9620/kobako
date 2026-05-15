@@ -13,7 +13,7 @@
 //!        │
 //!        │ (no instance method named `get`; class-level dispatch falls
 //!        │  through to singleton-class `method_missing`, inherited
-//!        │  from `Kobako::RPC.singleton_class`)
+//!        │  from `Kobako::RPC::Client.singleton_class`)
 //!        ▼
 //!   rpc_method_missing(mrb, self=KV.class)
 //!        │
@@ -27,7 +27,7 @@
 //!   crate::rpc_client::invoke_rpc(...)
 //! ```
 //!
-//! Handle dispatch (`Kobako::Handle#method_missing`, SPEC.md B-17)
+//! Handle dispatch (`Kobako::RPC::Handle#method_missing`, SPEC.md B-17)
 //! follows the same shape: `handle_method_missing` builds a Handle
 //! target and calls `dispatch_invoke` directly.
 //!
@@ -130,7 +130,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     }
 }
 
-/// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
+/// `Kobako::RPC::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// [`super::Kobako::set_handle_id`].
 #[allow(unused_variables)]
@@ -152,7 +152,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(
     sys::mrb_value::zeroed()
 }
 
-/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards every
+/// `Kobako::RPC::Handle#method_missing(name, *args)` C bridge. Forwards every
 /// method call on a Handle instance to the host via
 /// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
 /// (SPEC.md B-17 — Handle chaining).
