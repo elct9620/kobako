@@ -117,7 +117,12 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   def assert_ruby_roundtrip(iter, value, encoded, message)
     recovered = Decoder.decode(encoded)
-    assert_equal value, recovered, fuzz_failure(iter, value, message, decoded: recovered)
+    failure_msg = fuzz_failure(iter, value, message, decoded: recovered)
+    if value.nil?
+      assert_nil recovered, failure_msg
+    else
+      assert_equal value, recovered, failure_msg
+    end
   end
 
   def flunk_oracle_error(iter, value, payload)
