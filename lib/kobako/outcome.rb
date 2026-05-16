@@ -33,7 +33,7 @@ module Kobako
     module_function
 
     def decode(bytes)
-      tag, body = split_outcome_tag(bytes)
+      tag, body = split_tag(bytes)
       case tag
       when TYPE_VALUE
         decode_value(body)
@@ -53,7 +53,7 @@ module Kobako
       TrapError.new(format("unknown outcome tag 0x%<tag>02x", tag: tag))
     end
 
-    def split_outcome_tag(bytes)
+    def split_tag(bytes)
       bytes = bytes.b
       return [nil, "".b] if bytes.empty?
 

@@ -62,7 +62,7 @@ module Kobako
       # separator. Returns the bound Host object. Raises +KeyError+ when the
       # namespace or the member is not bound.
       def lookup(target)
-        namespace, member_name, namespace_name = resolve_pair(target)
+        namespace, member_name, namespace_name = parse_target(target)
         raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
         raise KeyError, "no member #{target.inspect} bound on server" unless member_name
 
@@ -72,7 +72,7 @@ module Kobako
       # Returns +true+ when +target+ (a +"Namespace::Member"+ path) resolves
       # to a bound member, +false+ otherwise.
       def bound?(target)
-        namespace, member_name, = resolve_pair(target)
+        namespace, member_name, = parse_target(target)
         !namespace.nil? && !member_name.nil? && !namespace[member_name].nil?
       end
 
@@ -147,7 +147,7 @@ module Kobako
       # Returns +[namespace_or_nil, member_str_or_nil, namespace_name_str]+ so
       # each public method ({#lookup} / {#bound?}) only owns its boundary
       # semantics (raise vs predicate).
-      def resolve_pair(target)
+      def parse_target(target)
         namespace_name, member_name = target.to_s.split("::", 2)
         [@namespaces[namespace_name], member_name, namespace_name]
       end

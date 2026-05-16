@@ -31,7 +31,7 @@ module Kobako
 
       private
 
-      def resolve_pair: (String target) -> [Kobako::RPC::Namespace?, String?, String?]
+      def parse_target: (String target) -> [Kobako::RPC::Namespace?, String?, String?]
     end
   end
 end

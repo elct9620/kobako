@@ -7,7 +7,7 @@ module Kobako
 
     def self?.build_trap_error: (Integer? tag) -> TrapError
 
-    def self?.split_outcome_tag: (String bytes) -> [Integer?, String]
+    def self?.split_tag: (String bytes) -> [Integer?, String]
 
     def self?.decode_value: (String body) -> untyped
 
