@@ -46,7 +46,7 @@ module Kobako
       # of external side effects so successive runs are comparable.
       def case(label, &block)
         iters_per_cycle = calibrate(block)
-        warmup_cpu(block)
+        warmup_cpu(block, iters_per_cycle)
         samples, iterations = measure_samples(block, iters_per_cycle)
         mean = samples.sum / samples.size
         sd = stdev(samples, mean)
@@ -109,12 +109,14 @@ module Kobako
         end
       end
 
-      # Run +block+ for @warmup CPU seconds, discarding measurements.
-      # Warms VM caches (mruby method dispatch tables, ext-type packer
-      # lookups, msgpack buffer reuse) before the timed phase.
-      def warmup_cpu(block)
+      # Run +block+ for @warmup CPU seconds via the same +Integer#times+
+      # path the measurement phase uses, discarding the results. Mirroring
+      # the call shape matters: Ruby's inline caches for +iters.times(&block)+
+      # are distinct from +block.call+, and warming only the latter leaves
+      # the first measured case paying cold-cache costs.
+      def warmup_cpu(block, iters_per_cycle)
         deadline = cpu_now + @warmup
-        block.call while cpu_now < deadline
+        iters_per_cycle.times(&block) while cpu_now < deadline
       end
 
       # Run measurement cycles until cumulative CPU time exceeds @time.
