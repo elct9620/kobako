@@ -167,9 +167,13 @@ The 7b drift is allocator behaviour, not a real leak — the per-`#run` HandleTa
 
 The 7d row documents that a saturated 1 MiB stdout cap keeps ~3 MB of RSS alive across the next `#run` and ~2 MB after the Sandbox reference is dropped — the OS allocator holds the pages for reuse rather than returning them. The cap itself is honored: `stdout_truncated?` flips to `true` and the captured buffer ends at the 1 MiB boundary regardless of how much the guest tried to write.
 
-## What changed since 2026-05-13
+## What changed vs previous baseline
 
-Three feature lines landed between the `f4da86e` snapshot (2026-05-13) and this baseline (`deb7c9d`, 2026-05-16). Each adds work to a path the prior baseline never exercised, so the absolute numbers shift even though the relative shape across cases is unchanged.
+This section is the diff against the *immediately previous* baseline — it is replaced (not appended) every time the Latest baseline above is refreshed. Pre-history lives in git (`benchmark/results/<date>-<sha>.json` files) and in release-tagged `benchmark/<semver>` annotated tags.
+
+**Previous baseline:** `f4da86e`, 2026-05-13. **This baseline:** `deb7c9d`, 2026-05-16.
+
+Three feature lines landed between the two captures. Each adds work to a path the prior baseline never exercised, so the absolute numbers shift even though the relative shape across cases is unchanged.
 
 - **B-04 IO surface** — `Kobako::Sandbox#stdout` / `#stderr` are wired end-to-end. Every `#run` now allocates per-channel `Kobako::Capture` value objects, reads both WASI pipes back to the host, and the guest binary embeds a precompiled `mrblib/io.rb` + `mrblib/kernel.rb` preamble for `puts` / `print` / `printf` / `p` / `IO#<<` / `$stdout` / `$stderr`. See `wasm/kobako-wasm/src/kobako/io.rs` and `lib/kobako/capture.rb`.
 - **B-01 timeout + memory_limit caps** — `Sandbox.new` now defaults to a 60-second per-`#run` wall-clock deadline and a 5 MiB guest-memory ceiling. Each `#run` installs the wall-clock check and the `memory.grow` cap on the wasmtime store before invoking the guest. See `lib/kobako/sandbox.rb`.
