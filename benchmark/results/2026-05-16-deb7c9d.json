@@ -1,0 +1,678 @@
+{
+  "env": {
+    "ruby_version": "3.4.7",
+    "ruby_platform": "arm64-darwin24",
+    "ruby_engine": "ruby",
+    "host_os": "darwin24",
+    "host_cpu": "arm64",
+    "processors": 16,
+    "git_sha": "deb7c9d",
+    "captured_at": "2026-05-16T12:34:24Z"
+  },
+  "suites": {
+    "cold_start": [
+      {
+        "label": "1c-sandbox-new-1",
+        "seconds": 0.6017989999381825,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-2",
+        "seconds": 0.00012400001287460327,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-3",
+        "seconds": 0.0001039999770000577,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-4",
+        "seconds": 0.00011000002268701792,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-5",
+        "seconds": 0.00009300000965595245,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-6",
+        "seconds": 0.00009400001727044582,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-7",
+        "seconds": 0.00010499998461455107,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-8",
+        "seconds": 0.0000980000477284193,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-9",
+        "seconds": 0.00010600010864436626,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1c-sandbox-new-10",
+        "seconds": 0.00009300000965595245,
+        "mode": "one_shot"
+      },
+      {
+        "label": "1a-sandbox-new",
+        "ips": 8241.68316685621,
+        "ips_sd": 1080,
+        "iterations": 24700,
+        "cycles": 988
+      },
+      {
+        "label": "1b-sandbox-new+run-nil",
+        "ips": 3741.155414025193,
+        "ips_sd": 186,
+        "iterations": 11400,
+        "cycles": 380
+      }
+    ],
+    "rpc_roundtrip": [
+      {
+        "label": "2a-empty-rpc",
+        "ips": 7374.063320189282,
+        "ips_sd": 122,
+        "iterations": 22754,
+        "cycles": 734
+      },
+      {
+        "label": "2b-primitive-arg",
+        "ips": 7326.078503324902,
+        "ips_sd": 96,
+        "iterations": 21990,
+        "cycles": 733
+      },
+      {
+        "label": "2c-kwargs",
+        "ips": 7250.474513866347,
+        "ips_sd": 79,
+        "iterations": 21917,
+        "cycles": 707
+      },
+      {
+        "label": "2d-1000-rpcs-in-one-run",
+        "ips": 153.38587056941273,
+        "ips_sd": 1,
+        "iterations": 465,
+        "cycles": 15
+      },
+      {
+        "label": "2e-handle-chain",
+        "ips": 6651.472124892537,
+        "ips_sd": 69,
+        "iterations": 20100,
+        "cycles": 670
+      }
+    ],
+    "codec": [
+      {
+        "label": "3a-host-encode-64B",
+        "ips": 1862025.1947619624,
+        "ips_sd": 28964,
+        "iterations": 5676193,
+        "cycles": 183103
+      },
+      {
+        "label": "3a-host-decode-64B",
+        "ips": 1729834.661350815,
+        "ips_sd": 10920,
+        "iterations": 5348988,
+        "cycles": 172548
+      },
+      {
+        "label": "3a-host-encode-1KiB",
+        "ips": 1571563.8401407658,
+        "ips_sd": 8719,
+        "iterations": 4774992,
+        "cycles": 154032
+      },
+      {
+        "label": "3a-host-decode-1KiB",
+        "ips": 1566381.821042416,
+        "ips_sd": 14429,
+        "iterations": 4845610,
+        "cycles": 156310
+      },
+      {
+        "label": "3a-host-encode-64KiB",
+        "ips": 118915.19278975391,
+        "ips_sd": 1927,
+        "iterations": 357019,
+        "cycles": 12311
+      },
+      {
+        "label": "3a-host-decode-64KiB",
+        "ips": 348321.03849308344,
+        "ips_sd": 2692,
+        "iterations": 1058220,
+        "cycles": 35274
+      },
+      {
+        "label": "3a-host-encode-1MiB",
+        "ips": 16435.28997162135,
+        "ips_sd": 844,
+        "iterations": 50523,
+        "cycles": 1531
+      },
+      {
+        "label": "3a-host-decode-1MiB",
+        "ips": 27504.556226098084,
+        "ips_sd": 466,
+        "iterations": 83040,
+        "cycles": 2768
+      },
+      {
+        "label": "3b-host-encode-depth-1",
+        "ips": 1554350.2051755916,
+        "ips_sd": 8293,
+        "iterations": 4773814,
+        "cycles": 153994
+      },
+      {
+        "label": "3b-host-decode-depth-1",
+        "ips": 1319633.008255828,
+        "ips_sd": 7921,
+        "iterations": 4079011,
+        "cycles": 131581
+      },
+      {
+        "label": "3b-host-encode-depth-4",
+        "ips": 1525416.9950626993,
+        "ips_sd": 15184,
+        "iterations": 4675482,
+        "cycles": 150822
+      },
+      {
+        "label": "3b-host-decode-depth-4",
+        "ips": 948701.9893375502,
+        "ips_sd": 6072,
+        "iterations": 2871902,
+        "cycles": 92642
+      },
+      {
+        "label": "3b-host-encode-depth-16",
+        "ips": 1407990.7804461317,
+        "ips_sd": 10322,
+        "iterations": 4281472,
+        "cycles": 138112
+      },
+      {
+        "label": "3b-host-decode-depth-16",
+        "ips": 389634.70555646013,
+        "ips_sd": 2260,
+        "iterations": 1204071,
+        "cycles": 38841
+      },
+      {
+        "label": "3b-host-encode-depth-64",
+        "ips": 880920.4229424314,
+        "ips_sd": 9516,
+        "iterations": 2667360,
+        "cycles": 88912
+      },
+      {
+        "label": "3b-host-decode-depth-64",
+        "ips": 116296.40556311942,
+        "ips_sd": 1285,
+        "iterations": 350250,
+        "cycles": 11675
+      },
+      {
+        "label": "3c-host-encode-nil",
+        "ips": 1894420.6704898851,
+        "ips_sd": 18830,
+        "iterations": 5809121,
+        "cycles": 187391
+      },
+      {
+        "label": "3c-host-decode-nil",
+        "ips": 1894199.7359124704,
+        "ips_sd": 10437,
+        "iterations": 5868610,
+        "cycles": 189310
+      },
+      {
+        "label": "3c-host-encode-bool",
+        "ips": 1868919.6352286218,
+        "ips_sd": 62408,
+        "iterations": 5645190,
+        "cycles": 188173
+      },
+      {
+        "label": "3c-host-decode-bool",
+        "ips": 1884867.4120181878,
+        "ips_sd": 49023,
+        "iterations": 5699850,
+        "cycles": 189995
+      },
+      {
+        "label": "3c-host-encode-int",
+        "ips": 1873461.3366270405,
+        "ips_sd": 21807,
+        "iterations": 5677836,
+        "cycles": 183156
+      },
+      {
+        "label": "3c-host-decode-int",
+        "ips": 1835716.147235361,
+        "ips_sd": 100255,
+        "iterations": 5543727,
+        "cycles": 191163
+      },
+      {
+        "label": "3c-host-encode-float",
+        "ips": 1861060.4844148958,
+        "ips_sd": 43397,
+        "iterations": 5741603,
+        "cycles": 185213
+      },
+      {
+        "label": "3c-host-decode-float",
+        "ips": 1813398.0983935362,
+        "ips_sd": 66179,
+        "iterations": 5456582,
+        "cycles": 188158
+      },
+      {
+        "label": "3c-host-encode-str",
+        "ips": 1824596.678806205,
+        "ips_sd": 57769,
+        "iterations": 5507970,
+        "cycles": 183599
+      },
+      {
+        "label": "3c-host-decode-str",
+        "ips": 1733036.0510248865,
+        "ips_sd": 48702,
+        "iterations": 5270490,
+        "cycles": 175683
+      },
+      {
+        "label": "3c-host-encode-bin",
+        "ips": 1834297.6068499219,
+        "ips_sd": 45746,
+        "iterations": 5524864,
+        "cycles": 172652
+      },
+      {
+        "label": "3c-host-decode-bin",
+        "ips": 1786763.6418868497,
+        "ips_sd": 72110,
+        "iterations": 5440110,
+        "cycles": 181337
+      },
+      {
+        "label": "3c-host-encode-array",
+        "ips": 1806449.292980863,
+        "ips_sd": 29792,
+        "iterations": 5488864,
+        "cycles": 171527
+      },
+      {
+        "label": "3c-host-decode-array",
+        "ips": 1247713.3950165638,
+        "ips_sd": 28102,
+        "iterations": 3785100,
+        "cycles": 122100
+      },
+      {
+        "label": "3c-host-encode-map",
+        "ips": 1775206.8757637772,
+        "ips_sd": 48615,
+        "iterations": 5497044,
+        "cycles": 177324
+      },
+      {
+        "label": "3c-host-decode-map",
+        "ips": 1092645.7410991038,
+        "ips_sd": 37956,
+        "iterations": 3376320,
+        "cycles": 112544
+      },
+      {
+        "label": "3c-host-encode-symbol",
+        "ips": 1622866.8427838767,
+        "ips_sd": 10061,
+        "iterations": 4996735,
+        "cycles": 161185
+      },
+      {
+        "label": "3c-host-decode-symbol",
+        "ips": 1396016.673783963,
+        "ips_sd": 4450,
+        "iterations": 4281658,
+        "cycles": 138118
+      },
+      {
+        "label": "3c-host-encode-handle",
+        "ips": 1528488.8775429274,
+        "ips_sd": 27320,
+        "iterations": 4598280,
+        "cycles": 153276
+      },
+      {
+        "label": "3c-host-decode-handle",
+        "ips": 937358.9613628418,
+        "ips_sd": 22135,
+        "iterations": 2886000,
+        "cycles": 96200
+      },
+      {
+        "label": "3c-host-encode-exception",
+        "ips": 750469.0732726429,
+        "ips_sd": 30056,
+        "iterations": 2286720,
+        "cycles": 76224
+      },
+      {
+        "label": "3c-host-decode-exception",
+        "ips": 345264.5657590724,
+        "ips_sd": 7999,
+        "iterations": 1049910,
+        "cycles": 34997
+      },
+      {
+        "label": "3a-guest-return-64B",
+        "ips": 8203.774368355536,
+        "ips_sd": 203,
+        "iterations": 25420,
+        "cycles": 820
+      },
+      {
+        "label": "3a-guest-return-1KiB",
+        "ips": 8230.966835170828,
+        "ips_sd": 55,
+        "iterations": 25440,
+        "cycles": 795
+      },
+      {
+        "label": "3a-guest-return-64KiB",
+        "ips": 6067.162935738158,
+        "ips_sd": 234,
+        "iterations": 18299,
+        "cycles": 631
+      },
+      {
+        "label": "3a-guest-return-512KiB",
+        "ips": 2366.1037261755955,
+        "ips_sd": 138,
+        "iterations": 7285,
+        "cycles": 235
+      },
+      {
+        "label": "3b-guest-return-depth-1",
+        "ips": 8131.819245270568,
+        "ips_sd": 98,
+        "iterations": 24510,
+        "cycles": 817
+      },
+      {
+        "label": "3b-guest-return-depth-4",
+        "ips": 8046.495065294546,
+        "ips_sd": 35,
+        "iterations": 24676,
+        "cycles": 796
+      },
+      {
+        "label": "3b-guest-return-depth-16",
+        "ips": 7212.405357832078,
+        "ips_sd": 204,
+        "iterations": 22140,
+        "cycles": 738
+      },
+      {
+        "label": "3b-guest-return-depth-64",
+        "ips": 5770.632425953427,
+        "ips_sd": 19,
+        "iterations": 17763,
+        "cycles": 573
+      }
+    ],
+    "mruby_eval": [
+      {
+        "label": "4a-arith-100k-sum",
+        "ips": 22.915825306281363,
+        "ips_sd": 0,
+        "iterations": 70,
+        "cycles": 2
+      },
+      {
+        "label": "4b-string-concat-1000",
+        "ips": 1726.2769969307974,
+        "ips_sd": 9,
+        "iterations": 5332,
+        "cycles": 172
+      },
+      {
+        "label": "4c-exception-raise-rescue-100",
+        "ips": 3344.3309564526676,
+        "ips_sd": 41,
+        "iterations": 10050,
+        "cycles": 335
+      },
+      {
+        "label": "4d-regexp-match-1000",
+        "ips": 322.4885036455217,
+        "ips_sd": 3,
+        "iterations": 990,
+        "cycles": 33
+      },
+      {
+        "label": "4e-stdout-puts-1000",
+        "ips": 248.52366794894957,
+        "ips_sd": 2,
+        "iterations": 768,
+        "cycles": 24
+      },
+      {
+        "label": "4f-stdout-cap-saturation",
+        "ips": 61.45674255174919,
+        "ips_sd": 42,
+        "iterations": 100,
+        "cycles": 10
+      }
+    ],
+    "handle_table": [
+      {
+        "label": "5a-alloc-0-from-empty",
+        "ips": 3787436.7593923653,
+        "ips_sd": 72014,
+        "iterations": 11569600,
+        "cycles": 361550
+      },
+      {
+        "label": "5a-alloc-100-from-empty",
+        "ips": 42237.52933143397,
+        "ips_sd": 24140,
+        "iterations": 82860,
+        "cycles": 6905
+      },
+      {
+        "label": "5a-alloc-10_000-from-empty",
+        "ips": 158.58743144559358,
+        "ips_sd": 26,
+        "iterations": 465,
+        "cycles": 15
+      },
+      {
+        "label": "5a-alloc-100_000-from-empty",
+        "ips": 13.693196102998781,
+        "ips_sd": 2,
+        "iterations": 41,
+        "cycles": 1
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000",
+        "seconds": 0.0005489999894052744,
+        "mode": "one_shot"
+      },
+      {
+        "label": "5b-alloc-1000-at-size-10000",
+        "seconds": 0.00020100001711398363,
+        "mode": "one_shot"
+      },
+      {
+        "label": "5b-alloc-1000-at-size-100000",
+        "seconds": 0.0006939999293535948,
+        "mode": "one_shot"
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000000",
+        "seconds": 0.0005230000242590904,
+        "mode": "one_shot"
+      },
+      {
+        "label": "5c-warm-run-nil-roundtrip",
+        "ips": 1928.5414684598618,
+        "ips_sd": 190,
+        "iterations": 5775,
+        "cycles": 165
+      }
+    ],
+    "memory": [
+      {
+        "label": "7a-rss-baseline",
+        "mode": "memory",
+        "rss_kb": 25840
+      },
+      {
+        "label": "7a-rss-after-1-sandbox",
+        "mode": "memory",
+        "rss_kb": 169792,
+        "delta_from_baseline_kb": 143952
+      },
+      {
+        "label": "7a-rss-after-10-sandboxes",
+        "mode": "memory",
+        "rss_kb": 174848,
+        "delta_from_first_kb": 5056,
+        "per_additional_sandbox_kb": 561.8
+      },
+      {
+        "label": "7a-rss-after-100-sandboxes",
+        "mode": "memory",
+        "rss_kb": 225392,
+        "delta_from_first_kb": 55600,
+        "per_additional_sandbox_kb": 561.6
+      },
+      {
+        "label": "7a-rss-after-1000-sandboxes",
+        "mode": "memory",
+        "rss_kb": 756064,
+        "delta_from_first_kb": 586272,
+        "per_additional_sandbox_kb": 586.9
+      },
+      {
+        "label": "7b-rss-before-run-loop",
+        "mode": "memory",
+        "rss_kb": 195616
+      },
+      {
+        "label": "7b-rss-after-1000-runs",
+        "mode": "memory",
+        "rss_kb": 196160,
+        "delta_from_baseline_kb": 544
+      },
+      {
+        "label": "7b-rss-after-2000-runs",
+        "mode": "memory",
+        "rss_kb": 196336,
+        "delta_from_baseline_kb": 720
+      },
+      {
+        "label": "7b-rss-after-3000-runs",
+        "mode": "memory",
+        "rss_kb": 196448,
+        "delta_from_baseline_kb": 832
+      },
+      {
+        "label": "7b-rss-after-4000-runs",
+        "mode": "memory",
+        "rss_kb": 196736,
+        "delta_from_baseline_kb": 1120
+      },
+      {
+        "label": "7b-rss-after-5000-runs",
+        "mode": "memory",
+        "rss_kb": 196752,
+        "delta_from_baseline_kb": 1136
+      },
+      {
+        "label": "7b-rss-after-6000-runs",
+        "mode": "memory",
+        "rss_kb": 196752,
+        "delta_from_baseline_kb": 1136
+      },
+      {
+        "label": "7b-rss-after-7000-runs",
+        "mode": "memory",
+        "rss_kb": 196752,
+        "delta_from_baseline_kb": 1136
+      },
+      {
+        "label": "7b-rss-after-8000-runs",
+        "mode": "memory",
+        "rss_kb": 196752,
+        "delta_from_baseline_kb": 1136
+      },
+      {
+        "label": "7b-rss-after-9000-runs",
+        "mode": "memory",
+        "rss_kb": 196752,
+        "delta_from_baseline_kb": 1136
+      },
+      {
+        "label": "7b-rss-after-10000-runs",
+        "mode": "memory",
+        "rss_kb": 197040,
+        "delta_from_baseline_kb": 1424
+      },
+      {
+        "label": "7c-rss-before-512kib-return",
+        "mode": "memory",
+        "rss_kb": 197040
+      },
+      {
+        "label": "7c-rss-while-holding-return-value",
+        "mode": "memory",
+        "rss_kb": 200688,
+        "peak_delta_kb": 3648,
+        "payload_bytesize": 524288
+      },
+      {
+        "label": "7c-rss-after-gc",
+        "mode": "memory",
+        "rss_kb": 200688,
+        "retained_delta_kb": 3648
+      },
+      {
+        "label": "7d-rss-before-near-cap-stdout",
+        "mode": "memory",
+        "rss_kb": 198128
+      },
+      {
+        "label": "7d-rss-while-holding-near-cap-stdout",
+        "mode": "memory",
+        "rss_kb": 201312,
+        "peak_delta_kb": 3184,
+        "stdout_bytesize": 1048576,
+        "stdout_truncated": true
+      },
+      {
+        "label": "7d-rss-after-near-cap-stdout-gc",
+        "mode": "memory",
+        "rss_kb": 200560,
+        "retained_delta_kb": 2432
+      }
+    ]
+  }
+}
