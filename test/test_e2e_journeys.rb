@@ -285,14 +285,13 @@ class TestE2EJourneys < Minitest::Test
   # failure so these tests pin only the host-observable contract
   # (clipped bytes + predicate); whether the failure surfaces as a
   # raised error or a silently-short write is intentionally not pinned.
-  #
-  # stderr (fd 2) has no symmetric guest-side test because the kobako
-  # mrbgem allowlist (`build_config/wasi.rb`) intentionally omits all
-  # I/O gems — `STDERR`, `IO`, and `warn` are undefined in the guest,
-  # so no script can produce stderr output. Host-side symmetry for the
-  # stderr channel is covered by the +clip_capture+ unit tests in
-  # `ext/kobako/src/wasm/instance.rs`.
   OVERFLOW_SCRIPT = 'begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; 1'
+
+  # Symmetric overflow script for the stderr channel — uses +$stderr.puts+
+  # directly because +Kernel#warn+ would route through the same global
+  # but adds nothing to the truncation observation.
+  OVERFLOW_STDERR_SCRIPT =
+    'begin; $stderr.puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; 1'
 
   # SPEC.md B-04: output past +stdout_limit+ is clipped at the cap
   # boundary, +#stdout+ carries no truncation sentinel, and
@@ -318,6 +317,67 @@ class TestE2EJourneys < Minitest::Test
     sandbox.run("nil")
     refute sandbox.stdout_truncated?, "B-03: stdout_truncated? must reset on the next run"
     assert_equal "", sandbox.stdout
+  end
+
+  # SPEC.md B-04: $stderr writes land in Sandbox#stderr, not Sandbox#stdout.
+  # Covers the guest-side fd 2 path enabled by the mrblib/io.rb + ::IO bridge.
+  def test_stderr_puts_routes_to_stderr_channel
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run('$stderr.puts "diagnostic"; 1')
+
+    assert_includes sandbox.stderr, "diagnostic",
+                    "B-04: $stderr.puts must reach Sandbox#stderr"
+    refute_includes sandbox.stdout, "diagnostic",
+                    "B-04: stderr writes must not bleed into Sandbox#stdout"
+  end
+
+  # SPEC.md B-04: Kernel#warn delegates through $stderr per mrblib/kernel.rb,
+  # so warned bytes show up on Sandbox#stderr like any other stderr write.
+  def test_warn_routes_to_stderr_channel
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run('warn "caution"; 1')
+
+    assert_includes sandbox.stderr, "caution",
+                    "Kernel#warn must route through $stderr"
+    refute_includes sandbox.stdout, "caution"
+  end
+
+  # SPEC.md B-04: Kernel#p writes inspect form to $stdout (not the raw to_s).
+  # Pins the inspect-format invariant that distinguishes #p from #puts.
+  def test_p_writes_inspect_form_to_stdout
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run("p({a: 1}); 1")
+
+    assert_includes sandbox.stdout, "{a: 1}",
+                    "Kernel#p must write Hash inspect form to stdout (mruby 4.0 shorthand)"
+  end
+
+  # Reassigning $stdout = $stderr at script time must redirect subsequent
+  # Kernel#puts output to the stderr capture channel. This is the whole
+  # reason Kernel delegators route through the assignable global instead
+  # of hard-coded fd 1, and verifies that mrblib/kernel.rb honors the
+  # late binding.
+  def test_redirecting_stdout_to_stderr_routes_subsequent_puts
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run('$stdout = $stderr; puts "redirected"; 1')
+
+    assert_includes sandbox.stderr, "redirected",
+                    "Kernel#puts after `$stdout = $stderr` must follow the reassignment"
+    refute_includes sandbox.stdout, "redirected",
+                    "Original stdout channel must stay empty after redirection"
+  end
+
+  # Symmetric to test_stdout_truncation_flag_when_output_exceeds_cap.
+  # Cap is enforced inside the WASI pipe on fd 2; #stderr never contains
+  # truncation sentinels.
+  def test_stderr_truncation_flag_when_output_exceeds_cap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stderr_limit: 5)
+    result = sandbox.run(OVERFLOW_STDERR_SCRIPT)
+
+    assert_equal 1, result
+    assert_operator sandbox.stderr.bytesize, :<=, 5
+    refute_includes sandbox.stderr, "[truncated]"
+    assert sandbox.stderr_truncated?
   end
 
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
