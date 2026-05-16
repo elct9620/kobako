@@ -444,6 +444,18 @@ extern "C" {
     /// `crate::kobako::Kobako::install_raw`.
     pub fn mrb_class_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
 
+    /// `mrb_define_global_const(mrb, name, val)` — bind a top-level
+    /// constant by NUL-terminated name (e.g. `STDOUT`, `STDERR`). The
+    /// constant is reachable from any script context via its bare name
+    /// (`STDOUT`) and via `Object::STDOUT`.
+    pub fn mrb_define_global_const(mrb: *mut mrb_state, name: *const c_char, val: mrb_value);
+
+    /// `mrb_gv_set(mrb, sym, val)` — assign a global variable
+    /// (Ruby `$name`). Pair with `mrb_intern_cstr(mrb, "$name\0")` to
+    /// obtain the symbol. Used to wire `$stdout` and `$stderr` to the
+    /// freshly-constructed `IO` instances at install time.
+    pub fn mrb_gv_set(mrb: *mut mrb_state, sym: mrb_sym, val: mrb_value);
+
     /// `mrb_module_get(mrb, name)` — fetches a top-level module by name
     /// (e.g. `"Kernel"`). Used to register `Kernel#puts` / `Kernel#p`
     /// via `mrb_define_method` without going through `mrb_load_nstring`.

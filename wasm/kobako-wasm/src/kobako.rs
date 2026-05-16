@@ -70,22 +70,23 @@ const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
 const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
 #[cfg(target_arch = "wasm32")]
 const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
-#[cfg(target_arch = "wasm32")]
-const KERNEL_NAME: &[u8] = b"Kernel\0";
-#[cfg(target_arch = "wasm32")]
-const PUTS_NAME: &[u8] = b"puts\0";
-#[cfg(target_arch = "wasm32")]
-const P_NAME: &[u8] = b"p\0";
-/// `b"print\0"` — `Kernel#print`, the mrbgem-provided method that the
-/// `Kernel#puts` / `Kernel#p` shims delegate to. Used by
-/// [`Kobako::print_str`].
-#[cfg(target_arch = "wasm32")]
-const PRINT_NAME: &[u8] = b"print\0";
 /// `b"@__kobako_id__\0"` — mangled instance-variable name that
 /// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by the
 /// handle-id setter / getter on [`Kobako`].
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
+#[cfg(target_arch = "wasm32")]
+const IO_NAME: &[u8] = b"IO\0";
+#[cfg(target_arch = "wasm32")]
+const STDOUT_CONST_NAME: &[u8] = b"STDOUT\0";
+#[cfg(target_arch = "wasm32")]
+const STDERR_CONST_NAME: &[u8] = b"STDERR\0";
+#[cfg(target_arch = "wasm32")]
+const STDOUT_GVAR_NAME: &[u8] = b"$stdout\0";
+#[cfg(target_arch = "wasm32")]
+const STDERR_GVAR_NAME: &[u8] = b"$stderr\0";
+#[cfg(target_arch = "wasm32")]
+const MODE_WRITE: &[u8] = b"w\0";
 
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32
 // (the wasm32 build config). Bit-pattern values from mruby.h; must not
@@ -315,25 +316,36 @@ impl Kobako {
                 //     dispatch path. See `crate::kobako::io`.
                 io::install(mrb);
 
-                // (8) Legacy `Kernel#puts` / `Kernel#p` shims — kept for
-                //     this stage; superseded by `mrblib/kernel.rb` once
-                //     `STDOUT` / `STDERR` / `$stdout` / `$stderr` land
-                //     in the next stage.
-                let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
-                sys::mrb_define_method(
-                    mrb,
-                    kernel_mod,
-                    cstr_ptr(PUTS_NAME),
-                    bridges::kernel_puts,
-                    sys::MRB_ARGS_ANY,
-                );
-                sys::mrb_define_method(
-                    mrb,
-                    kernel_mod,
-                    cstr_ptr(P_NAME),
-                    bridges::kernel_p,
-                    sys::MRB_ARGS_ANY,
-                );
+                // (8) Construct `STDOUT` / `STDERR` and wire `$stdout` /
+                //     `$stderr` to them. Both globals are reassignable
+                //     by guest scripts (`$stdout = $stderr` redirects
+                //     subsequent `Kernel#puts` output to stderr), which
+                //     is the whole point of routing through the
+                //     mrblib/kernel.rb delegators below.
+                let io_class = sys::mrb_class_get(mrb, cstr_ptr(IO_NAME));
+                let mode_str = sys::mrb_str_new_cstr(mrb, cstr_ptr(MODE_WRITE));
+                let stdout_args = [sys::mrb_boxing_int_value(mrb, 1), mode_str];
+                let stdout_val = sys::mrb_obj_new(mrb, io_class, 2, stdout_args.as_ptr());
+                let stderr_args = [sys::mrb_boxing_int_value(mrb, 2), mode_str];
+                let stderr_val = sys::mrb_obj_new(mrb, io_class, 2, stderr_args.as_ptr());
+
+                sys::mrb_define_global_const(mrb, cstr_ptr(STDOUT_CONST_NAME), stdout_val);
+                sys::mrb_define_global_const(mrb, cstr_ptr(STDERR_CONST_NAME), stderr_val);
+
+                let stdout_gvar = sys::mrb_intern_cstr(mrb, cstr_ptr(STDOUT_GVAR_NAME));
+                let stderr_gvar = sys::mrb_intern_cstr(mrb, cstr_ptr(STDERR_GVAR_NAME));
+                sys::mrb_gv_set(mrb, stdout_gvar, stdout_val);
+                sys::mrb_gv_set(mrb, stderr_gvar, stderr_val);
+
+                // (9) Kernel output delegators. `mrblib/kernel.rb`
+                //     redefines `Kernel#print` (overriding the
+                //     mruby-core `mrb_print_m` registration that always
+                //     targets the C `stdout` FILE*) and adds `#puts`,
+                //     `#p`, `#printf`, `#warn` as thin pass-throughs to
+                //     `$stdout` / `$stderr`. Must run after (8) — the
+                //     delegators look up the globals at call time but
+                //     would NoMethodError if called before they exist.
+                bytecode::load(mrb, bytecode::KERNEL_MRB);
 
                 Self {
                     mrb,
@@ -897,64 +909,6 @@ impl Kobako {
             Err(_) => {
                 // SAFETY: as above.
                 unsafe { self.raise_wire_error(wire_err_msg) };
-            }
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // `Kernel#puts` helpers.
-    // ----------------------------------------------------------------
-
-    /// Print a single mruby `String` via `Kernel#print`. Used by the
-    /// `Kernel#puts` / `Kernel#p` C bridges as their atomic output
-    /// operation; takes `self_` so the call site supplies the mruby
-    /// receiver (the singleton object passed to the bridge).
-    #[cfg(target_arch = "wasm32")]
-    pub fn print_str(&self, self_: sys::mrb_value, s: sys::mrb_value) {
-        // SAFETY: `self.mrb` is live; `self_` and `s` are mrb_values from
-        // the same VM.
-        unsafe {
-            self_.call(self.mrb, cstr_ptr(PRINT_NAME), &[s]);
-        }
-    }
-
-    /// `Kernel#puts` single-element body: print `arg`, append a newline
-    /// when the result does not already end in one. Recurses into
-    /// Arrays, matching MRI semantics one element per call.
-    #[cfg(target_arch = "wasm32")]
-    pub fn puts_one(&self, self_: sys::mrb_value, arg: sys::mrb_value, nl: sys::mrb_value) {
-        // SAFETY: as above.
-        unsafe {
-            if arg.classname(self.mrb) == "Array" {
-                let len = self.collection_len(arg);
-                for i in 0..len {
-                    let elem = sys::mrb_ary_entry(arg, i as i32);
-                    self.puts_one(self_, elem, nl);
-                }
-                return;
-            }
-
-            let s_val = arg.call(self.mrb, cstr!("to_s"), &[]);
-            self.print_str(self_, s_val);
-
-            // Append newline unless the printed string already ended
-            // with "\n". Inspect the byte at `length - 1` via Ruby
-            // (`bytesize` + `getbyte`) — `mrb_str_to_cstr` would
-            // mishandle embedded NULs / binary content. Both bytesize
-            // and the last-byte value are small Integers; round-trip
-            // through `to_s` + parse to avoid depending on a private
-            // int unbox shim.
-            let bytesize_val = s_val.call(self.mrb, cstr!("bytesize"), &[]);
-            let bs: usize = bytesize_val.to_string(self.mrb).parse().unwrap_or(0);
-            if bs == 0 {
-                self.print_str(self_, nl);
-                return;
-            }
-            let last_idx = sys::mrb_boxing_int_value(self.mrb, (bs - 1) as i32);
-            let last_byte_val = s_val.call(self.mrb, cstr!("getbyte"), &[last_idx]);
-            let lb: i32 = last_byte_val.to_string(self.mrb).parse().unwrap_or(0);
-            if lb != 10 {
-                self.print_str(self_, nl);
             }
         }
     }
