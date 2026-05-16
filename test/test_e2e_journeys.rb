@@ -367,6 +367,63 @@ class TestE2EJourneys < Minitest::Test
                     "Original stdout channel must stay empty after redirection"
   end
 
+  # Guest IO is scoped to the two captured descriptors; any other fd
+  # raises ArgumentError at construction so the failure is loud rather
+  # than a silent fwrite to a no-op stream.
+  def test_io_new_rejects_unsupported_fd
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.run('IO.new(99, "w")')
+    end
+
+    assert_includes err.message, "kobako IO only supports fd",
+                    "io_initialize must raise ArgumentError citing the fd constraint"
+  end
+
+  # Mirror of fd validation for the mode argument — only "w" is
+  # supported because mruby-io's read-path is intentionally out of
+  # scope (see mrblib/io.rb class doc).
+  def test_io_new_rejects_unsupported_mode
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.run('IO.new(1, "r")')
+    end
+
+    assert_includes err.message, 'kobako IO only supports mode "w"',
+                    "io_initialize must raise ArgumentError citing the mode constraint"
+  end
+
+  # Pins the io_fileno C bridge through a real run: STDOUT was
+  # constructed with fd 1 in install_raw, so STDOUT.fileno must round
+  # trip back to 1. STDERR.fileno mirrors with 2.
+  def test_stdout_and_stderr_fileno_return_underlying_descriptor
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    assert_equal 1, sandbox.run("STDOUT.fileno")
+    assert_equal 2, sandbox.run("STDERR.fileno")
+  end
+
+  # Reassigning $stdout inside a #run must not bleed into the next
+  # #run — each invocation rebuilds the mruby state and reinstalls
+  # the globals, so a subsequent puts always lands on the host's
+  # stdout channel. Pins this per-run-reset invariant explicitly
+  # because the redirection test alone would not catch a regression
+  # that made the reassignment persistent.
+  def test_stdout_assignment_does_not_persist_across_runs
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    sandbox.run('$stdout = $stderr; puts "first"; 1')
+    assert_includes sandbox.stderr, "first", "setup: first run must redirect"
+
+    sandbox.run('puts "second"; 2')
+    assert_includes sandbox.stdout, "second",
+                    "second run must restore $stdout to the stdout channel"
+    refute_includes sandbox.stderr, "second",
+                    "second run must not inherit the previous run's $stdout reassignment"
+  end
+
   # Symmetric to test_stdout_truncation_flag_when_output_exceeds_cap.
   # Cap is enforced inside the WASI pipe on fd 2; #stderr never contains
   # truncation sentinels.
