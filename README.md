@@ -95,7 +95,7 @@ sandbox.run('Geo::Lookup.call(name: "alice", region: "us")')
 
 ## Per-run caps
 
-Each Sandbox enforces a wall-clock timeout and a guest linear-memory cap on every `#run`. Both default to safe values and may be overridden at construction; pass `nil` to disable.
+Each Sandbox enforces a wall-clock timeout and a guest linear-memory cap on every `#run`. Both default to safe values; pass `nil` to `timeout` or `memory_limit` to disable that cap. The output caps (`stdout_limit` / `stderr_limit`) cannot be disabled — pass a large Integer instead.
 
 ```ruby
 sandbox = Kobako::Sandbox.new(
