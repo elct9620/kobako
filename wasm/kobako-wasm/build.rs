@@ -56,6 +56,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MRBC_PATH");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/mruby/exc.c");
+    println!("cargo:rerun-if-changed=src/mruby/io.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -117,7 +118,10 @@ fn main() {
         // in the include path, mirroring how mruby's own build system
         // sets up include dirs for C files that include <mruby.h>.
         let mut build = cc::Build::new();
-        build.file("src/mruby/exc.c").include(&mruby_include);
+        build
+            .file("src/mruby/exc.c")
+            .file("src/mruby/io.c")
+            .include(&mruby_include);
 
         // Add the wasi build's generated include dir if we can locate it.
         // MRUBY_LIB_DIR is `vendor/mruby/build/wasi/lib`; the generated

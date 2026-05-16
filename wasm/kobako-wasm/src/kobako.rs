@@ -33,6 +33,7 @@
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod bridges;
 pub mod bytecode;
+pub mod io;
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
@@ -303,14 +304,21 @@ impl Kobako {
                     runtime_error_class,
                 );
 
-                // (6) `Kernel#puts` / `Kernel#p` shims. mruby's core
-                //     `kernel.c` registers `Kernel#print` unconditionally,
-                //     but `puts` / `p` only exist when the `mruby-io`
-                //     mrbgem is linked in. `mruby-io` requires POSIX
-                //     `<pwd.h>` and is absent from kobako's
-                //     `wasm32-wasip1` allowlist, so we register both
-                //     methods here and have the C bridge bodies
-                //     delegate to `Kernel#print` through `mrb_funcall`.
+                // (7) Top-level `::IO` class. Registers the constructor
+                //     + `#write` / `#fileno` C bridges and then loads
+                //     `mrblib/io.rb` to layer the rest of the IO surface
+                //     (`#print`, `#puts`, `#printf`, `#p`, `#<<`, etc.)
+                //     in pure Ruby. The bridges talk to wasi-libc's
+                //     `stdout` / `stderr` via the `kobako_io_fwrite` C
+                //     shim, so guest output reaches the host capture
+                //     pipe (SPEC.md B-04) without re-entering the RPC
+                //     dispatch path. See `crate::kobako::io`.
+                io::install(mrb);
+
+                // (8) Legacy `Kernel#puts` / `Kernel#p` shims — kept for
+                //     this stage; superseded by `mrblib/kernel.rb` once
+                //     `STDOUT` / `STDERR` / `$stdout` / `$stderr` land
+                //     in the next stage.
                 let kernel_mod = sys::mrb_module_get(mrb, cstr_ptr(KERNEL_NAME));
                 sys::mrb_define_method(
                     mrb,

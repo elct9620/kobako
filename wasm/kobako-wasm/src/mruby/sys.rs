@@ -492,6 +492,23 @@ extern "C" {
     /// Does NOT clear the exception. Callers must invoke `mrb_check_error`
     /// after consuming the returned value to reset `mrb->exc`.
     pub fn kobako_get_exc(mrb: *mut mrb_state) -> mrb_value;
+
+    /// `kobako_io_fwrite(mrb, fd, argv, argc)` — C shim that coerces
+    /// each `argv[i]` to a String (via `mrb_obj_as_string`) and writes
+    /// its bytes to the fd-selected stream: `fd == 2` routes to
+    /// `stderr`, anything else (canonically `1`) to `stdout`. Returns
+    /// the total bytes accepted by `fwrite` across all arguments.
+    ///
+    /// The shim consolidates three pieces of state Rust cannot reach
+    /// portably: the `RSTRING_PTR` / `RSTRING_LEN` macros, the
+    /// `mrb_obj_as_string` coercion, and wasi-libc's `stdout` /
+    /// `stderr` `FILE *` globals. See `src/mruby/io.c`.
+    pub fn kobako_io_fwrite(
+        mrb: *mut mrb_state,
+        fd: c_int,
+        argv: *const mrb_value,
+        argc: i32,
+    ) -> i32;
 }
 
 // --------------------------------------------------------------------
