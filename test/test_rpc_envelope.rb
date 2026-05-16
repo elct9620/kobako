@@ -129,16 +129,16 @@ module Kobako
       assert_equal 99, decoded.payload.id
     end
 
-    def test_response_err_round_trip
+    def test_response_error_round_trip
       exc = Exc.new(type: "runtime", message: "boom", details: nil)
-      resp = Envelope::Response.err(exc)
+      resp = Envelope::Response.error(exc)
       decoded = Envelope.decode_response(Envelope.encode_response(resp))
-      assert decoded.err?
+      assert decoded.error?
       assert_equal exc, decoded.payload
     end
 
-    def test_response_err_requires_exception
-      assert_raises(ArgumentError) { Envelope::Response.err("not an exc") }
+    def test_response_error_requires_fault
+      assert_raises(ArgumentError) { Envelope::Response.error("not a fault") }
     end
 
     def test_response_construction_validates_field_types
@@ -153,8 +153,8 @@ module Kobako
       assert_raises(InvalidType) { Envelope.decode_response(bytes) }
     end
 
-    def test_response_decode_err_requires_exception_payload
-      # status=1 with a non-Exception value
+    def test_response_decode_error_requires_fault_payload
+      # status=1 with a non-Fault value
       bytes = Encoder.encode([1, "stringy"])
       assert_raises(InvalidType) { Envelope.decode_response(bytes) }
     end
@@ -188,13 +188,13 @@ module Kobako
       assert_equal h_value, decoded_resp.payload
     end
 
-    def test_response_err_with_exception_details
+    def test_response_error_with_fault_details
       exc = Exc.new(
         type: "argument",
         message: "bad",
         details: { "given" => [1, 2], "expected" => "string" }
       )
-      resp = Envelope::Response.err(exc)
+      resp = Envelope::Response.error(exc)
       decoded = Envelope.decode_response(Envelope.encode_response(resp))
       assert_equal exc, decoded.payload
     end

@@ -132,7 +132,7 @@ module Kobako
       # msgpack-encoded Request envelope. Called by the Rust ext from inside
       # +__kobako_dispatch+. Always returns a binary +String+ — never raises.
       # Delegates to +Dispatcher.dispatch+ which reifies any failure as a
-      # +Response.err+ envelope so the guest sees the failure as a normal RPC
+      # +Response.error+ envelope so the guest sees the failure as a normal RPC
       # error rather than a wasm trap.
       def dispatch(request_bytes)
         Dispatcher.dispatch(request_bytes, self)

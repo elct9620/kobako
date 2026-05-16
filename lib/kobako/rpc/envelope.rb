@@ -77,9 +77,9 @@ module Kobako
         new(status: STATUS_OK, payload: value)
       end
 
-      def self.err(fault)
+      def self.error(fault)
         unless fault.is_a?(Kobako::RPC::Fault)
-          raise ArgumentError, "Response.err requires Kobako::RPC::Fault, got #{fault.class}"
+          raise ArgumentError, "Response.error requires Kobako::RPC::Fault, got #{fault.class}"
         end
 
         new(status: STATUS_ERROR, payload: fault)
@@ -96,8 +96,8 @@ module Kobako
         super
       end
 
-      def ok?  = status == STATUS_OK
-      def err? = status == STATUS_ERROR
+      def ok?    = status == STATUS_OK
+      def error? = status == STATUS_ERROR
       # steep:ignore:end
     end
 

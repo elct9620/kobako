@@ -96,9 +96,9 @@ class TestEnvelopeRoundtrip < Minitest::Test
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 
-  def test_response_err_round_trips
+  def test_response_error_round_trips
     exc = Exc.new(type: "runtime", message: "boom", details: nil)
-    bytes = Envelope.encode_response(Envelope::Response.err(exc))
+    bytes = Envelope.encode_response(Envelope::Response.error(exc))
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 end

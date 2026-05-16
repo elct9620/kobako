@@ -28,7 +28,7 @@ module Kobako
 
       def self.ok: (untyped value) -> Response
 
-      def self.err: (Kobako::RPC::Fault fault) -> Response
+      def self.error: (Kobako::RPC::Fault fault) -> Response
 
       def initialize: (Integer status, untyped payload) -> void
                     | (status: Integer, payload: untyped) -> void
@@ -37,7 +37,7 @@ module Kobako
 
       def ok?: () -> bool
 
-      def err?: () -> bool
+      def error?: () -> bool
 
       def ==: (untyped other) -> bool
 

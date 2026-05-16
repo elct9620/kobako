@@ -97,7 +97,7 @@ module Kobako
 
   # HandleTable lookup-failure error (unknown id passed to #fetch /
   # #release). A SandboxError subclass: per the wire-layer rule, an
-  # unknown Handle id surfaces as a `type="undefined"` Response.err
+  # unknown Handle id surfaces as a `type="undefined"` Response.error
   # envelope inside RpcDispatcher and never reaches the Host App
   # directly; outside that path (e.g. tests poking the HandleTable
   # directly), it surfaces as a SandboxError.

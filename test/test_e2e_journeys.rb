@@ -343,7 +343,7 @@ class TestE2EJourneys < Minitest::Test
   # dispatcher's disconnected message.
   #
   # The guest's exception bridge (+wasm/kobako-wasm/src/boot.rs+) maps
-  # the Response.err +type="disconnected"+ field onto the
+  # the Response.error +type="disconnected"+ field onto the
   # +Kobako::ServiceError::Disconnected+ mruby class before +mrb_raise+,
   # so the class name propagates into the Panic envelope's +class+ field
   # and the host-side +Kobako::Outcome.panic_target_class+ selects the

@@ -41,7 +41,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -51,7 +51,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "runtime", resp.payload.type
     assert_match(/boom/, resp.payload.message)
   end
@@ -63,7 +63,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -97,7 +97,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -111,7 +111,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -126,7 +126,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "runtime", resp.payload.type
     assert_match(/wire decode failed/, resp.payload.message)
   end
@@ -140,7 +140,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "runtime", resp.payload.type
     assert_match(/wire decode failed/, resp.payload.message)
   end
@@ -243,7 +243,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -283,7 +283,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -298,7 +298,7 @@ class TestRPCDispatchUnit < Minitest::Test
     req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id), "tag", [], {})
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -306,7 +306,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # SPEC E-14: a Handle whose entry has been replaced with the
   # +:disconnected+ sentinel (B-19 ABA protection) resolves to
-  # Response.err(type="disconnected") at dispatch time, even though the id
+  # Response.error(type="disconnected") at dispatch time, even though the id
   # still occupies the HandleTable. This is distinct from E-13 (unknown id
   # → "undefined"); the dispatcher must differentiate so the host can
   # surface +Kobako::ServiceError::Disconnected+ rather than a generic
@@ -320,7 +320,7 @@ class TestRPCDispatchUnit < Minitest::Test
     req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id), "any", [], {})
     resp = decode_response(@registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "disconnected", resp.payload.type
   end
 
@@ -329,7 +329,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # SPEC B-19: HandleTable ownership is per-Sandbox. A Handle ID issued
   # by Sandbox A's HandleTable has no meaning in Sandbox B's HandleTable;
   # presenting it there resolves to "ID not found" and surfaces as a
-  # Response.err with type="undefined". This is distinct from B-18
+  # Response.error with type="undefined". This is distinct from B-18
   # (cross-#run within the same Sandbox via #reset!): here we exercise
   # two physically separate HandleTable instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
@@ -346,7 +346,7 @@ class TestRPCDispatchUnit < Minitest::Test
     req = encode_request_with_target(Kobako::RPC::Handle.new(handle_id_in_a), "ping", [], {})
     resp = decode_response(registry_b.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
     assert_equal 0, registry_b.handle_table.size
   end
@@ -366,7 +366,7 @@ class TestRPCDispatchUnit < Minitest::Test
     req = encode_request("Echo::Wrap", "call", [Kobako::RPC::Handle.new(handle_id_in_a)], {})
     resp = decode_response(registry_b.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -377,7 +377,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # before the value reaches the HandleTable. Operationally, a Request
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
   # fails Envelope.decode_request's type validation and the dispatcher
-  # surfaces it as a Response.err. The integer never reaches resolve_target
+  # surfaces it as a Response.error. The integer never reaches resolve_target
   # or HandleTable#fetch — see the assertion on table size below.
   #
   # The test seam: we cannot construct such a Request via Request.new
@@ -389,7 +389,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 
-    assert resp.err?
+    assert resp.error?
     # Kobako::Codec::Error rescues to type="runtime" with a "wire decode failed"
     # prefix; the dispatcher's contract pins this taxonomy and the guest
     # observes a normal RPC error rather than a wasm trap.
@@ -408,7 +408,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # during normal RPC: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
   # @handle_table.alloc, and the cap raise surfaces via the dispatcher's
-  # rescue chain as a Response.err the guest observes.
+  # rescue chain as a Response.error the guest observes.
   def test_handle_table_exhaustion_during_wrap_return_is_response_err
     # Test seam: HandleTable.new(next_id:) lets us pin the counter at
     # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
@@ -420,7 +420,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     resp = decode_response(registry.dispatch(req))
 
-    assert resp.err?
+    assert resp.error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Kobako::HandleTableExhausted/, resp.payload.message)
   end
@@ -430,7 +430,7 @@ class TestRPCDispatchUnit < Minitest::Test
     # SandboxError (per Kobako::errors). This matters because
     # Sandbox#run-level callers rescuing SandboxError must catch the
     # exhaustion path; the dispatcher's rescue StandardError branch
-    # turns the raise into a Response.err so the guest can observe it,
+    # turns the raise into a Response.error so the guest can observe it,
     # but the underlying class identity is what SPEC B-21 pins.
     assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
     assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError

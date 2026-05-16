@@ -25,11 +25,11 @@ module Kobako
 
       def self?.fetch_live_object: (Integer id, HandleTable handle_table) -> untyped
 
-      def self?.encode_ok_or_wrap: (untyped value, Server server) -> String
+      def self?.encode_ok: (untyped value, Server server) -> String
 
-      def self?.encode_ok: (untyped value) -> String
+      def self?.wrap_as_handle: (untyped value, Server server) -> Kobako::RPC::Handle
 
-      def self?.encode_err: (String type, String message) -> String
+      def self?.encode_error: (String type, String message) -> String
     end
   end
 end

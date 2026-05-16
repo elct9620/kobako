@@ -20,14 +20,14 @@ module Kobako
       module_function
 
       # Internal sentinel raised when target resolution fails. Mapped to
-      # Response.err with type="undefined". Contained at the wire boundary —
+      # Response.error with type="undefined". Contained at the wire boundary —
       # not part of the public Kobako error taxonomy
       # ({SPEC.md E-xx}[link:../../../SPEC.md]).
       class UndefinedTargetError < StandardError; end
 
       # Internal sentinel raised when a Handle target resolves to the
       # +:disconnected+ sentinel in the HandleTable (ABA protection,
-      # {SPEC.md E-14}[link:../../../SPEC.md]). Mapped to Response.err with
+      # {SPEC.md E-14}[link:../../../SPEC.md]). Mapped to Response.error with
       # type="disconnected". Contained at the wire boundary.
       class DisconnectedTargetError < StandardError; end
 
@@ -39,17 +39,17 @@ module Kobako
       # access the +#handle_table+ for Handle-based targets and return-value
       # wrapping. Always returns a binary String — never raises. Any failure
       # during decode, lookup, or method invocation is reified as a
-      # Response.err envelope so the guest sees the failure as a normal RPC
+      # Response.error envelope so the guest sees the failure as a normal RPC
       # error rather than a wasm trap
       # ({SPEC.md B-12}[link:../../../SPEC.md]).
       def dispatch(request_bytes, server)
         value = perform_dispatch(request_bytes, server)
-        encode_ok_or_wrap(value, server)
+        encode_ok(value, server)
       rescue StandardError => e
         encode_dispatch_error(e)
       end
 
-      # Map an error raised during dispatch to a Response.err envelope.
+      # Map an error raised during dispatch to a +Response.error+ envelope.
       # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
       # a msgpack-encoded Response envelope (binary). Four error buckets
       # ({SPEC.md B-12}[link:../../../SPEC.md]): +Kobako::Codec::Error+ →
@@ -59,11 +59,11 @@ module Kobako
       # everything else → type="runtime".
       def encode_dispatch_error(error)
         case error
-        when Kobako::Codec::Error then encode_err("runtime", "wire decode failed: #{error.message}")
-        when DisconnectedTargetError then encode_err("disconnected", error.message)
-        when UndefinedTargetError    then encode_err("undefined", error.message)
-        when ArgumentError           then encode_err("argument", error.message)
-        else                              encode_err("runtime", "#{error.class}: #{error.message}")
+        when Kobako::Codec::Error then encode_error("runtime", "wire decode failed: #{error.message}")
+        when DisconnectedTargetError then encode_error("disconnected", error.message)
+        when UndefinedTargetError    then encode_error("undefined", error.message)
+        when ArgumentError           then encode_error("argument", error.message)
+        else                              encode_error("runtime", "#{error.class}: #{error.message}")
         end
       end
 
@@ -94,7 +94,7 @@ module Kobako
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the
       # +:disconnected+ sentinel (E-14) raises DisconnectedTargetError so
-      # the dispatcher emits a Response.err with type="disconnected".
+      # the dispatcher emits a Response.error with type="disconnected".
       def resolve_arg(value, handle_table)
         case value
         when Kobako::RPC::Handle
@@ -144,23 +144,27 @@ module Kobako
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
       # wire-representable per {SPEC.md B-13}[link:../../../SPEC.md]'s type
       # mapping, the +UnsupportedType+ rescue routes it through the
-      # HandleTable and re-encodes with the Capability Handle in place
-      # ({SPEC.md B-14}[link:../../../SPEC.md]). The happy path encodes
-      # exactly once.
-      def encode_ok_or_wrap(value, server)
-        encode_ok(value)
-      rescue Kobako::Codec::UnsupportedType
-        encode_ok(Kobako::RPC::Handle.new(server.handle_table.alloc(value)))
-      end
-
-      def encode_ok(value)
+      # HandleTable via {#wrap_as_handle} and re-encodes with the Capability
+      # Handle in place ({SPEC.md B-14}[link:../../../SPEC.md]). The happy
+      # path encodes exactly once.
+      def encode_ok(value, server)
         response = Kobako::RPC::Response.ok(value)
         Kobako::RPC.encode_response(response)
+      rescue Kobako::Codec::UnsupportedType
+        encode_ok(wrap_as_handle(value, server), server)
       end
 
-      def encode_err(type, message)
-        exception = Kobako::RPC::Fault.new(type: type, message: message)
-        response = Kobako::RPC::Response.err(exception)
+      # Allocate +value+ in the Server's HandleTable and return a +Handle+
+      # that the wire codec can carry ({SPEC.md B-14}[link:../../../SPEC.md]).
+      # Used as the fallback path of {#encode_ok} when +value+ has no wire
+      # representation.
+      def wrap_as_handle(value, server)
+        Kobako::RPC::Handle.new(server.handle_table.alloc(value))
+      end
+
+      def encode_error(type, message)
+        fault = Kobako::RPC::Fault.new(type: type, message: message)
+        response = Kobako::RPC::Response.error(fault)
         Kobako::RPC.encode_response(response)
       end
     end
