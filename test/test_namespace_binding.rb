@@ -185,14 +185,14 @@ class TestNamespaceBinding < Minitest::Test
     assert_equal :v, @sandbox.services.lookup("Logger::Info")
   end
 
-  # Item #25 — `guest_preamble` returns msgpack-encoded bytes matching the
+  # Item #25 — `encoded_preamble` returns msgpack-encoded bytes matching the
   # two-level preamble array structure ({SPEC.md B-02}[link:../../SPEC.md]).
-  def test_guest_preamble_returns_msgpack_encoded_preamble
+  def test_encoded_preamble_returns_msgpack_encoded_preamble
     require "msgpack"
     @sandbox.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
     @sandbox.define(:Auth).bind(:Token, :tk)
 
-    bytes = @sandbox.services.guest_preamble
+    bytes = @sandbox.services.encoded_preamble
     assert_kind_of String, bytes
     assert_equal Encoding::ASCII_8BIT, bytes.encoding
 
@@ -201,9 +201,9 @@ class TestNamespaceBinding < Minitest::Test
   end
 
   # Item #25 — empty registry produces a valid `[]` msgpack array as Frame 1.
-  def test_guest_preamble_empty_registry_is_valid_msgpack_array
+  def test_encoded_preamble_empty_registry_is_valid_msgpack_array
     require "msgpack"
-    bytes = @sandbox.services.guest_preamble
+    bytes = @sandbox.services.encoded_preamble
     decoded = MessagePack.unpack(bytes)
     assert_equal [], decoded
   end

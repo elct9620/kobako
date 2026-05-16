@@ -105,7 +105,7 @@ module Kobako
       # Handles or Fault envelopes. Structure:
       # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
       # +String+ of msgpack bytes.
-      def guest_preamble
+      def encoded_preamble
         MessagePack.pack(to_preamble)
       end
 

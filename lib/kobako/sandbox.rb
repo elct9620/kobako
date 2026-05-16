@@ -127,7 +127,7 @@ module Kobako
       @services.seal!
       reset_run_state!
 
-      invoke_guest_run(@services.guest_preamble, source.b)
+      invoke_guest_run(@services.encoded_preamble, source.b)
       drain_captured_output
       take_result!
     end

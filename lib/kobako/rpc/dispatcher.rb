@@ -43,7 +43,12 @@ module Kobako
       # error rather than a wasm trap
       # ({SPEC.md B-12}[link:../../../SPEC.md]).
       def dispatch(request_bytes, server)
-        value = perform_dispatch(request_bytes, server)
+        request = Kobako::RPC.decode_request(request_bytes)
+        handle_table = server.handle_table
+        target = resolve_target(request.target, server, handle_table)
+        args = request.args.map { |v| resolve_arg(v, handle_table) }
+        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
+        value = invoke(target, request.method_name, args, kwargs)
         encode_ok(value, server)
       rescue StandardError => e
         encode_dispatch_error(e)
@@ -65,15 +70,6 @@ module Kobako
         when ArgumentError           then encode_error("argument", error.message)
         else                              encode_error("runtime", "#{error.class}: #{error.message}")
         end
-      end
-
-      def perform_dispatch(request_bytes, server)
-        request = Kobako::RPC.decode_request(request_bytes)
-        handle_table = server.handle_table
-        target_object = resolve_target(request.target, server, handle_table)
-        args = request.args.map { |v| resolve_arg(v, handle_table) }
-        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
-        invoke(target_object, request.method_name, args, kwargs)
       end
 
       # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed
@@ -98,7 +94,7 @@ module Kobako
       def resolve_arg(value, handle_table)
         case value
         when Kobako::RPC::Handle
-          fetch_live_object(value.id, handle_table)
+          require_live_object!(value.id, handle_table)
         else
           value
         end
@@ -127,12 +123,12 @@ module Kobako
       end
 
       def resolve_handle(handle, handle_table)
-        fetch_live_object(handle.id, handle_table)
+        require_live_object!(handle.id, handle_table)
       end
 
       # Resolve +id+ through the HandleTable, distinguishing the
       # +:disconnected+ sentinel (E-14) from an unknown id (E-13).
-      def fetch_live_object(id, handle_table)
+      def require_live_object!(id, handle_table)
         object = handle_table.fetch(id)
         raise DisconnectedTargetError, "Handle id #{id} is disconnected" if object == :disconnected
 

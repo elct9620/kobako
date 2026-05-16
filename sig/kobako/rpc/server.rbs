@@ -19,7 +19,7 @@ module Kobako
 
       def to_preamble: () -> Array[[String, Array[String]]]
 
-      def guest_preamble: () -> String
+      def encoded_preamble: () -> String
 
       def seal!: () -> self
 

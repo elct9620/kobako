@@ -56,7 +56,7 @@ module Kobako
     # --- empty namespace: to_preamble round-trip ---
 
     # SPEC B-07 Notes: an empty Namespace (no Members) is legal and its
-    # to_preamble form is [name, []].  Verifies that guest_preamble does not
+    # to_preamble form is [name, []].  Verifies that encoded_preamble does not
     # blow up on a Server that contains only empty Namespaces.
     def test_empty_namespace_to_preamble_returns_empty_members_list
       namespace = Klass.new("Empty")
@@ -68,7 +68,7 @@ module Kobako
       registry = Kobako::RPC::Server.new
       registry.define(:Empty)
 
-      bytes = registry.guest_preamble
+      bytes = registry.encoded_preamble
       decoded = MessagePack.unpack(bytes)
       assert_equal [["Empty", []]], decoded
     end
