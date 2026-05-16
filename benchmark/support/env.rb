@@ -15,18 +15,37 @@ module Kobako
     module Env
       module_function
 
-      # Returns the snapshot as a plain Hash suitable for JSON.
+      # Returns the snapshot as a plain Hash suitable for JSON. +yjit_enabled+
+      # is recorded so two baselines captured under different JIT states can be
+      # compared without ambiguity; YJIT itself is not turned on by the
+      # benchmark suite — the runner respects whatever the invoking process
+      # chose (e.g. +RUBY_YJIT_ENABLE=1+ or +ruby --yjit+).
       def snapshot
-        {
-          ruby_version: RUBY_VERSION,
-          ruby_platform: RUBY_PLATFORM,
-          ruby_engine: defined?(RUBY_ENGINE) ? RUBY_ENGINE : "ruby",
-          host_os: RbConfig::CONFIG["host_os"],
-          host_cpu: RbConfig::CONFIG["host_cpu"],
-          processors: Etc.nprocessors,
+        HOST.merge(
+          yjit_enabled: yjit_enabled?,
           git_sha: git_sha,
           captured_at: Time.now.utc.iso8601
-        }
+        )
+      end
+
+      # Process-invariant host fields lifted out of {.snapshot} so the
+      # per-call hash stays focused on the moving parts (YJIT state, git
+      # SHA, capture timestamp) and the snapshot method body stays under
+      # +Metrics/MethodLength+.
+      HOST = {
+        ruby_version: RUBY_VERSION,
+        ruby_platform: RUBY_PLATFORM,
+        ruby_engine: RUBY_ENGINE,
+        host_os: RbConfig::CONFIG["host_os"],
+        host_cpu: RbConfig::CONFIG["host_cpu"],
+        processors: Etc.nprocessors
+      }.freeze
+
+      # +true+ iff YJIT is active in the current Ruby process. Returns +false+
+      # on Ruby builds that do not ship YJIT (older mruby, TruffleRuby, JRuby)
+      # so the field is always boolean rather than +nil+.
+      def yjit_enabled?
+        defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?
       end
 
       # Best-effort short git SHA. Returns the literal string

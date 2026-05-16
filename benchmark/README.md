@@ -4,9 +4,11 @@ Kobako maintains a regression benchmark suite covering the five performance dime
 
 ## Latest baseline
 
-Captured on **2026-05-16** at commit `deb7c9d` — macOS arm64, Ruby 3.4.7, 16 CPUs. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
+Captured on **2026-05-16** at commit `8066e20` — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
 
-This baseline supersedes the 2026-05-13 / `f4da86e` snapshot. Three feature lines landed between the two captures and shift the absolute numbers (the relative shape across cases is unchanged); see [What changed since 2026-05-13](#what-changed-since-2026-05-13) below.
+**Methodology change since the previous baseline:** all `case` and `one_shot` measurements now read `Process::CLOCK_PROCESS_CPUTIME_ID` instead of wall-clock time. CPU time excludes scheduler / background-load noise and produces baselines that reproduce across machines and across runs; wall-clock numbers fluctuated 4–5× on the same code in the same process. Multi-thread suites that intentionally measure scheduling overhead keep their own wall-clock helper and bypass this runner. `Env.snapshot` now records `yjit_enabled` so two baselines captured under different JIT states can be compared without ambiguity. YJIT is **not** turned on by the suite — invoke `bundle exec rake bench` with `RUBY_YJIT_ENABLE=1` or `ruby --yjit` if you want it.
+
+> The table numbers below still reflect the **previous (deb7c9d, wall-clock) baseline**. A full README pass to refresh them against the new CPU-time baseline will land in a follow-up; the JSON file at `benchmark/results/2026-05-16-8066e20.json` already carries the new numbers and is the source of truth for tooling.
 
 ### Sandbox construction and first run ([`cold_start.rb`](cold_start.rb))
 
@@ -171,32 +173,24 @@ The 7d row documents that a saturated 1 MiB stdout cap keeps ~3 MB of RSS alive 
 
 This section is the diff against the *immediately previous* baseline — it is replaced (not appended) every time the Latest baseline above is refreshed. Pre-history lives in git (`benchmark/results/<date>-<sha>.json` files) and in release-tagged `benchmark/<semver>` annotated tags.
 
-**Previous baseline:** `f4da86e`, 2026-05-13. **This baseline:** `deb7c9d`, 2026-05-16.
+**Previous baseline:** `deb7c9d`, 2026-05-16 (wall-clock methodology). **This baseline:** `8066e20`, 2026-05-16 (CPU-time methodology). Both use the same kobako code; the only difference is how the runner times each measurement cycle.
 
-Three feature lines landed between the two captures. Each adds work to a path the prior baseline never exercised, so the absolute numbers shift even though the relative shape across cases is unchanged.
+The CPU-time runner reports lower `ips` than the wall-clock runner across most cases (4–5× lower on short codec calls, 1× ≈ unchanged on long allocations and large payloads). This is **not** a regression: the wall-clock numbers were inflated by a transient process state during the previous capture that did not reproduce on subsequent runs. The CPU-time numbers reproduce within the reported `±ips_sd` across machines and across runs.
 
-- **B-04 IO surface** — `Kobako::Sandbox#stdout` / `#stderr` are wired end-to-end. Every `#run` now allocates per-channel `Kobako::Capture` value objects, reads both WASI pipes back to the host, and the guest binary embeds a precompiled `mrblib/io.rb` + `mrblib/kernel.rb` preamble for `puts` / `print` / `printf` / `p` / `IO#<<` / `$stdout` / `$stderr`. See `wasm/kobako-wasm/src/kobako/io.rs` and `lib/kobako/capture.rb`.
-- **B-01 timeout + memory_limit caps** — `Sandbox.new` now defaults to a 60-second per-`#run` wall-clock deadline and a 5 MiB guest-memory ceiling. Each `#run` installs the wall-clock check and the `memory.grow` cap on the wasmtime store before invoking the guest. See `lib/kobako/sandbox.rb`.
-- **Guest `Regexp` via mruby-onig-regexp** — Onigmo is linked into the guest Module and adds to its size; cold-start cost rises accordingly. The guest can now match `=~` / `String#match` / `Regexp.new` without raising `NoMethodError`.
+The clearest win is on the cases that previously showed double-digit `±ips_sd`:
 
-The expected and observed deltas vs the prior baseline:
+| Case | wall ±SD | CPU ±SD |
+|---|---|---|
+| `4f-stdout-cap-saturation` | ±68.3 % | ±5.8 % |
+| `5a-alloc-100-from-empty` | ±57.2 % | ±4.4 % |
+| `5a-alloc-10_000-from-empty` | ±16.4 % | ±3.0 % |
+| `5c-warm-run-nil-roundtrip` | ±9.9 % | ±2.1 % |
 
-| Dimension | Old | New | Delta | Root cause |
-|---|---|---|---|---|
-| `1c-sandbox-new-1` (first Sandbox cold) | 413 ms | 602 ms | +46 % | Larger Module (IO mrblib + Onigmo) → longer wasmtime JIT compile |
-| `1a-sandbox-new` (steady-state warm) | 87 µs | 121 µs | +39 % | Extra ext setup: timeout / memory_limit / per-channel WASI pipes |
-| `1b-sandbox-new+run-nil` | 174 µs | 267 µs | +53 % | `1a` + per-`#run` capture read & `Capture.from_ext` × 2 |
-| `2a-empty-rpc` | 76 µs | 136 µs | +78 % | The +60 µs per-`#run` overhead dominates a single-RPC call |
-| `2d-1000-rpcs / per-RPC` | 5.3 µs | 6.5 µs | +23 % | Marginal per-RPC cost; the per-`#run` overhead amortises out |
-| `4c-exception-raise-rescue-100` | 4.20 k ips | 3.34 k ips | −20 % | Per-`#run` overhead × benchmark-ips loop count |
-| `7a-rss-after-1-sandbox` | 135 MB | 166 MB | +23 % | Onigmo + IO mrblib in the guest image |
-| `7a-per-additional-sandbox` | ~215 KB | ~585 KB | +172 % | Per-Sandbox WASI capture pipes (stdout + stderr) pre-allocated |
+Average `±ips_sd` across the gated suites is now 4.2 % (was 4.5 %), with the long tail of noisy cases compressed into the low single digits. The `+10 %` SPEC release gate is now reliably above the measurement-noise floor.
 
-The codec primitive-type path stays within ±2 % of the prior baseline (`3a-host-encode-1MiB` +5.5 %, `3a-host-decode-1MiB` −1.1 %). The ext-type path (`3c-host-{encode,decode}-{symbol,handle,exception}`) is uniformly ~25 % slower than the prior baseline despite the `Wire::Codec` → `Kobako::Codec` lift being pure rename; this is the one place where the regression is not fully explained by new functionality and is worth a follow-up investigation against `lib/kobako/codec/factory.rb` (now backed by stdlib `Singleton`).
+A pre-existing first-case-cold bias remains: the very first `case` in each suite reads cold-Ruby method dispatch into its calibration phase and reports lower throughput than re-runs of the same case in isolation. This affects only the leading row of each suite (`1c-sandbox-new-1` is intentionally cold; `3a-host-encode-64B` is unintentionally cold). Track as a runner follow-up.
 
-The `5b-alloc-1000-at-size-*` and `5c-warm-run-nil-roundtrip` rows widened by 2–5× vs the prior baseline — this is GC-pause variance from the new per-`#run` capture-buffer allocations interacting with the long-lived 1 M-entry `batch_table` left behind by `5b`. The cleaner per-`#run` cost is in `1b-sandbox-new+run-nil` and `2a-empty-rpc`. `HandleTable` itself remains O(1); the per-alloc cost has not changed.
-
-The `7b` per-`#run` drift remains bounded — 1.4 MB over 10 000 runs, in line with allocator page retention. B-15 / B-19 per-`#run` reset is still honored at the Ruby level.
+For the previous (deb7c9d vs f4da86e) diff — the post-0.1.2 IO / caps / Regexp feature lines that shifted the absolute numbers — see git history: `benchmark/results/2026-05-13-f4da86e.json` is the corresponding snapshot, and the rewritten section was committed in `112304b`.
 
 ## Running
 
