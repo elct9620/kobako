@@ -470,7 +470,7 @@ class TestCodec < Minitest::Test
 
   # ---------- Handle ext wrong payload length (SPEC Wire Codec Ext Types) ----------
   #
-  # The factory's decode_handle validates that the ext 0x01 payload is
+  # The factory's unpack_handle validates that the ext 0x01 payload is
   # exactly 4 bytes.  A fixext1 (0xd4 type=0x01, 1-byte payload) is a
   # deliberate wire violation that must raise InvalidType, not silently
   # decode as a Handle with a truncated id.

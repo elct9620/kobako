@@ -40,14 +40,14 @@ module Kobako
       when TYPE_PANIC
         decode_panic(body)
       else
-        raise trap_for_tag(tag)
+        raise build_trap_error(tag)
       end
     end
 
     # TrapError for unknown or absent tag
     # ({SPEC.md ABI Signatures}[link:../../SPEC.md]: len=0 and unknown-tag
     # both walk the trap path).
-    def trap_for_tag(tag)
+    def build_trap_error(tag)
       return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
 
       TrapError.new(format("unknown outcome tag 0x%<tag>02x", tag: tag))
@@ -67,7 +67,7 @@ module Kobako
     def decode_value(body)
       Kobako::Codec::Decoder.decode(body)
     rescue Kobako::Codec::Error => e
-      raise wire_violation_error("result envelope decode failed: #{e.message}")
+      raise build_wire_violation_error("result envelope decode failed: #{e.message}")
     end
 
     # Decode failure on the panic tag is a SandboxError (E-08). Either
@@ -75,20 +75,20 @@ module Kobako
     # layer exception via +build_panic_error+ and raised; on wire-decode
     # failure the rescue path raises the wire-violation +SandboxError+.
     def decode_panic(body)
-      raise build_panic_error(decode_panic_map(body))
+      raise build_panic_error(parse_panic(body))
     rescue Kobako::Codec::Error => e
-      raise wire_violation_error("panic envelope decode failed: #{e.message}")
+      raise build_wire_violation_error("panic envelope decode failed: #{e.message}")
     end
 
     # Build a +Panic+ value object from the msgpack-decoded body. Raises
     # +Kobako::Codec::InvalidType+ when the body is not a map or
     # when required keys are missing — both routed by +decode_panic+ to
-    # +wire_violation_error+.
-    def decode_panic_map(body)
+    # +build_wire_violation_error+.
+    def parse_panic(body)
       map = Kobako::Codec::Decoder.decode(body)
       raise Kobako::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-      Kobako::Codec::Utils.translate_value_object_error do
+      Kobako::Codec::Utils.wire_boundary do
         Panic.new(
           origin: map["origin"], klass: map["class"], message: map["message"],
           backtrace: map["backtrace"] || [], details: map["details"]
@@ -122,7 +122,7 @@ module Kobako
       panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
     end
 
-    def wire_violation_error(message)
+    def build_wire_violation_error(message)
       SandboxError.new(
         message,
         origin: Panic::ORIGIN_SANDBOX,

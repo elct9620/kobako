@@ -58,18 +58,18 @@ module Kobako
 
       def initialize
         @factory = MessagePack::Factory.new
-        register_symbol_type
-        register_handle_type
-        register_exception_type
+        register_symbol
+        register_handle
+        register_fault
       end
 
       private
 
-      def register_symbol_type
+      def register_symbol
         @factory.register_type(
           EXT_SYMBOL, Symbol,
           packer: method(:pack_symbol),
-          unpacker: method(:decode_symbol)
+          unpacker: method(:unpack_symbol)
         )
       end
 
@@ -86,47 +86,47 @@ module Kobako
       # would otherwise apply. The re-tag step lives here because the
       # msgpack ext-type unpacker hands us binary bytes; the assertion
       # itself is shared with {Decoder} via {Utils.assert_utf8!}.
-      def decode_symbol(payload)
+      def unpack_symbol(payload)
         name = payload.b.force_encoding(Encoding::UTF_8)
         Utils.assert_utf8!(name, "ext 0x00 payload")
         name.to_sym
       end
 
-      def register_handle_type
+      def register_handle
         @factory.register_type(
           EXT_HANDLE, RPC::Handle,
           packer: ->(handle) { [handle.id].pack("N") },
-          unpacker: ->(payload) { decode_handle(payload) }
+          unpacker: ->(payload) { unpack_handle(payload) }
         )
       end
 
-      def register_exception_type
+      def register_fault
         @factory.register_type(
           EXT_ERRENV, RPC::Fault,
-          packer: ->(exc) { pack_exception(exc) },
-          unpacker: ->(payload) { unpack_exception(payload) }
+          packer: ->(fault) { pack_fault(fault) },
+          unpacker: ->(payload) { unpack_fault(payload) }
         )
       end
 
       # Peel off the fixext-4 frame, hand the bytes to +RPC::Handle.new+, and
       # translate the +ArgumentError+ raised by Handle's invariants into
-      # a wire-layer +InvalidType+ via {Codec::Utils.translate_value_object_error}.
+      # a wire-layer +InvalidType+ via {Codec::Utils.wire_boundary}.
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape.
-      def decode_handle(payload)
+      def unpack_handle(payload)
         bytes = payload.b
         raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
-        Codec::Utils.translate_value_object_error { RPC::Handle.new(id) }
+        Codec::Utils.wire_boundary { RPC::Handle.new(id) }
       end
 
       # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so
       # the embedded payload flows through the same boundary as a top-level
-      # encode — nested kobako values (Handle, nested Exception) reach the
+      # encode — nested kobako values (Handle, nested Fault) reach the
       # registered ext-type packers via the cached singleton.
-      def pack_exception(exc)
-        Encoder.encode("type" => exc.type, "message" => exc.message, "details" => exc.details)
+      def pack_fault(fault)
+        Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
       end
 
       # Peel the embedded msgpack map and hand it to +RPC::Fault.new+;
@@ -141,12 +141,12 @@ module Kobako
       # is bounded by msgpack nesting depth — identical to nested Array /
       # Hash payloads — so no extra guard is needed. Do not switch back to
       # +factory.load+ to "simplify": that path bypasses UTF-8 validation
-      # and re-opens the Decoder's special case for Exception (removed in M5).
-      def unpack_exception(payload)
+      # and re-opens the Decoder's special case for Fault (removed in M5).
+      def unpack_fault(payload)
         map = Decoder.decode(payload)
         raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
 
-        Codec::Utils.translate_value_object_error do
+        Codec::Utils.wire_boundary do
           RPC::Fault.new(type: map["type"], message: map["message"], details: map["details"])
         end
       end

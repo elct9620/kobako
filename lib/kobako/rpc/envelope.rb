@@ -60,7 +60,7 @@ module Kobako
       end
 
       target, method_name, args, kwargs = arr
-      Codec::Utils.translate_value_object_error do
+      Codec::Utils.wire_boundary do
         Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
       end
     end
@@ -112,7 +112,7 @@ module Kobako
       end
 
       status, payload = arr
-      Codec::Utils.translate_value_object_error { Response.new(status: status, payload: payload) }
+      Codec::Utils.wire_boundary { Response.new(status: status, payload: payload) }
     end
   end
 end

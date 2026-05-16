@@ -3,7 +3,7 @@ module Kobako
     module Utils
       def self?.assert_utf8!: (String string, String label) -> void
 
-      def self?.translate_value_object_error: [T] () { () -> T } -> T
+      def self?.wire_boundary: [T] () { () -> T } -> T
     end
   end
 end

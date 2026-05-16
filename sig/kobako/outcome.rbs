@@ -5,7 +5,7 @@ module Kobako
 
     def self?.decode: (String bytes) -> untyped
 
-    def self?.trap_for_tag: (Integer? tag) -> TrapError
+    def self?.build_trap_error: (Integer? tag) -> TrapError
 
     def self?.split_outcome_tag: (String bytes) -> [Integer?, String]
 
@@ -13,12 +13,12 @@ module Kobako
 
     def self?.decode_panic: (String body) -> void
 
-    def self?.decode_panic_map: (String body) -> Panic
+    def self?.parse_panic: (String body) -> Panic
 
     def self?.build_panic_error: (Panic panic) -> (SandboxError | ServiceError)
 
     def self?.panic_target_class: (Panic panic) -> (singleton(SandboxError) | singleton(ServiceError))
 
-    def self?.wire_violation_error: (String message) -> SandboxError
+    def self?.build_wire_violation_error: (String message) -> SandboxError
   end
 end
