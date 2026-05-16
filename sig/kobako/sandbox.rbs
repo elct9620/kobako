@@ -44,9 +44,9 @@ module Kobako
 
     def reset_run_state!: () -> void
 
-    def drain_captured_output: () -> void
+    def read_captures!: () -> void
 
-    def invoke_guest_run: (String preamble, String source) -> void
+    def run_guest: (String preamble, String source) -> void
 
     def take_result!: () -> untyped
   end

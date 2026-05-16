@@ -51,18 +51,19 @@ module Kobako
         value = invoke(target, request.method_name, args, kwargs)
         encode_ok(value, server)
       rescue StandardError => e
-        encode_dispatch_error(e)
+        encode_caught_error(e)
       end
 
-      # Map an error raised during dispatch to a +Response.error+ envelope.
-      # +error+ is the +StandardError+ caught at the dispatch boundary. Returns
-      # a msgpack-encoded Response envelope (binary). Four error buckets
-      # ({SPEC.md B-12}[link:../../../SPEC.md]): +Kobako::Codec::Error+ →
-      # type="runtime" (wire decode failed); +DisconnectedTargetError+ →
-      # type="disconnected" (E-14); +UndefinedTargetError+ → type="undefined"
-      # (E-13); +ArgumentError+ → type="argument" (B-12 arity mismatch);
-      # everything else → type="runtime".
-      def encode_dispatch_error(error)
+      # Map an error caught at the dispatch boundary to a +Response.error+
+      # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
+      # rescue. Returns a msgpack-encoded Response envelope (binary). Four
+      # error buckets ({SPEC.md B-12}[link:../../../SPEC.md]):
+      # +Kobako::Codec::Error+ → type="runtime" (wire decode failed);
+      # +DisconnectedTargetError+ → type="disconnected" (E-14);
+      # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
+      # type="argument" (B-12 arity mismatch); everything else →
+      # type="runtime".
+      def encode_caught_error(error)
         case error
         when Kobako::Codec::Error then encode_error("runtime", "wire decode failed: #{error.message}")
         when DisconnectedTargetError then encode_error("disconnected", error.message)

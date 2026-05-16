@@ -127,8 +127,8 @@ module Kobako
       @services.seal!
       reset_run_state!
 
-      invoke_guest_run(@services.encoded_preamble, source.b)
-      drain_captured_output
+      run_guest(@services.encoded_preamble, source.b)
+      read_captures!
       take_result!
     end
 
@@ -183,8 +183,9 @@ module Kobako
     # ext after a guest run completes and wrap each as a +Capture+ value
     # object. The ext clips +bytes+ to the configured cap and sets
     # +truncated+ when the guest produced strictly more than +cap+ bytes
-    # ({SPEC.md B-04}[link:../../SPEC.md]).
-    def drain_captured_output
+    # ({SPEC.md B-04}[link:../../SPEC.md]). Mirror of {#clear_captures!}
+    # at the post-run boundary.
+    def read_captures!
       out_bytes, out_truncated = @instance.stdout
       err_bytes, err_truncated = @instance.stderr
       @stdout_capture = Capture.from_ext(out_bytes, out_truncated)
@@ -197,7 +198,7 @@ module Kobako
     # (SPEC.md E-19 / E-20) are routed to the named TrapError subclasses
     # so callers that want to surface a specific reason can rescue them;
     # everything else falls through to the base TrapError.
-    def invoke_guest_run(preamble, source)
+    def run_guest(preamble, source)
       @instance.run(preamble, source)
     rescue Kobako::Wasm::TimeoutError => e
       raise TimeoutError, "guest exceeded timeout: #{e.message}"
