@@ -13,7 +13,7 @@ gemfile do
   source "https://rubygems.org"
   gem "ruby_llm"
   gem "reline"
-  gem "kobako", "~> 0.1.2"
+  gem "kobako", "~> 0.2.0"
 end
 
 require "kobako"
@@ -222,8 +222,8 @@ module CodeMode
   end
 
   # Human-readable, colourised tool-call trace. Wired into the chat via
-  # ruby_llm's official +on_tool_call+ / +on_tool_result+ callbacks so we
-  # render the agent's dispatch into the sandbox without monkey-patching.
+  # ruby_llm's official +before_tool_call+ / +after_tool_result+ callbacks
+  # so we render the agent's dispatch into the sandbox without monkey-patching.
   # ANSI is skipped when stdout is not a TTY so piping the script to a
   # file stays clean.
   module Trace
@@ -379,16 +379,16 @@ chat = RubyLLM
        .with_instructions(CodeMode::SYSTEM_PROMPT)
        .with_tool(CodeMode::Execute.new(sandbox))
 
-# Shared between on_tool_call/on_tool_result so the result line can
-# echo the tool name — ruby_llm's tool_result callback only carries
+# Shared between before_tool_call/after_tool_result so the result line
+# can echo the tool name — ruby_llm's tool_result callback only carries
 # the return value, and the two callbacks always fire in a pair per
 # tool invocation, so a local closure variable is enough.
 last_tool_name = nil
-chat.on_tool_call do |call|
+chat.before_tool_call do |call|
   last_tool_name = call.name
   CodeMode::Trace.tool_call(call)
 end
-chat.on_tool_result { |result| CodeMode::Trace.tool_result(last_tool_name, result) }
+chat.after_tool_result { |result| CodeMode::Trace.tool_result(last_tool_name, result) }
 
 # Reline UX sugar for slash commands: delegate tab-completion and
 # inline colouring to ReplCommands so the verb list lives next to the
