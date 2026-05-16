@@ -28,6 +28,14 @@
 #        non-zero is normal (the allocator does not eagerly return
 #        pages to the OS). A sudden jump versus a prior baseline
 #        indicates a regression, not the absolute value.
+#   7d — Near-cap stdout retention. Run a script that fills the
+#        default 1 MiB stdout_limit, sample RSS while the host-side
+#        capture buffer still holds the bytes, then drop the
+#        Sandbox reference and re-sample after GC. The peak delta
+#        documents how much the WASI pipe + Sandbox#stdout String
+#        cost per saturated channel (SPEC.md B-04); a sudden jump
+#        versus baseline indicates a regression in the capture
+#        buffer path.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -146,6 +154,48 @@ def record_retention(runner, before, during)
               b: before, d: during, p: during - before, a: after, r: after - before)
 end
 
+# ---- 7d: near-cap stdout retention --------------------------------------
+
+# Attempt 2 MiB of stdout writes against the 1 MiB default cap.
+# Guest puts does not raise on cap rejection — the WASI pipe drops
+# bytes past the cap and the loop runs to completion. Mirrors
+# benchmark/mruby_eval.rb 4f.
+STDOUT_FILL_SCRIPT = <<~RUBY
+  2048.times { puts "x" * 1023 }
+RUBY
+
+def measure_near_cap_stdout(runner)
+  sandbox = warm_sandbox
+  before = gc_then_rss
+  record(runner, "7d-rss-before-near-cap-stdout", rss_kb: before)
+  during = sample_during_near_cap(runner, sandbox, before)
+  sandbox = nil # rubocop:disable Lint/UselessAssignment
+  record_near_cap_retention(runner, before, during)
+end
+
+def sample_during_near_cap(runner, sandbox, before)
+  sandbox.run(STDOUT_FILL_SCRIPT)
+  during = sample_rss_kb
+  # Read sandbox.stdout *after* the rss sample so the captured 1 MiB
+  # String stays alive across the measurement window — mirrors the
+  # 7c pattern (rubocop's auto-correct will strip an "unused" read).
+  bytes = sandbox.stdout.bytesize
+  record(runner, "7d-rss-while-holding-near-cap-stdout",
+         rss_kb: during,
+         peak_delta_kb: during - before,
+         stdout_bytesize: bytes,
+         stdout_truncated: sandbox.stdout_truncated?)
+  during
+end
+
+def record_near_cap_retention(runner, before, during)
+  after = gc_then_rss
+  record(runner, "7d-rss-after-near-cap-stdout-gc",
+         rss_kb: after, retained_delta_kb: after - before)
+  puts format("7d before=%<b>d KB, during=%<d>d KB (peak +%<p>d), after-gc=%<a>d KB (retained %<r>+d)",
+              b: before, d: during, p: during - before, a: after, r: after - before)
+end
+
 # ---- driver -------------------------------------------------------------
 
 runner = Kobako::Bench::Runner.new("memory")
@@ -156,5 +206,6 @@ GC.start
 
 measure_run_drift(runner)
 measure_large_payload(runner)
+measure_near_cap_stdout(runner)
 
 puts runner.write!

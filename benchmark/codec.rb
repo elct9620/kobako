@@ -79,7 +79,8 @@ end
 # 3a / 3b — guest side: Sandbox#run returning a constructed value.
 # Absolute ips includes the constant Sandbox#run overhead (see
 # #1 1b); per-size and per-depth ratios are the regression signal.
-sandbox = Kobako::Sandbox.new
+# memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
+sandbox = Kobako::Sandbox.new(memory_limit: nil)
 sandbox.run("nil") # warm
 
 # Guest-side String is capped by MRB_STR_LENGTH_MAX (1 MiB; the

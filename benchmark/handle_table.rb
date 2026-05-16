@@ -48,7 +48,8 @@ batch_obj = Object.new
   end
 end
 
-sandbox = Kobako::Sandbox.new
+# memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
+sandbox = Kobako::Sandbox.new(memory_limit: nil)
 sandbox.run("nil") # warm
 
 runner.case("5c-warm-run-nil-roundtrip") { sandbox.run("nil") }
