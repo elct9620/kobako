@@ -42,7 +42,9 @@
 // explicitly keeps incremental rebuilds cheap.
 
 use std::env;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     // Always re-run when the build-script-relevant env vars change. Without
@@ -51,6 +53,7 @@ fn main() {
     // invocations.
     println!("cargo:rerun-if-env-changed=MRUBY_LIB_DIR");
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
+    println!("cargo:rerun-if-env-changed=MRBC_PATH");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/mruby/exc.c");
 
@@ -63,6 +66,21 @@ fn main() {
     if target_arch != "wasm32" {
         return;
     }
+
+    // Stage C.5: precompile mrblib/*.rb to RITE-format .mrb blobs that
+    // src/kobako/bytecode.rs embeds via `include_bytes!`. The host `mrbc`
+    // emerges from the same vendored mruby tree as `libmruby.a` (Stage B
+    // builds both); the path is either supplied explicitly by the Rake
+    // driver via `MRBC_PATH` or auto-discovered from CARGO_MANIFEST_DIR.
+    // When mrbc is unavailable (clean checkout doing `cargo check` before
+    // `rake mruby:build`), we drop empty placeholder files so the
+    // `include_bytes!` call sites compile; the resulting cdylib would
+    // fail at runtime, but at that point `wasm:build` would also have
+    // failed for the missing libmruby.a anyway, so the degradation is
+    // self-consistent.
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    precompile_mrblib(&manifest_dir, &out_dir);
 
     // Locate vendor/mruby/include relative to the crate root. CARGO_MANIFEST_DIR
     // is always set by cargo; the crate lives at wasm/kobako-wasm/ so
@@ -144,5 +162,94 @@ fn main() {
             println!("cargo:rustc-link-search=native={}", setjmp_dir);
             println!("cargo:rustc-link-lib=static=setjmp");
         }
+    }
+}
+
+/// Compile every `mrblib/*.rb` source into a matching `OUT_DIR/<stem>.mrb`
+/// RITE blob. `src/kobako/bytecode.rs` `include_bytes!` reads those blobs
+/// into compile-time `&[u8]` constants. Resolves `mrbc` from the
+/// `MRBC_PATH` env var (set by `tasks/wasm.rake`) first, falling back to
+/// the vendored host-target build that Stage B produces at a known
+/// project-relative path. When neither resolves, emits empty placeholder
+/// blobs so the `include_bytes!` call sites still type-check during a
+/// `cargo check` against a clean checkout — the same lane that already
+/// tolerates a missing `libmruby.a` for link-time wiring above.
+fn precompile_mrblib(manifest_dir: &Path, out_dir: &Path) {
+    let mrblib_dir = manifest_dir.join("mrblib");
+    let sources = ["io.rb", "kernel.rb"];
+
+    for src in &sources {
+        let src_path = mrblib_dir.join(src);
+        println!("cargo:rerun-if-changed={}", src_path.display());
+    }
+
+    let mrbc = resolve_mrbc(manifest_dir);
+
+    for src in &sources {
+        let src_path = mrblib_dir.join(src);
+        let stem = src.strip_suffix(".rb").unwrap();
+        let dst_path = out_dir.join(format!("{}.mrb", stem));
+
+        if let Some(ref mrbc_bin) = mrbc {
+            let status = Command::new(mrbc_bin)
+                .arg("-o")
+                .arg(&dst_path)
+                .arg(&src_path)
+                .status()
+                .unwrap_or_else(|e| panic!("failed to spawn {}: {}", mrbc_bin.display(), e));
+            if !status.success() {
+                panic!(
+                    "mrbc {} -> {} failed with status {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    status
+                );
+            }
+        } else {
+            // No mrbc available — write an empty placeholder so
+            // include_bytes! compiles. cargo:warning surfaces the
+            // degraded build to the operator.
+            fs::write(&dst_path, b"")
+                .unwrap_or_else(|e| panic!("write placeholder {}: {}", dst_path.display(), e));
+            println!(
+                "cargo:warning=mrbc not found; wrote empty {} (run `rake mruby:build`)",
+                dst_path.display()
+            );
+        }
+    }
+}
+
+/// Locate the host-target `mrbc` binary. Preference order:
+///
+///   1. `MRBC_PATH` env var (set by `tasks/wasm.rake` cargo_build_env).
+///   2. `<crate>/../../vendor/mruby/build/host/bin/mrbc` — the path
+///      where `MRuby::Build.new("host")` in `build_config/wasi.rb`
+///      drops the binary after `rake mruby:build`.
+///
+/// Returns `None` when neither resolves to an existing file, so the
+/// caller can fall back to writing empty placeholder blobs.
+fn resolve_mrbc(manifest_dir: &Path) -> Option<PathBuf> {
+    if let Ok(path) = env::var("MRBC_PATH") {
+        if !path.is_empty() {
+            let candidate = PathBuf::from(path);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    let fallback = manifest_dir
+        .join("..")
+        .join("..")
+        .join("vendor")
+        .join("mruby")
+        .join("build")
+        .join("host")
+        .join("bin")
+        .join("mrbc");
+    if fallback.exists() {
+        Some(fallback)
+    } else {
+        None
     }
 }

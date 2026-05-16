@@ -60,6 +60,10 @@ module KobakoWasm
 
     def newest_source_mtime
       files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
+      # mrblib/*.rb is precompiled by build.rs via mrbc; touch them as
+      # inputs so wasm:build picks up edits to the Ruby preamble even
+      # when no other source under src/ has changed.
+      files.concat(Dir.glob(File.join(CRATE_DIR, "mrblib", "*.rb")))
       files << CRATE_BUILD_RS if File.exist?(CRATE_BUILD_RS)
       files << MANIFEST
       files << LIBMRUBY_PATH if File.exist?(LIBMRUBY_PATH)
@@ -103,7 +107,8 @@ module KobakoWasm
         "CC_wasm32_wasip1" => clang,
         "AR_wasm32_wasip1" => llvm_ar,
         "WASI_SDK_PATH" => WASI_SDK_DIR,
-        "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
+        "MRUBY_LIB_DIR" => MRUBY_LIB_DIR,
+        "MRBC_PATH" => MRBC_PATH
       }
     end
   end

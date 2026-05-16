@@ -270,6 +270,18 @@ extern "C" {
         cxt: *mut mrb_ccontext,
     ) -> mrb_value;
 
+    /// `mrb_load_irep_buf(mrb, buf, size)` — loads and evaluates a
+    /// precompiled RITE bytecode blob (as emitted by `mrbc -o foo.mrb`).
+    /// Returns the last expression value; sets `mrb->exc` on a malformed
+    /// blob (header mismatch, truncated section, version drift). Used at
+    /// install time to bring in `mrblib/io.rb` and `mrblib/kernel.rb`
+    /// without paying the parse-source cost on every `__kobako_run`.
+    pub fn mrb_load_irep_buf(
+        mrb: *mut mrb_state,
+        buf: *const core::ffi::c_void,
+        size: usize,
+    ) -> mrb_value;
+
     /// `mrb_ccontext_new(mrb)` — allocate a compiler context. Returned
     /// pointer is owned by the caller and must be released with
     /// `mrb_ccontext_free`.

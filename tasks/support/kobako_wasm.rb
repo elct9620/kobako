@@ -36,6 +36,11 @@ module KobakoWasm
   WASI_SDK_DIR   = (ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")).freeze
   MRUBY_LIB_DIR  = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib").freeze
   LIBMRUBY_PATH  = File.join(MRUBY_LIB_DIR, "libmruby.a").freeze
+  # Host-target +mrbc+ produced by Stage B (+MRuby::Build.new("host")+ in
+  # +build_config/wasi.rb+). +build.rs+ uses this to precompile
+  # +wasm/kobako-wasm/mrblib/*.rb+ into RITE bytecode embedded in the
+  # cdylib (see +src/kobako/bytecode.rs+).
+  MRBC_PATH      = File.join(VENDOR_DIR, "mruby", "build", "host", "bin", "mrbc").freeze
 
   def self.cargo_available?
     system("which cargo > /dev/null 2>&1")

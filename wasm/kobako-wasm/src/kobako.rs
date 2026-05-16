@@ -32,6 +32,7 @@
 
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod bridges;
+pub mod bytecode;
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
