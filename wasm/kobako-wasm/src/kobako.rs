@@ -33,6 +33,7 @@
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod bridges;
 pub mod bytecode;
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod io;
 
 #[cfg(target_arch = "wasm32")]

@@ -4,7 +4,7 @@
 //!
 //! ## Why a separate file
 //!
-//! The IO surface is its own concern from the Kobako module / RPC
+//! The IO surface is a separate concern from the Kobako module / RPC
 //! handles housed in [`super::Kobako`]: there is no instance state to
 //! cache beyond the fd ivar, and the bridges talk to wasi-libc's
 //! `stdout` / `stderr` `FILE *` globals via a C shim
@@ -62,7 +62,7 @@ const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
 /// [`super::Kobako::install_raw`], which already holds the same
 /// liveness contract.
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-pub unsafe fn install(mrb: *mut sys::mrb_state) {
+pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: `mrb` is live per the function's safety contract.

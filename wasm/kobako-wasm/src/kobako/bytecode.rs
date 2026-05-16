@@ -27,14 +27,14 @@ use crate::mruby::sys;
 /// `#closed?`, `#to_i` alias). Loaded after the C bridges register
 /// `IO#write` / `IO#fileno`; see `src/kobako/io.rs`.
 #[cfg(target_arch = "wasm32")]
-pub const IO_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/io.mrb"));
+pub(crate) const IO_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/io.mrb"));
 
 /// Compiled bytecode for `mrblib/kernel.rb` — defines `Kernel#print`,
 /// `#puts`, `#printf`, `#p`, `#warn` as delegators to the assignable
 /// `$stdout` / `$stderr` globals. Loaded after `STDOUT` / `STDERR` /
 /// `$stdout` / `$stderr` are wired in `install_raw`.
 #[cfg(target_arch = "wasm32")]
-pub const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kernel.mrb"));
+pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kernel.mrb"));
 
 /// Load a precompiled RITE blob into the live mruby state. Returns the
 /// last expression value from the loaded code (always `nil` for our
@@ -56,20 +56,13 @@ pub const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kernel.m
 ///
 /// [`kobako_get_exc`]: crate::mruby::sys::kobako_get_exc
 #[cfg(target_arch = "wasm32")]
-pub unsafe fn load(mrb: *mut sys::mrb_state, bytes: &[u8]) {
+pub(crate) unsafe fn load(mrb: *mut sys::mrb_state, bytes: &[u8]) {
     unsafe {
         sys::mrb_load_irep_buf(mrb, bytes.as_ptr() as *const core::ffi::c_void, bytes.len());
     }
 }
 
-// On host-target builds (developer machine `cargo test`) the wasm32
-// build script never runs, so `OUT_DIR` does not contain the .mrb
-// blobs. The constants and the loader are wasm32-only; host tests
-// that exercise the surrounding glue stub them out via cfg gates,
-// matching the pattern in `crate::kobako::Kobako`.
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub const IO_MRB: &[u8] = &[];
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub const KERNEL_MRB: &[u8] = &[];
+// No host-target stubs needed. Every consumer of `IO_MRB` / `KERNEL_MRB`
+// / `load` sits inside a `#[cfg(target_arch = "wasm32")]` block, so the
+// items are wasm32-only by reach as well as by definition. Host
+// `cargo test` does not compile any reference to them.
