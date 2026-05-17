@@ -362,6 +362,39 @@ class TestE2EJourneys < Minitest::Test
                  "Kernel#putc must not bleed into stderr"
   end
 
+  # SPEC.md B-04: Kernel#putc with an Integer masks with +& 0xff+ before
+  # writing — mirrors mruby-io's +io_putc+ in
+  # vendor/mruby/mrbgems/mruby-io/src/io.c:1103. The companion test
+  # +test_putc_integer_writes_byte_to_stdout+ uses +putc 65+ where the
+  # mask is the identity; this one feeds +putc 321+ (321 & 0xff == 65)
+  # so dropping the mask would silently write +"Ł"+-ish bytes
+  # instead of +"A"+ and the assertion would catch the drift.
+  def test_putc_integer_masks_byte
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run("putc 321; 1")
+
+    assert_equal "A", sandbox.stdout,
+                 "Kernel#putc with Integer must mask via (c & 0xff); 321 → 65 → 'A'"
+    assert_empty sandbox.stderr,
+                 "Kernel#putc must not bleed into stderr"
+  end
+
+  # SPEC.md B-04: Kernel#putc returns +nil+, not the argument — pinned
+  # by mruby-io's mrblib/kernel.rb:95-98. The IO-level +IO#putc+
+  # returns the original object; the Kernel delegator deliberately
+  # drops it. If anyone collapses the Kernel#putc body back to a
+  # one-liner delegate, IO#putc's +obj+ would bleed through and this
+  # assertion catches the drift.
+  def test_kernel_putc_returns_nil
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    result = sandbox.run("putc 65")
+
+    assert_nil result,
+               "Kernel#putc must return nil (mruby-io alignment), not the obj that IO#putc returns"
+    assert_equal "A", sandbox.stdout,
+                 "putc 65 must still land on stdout"
+  end
+
   # SPEC.md B-04: Kernel#putc with a String writes the first character.
   # Mruby is compiled without MRB_UTF8_STRING, so the first character is
   # the first byte — same behavior as mruby-io's non-UTF8 fallback path
