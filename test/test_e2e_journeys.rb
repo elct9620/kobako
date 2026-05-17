@@ -349,6 +349,33 @@ class TestE2EJourneys < Minitest::Test
                  "Kernel#warn must not bleed into stdout"
   end
 
+  # SPEC.md B-04: Kernel#putc routes through $stdout, Integer arg writes a
+  # single byte (c & 0xff). Pins alignment with mruby-io's mrblib/kernel.rb
+  # putc surface (vendor/mruby/mrbgems/mruby-io/mrblib/kernel.rb:95-98).
+  def test_putc_integer_writes_byte_to_stdout
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run("putc 65; 1")
+
+    assert_equal "A", sandbox.stdout,
+                 "Kernel#putc with Integer must write the byte (c & 0xff) to $stdout"
+    assert_empty sandbox.stderr,
+                 "Kernel#putc must not bleed into stderr"
+  end
+
+  # SPEC.md B-04: Kernel#putc with a String writes the first character.
+  # Mruby is compiled without MRB_UTF8_STRING, so the first character is
+  # the first byte — same behavior as mruby-io's non-UTF8 fallback path
+  # (vendor/mruby/mrbgems/mruby-io/src/io.c:1125-1129).
+  def test_putc_string_writes_first_character_to_stdout
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.run('putc "Zed"; 1')
+
+    assert_equal "Z", sandbox.stdout,
+                 "Kernel#putc with String must write only the first character to $stdout"
+    assert_empty sandbox.stderr,
+                 "Kernel#putc must not bleed into stderr"
+  end
+
   # SPEC.md B-04: Kernel#p writes inspect form to $stdout (not the raw to_s).
   # Pins the inspect-format invariant that distinguishes #p from #puts.
   def test_p_writes_inspect_form_to_stdout

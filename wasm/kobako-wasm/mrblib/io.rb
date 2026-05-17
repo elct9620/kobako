@@ -25,6 +25,21 @@ class IO
     nil
   end
 
+  # Mirrors mruby-io's IO#putc (vendor/mruby/mrbgems/mruby-io/src/io.c
+  # +io_putc+, call-seq +ios.putc(obj) -> obj+). Integer writes one byte
+  # (+obj & 0xff+); String writes its first character (s[0] — first byte
+  # in our non-UTF8 build); other objects coerce via +to_s+. Empty
+  # string is a no-op write. Always returns the original argument.
+  def putc(obj)
+    if obj.is_a?(Integer)
+      write((obj & 0xff).chr)
+    else
+      str = obj.to_s
+      write(str[0]) unless str.empty?
+    end
+    obj
+  end
+
   def p(*args)
     args.each { |arg| write(arg.inspect, "\n") }
     case args.size
