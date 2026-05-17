@@ -333,13 +333,17 @@ class TestE2EJourneys < Minitest::Test
 
   # SPEC.md B-04: Kernel#warn delegates through $stderr per mrblib/kernel.rb,
   # so warned bytes show up on Sandbox#stderr like any other stderr write.
+  # The equality assertion also rejects install-time noise (e.g. mruby's
+  # +mrb_warn+ for a NULL super class) leaking onto fd 2 — the guest's own
+  # +warn+ output is the only thing the channel may carry on this run.
   def test_warn_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.run('warn "caution"; 1')
 
-    assert_includes sandbox.stderr, "caution",
-                    "Kernel#warn must route through $stderr"
-    refute_includes sandbox.stdout, "caution"
+    assert_equal "caution\n", sandbox.stderr,
+                 "Kernel#warn must route only the guest message through $stderr"
+    assert_empty sandbox.stdout,
+                 "Kernel#warn must not bleed into stdout"
   end
 
   # SPEC.md B-04: Kernel#p writes inspect form to $stdout (not the raw to_s).

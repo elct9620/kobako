@@ -217,19 +217,18 @@ impl Kobako {
                 let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
 
                 // (3) Kobako::RPC::Client base class — parent of every
-                // Member installed via `Kobako::install_groups`.
-                //
-                // mruby's `mrb_define_class_under` accepts a NULL
-                // super_ as a request to inherit from
-                // `mrb->object_class` in current 3.x releases. Member
-                // subclasses inherit from this Client, not from Object
-                // directly, so the precise base-of-Client choice is
-                // invisible to user code.
+                // Member installed via `Kobako::install_groups`. Spell the
+                // super class as `(*mrb).object_class` to match the
+                // mrbgems/mruby-io convention (see
+                // `crate::mruby::sys::mrb_state` doc). `_under` would
+                // silently fall back to Object on NULL, but the kobako
+                // convention is "never hand mruby a NULL super" — uniform
+                // with the top-level `IO` install in `crate::kobako::io`.
                 let client_class = sys::mrb_define_class_under(
                     mrb,
                     rpc_mod,
                     cstr_ptr(CLIENT_NAME),
-                    core::ptr::null_mut(),
+                    (*mrb).object_class,
                 );
 
                 // (4) Singleton-class `method_missing` /
@@ -251,12 +250,13 @@ impl Kobako {
                     sys::MRB_ARGS_ANY,
                 );
 
-                // (5) `Kobako::RPC::Handle` instance class.
+                // (5) `Kobako::RPC::Handle` instance class. Same explicit
+                // `(*mrb).object_class` super as the Client class above.
                 let handle_class = sys::mrb_define_class_under(
                     mrb,
                     rpc_mod,
                     cstr_ptr(HANDLE_NAME),
-                    core::ptr::null_mut(),
+                    (*mrb).object_class,
                 );
                 sys::mrb_define_method(
                     mrb,

@@ -73,8 +73,40 @@ pub type mrb_bool = u8;
 pub type mrb_protect_error_func =
     unsafe extern "C" fn(mrb: *mut mrb_state, userdata: *mut c_void) -> mrb_value;
 
-/// Opaque pointer to mruby state (`mrb_state *`).
-pub type mrb_state = c_void;
+/// `mrb_state` — partial mirror of mruby's public state struct from
+/// `vendor/mruby/include/mruby.h`. Only the leading prefix up to and
+/// including +object_class+ is reflected; every preceding field is bound
+/// as `*mut c_void` because kobako never inspects them. Fields past
+/// +object_class+ are intentionally elided — we only ever receive
+/// `*mut mrb_state` from mruby itself (never allocate one ourselves) and
+/// never perform pointer arithmetic past the declared tail, so the real
+/// trailing layout is irrelevant.
+///
+/// Exposing +object_class+ lets the install paths spell the canonical
+/// +mrb->object_class+ idiom used by upstream mrbgems (e.g.
+/// +mrbgems/mruby-io/src/io.c+ line 2241), avoiding the runtime
+/// +mrb_class_get(mrb, "Object")+ lookup and the +mrb_warn+ that
+/// +mrb_define_class+ emits when handed a NULL super class.
+///
+/// The +OBJECT_CLASS_OFFSET+ +const _+ assertion below pins the prefix
+/// layout to the vendored mruby 4.0.0 ABI; any future vendor bump that
+/// reorders the prefix will fail to compile rather than silently read
+/// the wrong field.
+#[repr(C)]
+pub struct mrb_state {
+    pub jmp: *mut c_void,      // struct mrb_jmpbuf *
+    pub c: *mut c_void,        // struct mrb_context *
+    pub root_c: *mut c_void,   // struct mrb_context *
+    pub globals: *mut c_void,  // struct iv_tbl *
+    pub exc: *mut c_void,      // struct RObject *
+    pub top_self: *mut c_void, // struct RObject *
+    pub object_class: *mut RClass,
+}
+
+const _: () = assert!(
+    core::mem::offset_of!(mrb_state, object_class) == 6 * core::mem::size_of::<*const c_void>(),
+    "mrb_state.object_class offset diverged from vendored mruby 4.0.0 layout"
+);
 
 /// Opaque pointer to an mruby compiler context (`mrb_ccontext *`). Used
 /// to attach a filename to a compile unit so the produced IREP carries
