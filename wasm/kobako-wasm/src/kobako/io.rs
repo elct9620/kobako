@@ -71,11 +71,11 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
         // items from this module — the only producer of `mrb_func_t`
         // for the IO class in this crate.
         unsafe {
-            // Spell +Object+ as the super class via the canonical
-            // +mrb->object_class+ field (mirrors +mrbgems/mruby-io/src/io.c+
-            // line 2241). Passing a NULL super to +mrb_define_class+ makes
-            // mruby emit +"no super class for 'IO', Object assumed"+ via
-            // +mrb_warn+ on every install, leaking onto the guest +stderr+
+            // Spell `Object` as the super class via the canonical
+            // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
+            // line 2241). Passing a NULL super to `mrb_define_class` makes
+            // mruby emit `"no super class for 'IO', Object assumed"` via
+            // `mrb_warn` on every install, leaking onto the guest `stderr`
             // capture pipe (SPEC.md B-04).
             let io_class = sys::mrb_define_class(mrb, cstr_ptr(IO_NAME), (*mrb).object_class);
 

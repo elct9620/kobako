@@ -321,14 +321,17 @@ class TestE2EJourneys < Minitest::Test
 
   # SPEC.md B-04: $stderr writes land in Sandbox#stderr, not Sandbox#stdout.
   # Covers the guest-side fd 2 path enabled by the mrblib/io.rb + ::IO bridge.
+  # The equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
+  # for a NULL super class) leaking onto fd 2 — the guest's own +$stderr.puts+
+  # output is the only thing the channel may carry on this run.
   def test_stderr_puts_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.run('$stderr.puts "diagnostic"; 1')
 
-    assert_includes sandbox.stderr, "diagnostic",
-                    "B-04: $stderr.puts must reach Sandbox#stderr"
-    refute_includes sandbox.stdout, "diagnostic",
-                    "B-04: stderr writes must not bleed into Sandbox#stdout"
+    assert_equal "diagnostic\n", sandbox.stderr,
+                 "B-04: $stderr.puts must reach Sandbox#stderr exclusively"
+    assert_empty sandbox.stdout,
+                 "B-04: stderr writes must not bleed into Sandbox#stdout"
   end
 
   # SPEC.md B-04: Kernel#warn delegates through $stderr per mrblib/kernel.rb,
