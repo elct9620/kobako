@@ -58,10 +58,6 @@ These five roles describe the system. All design and behavior content in later l
 
 ---
 
-<!-- Scope layer: append here -->
-
----
-
 ## Scope
 
 ### System Boundary
@@ -248,11 +244,13 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
 - **`stdout` / `stderr` never participate in attribution.** They are captured separately and remain readable after error-raising runs.
 - **Setup-time errors raise `ArgumentError`, not `SandboxError`:** invalid Namespace / MemberName patterns (E-16, E-17) and `define`-after-`#run` (E-18) are Host App programming errors detected before or between guest executions; they bypass the attribution pipeline.
-- **Anchor groupings (consult [`docs/behavior.md`](docs/behavior.md) for full definitions):** B-01..B-06 cover Sandbox construction, per-run lifecycle, and output capture; B-07..B-11 cover Namespace / Member registration; B-12..B-21 cover guest-initiated RPC dispatch and HandleTable lifecycle; B-22 covers per-Thread isolation; B-23..B-30 cover Block / Yield re-entry. Errors split across the three classes — `TrapError` (E-01..E-03, E-19, E-20), `SandboxError` (E-04..E-10, E-16..E-18, E-21..E-23), and `ServiceError` (E-11..E-15).
+- **Anchor groupings:** B-01..B-06 cover Sandbox construction, per-run lifecycle, and output capture; B-07..B-11 cover Namespace / Member registration; B-12..B-21 cover guest-initiated RPC dispatch and HandleTable lifecycle; B-22 covers per-Thread isolation; B-23..B-30 cover Block / Yield re-entry. Errors split across the three classes — `TrapError` (E-01..E-03, E-19, E-20), `SandboxError` (E-04..E-10, E-16..E-18, E-21..E-23), and `ServiceError` (E-11..E-15).
 
 ---
 
 ## Refinement
+
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8.
 
 ### Terminology
 
@@ -313,7 +311,7 @@ Three error classes cover every failure outcome of `Sandbox#run`. These class na
 | **HandleTableExhausted** | `Kobako::HandleTableExhausted` | `Kobako::SandboxError` | Handle ID counter reached `0x7fff_ffff` (2³¹ − 1) within a single `#run`; further allocation is impossible |
 | **ServiceError::Disconnected** | `Kobako::ServiceError::Disconnected` | `Kobako::ServiceError` | RPC target Handle resolves to the `:disconnected` sentinel in the HandleTable |
 
-**Wire-level error string (not a Ruby class):** The string `"Kobako::RPC::WireError"` appears only as the `class` field value in a Panic envelope (defined in `### Wire Contract` → Outcome Envelope below) to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::RPC::WireError` Ruby class on the host. (The guest mruby class `Kobako::RPC::WireError` exists only to be raised inside the Guest Binary; it is captured by the guest's top-level handler and converted into the panic envelope string.)
+**Wire-level error string (not a Ruby class):** The string `"Kobako::RPC::WireError"` appears only as the `class` field value in a Panic envelope (defined in [`docs/wire-contract.md`](docs/wire-contract.md) § Outcome Envelope; the governing summary lives below in `### Wire Contract`) to signal that the wire layer detected a violation. On the host side this maps to a raised `Kobako::SandboxError`; there is no standalone `Kobako::RPC::WireError` Ruby class on the host. (The guest mruby class `Kobako::RPC::WireError` exists only to be raised inside the Guest Binary; it is captured by the guest's top-level handler and converted into the panic envelope string.)
 
 ---
 
@@ -392,10 +390,10 @@ The boundary rule is: **`ext/` is private to the Host Gem and must never be impo
 
 The following patterns are enforced project-wide and apply at every layer:
 
-- **Wire is a release-internal contract.** The Wire Spec couples the Host Gem and Guest Binary at the gem release boundary. No version negotiation field is present on the wire; both sides always speak the single version shipped in the same gem release. One-sided wire evolution is not permitted.
+- **Wire is a release-internal contract** — see `### Wire Contract` § release-internal contract for the governing statement. Design implication: never add a wire field gated on a flag both sides do not compile in the same release; treat the Wire Spec as a single coupled artifact.
 - **Round-trip fuzz is the consistency guarantee.** The host-side codec is implemented in pure Ruby under `lib/kobako/codec/` and is loadable at `require` time before the native extension is available; the guest-side codec is implemented in Rust under `wasm/kobako-wasm/src/codec/` for the `wasm32-wasip1` target. The two implementations share no source code — the deployment model (the gem must `require` cleanly without a built native extension, and `wasm32-wasip1` cannot embed Ruby) forbids a single codec. Correctness is established by bidirectional round-trip fuzz covering all 12 wire types and all three ext types.
 - **Codec depends on RPC value objects.** The Codec layer registers `Kobako::RPC::Handle` as its ext 0x01 decode target and `Kobako::RPC::Fault` as its ext 0x02 decode target. The dependency direction is Codec → RPC value objects; the RPC layer does not depend on Codec. This makes RPC value objects loadable without the codec available and keeps the codec a pure transformation over a known set of host-side types.
-- **Three-layer error attribution is two-step.** After `__kobako_run` returns, attribution proceeds in exactly two steps: Step 1 checks for a Wasm trap (highest priority, no outcome bytes inspected); Step 2 dispatches on the outcome envelope first-byte tag. Exit codes, stdout, and stderr never participate in attribution.
+- **Three-layer error attribution is two-step** — see `## Behavior` § attribution for the governing Step 1 / Step 2 decision. Design implication: error classification is a pure function of `(trap?, outcome_tag)`; exit codes, stdout, and stderr are never inputs to that function at either step.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
 - **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
 - **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, Wire Spec field, HandleTable guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
