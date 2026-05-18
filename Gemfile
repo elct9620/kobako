@@ -12,7 +12,7 @@ gem "rake-compiler"
 
 gem "minitest", "~> 5.16"
 
-gem "rubocop", "~> 1.21"
+gem "rubocop", "~> 1.86"
 
 # Static type checker. Signatures live in sig/. Wired up minimally for
 # now — full RBS coverage lands in a follow-up phase.
