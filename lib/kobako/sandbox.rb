@@ -61,8 +61,8 @@ module Kobako
 
     # Returns +true+ iff stdout capture during the most recent +#run+
     # exceeded +stdout_limit+ ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Resets
-    # to +false+ at the start of the next +#run+ ({SPEC.md
-    # B-03}[link:../../SPEC.md]).
+    # to +false+ at the start of the next +#run+ ({docs/behavior.md
+    # B-03}[link:../../docs/behavior.md]).
     def stdout_truncated?
       @stdout_capture.truncated?
     end

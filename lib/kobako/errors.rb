@@ -2,12 +2,12 @@
 
 # Top-level Kobako namespace.
 module Kobako
-  # Three-class error taxonomy (SPEC.md → Error Scenarios).
+  # Three-class error taxonomy (docs/behavior.md § Error Scenarios).
   #
   # Every `Kobako::Sandbox#run` invocation either returns a value or raises
   # exactly one of these three classes. Attribution is decided after the
-  # guest binary returns control to the host (SPEC "Step 1 — Wasm trap"
-  # then "Step 2 — Outcome envelope tag").
+  # guest binary returns control to the host (docs/behavior.md
+  # "Step 1 — Wasm trap" then "Step 2 — Outcome envelope tag").
   #
   # Three top-level branches:
   #

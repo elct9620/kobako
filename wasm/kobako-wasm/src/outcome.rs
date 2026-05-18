@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn result_golden_value_42() {
         let bytes = encode_result(&Value::Int(42)).unwrap();
-        // SPEC.md → Result Envelope: the value is emitted directly without
+        // docs/wire-codec.md § Envelope Encoding → Result Envelope: the value is emitted directly without
         // an enclosing array, so the success body is just msgpack(42) = 0x2a.
         assert_eq!(bytes, vec![0x2a]);
     }

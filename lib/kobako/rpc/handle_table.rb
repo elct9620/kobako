@@ -9,7 +9,7 @@ module Kobako
     # instance (and therefore per +Kobako::Sandbox+ instance). See
     # {docs/behavior.md B-15}[link:../../../docs/behavior.md].
     #
-    # Lifecycle invariants ({SPEC.md}[link:../../../SPEC.md]):
+    # Lifecycle invariants ({docs/behavior.md}[link:../../../docs/behavior.md]):
     #
     #   - {docs/behavior.md B-15}[link:../../../docs/behavior.md] — Handle IDs are allocated by
     #     a monotonically increasing counter scoped to a single `#run`. The
