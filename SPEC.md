@@ -21,6 +21,7 @@ kobako delivers the following observable behaviors:
 
 - A Host App can execute arbitrary mruby code supplied at runtime and receive a structured result or a categorized error — without any guest code affecting host memory, I/O, or credentials.
 - A Host App can inject named Ruby service objects that guest code can call via RPC; those objects are the only mechanism by which guest code can interact with external resources.
+- A Host App can define Service methods that accept a guest-supplied block and synchronously yield to it; the block body executes inside the Wasm guest with the same isolation guarantees as the rest of the script, and `break` / exception outcomes from the block flow into the same three-class error taxonomy.
 - Errors produced during guest execution are attributable to one of three distinct origins (Wasm trap, sandbox/wire fault, or guest application error), enabling the Host App to handle each case differently.
 - Guest stdout and stderr are captured and exposed separately from the RPC protocol channel, allowing Host Apps to surface guest logs without confusing them with protocol messages.
 
@@ -34,7 +35,6 @@ The following are explicitly outside the scope of kobako:
 - Multi-tenant billing, SLA management, or deployment/operations tooling
 - Multi-tenant quota / billing instrumentation, cross-Sandbox fairness scheduling, or per-process aggregate resource metrics (the in-Sandbox per-run wall-clock timeout and linear memory cap from B-01 are in scope; cross-Sandbox aggregation is not)
 - Async or yield-resume execution models and interpreter state snapshot/resume
-- Passing guest-side blocks to Service methods
 
 ### Core Abstractions
 
@@ -53,6 +53,7 @@ These five roles describe the system. All design and behavior content in later l
 - **Sandbox** (`Kobako::Sandbox`): the runtime unit that instantiates the Guest Binary, injects Services, executes a mruby script, and returns a structured outcome or raises a typed error.
 - **Handle**: an opaque integer token the guest holds to reference a host-side object returned by a Service call; the guest can use it in subsequent RPC calls but cannot dereference it directly. Handle lifecycle is fully managed by the Host Gem; the guest holds only an opaque integer ID and cannot dereference it.
 - **Namespace / Member**: `Namespace` is a declared grouping visible to guest as a Ruby module; `Member` is a named binding within a Namespace visible to guest as a module constant.
+- **Block / Yield**: A guest-side mruby block passed to a Service method call. The block lives inside the Guest Binary; the Host Gem represents it on the host side as a yield proxy that the Service method can invoke via `yield` or `block.call`. Each yield is a synchronous round-trip into the guest that executes the block body and returns its result. Blocks are scoped to the dispatch call they were passed to and are not reusable beyond it.
 - **Three-layer error taxonomy**: `Kobako::TrapError` (Wasm trap), `Kobako::SandboxError` (wire or runtime fault), `Kobako::ServiceError` (guest application error) — each with distinct attribution and handling semantics.
 
 ---
@@ -85,7 +86,6 @@ These five roles describe the system. All design and behavior content in later l
 - mruby upstream development or redistribution — kobako consumes a pinned mruby release tarball unchanged
 - Bundle any guest mrbgem that grants access to I/O, networking, sleep, random-seed sources, or syscalls beyond compute and memory — the host capability surface is mediated exclusively through Service injection. This exclusion is enforced by the strict allowlist mechanism above, not by sandboxing alone.
 - Async or yield-resume execution — all execution is synchronous and blocking; snapshot/resume is not provided
-- Guest-side closure invocation on the host — guest blocks cannot be passed to Service methods; iteration is handled by returning collections
 - Multi-tenant billing, SLA management, deployment, or operational tooling
 - Windows platform support — Linux and macOS only
 
@@ -137,6 +137,7 @@ The following features constitute the complete observable surface of the `kobako
 | F-09 | Host–guest message codec | Wire Spec (both sides) |
 | F-10 | Reproducible build pipeline | Build tooling |
 | F-11 | Multi-layer test and benchmark suite | Quality pipeline |
+| F-12 | Guest block reception and host-initiated yield re-entry | Host Gem + Guest Binary + Wire Spec |
 
 ---
 
@@ -221,6 +222,21 @@ A Host App developer is adding error handling to an existing kobako integration.
 
 **Outcome**
 The developer can route each failure class through the Host App's existing error-handling infrastructure without inspecting error messages. The three-class taxonomy gives the developer a reliable signal for triage: infrastructure fault (TrapError), authored-code fault (SandboxError), or downstream-service fault (ServiceError). This attribution is guaranteed by kobako regardless of what the guest script does.
+
+---
+
+#### J-06 — Host App exposes a block-yielding Service
+
+**Context**
+A Host App developer is building a Service that iterates over a collection on the host side and wants each element to be processed by a guest-supplied block (similar to `Array#each` semantics). The Service's natural Ruby form takes a block; the developer wants guest scripts to call it as `MyEach.run(items) { |x| ... }` without learning a different API for the sandboxed environment.
+
+**Action**
+1. The developer defines a Ruby class whose method accepts a block (`def run(items, &blk); items.each { |x| yield x }; end`) and binds an instance under a Namespace Member.
+2. A guest script writes `Service::MyEach.run([1, 2, 3]) { |x| x * 2 }` — the block is part of the script, not part of the host code.
+3. The Host App calls `Sandbox#run` with this script and reads the return value.
+
+**Outcome**
+The Service method's `yield x` invokes the guest block once per iteration, returning each block result back to the host method as the value of `yield`. The Service method observes its block as an ordinary Ruby Proc with loose arity; the guest-side block executes inside the Wasm sandbox and remains isolated from host state. A `break` inside the guest block terminates the Service method early with the break value, matching standard Ruby semantics. A `next` (or natural fall-through) returns the block value to `yield` and execution continues. Exceptions raised inside the block propagate to the `yield` point where the Service method may rescue or let them flow up. The developer writes the Service in idiomatic Ruby; the sandbox boundary is invisible from the Service method's perspective.
 
 ---
 
@@ -474,6 +490,94 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
+### B-23 — Guest call passes a block to a Service method
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox is executing a mruby script. A Member is bound at `Name::MemberName`. |
+| **Operation** | Guest code executes `Name::MemberName.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
+| **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a yield proxy (a Ruby Proc) into the resolved Service method as its block argument. The Service method's `block_given?` returns `true`, `yield` invokes the proxy, and the proxy is also accessible as `&block` if the method declares one. The yield proxy is valid for the duration of this dispatch only. |
+| **Notes** | The block itself is not transmitted as a wire value; only a single bit (`has_block`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The yield proxy has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
+
+---
+
+### B-24 — Service method yields to the guest-supplied block
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method, invoked from a guest call that supplied a block (B-23), executes on the host. `block_given?` is `true`. |
+| **Operation** | The Service method invokes the yield proxy via `yield val` or `block.call(val)` — once or many times. |
+| **Result / Final State** | Each invocation is a synchronous round-trip into the guest: the guest executes the block body with the supplied arguments, and the block's last expression value is returned to the Service method as the value of the `yield` expression. The Service method continues executing after each yield until it returns, raises, or is terminated by a `break` from the block (B-25). |
+| **Notes** | The round-trip uses the same wasmtime synchronous re-entry model as B-12 dispatches in the other direction. The wall-clock `timeout` and `memory_limit` (B-01) apply to the combined host + guest execution; time spent inside the block counts against the deadline. An exception raised inside the block body that the Service method does not rescue propagates back to the dispatch boundary and reaches the guest as a Service-layer fault (E-11). |
+
+---
+
+### B-25 — Guest block uses `break val` to terminate the yielding Service method
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method is mid-execution after `yield val` (B-24). |
+| **Operation** | The guest block executes `break val` (where the block is a non-lambda, non-orphan block — the standard form). |
+| **Result / Final State** | The Service method's invocation terminates immediately as if it had `return`ed `val`. No code in the Service method body after the `yield` statement runs. The Member call in the guest script (`Name::MemberName.method_name(...) { ... }`) returns `val`. Subsequent guest code runs normally; `break` does not terminate the enclosing guest method or script. |
+| **Notes** | This matches standard Ruby `break` semantics — `break` unwinds the most recent yielder. `break` from a deeply-nested block (multiple `Service.outer { Service.inner { break } }`) still terminates only the innermost Service method (B-28). The Service method has no opportunity to observe the break — it is unwound transparently. |
+
+---
+
+### B-26 — Guest block falls through or uses `next val`
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method is mid-execution after `yield val` (B-24). |
+| **Operation** | The guest block reaches its final expression OR executes `next val` explicitly. |
+| **Result / Final State** | `yield` in the Service method returns the block's value (`val` for `next val`, the last expression's value for fallthrough). The Service method continues executing the statement after `yield`. |
+| **Notes** | `next` is the explicit form of "produce this iteration's value and resume the yielder"; falling off the end of a block has the same effect with the last expression's value. Both are indistinguishable from the Service method's perspective and indistinguishable from a normal C-level yield return. |
+
+---
+
+### B-27 — Guest block is a lambda using `break`
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method is mid-execution after `yield val` (B-24). The block supplied by the guest is a lambda (e.g., created via `->`, `lambda { }`, or `&:symbol`). |
+| **Operation** | The lambda body executes `break val`. |
+| **Result / Final State** | The lambda returns `val` to the Service method's `yield` site as the yield value. The Service method continues normally; `break` does **not** terminate the Service method when the block is a lambda. |
+| **Notes** | mruby and MRI both treat lambda `break` as a silent normal return — equivalent to `next val`. This matches B-26 from the Service method's perspective. Service methods cannot distinguish "lambda block that used `break`" from "lambda block that fell through with the same final value". |
+
+---
+
+### B-28 — Nested dispatch frames each receive their own block
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A guest block (from a Service call `Outer.run { |a| ... }`) is mid-execution, and inside its body it calls another Service with its own block (`Inner.run { |b| ... }`). |
+| **Operation** | The inner Service method yields, the inner block runs, then the outer block continues. |
+| **Result / Final State** | The two yield proxies are independent. The inner Service method yields to the inner block; the outer block remains untouched. A `break` from the inner block terminates only `Inner.run` (B-25); the outer block's execution resumes normally. Nesting depth is bounded only by the wasm stack budget. |
+| **Notes** | Each guest dispatch frame holds at most one block reference; nested frames stack in LIFO order, matching the synchronous re-entry call structure. The Host Gem does not assign opaque identifiers to blocks — the dispatch frame itself identifies which block any given `yield` targets. |
+
+---
+
+### B-29 — Service method yields multiple times before returning
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method has been invoked with a block (B-23). |
+| **Operation** | The Service method body executes `yield` multiple times (e.g., looping over a host-side collection: `items.each { |x| yield x }`). |
+| **Result / Final State** | Each `yield` is an independent synchronous round-trip into the same guest block. The block body is executed once per yield with the supplied arguments. A `break` (B-25) at any iteration terminates the Service method immediately; otherwise the Service method continues to subsequent iterations. The Service method's return value (when not broken out of) is its own last expression, not the block's final value. |
+| **Notes** | The block is reusable within the dispatch — there is no per-yield setup or teardown beyond the round-trip itself. Service methods that wrap host-side iteration patterns (`each`, `map`, `inject`) translate naturally: the host writes `items.each { |x| yield x }` and the guest writes `Service.run([...]) { |x| ... }`. |
+
+---
+
+### B-30 — Service method receives a block but never yields
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Service method has been invoked with a block (B-23). |
+| **Operation** | The Service method body completes without ever invoking `yield` or `block.call`. |
+| **Result / Final State** | The block is silently discarded. The Service method's return value flows back to the guest as a normal Response (B-13 or B-14). No yield round-trip occurs; the guest block body is never executed. |
+| **Notes** | This matches standard Ruby semantics: passing a block to a method that ignores it has no observable effect beyond the block being constructed. Host App developers may use `block_given?` to gate behavior on whether the guest supplied a block. |
+
+---
+
 ### Error Scenarios
 
 Every `Sandbox#run` invocation terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after `__kobako_run` returns:
@@ -530,6 +634,9 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid Namespace Name |
 | E-17 | Host App calls `namespace.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
 | E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
+| E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
+| E-22 | Guest block returns a value that has no MessagePack wire representation per Wire Codec → Type Mapping | B-24 — yield round-trip |
+| E-23 | Host Service method invokes its yield proxy after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — yield-proxy scope |
 
 `sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
@@ -591,6 +698,9 @@ These are sub-components and runtime concepts internal to kobako. They are not e
 | **HandleTable** | The host-side mapping from Handle IDs to Ruby objects. Owned by the Server. Created fresh at the start of each `#run` and fully discarded at the end. Not exposed to the Host App. | No |
 | **Handle** | An opaque integer token the guest holds to reference a host-side object returned by a Service call. The guest can pass it as an RPC target or argument in subsequent calls but cannot dereference it to a Ruby value. Maps to two independent implementations with the same canonical name: the Ruby class `Kobako::RPC::Handle` runs in the host process; the `Kobako::RPC::Handle` mruby class runs inside the Wasm guest. They share neither code nor instances. | Partially — `Kobako::RPC::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host App has no public constructor or inspection methods |
 | **Capability Handle** | A Handle that represents a stateful host-side resource (e.g., a session, connection, or any object that is not a primitive wire type). Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No — same visibility as Handle; no distinct class exists |
+| **Block** | A mruby block (or Proc/lambda) the guest passes alongside a Service method call. The block body lives inside the Guest Binary and is never serialized; only its presence is signalled on the wire (Request `has_block` field). Scoped to the single dispatch call that received it — not reusable after that dispatch returns. | No — surfaces only as the `&block` argument the Service method receives |
+| **Yield** | A single synchronous round-trip from a Service method into the Block it received. The host Service method invokes `yield` or `block.call` on its block argument; the Host Gem re-enters the Guest Binary, executes the block body, and returns the block's result to the host yield site. Each `yield` is an independent round-trip; a Service method may yield zero or more times during a single dispatch. | No |
+| **Yield Proxy** | The host-side Ruby Proc the Host Gem materialises to represent the guest block to the Service method. Has loose Proc-style arity (matches `&block` Ruby conventions). Valid only for the duration of the dispatch that produced it; invocation outside that scope raises (E-23). The Service method may invoke it directly via `block.call` or implicitly via `yield`. | No |
 
 ---
 
@@ -645,7 +755,7 @@ This section specifies the abstract logical shape of every message exchanged bet
 
 #### Request Shape
 
-Every host↔guest RPC call carries exactly three logical fields:
+Every host↔guest RPC call carries exactly five logical fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -653,6 +763,7 @@ Every host↔guest RPC call carries exactly three logical fields:
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ Wire Codec → Ext Types → ext 0x00); the host passes them to dispatch unchanged. An empty kwargs map is always present (never absent) to keep field positions stable. |
+| `has_block` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a yield proxy and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
 
 The `target` string form uses Ruby constant-path syntax (`"Namespace::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
@@ -720,6 +831,47 @@ The outcome envelope has two variants:
 | **Panic envelope** | The script terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, and `backtrace` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. |
 
 The host reads zero-length outcome bytes or an unrecognized envelope tag as a wire-violation signal and raises `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted). Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via `Sandbox#stdout` / `Sandbox#stderr`.
+
+---
+
+#### Yield Round-Trip
+
+When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `has_block=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response RPC: the host initiates, the guest responds.
+
+- **Initiator**: the Host Gem (specifically, the yield proxy passed to the Service method) is the initiator of every yield round-trip.
+- **Responder**: the Guest Binary receives the yield arguments, executes the block body inside the current dispatch frame, and returns a YieldResponse to the host before the re-entry frame exits.
+- **Synchronicity**: every yield round-trip is fully synchronous and nests strictly within the dispatch frame that produced the proxy. From the Service method's perspective, `yield` is an ordinary synchronous method call.
+- **Scope**: a yield proxy is valid only for the duration of the dispatch frame that produced it. Invoking it after that frame returns raises (E-23).
+- **Nesting**: dispatch frames stack in LIFO order; each frame holds at most one yield proxy, and nested frames have independent proxies (B-28). The wasm stack budget bounds nesting depth.
+
+---
+
+#### YieldResponse Envelope
+
+The YieldResponse envelope carries the outcome of a single yield round-trip from the Guest Binary back to the host yield site. It is distinct from both Response (per-RPC reply) and Outcome (per-`#run` result): it appears only mid-dispatch, inside the host-initiated yield re-entry.
+
+The envelope is a tag-prefixed binary structure: a single byte tag followed by an optional MessagePack payload.
+
+| Tag | Variant | Payload | Meaning |
+|-----|---------|---------|---------|
+| `0x01` | **ok** | wire-legal value | The block body completed normally. `payload` is the block's last expression value (or the value supplied to `next val`). The host yield expression returns this value to the Service method. |
+| `0x02` | **break** | wire-legal value | The block executed `break val` from a non-lambda, non-orphan context. The host yield site terminates the Service method's invocation with `payload` as the effective return value (B-25). |
+| `0x03` | RESERVED | — | Reserved tag value. Receivers reject this tag as a wire violation. |
+| `0x04` | **error** | map `{class, message, backtrace}` | The block raised an exception, returned a value with no wire representation (E-22), used `return` from a non-lambda block (E-21), or invoked an escaped yield proxy (E-23). The host yield site re-raises a Ruby exception with the named class and message. |
+
+The `0x01` ok payload follows the same wire type mapping as any Response success value (→ Wire Codec → Type Mapping). Capability Handle references (ext 0x01) are legal in the payload position.
+
+The `0x02` break payload carries the value supplied to `break`. The Host Gem unwinds the Service method's invocation, presenting `payload` to the guest dispatch site as the Service method's return value.
+
+The `0x04` error payload is a MessagePack map with three keys:
+
+| Key | Value type | Meaning |
+|-----|-----------|---------|
+| `"class"` | str | Exception class name to re-raise on the host (e.g. `"LocalJumpError"`, `"TypeError"`, `"RuntimeError"`) |
+| `"message"` | str | Human-readable description |
+| `"backtrace"` | array of str | mruby backtrace; each element is one line |
+
+A zero-length YieldResponse or any tag outside `{0x01, 0x02, 0x04}` is a wire violation. The host walks the trap path and raises `Kobako::TrapError`.
 
 ---
 
@@ -842,7 +994,7 @@ Multi-field envelope frames — Request and Response — use msgpack **array** f
 
 ##### Request
 
-A 4-element msgpack array with fixed field positions:
+A 5-element msgpack array with fixed field positions:
 
 | Index | Field | Type |
 |-------|-------|------|
@@ -850,6 +1002,7 @@ A 4-element msgpack array with fixed field positions:
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
 | 3 | `kwargs` | map (str keys; empty kwargs is encoded as empty map `0x80`, never absent) |
+| 4 | `has_block` | bool — `true` if the guest call site supplied a block (B-23); `false` otherwise |
 
 The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
 
@@ -912,6 +1065,42 @@ Tag `0x02` example (script raises `"boom"`):
 
 Zero-length OUTCOME_BUFFER (`len == 0`) or any tag byte outside `{0x01, 0x02}` is a wire violation; the Host Gem raises `Kobako::TrapError` (wire-violation fallback, → Error Scenarios → `Kobako::TrapError`).
 
+##### YieldResponse Envelope
+
+The YieldResponse envelope is the byte layout returned from `__kobako_yield_to_block` (→ ABI Signatures). It is written into a Guest-Binary-allocated buffer the host reads after the yield re-entry returns. The envelope is a one-byte tag followed by an optional msgpack payload:
+
+| Byte offset | Content |
+|-------------|---------|
+| 0 | Tag byte: `0x01` (ok), `0x02` (break), `0x03` (reserved — receivers reject as a wire violation), or `0x04` (error) |
+| 1 onwards | msgpack payload (omitted entirely when the variant has no payload — currently no such variant) |
+
+Tag `0x01` example (block returned `:done`):
+
+```
+01 a4 64 6f 6e 65
+│  └─ msgpack fixstr len=4 "done"
+└─ YieldResponse tag 0x01 (ok)
+```
+
+Tag `0x02` example (block executed `break :stop`):
+
+```
+02 a4 73 74 6f 70
+│  └─ msgpack fixstr len=4 "stop"
+└─ YieldResponse tag 0x02 (break)
+```
+
+Tag `0x04` example (block raised `RuntimeError`):
+
+```
+04 83 a5 63 6c 61 73 73 ...
+│  │
+│  └─ msgpack fixmap len=3 ({class, message, backtrace})
+└─ YieldResponse tag 0x04 (error)
+```
+
+Zero-length YieldResponse, tag `0x03`, or any tag outside `{0x01, 0x02, 0x04}` is a wire violation; the Host Gem walks the trap path (→ Wire Contract → YieldResponse Envelope).
+
 ---
 
 #### ABI Signatures
@@ -935,10 +1124,13 @@ Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding th
 | `__kobako_run` | `() -> ()` | None — outcome is written to OUTCOME_BUFFER before return |
 | `__kobako_alloc` | `(size: i32) -> i32` | wasm linear memory offset (u32, unsigned); 0 indicates allocation failure (trap path) |
 | `__kobako_take_outcome` | `() -> i64` | Packed u64: high 32 bits = OUTCOME_BUFFER ptr; low 32 bits = byte length. `len == 0` is a wire violation. |
+| `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = YieldResponse buffer ptr; low 32 bits = YieldResponse byte length. `len == 0` is a wire violation. |
+
+The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its yield proxy (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-RPC 16 MiB payload size limit applies in both directions.
 
 ##### Packed u64 return layout
 
-Both `__kobako_dispatch` and `__kobako_take_outcome` return a packed i64 (Wasm type) carrying two u32 values:
+`__kobako_dispatch`, `__kobako_take_outcome`, and `__kobako_yield_to_block` all return a packed i64 (Wasm type) carrying two u32 values:
 
 ```
  63        32 31         0
@@ -1029,7 +1221,8 @@ The following invariants hold across every layer of the system. Each is a hard r
 | `ext/kobako/` is a private binding for the kobako gem only; no downstream gem may depend on it directly | Architecture | Documentation |
 | Handle lifecycle is per-`#run`: the HandleTable is fully cleared and the counter reset to 1 at the start of every `#run`; Handles from run N are invalid in run N+1 | Host Gem, Wire Spec | Test-time |
 | Handles are never individually released by the guest; the host implementation does not use `ObjectSpace.define_finalizer` for HandleTable entries | Host Gem | Documentation |
-| Wire ABI has exactly one host import (`__kobako_dispatch`) and three guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
+| Wire ABI has exactly one host import (`__kobako_dispatch`) and four guest exports (`__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`, `__kobako_yield_to_block`); no additional imports or exports are permitted | Wire Spec, both codec implementations | Build-time |
+| Yield round-trip nests strictly within the dispatch frame whose Service method initiated it; nested dispatch frames each receive at most one yield proxy and the proxies stack in LIFO order — they are not interchangeable across frames | Wire Spec, Host Gem | Runtime |
 | Guest mruby's `MRB_STR_LENGTH_MAX` is 1 MiB — a guest-side String at or above this size raises `ArgumentError` inside the guest. This is independent of the 16 MiB single-RPC wire payload limit; a wire payload can approach the 16 MiB cap via composite values (Array, binary), but a single guest String value cannot. | Guest Binary build (mruby config) | Runtime |
 
 #### Testing Style
@@ -1041,7 +1234,7 @@ The test suite is organized into four layers. All four layers must exist and mus
 | 1 | **Codec round-trip fuzz** | Bidirectional wire codec agreement between Host Gem and Guest Binary codec implementations; covers all 12 wire types, all three ext types, and nested compositions | Always — any failure is a wire regression that blocks release unconditionally |
 | 2 | **Wire integration** | Full Request / Response exchange through a live Sandbox, including the disconnected sentinel path and all envelope type variants | Before release |
 | 3 | **Ext unit** | `ext/kobako/` internal Rust unit tests and `lib/kobako/` Ruby specs without starting a Sandbox; includes HandleTable allocation / release / fetch, `HandleTableExhausted` guard at `0x7fff_ffff`, wire encode/decode boundary values, and wasmtime API wrapper correctness | Before release; the HandleTable exhaustion guard is also a required build-pipeline guard (see below) |
-| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs, symbol-key wire form, and Symbol round-trip through args / return values), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
+| 4 | **End-to-end** | Full Host App → `Sandbox#run` → Service call → result return path; must cover all three error attribution paths (`TrapError`, `SandboxError`, `ServiceError`) with each trigger, kwargs dispatch (including empty kwargs, symbol-key wire form, and Symbol round-trip through args / return values), Handle chaining (Service returns stateful object, guest uses Handle as subsequent RPC target), Handle lifecycle over Sandbox teardown, cross-run Handle invalidity (a Handle obtained in run N used as a target in run N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the script — see B-18, E-13), block / yield round-trip (Service method receives a block via `&block` and yields one or more times; covers each YieldResponse tag — `0x01` ok, `0x02` break with B-25 unwind semantics, `0x04` error from block exception, and the unsupported-`return` path of E-21 raising at the yield site; covers lambda-block `break` silent return per B-27 and nested dispatch frames per B-28), stdout / stderr isolation from the protocol channel, and the wire-violation edge cases (`len=0`, unknown tag, Result envelope with unrepresentable value) | Before release |
 
 The recommended execution order is Layer 3 → Layer 1 → Layer 2 → Layer 4 (cheapest first; fail fast before starting the Sandbox).
 
