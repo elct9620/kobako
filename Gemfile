@@ -16,7 +16,7 @@ gem "rubocop", "~> 1.86"
 
 # Static type checker. Signatures live in sig/. Wired up minimally for
 # now — full RBS coverage lands in a follow-up phase.
-gem "steep", "~> 1.10", require: false
+gem "steep", "~> 2.0", require: false
 
 # webrick is no longer bundled with Ruby 3.0+; the vendor:setup E2E test
 # spins up a tiny HTTP fixture server to serve fake tarballs.
