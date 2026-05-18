@@ -4,8 +4,9 @@ module Kobako
   module RPC
     # Wire-level value object for an ext-0x02 Exception envelope.
     #
-    # SPEC pins the payload (Wire Codec → Ext Types → ext 0x02) to a
-    # msgpack map with exactly three keys:
+    # SPEC pins the payload
+    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+    # → ext 0x02) to a msgpack map with exactly three keys:
     #   * "type"    — one of "runtime", "argument", "disconnected", "undefined"
     #   * "message" — human-readable string
     #   * "details" — any wire-legal value, or nil when absent

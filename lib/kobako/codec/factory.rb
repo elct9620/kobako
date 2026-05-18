@@ -12,7 +12,8 @@ require_relative "../rpc/fault"
 module Kobako
   module Codec
     # Cached +MessagePack::Factory+ that owns the kobako wire ext-type
-    # registration (SPEC.md → Wire Codec → Ext Types).
+    # registration ({docs/wire-codec.md}[link:../../../docs/wire-codec.md]
+    # § Ext Types).
     #
     # The factory is the single place in the host gem that touches the
     # msgpack API — both {Encoder} and {Decoder} delegate through it, so
@@ -31,16 +32,19 @@ module Kobako
       extend SingleForwardable
 
       # MessagePack ext type code reserved for Symbol
-      # (SPEC.md → Wire Codec → Ext Types → ext 0x00). Class-private —
-      # mirrors +codec::EXT_SYMBOL+ on the Rust side.
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # → ext 0x00). Class-private — mirrors +codec::EXT_SYMBOL+ on the
+      # Rust side.
       EXT_SYMBOL = 0x00
       # MessagePack ext type code reserved for Capability Handle
-      # (SPEC.md → Wire Codec → Ext Types → ext 0x01). Class-private —
-      # mirrors +codec::EXT_HANDLE+ on the Rust side.
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # → ext 0x01). Class-private — mirrors +codec::EXT_HANDLE+ on the
+      # Rust side.
       EXT_HANDLE = 0x01
       # MessagePack ext type code reserved for Exception envelope
-      # (SPEC.md → Wire Codec → Ext Types → ext 0x02). Class-private —
-      # mirrors +codec::EXT_ERRENV+ on the Rust side.
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # → ext 0x02). Class-private — mirrors +codec::EXT_ERRENV+ on the
+      # Rust side.
       EXT_ERRENV = 0x02
       private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_ERRENV
 

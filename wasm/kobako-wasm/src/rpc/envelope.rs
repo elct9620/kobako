@@ -1,7 +1,7 @@
 //! Per-call RPC envelope encoders/decoders.
 //!
-//! SPEC.md → Wire Contract pins the logical shape of every host↔guest
-//! Request / Response; SPEC.md → Wire Codec → Envelope Frame Layout
+//! SPEC.md § Wire Contract pins the logical shape of every host↔guest
+//! Request / Response; docs/wire-codec.md § Envelope Encoding
 //! pins the binary framing. This module assembles the per-RPC Request
 //! and Response envelopes on top of the lower-level [`Encoder`] /
 //! [`Decoder`] primitives in `codec/`. The per-`#run` Outcome envelope
@@ -16,7 +16,7 @@
 use crate::codec::{CodecError, Decoder, Encoder, Value};
 
 /// Response variant marker for the success branch
-/// (SPEC.md → Wire Codec → Response). Module-private — `Response::Ok`
+/// (docs/wire-codec.md § Envelope Encoding → Response). Module-private — `Response::Ok`
 /// / `Response::Err` are the public surface and reify these values.
 const STATUS_OK: i64 = 0;
 /// Response variant marker for the error branch. Module-private.
@@ -80,8 +80,8 @@ impl std::error::Error for EnvelopeError {
 // Value objects
 // ============================================================
 
-/// SPEC.md → Wire Codec → Request: 4-element msgpack array
-/// `[target, method, args, kwargs]`. `target` is either a Member
+/// docs/wire-codec.md § Envelope Encoding → Request: 4-element msgpack
+/// array `[target, method, args, kwargs]`. `target` is either a Member
 /// constant path (str, e.g. `"Namespace::Member"`) or a Capability
 /// Handle.
 #[derive(Debug, Clone, PartialEq)]
@@ -92,8 +92,9 @@ pub struct Request {
     pub kwargs: Vec<(String, Value)>,
 }
 
-/// The two distinguishable forms of a Request `target` (SPEC.md → Wire
-/// Codec → Request: "the two forms are distinguishable on the wire").
+/// The two distinguishable forms of a Request `target` (docs/wire-codec.md
+/// § Envelope Encoding → Request: "the two forms are distinguishable on
+/// the wire").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     /// Member constant path, e.g. `"Namespace::Member"`.
@@ -102,8 +103,8 @@ pub enum Target {
     Handle(u32),
 }
 
-/// SPEC.md → Wire Codec → Response: 2-element msgpack array
-/// `[status, value-or-error-envelope]`. The two variants are
+/// docs/wire-codec.md § Envelope Encoding → Response: 2-element msgpack
+/// array `[status, value-or-error-envelope]`. The two variants are
 /// mutually exclusive.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response {
@@ -121,8 +122,8 @@ pub enum Response {
 // ---------------- Request ----------------
 
 /// Encode a [`Request`] to its 4-field msgpack array bytes. Per SPEC
-/// (Wire Codec → Ext Types → ext 0x00) `kwargs` keys travel on the wire
-/// as Symbols, so we emit [`Value::Sym`] at every kwargs-key slot.
+/// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys travel on
+/// the wire as Symbols, so we emit [`Value::Sym`] at every kwargs-key slot.
 pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
     let target_value = match &req.target {
         Target::Path(s) => Value::Str(s.clone()),

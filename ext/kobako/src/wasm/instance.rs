@@ -231,7 +231,7 @@ impl Instance {
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the two-frame stdin protocol carries +preamble+ then +source+ —
-    /// SPEC.md ABI Signatures), then invokes `__kobako_run`. Per-run
+    /// docs/wire-codec.md § ABI Signatures), then invokes `__kobako_run`. Per-run
     /// caps (SPEC.md B-01) are primed here: the wall-clock deadline is
     /// stamped into [`HostState`] and the epoch deadline is set to fire
     /// at the next ticker tick; the memory-cap limiter is already wired.

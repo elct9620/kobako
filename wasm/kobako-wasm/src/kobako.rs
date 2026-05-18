@@ -612,8 +612,8 @@ impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
     /// key's name; [`crate::rpc::envelope::encode_request`] re-emits each name
-    /// as a wire-level `Value::Sym` (ext 0x00) per SPEC.md → Wire Codec
-    /// → Ext Types. Keys arriving as either mruby `Symbol` or `String`
+    /// as a wire-level `Value::Sym` (ext 0x00) per docs/wire-codec.md
+    /// § Ext Types. Keys arriving as either mruby `Symbol` or `String`
     /// reduce to the same UTF-8 name via `Object#to_s`. Values go
     /// through [`Kobako::mrb_value_to_wire_value`].
     #[cfg(target_arch = "wasm32")]
@@ -694,7 +694,7 @@ impl Kobako {
     /// [`Value::Map`]. Both the key and the value flow through the
     /// same `convert` so a `Symbol` key arrives as [`Value::Sym`]
     /// (ext 0x00) and a `String` key as [`Value::Str`] — distinct on
-    /// the wire per SPEC.md Ext Types.
+    /// the wire per docs/wire-codec.md § Ext Types.
     #[cfg(target_arch = "wasm32")]
     fn hash_to_wire(
         &self,
@@ -715,9 +715,9 @@ impl Kobako {
 
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for use as an RPC argument or keyword value. Symbol values map to
-    /// [`Value::Sym`] (ext 0x00, SPEC.md → Wire Codec → Ext Types).
+    /// [`Value::Sym`] (ext 0x00, docs/wire-codec.md § Ext Types).
     /// Array / Hash values map to [`Value::Array`] / [`Value::Map`]
-    /// recursively (SPEC.md Type Mapping #7-#8). Unknown types fall
+    /// recursively (docs/wire-codec.md § Type Mapping #7-#8). Unknown types fall
     /// back to `Object#to_s`.
     ///
     /// ## Why two converters
@@ -757,7 +757,7 @@ impl Kobako {
     /// for inclusion in the outcome Result envelope. Used by
     /// `__kobako_run` to serialize the user script's last-expression
     /// value. Array / Hash values map to [`Value::Array`] /
-    /// [`Value::Map`] recursively (SPEC.md Type Mapping #7-#8) so a
+    /// [`Value::Map`] recursively (docs/wire-codec.md § Type Mapping #7-#8) so a
     /// script returning a collection retains element-level fidelity.
     ///
     /// ## Why this differs from [`Kobako::mrb_value_to_wire_value`]

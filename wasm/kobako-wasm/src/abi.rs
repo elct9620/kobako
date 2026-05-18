@@ -90,7 +90,7 @@ extern "C" {
 /// need to run before the first call. Approach (a) from the two known
 /// fixes — smaller and sufficient for the kobako use case.
 ///
-/// Per SPEC.md ABI Signatures, the "exactly 3 kobako exports" invariant
+/// Per docs/wire-codec.md § ABI Signatures, the "exactly 3 kobako exports" invariant
 /// counts `__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`.
 /// `_initialize` is a WASI reactor bookkeeping export and is explicitly
 /// excluded from the kobako export count.
@@ -456,7 +456,7 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 
 /// Outcome reader — host calls this after `__kobako_run` returns to fetch
 /// the OUTCOME_BUFFER bytes. Returns packed u64 `(ptr << 32) | len`.
-/// `len == 0` is a wire violation (SPEC.md ABI Signatures). Signature: `() -> i64`.
+/// `len == 0` is a wire violation (docs/wire-codec.md § ABI Signatures). Signature: `() -> i64`.
 ///
 /// The buffer is owned by the static `OUTCOME_BUFFER`; the host must consume
 /// the bytes before the next `__kobako_run` call (each run resets the buffer).

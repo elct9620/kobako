@@ -9,7 +9,7 @@ require_relative "utils"
 module Kobako
   module Codec
     # Module-level entry point for the host side of the kobako wire
-    # (SPEC.md → Wire Codec → Type Mapping).
+    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type Mapping).
     #
     # Translates msgpack gem exceptions into the kobako error taxonomy
     # ({Truncated}, {InvalidType}, {InvalidEncoding}, {UnsupportedType}) so
@@ -42,7 +42,8 @@ module Kobako
         raise InvalidEncoding, e.message
       end
 
-      # SPEC pins +str+ family payloads to UTF-8 (Wire Codec → str/bin
+      # SPEC pins +str+ family payloads to UTF-8
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § str/bin
       # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any

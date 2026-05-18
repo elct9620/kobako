@@ -1,6 +1,6 @@
 //! MessagePack wire codec — guest-side glue over the `rmp` crate.
 //!
-//! The kobako wire format (SPEC.md "Wire Codec") is plain MessagePack with
+//! The kobako wire format (docs/wire-codec.md) is plain MessagePack with
 //! three ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes), 0x01 Capability Handle (`fixext 4`,
 //! big-endian u32) and 0x02 Exception envelope (variable-length ext
@@ -23,27 +23,27 @@ use rmp::encode::{
 };
 use rmp::Marker;
 
-/// MessagePack ext type code reserved for Symbol (SPEC.md "Ext Types"
-/// → ext 0x00). Module-private — mirrors the `EXT_SYMBOL` constant on
-/// the Ruby Factory side.
+/// MessagePack ext type code reserved for Symbol (docs/wire-codec.md
+/// § Ext Types → ext 0x00). Module-private — mirrors the `EXT_SYMBOL`
+/// constant on the Ruby Factory side.
 const EXT_SYMBOL: i8 = 0x00;
 
-/// MessagePack ext type code reserved for Capability Handle (SPEC.md
-/// "Ext Types" → ext 0x01). Module-private — every encoder/decoder
-/// that needs it lives inside this module.
+/// MessagePack ext type code reserved for Capability Handle
+/// (docs/wire-codec.md § Ext Types → ext 0x01). Module-private — every
+/// encoder/decoder that needs it lives inside this module.
 const EXT_HANDLE: i8 = 0x01;
 
-/// MessagePack ext type code reserved for Exception envelope (SPEC.md
-/// "Ext Types" → ext 0x02). Module-private — every encoder/decoder
-/// that needs it lives inside this module.
+/// MessagePack ext type code reserved for Exception envelope
+/// (docs/wire-codec.md § Ext Types → ext 0x02). Module-private — every
+/// encoder/decoder that needs it lives inside this module.
 const EXT_ERRENV: i8 = 0x02;
 
-/// Maximum legal Capability Handle ID (SPEC.md "Ext Types" → ext 0x01).
-/// Module-private.
+/// Maximum legal Capability Handle ID (docs/wire-codec.md § Ext Types
+/// → ext 0x01). Module-private.
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// Errors raised by the codec when input bytes do not conform to the
-/// kobako wire (SPEC.md "Wire Codec").
+/// kobako wire (docs/wire-codec.md).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodecError {
     Truncated,
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn golden_sym_empty_uses_ext8_with_zero_length() {
-        // SPEC.md → Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
+        // docs/wire-codec.md § Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
         assert_eq!(encode(&Value::Sym(String::new())), vec![0xc7, 0x00, 0x00]);
     }
 

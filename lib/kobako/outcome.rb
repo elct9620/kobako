@@ -45,8 +45,8 @@ module Kobako
     end
 
     # TrapError for unknown or absent tag
-    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]: len=0 and unknown-tag
-    # both walk the trap path).
+    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]:
+    # len=0 and unknown-tag both walk the trap path).
     def build_trap_error(tag)
       return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
 

@@ -8,7 +8,7 @@ require_relative "factory"
 module Kobako
   module Codec
     # Module-level entry point for the host side of the kobako wire
-    # (SPEC.md → Wire Codec → Type Mapping).
+    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type Mapping).
     #
     # The codec backbone is the official +msgpack+ gem: integers, floats,
     # strings, arrays, and maps go through the gem's narrowest-encoding

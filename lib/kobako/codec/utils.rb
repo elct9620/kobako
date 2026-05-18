@@ -6,8 +6,9 @@ module Kobako
   module Codec
     # Wire-codec helpers shared by the host-side encoders and decoders.
     # The single concern today is UTF-8 assertion at the wire boundary
-    # (SPEC.md → Wire Codec → str/bin Encoding Rules and Ext Types →
-    # ext 0x00). Two call sites lean on this:
+    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § str/bin
+    # Encoding Rules and § Ext Types → ext 0x00). Two call sites lean on
+    # this:
     #
     #   - {Decoder} validates +str+ family payloads as it walks the
     #     decoded value tree.

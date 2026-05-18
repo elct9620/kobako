@@ -16,7 +16,7 @@ module Kobako
     STATUS_ERROR = 1
 
     # Value object for a single guest-initiated RPC Request
-    # ({SPEC.md Wire Codec → Request}[link:../../../SPEC.md]).
+    # ({docs/wire-codec.md Envelope Encoding → Request}[link:../../../docs/wire-codec.md]).
     #
     # 4-element msgpack array: +[target, method, args, kwargs]+. +target+
     # is either a +String+ (+"Namespace::Member"+) or a {Handle}. SPEC pins
@@ -66,7 +66,7 @@ module Kobako
     end
 
     # Value object for a single host-side RPC Response
-    # ({SPEC.md Wire Codec → Response}[link:../../../SPEC.md]).
+    # ({docs/wire-codec.md Envelope Encoding → Response}[link:../../../docs/wire-codec.md]).
     #
     # 2-element msgpack array: +[status, value-or-fault]+. +status+ is 0
     # (success) or 1 (fault). For success the second element is the return

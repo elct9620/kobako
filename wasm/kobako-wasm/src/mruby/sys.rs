@@ -508,7 +508,7 @@ extern "C" {
     /// `mrb_ary_new(mrb)` — constructs a fresh empty mruby Array. Used
     /// as the base for incremental construction via `mrb_ary_push` when
     /// materializing a wire `Value::Array(items)` into a live mruby
-    /// Array from Rust (SPEC.md Type Mapping #7).
+    /// Array from Rust (docs/wire-codec.md § Type Mapping #7).
     pub fn mrb_ary_new(mrb: *mut mrb_state) -> mrb_value;
 
     /// `mrb_ary_push(mrb, ary, value)` — appends `value` to the end of
@@ -519,7 +519,7 @@ extern "C" {
     /// `mrb_hash_new(mrb)` — constructs a fresh empty mruby Hash. Used
     /// as the base for incremental construction via `mrb_hash_set` when
     /// materializing a wire `Value::Map(pairs)` into a live mruby Hash
-    /// from Rust (SPEC.md Type Mapping #8).
+    /// from Rust (docs/wire-codec.md § Type Mapping #8).
     pub fn mrb_hash_new(mrb: *mut mrb_state) -> mrb_value;
 
     /// `mrb_hash_set(mrb, hash, key, val)` — assigns `key => val` in

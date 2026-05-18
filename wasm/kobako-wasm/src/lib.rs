@@ -4,7 +4,7 @@
 //! described in SPEC.md "Core Abstractions". It hosts:
 //!
 //! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
-//!   crate that adds kobako's two ext types (SPEC.md "Wire Codec").
+//!   crate that adds kobako's two ext types (docs/wire-codec.md).
 //! * `rpc` — Per-call RPC layer mirroring the host's `lib/kobako/rpc/`.
 //!   Holds `rpc::envelope` (Request / Response value objects and their
 //!   encoders/decoders on top of `codec` — SPEC.md "Wire Contract")

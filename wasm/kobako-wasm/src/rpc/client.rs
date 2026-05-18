@@ -128,8 +128,8 @@ impl std::error::Error for InvokeError {
 /// site provides (target, method, args, kwargs). Pure function; does
 /// not touch wasm linear memory or the host import.
 ///
-/// SPEC reference: SPEC.md → Wire Codec → Request (4-element array,
-/// encoded narrowest).
+/// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
+/// (4-element array, encoded narrowest).
 pub fn build_request_bytes(
     target: Target,
     method: &str,
@@ -253,7 +253,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };
     let (ptr, len) = unpack_u64(packed);
     if len == 0 {
-        // Wire violation per SPEC.md → ABI Signatures.
+        // Wire violation per docs/wire-codec.md § ABI Signatures.
         return Err(InvokeError::Wire(EnvelopeError::Shape(
             "host returned len == 0",
         )));

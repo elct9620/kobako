@@ -113,7 +113,8 @@ module Kobako
     # expression of the script.
     #
     # Source delivery uses the WASI stdin two-frame protocol
-    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]): Frame 1 carries the
+    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]):
+    # Frame 1 carries the
     # msgpack-encoded preamble (Namespace / Member registry snapshot) and Frame 2
     # carries the user script UTF-8 bytes. Each frame is prefixed by a
     # 4-byte big-endian u32 length.
@@ -214,7 +215,7 @@ module Kobako
     # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception. A zero-
     # length outcome is delivered to +Kobako::Outcome+ as an empty String
     # so a single boundary attributes every wire-violation outcome
-    # ({SPEC.md ABI Signatures}[link:../../SPEC.md]).
+    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]).
     #
     # The bang reflects the destructive ext call beneath: the underlying
     # +__kobako_take_outcome+ export invalidates the buffer pointer, so this
