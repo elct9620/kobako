@@ -20,7 +20,7 @@ module Kobako
   #   * {ServiceError}  — service / capability layer (a Service RPC that
   #                       failed and was not rescued inside the script).
   #
-  # Subclasses pinned by SPEC "Error Classes":
+  # Subclasses pinned by docs/behavior.md Error Classes:
   #
   #   * {HandleTableExhausted} < {SandboxError}    — id cap hit (B-21).
   #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
@@ -47,13 +47,13 @@ module Kobako
   # first.
   class TrapError < Error; end
 
-  # Wall-clock timeout cap exhausted. {SPEC.md E-19}[link:../../SPEC.md]:
+  # Wall-clock timeout cap exhausted. {docs/behavior.md E-19}[link:../../docs/behavior.md]:
   # the absolute deadline +entry_time + timeout+ passed and the next guest
   # wasm safepoint trapped. The Sandbox is unrecoverable after this point;
   # discard and recreate before another execution.
   class TimeoutError < TrapError; end
 
-  # Linear-memory cap exhausted. {SPEC.md E-20}[link:../../SPEC.md]:
+  # Linear-memory cap exhausted. {docs/behavior.md E-20}[link:../../docs/behavior.md]:
   # a guest +memory.grow+ would have pushed linear memory past the
   # configured +memory_limit+. The Sandbox is unrecoverable after this
   # point; discard and recreate before another execution.
@@ -88,7 +88,7 @@ module Kobako
       @details = details
     end
 
-    # SPEC "Error Classes": ServiceError::Disconnected is raised
+    # docs/behavior.md Error Classes: ServiceError::Disconnected is raised
     # when the RPC target Handle resolves to the `:disconnected` sentinel
     # in the HandleTable (ABA protection rule — id exists but entry was
     # invalidated). E-14.
@@ -103,7 +103,7 @@ module Kobako
   # directly), it surfaces as a SandboxError.
   class HandleTableError < SandboxError; end
 
-  # SPEC "Error Classes": HandleTableExhausted is the canonical
+  # docs/behavior.md Error Classes: HandleTableExhausted is the canonical
   # SandboxError subclass for the id-cap-hit path (B-21). Inherits from
   # HandleTableError so a single `rescue Kobako::HandleTableError` covers
   # both lookup-failure and cap-exhaustion paths.

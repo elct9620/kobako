@@ -31,7 +31,7 @@
  *   - Returns the total bytes written across all arguments.
  *
  * Truncation: when `fwrite` short-writes (e.g. WASI capture pipe hit
- * its cap, see SPEC.md B-04), the per-arg `total` reflects the actual
+ * its cap, see docs/behavior.md B-04), the per-arg `total` reflects the actual
  * bytes accepted; the host observes the truncation via the
  * MemoryOutputPipe cap, not via a Ruby-level error from this shim.
  */

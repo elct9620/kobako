@@ -444,7 +444,7 @@ extern "C" {
     /// `mrb_define_method(mrb, c, name, func, aspec)` — defines an instance
     /// method on class `c`. Used to register instance-level `method_missing`
     /// on `Kobako::RPC::Handle` so handle objects forward method calls to the
-    /// host through `Kobako::dispatch_invoke` (SPEC.md B-17).
+    /// host through `Kobako::dispatch_invoke` (docs/behavior.md B-17).
     pub fn mrb_define_method(
         mrb: *mut mrb_state,
         c: *mut RClass,

@@ -34,7 +34,7 @@ static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
 
 /// Ticker cadence for the process-singleton epoch ticker. Bounds the
-/// granularity of the SPEC.md B-01 wall-clock timeout: the
+/// granularity of the docs/behavior.md B-01 wall-clock timeout: the
 /// `epoch_deadline_callback` fires once per tick (`Continue(1)`), so the
 /// trap can lag the deadline by at most one tick under nominal
 /// scheduling. 10 ms keeps the lag small enough that it does not skew

@@ -313,7 +313,7 @@ impl Kobako {
                 //     in pure Ruby. The bridges talk to wasi-libc's
                 //     `stdout` / `stderr` via the `kobako_io_fwrite` C
                 //     shim, so guest output reaches the host capture
-                //     pipe (SPEC.md B-04) without re-entering the RPC
+                //     pipe (docs/behavior.md B-04) without re-entering the RPC
                 //     dispatch path. See `crate::kobako::io`.
                 io::install(mrb);
 
@@ -598,7 +598,7 @@ impl Kobako {
     /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
     /// missing or non-numeric — the resolver downstream treats id 0 as
-    /// undefined per SPEC.md B-19.
+    /// undefined per docs/behavior.md B-19.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_handle_id(&self, handle_val: sys::mrb_value) -> u32 {
         // SAFETY: as above.
@@ -796,7 +796,7 @@ impl Kobako {
     /// boxed into a fresh `Kobako::RPC::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
     /// `Kobako::RPC::Handle#method_missing` → [`Self::dispatch_invoke`],
-    /// SPEC.md B-17).
+    /// docs/behavior.md B-17).
     #[cfg(target_arch = "wasm32")]
     pub fn wire_value_to_mrb(&self, val: crate::codec::Value) -> sys::mrb_value {
         use crate::codec::Value;

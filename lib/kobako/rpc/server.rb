@@ -12,7 +12,7 @@ module Kobako
     # Kobako::RPC::Server — per-Sandbox host-side RPC coordinator. Maintains
     # the Namespace / Member registry, owns the HandleTable, and routes
     # incoming Requests to the resolved Service object
-    # ({SPEC.md B-07..B-21}[link:../../../SPEC.md]).
+    # ({docs/behavior.md B-07..B-21}[link:../../../docs/behavior.md]).
     #
     # Public API:
     #
@@ -39,7 +39,7 @@ module Kobako
         @sealed = false
       end
 
-      # Declare or retrieve the Namespace named +name+ (idempotent — SPEC.md B-10).
+      # Declare or retrieve the Namespace named +name+ (idempotent — docs/behavior.md B-10).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
       # +Namespace::NAME_PATTERN+). Returns the +Kobako::RPC::Namespace+ for
       # that name, creating it if it does not exist. Raises +ArgumentError+
@@ -92,7 +92,7 @@ module Kobako
       end
 
       # Structured Frame 1 description. Called by +Sandbox#run+ when assembling
-      # stdin Frame 1 ({SPEC.md B-02}[link:../../../SPEC.md]). Returns an
+      # stdin Frame 1 ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Returns an
       # unencoded preamble array — an +Array+ of two-element +[name, members]+
       # arrays, one per declared namespace.
       def to_preamble
@@ -100,7 +100,7 @@ module Kobako
       end
 
       # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
-      # ({SPEC.md B-02}[link:../../../SPEC.md]). Uses plain MessagePack (no
+      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Uses plain MessagePack (no
       # kobako ext types) because the preamble contains only strings — no
       # Handles or Fault envelopes. Structure:
       # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
@@ -122,13 +122,13 @@ module Kobako
       end
 
       # Reset the HandleTable for a new +#run+ boundary. Called by +Sandbox#run+
-      # before each invocation ({SPEC.md B-19}[link:../../../SPEC.md]).
+      # before each invocation ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
       def reset_handles!
         @handle_table.reset!
       end
 
       # Dispatch a single RPC request and return the encoded response bytes
-      # ({SPEC.md B-12}[link:../../../SPEC.md]). +request_bytes+ is a
+      # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]). +request_bytes+ is a
       # msgpack-encoded Request envelope. Called by the Rust ext from inside
       # +__kobako_dispatch+. Always returns a binary +String+ — never raises.
       # Delegates to +Dispatcher.dispatch+ which reifies any failure as a

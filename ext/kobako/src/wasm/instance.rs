@@ -14,7 +14,7 @@
 //! [`Instance::outcome`]; Ruby callers see only `#run(preamble, source)`,
 //! `#stdout`, `#stderr`, `#outcome!`, and `#server=`.
 //!
-//! WASI stdout/stderr capture (SPEC.md B-04): wasmtime-wasi p1 bindings
+//! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1 bindings
 //! route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`] instances
 //! rebuilt at the start of every [`Instance::run`]. The per-channel cap
 //! is enforced directly on the pipe — the pipe is sized at `cap + 1` so
@@ -24,7 +24,7 @@
 //! flag. Uncapped channels (`None`) build the pipe at `usize::MAX`;
 //! `memory_limit` provides the real upper bound in that case.
 //!
-//! Per-run cap enforcement (SPEC.md B-01, E-19, E-20): every Store
+//! Per-run cap enforcement (docs/behavior.md B-01, E-19, E-20): every Store
 //! installs an epoch-deadline callback for wall-clock timeout and a
 //! [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
 //! limiter / callback errors into traps; `Instance::run` downcasts the
@@ -68,7 +68,7 @@ pub(crate) struct Instance {
     // and it does so through `Caller::get_export` on the wasmtime side.
     run: Option<TypedFunc<(), ()>>,
     take_outcome: Option<TypedFunc<(), u64>>,
-    // Wall-clock cap for one guest `#run` (SPEC.md B-01); `None` disables
+    // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
     // the cap. Translated into an `Instant`-based deadline stamped into
     // [`HostState`] at the top of every `Instance::run`.
     timeout: Option<Duration>,
@@ -91,10 +91,10 @@ impl Instance {
     /// constructor for `Kobako::Wasm::Instance` — Engine and Module are
     /// never visible to Ruby.
     ///
-    /// `timeout_seconds` is the SPEC.md B-01 wall-clock cap in seconds
+    /// `timeout_seconds` is the docs/behavior.md B-01 wall-clock cap in seconds
     /// (`None` disables); `memory_limit` is the linear-memory cap in
     /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
-    /// are the per-channel output caps (SPEC.md B-01 / B-04; `None`
+    /// are the per-channel output caps (docs/behavior.md B-01 / B-04; `None`
     /// disables). All four are validated by the caller
     /// (`Kobako::Sandbox`); this method only refuses non-finite or
     /// non-positive timeouts as a defence in depth.
@@ -232,7 +232,7 @@ impl Instance {
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the two-frame stdin protocol carries +preamble+ then +source+ —
     /// docs/wire-codec.md § ABI Signatures), then invokes `__kobako_run`. Per-run
-    /// caps (SPEC.md B-01) are primed here: the wall-clock deadline is
+    /// caps (docs/behavior.md B-01) are primed here: the wall-clock deadline is
     /// stamped into [`HostState`] and the epoch deadline is set to fire
     /// at the next ticker tick; the memory-cap limiter is already wired.
     pub(crate) fn run(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
@@ -511,7 +511,7 @@ mod tests {
 }
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from [`HostState`] (SPEC.md B-01) and trap with
+/// wall-clock deadline from [`HostState`] (docs/behavior.md B-01) and trap with
 /// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
@@ -530,7 +530,7 @@ fn epoch_deadline_callback(
 
 /// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
 /// exception class. `__kobako_run` traps are downcast to identify the
-/// configured-cap path (SPEC.md E-19 / E-20); everything else surfaces
+/// configured-cap path (docs/behavior.md E-19 / E-20); everything else surfaces
 /// as the base `Kobako::Wasm::Error`.
 fn run_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     if err.downcast_ref::<TimeoutTrap>().is_some() {

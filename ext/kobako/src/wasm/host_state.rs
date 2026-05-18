@@ -4,10 +4,10 @@
 //! and threaded through every host import — the `__kobako_dispatch`
 //! dispatcher reads the server handle, while the run-path methods on
 //! [`crate::wasm::Instance`] install fresh WASI context + pipes before
-//! every `#run` (SPEC.md B-03 / B-04).
+//! every `#run` (docs/behavior.md B-03 / B-04).
 //!
-//! The state also carries the per-run wall-clock deadline (SPEC.md B-01,
-//! E-19) and the linear-memory cap [`KobakoLimiter`] (SPEC.md B-01,
+//! The state also carries the per-run wall-clock deadline (docs/behavior.md B-01,
+//! E-19) and the linear-memory cap [`KobakoLimiter`] (docs/behavior.md B-01,
 //! E-20). Both are read from the wasmtime `epoch_deadline_callback` /
 //! `ResourceLimiter` callbacks installed in
 //! [`crate::wasm::Instance::from_path`].
@@ -41,7 +41,7 @@ impl HostState {
     /// Build a fresh per-Store host state. `memory_limit` carries the
     /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
     /// it is read from the wasmtime [`ResourceLimiter`] callback every
-    /// time the guest grows linear memory (SPEC.md B-01, E-20).
+    /// time the guest grows linear memory (docs/behavior.md B-01, E-20).
     pub(super) fn new(memory_limit: Option<usize>) -> Self {
         Self {
             wasi: None,
@@ -55,7 +55,7 @@ impl HostState {
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
     /// pipe clones. Called from [`crate::wasm::Instance::run`] at the top
-    /// of every guest invocation (SPEC.md B-03 / B-04).
+    /// of every guest invocation (docs/behavior.md B-03 / B-04).
     pub(super) fn install_wasi(
         &mut self,
         wasi: WasiP1Ctx,
@@ -110,7 +110,7 @@ impl HostState {
 
     /// Replace the per-run wall-clock deadline. `Some(at)` makes the
     /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
-    /// disables the cap. Called at the top of every `#run` (SPEC.md B-01).
+    /// disables the cap. Called at the top of every `#run` (docs/behavior.md B-01).
     pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
     }
@@ -138,7 +138,7 @@ impl HostState {
 /// `max_memory` is the byte cap (`None` disables the cap). `cap_active`
 /// gates whether the cap is enforced — wasmtime's `ResourceLimiter`
 /// fires for both the module's declared initial allocation and every
-/// subsequent `memory.grow`, but SPEC.md E-20 scopes the trap to
+/// subsequent `memory.grow`, but docs/behavior.md E-20 scopes the trap to
 /// `memory.grow` specifically. [`KobakoLimiter::activate`] /
 /// [`KobakoLimiter::deactivate`] flip the flag for the lifetime of an
 /// `Instance::run` call. When `cap_active` is `false`, the limiter
@@ -165,7 +165,7 @@ impl KobakoLimiter {
     /// Arm the cap so subsequent `memory.grow` calls are checked
     /// against `memory_limit`. The cap is dormant by default — the
     /// module's declared initial memory is allocated during
-    /// `Linker::instantiate` and SPEC.md E-20 scopes the trap to
+    /// `Linker::instantiate` and docs/behavior.md E-20 scopes the trap to
     /// `memory.grow` (not the instantiation-time initial allocation).
     /// [`crate::wasm::Instance::run`] calls this right before
     /// `__kobako_run`.
@@ -211,7 +211,7 @@ impl ResourceLimiter for KobakoLimiter {
 }
 
 /// Marker error returned from [`KobakoLimiter::memory_growing`] on
-/// SPEC.md E-20. Downcast from the wasmtime trap error to surface as
+/// docs/behavior.md E-20. Downcast from the wasmtime trap error to surface as
 /// `Kobako::Wasm::MemoryLimitError` on the Ruby side. Callers use the
 /// `Display` impl below — no field is read directly — so the inner
 /// state stays private.

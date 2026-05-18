@@ -4,7 +4,7 @@ module Kobako
   # Host-side captured prefix of guest stdout / stderr produced during a
   # single +Kobako::Sandbox#run+, paired with the truncation flag the WASI
   # pipe sets when the guest wrote past the configured per-channel cap
-  # ({SPEC.md B-04}[link:../../SPEC.md]).
+  # ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
   #
   # Immutable value object: the captured bytes and the truncation flag
   # always travel together and the instance is frozen on construction.
@@ -25,7 +25,7 @@ module Kobako
 
     # Returns +true+ iff the underlying capture channel exceeded its
     # configured cap during the originating +Sandbox#run+
-    # ({SPEC.md B-04}[link:../../SPEC.md]).
+    # ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
     def truncated? = @truncated
 
     # Construct a Capture from ext-provided binary bytes. Coerces +bytes+
@@ -38,7 +38,7 @@ module Kobako
       new(bytes: copy, truncated: truncated)
     end
 
-    # Pre-run sentinel ({SPEC.md B-05}[link:../../SPEC.md]). Empty UTF-8
+    # Pre-run sentinel ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Empty UTF-8
     # bytes and +truncated? == false+; reused by every fresh +Sandbox+ and
     # by +Sandbox#run+ between invocations to denote "no capture yet".
     EMPTY = new(bytes: "", truncated: false)

@@ -34,7 +34,7 @@
 //!
 //! User-script RPC calls land in C via the `Kobako::RPC::Client` singleton-class
 //! `method_missing` shim (and `Kobako::RPC::Handle#method_missing` for the
-//! Handle chaining path, SPEC.md B-17). Both shims live in
+//! Handle chaining path, docs/behavior.md B-17). Both shims live in
 //! `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
 //! which in turn calls [`invoke_rpc`] here. This module's role is the
 //! Rust-level encode/transport/decode pipeline that the C bridges

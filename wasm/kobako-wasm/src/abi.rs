@@ -191,7 +191,7 @@ pub extern "C" fn __kobako_run() {
             }
             // If serialization itself fails, OUTCOME_BUFFER stays empty —
             // the host treats len=0 as a wire violation → TrapError path
-            // (SPEC.md Error Scenarios).
+            // (docs/behavior.md Error Scenarios).
         }
 
         fn write_outcome(bytes: Vec<u8>) {

@@ -69,14 +69,14 @@ pub(crate) fn wasm_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 }
 
 /// Construct a `Kobako::Wasm::TimeoutError` magnus error. Surfaces the
-/// SPEC.md E-19 wall-clock cap path so the Sandbox layer can rewrap it
+/// docs/behavior.md E-19 wall-clock cap path so the Sandbox layer can rewrap it
 /// as `Kobako::TimeoutError`.
 pub(crate) fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(&WASM_TIMEOUT_ERROR), msg.into())
 }
 
 /// Construct a `Kobako::Wasm::MemoryLimitError` magnus error. Surfaces
-/// the SPEC.md E-20 linear-memory cap path so the Sandbox layer can
+/// the docs/behavior.md E-20 linear-memory cap path so the Sandbox layer can
 /// rewrap it as `Kobako::MemoryLimitError`.
 pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(&WASM_MEMORY_LIMIT_ERROR), msg.into())
@@ -92,7 +92,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // Error hierarchy. ModuleNotBuiltError is the headline error for the
     // common pre-build state where `data/kobako.wasm` has not yet been
     // produced (e.g. fresh clone before `rake compile`). TimeoutError and
-    // MemoryLimitError carry the SPEC.md B-01 per-run cap paths up to the
+    // MemoryLimitError carry the docs/behavior.md B-01 per-run cap paths up to the
     // Sandbox layer.
     let base_err = wasm.define_error("Error", ruby.exception_standard_error())?;
     wasm.define_error("ModuleNotBuiltError", base_err)?;

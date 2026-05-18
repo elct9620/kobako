@@ -9,7 +9,7 @@ require_relative "rpc/envelope"
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
   # scripts inside a wasmtime-hosted Wasm module
-  # ({SPEC.md B-01}[link:../../SPEC.md]).
+  # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
   #
   # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance RPC Server
   # (which itself owns the per-run HandleTable), and the per-channel byte
@@ -18,7 +18,7 @@ module Kobako
   # never surface to Ruby — constructing many Sandboxes amortises both costs
   # automatically.
   #
-  # Output capture policy ({SPEC.md B-04}[link:../../SPEC.md]): the
+  # Output capture policy ({docs/behavior.md B-04}[link:../../docs/behavior.md]): the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
   # WASI pipe — the host buffer stops growing at the cap, subsequent guest
   # writes on that channel fail or are dropped, and +#run+ still returns
@@ -28,15 +28,15 @@ module Kobako
   # that the cap was hit.
   class Sandbox
     # Default per-channel capture ceiling: 1 MiB
-    # ({SPEC.md B-01}[link:../../SPEC.md]).
+    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
     # Default wall-clock timeout for a single +#run+: 60 seconds
-    # ({SPEC.md B-01}[link:../../SPEC.md]).
+    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
     # Default cap on guest linear memory growth: 5 MiB
-    # ({SPEC.md B-01}[link:../../SPEC.md]).
+    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_MEMORY_LIMIT = 5 << 20
 
     attr_reader :wasm_path, :instance,
@@ -45,7 +45,7 @@ module Kobako
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # +#run+ as a UTF-8 String, clipped at +stdout_limit+. Empty before any
-    # +#run+ call. {SPEC.md B-04}[link:../../SPEC.md] — the byte content
+    # +#run+ call. {docs/behavior.md B-04}[link:../../docs/behavior.md] — the byte content
     # never contains a truncation sentinel; use +#stdout_truncated?+ to
     # observe overflow.
     def stdout
@@ -60,7 +60,7 @@ module Kobako
     end
 
     # Returns +true+ iff stdout capture during the most recent +#run+
-    # exceeded +stdout_limit+ ({SPEC.md B-04}[link:../../SPEC.md]). Resets
+    # exceeded +stdout_limit+ ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Resets
     # to +false+ at the start of the next +#run+ ({SPEC.md
     # B-03}[link:../../SPEC.md]).
     def stdout_truncated?
@@ -79,9 +79,9 @@ module Kobako
     # gem-bundled +data/kobako.wasm+. +stdout_limit+ and +stderr_limit+ cap
     # the per-run byte ceiling for each capture channel (default 1 MiB;
     # +nil+ disables the cap). +timeout+ is the wall-clock cap on a single
-    # +#run+ in seconds ({SPEC.md B-01}[link:../../SPEC.md]; default 60.0,
+    # +#run+ in seconds ({docs/behavior.md B-01}[link:../../docs/behavior.md]; default 60.0,
     # +nil+ disables); +memory_limit+ caps guest linear memory growth in
-    # bytes ({SPEC.md B-01, E-20}[link:../../SPEC.md]; default 5 MiB,
+    # bytes ({docs/behavior.md B-01, E-20}[link:../../docs/behavior.md]; default 5 MiB,
     # +nil+ disables).
     def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
                    timeout: DEFAULT_TIMEOUT_SECONDS,
@@ -98,7 +98,7 @@ module Kobako
     end
 
     # Declare or retrieve the Namespace named +name+ on this Sandbox
-    # ({SPEC.md B-07, B-09, B-10}[link:../../SPEC.md]). +name+ must be a
+    # ({docs/behavior.md B-07, B-09, B-10}[link:../../docs/behavior.md]). +name+ must be a
     # Symbol or String in constant form. Returns the +Kobako::RPC::Namespace+.
     #
     # Raises +ArgumentError+ when called after +#run+, or when +name+ does
@@ -108,7 +108,7 @@ module Kobako
     end
 
     # Execute a guest mruby script
-    # ({SPEC.md B-02 / B-03}[link:../../SPEC.md]). +source+ is the mruby
+    # ({docs/behavior.md B-02 / B-03}[link:../../docs/behavior.md]). +source+ is the mruby
     # source code as a UTF-8 String. Returns the deserialized last
     # expression of the script.
     #
@@ -136,7 +136,7 @@ module Kobako
     private
 
     # Coerce +timeout+ into the Float seconds the ext expects, or +nil+ to
-    # mean the cap is disabled ({SPEC.md B-01}[link:../../SPEC.md]). Any
+    # mean the cap is disabled ({docs/behavior.md B-01}[link:../../docs/behavior.md]). Any
     # finite non-positive value is rejected — a zero or negative timeout
     # would either fire instantly or never, both of which would surprise
     # callers more than an early +ArgumentError+.
@@ -151,7 +151,7 @@ module Kobako
     end
 
     # Coerce +memory_limit+ into the byte cap the ext expects, or +nil+ to
-    # mean unbounded ({SPEC.md B-01, E-20}[link:../../SPEC.md]). Must be a
+    # mean unbounded ({docs/behavior.md B-01, E-20}[link:../../docs/behavior.md]). Must be a
     # positive Integer when set; +Float+ or zero/negative values are
     # rejected.
     def normalize_memory_limit(memory_limit)
@@ -163,7 +163,7 @@ module Kobako
       memory_limit
     end
 
-    # Per-run state reset ({SPEC.md B-03}[link:../../SPEC.md]). Capture
+    # Per-run state reset ({docs/behavior.md B-03}[link:../../docs/behavior.md]). Capture
     # buffers, truncation predicates, and the HandleTable counter are
     # zeroed before the guest runs.
     def reset_run_state!
@@ -172,7 +172,7 @@ module Kobako
     end
 
     # Reset both per-channel captures to the pre-run sentinel
-    # ({SPEC.md B-05}[link:../../SPEC.md]). Shared by +#initialize+
+    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Shared by +#initialize+
     # (first-run setup) and +#reset_run_state!+ (between-run reset) so
     # both paths agree on what "empty capture" means.
     def clear_captures!
@@ -184,7 +184,7 @@ module Kobako
     # ext after a guest run completes and wrap each as a +Capture+ value
     # object. The ext clips +bytes+ to the configured cap and sets
     # +truncated+ when the guest produced strictly more than +cap+ bytes
-    # ({SPEC.md B-04}[link:../../SPEC.md]). Mirror of {#clear_captures!}
+    # ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Mirror of {#clear_captures!}
     # at the post-run boundary.
     def read_captures!
       out_bytes, out_truncated = @instance.stdout
@@ -196,7 +196,7 @@ module Kobako
     # Drive +Instance#run+ with the two stdin frames (preamble + source).
     # Wraps wasmtime / wire errors in TrapError so the Sandbox layer maps
     # cleanly to the three-class taxonomy. The configured-cap paths
-    # (SPEC.md E-19 / E-20) are routed to the named TrapError subclasses
+    # (docs/behavior.md E-19 / E-20) are routed to the named TrapError subclasses
     # so callers that want to surface a specific reason can rescue them;
     # everything else falls through to the base TrapError.
     def run_guest(preamble, source)
@@ -212,7 +212,7 @@ module Kobako
     # Take OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+
     # and decode them into the Sandbox-level result — the unwrapped mruby
     # return value, or a raised three-layer
-    # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception. A zero-
+    # ({docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]) exception. A zero-
     # length outcome is delivered to +Kobako::Outcome+ as an empty String
     # so a single boundary attributes every wire-violation outcome
     # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]).

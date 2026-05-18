@@ -76,7 +76,7 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
             // line 2241). Passing a NULL super to `mrb_define_class` makes
             // mruby emit `"no super class for 'IO', Object assumed"` via
             // `mrb_warn` on every install, leaking onto the guest `stderr`
-            // capture pipe (SPEC.md B-04).
+            // capture pipe (docs/behavior.md B-04).
             let io_class = sys::mrb_define_class(mrb, cstr_ptr(IO_NAME), (*mrb).object_class);
 
             sys::mrb_define_method(
@@ -168,7 +168,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
 /// the bytes through `fwrite` to the descriptor-selected stream.
 /// Returns the total bytes accepted (an `Integer`).
 ///
-/// Truncation on cap exhaustion (SPEC.md B-04) surfaces as a short
+/// Truncation on cap exhaustion (docs/behavior.md B-04) surfaces as a short
 /// return value: when wasmtime's `MemoryOutputPipe` rejects bytes past
 /// its limit, `fwrite` short-writes and the returned total reflects
 /// only the accepted bytes. No Ruby-level error is raised.

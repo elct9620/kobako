@@ -3,12 +3,12 @@
 module Kobako
   module RPC
     # A named grouping of Members for one Sandbox
-    # ({SPEC.md B-07..B-11}[link:../../../SPEC.md]). Returned by
+    # ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]). Returned by
     # +Sandbox#define+. Each instance owns a flat name→object table of
     # Members; member binding is validated against {NAME_PATTERN}.
     class Namespace
       # Ruby constant-name pattern shared by Namespace and Member names
-      # ({SPEC.md B-07/B-08 Notes}[link:../../../SPEC.md]).
+      # ({docs/behavior.md B-07/B-08 Notes}[link:../../../docs/behavior.md]).
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
       attr_reader :name, :members
@@ -26,7 +26,7 @@ module Kobako
       # object that responds to the methods guest code will invoke. Returns
       # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
       # match the constant pattern, or a Member of the same name is already
-      # bound ({SPEC.md B-11}[link:../../../SPEC.md]).
+      # bound ({docs/behavior.md B-11}[link:../../../docs/behavior.md]).
       def bind(member, object)
         member_str = validate_member_name!(member)
         raise ArgumentError, "Member #{@name}::#{member_str} is already bound" if @members.key?(member_str)

@@ -7,7 +7,7 @@ module Kobako
   # +__kobako_run+. Takes raw outcome bytes — a one-byte tag followed by
   # the msgpack-encoded body — and maps them to either the unwrapped
   # mruby return value or a raised three-layer
-  # ({SPEC.md "Error Scenarios"}[link:../../SPEC.md]) exception.
+  # ({docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]) exception.
   #
   # Self-contained: this module owns the wire framing (tag bytes,
   # body decoding), and the +Panic+ wire record lives at
@@ -100,7 +100,7 @@ module Kobako
     # Ruby exception. +origin == "service"+ → ServiceError (with the
     # +::Disconnected+ subclass selected when the panic carries the
     # disconnected sentinel —
-    # {SPEC "Error Classes"}[link:../../SPEC.md]); everything else
+    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]); everything else
     # → SandboxError.
     def build_panic_error(panic)
       panic_target_class(panic).new(
@@ -112,7 +112,7 @@ module Kobako
       )
     end
 
-    # {SPEC "Error Classes"}[link:../../SPEC.md]: when
+    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]: when
     # +origin="service"+ and the panic +class+ field names
     # +ServiceError::Disconnected+, surface that subclass so callers can
     # rescue the disconnected path specifically (E-14).

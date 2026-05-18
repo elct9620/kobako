@@ -10,7 +10,7 @@ module Kobako
     # The module is stateless — all mutable state is threaded through the
     # +server+ argument so Dispatcher has no instance variables and no side
     # effects beyond mutating the HandleTable via +alloc+ when a non-wire-
-    # representable return value must be wrapped ({SPEC.md B-14}[link:../../../SPEC.md]).
+    # representable return value must be wrapped ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
     #
     # Entry point:
     #
@@ -22,12 +22,12 @@ module Kobako
       # Internal sentinel raised when target resolution fails. Mapped to
       # Response.error with type="undefined". Contained at the wire boundary —
       # not part of the public Kobako error taxonomy
-      # ({SPEC.md E-xx}[link:../../../SPEC.md]).
+      # ({docs/behavior.md E-xx}[link:../../../docs/behavior.md]).
       class UndefinedTargetError < StandardError; end
 
       # Internal sentinel raised when a Handle target resolves to the
       # +:disconnected+ sentinel in the HandleTable (ABA protection,
-      # {SPEC.md E-14}[link:../../../SPEC.md]). Mapped to Response.error with
+      # {docs/behavior.md E-14}[link:../../../docs/behavior.md]). Mapped to Response.error with
       # type="disconnected". Contained at the wire boundary.
       class DisconnectedTargetError < StandardError; end
 
@@ -41,7 +41,7 @@ module Kobako
       # during decode, lookup, or method invocation is reified as a
       # Response.error envelope so the guest sees the failure as a normal RPC
       # error rather than a wasm trap
-      # ({SPEC.md B-12}[link:../../../SPEC.md]).
+      # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       def dispatch(request_bytes, server)
         request = Kobako::RPC.decode_request(request_bytes)
         handle_table = server.handle_table
@@ -57,7 +57,7 @@ module Kobako
       # Map an error caught at the dispatch boundary to a +Response.error+
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
       # rescue. Returns a msgpack-encoded Response envelope (binary). Four
-      # error buckets ({SPEC.md B-12}[link:../../../SPEC.md]):
+      # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
       # +Kobako::Codec::Error+ → type="runtime" (wire decode failed);
       # +DisconnectedTargetError+ → type="disconnected" (E-14);
       # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
@@ -86,7 +86,7 @@ module Kobako
         end
       end
 
-      # {SPEC.md B-16}[link:../../../SPEC.md] — An RPC::Handle arriving as a positional or keyword
+      # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An RPC::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the
@@ -139,10 +139,10 @@ module Kobako
       end
 
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
-      # wire-representable per {SPEC.md B-13}[link:../../../SPEC.md]'s type
+      # wire-representable per {docs/behavior.md B-13}[link:../../../docs/behavior.md]'s type
       # mapping, the +UnsupportedType+ rescue routes it through the
       # HandleTable via {#wrap_as_handle} and re-encodes with the Capability
-      # Handle in place ({SPEC.md B-14}[link:../../../SPEC.md]). The happy
+      # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
       def encode_ok(value, server)
         response = Kobako::RPC::Response.ok(value)
@@ -152,7 +152,7 @@ module Kobako
       end
 
       # Allocate +value+ in the Server's HandleTable and return a +Handle+
-      # that the wire codec can carry ({SPEC.md B-14}[link:../../../SPEC.md]).
+      # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.
       def wrap_as_handle(value, server)

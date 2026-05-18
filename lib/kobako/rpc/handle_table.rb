@@ -7,20 +7,20 @@ module Kobako
     # Host-side mapping from opaque integer Handle IDs to Ruby objects
     # (capability proxies). One table is owned per +Kobako::RPC::Server+
     # instance (and therefore per +Kobako::Sandbox+ instance). See
-    # {SPEC.md B-15}[link:../../../SPEC.md].
+    # {docs/behavior.md B-15}[link:../../../docs/behavior.md].
     #
     # Lifecycle invariants ({SPEC.md}[link:../../../SPEC.md]):
     #
-    #   - {SPEC.md B-15}[link:../../../SPEC.md] — Handle IDs are allocated by
+    #   - {docs/behavior.md B-15}[link:../../../docs/behavior.md] — Handle IDs are allocated by
     #     a monotonically increasing counter scoped to a single `#run`. The
     #     first ID issued in a run is 1; ID 0 is reserved as the invalid
     #     sentinel and is never returned by #alloc.
     #
-    #   - {SPEC.md B-19}[link:../../../SPEC.md] — When between `#run`
+    #   - {docs/behavior.md B-19}[link:../../../docs/behavior.md] — When between `#run`
     #     invocations (via `#reset!`), every Handle issued under the old state
     #     becomes invalid.
     #
-    #   - {SPEC.md B-21}[link:../../../SPEC.md] — The cap is `0x7fff_ffff`
+    #   - {docs/behavior.md B-21}[link:../../../docs/behavior.md] — The cap is `0x7fff_ffff`
     #     (2³¹ − 1). Allocation beyond the cap raises immediately — no silent
     #     truncation, no wrap, no ID reuse.
     class HandleTable
@@ -38,7 +38,7 @@ module Kobako
       # allocated Handle ID in +[1, RPC::Handle::MAX_ID]+. Raises
       # +Kobako::HandleTableExhausted+ if the next ID would exceed the cap.
       # The cap is anchored on +RPC::Handle+ — the wire codec and the
-      # allocator share the same invariant ({SPEC.md B-21}[link:../../../SPEC.md]).
+      # allocator share the same invariant ({docs/behavior.md B-21}[link:../../../docs/behavior.md]).
       def alloc(object)
         id = @next_id
         cap = RPC::Handle::MAX_ID
@@ -66,7 +66,7 @@ module Kobako
       end
 
       # Clear all entries AND reset the counter to 1. Called at the per-run
-      # boundary — see {SPEC.md B-19}[link:../../../SPEC.md].
+      # boundary — see {docs/behavior.md B-19}[link:../../../docs/behavior.md].
       # Returns +self+.
       def reset!
         @entries.clear
