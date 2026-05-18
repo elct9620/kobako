@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+      semver-minor-days: 5
+    groups:
+      ruby-deps:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+      semver-minor-days: 5
+    groups:
+      rust-deps:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+      semver-minor-days: 5
+    groups:
+      gha-deps:
+        update-types:
+          - minor
+          - patch
