@@ -2,8 +2,8 @@
 
 module Kobako
   module Outcome
-    # SPEC.md → Outcome Envelope → Panic envelope ({SPEC.md Outcome
-    # Envelope}[link:../../../SPEC.md]). Wire-shaped failure record
+    # Wire-contract Outcome Envelope → Panic envelope ({docs/wire-contract.md
+    # Outcome Envelope}[link:../../../docs/wire-contract.md]). Wire-shaped failure record
     # carried in the OUTCOME_BUFFER when the guest run terminates with
     # an uncaught top-level exception.
     #

@@ -8,7 +8,7 @@ module Kobako
   # See lib/kobako/rpc.rb for the umbrella module doc; this file owns the
   # Request / Response value objects and their encode/decode helpers.
   module RPC
-    # ---------------- Response status bytes (SPEC.md Response Shape) ---
+    # ---------------- Response status bytes (docs/wire-contract.md § Response Shape) ---
 
     # Response variant marker for the success branch.
     STATUS_OK    = 0

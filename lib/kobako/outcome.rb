@@ -24,7 +24,7 @@ module Kobako
   module Outcome
     # First byte of the OUTCOME_BUFFER for the success branch — body is
     # the bare msgpack encoding of the returned value
-    # ({SPEC.md Outcome Envelope}[link:../../SPEC.md]).
+    # ({docs/wire-contract.md Outcome Envelope}[link:../../docs/wire-contract.md]).
     TYPE_VALUE = 0x01
     # First byte of the OUTCOME_BUFFER for the failure branch — body is
     # the msgpack Panic map.

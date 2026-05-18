@@ -1,6 +1,6 @@
 //! Per-call RPC envelope encoders/decoders.
 //!
-//! SPEC.md § Wire Contract pins the logical shape of every host↔guest
+//! docs/wire-contract.md pins the logical shape of every host↔guest
 //! Request / Response; docs/wire-codec.md § Envelope Encoding
 //! pins the binary framing. This module assembles the per-RPC Request
 //! and Response envelopes on top of the lower-level [`Encoder`] /

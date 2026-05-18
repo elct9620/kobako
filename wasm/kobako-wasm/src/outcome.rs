@@ -1,6 +1,6 @@
 //! Per-run Outcome envelope encoders/decoders.
 //!
-//! SPEC.md → Outcome Envelope wraps a single `#run` invocation's final
+//! docs/wire-contract.md § Outcome Envelope wraps a single `#run` invocation's final
 //! result (`Result` branch — the user script's last expression) or
 //! top-level uncaught exception (`Panic` branch). This module mirrors the
 //! host's `lib/kobako/outcome.rb` + `lib/kobako/outcome/panic.rb`: per-run
@@ -19,20 +19,20 @@
 use crate::codec::{Decoder, Encoder, Value};
 use crate::rpc::envelope::EnvelopeError;
 
-/// Outcome envelope tag for a Result envelope (SPEC.md "Outcome
-/// Envelope"). Module-private — `Outcome::Value` is the public surface
+/// Outcome envelope tag for a Result envelope (docs/wire-contract.md § Outcome
+/// Envelope). Module-private — `Outcome::Value` is the public surface
 /// and reifies this value.
 const OUTCOME_TAG_RESULT: u8 = 0x01;
 
-/// Outcome envelope tag for a Panic envelope (SPEC.md "Outcome
-/// Envelope"). Module-private.
+/// Outcome envelope tag for a Panic envelope (docs/wire-contract.md § Outcome
+/// Envelope). Module-private.
 const OUTCOME_TAG_PANIC: u8 = 0x02;
 
 // ============================================================
 // Value objects
 // ============================================================
 
-/// SPEC.md → Outcome Envelope → Panic envelope: msgpack **map** keyed by
+/// docs/wire-contract.md § Outcome Envelope → Panic envelope: msgpack **map** keyed by
 /// name (SPEC: unknown keys must be silently ignored). Required keys:
 /// `"origin"`, `"class"`, `"message"`. Optional keys: `"backtrace"`,
 /// `"details"`.
@@ -45,7 +45,7 @@ pub struct Panic {
     pub details: Option<Value>,
 }
 
-/// SPEC.md → Outcome Envelope: 1-byte tag (`0x01` success-value,
+/// docs/wire-contract.md § Outcome Envelope: 1-byte tag (`0x01` success-value,
 /// `0x02` Panic) followed by the msgpack payload of the corresponding
 /// branch. The success branch is the bare msgpack encoding of the
 /// returned [`Value`]; the tag alone discriminates the variant, so no
