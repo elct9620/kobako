@@ -10,7 +10,7 @@ kobako is a Ruby gem that provides an in-process Wasm sandbox for running untrus
 
 Apply these in order — earlier principles override later ones on conflict.
 
-1. **SPEC.md is the source of truth.** Behavior contracts (Wire Codec, error taxonomy, Sandbox lifecycle, HandleTable rules) live in `SPEC.md`. Cite anchors (B-xx / E-xx) from committed code as an RDoc link resolved from the file's location — e.g. `{SPEC.md B-04}[link:../../SPEC.md]` from `lib/kobako/*.rb`. When SPEC is silent, extend `SPEC.md` first, then cite the new anchor.
+1. **SPEC.md is the source of truth.** It carries governing decisions directly, or indexes detail documents under `docs/<topic>.md` and retains a governing summary plus link above each extraction. Behavior contracts (Wire Codec, error taxonomy, Sandbox lifecycle, HandleTable rules) live in `SPEC.md` or in the `docs/<topic>.md` it points at. Cite anchors (B-xx / E-xx) from committed code as an RDoc link resolved from the file's location — `{SPEC.md B-04}[link:../../SPEC.md]` from `lib/kobako/*.rb` when the anchor still sits in `SPEC.md`; `{docs/behavior.md B-04}[link:../../docs/behavior.md]` after the anchor has been moved into a detail document. B-xx and E-xx numbers are append-only across the entire spec corpus (`SPEC.md` plus `docs/*.md`); existing anchors are never renumbered. When SPEC is silent, extend `SPEC.md` or the relevant `docs/<topic>.md` first, then cite the new anchor.
 
 2. **One thing per file; keep files small.** When a class grows, split it into a façade plus per-responsibility files in a sibling directory. `Registry` and `Wire::Envelope` follow this pattern (`<name>.rb` façade + `<name>/` directory of focused files). Prefer adding a new file over expanding an existing one.
 

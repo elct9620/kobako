@@ -1170,7 +1170,7 @@ The following principles govern how all names in this specification and in the `
 | N-5 | Internal Rust crates are named with a hyphen prefix matching the gem: `kobako-wasm` (Guest Binary crate), `kobako-ext` (native extension crate) | `Cargo.toml` package names; not exposed to Ruby |
 | N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface | All layers of this specification |
 | N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |
-| N-8 | `B-xx` and `E-xx` anchors are assigned monotonically and append-only across the document; existing anchors are never renumbered, and a new entry takes the next unused number regardless of which subsection it belongs to | All Behavior and Error Scenario entries |
+| N-8 | `B-xx` and `E-xx` anchors are assigned monotonically and append-only across the spec corpus (`SPEC.md` plus `docs/*.md`); existing anchors are never renumbered, and a new entry takes the next unused number regardless of which document or subsection it belongs to. Relocation of a contiguous anchor range from `SPEC.md` to `docs/<topic>.md` during a TOC-mode extraction is not a renumbering and is permitted | All Behavior and Error Scenario entries |
 
 ---
 
