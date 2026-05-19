@@ -5,6 +5,8 @@ require_relative "errors"
 require_relative "outcome"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
+require_relative "run_envelope"
+require_relative "sandbox_options"
 require_relative "snippet_table"
 
 module Kobako
@@ -40,9 +42,7 @@ module Kobako
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_MEMORY_LIMIT = 5 << 20
 
-    attr_reader :wasm_path, :instance,
-                :stdout_limit, :stderr_limit,
-                :timeout, :memory_limit, :services, :snippets
+    attr_reader :wasm_path, :instance, :stdout_limit, :stderr_limit, :timeout, :memory_limit, :services, :snippets
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
@@ -90,8 +90,8 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Wasm.default_path
       @stdout_limit = stdout_limit || DEFAULT_OUTPUT_LIMIT
       @stderr_limit = stderr_limit || DEFAULT_OUTPUT_LIMIT
-      @timeout = normalize_timeout(timeout)
-      @memory_limit = normalize_memory_limit(memory_limit)
+      @timeout = SandboxOptions.normalize_timeout(timeout)
+      @memory_limit = SandboxOptions.normalize_memory_limit(memory_limit)
       @services = Kobako::RPC::Server.new
       @snippets = SnippetTable.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
@@ -132,6 +132,21 @@ module Kobako
       self
     end
 
+    # Dispatch into a preloaded entrypoint constant
+    # ({docs/behavior.md B-31}[link:../../docs/behavior.md]). Delegates host
+    # pre-flight (E-24 / E-25 / E-29 / E-30) and envelope encoding to
+    # +Kobako::RunEnvelope+; the guest resolves +target+ as a top-level
+    # constant, calls +#call+ on it with +args+ / +kwargs+, and returns
+    # the deserialized result. The first invocation seals the Service
+    # registry and snippet table (B-07 / B-33). Runtime errors follow the
+    # same three-class taxonomy as +#eval+.
+    def run(target, *args, **kwargs)
+      envelope = RunEnvelope.new(target, args, kwargs)
+      invoke!(:run) do
+        @instance.run(@services.encoded_preamble, @snippets.encoded_frame3, envelope.encode)
+      end
+    end
+
     # Execute a guest mruby source string in a fresh +mrb_state+
     # ({docs/behavior.md B-02 / B-03 / B-06}[link:../../docs/behavior.md]). +code+ is the
     # mruby source as a UTF-8 String. Returns the deserialized last
@@ -158,43 +173,12 @@ module Kobako
     def eval(code)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      @services.seal!
-      reset_invocation_state!
-
-      run_guest(@services.encoded_preamble, code.b, @snippets.encoded_frame3)
-      read_captures!
-      take_result!
+      invoke!(:eval) do
+        @instance.eval(@services.encoded_preamble, code.b, @snippets.encoded_frame3)
+      end
     end
 
     private
-
-    # Coerce +timeout+ into the Float seconds the ext expects, or +nil+ to
-    # mean the cap is disabled ({docs/behavior.md B-01}[link:../../docs/behavior.md]). Any
-    # finite non-positive value is rejected — a zero or negative timeout
-    # would either fire instantly or never, both of which would surprise
-    # callers more than an early +ArgumentError+.
-    def normalize_timeout(timeout)
-      return nil if timeout.nil?
-      raise ArgumentError, "timeout must be Numeric or nil, got #{timeout.class}" unless timeout.is_a?(Numeric)
-
-      seconds = timeout.to_f
-      raise ArgumentError, "timeout must be > 0 (got #{timeout})" unless seconds.positive? && seconds.finite?
-
-      seconds
-    end
-
-    # Coerce +memory_limit+ into the byte cap the ext expects, or +nil+ to
-    # mean unbounded ({docs/behavior.md B-01, E-20}[link:../../docs/behavior.md]). Must be a
-    # positive Integer when set; +Float+ or zero/negative values are
-    # rejected.
-    def normalize_memory_limit(memory_limit)
-      return nil if memory_limit.nil?
-      unless memory_limit.is_a?(Integer) && memory_limit.positive?
-        raise ArgumentError, "memory_limit must be a positive Integer or nil, got #{memory_limit.inspect}"
-      end
-
-      memory_limit
-    end
 
     # Per-invocation state reset ({docs/behavior.md B-03}[link:../../docs/behavior.md]).
     # Capture buffers, truncation predicates, and the HandleTable counter
@@ -226,21 +210,30 @@ module Kobako
       @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
     end
 
-    # Drive +Instance#eval+ with the three stdin frames (preamble +
-    # source + snippets). Wraps wasmtime / wire errors in TrapError so
-    # the Sandbox layer maps cleanly to the three-class taxonomy. The
-    # configured-cap paths (docs/behavior.md E-19 / E-20) are routed to
-    # the named TrapError subclasses so callers that want to surface a
-    # specific reason can rescue them; everything else falls through to
-    # the base TrapError.
-    def run_guest(preamble, source, snippets)
-      @instance.eval(preamble, source, snippets)
-    rescue Kobako::Wasm::TimeoutError => e
-      raise TimeoutError, "guest exceeded timeout: #{e.message}"
-    rescue Kobako::Wasm::MemoryLimitError => e
-      raise MemoryLimitError, "guest exceeded memory_limit: #{e.message}"
+    # Shared prologue / epilogue + trap-class translator for both
+    # invocation verbs. +verb+ is +:eval+ or +:run+; it appears in the
+    # TrapError message so the failing export is identifiable. Trap-class
+    # mapping lives in {#raise_trap}.
+    def invoke!(verb)
+      @services.seal!
+      reset_invocation_state!
+      yield
+      read_captures!
+      take_result!
     rescue Kobako::Wasm::Error => e
-      raise TrapError, "guest __kobako_eval trapped: #{e.message}"
+      raise_trap(verb, e)
+    end
+
+    # Translate +err+ (any +Kobako::Wasm::Error+) into the three-class
+    # TrapError taxonomy. Configured-cap paths
+    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md]) surface as
+    # the named TrapError subclasses; everything else is the base
+    # +TrapError+ tagged with the failing export.
+    def raise_trap(verb, err)
+      raise TimeoutError, "guest exceeded timeout: #{err.message}" if err.is_a?(Kobako::Wasm::TimeoutError)
+      raise MemoryLimitError, "guest exceeded memory_limit: #{err.message}" if err.is_a?(Kobako::Wasm::MemoryLimitError)
+
+      raise TrapError, "guest __kobako_#{verb} trapped: #{err.message}"
     end
 
     # Take OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+

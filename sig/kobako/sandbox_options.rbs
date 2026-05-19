@@ -1,0 +1,7 @@
+module Kobako
+  module SandboxOptions
+    def self?.normalize_timeout: ((Float | Integer)? timeout) -> Float?
+
+    def self?.normalize_memory_limit: (Integer? memory_limit) -> Integer?
+  end
+end

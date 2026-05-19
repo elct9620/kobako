@@ -35,21 +35,21 @@ module Kobako
 
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
 
+    def run: (Symbol | String target, *untyped args, **untyped kwargs) -> untyped
+
     def eval: (String code) -> untyped
 
     private
 
     def clear_captures!: () -> void
 
-    def normalize_timeout: ((Float | Integer)? timeout) -> Float?
-
-    def normalize_memory_limit: (Integer? memory_limit) -> Integer?
-
     def reset_invocation_state!: () -> void
 
     def read_captures!: () -> void
 
-    def run_guest: (String preamble, String source, String snippets) -> void
+    def invoke!: (Symbol verb) { () -> void } -> untyped
+
+    def raise_trap: (Symbol verb, Kobako::Wasm::Error err) -> bot
 
     def take_result!: () -> untyped
   end

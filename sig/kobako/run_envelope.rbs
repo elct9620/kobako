@@ -1,0 +1,19 @@
+module Kobako
+  class RunEnvelope
+    attr_reader target_sym: Symbol
+    attr_reader args: Array[untyped]
+    attr_reader kwargs: Hash[Symbol, untyped]
+
+    def initialize: (Symbol | String target, Array[untyped] args, Hash[untyped, untyped] kwargs) -> void
+
+    def encode: () -> String
+
+    private
+
+    def normalize_target: (Symbol | String target) -> Symbol
+
+    def check_args!: (Array[untyped] args) -> void
+
+    def check_kwargs!: (Hash[untyped, untyped] kwargs) -> void
+  end
+end

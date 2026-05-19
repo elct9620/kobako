@@ -68,6 +68,7 @@ pub(crate) struct Instance {
     // `__kobako_alloc` is NOT cached here — only `dispatch.rs` calls it,
     // and it does so through `Caller::get_export` on the wasmtime side.
     eval: Option<TypedFunc<(), ()>>,
+    run: Option<TypedFunc<(i32, i32), ()>>,
     take_outcome: Option<TypedFunc<(), u64>>,
     // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
     // the cap. Translated into an `Instant`-based deadline stamped into
@@ -187,23 +188,29 @@ impl Instance {
         // (test fixture is a bare module); the host enforces presence at
         // invocation time by raising a Ruby `Kobako::Wasm::Error` when the
         // cached Option is None. Only the SPEC ABI `() -> ()` shape is
-        // accepted for `__kobako_eval`.
-        let (eval, take_outcome) = {
+        // accepted for `__kobako_eval`; `__kobako_run` takes
+        // `(env_ptr, env_len) -> ()` per docs/wire-codec.md § ABI
+        // Signatures.
+        let (eval, run, take_outcome) = {
             let mut store_ref = store_cell.borrow_mut();
             let mut ctx = store_ref.as_context_mut();
             let eval = instance
                 .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")
                 .ok();
+            let run = instance
+                .get_typed_func::<(i32, i32), ()>(&mut ctx, "__kobako_run")
+                .ok();
             let take_outcome = instance
                 .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
                 .ok();
-            (eval, take_outcome)
+            (eval, run, take_outcome)
         };
 
         Ok(Self {
             inner: instance,
             store: store_cell,
             eval,
+            run,
             take_outcome,
             timeout,
             stdout_limit_bytes,
@@ -253,6 +260,34 @@ impl Instance {
         let result = self.call_guest(eval);
         self.disarm_caps();
         result.map_err(|e| eval_call_err(&ruby, e))
+    }
+
+    /// Execute one entrypoint dispatch (`__kobako_run`).
+    ///
+    /// Rebuilds the WASI context with the two-frame stdin protocol
+    /// (preamble + snippets; no user source frame — docs/wire-codec.md
+    /// § Invocation channels), copies +envelope+ bytes into guest linear
+    /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
+    /// env_len)`. Per-invocation cap semantics match [`Instance::eval`].
+    /// Returns +Kobako::Wasm::Error+ ("alloc returned 0") when guest
+    /// allocation fails (docs/behavior.md E-31).
+    pub(crate) fn run(
+        &self,
+        preamble: RString,
+        snippets: RString,
+        envelope: RString,
+    ) -> Result<(), MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let run = self
+            .run
+            .as_ref()
+            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
+        self.refresh_wasi_run(preamble, snippets)?;
+        let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
+        self.prime_caps();
+        let result = self.call_guest_run(run, env_ptr, env_len);
+        self.disarm_caps();
+        result.map_err(|e| run_call_err(&ruby, e))
     }
 
     /// Return the stdout capture from the most recent run as a Ruby
@@ -336,6 +371,59 @@ impl Instance {
         run.call(store_ref.as_context_mut(), ())
     }
 
+    /// Mirror of [`Instance::call_guest`] for the entrypoint-dispatch
+    /// export — the i32 pair locates the invocation envelope inside
+    /// guest linear memory.
+    fn call_guest_run(
+        &self,
+        run: &TypedFunc<(i32, i32), ()>,
+        env_ptr: i32,
+        env_len: i32,
+    ) -> wasmtime::Result<()> {
+        let mut store_ref = self.store.borrow_mut();
+        run.call(store_ref.as_context_mut(), (env_ptr, env_len))
+    }
+
+    /// Allocate a +len+-byte buffer in guest linear memory via
+    /// `__kobako_alloc`, copy +envelope+ into it, and return +(ptr, len)+
+    /// as +i32+ values matching the `__kobako_run(env_ptr, env_len)` ABI.
+    /// Raises +Kobako::Wasm::Error+ when the guest export is missing or
+    /// allocation fails (docs/behavior.md E-31).
+    fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
+        let bytes: &[u8] = unsafe { envelope.as_slice() };
+        let len = bytes.len();
+        if len > i32::MAX as usize {
+            return Err(wasm_err(ruby, "invocation envelope exceeds i32::MAX bytes"));
+        }
+
+        let mut store_ref = self.store.borrow_mut();
+        let alloc: TypedFunc<u32, u32> = self
+            .inner
+            .get_typed_func(store_ref.as_context_mut(), "__kobako_alloc")
+            .map_err(|_| wasm_err(ruby, "guest does not export __kobako_alloc"))?;
+        let ptr = alloc
+            .call(store_ref.as_context_mut(), len as u32)
+            .map_err(|e| wasm_err(ruby, format!("__kobako_alloc(): {}", e)))?;
+        if ptr == 0 {
+            return Err(wasm_err(ruby, "__kobako_alloc returned 0 (out of memory)"));
+        }
+
+        let memory: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
+            Some(Extern::Memory(m)) => m,
+            _ => return Err(wasm_err(ruby, "guest does not export 'memory'")),
+        };
+        let data = memory.data_mut(store_ref.as_context_mut());
+        let end = (ptr as usize)
+            .checked_add(len)
+            .ok_or_else(|| wasm_err(ruby, "envelope: ptr + len overflow"))?;
+        if end > data.len() {
+            return Err(wasm_err(ruby, "envelope: write range exceeds memory size"));
+        }
+        data[ptr as usize..end].copy_from_slice(bytes);
+
+        Ok((ptr as i32, len as i32))
+    }
+
     /// Rebuild the WASI context with fresh stdin (three-frame: preamble,
     /// source, snippets — docs/wire-codec.md § Invocation channels) plus
     /// fresh stdout/stderr pipes. Called at the top of every `#run`. Each
@@ -343,6 +431,39 @@ impl Instance {
     /// [`Instance::stderr`] can distinguish "wrote exactly cap bytes"
     /// from "exceeded cap"; uncapped channels fall back to `usize::MAX`
     /// and rely on `memory_limit` (E-20) for the real ceiling.
+    /// Variant of [`Instance::refresh_wasi`] for the entrypoint-dispatch
+    /// path: no user-source frame (docs/wire-codec.md § Invocation
+    /// channels — `__kobako_run` reads only Frame 1 + Frame 3 from
+    /// stdin; the invocation envelope arrives via linear memory).
+    fn refresh_wasi_run(&self, preamble: RString, snippets: RString) -> Result<(), MagnusError> {
+        let preamble_bytes: &[u8] = unsafe { preamble.as_slice() };
+        let snippets_bytes: &[u8] = unsafe { snippets.as_slice() };
+
+        let mut stdin_content: Vec<u8> =
+            Vec::with_capacity(4 + preamble_bytes.len() + 4 + snippets_bytes.len());
+        stdin_content.extend_from_slice(&(preamble_bytes.len() as u32).to_be_bytes());
+        stdin_content.extend_from_slice(preamble_bytes);
+        stdin_content.extend_from_slice(&(snippets_bytes.len() as u32).to_be_bytes());
+        stdin_content.extend_from_slice(snippets_bytes);
+
+        let stdin_pipe = MemoryInputPipe::new(stdin_content);
+        let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));
+        let stderr_pipe = MemoryOutputPipe::new(pipe_capacity(self.stderr_limit_bytes));
+
+        let mut builder = WasiCtxBuilder::new();
+        builder.stdin(stdin_pipe);
+        builder.stdout(stdout_pipe.clone());
+        builder.stderr(stderr_pipe.clone());
+        let wasi = builder.build_p1();
+
+        self.store
+            .borrow_mut()
+            .data_mut()
+            .install_wasi(wasi, stdout_pipe, stderr_pipe);
+
+        Ok(())
+    }
+
     fn refresh_wasi(
         &self,
         preamble: RString,
@@ -552,13 +673,24 @@ fn epoch_deadline_callback(
 /// configured-cap path (docs/behavior.md E-19 / E-20); everything else surfaces
 /// as the base `Kobako::Wasm::Error`.
 fn eval_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    call_err(ruby, "__kobako_eval", err)
+}
+
+/// Sibling of [`eval_call_err`] for the entrypoint-dispatch export; the
+/// trap surface and configured-cap handling are identical, only the
+/// export name in the failure message differs.
+fn run_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    call_err(ruby, "__kobako_run", err)
+}
+
+fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
-        return timeout_err(ruby, format!("__kobako_eval(): {}", err));
+        return timeout_err(ruby, format!("{}(): {}", export, err));
     }
     if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("__kobako_eval(): {}", err));
+        return memory_limit_err(ruby, format!("{}(): {}", export, err));
     }
-    wasm_err(ruby, format!("__kobako_eval(): {}", err))
+    wasm_err(ruby, format!("{}(): {}", export, err))
 }
 
 /// Map an instantiation error to the right `Kobako::Wasm::*` Ruby

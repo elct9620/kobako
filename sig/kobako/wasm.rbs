@@ -27,6 +27,8 @@ module Kobako
 
       def eval: (String preamble, String source, String snippets) -> void
 
+      def run: (String preamble, String snippets, String envelope) -> void
+
       def stdout: () -> [String, bool]
 
       def stderr: () -> [String, bool]

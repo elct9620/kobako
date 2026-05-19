@@ -6,8 +6,9 @@
 //! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge guest
 //!   uses to dispatch a Service call to the host. Lives in the `env`
 //!   wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
-//! * **Exactly 3 guest exports**:
+//! * **Exactly 4 guest exports**:
 //!   - `__kobako_eval`            — reactor entry; runs one-shot user source
+//!   - `__kobako_run(env_ptr, env_len)` — reactor entry; entrypoint dispatch
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
 //!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
@@ -49,7 +50,12 @@ pub const IMPORT_MODULE: &str = "env";
 pub const IMPORT_NAME: &str = "__kobako_dispatch";
 
 /// All three guest-provided export names, in declaration order.
-pub const EXPORT_NAMES: [&str; 3] = ["__kobako_eval", "__kobako_alloc", "__kobako_take_outcome"];
+pub const EXPORT_NAMES: [&str; 4] = [
+    "__kobako_eval",
+    "__kobako_run",
+    "__kobako_alloc",
+    "__kobako_take_outcome",
+];
 
 // ---------------------------------------------------------------------------
 // Host import declaration.
@@ -125,130 +131,8 @@ pub extern "C" fn _initialize() {
 pub extern "C" fn __kobako_eval() {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::codec::Value;
         use crate::mruby::sys;
-        use crate::outcome::{encode_outcome, Outcome, Panic};
-        use std::io::Read;
-
-        // --- helpers ---
-
-        fn read_frame() -> Option<Vec<u8>> {
-            let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
-            let mut stdin = std::io::stdin().lock();
-            stdin.read_exact(&mut len_buf).ok()?;
-            let len = u32::from_be_bytes(len_buf) as usize;
-            let mut payload = vec![0u8; len];
-            stdin.read_exact(&mut payload).ok()?;
-            Some(payload)
-        }
-
-        // Decode `[["Name", ["MemberA", "MemberB"]], ...]` from the
-        // Frame 1 msgpack bytes using the kobako wire codec Decoder.
-        fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
-            use crate::codec::Decoder;
-            let mut dec = Decoder::new(bytes);
-            let outer = dec.read_value().ok()?;
-            let outer_arr = match outer {
-                Value::Array(items) => items,
-                _ => return None,
-            };
-            let mut groups = Vec::with_capacity(outer_arr.len());
-            for item in outer_arr {
-                let pair = match item {
-                    Value::Array(p) if p.len() == 2 => p,
-                    _ => return None,
-                };
-                let group_name = match &pair[0] {
-                    Value::Str(s) => s.clone(),
-                    _ => return None,
-                };
-                let members_arr = match &pair[1] {
-                    Value::Array(m) => m,
-                    _ => return None,
-                };
-                let mut members = Vec::with_capacity(members_arr.len());
-                for m in members_arr {
-                    match m {
-                        Value::Str(s) => members.push(s.clone()),
-                        _ => return None,
-                    }
-                }
-                groups.push((group_name, members));
-            }
-            Some(groups)
-        }
-
-        // Decode `[{name, kind, body}, ...]` from the Frame 3 msgpack
-        // bytes. Each entry is a map with string keys "name", "kind",
-        // "body"; `kind` must be "source" in this revision
-        // (docs/wire-codec.md § Invocation channels). Returns `None` on
-        // any structural / type / kind violation — caller writes a Panic
-        // envelope.
-        fn decode_snippets(bytes: &[u8]) -> Option<Vec<(String, String)>> {
-            use crate::codec::Decoder;
-            let mut dec = Decoder::new(bytes);
-            let outer = dec.read_value().ok()?;
-            let outer_arr = match outer {
-                Value::Array(items) => items,
-                _ => return None,
-            };
-            let mut entries = Vec::with_capacity(outer_arr.len());
-            for item in outer_arr {
-                let pairs = match item {
-                    Value::Map(p) => p,
-                    _ => return None,
-                };
-                let mut name: Option<String> = None;
-                let mut kind: Option<String> = None;
-                let mut body: Option<String> = None;
-                for (k, v) in pairs {
-                    let key = match k {
-                        Value::Str(s) => s,
-                        _ => return None,
-                    };
-                    let value = match v {
-                        Value::Str(s) => s,
-                        _ => return None,
-                    };
-                    match key.as_str() {
-                        "name" => name = Some(value),
-                        "kind" => kind = Some(value),
-                        "body" => body = Some(value),
-                        _ => {}
-                    }
-                }
-                let name = name?;
-                let kind = kind?;
-                let body = body?;
-                if kind != "source" {
-                    return None;
-                }
-                entries.push((name, body));
-            }
-            Some(entries)
-        }
-
-        fn write_panic_outcome(origin: &str, class: &str, message: &str, backtrace: Vec<String>) {
-            let panic = Panic {
-                origin: origin.to_string(),
-                class: class.to_string(),
-                message: message.to_string(),
-                backtrace,
-                details: None,
-            };
-            if let Ok(bytes) = encode_outcome(&Outcome::Panic(panic)) {
-                write_outcome(bytes);
-            }
-            // If serialization itself fails, OUTCOME_BUFFER stays empty —
-            // the host treats len=0 as a wire violation → TrapError path
-            // (docs/behavior.md Error Scenarios).
-        }
-
-        fn write_outcome(bytes: Vec<u8>) {
-            unsafe {
-                OUTCOME_BUFFER = bytes;
-            }
-        }
+        use crate::outcome::{encode_outcome, Outcome};
 
         // --- Frame 1: read preamble ---
 
@@ -560,12 +444,509 @@ pub extern "C" fn __kobako_eval() {
     }
 }
 
+/// Entrypoint dispatch entry-point (docs/behavior.md B-31).
+///
+/// `(env_ptr, env_len)` locate the host-supplied invocation envelope on
+/// linear memory. Frames read from stdin: Frame 1 preamble + Frame 3
+/// snippets only (no user-source Frame 2 — the entrypoint is already
+/// resident as a top-level constant contributed by a preloaded snippet).
+///
+/// Responsibilities:
+///
+/// 1. Read Frame 1 + Frame 3, init mrb, install kobako runtime +
+///    namespaces, replay snippets under `(snippet:Name)`. If any snippet
+///    raises during replay, write a Panic envelope with the snippet's
+///    backtrace attribution (docs/behavior.md E-36) and return.
+/// 2. Decode the invocation envelope from `(env_ptr, env_len)` as a
+///    msgpack map with string keys `entrypoint` / `args` / `kwargs`. A
+///    decode failure writes a Panic envelope (E-26).
+/// 3. Stash args / kwargs / target in mruby globals, then evaluate a
+///    dispatch wrapper via `mrb_load_nstring_cxt`. The wrapper checks
+///    `Object.const_defined?` (E-27) and `respond_to?(:call)` (E-28),
+///    then invokes `target.call(*args, **kwargs)`.
+/// 4. Serialize the return value as a Result envelope or convert the
+///    pending mruby exception into a Panic envelope.
+#[no_mangle]
+pub extern "C" fn __kobako_run(env_ptr: i32, env_len: i32) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::codec::{Decoder, Value};
+        use crate::mruby::sys;
+        use crate::outcome::{encode_outcome, Outcome};
+
+        // --- Frame 1: read preamble ---
+
+        let frame1 = match read_frame() {
+            Some(b) => b,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to read preamble frame",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+        let preamble = match decode_preamble(&frame1) {
+            Some(p) => p,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to decode preamble msgpack",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+
+        // --- Frame 3: read snippets ---
+
+        let frame3 = match read_frame() {
+            Some(b) => b,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to read snippets frame",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+        let snippets = match decode_snippets(&frame3) {
+            Some(s) => s,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to decode snippets msgpack",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+
+        // --- mruby VM init + preamble install ---
+
+        let mrb = match crate::mruby::Mrb::open() {
+            Ok(m) => m,
+            Err(_) => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "mrb_open returned NULL",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+
+        let kobako = crate::kobako::Kobako::install(&mrb);
+
+        use crate::kobako::InstallGroupsError;
+        match kobako.install_groups(&preamble) {
+            Ok(()) => {}
+            Err(InstallGroupsError::NulInGroupName) => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "group name contains NUL byte",
+                    Vec::new(),
+                );
+                return;
+            }
+            Err(InstallGroupsError::NulInMemberName) => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "member name contains NUL byte",
+                    Vec::new(),
+                );
+                return;
+            }
+        }
+
+        // --- Frame 3 replay: load each snippet (same as __kobako_eval) ---
+
+        let mut snippet_failure: Option<(String, String, String, Vec<String>)> = None;
+        for (name, body) in &snippets {
+            let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
+            if cxt.is_null() {
+                snippet_failure = Some((
+                    "sandbox".to_string(),
+                    "Kobako::BootError".to_string(),
+                    "mrb_ccontext_new returned NULL".to_string(),
+                    Vec::new(),
+                ));
+                break;
+            }
+            let filename = format!("(snippet:{})\0", name);
+            unsafe {
+                sys::mrb_ccontext_filename(
+                    mrb.as_ptr(),
+                    cxt,
+                    filename.as_ptr() as *const core::ffi::c_char,
+                );
+                sys::mrb_load_nstring_cxt(
+                    mrb.as_ptr(),
+                    body.as_ptr() as *const core::ffi::c_char,
+                    body.len(),
+                    cxt,
+                );
+                sys::mrb_ccontext_free(mrb.as_ptr(), cxt);
+            }
+
+            let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
+            if exc_val.w == 0 {
+                continue;
+            }
+            let class_name = unsafe {
+                let cn = exc_val.classname(mrb.as_ptr());
+                if cn.is_empty() {
+                    "RuntimeError".to_string()
+                } else {
+                    cn.to_string()
+                }
+            };
+            let message = unsafe {
+                let m = exc_val
+                    .call(mrb.as_ptr(), cstr!("message"), &[])
+                    .to_string(mrb.as_ptr());
+                if m.is_empty() {
+                    class_name.clone()
+                } else {
+                    m
+                }
+            };
+            let backtrace = kobako.extract_backtrace(exc_val);
+            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
+            snippet_failure = Some(("sandbox".to_string(), class_name, message, backtrace));
+            break;
+        }
+        if let Some((origin, class, message, backtrace)) = snippet_failure {
+            write_panic_outcome(&origin, &class, &message, backtrace);
+            return;
+        }
+
+        // --- Decode invocation envelope from (env_ptr, env_len) ---
+
+        let env_slice: &[u8] = if env_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize) }
+        };
+        let envelope = {
+            let mut dec = Decoder::new(env_slice);
+            match dec.read_value() {
+                Ok(v) => v,
+                Err(_) => {
+                    write_panic_outcome(
+                        "sandbox",
+                        "Kobako::RPC::WireError",
+                        "failed to decode invocation envelope",
+                        Vec::new(),
+                    );
+                    return;
+                }
+            }
+        };
+        let pairs = match envelope {
+            Value::Map(p) => p,
+            _ => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::RPC::WireError",
+                    "invocation envelope must be a msgpack map",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+        let mut target: Option<String> = None;
+        let mut args_val: Option<Value> = None;
+        let mut kwargs_val: Option<Value> = None;
+        for (k, v) in pairs {
+            let key = match k {
+                Value::Str(s) => s,
+                _ => continue,
+            };
+            match key.as_str() {
+                "entrypoint" => {
+                    if let Value::Sym(name) = v {
+                        target = Some(name);
+                    }
+                }
+                "args" => args_val = Some(v),
+                "kwargs" => kwargs_val = Some(v),
+                _ => {}
+            }
+        }
+        let target = match target {
+            Some(t) => t,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::RPC::WireError",
+                    "invocation envelope missing entrypoint Symbol",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+        let args_array = args_val.unwrap_or(Value::Array(Vec::new()));
+        let kwargs_hash = kwargs_val.unwrap_or(Value::Map(Vec::new()));
+
+        // --- Stash target / args / kwargs in mruby globals ---
+
+        let target_mrb = kobako.wire_value_to_mrb(Value::Sym(target.clone()));
+        let args_mrb = kobako.wire_value_to_mrb(args_array);
+        let kwargs_mrb = kobako.wire_value_to_mrb(kwargs_hash);
+        unsafe {
+            sys::mrb_gv_set(
+                mrb.as_ptr(),
+                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_target__")),
+                target_mrb,
+            );
+            sys::mrb_gv_set(
+                mrb.as_ptr(),
+                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_args__")),
+                args_mrb,
+            );
+            sys::mrb_gv_set(
+                mrb.as_ptr(),
+                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_kwargs__")),
+                kwargs_mrb,
+            );
+        }
+
+        // --- Evaluate the dispatch wrapper ---
+        //
+        // Wrapper checks Object.const_defined? (E-27) and respond_to?(:call)
+        // (E-28) before invoking target.call(*args, **kwargs). The wrapper
+        // source is loaded under filename `(dispatch)` so any failure
+        // attributable to the wrapper carries a clear locator; entrypoint
+        // failures keep the `(snippet:Name)` frame from B-32 in their
+        // backtrace.
+        const DISPATCH_SRC: &str = r#"
+__t = $__kobako_run_target__
+if Object.const_defined?(__t)
+  __c = Object.const_get(__t)
+  if __c.respond_to?(:call)
+    __c.call(*$__kobako_run_args__, **$__kobako_run_kwargs__)
+  else
+    raise Kobako::RPC::WireError.new("entrypoint #{__t} does not respond to :call")
+  end
+else
+  raise Kobako::RPC::WireError.new("undefined entrypoint: #{__t}")
+end
+"#;
+        let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
+        if cxt.is_null() {
+            write_panic_outcome(
+                "sandbox",
+                "Kobako::BootError",
+                "mrb_ccontext_new returned NULL",
+                Vec::new(),
+            );
+            return;
+        }
+        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(dispatch)")) };
+        let result_val = unsafe {
+            sys::mrb_load_nstring_cxt(
+                mrb.as_ptr(),
+                DISPATCH_SRC.as_ptr() as *const core::ffi::c_char,
+                DISPATCH_SRC.len(),
+                cxt,
+            )
+        };
+        unsafe { sys::mrb_ccontext_free(mrb.as_ptr(), cxt) };
+
+        // --- Outcome serialization (mirror of __kobako_eval) ---
+
+        let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
+        if exc_val.w != 0 {
+            let class_name = unsafe {
+                let cn = exc_val.classname(mrb.as_ptr());
+                if cn.is_empty() {
+                    "RuntimeError".to_string()
+                } else {
+                    cn.to_string()
+                }
+            };
+            let message = unsafe {
+                let m = exc_val
+                    .call(mrb.as_ptr(), cstr!("message"), &[])
+                    .to_string(mrb.as_ptr());
+                if m.is_empty() {
+                    class_name.clone()
+                } else {
+                    m
+                }
+            };
+            let backtrace = kobako.extract_backtrace(exc_val);
+            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
+            let origin = if class_name.contains("ServiceError") {
+                "service"
+            } else {
+                "sandbox"
+            };
+            write_panic_outcome(origin, &class_name, &message, backtrace);
+        } else {
+            let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
+            match encode_outcome(&Outcome::Value(wire_value)) {
+                Ok(bytes) => write_outcome(bytes),
+                Err(_) => write_panic_outcome(
+                    "sandbox",
+                    "Kobako::RPC::WireError",
+                    "result envelope encode failed",
+                    Vec::new(),
+                ),
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = env_ptr;
+        let _ = env_len;
+    }
+}
+
 /// Static outcome buffer — written once by `__kobako_eval` and consumed
 /// once by `__kobako_take_outcome`. Protected by the single-threaded
 /// wasm execution model: only one `__kobako_eval` executes at a time and
 /// no concurrency is possible inside a single wasm instance.
 #[cfg(target_arch = "wasm32")]
 static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
+
+// ---------------------------------------------------------------------------
+// Shared helpers used by both `__kobako_eval` and `__kobako_run`.
+// ---------------------------------------------------------------------------
+
+/// Read one length-prefixed stdin frame (4-byte BE u32 length + payload).
+/// Returns `None` on EOF / short read; callers turn that into a Panic
+/// envelope.
+#[cfg(target_arch = "wasm32")]
+fn read_frame() -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
+    let mut stdin = std::io::stdin().lock();
+    stdin.read_exact(&mut len_buf).ok()?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    let mut payload = vec![0u8; len];
+    stdin.read_exact(&mut payload).ok()?;
+    Some(payload)
+}
+
+/// Decode the Frame 1 preamble: `[["Name", ["MemberA", ...]], ...]`.
+#[cfg(target_arch = "wasm32")]
+fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
+    use crate::codec::{Decoder, Value};
+    let mut dec = Decoder::new(bytes);
+    let outer = dec.read_value().ok()?;
+    let outer_arr = match outer {
+        Value::Array(items) => items,
+        _ => return None,
+    };
+    let mut groups = Vec::with_capacity(outer_arr.len());
+    for item in outer_arr {
+        let pair = match item {
+            Value::Array(p) if p.len() == 2 => p,
+            _ => return None,
+        };
+        let group_name = match &pair[0] {
+            Value::Str(s) => s.clone(),
+            _ => return None,
+        };
+        let members_arr = match &pair[1] {
+            Value::Array(m) => m,
+            _ => return None,
+        };
+        let mut members = Vec::with_capacity(members_arr.len());
+        for m in members_arr {
+            match m {
+                Value::Str(s) => members.push(s.clone()),
+                _ => return None,
+            }
+        }
+        groups.push((group_name, members));
+    }
+    Some(groups)
+}
+
+/// Decode Frame 3 snippets: `[{name, kind, body}, ...]`. `kind` must be
+/// `"source"` in this revision (docs/wire-codec.md § Invocation channels);
+/// other values are rejected as wire violations.
+#[cfg(target_arch = "wasm32")]
+fn decode_snippets(bytes: &[u8]) -> Option<Vec<(String, String)>> {
+    use crate::codec::{Decoder, Value};
+    let mut dec = Decoder::new(bytes);
+    let outer = dec.read_value().ok()?;
+    let outer_arr = match outer {
+        Value::Array(items) => items,
+        _ => return None,
+    };
+    let mut entries = Vec::with_capacity(outer_arr.len());
+    for item in outer_arr {
+        let pairs = match item {
+            Value::Map(p) => p,
+            _ => return None,
+        };
+        let mut name: Option<String> = None;
+        let mut kind: Option<String> = None;
+        let mut body: Option<String> = None;
+        for (k, v) in pairs {
+            let key = match k {
+                Value::Str(s) => s,
+                _ => return None,
+            };
+            let value = match v {
+                Value::Str(s) => s,
+                _ => return None,
+            };
+            match key.as_str() {
+                "name" => name = Some(value),
+                "kind" => kind = Some(value),
+                "body" => body = Some(value),
+                _ => {}
+            }
+        }
+        let name = name?;
+        let kind = kind?;
+        let body = body?;
+        if kind != "source" {
+            return None;
+        }
+        entries.push((name, body));
+    }
+    Some(entries)
+}
+
+/// Write a Panic envelope to OUTCOME_BUFFER. If serialization itself
+/// fails, OUTCOME_BUFFER stays empty — the host treats `len=0` as a wire
+/// violation → TrapError path (docs/behavior.md Error Scenarios).
+#[cfg(target_arch = "wasm32")]
+fn write_panic_outcome(origin: &str, class: &str, message: &str, backtrace: Vec<String>) {
+    use crate::outcome::{encode_outcome, Outcome, Panic};
+    let panic = Panic {
+        origin: origin.to_string(),
+        class: class.to_string(),
+        message: message.to_string(),
+        backtrace,
+        details: None,
+    };
+    if let Ok(bytes) = encode_outcome(&Outcome::Panic(panic)) {
+        write_outcome(bytes);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn write_outcome(bytes: Vec<u8>) {
+    unsafe {
+        OUTCOME_BUFFER = bytes;
+    }
+}
 
 /// Guest allocator — hands out a `size`-byte buffer in wasm linear memory
 /// and returns its ptr (u32). Returns 0 on allocation failure (host treats
@@ -663,7 +1044,12 @@ mod tests {
     fn export_names_match_spec() {
         assert_eq!(
             EXPORT_NAMES,
-            ["__kobako_eval", "__kobako_alloc", "__kobako_take_outcome"],
+            [
+                "__kobako_eval",
+                "__kobako_run",
+                "__kobako_alloc",
+                "__kobako_take_outcome",
+            ],
         );
     }
 
