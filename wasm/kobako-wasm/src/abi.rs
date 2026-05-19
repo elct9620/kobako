@@ -124,15 +124,18 @@ pub extern "C" fn _initialize() {
 // ---------------------------------------------------------------------------
 
 /// Pack `(ptr, len)` into a single u64: high 32 bits = ptr,
-/// low 32 = len.
+/// low 32 = len. Crate-internal — only the outcome buffer writer in
+/// `super::outcome_buffer` and the RPC client in `crate::rpc::client`
+/// share this layout with the host.
 #[inline]
-pub fn pack_u64(ptr: u32, len: u32) -> u64 {
+pub(crate) fn pack_u64(ptr: u32, len: u32) -> u64 {
     ((ptr as u64) << 32) | (len as u64)
 }
 
 /// Unpack a u64 produced by [`pack_u64`] back into `(ptr, len)`.
+/// Crate-internal companion to [`pack_u64`].
 #[inline]
-pub fn unpack_u64(packed: u64) -> (u32, u32) {
+pub(crate) fn unpack_u64(packed: u64) -> (u32, u32) {
     let ptr = (packed >> 32) as u32;
     let len = packed as u32;
     (ptr, len)

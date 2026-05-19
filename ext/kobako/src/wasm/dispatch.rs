@@ -28,27 +28,48 @@ use super::host_state::HostState;
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
 /// from the wasmtime closure built in [`super::instance::Instance::build`].
+///
+/// Returns the packed `(ptr<<32)|len` u64 on success, 0 on any
+/// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to
+/// `stderr` so operators have a breadcrumb when the guest sees a 0
+/// return and traps; before this every failure was silent. The Server
+/// itself is contracted never to raise (it folds Service exceptions
+/// into Response.err envelopes), so reaching the failure path is
+/// always a wiring bug or wire-layer fault rather than an expected
+/// path.
 pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
-    let req_bytes = match read_caller_memory(caller, req_ptr, req_len) {
-        Some(b) => b,
-        None => return 0,
-    };
+    match try_handle(caller, req_ptr, req_len) {
+        Ok(packed) => packed,
+        Err(reason) => {
+            eprintln!("[kobako-dispatch] {}", reason);
+            0
+        }
+    }
+}
 
-    // No Server bound — return 0 to signal a wire-layer fault; the guest
-    // maps a 0 return to a trap. `Kobako::Sandbox` always installs a
-    // Server before invoking the guest, so reaching this branch indicates
-    // a misuse rather than a normal control path.
-    let server = match caller.data().server() {
-        Some(d) => d,
-        None => return 0,
-    };
+/// Result-returning core of [`handle`]. Pulled out so each early
+/// failure path carries a diagnostic string instead of an opaque 0.
+fn try_handle(
+    caller: &mut Caller<'_, HostState>,
+    req_ptr: i32,
+    req_len: i32,
+) -> Result<i64, &'static str> {
+    let req_bytes = read_caller_memory(caller, req_ptr, req_len)
+        .ok_or("guest 'memory' export missing or request slice out of bounds")?;
 
-    let resp_bytes = match invoke_server(server, &req_bytes) {
-        Ok(b) => b,
-        Err(_) => return 0,
-    };
+    // `Kobako::Sandbox` always installs a Server before invoking the
+    // guest, so reaching this branch indicates a misuse rather than a
+    // normal control path.
+    let server = caller
+        .data()
+        .server()
+        .ok_or("no Ruby Server bound — Sandbox#run must precede __kobako_dispatch")?;
 
-    write_response(caller, &resp_bytes).unwrap_or(0)
+    let resp_bytes = invoke_server(server, &req_bytes).map_err(|_| {
+        "Ruby Server#dispatch raised — contract is to fold faults into Response.err"
+    })?;
+
+    write_response(caller, &resp_bytes)
 }
 
 /// Call the Ruby Server's `#dispatch(request_bytes)` method and return
@@ -71,26 +92,33 @@ fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, Mag
 
 /// Allocate a guest-side buffer through `__kobako_alloc` and copy the
 /// response bytes into it. Returns the packed `(ptr<<32)|len` u64.
-fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Option<i64> {
+/// Each failure path carries a `&'static str` reason so the dispatcher
+/// wrapper can surface a useful diagnostic rather than a silent 0.
+fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<i64, &'static str> {
     let alloc = match caller.get_export("__kobako_alloc") {
-        Some(Extern::Func(f)) => f.typed::<i32, i32>(&*caller).ok()?,
-        _ => return None,
+        Some(Extern::Func(f)) => f
+            .typed::<i32, i32>(&*caller)
+            .map_err(|_| "guest '__kobako_alloc' export has wrong signature")?,
+        _ => return Err("guest '__kobako_alloc' export missing"),
     };
-    let len_i32 = i32::try_from(bytes.len()).ok()?;
-    let ptr = alloc.call(&mut *caller, len_i32).ok()?;
+    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "response exceeds i32::MAX bytes")?;
+    let ptr = alloc
+        .call(&mut *caller, len_i32)
+        .map_err(|_| "__kobako_alloc trapped")?;
     if ptr == 0 {
-        return None;
+        return Err("__kobako_alloc returned 0 (out of memory)");
     }
 
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
-        _ => return None,
+        _ => return Err("guest 'memory' export missing"),
     };
-    mem.write(&mut *caller, ptr as usize, bytes).ok()?;
+    mem.write(&mut *caller, ptr as usize, bytes)
+        .map_err(|_| "memory.write rejected response buffer range")?;
 
     let ptr_u32 = ptr as u32;
     let len_u32 = bytes.len() as u32;
-    Some(((ptr_u32 as i64) << 32) | (len_u32 as i64))
+    Ok(((ptr_u32 as i64) << 32) | (len_u32 as i64))
 }
 
 /// Copy `[ptr, ptr+len)` out of the guest's linear memory as seen from

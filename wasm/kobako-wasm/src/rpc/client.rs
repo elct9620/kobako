@@ -128,11 +128,12 @@ impl std::error::Error for InvokeError {
 
 /// Build the bytes of a Request envelope from the four-tuple every RPC
 /// site provides (target, method, args, kwargs). Pure function; does
-/// not touch wasm linear memory or the host import.
+/// not touch wasm linear memory or the host import. Crate-internal —
+/// only [`invoke_rpc`] and its host-target tests call this.
 ///
 /// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
 /// (4-element array, encoded narrowest).
-pub fn build_request_bytes(
+pub(crate) fn build_request_bytes(
     target: Target,
     method: &str,
     args: &[Value],
