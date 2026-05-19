@@ -3,9 +3,9 @@
 require_relative "capture"
 require_relative "errors"
 require_relative "outcome"
+require_relative "rpc/invocation"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
-require_relative "run_envelope"
 require_relative "sandbox_options"
 require_relative "snippet_table"
 
@@ -134,16 +134,17 @@ module Kobako
 
     # Dispatch into a preloaded entrypoint constant
     # ({docs/behavior.md B-31}[link:../../docs/behavior.md]). Delegates host
-    # pre-flight (E-24 / E-25 / E-29 / E-30) and envelope encoding to
-    # +Kobako::RunEnvelope+; the guest resolves +target+ as a top-level
-    # constant, calls +#call+ on it with +args+ / +kwargs+, and returns
-    # the deserialized result. The first invocation seals the Service
-    # registry and snippet table (B-07 / B-33). Runtime errors follow the
-    # same three-class taxonomy as +#eval+.
+    # pre-flight (E-24 / E-25 / E-29 / E-30) and wire encoding to
+    # +Kobako::RPC::Invocation+ / +Kobako::RPC.encode_invocation+; the
+    # guest resolves +target+ as a top-level constant, calls +#call+ on
+    # it with +args+ / +kwargs+, and returns the deserialized result.
+    # The first invocation seals the Service registry and snippet table
+    # (B-07 / B-33). Runtime errors follow the same three-class taxonomy
+    # as +#eval+.
     def run(target, *args, **kwargs)
-      envelope = RunEnvelope.new(target, args, kwargs)
+      invocation = RPC::Invocation.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encoded_frame3, envelope.encode)
+        @instance.run(@services.encoded_preamble, @snippets.encoded_frame3, RPC.encode_invocation(invocation))
       end
     end
 
