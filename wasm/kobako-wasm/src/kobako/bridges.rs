@@ -78,15 +78,9 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             );
         }
 
-        // Get the target class name. `mrb_class_ptr(val)` is the C macro
-        // `((struct RClass*)(mrb_ptr(val)))`. On wasm32 with
-        // MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32, `mrb_ptr(val)` is the
-        // raw pointer stored in the lower bits of `mrb_value.w` for
-        // object-tagged values — i.e. `self_.w as *mut RClass`. We
-        // implement the macro inline to avoid declaring it as an extern
-        // "C" fn (it is a macro, not a function, so an FFI declaration
-        // would produce an unresolved wasm import).
-        let class_ptr = self_.w as *mut sys::RClass;
+        // SAFETY: `self_` is the class receiver of a singleton-class
+        // `method_missing` shim — class-tagged by mruby itself.
+        let class_ptr = unsafe { self_.as_class_ptr() };
         let class_name_ptr = unsafe { sys::mrb_class_name(mrb, class_ptr) };
         let target_str = if class_name_ptr.is_null() {
             // SAFETY: bridge frame.

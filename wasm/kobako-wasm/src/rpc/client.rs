@@ -74,7 +74,7 @@ pub struct ExceptionPayload {
 
 /// Error variants returned by [`invoke_rpc`].
 ///
-/// `ServiceErr` carries the SPEC-mandated Response.err path payload;
+/// `Service` carries the SPEC-mandated Response.err path payload;
 /// `Wire` covers everything that fails *before* the response can be
 /// classified (envelope shape violations, codec faults, host returning
 /// `len == 0`).
@@ -82,7 +82,7 @@ pub struct ExceptionPayload {
 pub enum InvokeError {
     /// The host returned a Response.err — this is the *normal* path for
     /// a Service raising an exception, surfaced to mruby as a re-raise.
-    ServiceErr(ExceptionPayload),
+    Service(ExceptionPayload),
     /// A wire-layer fault — host returned malformed bytes, the response
     /// was not a Response envelope, or the host signalled `len == 0`.
     /// In a real run this routes to `Kobako::SandboxError` / `TrapError`
@@ -105,7 +105,7 @@ impl From<CodecError> for InvokeError {
 impl std::fmt::Display for InvokeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InvokeError::ServiceErr(ex) => {
+            InvokeError::Service(ex) => {
                 write!(f, "service raised {}: {}", ex.kind, ex.message)
             }
             InvokeError::Wire(e) => write!(f, "RPC wire fault: {e}"),
@@ -117,7 +117,7 @@ impl std::error::Error for InvokeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             InvokeError::Wire(e) => Some(e),
-            InvokeError::ServiceErr(_) => None,
+            InvokeError::Service(_) => None,
         }
     }
 }
@@ -173,7 +173,7 @@ pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 
 /// Invoke the host via `__kobako_dispatch` (or the loopback hook on
 /// host targets). On success, returns the value out of `Response::Ok`;
-/// on a Response.err path returns [`InvokeError::ServiceErr`]; on a
+/// on a Response.err path returns [`InvokeError::Service`]; on a
 /// wire fault returns [`InvokeError::Wire`].
 pub fn invoke_rpc(
     target: Target,
@@ -226,7 +226,7 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
             }
             let kind = typ.ok_or(InvokeError::Wire(EnvelopeError::MissingField("type")))?;
             let message = msg.ok_or(InvokeError::Wire(EnvelopeError::MissingField("message")))?;
-            Err(InvokeError::ServiceErr(ExceptionPayload {
+            Err(InvokeError::Service(ExceptionPayload {
                 kind,
                 message,
                 raw: payload_bytes,
@@ -430,12 +430,12 @@ mod tests {
         clear_loopback();
 
         match out {
-            Err(InvokeError::ServiceErr(ex)) => {
+            Err(InvokeError::Service(ex)) => {
                 assert_eq!(ex.kind, "runtime");
                 assert_eq!(ex.message, "boom");
                 assert!(!ex.raw.is_empty(), "raw payload bytes must be preserved");
             }
-            other => panic!("expected ServiceErr, got {other:?}"),
+            other => panic!("expected Service, got {other:?}"),
         }
     }
 

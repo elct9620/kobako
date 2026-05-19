@@ -224,7 +224,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         ] {
             sys::mrb_gv_set(
                 mrb.as_ptr(),
-                sys::mrb_intern_cstr(mrb.as_ptr(), name.as_ptr() as *const core::ffi::c_char),
+                sys::mrb_intern_cstr(mrb.as_ptr(), crate::mruby::value::cstr_ptr(name)),
                 value,
             );
         }

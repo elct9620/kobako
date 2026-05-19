@@ -35,21 +35,22 @@ use crate::mruby::sys;
 use crate::mruby::value::cstr_ptr;
 
 #[cfg(target_arch = "wasm32")]
-const IO_NAME: &[u8] = b"IO\0";
+use names::*;
+
 #[cfg(target_arch = "wasm32")]
-const INITIALIZE_NAME: &[u8] = b"initialize\0";
-#[cfg(target_arch = "wasm32")]
-const WRITE_NAME: &[u8] = b"write\0";
-#[cfg(target_arch = "wasm32")]
-const FILENO_NAME: &[u8] = b"fileno\0";
-/// `b"@__kobako_fd__\0"` — mangled ivar that holds the underlying file
-/// descriptor (1 or 2) as a boxed Integer. The bridges round-trip
-/// through `to_string + parse` to stay consistent with the existing
-/// handle-id ivar pattern in [`super::Kobako::extract_handle_id`].
-#[cfg(target_arch = "wasm32")]
-const FD_IVAR: &[u8] = b"@__kobako_fd__\0";
-#[cfg(target_arch = "wasm32")]
-const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
+mod names {
+    pub const IO_NAME: &[u8] = b"IO\0";
+    pub const INITIALIZE_NAME: &[u8] = b"initialize\0";
+    pub const WRITE_NAME: &[u8] = b"write\0";
+    pub const FILENO_NAME: &[u8] = b"fileno\0";
+    /// `b"@__kobako_fd__\0"` — mangled ivar that holds the underlying
+    /// file descriptor (1 or 2) as a boxed Integer. The bridges
+    /// round-trip through `to_string + parse` to stay consistent with
+    /// the existing handle-id ivar pattern in
+    /// [`super::super::Kobako::extract_handle_id`].
+    pub const FD_IVAR: &[u8] = b"@__kobako_fd__\0";
+    pub const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
+}
 
 /// Install the top-level `::IO` class on `mrb` and load the
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
@@ -246,7 +247,7 @@ unsafe fn read_fd(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -> i32 {
 unsafe fn raise_argument_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
     unsafe {
         let cls = sys::mrb_class_get(mrb, cstr_ptr(ARGUMENT_ERROR_NAME));
-        sys::mrb_raise(mrb, cls, msg.as_ptr() as *const core::ffi::c_char);
+        sys::mrb_raise(mrb, cls, cstr_ptr(msg));
     }
 }
 

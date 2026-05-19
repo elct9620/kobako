@@ -142,6 +142,28 @@ impl sys::mrb_value {
             .to_string()
     }
 
+    /// Recover the `*mut RClass` pointer from a class-tagged
+    /// `mrb_value`. Implements the C macro `mrb_class_ptr(v)` —
+    /// `((struct RClass*)(mrb_ptr(v)))` — inline so we do not have to
+    /// declare it as an extern "C" fn (it is a macro, not a real C
+    /// function; an FFI declaration would produce an unresolved wasm
+    /// import).
+    ///
+    /// On wasm32 with `MRB_WORDBOX_NO_INLINE_FLOAT` + `MRB_INT32` the
+    /// raw pointer lives in the lower 32 bits of `mrb_value.w` for
+    /// object-tagged values.
+    ///
+    /// # Safety
+    ///
+    /// `self` must be a class-tagged `mrb_value` (i.e., the receiver
+    /// of a singleton-class `method_missing` shim, or any other
+    /// `Class` value produced by the same VM). Calling on a non-class
+    /// value yields a bogus pointer.
+    #[inline]
+    pub unsafe fn as_class_ptr(self) -> *mut sys::RClass {
+        self.w as *mut sys::RClass
+    }
+
     /// Invoke `self.method_name(args...)` via the non-variadic
     /// `mrb_funcall_argv`. The method name is interned each call;
     /// mruby's symbol table makes this cheap.

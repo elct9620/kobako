@@ -48,47 +48,37 @@ use crate::rpc::client::ExceptionPayload;
 
 // --------------------------------------------------------------------
 // C-string constants — NUL-terminated names passed to the mruby C API.
+// Bundled into one wasm32-gated module so the per-const cfg attribute
+// does not multiply across the surface.
 // --------------------------------------------------------------------
 
 #[cfg(target_arch = "wasm32")]
-const KOBAKO_NAME: &[u8] = b"Kobako\0";
+use names::*;
+
 #[cfg(target_arch = "wasm32")]
-const RPC_NAME: &[u8] = b"RPC\0";
-#[cfg(target_arch = "wasm32")]
-const CLIENT_NAME: &[u8] = b"Client\0";
-#[cfg(target_arch = "wasm32")]
-const HANDLE_NAME: &[u8] = b"Handle\0";
-#[cfg(target_arch = "wasm32")]
-const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
-#[cfg(target_arch = "wasm32")]
-const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
-#[cfg(target_arch = "wasm32")]
-const INITIALIZE_NAME: &[u8] = b"initialize\0";
-#[cfg(target_arch = "wasm32")]
-const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
-#[cfg(target_arch = "wasm32")]
-const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
-#[cfg(target_arch = "wasm32")]
-const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
-#[cfg(target_arch = "wasm32")]
-const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
-/// `b"@__kobako_id__\0"` — mangled instance-variable name that
-/// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by the
-/// handle-id setter / getter on [`Kobako`].
-#[cfg(target_arch = "wasm32")]
-const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
-#[cfg(target_arch = "wasm32")]
-const IO_NAME: &[u8] = b"IO\0";
-#[cfg(target_arch = "wasm32")]
-const STDOUT_CONST_NAME: &[u8] = b"STDOUT\0";
-#[cfg(target_arch = "wasm32")]
-const STDERR_CONST_NAME: &[u8] = b"STDERR\0";
-#[cfg(target_arch = "wasm32")]
-const STDOUT_GVAR_NAME: &[u8] = b"$stdout\0";
-#[cfg(target_arch = "wasm32")]
-const STDERR_GVAR_NAME: &[u8] = b"$stderr\0";
-#[cfg(target_arch = "wasm32")]
-const MODE_WRITE: &[u8] = b"w\0";
+mod names {
+    pub const KOBAKO_NAME: &[u8] = b"Kobako\0";
+    pub const RPC_NAME: &[u8] = b"RPC\0";
+    pub const CLIENT_NAME: &[u8] = b"Client\0";
+    pub const HANDLE_NAME: &[u8] = b"Handle\0";
+    pub const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
+    pub const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
+    pub const INITIALIZE_NAME: &[u8] = b"initialize\0";
+    pub const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
+    pub const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
+    pub const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
+    pub const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
+    /// `b"@__kobako_id__\0"` — mangled instance-variable name that
+    /// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by
+    /// the handle-id setter / getter on [`super::Kobako`].
+    pub const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
+    pub const IO_NAME: &[u8] = b"IO\0";
+    pub const STDOUT_CONST_NAME: &[u8] = b"STDOUT\0";
+    pub const STDERR_CONST_NAME: &[u8] = b"STDERR\0";
+    pub const STDOUT_GVAR_NAME: &[u8] = b"$stdout\0";
+    pub const STDERR_GVAR_NAME: &[u8] = b"$stderr\0";
+    pub const MODE_WRITE: &[u8] = b"w\0";
+}
 
 // mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32
 // (the wasm32 build config). Bit-pattern values from mruby.h; must not
@@ -462,11 +452,7 @@ impl Kobako {
     /// stack does not anticipate.
     #[cfg(target_arch = "wasm32")]
     pub unsafe fn raise_wire_error(&self, msg: &[u8]) -> ! {
-        sys::mrb_raise(
-            self.mrb,
-            self.wire_error_class,
-            msg.as_ptr() as *const core::ffi::c_char,
-        );
+        sys::mrb_raise(self.mrb, self.wire_error_class, cstr_ptr(msg));
     }
 
     /// Raise the matching `Kobako::ServiceError` subclass for `ex`.
@@ -959,7 +945,7 @@ impl Kobako {
         use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
             Ok(wire_val) => self.wire_value_to_mrb(wire_val),
-            Err(crate::rpc::client::InvokeError::ServiceErr(ex)) => {
+            Err(crate::rpc::client::InvokeError::Service(ex)) => {
                 // SAFETY: bridge frame — mruby will unwind through
                 // `mrb_raise`.
                 unsafe { self.raise_service_error(&ex) };
