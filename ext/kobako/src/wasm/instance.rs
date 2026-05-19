@@ -3,33 +3,37 @@
 //! Constructed via [`Instance::from_path`]; the wasmtime [`Engine`] and
 //! compiled [`Module`] are owned by the [`super::cache`] singletons and
 //! never surface to Ruby. The instance wraps a [`StoreCell`] (interior-
-//! mutability around `wasmtime::Store<HostState>`) plus two cached
-//! [`TypedFunc`] handles for the SPEC ABI exports used by the host-driven
-//! run path.
+//! mutability around `wasmtime::Store<HostState>`) plus three cached
+//! [`TypedFunc`] handles for the docs/wire-codec.md ABI exports used by
+//! the host-driven run path.
 //!
 //! The Ruby surface intentionally exposes intent, not the underlying ABI
-//! (SPEC.md "Code Organization"). The two-frame stdin protocol, packed-u64
-//! outcome encoding, and `__kobako_alloc` / `__kobako_take_outcome` /
-//! `__kobako_eval` exports are all wrapped inside [`Instance::eval`] and
-//! [`Instance::outcome`]; Ruby callers see only
-//! `#eval(preamble, source, snippets)`, `#stdout`, `#stderr`,
+//! (SPEC.md "Code Organization"). The length-prefixed stdin frame
+//! protocol (three frames for `#eval`: preamble + source + snippets;
+//! two for `#run`: preamble + snippets), packed-u64 outcome encoding,
+//! and the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
+//! `__kobako_take_outcome` exports are all wrapped inside
+//! [`Instance::eval`], [`Instance::run`], and [`Instance::outcome`];
+//! Ruby callers see only `#eval(preamble, source, snippets)`,
+//! `#run(preamble, snippets, envelope)`, `#stdout`, `#stderr`,
 //! `#outcome!`, and `#server=`.
 //!
-//! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1 bindings
-//! route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`] instances
-//! rebuilt at the start of every [`Instance::eval`]. The per-channel cap
-//! is enforced directly on the pipe — the pipe is sized at `cap + 1` so
-//! a guest that writes exactly `cap` bytes is distinguishable from one
-//! that exceeded the cap, and `#stdout` / `#stderr` slice the captured
-//! bytes back to `cap` before returning them paired with a truncation
-//! flag. Uncapped channels (`None`) build the pipe at `usize::MAX`;
-//! `memory_limit` provides the real upper bound in that case.
+//! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1
+//! bindings route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`]
+//! instances rebuilt at the start of every [`Instance::eval`] /
+//! [`Instance::run`]. The per-channel cap is enforced directly on the
+//! pipe — the pipe is sized at `cap + 1` so a guest that writes exactly
+//! `cap` bytes is distinguishable from one that exceeded the cap, and
+//! `#stdout` / `#stderr` slice the captured bytes back to `cap` before
+//! returning them paired with a truncation flag. Uncapped channels
+//! (`None`) build the pipe at `usize::MAX`; `memory_limit` provides
+//! the real upper bound in that case.
 //!
-//! Per-run cap enforcement (docs/behavior.md B-01, E-19, E-20): every Store
-//! installs an epoch-deadline callback for wall-clock timeout and a
-//! [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
-//! limiter / callback errors into traps; `Instance::eval` downcasts the
-//! trap source to surface as `Kobako::Wasm::TimeoutError` or
+//! Per-run cap enforcement (docs/behavior.md B-01, E-19, E-20): every
+//! Store installs an epoch-deadline callback for wall-clock timeout and
+//! a [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
+//! limiter / callback errors into traps; the run-path methods downcast
+//! the trap source to surface as `Kobako::Wasm::TimeoutError` or
 //! `Kobako::Wasm::MemoryLimitError` so the `Sandbox` layer can map them
 //! to the named `Kobako::TrapError` subclasses.
 //!
@@ -597,9 +601,9 @@ mod tests {
 /// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
-/// `Instance::eval` flow because `set_epoch_deadline(u64::MAX)` is used;
-/// returning a long extension keeps the callback inert as a defence in
-/// depth.
+/// `Instance::eval` / `Instance::run` flow because
+/// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
+/// keeps the callback inert as a defence in depth.
 fn epoch_deadline_callback(
     ctx: StoreContextMut<'_, HostState>,
 ) -> wasmtime::Result<UpdateDeadline> {

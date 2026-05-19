@@ -54,8 +54,9 @@ impl HostState {
     }
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
-    /// pipe clones. Called from [`crate::wasm::Instance::eval`] at the top
-    /// of every guest invocation (docs/behavior.md B-03 / B-04).
+    /// pipe clones. Called from [`crate::wasm::Instance::eval`] /
+    /// [`crate::wasm::Instance::run`] at the top of every guest
+    /// invocation (docs/behavior.md B-03 / B-04).
     pub(super) fn install_wasi(
         &mut self,
         wasi: WasiP1Ctx,
@@ -100,12 +101,13 @@ impl HostState {
 
     /// Mutable handle to the live WASI context. Panics if no context has
     /// been installed yet — every call site is downstream of
-    /// [`HostState::install_wasi`] running at the top of `Instance::eval`,
-    /// so reaching this branch with `None` signals a host-side wiring bug.
+    /// [`HostState::install_wasi`] running at the top of
+    /// `Instance::eval` / `Instance::run`, so reaching this branch with
+    /// `None` signals a host-side wiring bug.
     pub(super) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
-        self.wasi
-            .as_mut()
-            .expect("WASI context not initialised — call Instance#eval before any WASI use")
+        self.wasi.as_mut().expect(
+            "WASI context not initialised — call Instance#eval / Instance#run before any WASI use",
+        )
     }
 
     /// Replace the per-run wall-clock deadline. `Some(at)` makes the
@@ -141,12 +143,12 @@ impl HostState {
 /// subsequent `memory.grow`, but docs/behavior.md E-20 scopes the trap to
 /// `memory.grow` specifically. [`KobakoLimiter::activate`] /
 /// [`KobakoLimiter::deactivate`] flip the flag for the lifetime of an
-/// `Instance::eval` call. When `cap_active` is `false`, the limiter
-/// always allows growth.
+/// `Instance::eval` / `Instance::run` call. When `cap_active` is
+/// `false`, the limiter always allows growth.
 ///
 /// When `memory.grow` would push linear memory past the cap, the
 /// limiter returns [`MemoryLimitTrap`] from `memory_growing`; wasmtime
-/// turns that into the trap surfaced to the host as `__kobako_eval`
+/// turns that into the trap surfaced to the host as a guest invocation
 /// failure.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct KobakoLimiter {
@@ -167,8 +169,8 @@ impl KobakoLimiter {
     /// module's declared initial memory is allocated during
     /// `Linker::instantiate` and docs/behavior.md E-20 scopes the trap to
     /// `memory.grow` (not the instantiation-time initial allocation).
-    /// [`crate::wasm::Instance::eval`] calls this right before
-    /// `__kobako_eval`.
+    /// [`crate::wasm::Instance::eval`] / [`crate::wasm::Instance::run`]
+    /// calls this right before invoking the corresponding guest export.
     pub(super) fn activate(&mut self) {
         self.cap_active = true;
     }
