@@ -522,6 +522,100 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
+    // Safe FFI primitives.
+    //
+    // Each method below wraps a single mruby C API call. They are safe
+    // by construction under the +Kobako+ contract: holding +&Kobako+
+    // proves that +self.mrb+ is live (its only constructor is the
+    // wasm32 +install_raw+ arm, called once per +__kobako_eval+ /
+    // +__kobako_run+ invocation and only released when the owning
+    // +Mrb+ drops), and every +mrb_value+ passed in must originate
+    // from that same VM (a single-VM-per-call invariant the guest
+    // crate maintains by construction — there is no path that mixes
+    // values from two states).
+    //
+    // The bodies are the only places +unsafe { ... }+ wraps these
+    // primitives; callers stop repeating the same SAFETY note at
+    // every dispatch site.
+    // ----------------------------------------------------------------
+
+    /// Ruby class name of +val+ (or +""+ when mruby returns NULL).
+    /// Wraps [`sys::mrb_value::classname`].
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn classname_of(&self, val: sys::mrb_value) -> &'static str {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { val.classname(self.mrb) }
+    }
+
+    /// Coerce +val+ to a Rust +String+ via +Object#to_s+. Wraps
+    /// [`sys::mrb_value::to_string`].
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn to_string_of(&self, val: sys::mrb_value) -> String {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { val.to_string(self.mrb) }
+    }
+
+    /// Invoke +val.method_name(args...)+. +name+ is a NUL-terminated
+    /// C string (use the [`cstr!`] macro at call sites). Wraps
+    /// [`sys::mrb_value::call`].
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn call_method(
+        &self,
+        val: sys::mrb_value,
+        name: *const core::ffi::c_char,
+        args: &[sys::mrb_value],
+    ) -> sys::mrb_value {
+        // SAFETY: see "Safe FFI primitives" section doc. +name+ must
+        // be NUL-terminated; callers obtain it from +cstr!+ or
+        // [`cstr_ptr`], both of which guarantee that.
+        unsafe { val.call(self.mrb, name, args) }
+    }
+
+    /// +mrb_ary_entry(ary, idx)+. No bounds checking — callers must
+    /// keep +idx+ within +0..ary.length+.
+    #[cfg(target_arch = "wasm32")]
+    fn ary_entry(&self, ary: sys::mrb_value, idx: i32) -> sys::mrb_value {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_ary_entry(ary, idx) }
+    }
+
+    /// +mrb_hash_get(hash, key)+. Returns +nil+ when the key is
+    /// missing.
+    #[cfg(target_arch = "wasm32")]
+    fn hash_get(&self, hash: sys::mrb_value, key: sys::mrb_value) -> sys::mrb_value {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_hash_get(self.mrb, hash, key) }
+    }
+
+    /// +mrb_hash_keys(hash)+ — returns the key Array.
+    #[cfg(target_arch = "wasm32")]
+    fn hash_keys(&self, hash: sys::mrb_value) -> sys::mrb_value {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_hash_keys(self.mrb, hash) }
+    }
+
+    /// Intern +name+ (NUL-terminated) as an mruby Symbol id.
+    #[cfg(target_arch = "wasm32")]
+    fn intern(&self, name: *const core::ffi::c_char) -> sys::mrb_sym {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_intern_cstr(self.mrb, name) }
+    }
+
+    /// Set the instance variable +sym+ on +obj+ to +val+.
+    #[cfg(target_arch = "wasm32")]
+    fn iv_set(&self, obj: sys::mrb_value, sym: sys::mrb_sym, val: sys::mrb_value) {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_iv_set(self.mrb, obj, sym, val) };
+    }
+
+    /// Read the instance variable +sym+ from +obj+ (+nil+ if unset).
+    #[cfg(target_arch = "wasm32")]
+    fn iv_get(&self, obj: sys::mrb_value, sym: sys::mrb_sym) -> sys::mrb_value {
+        // SAFETY: see "Safe FFI primitives" section doc.
+        unsafe { sys::mrb_iv_get(self.mrb, obj, sym) }
+    }
+
+    // ----------------------------------------------------------------
     // Collection / hash / handle helpers.
     // ----------------------------------------------------------------
 
@@ -531,10 +625,8 @@ impl Kobako {
     /// `mrb_ary_len`.
     #[cfg(target_arch = "wasm32")]
     pub fn collection_len(&self, col: sys::mrb_value) -> usize {
-        // SAFETY: `self.mrb` is live (Kobako construction precondition);
-        // `col` is an mrb_value produced by the same VM.
-        let len_val = unsafe { col.call(self.mrb, cstr!("length"), &[]) };
-        unsafe { len_val.to_string(self.mrb) }.parse().unwrap_or(0)
+        let len_val = self.call_method(col, cstr!("length"), &[]);
+        self.to_string_of(len_val).parse().unwrap_or(0)
     }
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
@@ -550,21 +642,17 @@ impl Kobako {
     /// serializes cleanly.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_backtrace(&self, exc_val: sys::mrb_value) -> Vec<String> {
-        // SAFETY: `self.mrb` is live; `exc_val` is an mrb_value produced
-        // by the same VM.
-        unsafe {
-            let bt_val = exc_val.call(self.mrb, cstr!("backtrace"), &[]);
-            if bt_val.classname(self.mrb) != "Array" {
-                return Vec::new();
-            }
-            let len = self.collection_len(bt_val);
-            let mut lines = Vec::with_capacity(len);
-            for i in 0..len {
-                let line = sys::mrb_ary_entry(bt_val, i as i32);
-                lines.push(line.to_string(self.mrb));
-            }
-            lines
+        let bt_val = self.call_method(exc_val, cstr!("backtrace"), &[]);
+        if self.classname_of(bt_val) != "Array" {
+            return Vec::new();
         }
+        let len = self.collection_len(bt_val);
+        let mut lines = Vec::with_capacity(len);
+        for i in 0..len {
+            let line = self.ary_entry(bt_val, i as i32);
+            lines.push(self.to_string_of(line));
+        }
+        lines
     }
 
     /// Store `id_val` into a fresh `Kobako::RPC::Handle` instance's
@@ -572,12 +660,8 @@ impl Kobako {
     /// C bridge.
     #[cfg(target_arch = "wasm32")]
     pub fn set_handle_id(&self, target: sys::mrb_value, id_val: sys::mrb_value) {
-        // SAFETY: bridge frame — both values are mrb_values from the
-        // same VM.
-        unsafe {
-            let sym = sys::mrb_intern_cstr(self.mrb, cstr_ptr(HANDLE_ID_IVAR));
-            sys::mrb_iv_set(self.mrb, target, sym, id_val);
-        }
+        let sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
+        self.iv_set(target, sym, id_val);
     }
 
     /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
@@ -586,12 +670,9 @@ impl Kobako {
     /// undefined per docs/behavior.md B-19.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_handle_id(&self, handle_val: sys::mrb_value) -> u32 {
-        // SAFETY: as above.
-        unsafe {
-            let id_sym = sys::mrb_intern_cstr(self.mrb, cstr_ptr(HANDLE_ID_IVAR));
-            let id_val = sys::mrb_iv_get(self.mrb, handle_val, id_sym);
-            id_val.to_string(self.mrb).parse().unwrap_or(0)
-        }
+        let id_sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
+        let id_val = self.iv_get(handle_val, id_sym);
+        self.to_string_of(id_val).parse().unwrap_or(0)
     }
 
     /// Decode every key/value pair from an mruby Hash into `out` as
@@ -607,15 +688,13 @@ impl Kobako {
         hash: sys::mrb_value,
         out: &mut Vec<(String, crate::codec::Value)>,
     ) {
-        // SAFETY: `self.mrb` is live; `hash` is an mrb_value produced by
-        // the same VM.
-        let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, hash) };
+        let keys_ary = self.hash_keys(hash);
         let keys_len = self.collection_len(keys_ary);
         for i in 0..keys_len {
-            let key_val = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
-            let val = unsafe { sys::mrb_hash_get(self.mrb, hash, key_val) };
+            let key_val = self.ary_entry(keys_ary, i as i32);
+            let val = self.hash_get(hash, key_val);
             out.push((
-                unsafe { key_val.to_string(self.mrb) },
+                self.to_string_of(key_val),
                 self.mrb_value_to_wire_value(val),
             ));
         }
@@ -634,8 +713,7 @@ impl Kobako {
         let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
 
         for (idx, &mrb_val) in rest.iter().enumerate() {
-            // SAFETY: `self.mrb` is live; `mrb_val` from the same VM.
-            let is_hash = unsafe { mrb_val.classname(self.mrb) == "Hash" } && idx == rest.len() - 1;
+            let is_hash = self.classname_of(mrb_val) == "Hash" && idx == rest.len() - 1;
             if is_hash {
                 self.decode_hash_kwargs(mrb_val, &mut wire_kwargs);
             } else {
@@ -667,8 +745,7 @@ impl Kobako {
         let len = self.collection_len(val);
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: `val` is an Array mrb_value from `self.mrb`; index is in range.
-            let elem = unsafe { sys::mrb_ary_entry(val, i as i32) };
+            let elem = self.ary_entry(val, i as i32);
             items.push(convert(self, elem));
         }
         items
@@ -686,13 +763,12 @@ impl Kobako {
         val: sys::mrb_value,
         convert: fn(&Self, sys::mrb_value) -> crate::codec::Value,
     ) -> Vec<(crate::codec::Value, crate::codec::Value)> {
-        // SAFETY: `val` is a Hash mrb_value from `self.mrb`.
-        let keys_ary = unsafe { sys::mrb_hash_keys(self.mrb, val) };
+        let keys_ary = self.hash_keys(val);
         let len = self.collection_len(keys_ary);
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
-            let key = unsafe { sys::mrb_ary_entry(keys_ary, i as i32) };
-            let v = unsafe { sys::mrb_hash_get(self.mrb, val, key) };
+            let key = self.ary_entry(keys_ary, i as i32);
+            let v = self.hash_get(val, key);
             pairs.push((convert(self, key), convert(self, v)));
         }
         pairs
@@ -721,20 +797,18 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
-        // SAFETY: `self.mrb` is live; `val` from the same VM.
-        let classname = unsafe { val.classname(self.mrb) };
-        match classname {
+        match self.classname_of(val) {
             "NilClass" => Value::Nil,
             "TrueClass" => Value::Bool(true),
             "FalseClass" => Value::Bool(false),
-            "Integer" => Value::Int(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0)),
-            "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
-            "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
-            "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
+            "Integer" => Value::Int(self.to_string_of(val).parse().unwrap_or(0)),
+            "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
+            "String" => Value::Str(self.to_string_of(val)),
+            "Symbol" => Value::Sym(self.to_string_of(val)),
             "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_value)),
             "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_value)),
             // Fallback: route through `.to_s`.
-            _ => Value::Str(unsafe { val.to_string(self.mrb) }),
+            _ => Value::Str(self.to_string_of(val)),
         }
     }
 
@@ -757,22 +831,20 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn mrb_value_to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
-        // SAFETY: as above.
-        let classname = unsafe { val.classname(self.mrb) };
-        match classname {
+        match self.classname_of(val) {
             "NilClass" => Value::Nil,
             "TrueClass" => Value::Bool(true),
             "FalseClass" => Value::Bool(false),
-            "Integer" => Value::Int(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0)),
-            "Float" => Value::Float(unsafe { val.to_string(self.mrb) }.parse().unwrap_or(0.0)),
-            "String" => Value::Str(unsafe { val.to_string(self.mrb) }),
-            "Symbol" => Value::Sym(unsafe { val.to_string(self.mrb) }),
+            "Integer" => Value::Int(self.to_string_of(val).parse().unwrap_or(0)),
+            "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
+            "String" => Value::Str(self.to_string_of(val)),
+            "Symbol" => Value::Sym(self.to_string_of(val)),
             "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_outcome)),
             "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_outcome)),
-            _ => Value::Str(unsafe {
-                val.call(self.mrb, cstr!("inspect"), &[])
-                    .to_string(self.mrb)
-            }),
+            _ => {
+                let inspect = self.call_method(val, cstr!("inspect"), &[]);
+                Value::Str(self.to_string_of(inspect))
+            }
         }
     }
 

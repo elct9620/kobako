@@ -147,18 +147,17 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     if exc_val.w == 0 {
         return None;
     }
-    let class_name = unsafe {
-        let cn = exc_val.classname(mrb.as_ptr());
+    let class_name = {
+        let cn = kobako.classname_of(exc_val);
         if cn.is_empty() {
             "RuntimeError".to_string()
         } else {
             cn.to_string()
         }
     };
-    let message = unsafe {
-        let m = exc_val
-            .call(mrb.as_ptr(), cstr!("message"), &[])
-            .to_string(mrb.as_ptr());
+    let message = {
+        let msg_val = kobako.call_method(exc_val, cstr!("message"), &[]);
+        let m = kobako.to_string_of(msg_val);
         if m.is_empty() {
             class_name.clone()
         } else {
