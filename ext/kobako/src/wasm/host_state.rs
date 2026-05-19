@@ -123,14 +123,30 @@ impl HostState {
         self.deadline
     }
 
-    /// Mutable handle to the embedded [`KobakoLimiter`]. Shared by the
-    /// wasmtime [`ResourceLimiter`] callback (set once at Store build
-    /// time) and by [`crate::wasm::Instance`] for arming / disarming the
-    /// memory cap around each guest run. Same shape as
-    /// [`HostState::wasi_mut`] — callers operate on the inner type
-    /// directly instead of going through a per-action passthrough.
+    /// Mutable handle to the embedded [`KobakoLimiter`]. Required by
+    /// the wasmtime [`ResourceLimiter`] callback wiring in
+    /// [`crate::wasm::Instance::from_path`]
+    /// (`store.limiter(|state| state.limiter_mut())`); kept private to
+    /// the wasm submodule so the only public surface for arming the
+    /// cap goes through [`HostState::arm_memory_cap`] /
+    /// [`HostState::disarm_memory_cap`].
     pub(super) fn limiter_mut(&mut self) -> &mut KobakoLimiter {
         &mut self.limiter
+    }
+
+    /// Arm the docs/behavior.md E-20 memory cap for one guest run.
+    /// Paired with [`HostState::disarm_memory_cap`] around the call to
+    /// the corresponding `__kobako_*` export so post-run host
+    /// bookkeeping (e.g. fetching the OUTCOME_BUFFER) is not
+    /// attributed to the user script.
+    pub(super) fn arm_memory_cap(&mut self) {
+        self.limiter.activate();
+    }
+
+    /// Disarm the docs/behavior.md E-20 memory cap. See
+    /// [`HostState::arm_memory_cap`].
+    pub(super) fn disarm_memory_cap(&mut self) {
+        self.limiter.deactivate();
     }
 }
 
@@ -165,13 +181,13 @@ impl KobakoLimiter {
     }
 
     /// Arm the cap so subsequent `memory.grow` calls are checked
-    /// against `memory_limit`. The cap is dormant by default — the
-    /// module's declared initial memory is allocated during
-    /// `Linker::instantiate` and docs/behavior.md E-20 scopes the trap to
-    /// `memory.grow` (not the instantiation-time initial allocation).
-    /// [`crate::wasm::Instance::eval`] / [`crate::wasm::Instance::run`]
-    /// calls this right before invoking the corresponding guest export.
-    pub(super) fn activate(&mut self) {
+    /// against `memory_limit`. Called via
+    /// [`HostState::arm_memory_cap`]; the cap is dormant by default —
+    /// the module's declared initial memory is allocated during
+    /// `Linker::instantiate` and docs/behavior.md E-20 scopes the trap
+    /// to `memory.grow` (not the instantiation-time initial
+    /// allocation).
+    fn activate(&mut self) {
         self.cap_active = true;
     }
 
@@ -179,7 +195,7 @@ impl KobakoLimiter {
     /// OUTCOME_BUFFER, which can grow guest memory transiently) is
     /// not attributed to the user script. Paired with
     /// [`KobakoLimiter::activate`].
-    pub(super) fn deactivate(&mut self) {
+    fn deactivate(&mut self) {
         self.cap_active = false;
     }
 }
@@ -281,8 +297,26 @@ impl StoreCell {
     }
 }
 
-// SAFETY: Ruby's GVL serialises access to magnus-wrapped objects on a single
-// OS thread at a time. `wasmtime::Store` is `Send` (verified upstream); the
-// `RefCell`-mediated mutation is therefore safe under the GVL invariant.
+// SAFETY: magnus requires `Send + Sync` on `#[magnus::wrap]` types. Both
+// claims hold under the GVL invariant:
+//
+//   * Send — `wasmtime::Store<HostState>` is itself `Send` (verified
+//     upstream by wasmtime; see `wasmtime::Store`'s trait impls).
+//     `RefCell<T>: Send` whenever `T: Send`. The remaining stored state
+//     (`HostState`) holds `Opaque<Value>` for the Ruby Server handle —
+//     `Opaque<Value>` is documented as `Send` by magnus precisely so
+//     wrapped objects can satisfy this bound.
+//
+//   * Sync — `RefCell` is *not* `Sync` in the general Rust sense
+//     (concurrent `borrow_mut` is UB). We assert `Sync` here because the
+//     GVL serialises every call into Ruby C and every entry into magnus-
+//     wrapped methods onto a single OS thread at a time: by the time the
+//     `Sync` bound matters, magnus has already established that only one
+//     thread can be inside the wrapper. Cross-thread mutation cannot
+//     occur. If a future magnus release adopts a thread model that
+//     permits concurrent access to wrapped objects, this assertion would
+//     have to revert and `StoreCell` would need to switch to
+//     `Mutex<wasmtime::Store<…>>` — but as of magnus 0.8 the contract
+//     holds.
 unsafe impl Send for StoreCell {}
 unsafe impl Sync for StoreCell {}

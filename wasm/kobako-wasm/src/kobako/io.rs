@@ -122,7 +122,6 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
 ///   * `mode` is anything other than `"w"` — only the write-path is
 ///     implemented (mruby-io's read-path is intentionally out of
 ///     scope, see `mrblib/io.rb` class doc).
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn io_initialize(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -162,6 +161,11 @@ pub(crate) unsafe extern "C" fn io_initialize(
             sys::mrb_iv_set(mrb, self_, sym, fd_val);
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = mrb;
+        let _ = self_;
+    }
     sys::mrb_value::zeroed()
 }
 
@@ -173,7 +177,6 @@ pub(crate) unsafe extern "C" fn io_initialize(
 /// return value: when wasmtime's `MemoryOutputPipe` rejects bytes past
 /// its limit, `fwrite` short-writes and the returned total reflects
 /// only the accepted bytes. No Ruby-level error is raised.
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn io_write(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -198,6 +201,8 @@ pub(crate) unsafe extern "C" fn io_write(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = mrb;
+        let _ = self_;
         sys::mrb_value::zeroed()
     }
 }
@@ -205,7 +210,6 @@ pub(crate) unsafe extern "C" fn io_write(
 /// `IO#fileno` — returns the stored fd as an `Integer`. Used by the
 /// `IO#to_i` alias in `mrblib/io.rb` and by introspecting callers
 /// (e.g. `$stdout.fileno == 1`).
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn io_fileno(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -217,6 +221,8 @@ pub(crate) unsafe extern "C" fn io_fileno(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = mrb;
+        let _ = self_;
         sys::mrb_value::zeroed()
     }
 }

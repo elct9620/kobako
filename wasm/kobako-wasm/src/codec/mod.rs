@@ -147,18 +147,6 @@ impl Encoder {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.buf.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.buf.is_empty()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.buf
-    }
-
     pub fn into_bytes(self) -> Vec<u8> {
         self.buf
     }
@@ -231,14 +219,6 @@ pub struct Decoder<'a> {
 impl<'a> Decoder<'a> {
     pub fn new(input: &'a [u8]) -> Self {
         Self { input, pos: 0 }
-    }
-
-    pub fn len(&self) -> usize {
-        self.input.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.input.is_empty()
     }
 
     pub fn position(&self) -> usize {
@@ -455,16 +435,7 @@ mod tests {
     #[test]
     fn encoder_starts_empty() {
         let enc = Encoder::new();
-        assert!(enc.is_empty());
-        assert_eq!(enc.len(), 0);
         assert!(enc.into_bytes().is_empty());
-    }
-
-    #[test]
-    fn encoder_with_capacity_is_still_empty() {
-        let enc = Encoder::with_capacity(64);
-        assert!(enc.is_empty());
-        assert_eq!(enc.len(), 0);
     }
 
     #[test]
@@ -472,15 +443,12 @@ mod tests {
         let bytes = [0xc0_u8];
         let dec = Decoder::new(&bytes);
         assert_eq!(dec.position(), 0);
-        assert_eq!(dec.len(), 1);
-        assert!(!dec.is_empty());
         assert!(!dec.at_end());
     }
 
     #[test]
     fn decoder_empty_input_is_at_end() {
         let dec = Decoder::new(&[]);
-        assert!(dec.is_empty());
         assert!(dec.at_end());
     }
 

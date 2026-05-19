@@ -667,9 +667,9 @@ impl Kobako {
     /// as a wire-level `Value::Sym` (ext 0x00) per docs/wire-codec.md
     /// § Ext Types. Keys arriving as either mruby `Symbol` or `String`
     /// reduce to the same UTF-8 name via `Object#to_s`. Values go
-    /// through [`Kobako::mrb_value_to_wire_value`].
+    /// through [`Kobako::to_wire_value`].
     #[cfg(target_arch = "wasm32")]
-    pub fn decode_hash_kwargs(
+    pub fn extract_hash_kwargs(
         &self,
         hash: sys::mrb_value,
         out: &mut Vec<(String, crate::codec::Value)>,
@@ -679,10 +679,7 @@ impl Kobako {
         for i in 0..keys_len {
             let key_val = self.ary_entry(keys_ary, i as i32);
             let val = self.hash_get(hash, key_val);
-            out.push((
-                self.to_string_of(key_val),
-                self.mrb_value_to_wire_value(val),
-            ));
+            out.push((self.to_string_of(key_val), self.to_wire_value(val)));
         }
     }
 
@@ -701,9 +698,9 @@ impl Kobako {
         for (idx, &mrb_val) in rest.iter().enumerate() {
             let is_hash = self.classname_of(mrb_val) == "Hash" && idx == rest.len() - 1;
             if is_hash {
-                self.decode_hash_kwargs(mrb_val, &mut wire_kwargs);
+                self.extract_hash_kwargs(mrb_val, &mut wire_kwargs);
             } else {
-                wire_args.push(self.mrb_value_to_wire_value(mrb_val));
+                wire_args.push(self.to_wire_value(mrb_val));
             }
         }
 
@@ -717,10 +714,10 @@ impl Kobako {
     /// Iterate an mruby Array and convert each element via `convert`,
     /// returning a `Vec<Value>` ready to wrap in [`Value::Array`].
     /// `convert` is a function pointer so the two consumer converters
-    /// ([`Kobako::mrb_value_to_wire_value`] and
-    /// [`Kobako::mrb_value_to_wire_outcome`]) can share the iteration
+    /// ([`Kobako::to_wire_value`] and
+    /// [`Kobako::to_wire_outcome`]) can share the iteration
     /// while preserving their per-converter recursion target — the
-    /// outcome path must keep recursing on `mrb_value_to_wire_outcome`
+    /// outcome path must keep recursing on `to_wire_outcome`
     /// so unknown nested types fall back to `inspect`, not `to_s`.
     #[cfg(target_arch = "wasm32")]
     fn array_to_wire(
@@ -770,18 +767,18 @@ impl Kobako {
     /// ## Why two converters
     ///
     /// This is the **RPC-path** converter. Hash arguments are still
-    /// decoded into kwargs separately via [`Kobako::decode_hash_kwargs`]
+    /// decoded into kwargs separately via [`Kobako::extract_hash_kwargs`]
     /// when they trail the positional list; a Hash that arrives here is
     /// either nested inside an Array argument or sitting in a non-final
     /// positional slot, and travels natively as [`Value::Map`]. The
-    /// sibling [`Kobako::mrb_value_to_wire_outcome`] handles the
+    /// sibling [`Kobako::to_wire_outcome`] handles the
     /// **outcome-path** (the script's last-expression value) and uses
     /// `inspect` for its unknown-type fallback instead. Do not unify
     /// the two: the outcome path is read as a display representation,
     /// while RPC arguments are interchange values that reach a
     /// Service's `public_send`.
     #[cfg(target_arch = "wasm32")]
-    pub fn mrb_value_to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
+    pub fn to_wire_value(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
         match self.classname_of(val) {
             "NilClass" => Value::Nil,
@@ -791,8 +788,8 @@ impl Kobako {
             "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
             "String" => Value::Str(self.to_string_of(val)),
             "Symbol" => Value::Sym(self.to_string_of(val)),
-            "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_value)),
-            "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_value)),
+            "Array" => Value::Array(self.array_to_wire(val, Self::to_wire_value)),
+            "Hash" => Value::Map(self.hash_to_wire(val, Self::to_wire_value)),
             // Fallback: route through `.to_s`.
             _ => Value::Str(self.to_string_of(val)),
         }
@@ -805,7 +802,7 @@ impl Kobako {
     /// [`Value::Map`] recursively (docs/wire-codec.md § Type Mapping #7-#8) so a
     /// script returning a collection retains element-level fidelity.
     ///
-    /// ## Why this differs from [`Kobako::mrb_value_to_wire_value`]
+    /// ## Why this differs from [`Kobako::to_wire_value`]
     ///
     /// Unknown types fall back to `Object#inspect` rather than
     /// `Object#to_s`. The outcome envelope is read by host-side callers
@@ -815,7 +812,7 @@ impl Kobako {
     /// `inspect` for unknown types — the recursive call lands back in
     /// this same arm.
     #[cfg(target_arch = "wasm32")]
-    pub fn mrb_value_to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
+    pub fn to_wire_outcome(&self, val: sys::mrb_value) -> crate::codec::Value {
         use crate::codec::Value;
         match self.classname_of(val) {
             "NilClass" => Value::Nil,
@@ -825,8 +822,8 @@ impl Kobako {
             "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
             "String" => Value::Str(self.to_string_of(val)),
             "Symbol" => Value::Sym(self.to_string_of(val)),
-            "Array" => Value::Array(self.array_to_wire(val, Self::mrb_value_to_wire_outcome)),
-            "Hash" => Value::Map(self.hash_to_wire(val, Self::mrb_value_to_wire_outcome)),
+            "Array" => Value::Array(self.array_to_wire(val, Self::to_wire_outcome)),
+            "Hash" => Value::Map(self.hash_to_wire(val, Self::to_wire_outcome)),
             _ => {
                 let inspect = self.call_method(val, cstr!("inspect"), &[]);
                 Value::Str(self.to_string_of(inspect))
@@ -841,7 +838,7 @@ impl Kobako {
     /// `Kobako::RPC::Handle#method_missing` → [`Self::dispatch_invoke`],
     /// docs/behavior.md B-17).
     #[cfg(target_arch = "wasm32")]
-    pub fn wire_value_to_mrb(&self, val: crate::codec::Value) -> sys::mrb_value {
+    pub fn to_mrb_value(&self, val: crate::codec::Value) -> sys::mrb_value {
         use crate::codec::Value;
         // SAFETY: `self.mrb` is live; cached class refs were produced by
         // `install_raw` / `resolve_raw`.
@@ -901,7 +898,7 @@ impl Kobako {
                 Value::Array(items) => {
                     let ary = sys::mrb_ary_new(self.mrb);
                     for item in items {
-                        let elem = self.wire_value_to_mrb(item);
+                        let elem = self.to_mrb_value(item);
                         sys::mrb_ary_push(self.mrb, ary, elem);
                     }
                     ary
@@ -909,8 +906,8 @@ impl Kobako {
                 Value::Map(pairs) => {
                     let hash = sys::mrb_hash_new(self.mrb);
                     for (k, v) in pairs {
-                        let key = self.wire_value_to_mrb(k);
-                        let val = self.wire_value_to_mrb(v);
+                        let key = self.to_mrb_value(k);
+                        let val = self.to_mrb_value(v);
                         sys::mrb_hash_set(self.mrb, hash, key, val);
                     }
                     hash
@@ -944,7 +941,7 @@ impl Kobako {
     ) -> sys::mrb_value {
         use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
-            Ok(wire_val) => self.wire_value_to_mrb(wire_val),
+            Ok(wire_val) => self.to_mrb_value(wire_val),
             Err(crate::rpc::client::InvokeError::Service(ex)) => {
                 // SAFETY: bridge frame — mruby will unwind through
                 // `mrb_raise`.

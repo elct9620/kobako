@@ -55,7 +55,7 @@ use crate::codec::Value;
 /// Decoded invocation envelope. `target` is the entrypoint constant
 /// name (the wire-level Symbol); `args` is always a [`Value::Array`]
 /// and `kwargs` always a [`Value::Map`] — callers can hand them
-/// straight to [`crate::kobako::Kobako::wire_value_to_mrb`] without
+/// straight to [`crate::kobako::Kobako::to_mrb_value`] without
 /// re-checking.
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, PartialEq)]
@@ -210,9 +210,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
         }
     };
 
-    let target_mrb = kobako.wire_value_to_mrb(Value::Sym(invocation.target.clone()));
-    let args_mrb = kobako.wire_value_to_mrb(invocation.args);
-    let kwargs_mrb = kobako.wire_value_to_mrb(invocation.kwargs);
+    let target_mrb = kobako.to_mrb_value(Value::Sym(invocation.target.clone()));
+    let args_mrb = kobako.to_mrb_value(invocation.args);
+    let kwargs_mrb = kobako.to_mrb_value(invocation.kwargs);
     // SAFETY: bridge frame — all `mrb_value`s come from the same VM,
     // and `mrb_intern_cstr` accepts the static NUL-terminated names
     // from [`dispatch_globals`].
@@ -253,7 +253,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return;
     }
 
-    let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
+    let wire_value = kobako.to_wire_outcome(result_val);
     match encode_outcome(&Outcome::Value(wire_value)) {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {

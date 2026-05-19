@@ -53,7 +53,6 @@ use crate::mruby::sys;
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
 /// Forwards to [`super::Kobako::dispatch_invoke`].
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn rpc_method_missing(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -120,6 +119,8 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = mrb;
+        let _ = self_;
         sys::mrb_value::zeroed()
     }
 }
@@ -127,7 +128,6 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
 /// `Kobako::RPC::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// [`super::Kobako::set_handle_id`].
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn handle_initialize(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -143,6 +143,11 @@ pub(crate) unsafe extern "C" fn handle_initialize(
         }
         kobako.set_handle_id(self_, id_val);
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = mrb;
+        let _ = self_;
+    }
     sys::mrb_value::zeroed()
 }
 
@@ -150,7 +155,6 @@ pub(crate) unsafe extern "C" fn handle_initialize(
 /// method call on a Handle instance to the host via
 /// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
 /// (docs/behavior.md B-17 — Handle chaining).
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: sys::mrb_value,
@@ -205,6 +209,8 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = mrb;
+        let _ = self_;
         sys::mrb_value::zeroed()
     }
 }
@@ -213,7 +219,6 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// Always returns `true` — every method call on a Member class
 /// is dispatched through `method_missing` to the host, so probing via
 /// `respond_to?` must succeed.
-#[allow(unused_variables)]
 pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     mrb: *mut sys::mrb_state,
     _self_: sys::mrb_value,
@@ -226,6 +231,7 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = mrb;
         sys::mrb_value::zeroed()
     }
 }

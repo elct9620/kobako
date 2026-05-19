@@ -361,7 +361,7 @@ impl Instance {
                 store_ref.set_epoch_deadline(u64::MAX);
             }
         }
-        store_ref.data_mut().limiter_mut().activate();
+        store_ref.data_mut().arm_memory_cap();
     }
 
     /// Drop the memory cap as soon as the guest call returns so that
@@ -369,11 +369,7 @@ impl Instance {
     /// which can grow guest memory transiently) is not attributed to
     /// the user script. Paired with [`Instance::prime_caps`].
     fn disarm_caps(&self) {
-        self.store
-            .borrow_mut()
-            .data_mut()
-            .limiter_mut()
-            .deactivate();
+        self.store.borrow_mut().data_mut().disarm_memory_cap();
     }
 
     /// Allocate a +len+-byte buffer in guest linear memory via
