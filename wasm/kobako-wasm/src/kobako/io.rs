@@ -55,15 +55,15 @@ const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
 /// against an already-installed state just re-defines the methods,
 /// which is harmless given mruby's last-write-wins semantics).
+/// wasm32-only — host callers do not run the IO install path.
 ///
 /// # Safety
 ///
 /// `mrb` must be a live mruby state. Intended to run inside
 /// [`super::Kobako::install_raw`], which already holds the same
 /// liveness contract.
-#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+#[cfg(target_arch = "wasm32")]
 pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
-    #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: `mrb` is live per the function's safety contract.
         // Every C-string passed (`cstr_ptr(*_NAME)`) is NUL-terminated.

@@ -43,19 +43,9 @@ pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;
 pub mod codec;
-pub mod kobako;
-pub mod mruby;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) mod kobako;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) mod mruby;
 pub mod outcome;
 pub mod rpc;
-
-pub use abi::{pack_u64, unpack_u64};
-pub use codec::{CodecError, Decoder, Encoder, Value};
-pub use outcome::{
-    decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
-    Outcome, Panic,
-};
-pub use rpc::client::{build_request_bytes, invoke_rpc, ExceptionPayload, InvokeError};
-pub use rpc::envelope::{
-    decode_request, decode_response, encode_request, encode_response, EnvelopeError, Request,
-    Response, Target,
-};

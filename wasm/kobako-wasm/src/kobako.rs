@@ -31,16 +31,17 @@
 //! repeating registration.
 
 #[cfg(any(target_arch = "wasm32", test))]
-pub mod bridges;
-pub mod bytecode;
+pub(crate) mod bridges;
+pub(crate) mod bytecode;
 #[cfg(any(target_arch = "wasm32", test))]
-pub mod io;
+pub(crate) mod io;
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::value::cstr_ptr;
+#[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
@@ -102,7 +103,9 @@ const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
 
 /// Failures returned by [`Kobako::install_groups`] when a preamble entry
 /// carries a name that cannot be passed through the mruby C API (which
-/// expects NUL-terminated strings).
+/// expects NUL-terminated strings). wasm32-only because the preamble
+/// install path itself is wasm32-only.
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallGroupsError {
     /// A Group name contained an interior NUL byte.
@@ -111,6 +114,7 @@ pub enum InstallGroupsError {
     NulInMemberName,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl std::fmt::Display for InstallGroupsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -124,6 +128,7 @@ impl std::fmt::Display for InstallGroupsError {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl std::error::Error for InstallGroupsError {}
 
 /// Handle to a Kobako runtime installed on a live mruby VM.
@@ -132,12 +137,12 @@ impl std::error::Error for InstallGroupsError {}
 /// pointer plus the resolved class handles, but does not own the VM —
 /// the caller is responsible for keeping the underlying state live for
 /// the duration of any `Kobako` method call. Constructed through one of
-/// the four entry points:
+/// the three entry points:
 ///
 ///   * [`Kobako::install`] / [`Kobako::install_raw`] — register every
 ///     boot-time entity then return a fully populated handle.
-///   * [`Kobako::resolve`] / [`Kobako::resolve_raw`] — re-resolve class
-///     handles produced by a prior install (used by C-bridges).
+///   * [`Kobako::resolve_raw`] — re-resolve class handles produced by a
+///     prior install (used by C-bridges).
 ///
 /// ## Dual-target layout
 ///
@@ -171,7 +176,10 @@ pub struct Kobako {}
 impl Kobako {
     /// Install the Kobako runtime onto `mrb` and return a handle to the
     /// resulting class registrations. Safe wrapper over
-    /// [`Kobako::install_raw`].
+    /// [`Kobako::install_raw`]. wasm32-only — host callers do not need
+    /// this entry; the `install_raw_is_safe_no_op_on_host` test reaches
+    /// straight for [`Kobako::install_raw`].
+    #[cfg(target_arch = "wasm32")]
     pub fn install(mrb: &Mrb) -> Self {
         // SAFETY: `mrb` is a live, non-closed state per the `&Mrb`
         // borrow.
@@ -364,17 +372,10 @@ impl Kobako {
         }
     }
 
-    /// Resolve the class handles produced by a prior install. Safe
-    /// wrapper over [`Kobako::resolve_raw`].
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    pub fn resolve(mrb: &Mrb) -> Self {
-        // SAFETY: `mrb` is a live, non-closed state per the `&Mrb`
-        // borrow.
-        unsafe { Self::resolve_raw(mrb.as_ptr()) }
-    }
-
     /// Resolve the class handles produced by a prior install, from a
-    /// raw `*mut mrb_state`.
+    /// raw `*mut mrb_state`. wasm32-only — the host stub of [`Kobako`]
+    /// is exercised exclusively through [`Kobako::install_raw`], so the
+    /// C-bridge re-entry point does not need a host counterpart.
     ///
     /// # Safety
     ///
@@ -384,9 +385,8 @@ impl Kobako {
     /// `mrb_class_get_under` return value and later UB; the C-bridge
     /// entry points uphold the install precondition by construction
     /// (they are invoked through registrations done at install time).
-    #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+    #[cfg(target_arch = "wasm32")]
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
-        #[cfg(target_arch = "wasm32")]
         {
             // SAFETY of every FFI call below: `mrb` is live by the
             // function's safety contract; `mrb_define_module` is
@@ -414,21 +414,18 @@ impl Kobako {
                 }
             }
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Self {}
-        }
     }
 
     /// Install Namespace / Member proxy classes from a Frame 1
     /// preamble. Each Group becomes a top-level Ruby module; each Member
     /// becomes a subclass of `Kobako::RPC::Client` under its Namespace so the
-    /// singleton-class `method_missing` shim is inherited.
+    /// singleton-class `method_missing` shim is inherited. wasm32-only —
+    /// host callers do not drive Frame 1 preamble.
+    #[cfg(target_arch = "wasm32")]
     pub fn install_groups(
         &self,
         preamble: &[(String, Vec<String>)],
     ) -> Result<(), InstallGroupsError> {
-        #[cfg(target_arch = "wasm32")]
         {
             for (group_name, members) in preamble {
                 let group_cstr = std::ffi::CString::new(group_name.as_str())
@@ -450,11 +447,6 @@ impl Kobako {
                     };
                 }
             }
-            Ok(())
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let _ = preamble;
             Ok(())
         }
     }
@@ -500,15 +492,6 @@ impl Kobako {
         };
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         sys::mrb_raise(self.mrb, target_cls, msg.as_ptr());
-    }
-
-    /// Raw mruby state pointer. Reserved for FFI sites that still must
-    /// talk to the C API directly (`mrb_get_args`, `mrb_ary_entry`, …);
-    /// every helper expressible as a method on [`Kobako`] should prefer
-    /// that surface.
-    #[cfg(target_arch = "wasm32")]
-    pub fn as_ptr(&self) -> *mut sys::mrb_state {
-        self.mrb
     }
 
     // ----------------------------------------------------------------

@@ -18,4 +18,5 @@ pub mod state;
 pub mod sys;
 pub mod value;
 
-pub use state::{Mrb, MrbOpenError};
+#[cfg(target_arch = "wasm32")]
+pub use state::Mrb;

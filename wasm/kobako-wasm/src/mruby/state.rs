@@ -23,11 +23,19 @@
 //! `Mrb` fixes both: the owning type makes "the VM is live" provable by
 //! the borrow checker, and `Drop` makes `mrb_close` automatic.
 
+#[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
+#[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
 
 /// Owning handle to a live mruby VM. Closed automatically on drop.
+///
+/// On non-wasm32 targets the inner pointer field is absent because
+/// [`Mrb::open`] always returns `Err` there; the type still compiles so
+/// that `Result<Mrb, MrbOpenError>` is a uniform return type across
+/// targets.
 pub struct Mrb {
+    #[cfg(target_arch = "wasm32")]
     state: NonNull<sys::mrb_state>,
 }
 
@@ -66,7 +74,10 @@ impl Mrb {
     /// Raw `*mut mrb_state`. Use only at FFI boundaries that have not
     /// yet migrated to safe methods on `Mrb`. The returned pointer is
     /// valid for the lifetime of `&self`; callers must not call
-    /// `mrb_close` on it (the `Mrb` Drop owns that).
+    /// `mrb_close` on it (the `Mrb` Drop owns that). wasm32-only —
+    /// host targets cannot construct an `Mrb`, so the raw-pointer
+    /// escape hatch has no callers there.
+    #[cfg(target_arch = "wasm32")]
     #[inline]
     pub fn as_ptr(&self) -> *mut sys::mrb_state {
         self.state.as_ptr()

@@ -46,7 +46,7 @@ pub(super) mod dispatch_globals {
 /// from docs/behavior.md B-32 in their backtrace. Source lives in
 /// `dispatch_wrapper.rb` (alongside this file) so editors can
 /// syntax-highlight and lint the Ruby.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 const DISPATCH_WRAPPER: &str = include_str!("dispatch_wrapper.rb");
 
 #[cfg(any(target_arch = "wasm32", test))]
