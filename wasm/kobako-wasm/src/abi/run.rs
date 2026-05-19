@@ -15,13 +15,39 @@
 //! 2. Decode the invocation envelope from `(env_ptr, env_len)` via
 //!    [`parse_invocation`]. Decode failure writes a Panic envelope
 //!    (E-26).
-//! 3. Stash `args` / `kwargs` / `entrypoint` in mruby globals and
-//!    evaluate the dispatch wrapper under filename `(dispatch)`. The
-//!    wrapper checks `Object.const_defined?` (E-27) and
-//!    `respond_to?(:call)` (E-28) before invoking
-//!    `target.call(*args, **kwargs)`.
+//! 3. Stash `args` / `kwargs` / `entrypoint` in the three mruby globals
+//!    pinned by [`dispatch_globals`] and evaluate [`DISPATCH_WRAPPER`]
+//!    under filename `(dispatch)`. The wrapper checks
+//!    `Object.const_defined?` (E-27) and `respond_to?(:call)` (E-28)
+//!    before invoking `target.call(*args, **kwargs)`.
 //! 4. Serialize the return value as a Result envelope or convert the
 //!    pending mruby exception into a Panic envelope.
+
+/// Names of the three guest-side mruby globals that carry the
+/// invocation tuple from `__kobako_run` into [`DISPATCH_WRAPPER`].
+/// Both ends of the wire ABI agree on these literals — Rust stashes
+/// the values, the wrapper reads them. Each constant is NUL-terminated
+/// to match the `mrb_intern_cstr` signature without an extra
+/// allocation.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) mod dispatch_globals {
+    /// `$__kobako_run_target__` — the entrypoint Symbol (as a String).
+    pub const TARGET: &[u8] = b"$__kobako_run_target__\0";
+    /// `$__kobako_run_args__` — the positional args (mruby Array).
+    pub const ARGS: &[u8] = b"$__kobako_run_args__\0";
+    /// `$__kobako_run_kwargs__` — the keyword args (mruby Hash).
+    pub const KWARGS: &[u8] = b"$__kobako_run_kwargs__\0";
+}
+
+/// The mruby dispatch wrapper evaluated by `__kobako_run` after the
+/// invocation tuple has been stashed in [`dispatch_globals`]. Loaded
+/// under filename `(dispatch)` so any wrapper-level failure carries a
+/// clear locator; entrypoint failures keep the `(snippet:Name)` frame
+/// from docs/behavior.md B-32 in their backtrace. Source lives in
+/// `dispatch_wrapper.rb` (alongside this file) so editors can
+/// syntax-highlight and lint the Ruby.
+#[cfg(any(target_arch = "wasm32", test))]
+const DISPATCH_WRAPPER: &str = include_str!("dispatch_wrapper.rb");
 
 #[cfg(any(target_arch = "wasm32", test))]
 use crate::codec::Value;
@@ -188,44 +214,22 @@ fn run_body(env_ptr: i32, env_len: i32) {
     let args_mrb = kobako.wire_value_to_mrb(invocation.args);
     let kwargs_mrb = kobako.wire_value_to_mrb(invocation.kwargs);
     // SAFETY: bridge frame — all `mrb_value`s come from the same VM,
-    // and `mrb_intern_cstr` accepts the static NUL-terminated names.
+    // and `mrb_intern_cstr` accepts the static NUL-terminated names
+    // from [`dispatch_globals`].
     unsafe {
-        sys::mrb_gv_set(
-            mrb.as_ptr(),
-            sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_target__")),
-            target_mrb,
-        );
-        sys::mrb_gv_set(
-            mrb.as_ptr(),
-            sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_args__")),
-            args_mrb,
-        );
-        sys::mrb_gv_set(
-            mrb.as_ptr(),
-            sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_kwargs__")),
-            kwargs_mrb,
-        );
+        for (name, value) in [
+            (dispatch_globals::TARGET, target_mrb),
+            (dispatch_globals::ARGS, args_mrb),
+            (dispatch_globals::KWARGS, kwargs_mrb),
+        ] {
+            sys::mrb_gv_set(
+                mrb.as_ptr(),
+                sys::mrb_intern_cstr(mrb.as_ptr(), name.as_ptr() as *const core::ffi::c_char),
+                value,
+            );
+        }
     }
 
-    // Wrapper checks `Object.const_defined?` (E-27) and
-    // `respond_to?(:call)` (E-28) before invoking
-    // `target.call(*args, **kwargs)`. Loaded under filename
-    // `(dispatch)` so a wrapper-level failure carries a clear locator;
-    // entrypoint failures keep the `(snippet:Name)` frame from B-32 in
-    // their backtrace.
-    const DISPATCH_SRC: &str = r#"
-__t = $__kobako_run_target__
-if Object.const_defined?(__t)
-  __c = Object.const_get(__t)
-  if __c.respond_to?(:call)
-    __c.call(*$__kobako_run_args__, **$__kobako_run_kwargs__)
-  else
-    raise Kobako::RPC::WireError.new("entrypoint #{__t} does not respond to :call")
-  end
-else
-  raise Kobako::RPC::WireError.new("undefined entrypoint: #{__t}")
-end
-"#;
     let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
     if cxt.is_null() {
         return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
@@ -234,8 +238,8 @@ end
     let result_val = unsafe {
         sys::mrb_load_nstring_cxt(
             mrb.as_ptr(),
-            DISPATCH_SRC.as_ptr() as *const core::ffi::c_char,
-            DISPATCH_SRC.len(),
+            DISPATCH_WRAPPER.as_ptr() as *const core::ffi::c_char,
+            DISPATCH_WRAPPER.len(),
             cxt,
         )
     };
@@ -349,5 +353,53 @@ mod tests {
             InvocationError::MissingEntrypoint.message(),
             "invocation envelope missing entrypoint Symbol"
         );
+    }
+
+    // ---------------- Dispatch wrapper / gvar ABI pinning ---------------
+
+    /// Strip the trailing NUL from a NUL-terminated `&[u8]` constant
+    /// and return the inner UTF-8 name. The constants in
+    /// `dispatch_globals` are NUL-terminated for direct use with
+    /// `mrb_intern_cstr`; this helper undoes that for textual checks.
+    fn gvar_name(nul_terminated: &[u8]) -> &str {
+        let bytes = nul_terminated
+            .strip_suffix(b"\0")
+            .expect("dispatch global name must be NUL-terminated");
+        std::str::from_utf8(bytes).expect("dispatch global name must be UTF-8")
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn dispatch_wrapper_reads_every_gvar() {
+        // The wrapper is wire ABI between Rust and the embedded mruby
+        // source — if any of the three gvar names drifts, dispatch
+        // silently breaks on the wasm path. Pin the contract here so
+        // a rename trips a host-target test before E2E.
+        for name in [
+            dispatch_globals::TARGET,
+            dispatch_globals::ARGS,
+            dispatch_globals::KWARGS,
+        ] {
+            let needle = gvar_name(name);
+            assert!(
+                DISPATCH_WRAPPER.contains(needle),
+                "DISPATCH_WRAPPER must reference {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_globals_are_all_prefixed_with_kobako_run() {
+        for name in [
+            dispatch_globals::TARGET,
+            dispatch_globals::ARGS,
+            dispatch_globals::KWARGS,
+        ] {
+            let inner = gvar_name(name);
+            assert!(
+                inner.starts_with("$__kobako_run_"),
+                "{inner} must use the $__kobako_run_ prefix reserved for the dispatch wire ABI"
+            );
+        }
     }
 }
