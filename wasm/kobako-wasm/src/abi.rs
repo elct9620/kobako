@@ -1,31 +1,47 @@
 //! Wire ABI surface — host import + guest exports.
 //!
-//! This module declares the wasm import/export contract pinned by SPEC.md
-//! "ABI Signatures". The contract is:
+//! This module is the façade for the wasm import/export contract pinned
+//! by docs/wire-codec.md § ABI Signatures. The contract is:
 //!
-//! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge guest
-//!   uses to dispatch a Service call to the host. Lives in the `env`
-//!   wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
+//! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge the
+//!   guest uses to dispatch a Service call to the host. Lives in the
+//!   `env` wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
 //! * **Exactly 4 guest exports**:
-//!   - `__kobako_eval`            — reactor entry; runs one-shot user source
+//!   - `__kobako_eval()`               — reactor entry; runs one-shot user source
 //!   - `__kobako_run(env_ptr, env_len)` — reactor entry; entrypoint dispatch
-//!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
-//!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
+//!   - `__kobako_alloc(size)`          — bump/malloc allocator for buffers
+//!   - `__kobako_take_outcome()`       — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
-//! The import/export name set is enforced at link time: a guest import
-//! the host does not provide traps inside wasmtime, and a missing
-//! export fails the `link_func_wrap` lookup on the host side or the
-//! `Caller::get_export` lookup inside dispatch. E2E journeys
-//! (`test/test_e2e_journeys.rb`) drive a full host↔guest round-trip
-//! against the real `data/kobako.wasm`, so any name drift surfaces
-//! before any other test runs.
+//! The import / export name set is enforced at link time: a guest
+//! import the host does not provide traps inside wasmtime, and a
+//! missing export fails the `link_func_wrap` lookup on the host side
+//! or the `Caller::get_export` lookup inside dispatch. E2E journeys
+//! (`test/test_e2e_journeys.rb` + `test/test_sandbox_run.rb`) drive a
+//! full host↔guest round-trip against the real `data/kobako.wasm`, so
+//! any name drift surfaces before any other test runs.
+//!
+//! ## Module layout
+//!
+//! The façade owns the import / export name constants, the
+//! `__kobako_dispatch` host import declaration, the WASI reactor
+//! `_initialize` shim, and the packed-u64 helpers shared between the
+//! host return type and `__kobako_take_outcome`. Each guest export
+//! body lives in its own sibling file alongside the helpers it owns:
+//!
+//! * [`eval`] — `__kobako_eval` body.
+//! * [`run`] — `__kobako_run` body + invocation-envelope parser.
+//! * [`boot`] — shared mruby boot / preamble install / snippet replay
+//!   / pending-exception extraction helpers used by both entry points.
+//! * [`frames`] — stdin frame reader and Frame 1 / Frame 3 decoders.
+//! * [`outcome_buffer`] — `OUTCOME_BUFFER` plus `__kobako_alloc` /
+//!   `__kobako_take_outcome` and the Panic / outcome write helpers.
 //!
 //! ## Packed u64 layout
 //!
 //! Both `__kobako_dispatch` (host import) and `__kobako_take_outcome`
-//! (guest export) return a u64 (i64 at the wasm type level) carrying two
-//! u32 values: the high 32 bits are the wasm linear memory ptr, the low 32
-//! bits are the byte length.
+//! (guest export) return a u64 (i64 at the wasm type level) carrying
+//! two u32 values: the high 32 bits are the wasm linear memory ptr,
+//! the low 32 bits are the byte length.
 //!
 //! ```text
 //!  63        32 31         0
@@ -39,17 +55,26 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
-#[cfg(target_arch = "wasm32")]
-use crate::cstr;
+#[cfg(any(target_arch = "wasm32", test))]
+mod boot;
+mod eval;
+#[cfg(any(target_arch = "wasm32", test))]
+mod frames;
+mod outcome_buffer;
+mod run;
 
-/// Wasm namespace the host import lives in (`env`, per SPEC.md "ABI
-/// Signatures").
+pub use eval::__kobako_eval;
+pub use outcome_buffer::{__kobako_alloc, __kobako_take_outcome};
+pub use run::__kobako_run;
+
+/// Wasm namespace the host import lives in (`env`, per
+/// docs/wire-codec.md § ABI Signatures).
 pub const IMPORT_MODULE: &str = "env";
 
 /// Sole host-provided import function name.
 pub const IMPORT_NAME: &str = "__kobako_dispatch";
 
-/// All three guest-provided export names, in declaration order.
+/// All four guest-provided export names, in declaration order.
 pub const EXPORT_NAMES: [&str; 4] = [
     "__kobako_eval",
     "__kobako_run",
@@ -62,961 +87,65 @@ pub const EXPORT_NAMES: [&str; 4] = [
 // ---------------------------------------------------------------------------
 //
 // The `wasm_import_module = "env"` attribute pins the import namespace.
-// Signature: `(req_ptr: i32, req_len: i32) -> i64` per SPEC ABI Signatures.
-// We only declare the import on the wasm32 target — on the host target
-// (where rlib codec tests run) there is no host to provide the symbol.
+// Signature: `(req_ptr: i32, req_len: i32) -> i64` per docs/wire-codec.md
+// § ABI Signatures. We only declare the import on the wasm32 target —
+// on the host target (where rlib codec tests run) there is no host to
+// provide the symbol.
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     /// Host-provided RPC bridge. Guest writes a Request payload at
-    /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a packed
-    /// u64 holding (response_ptr, response_len) of a buffer the host
-    /// allocated via `__kobako_alloc` inside the same call frame.
+    /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a
+    /// packed u64 holding (response_ptr, response_len) of a buffer the
+    /// host allocated via `__kobako_alloc` inside the same call frame.
     pub fn __kobako_dispatch(req_ptr: u32, req_len: u32) -> u64;
 }
 
 // ---------------------------------------------------------------------------
-// Guest exports.
+// WASI Reactor `_initialize` entry-point.
 // ---------------------------------------------------------------------------
-//
-// Signatures must match the SPEC.md "ABI Signatures" table.
 
 /// WASI Reactor `_initialize` entry-point.
 ///
-/// When compiling as a WASI reactor (`cdylib` targeting `wasm32-wasip1`),
-/// the rust-lld linker looks for an `_initialize` export to satisfy the
-/// reactor CRT model. Without it the link step fails with:
+/// When compiling as a WASI reactor (`cdylib` targeting
+/// `wasm32-wasip1`), the rust-lld linker looks for an `_initialize`
+/// export to satisfy the reactor CRT model. Without it the link step
+/// fails with:
 ///
 ///   rust-lld: error: entry symbol not defined: _initialize
 ///
-/// We export a no-op here because wasi-libc reactor init (`crt1-reactor.o`
-/// static ctors) is not required for kobako's boot path — kobako creates
-/// and destroys an `mrb_state` inside `__kobako_eval` for every invocation;
-/// there are no static C++ constructors or WASI preopen operations that
-/// need to run before the first call. Approach (a) from the two known
-/// fixes — smaller and sufficient for the kobako use case.
+/// We export a no-op here because wasi-libc reactor init
+/// (`crt1-reactor.o` static ctors) is not required for kobako's boot
+/// path — kobako creates and destroys an `mrb_state` inside
+/// `__kobako_eval` / `__kobako_run` for every invocation; there are no
+/// static C++ constructors or WASI preopen operations that need to run
+/// before the first call. Approach (a) from the two known fixes —
+/// smaller and sufficient for the kobako use case.
 ///
-/// Per docs/wire-codec.md § ABI Signatures, the "exactly 3 kobako exports" invariant
-/// counts `__kobako_eval`, `__kobako_alloc`, `__kobako_take_outcome`.
-/// `_initialize` is a WASI reactor bookkeeping export and is explicitly
-/// excluded from the kobako export count.
+/// Per docs/wire-codec.md § ABI Signatures, the four kobako exports
+/// counted by the host are `__kobako_eval`, `__kobako_run`,
+/// `__kobako_alloc`, and `__kobako_take_outcome`. `_initialize` is
+/// WASI reactor bookkeeping and is explicitly excluded from the kobako
+/// export count.
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn _initialize() {
-    // No-op: wasi-libc reactor static ctors are not needed for kobako's
-    // reactor model. See comment above.
-}
-
-/// Reactor entry — runs the three-job boot script, writing the outcome
-/// envelope to OUTCOME_BUFFER before returning. Signature: `() -> ()`.
-///
-/// Responsibilities:
-///
-/// 1. Read stdin Frame 1 (4-byte BE u32 length prefix + msgpack preamble).
-///    Decode the preamble array (`[["Name", ["MemberA"]], ...]`) and
-///    install proxy classes via the mruby C API so user scripts can call
-///    `Name::MemberA.method(...)`.
-///
-/// 2. Read stdin Frame 2 (4-byte BE u32 length prefix + UTF-8 user script).
-///    Evaluate via `mrb_load_nstring`; capture the last-expression value.
-///    On mruby exception: build a Panic envelope (origin = "sandbox") and
-///    write it to OUTCOME_BUFFER.
-///
-/// 3. On success: serialize the last-expression value as a Result envelope
-///    and write it to OUTCOME_BUFFER.
-///
-/// `__kobako_eval` never traps or calls `exit` — the host reads the outcome
-/// tag from `__kobako_take_outcome()` after this function returns.
-#[no_mangle]
-pub extern "C" fn __kobako_eval() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::mruby::sys;
-        use crate::outcome::{encode_outcome, Outcome};
-
-        // --- Frame 1: read preamble ---
-
-        let frame1 = match read_frame() {
-            Some(b) => b,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to read preamble frame",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        let preamble = match decode_preamble(&frame1) {
-            Some(p) => p,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to decode preamble msgpack",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- Frame 2: read user script ---
-
-        let frame2 = match read_frame() {
-            Some(b) => b,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to read script frame",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- Frame 3: read snippets (mandatory-presence; empty table
-        // arrives as an empty msgpack array). ---
-
-        let frame3 = match read_frame() {
-            Some(b) => b,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to read snippets frame",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        let snippets = match decode_snippets(&frame3) {
-            Some(s) => s,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to decode snippets msgpack",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- mruby VM init ---
-        //
-        // `Mrb::open` wraps `mrb_open` with NULL handling and ties the VM
-        // lifetime to a Drop guard — every early-return below releases
-        // the state automatically.
-
-        let mrb = match crate::mruby::Mrb::open() {
-            Ok(m) => m,
-            Err(_) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "mrb_open returned NULL",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- Install Kobako runtime and Frame 1 Namespaces ---
-        //
-        // `Kobako::install` registers `Kobako`, `Kobako::RPC` (module),
-        // `Kobako::RPC::Client`, `Kobako::RPC::Handle`, `Kobako::RPC::WireError`, the error classes and `Kernel#puts` / `p`
-        // shims. `install_groups` walks the preamble and installs each
-        // Group module + Member subclass. Neither runs Ruby source —
-        // every entity is registered through the mruby C API.
-
-        let kobako = crate::kobako::Kobako::install(&mrb);
-
-        use crate::kobako::InstallGroupsError;
-        match kobako.install_groups(&preamble) {
-            Ok(()) => {}
-            Err(InstallGroupsError::NulInGroupName) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "group name contains NUL byte",
-                    Vec::new(),
-                );
-                return;
-            }
-            Err(InstallGroupsError::NulInMemberName) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "member name contains NUL byte",
-                    Vec::new(),
-                );
-                return;
-            }
-        }
-
-        // --- Frame 3 replay: load each snippet ---
-        //
-        // Each snippet's `(snippet:Name)` filename is the locator the
-        // host uses to attribute an E-32 / E-36 failure back to the
-        // originating #preload call (docs/behavior.md B-32). The
-        // ccontext is rebuilt per-snippet so each IREP carries the
-        // correct debug_info filename.
-        let mut snippet_failure: Option<(String, String, String, Vec<String>)> = None;
-        for (name, body) in &snippets {
-            let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-            if cxt.is_null() {
-                snippet_failure = Some((
-                    "sandbox".to_string(),
-                    "Kobako::BootError".to_string(),
-                    "mrb_ccontext_new returned NULL".to_string(),
-                    Vec::new(),
-                ));
-                break;
-            }
-            let filename = format!("(snippet:{})\0", name);
-            unsafe {
-                sys::mrb_ccontext_filename(
-                    mrb.as_ptr(),
-                    cxt,
-                    filename.as_ptr() as *const core::ffi::c_char,
-                );
-                sys::mrb_load_nstring_cxt(
-                    mrb.as_ptr(),
-                    body.as_ptr() as *const core::ffi::c_char,
-                    body.len(),
-                    cxt,
-                );
-                sys::mrb_ccontext_free(mrb.as_ptr(), cxt);
-            }
-
-            let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
-            if exc_val.w == 0 {
-                continue;
-            }
-            let class_name = unsafe {
-                let cn = exc_val.classname(mrb.as_ptr());
-                if cn.is_empty() {
-                    "RuntimeError".to_string()
-                } else {
-                    cn.to_string()
-                }
-            };
-            let message = unsafe {
-                let m = exc_val
-                    .call(mrb.as_ptr(), cstr!("message"), &[])
-                    .to_string(mrb.as_ptr());
-                if m.is_empty() {
-                    class_name.clone()
-                } else {
-                    m
-                }
-            };
-            let backtrace = kobako.extract_backtrace(exc_val);
-            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
-            snippet_failure = Some(("sandbox".to_string(), class_name, message, backtrace));
-            break;
-        }
-        if let Some((origin, class, message, backtrace)) = snippet_failure {
-            write_panic_outcome(&origin, &class, &message, backtrace);
-            return;
-        }
-
-        // --- Frame 2: evaluate user script ---
-        //
-        // `mrb_load_nstring` internally installs its own MRB_TRY frame inside
-        // `mrb_vm_exec`. When a Ruby exception is raised, `mrb_vm_exec` catches
-        // it, stores the exception object in `mrb->exc`, and returns normally.
-        // `mrb_load_nstring` then detects `mrb->exc` and returns `mrb_nil_value()`.
-        //
-        // This means `mrb_protect_error` + `run_script` callback does NOT work
-        // for catching exceptions from `mrb_load_nstring`: the exception is
-        // consumed internally by the VM before it reaches the outer protect frame.
-        //
-        // Correct pattern: call `mrb_load_nstring` directly, then retrieve the
-        // pending exception via `kobako_get_exc` (src/mruby/exc.c). That
-        // shim accesses `mrb->exc` through mruby's own headers, so the field
-        // offset is always correct for the compiler and mruby version in use.
-
-        // Compile under a context with a filename so the resulting IREP
-        // carries `debug_info`; `pack_backtrace` in
-        // `vendor/mruby/src/backtrace.c` skips any frame whose IREP has
-        // no debug info, which is why `Exception#backtrace` returns an
-        // empty array when scripts are loaded via the bare
-        // `mrb_load_nstring`. SPEC.md "Panic Envelope" L876 mandates a
-        // populated `backtrace` field for Panic envelopes.
-        let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-        if cxt.is_null() {
-            write_panic_outcome(
-                "sandbox",
-                "Kobako::BootError",
-                "mrb_ccontext_new returned NULL",
-                Vec::new(),
-            );
-            return;
-        }
-        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(eval)")) };
-        let result_val = unsafe {
-            sys::mrb_load_nstring_cxt(
-                mrb.as_ptr(),
-                frame2.as_ptr() as *const core::ffi::c_char,
-                frame2.len(),
-                cxt,
-            )
-        };
-        unsafe { sys::mrb_ccontext_free(mrb.as_ptr(), cxt) };
-
-        // Retrieve the pending exception (if any) via the layout-safe C shim.
-        // `kobako_get_exc` returns `mrb_nil_value()` (w == 0 on wasm32) when
-        // no exception is pending, or `mrb_obj_value(mrb->exc)` otherwise.
-        // Does NOT clear `mrb->exc` — we call `mrb_check_error` below after
-        // consuming the exception object.
-        let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
-        let has_exception = exc_val.w != 0;
-
-        // --- Outcome serialization ---
-
-        if has_exception {
-            // Extract class name from the exception object.
-            let class_name = unsafe {
-                let cn = exc_val.classname(mrb.as_ptr());
-                if cn.is_empty() {
-                    "RuntimeError".to_string()
-                } else {
-                    cn.to_string()
-                }
-            };
-
-            // Call .message on the exception object to get the error message.
-            let message = unsafe {
-                let m = exc_val
-                    .call(mrb.as_ptr(), cstr!("message"), &[])
-                    .to_string(mrb.as_ptr());
-                if m.is_empty() {
-                    class_name.clone()
-                } else {
-                    m
-                }
-            };
-
-            // Collect mruby Exception#backtrace before clearing the
-            // pending exception (SPEC.md "Panic Envelope" L876).
-            let backtrace = kobako.extract_backtrace(exc_val);
-
-            // Clear the exception from mrb state.
-            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
-
-            // Determine origin: Kobako::ServiceError → "service"; others → "sandbox".
-            let origin = if class_name.contains("ServiceError") {
-                "service"
-            } else {
-                "sandbox"
-            };
-
-            write_panic_outcome(origin, &class_name, &message, backtrace);
-        } else {
-            // Success: convert mrb_value to wire Value and encode as Result envelope.
-            // We use mrb_inspect to get a string representation for conversion.
-            // For the production path we encode the last expression value through
-            // the wire codec. Use mrb_str_to_cstr after mrb_inspect for string
-            // values; for other types use mrb_inspect + parse.
-            //
-            // Simplified encoding: nil → Nil, true/false → Bool,
-            // integers → Int via mrb_inspect + parse, strings → Str via
-            // mrb_str_to_cstr, other → Str via mrb_inspect.
-            let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
-
-            let outcome = Outcome::Value(wire_value);
-            match encode_outcome(&outcome) {
-                Ok(bytes) => write_outcome(bytes),
-                Err(_) => write_panic_outcome(
-                    "sandbox",
-                    "Kobako::RPC::WireError",
-                    "result envelope encode failed",
-                    Vec::new(),
-                ),
-            }
-        }
-        // `mrb` drops here — `mrb_close` runs automatically.
-    }
-}
-
-/// Entrypoint dispatch entry-point (docs/behavior.md B-31).
-///
-/// `(env_ptr, env_len)` locate the host-supplied invocation envelope on
-/// linear memory. Frames read from stdin: Frame 1 preamble + Frame 3
-/// snippets only (no user-source Frame 2 — the entrypoint is already
-/// resident as a top-level constant contributed by a preloaded snippet).
-///
-/// Responsibilities:
-///
-/// 1. Read Frame 1 + Frame 3, init mrb, install kobako runtime +
-///    namespaces, replay snippets under `(snippet:Name)`. If any snippet
-///    raises during replay, write a Panic envelope with the snippet's
-///    backtrace attribution (docs/behavior.md E-36) and return.
-/// 2. Decode the invocation envelope from `(env_ptr, env_len)` as a
-///    msgpack map with string keys `entrypoint` / `args` / `kwargs`. A
-///    decode failure writes a Panic envelope (E-26).
-/// 3. Stash args / kwargs / target in mruby globals, then evaluate a
-///    dispatch wrapper via `mrb_load_nstring_cxt`. The wrapper checks
-///    `Object.const_defined?` (E-27) and `respond_to?(:call)` (E-28),
-///    then invokes `target.call(*args, **kwargs)`.
-/// 4. Serialize the return value as a Result envelope or convert the
-///    pending mruby exception into a Panic envelope.
-#[no_mangle]
-pub extern "C" fn __kobako_run(env_ptr: i32, env_len: i32) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::codec::{Decoder, Value};
-        use crate::mruby::sys;
-        use crate::outcome::{encode_outcome, Outcome};
-
-        // --- Frame 1: read preamble ---
-
-        let frame1 = match read_frame() {
-            Some(b) => b,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to read preamble frame",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-        let preamble = match decode_preamble(&frame1) {
-            Some(p) => p,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to decode preamble msgpack",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- Frame 3: read snippets ---
-
-        let frame3 = match read_frame() {
-            Some(b) => b,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to read snippets frame",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-        let snippets = match decode_snippets(&frame3) {
-            Some(s) => s,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "failed to decode snippets msgpack",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        // --- mruby VM init + preamble install ---
-
-        let mrb = match crate::mruby::Mrb::open() {
-            Ok(m) => m,
-            Err(_) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "mrb_open returned NULL",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-
-        let kobako = crate::kobako::Kobako::install(&mrb);
-
-        use crate::kobako::InstallGroupsError;
-        match kobako.install_groups(&preamble) {
-            Ok(()) => {}
-            Err(InstallGroupsError::NulInGroupName) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "group name contains NUL byte",
-                    Vec::new(),
-                );
-                return;
-            }
-            Err(InstallGroupsError::NulInMemberName) => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::BootError",
-                    "member name contains NUL byte",
-                    Vec::new(),
-                );
-                return;
-            }
-        }
-
-        // --- Frame 3 replay: load each snippet (same as __kobako_eval) ---
-
-        let mut snippet_failure: Option<(String, String, String, Vec<String>)> = None;
-        for (name, body) in &snippets {
-            let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-            if cxt.is_null() {
-                snippet_failure = Some((
-                    "sandbox".to_string(),
-                    "Kobako::BootError".to_string(),
-                    "mrb_ccontext_new returned NULL".to_string(),
-                    Vec::new(),
-                ));
-                break;
-            }
-            let filename = format!("(snippet:{})\0", name);
-            unsafe {
-                sys::mrb_ccontext_filename(
-                    mrb.as_ptr(),
-                    cxt,
-                    filename.as_ptr() as *const core::ffi::c_char,
-                );
-                sys::mrb_load_nstring_cxt(
-                    mrb.as_ptr(),
-                    body.as_ptr() as *const core::ffi::c_char,
-                    body.len(),
-                    cxt,
-                );
-                sys::mrb_ccontext_free(mrb.as_ptr(), cxt);
-            }
-
-            let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
-            if exc_val.w == 0 {
-                continue;
-            }
-            let class_name = unsafe {
-                let cn = exc_val.classname(mrb.as_ptr());
-                if cn.is_empty() {
-                    "RuntimeError".to_string()
-                } else {
-                    cn.to_string()
-                }
-            };
-            let message = unsafe {
-                let m = exc_val
-                    .call(mrb.as_ptr(), cstr!("message"), &[])
-                    .to_string(mrb.as_ptr());
-                if m.is_empty() {
-                    class_name.clone()
-                } else {
-                    m
-                }
-            };
-            let backtrace = kobako.extract_backtrace(exc_val);
-            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
-            snippet_failure = Some(("sandbox".to_string(), class_name, message, backtrace));
-            break;
-        }
-        if let Some((origin, class, message, backtrace)) = snippet_failure {
-            write_panic_outcome(&origin, &class, &message, backtrace);
-            return;
-        }
-
-        // --- Decode invocation envelope from (env_ptr, env_len) ---
-
-        let env_slice: &[u8] = if env_len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize) }
-        };
-        let envelope = {
-            let mut dec = Decoder::new(env_slice);
-            match dec.read_value() {
-                Ok(v) => v,
-                Err(_) => {
-                    write_panic_outcome(
-                        "sandbox",
-                        "Kobako::RPC::WireError",
-                        "failed to decode invocation envelope",
-                        Vec::new(),
-                    );
-                    return;
-                }
-            }
-        };
-        let pairs = match envelope {
-            Value::Map(p) => p,
-            _ => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::RPC::WireError",
-                    "invocation envelope must be a msgpack map",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-        let mut target: Option<String> = None;
-        let mut args_val: Option<Value> = None;
-        let mut kwargs_val: Option<Value> = None;
-        for (k, v) in pairs {
-            let key = match k {
-                Value::Str(s) => s,
-                _ => continue,
-            };
-            match key.as_str() {
-                "entrypoint" => {
-                    if let Value::Sym(name) = v {
-                        target = Some(name);
-                    }
-                }
-                "args" => args_val = Some(v),
-                "kwargs" => kwargs_val = Some(v),
-                _ => {}
-            }
-        }
-        let target = match target {
-            Some(t) => t,
-            None => {
-                write_panic_outcome(
-                    "sandbox",
-                    "Kobako::RPC::WireError",
-                    "invocation envelope missing entrypoint Symbol",
-                    Vec::new(),
-                );
-                return;
-            }
-        };
-        let args_array = args_val.unwrap_or(Value::Array(Vec::new()));
-        let kwargs_hash = kwargs_val.unwrap_or(Value::Map(Vec::new()));
-
-        // --- Stash target / args / kwargs in mruby globals ---
-
-        let target_mrb = kobako.wire_value_to_mrb(Value::Sym(target.clone()));
-        let args_mrb = kobako.wire_value_to_mrb(args_array);
-        let kwargs_mrb = kobako.wire_value_to_mrb(kwargs_hash);
-        unsafe {
-            sys::mrb_gv_set(
-                mrb.as_ptr(),
-                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_target__")),
-                target_mrb,
-            );
-            sys::mrb_gv_set(
-                mrb.as_ptr(),
-                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_args__")),
-                args_mrb,
-            );
-            sys::mrb_gv_set(
-                mrb.as_ptr(),
-                sys::mrb_intern_cstr(mrb.as_ptr(), cstr!("$__kobako_run_kwargs__")),
-                kwargs_mrb,
-            );
-        }
-
-        // --- Evaluate the dispatch wrapper ---
-        //
-        // Wrapper checks Object.const_defined? (E-27) and respond_to?(:call)
-        // (E-28) before invoking target.call(*args, **kwargs). The wrapper
-        // source is loaded under filename `(dispatch)` so any failure
-        // attributable to the wrapper carries a clear locator; entrypoint
-        // failures keep the `(snippet:Name)` frame from B-32 in their
-        // backtrace.
-        const DISPATCH_SRC: &str = r#"
-__t = $__kobako_run_target__
-if Object.const_defined?(__t)
-  __c = Object.const_get(__t)
-  if __c.respond_to?(:call)
-    __c.call(*$__kobako_run_args__, **$__kobako_run_kwargs__)
-  else
-    raise Kobako::RPC::WireError.new("entrypoint #{__t} does not respond to :call")
-  end
-else
-  raise Kobako::RPC::WireError.new("undefined entrypoint: #{__t}")
-end
-"#;
-        let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-        if cxt.is_null() {
-            write_panic_outcome(
-                "sandbox",
-                "Kobako::BootError",
-                "mrb_ccontext_new returned NULL",
-                Vec::new(),
-            );
-            return;
-        }
-        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(dispatch)")) };
-        let result_val = unsafe {
-            sys::mrb_load_nstring_cxt(
-                mrb.as_ptr(),
-                DISPATCH_SRC.as_ptr() as *const core::ffi::c_char,
-                DISPATCH_SRC.len(),
-                cxt,
-            )
-        };
-        unsafe { sys::mrb_ccontext_free(mrb.as_ptr(), cxt) };
-
-        // --- Outcome serialization (mirror of __kobako_eval) ---
-
-        let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
-        if exc_val.w != 0 {
-            let class_name = unsafe {
-                let cn = exc_val.classname(mrb.as_ptr());
-                if cn.is_empty() {
-                    "RuntimeError".to_string()
-                } else {
-                    cn.to_string()
-                }
-            };
-            let message = unsafe {
-                let m = exc_val
-                    .call(mrb.as_ptr(), cstr!("message"), &[])
-                    .to_string(mrb.as_ptr());
-                if m.is_empty() {
-                    class_name.clone()
-                } else {
-                    m
-                }
-            };
-            let backtrace = kobako.extract_backtrace(exc_val);
-            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
-            let origin = if class_name.contains("ServiceError") {
-                "service"
-            } else {
-                "sandbox"
-            };
-            write_panic_outcome(origin, &class_name, &message, backtrace);
-        } else {
-            let wire_value = kobako.mrb_value_to_wire_outcome(result_val);
-            match encode_outcome(&Outcome::Value(wire_value)) {
-                Ok(bytes) => write_outcome(bytes),
-                Err(_) => write_panic_outcome(
-                    "sandbox",
-                    "Kobako::RPC::WireError",
-                    "result envelope encode failed",
-                    Vec::new(),
-                ),
-            }
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = env_ptr;
-        let _ = env_len;
-    }
-}
-
-/// Static outcome buffer — written once by `__kobako_eval` and consumed
-/// once by `__kobako_take_outcome`. Protected by the single-threaded
-/// wasm execution model: only one `__kobako_eval` executes at a time and
-/// no concurrency is possible inside a single wasm instance.
-#[cfg(target_arch = "wasm32")]
-static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
-
-// ---------------------------------------------------------------------------
-// Shared helpers used by both `__kobako_eval` and `__kobako_run`.
-// ---------------------------------------------------------------------------
-
-/// Read one length-prefixed stdin frame (4-byte BE u32 length + payload).
-/// Returns `None` on EOF / short read; callers turn that into a Panic
-/// envelope.
-#[cfg(target_arch = "wasm32")]
-fn read_frame() -> Option<Vec<u8>> {
-    use std::io::Read;
-    let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
-    let mut stdin = std::io::stdin().lock();
-    stdin.read_exact(&mut len_buf).ok()?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-    let mut payload = vec![0u8; len];
-    stdin.read_exact(&mut payload).ok()?;
-    Some(payload)
-}
-
-/// Decode the Frame 1 preamble: `[["Name", ["MemberA", ...]], ...]`.
-#[cfg(target_arch = "wasm32")]
-fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
-    use crate::codec::{Decoder, Value};
-    let mut dec = Decoder::new(bytes);
-    let outer = dec.read_value().ok()?;
-    let outer_arr = match outer {
-        Value::Array(items) => items,
-        _ => return None,
-    };
-    let mut groups = Vec::with_capacity(outer_arr.len());
-    for item in outer_arr {
-        let pair = match item {
-            Value::Array(p) if p.len() == 2 => p,
-            _ => return None,
-        };
-        let group_name = match &pair[0] {
-            Value::Str(s) => s.clone(),
-            _ => return None,
-        };
-        let members_arr = match &pair[1] {
-            Value::Array(m) => m,
-            _ => return None,
-        };
-        let mut members = Vec::with_capacity(members_arr.len());
-        for m in members_arr {
-            match m {
-                Value::Str(s) => members.push(s.clone()),
-                _ => return None,
-            }
-        }
-        groups.push((group_name, members));
-    }
-    Some(groups)
-}
-
-/// Decode Frame 3 snippets: `[{name, kind, body}, ...]`. `kind` must be
-/// `"source"` in this revision (docs/wire-codec.md § Invocation channels);
-/// other values are rejected as wire violations.
-#[cfg(target_arch = "wasm32")]
-fn decode_snippets(bytes: &[u8]) -> Option<Vec<(String, String)>> {
-    use crate::codec::{Decoder, Value};
-    let mut dec = Decoder::new(bytes);
-    let outer = dec.read_value().ok()?;
-    let outer_arr = match outer {
-        Value::Array(items) => items,
-        _ => return None,
-    };
-    let mut entries = Vec::with_capacity(outer_arr.len());
-    for item in outer_arr {
-        let pairs = match item {
-            Value::Map(p) => p,
-            _ => return None,
-        };
-        let mut name: Option<String> = None;
-        let mut kind: Option<String> = None;
-        let mut body: Option<String> = None;
-        for (k, v) in pairs {
-            let key = match k {
-                Value::Str(s) => s,
-                _ => return None,
-            };
-            let value = match v {
-                Value::Str(s) => s,
-                _ => return None,
-            };
-            match key.as_str() {
-                "name" => name = Some(value),
-                "kind" => kind = Some(value),
-                "body" => body = Some(value),
-                _ => {}
-            }
-        }
-        let name = name?;
-        let kind = kind?;
-        let body = body?;
-        if kind != "source" {
-            return None;
-        }
-        entries.push((name, body));
-    }
-    Some(entries)
-}
-
-/// Write a Panic envelope to OUTCOME_BUFFER. If serialization itself
-/// fails, OUTCOME_BUFFER stays empty — the host treats `len=0` as a wire
-/// violation → TrapError path (docs/behavior.md Error Scenarios).
-#[cfg(target_arch = "wasm32")]
-fn write_panic_outcome(origin: &str, class: &str, message: &str, backtrace: Vec<String>) {
-    use crate::outcome::{encode_outcome, Outcome, Panic};
-    let panic = Panic {
-        origin: origin.to_string(),
-        class: class.to_string(),
-        message: message.to_string(),
-        backtrace,
-        details: None,
-    };
-    if let Ok(bytes) = encode_outcome(&Outcome::Panic(panic)) {
-        write_outcome(bytes);
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn write_outcome(bytes: Vec<u8>) {
-    unsafe {
-        OUTCOME_BUFFER = bytes;
-    }
-}
-
-/// Guest allocator — hands out a `size`-byte buffer in wasm linear memory
-/// and returns its ptr (u32). Returns 0 on allocation failure (host treats
-/// 0 as a trap signal). Signature: `(size: i32) -> i32`.
-///
-/// Delegates to `malloc` from wasi-libc. The allocated buffer is intentionally
-/// not freed — its lifetime is bounded by the wasm instance lifetime (one
-/// Sandbox invocation). The host writes the RPC response into this
-/// buffer inside the `__kobako_dispatch` callback, then the response is
-/// consumed synchronously before the RPC call returns, so the buffer does
-/// not need to outlive the call frame. Instance drop frees all linear memory
-/// (SPEC.md Wire ABI exports).
-#[no_mangle]
-pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        extern "C" {
-            fn malloc(size: usize) -> *mut u8;
-        }
-        let ptr = unsafe { malloc(size as usize) };
-        if ptr.is_null() {
-            // malloc failure → return 0, host treats 0 as a trap signal
-            // per SPEC.md Wire ABI exports.
-            return 0;
-        }
-        ptr as u32
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = size;
-        0
-    }
-}
-
-/// Outcome reader — host calls this after `__kobako_eval` returns to fetch
-/// the OUTCOME_BUFFER bytes. Returns packed u64 `(ptr << 32) | len`.
-/// `len == 0` is a wire violation (docs/wire-codec.md § ABI Signatures). Signature: `() -> i64`.
-///
-/// The buffer is owned by the static `OUTCOME_BUFFER`; the host must consume
-/// the bytes before the next `__kobako_eval` call (each invocation resets the buffer).
-#[no_mangle]
-pub extern "C" fn __kobako_take_outcome() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let bytes = &raw const OUTCOME_BUFFER;
-        let bytes = unsafe { &*bytes };
-        if bytes.is_empty() {
-            return 0; // Wire violation signal; host treats as TrapError path.
-        }
-        let ptr = bytes.as_ptr() as u32;
-        let len = bytes.len() as u32;
-        pack_u64(ptr, len)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
+    // No-op: wasi-libc reactor static ctors are not needed for
+    // kobako's reactor model. See item-level doc above.
 }
 
 // ---------------------------------------------------------------------------
 // Packed u64 helpers.
 // ---------------------------------------------------------------------------
 
-/// Pack `(ptr, len)` into a single u64: high 32 bits = ptr, low 32 = len.
+/// Pack `(ptr, len)` into a single u64: high 32 bits = ptr,
+/// low 32 = len.
 #[inline]
 pub fn pack_u64(ptr: u32, len: u32) -> u64 {
     ((ptr as u64) << 32) | (len as u64)
 }
 
-/// Unpack a u64 produced by `pack_u64` back into `(ptr, len)`.
+/// Unpack a u64 produced by [`pack_u64`] back into `(ptr, len)`.
 #[inline]
 pub fn unpack_u64(packed: u64) -> (u32, u32) {
     let ptr = (packed >> 32) as u32;
@@ -1030,8 +159,8 @@ mod tests {
 
     #[test]
     fn import_module_name_is_env() {
-        // SPEC pins host import to the `env` namespace. Changing this
-        // is a wire-breaking change.
+        // docs/wire-codec.md pins host import to the `env` namespace.
+        // Changing this is a wire-breaking change.
         assert_eq!(IMPORT_MODULE, "env");
     }
 
@@ -1069,8 +198,8 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip_common() {
-        // Representative common cases: small ptr + 1 KiB len, page-sized
-        // ptr + small len, midrange both.
+        // Representative common cases: small ptr + 1 KiB len,
+        // page-sized ptr + small len, midrange both.
         for &(ptr, len) in &[
             (0x1000_u32, 1024_u32),
             (0x0001_0000, 4),
@@ -1089,8 +218,9 @@ mod tests {
 
     #[test]
     fn pack_layout_is_high_ptr_low_len() {
-        // SPEC ABI Signatures pins the bit layout: high 32 = ptr, low 32 = len.
-        // Verify with a known-distinct ptr / len pair.
+        // docs/wire-codec.md § ABI Signatures pins the bit layout:
+        // high 32 = ptr, low 32 = len. Verify with a known-distinct
+        // ptr / len pair.
         let packed = pack_u64(0xAABB_CCDD, 0x1122_3344);
         assert_eq!(packed, 0xAABB_CCDD_1122_3344);
         assert_eq!((packed >> 32) as u32, 0xAABB_CCDD);
