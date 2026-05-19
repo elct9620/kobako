@@ -58,7 +58,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 use super::cache::{cached_module, shared_engine};
 use super::dispatch;
 use super::host_state::{HostState, MemoryLimitTrap, StoreCell, TimeoutTrap};
-use super::{memory_limit_err, timeout_err, wasm_err};
+use super::{memory_limit_err, rstring_to_vec, timeout_err, wasm_err};
 
 #[magnus::wrap(class = "Kobako::Wasm::Instance", free_immediately, size)]
 pub(crate) struct Instance {
@@ -260,12 +260,11 @@ impl Instance {
             .eval
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_eval"))?;
-        // SAFETY: each `as_slice` borrow is scoped to building the stdin
-        // Vec inside `refresh_wasi`; no Ruby allocation happens between
-        // the borrow and the copy, so the underlying RString cannot move.
-        let (preamble_bytes, source_bytes, snippets_bytes) =
-            unsafe { (preamble.as_slice(), source.as_slice(), snippets.as_slice()) };
-        self.refresh_wasi(&[preamble_bytes, source_bytes, snippets_bytes]);
+        self.refresh_wasi(&[
+            rstring_to_vec(preamble),
+            rstring_to_vec(source),
+            rstring_to_vec(snippets),
+        ]);
         self.prime_caps();
         let result = {
             let mut store_ref = self.store.borrow_mut();
@@ -295,11 +294,7 @@ impl Instance {
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        // SAFETY: see [`Instance::eval`] — the two `as_slice` borrows
-        // outlive only the immediate copy into the stdin Vec.
-        let (preamble_bytes, snippets_bytes) =
-            unsafe { (preamble.as_slice(), snippets.as_slice()) };
-        self.refresh_wasi(&[preamble_bytes, snippets_bytes]);
+        self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.prime_caps();
         let result = {
@@ -387,11 +382,7 @@ impl Instance {
     /// Raises +Kobako::Wasm::Error+ when the guest export is missing or
     /// allocation fails (docs/behavior.md E-31).
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
-        // SAFETY: the `as_slice` borrow is consumed inline by the
-        // `data.copy_from_slice(bytes)` call below; no Ruby allocation
-        // runs between the borrow and that copy, so the underlying
-        // RString cannot move.
-        let bytes: &[u8] = unsafe { envelope.as_slice() };
+        let bytes = rstring_to_vec(envelope);
         let len = bytes.len();
         if len > i32::MAX as usize {
             return Err(wasm_err(ruby, "invocation envelope exceeds i32::MAX bytes"));
@@ -420,7 +411,7 @@ impl Instance {
         if end > data.len() {
             return Err(wasm_err(ruby, "envelope: write range exceeds memory size"));
         }
-        data[ptr as usize..end].copy_from_slice(bytes);
+        data[ptr as usize..end].copy_from_slice(&bytes);
 
         Ok((ptr as i32, len as i32))
     }
@@ -436,7 +427,7 @@ impl Instance {
     /// exactly cap bytes" from "exceeded cap"; uncapped channels fall back
     /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
     /// for the real ceiling.
-    fn refresh_wasi(&self, frames: &[&[u8]]) {
+    fn refresh_wasi(&self, frames: &[Vec<u8>]) {
         let total: usize = frames.iter().map(|f| 4 + f.len()).sum();
         let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
         for frame in frames {
@@ -537,6 +528,52 @@ fn capture_pair(ruby: &Ruby, raw: &[u8], cap: Option<usize>) -> Result<RArray, M
     Ok(arr)
 }
 
+/// Epoch-deadline callback installed on every Store. Read the per-run
+/// wall-clock deadline from [`HostState`] (docs/behavior.md B-01) and trap with
+/// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
+/// next check by one tick of the process-wide epoch ticker. When the
+/// deadline is `None` the callback should not fire under normal
+/// `Instance::eval` / `Instance::run` flow because
+/// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
+/// keeps the callback inert as a defence in depth.
+fn epoch_deadline_callback(
+    ctx: StoreContextMut<'_, HostState>,
+) -> wasmtime::Result<UpdateDeadline> {
+    match ctx.data().deadline() {
+        Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
+        Some(_) => Ok(UpdateDeadline::Continue(1)),
+        None => Ok(UpdateDeadline::Continue(u64::MAX / 2)),
+    }
+}
+
+/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
+/// exception class. `__kobako_eval` / `__kobako_run` traps are downcast
+/// to identify the configured-cap path (docs/behavior.md E-19 / E-20);
+/// everything else surfaces as the base `Kobako::Wasm::Error`. +export+
+/// is the failing export name and appears in the trap message so the
+/// Sandbox layer can attribute the fault to the right verb.
+fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
+    if err.downcast_ref::<TimeoutTrap>().is_some() {
+        return timeout_err(ruby, format!("{}(): {}", export, err));
+    }
+    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
+        return memory_limit_err(ruby, format!("{}(): {}", export, err));
+    }
+    wasm_err(ruby, format!("{}(): {}", export, err))
+}
+
+/// Map an instantiation error to the right `Kobako::Wasm::*` Ruby
+/// exception. The memory cap is dormant during instantiation by design
+/// (see [`HostState::set_memory_cap_active`]), but [`MemoryLimitTrap`]
+/// is still possible if a future Sandbox configuration enables it
+/// during instantiation — keep the mapping symmetric with [`call_err`].
+fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
+        return memory_limit_err(ruby, format!("instantiate: {}", err));
+    }
+    wasm_err(ruby, format!("instantiate: {}", err))
+}
+
 #[cfg(test)]
 mod tests {
     //! Host-side unit tests for the pure capture helpers. The Ruby-
@@ -599,50 +636,4 @@ mod tests {
         assert_eq!(bytes, b"");
         assert!(!truncated);
     }
-}
-
-/// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from [`HostState`] (docs/behavior.md B-01) and trap with
-/// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
-/// next check by one tick of the process-wide epoch ticker. When the
-/// deadline is `None` the callback should not fire under normal
-/// `Instance::eval` / `Instance::run` flow because
-/// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
-/// keeps the callback inert as a defence in depth.
-fn epoch_deadline_callback(
-    ctx: StoreContextMut<'_, HostState>,
-) -> wasmtime::Result<UpdateDeadline> {
-    match ctx.data().deadline() {
-        Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
-        Some(_) => Ok(UpdateDeadline::Continue(1)),
-        None => Ok(UpdateDeadline::Continue(u64::MAX / 2)),
-    }
-}
-
-/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
-/// exception class. `__kobako_eval` / `__kobako_run` traps are downcast
-/// to identify the configured-cap path (docs/behavior.md E-19 / E-20);
-/// everything else surfaces as the base `Kobako::Wasm::Error`. +export+
-/// is the failing export name and appears in the trap message so the
-/// Sandbox layer can attribute the fault to the right verb.
-fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
-    if err.downcast_ref::<TimeoutTrap>().is_some() {
-        return timeout_err(ruby, format!("{}(): {}", export, err));
-    }
-    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("{}(): {}", export, err));
-    }
-    wasm_err(ruby, format!("{}(): {}", export, err))
-}
-
-/// Map an instantiation error to the right `Kobako::Wasm::*` Ruby
-/// exception. The memory cap is dormant during instantiation by design
-/// (see [`HostState::set_memory_cap_active`]), but [`MemoryLimitTrap`]
-/// is still possible if a future Sandbox configuration enables it
-/// during instantiation — keep the mapping symmetric with [`call_err`].
-fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("instantiate: {}", err));
-    }
-    wasm_err(ruby, format!("instantiate: {}", err))
 }

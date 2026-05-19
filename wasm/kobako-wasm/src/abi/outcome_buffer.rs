@@ -18,28 +18,63 @@ use crate::outcome::{encode_outcome, Outcome, Panic};
 #[cfg(target_arch = "wasm32")]
 use super::pack_u64;
 
+#[cfg(target_arch = "wasm32")]
+use core::cell::UnsafeCell;
+
+/// Single-threaded interior-mutability wrapper for the per-invocation
+/// outcome buffer. The `static mut Vec<u8>` shape is wrong twice over
+/// (the Rust 2024 lints push toward `&raw` reborrows; the simpler
+/// model is "this is a cell that wasm32 can mutate from a `&self`
+/// view") — wrap once, document the single-threaded contract once,
+/// stop sprinkling `unsafe` across the entry points.
+#[cfg(target_arch = "wasm32")]
+struct OutcomeBuffer(UnsafeCell<Vec<u8>>);
+
+#[cfg(target_arch = "wasm32")]
+impl OutcomeBuffer {
+    const fn new() -> Self {
+        Self(UnsafeCell::new(Vec::new()))
+    }
+
+    /// Replace the stored bytes. The writer is the wasm32-only
+    /// `__kobako_eval` / `__kobako_run` reactor body; the reader is
+    /// `__kobako_take_outcome`. Host serialisation guarantees the two
+    /// never run concurrently, so the interior `&mut` taken here
+    /// cannot alias the slice surfaced via [`Self::as_slice`].
+    fn write(&self, bytes: Vec<u8>) {
+        // SAFETY: see type doc — single-threaded wasm execution + host
+        // serialisation around `__kobako_take_outcome` guarantee no
+        // aliasing.
+        unsafe { *self.0.get() = bytes };
+    }
+
+    /// Borrow the stored bytes. Pointer arithmetic on the result is
+    /// the host's contract: the returned slice lives until the next
+    /// [`Self::write`] in the same wasm instance.
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: see type doc.
+        unsafe { &*self.0.get() }
+    }
+}
+
+// SAFETY: wasm32 is single-threaded; the buffer is never observed
+// from more than one logical owner at a time inside a wasm instance.
+// `static` requires `Sync` regardless of whether anyone could
+// actually contend for it on this target.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for OutcomeBuffer {}
+
 /// Static outcome buffer — written once per invocation, consumed once
 /// by `__kobako_take_outcome`. Protected by the single-threaded wasm
 /// execution model.
 #[cfg(target_arch = "wasm32")]
-static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
+static OUTCOME_BUFFER: OutcomeBuffer = OutcomeBuffer::new();
 
 /// Write `bytes` into [`OUTCOME_BUFFER`], replacing whatever was left
 /// from the previous invocation.
-///
-/// # Safety
-///
-/// The outcome buffer is touched only inside `__kobako_eval` /
-/// `__kobako_run` (writes) and `__kobako_take_outcome` (reads). Wasm
-/// runs single-threaded inside one instance, and the host serializes
-/// the invocation around its `take_outcome!` read, so the `&mut`
-/// asserted by this write cannot alias the buffer read by the
-/// take-outcome path.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn write_outcome(bytes: Vec<u8>) {
-    unsafe {
-        OUTCOME_BUFFER = bytes;
-    }
+    OUTCOME_BUFFER.write(bytes);
 }
 
 /// Encode `panic` as an Outcome envelope and stamp it into
@@ -100,10 +135,7 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 pub extern "C" fn __kobako_take_outcome() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        // SAFETY: see [`write_outcome`] — single-threaded wasm
-        // execution serialises reads against writes.
-        let bytes = &raw const OUTCOME_BUFFER;
-        let bytes = unsafe { &*bytes };
+        let bytes = OUTCOME_BUFFER.as_slice();
         if bytes.is_empty() {
             return 0;
         }

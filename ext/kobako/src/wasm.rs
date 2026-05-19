@@ -32,9 +32,22 @@ mod host_state;
 mod instance;
 
 use magnus::value::Lazy;
-use magnus::{function, method, prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
+use magnus::{
+    function, method, prelude::*, Error as MagnusError, ExceptionClass, RModule, RString, Ruby,
+};
 
 use instance::Instance;
+
+/// Copy the bytes of +s+ into a fresh +Vec<u8>+. Single safe entry to
+/// what would otherwise be an inline +unsafe { rstring.as_slice() }
+/// .to_vec()+ duplicated at every host-↔-guest boundary. The borrow
+/// does not outlive this call, so no Ruby allocation can move the
+/// underlying RString between the borrow and the copy — the safety
+/// invariant the inline form relied on is established once here.
+pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
+    // SAFETY: see item doc.
+    unsafe { s.as_slice() }.to_vec()
+}
 
 // ---------------------------------------------------------------------------
 // Error classes (lazy-resolved from Ruby once Kobako::Wasm is defined).

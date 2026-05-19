@@ -66,10 +66,7 @@ fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, Mag
     let server_value: Value = ruby.get_inner(server);
     let req_str = ruby.str_from_slice(req_bytes);
     let resp: RString = server_value.funcall("dispatch", (req_str,))?;
-    // SAFETY: the returned RString is held by the Ruby VM for the duration of
-    // this scope; copying its bytes into a Vec is a defensive standard pattern.
-    let bytes = unsafe { resp.as_slice() }.to_vec();
-    Ok(bytes)
+    Ok(super::rstring_to_vec(resp))
 }
 
 /// Allocate a guest-side buffer through `__kobako_alloc` and copy the
