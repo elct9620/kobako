@@ -296,7 +296,7 @@ extern "C" {
     /// filename set populates the resulting IREP's `debug_info`, which
     /// is what `pack_backtrace` in `vendor/mruby/src/backtrace.c`
     /// requires to record a stack frame — without it `Exception#backtrace`
-    /// returns an empty array (SPEC.md "Panic Envelope" L876).
+    /// returns an empty array (docs/wire-codec.md § Panic Envelope).
     pub fn mrb_load_nstring_cxt(
         mrb: *mut mrb_state,
         s: *const c_char,

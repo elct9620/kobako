@@ -53,8 +53,8 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// instructions.
 ///
 /// Also enables `epoch_interruption(true)` so every Store can install an
-/// `epoch_deadline_callback` for the per-run wall-clock cap (SPEC.md
-/// B-01, E-19). The first call spawns the process-singleton ticker
+/// `epoch_deadline_callback` for the per-run wall-clock cap
+/// (docs/behavior.md B-01, E-19). The first call spawns the process-singleton ticker
 /// thread that drives `engine.increment_epoch()` at [`EPOCH_TICK`]
 /// cadence; subsequent calls reuse the same engine and ticker.
 pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {

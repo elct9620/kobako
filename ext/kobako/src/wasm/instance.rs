@@ -78,8 +78,9 @@ pub(crate) struct Instance {
     // the cap. Translated into an `Instant`-based deadline stamped into
     // [`HostState`] at the top of every `Instance::eval`.
     timeout: Option<Duration>,
-    // Per-channel byte caps for guest stdout / stderr capture (SPEC.md
-    // B-01 / B-04). `None` disables the cap on that channel. Read by
+    // Per-channel byte caps for guest stdout / stderr capture
+    // (docs/behavior.md B-01 / B-04). `None` disables the cap on that
+    // channel. Read by
     // [`Instance::refresh_wasi`] to size the MemoryOutputPipe and by
     // [`Instance::stdout`] / [`Instance::stderr`] to compute the
     // truncation flag. See the module-level note above for the `cap + 1`

@@ -480,11 +480,12 @@ impl Kobako {
     /// Raise the matching `Kobako::ServiceError` subclass for `ex`.
     /// Diverges — `mrb_raise` does not return.
     ///
-    /// SPEC.md "Error Classes" + "Error Envelope" pin the mapping from
-    /// the Response.err `type` field to a guest-side mruby class. Only
-    /// `"disconnected"` resolves to a named subclass today
-    /// (`Kobako::ServiceError::Disconnected`); the other three reserved
-    /// types and any future unmapped type land on the parent
+    /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
+    /// § Fault Envelope pin the mapping from the Response.err `type`
+    /// field to a guest-side mruby class. Only `"disconnected"`
+    /// resolves to a named subclass today
+    /// (`Kobako::ServiceError::Disconnected`); the other three
+    /// reserved types and any future unmapped type land on the parent
     /// `Kobako::ServiceError`.
     ///
     /// # Safety
@@ -555,8 +556,9 @@ impl Kobako {
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
     /// Rust `Vec<String>`. Used by the guest panic path
-    /// (`crate::abi::__kobako_eval`) to populate the Panic envelope's
-    /// `backtrace` field per SPEC.md "Panic Envelope" L876.
+    /// (`crate::abi::eval` / `crate::abi::run`) to populate the Panic
+    /// envelope's `backtrace` field
+    /// (docs/wire-codec.md § Panic Envelope).
     ///
     /// mruby's default build keeps the backtrace, so `.backtrace`
     /// returns an Array of String. If the runtime is ever rebuilt

@@ -70,8 +70,8 @@ impl std::fmt::Display for CodecError {
 impl std::error::Error for CodecError {}
 
 /// A decoded msgpack value, restricted to the 12 wire types the kobako
-/// wire accepts (SPEC.md "Type Mapping"). Anything outside this set is
-/// rejected at decode time with `CodecError::InvalidType`.
+/// wire accepts (docs/wire-codec.md § Type Mapping). Anything outside
+/// this set is rejected at decode time with `CodecError::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Nil,

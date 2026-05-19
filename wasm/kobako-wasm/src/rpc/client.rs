@@ -3,7 +3,7 @@
 //! This module is the glue between the in-VM mruby proxy installed
 //! by `crate::kobako::Kobako::install` (mruby C API registrations) and
 //! the wasm-level `__kobako_dispatch` host import declared in `abi.rs`.
-//! SPEC.md "Wire Contract" → Request / Response pins the contract this
+//! docs/wire-contract.md § Request / Response pins the contract this
 //! module implements.
 //!
 //! ## Layered responsibilities
@@ -60,7 +60,9 @@ pub struct ExceptionPayload {
     /// The wire `type` field of the inner ext 0x02 map (e.g.
     /// `"runtime"`, `"undefined"`). Named `kind` on the Rust side to
     /// avoid the raw-identifier escape for the `type` keyword.
-    /// SPEC.md → "Error Envelope".
+    /// docs/wire-contract.md § Fault Envelope pins the field shape;
+    /// the reserved `type` values are governed by SPEC.md § Error
+    /// Classes.
     pub kind: String,
     /// Human-readable message (`message` field of the inner map).
     pub message: String,

@@ -7,18 +7,19 @@
 //!   crate that adds kobako's two ext types (docs/wire-codec.md).
 //! * `rpc` — Per-call RPC layer mirroring the host's `lib/kobako/rpc/`.
 //!   Holds `rpc::envelope` (Request / Response value objects and their
-//!   encoders/decoders on top of `codec` — SPEC.md "Wire Contract")
-//!   and `rpc::client` (the round-trip pipeline used by the guest-side
+//!   encoders/decoders on top of `codec` — docs/wire-contract.md) and
+//!   `rpc::client` (the round-trip pipeline used by the guest-side
 //!   mruby bridge to dispatch a call through `__kobako_dispatch`).
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
 //!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
 //!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
 //!   `decode_panic` / `encode_result` / `decode_result` helpers
-//!   (SPEC.md "Outcome Envelope"). Shares [`rpc::envelope::EnvelopeError`]
-//!   for codec-shape faults.
+//!   (docs/wire-contract.md § Outcome Envelope). Shares
+//!   [`rpc::envelope::EnvelopeError`] for codec-shape faults.
 //! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
-//!   the `__kobako_eval` / `__kobako_alloc` / `__kobako_take_outcome`
-//!   guest exports (SPEC.md "ABI Signatures").
+//!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
+//!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
+//!   § ABI Signatures).
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::RPC::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
@@ -36,7 +37,8 @@
 //! which already pays for `std` through the embedded mruby interpreter.
 
 /// Width in bytes of the wire-protocol length prefix that precedes each
-/// stdin frame and outcome buffer (per SPEC.md frame protocol).
+/// stdin frame and outcome buffer (docs/wire-codec.md § Invocation
+/// channels).
 pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;

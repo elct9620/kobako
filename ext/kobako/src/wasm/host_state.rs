@@ -134,8 +134,8 @@ impl HostState {
     }
 }
 
-/// Resource limiter that enforces the `memory_limit` cap from SPEC.md
-/// B-01 / E-20 on every guest `memory.grow`.
+/// Resource limiter that enforces the `memory_limit` cap from
+/// docs/behavior.md B-01 / E-20 on every guest `memory.grow`.
 ///
 /// `max_memory` is the byte cap (`None` disables the cap). `cap_active`
 /// gates whether the cap is enforced — wasmtime's `ResourceLimiter`
@@ -235,9 +235,9 @@ impl std::fmt::Display for MemoryLimitTrap {
 
 impl std::error::Error for MemoryLimitTrap {}
 
-/// Marker error returned from the epoch-deadline callback on SPEC.md
-/// E-19. Downcast from the wasmtime trap error to surface as
-/// `Kobako::Wasm::TimeoutError` on the Ruby side.
+/// Marker error returned from the epoch-deadline callback on
+/// docs/behavior.md E-19. Downcast from the wasmtime trap error to
+/// surface as `Kobako::Wasm::TimeoutError` on the Ruby side.
 #[derive(Debug)]
 pub(crate) struct TimeoutTrap;
 
