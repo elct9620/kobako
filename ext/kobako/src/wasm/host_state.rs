@@ -239,6 +239,17 @@ pub(crate) struct MemoryLimitTrap {
     limit: usize,
 }
 
+impl MemoryLimitTrap {
+    /// Construct a trap with the given +desired+ / +limit+ pair. Used
+    /// internally by [`KobakoLimiter::memory_growing`] in production and
+    /// by the sibling-module +classify_trap+ unit tests to materialise
+    /// a representative error for downcast routing.
+    #[cfg(test)]
+    pub(super) fn new(desired: usize, limit: usize) -> Self {
+        Self { desired, limit }
+    }
+}
+
 impl std::fmt::Display for MemoryLimitTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

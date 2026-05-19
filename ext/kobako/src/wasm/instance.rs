@@ -379,10 +379,7 @@ impl Instance {
     /// allocation fails (docs/behavior.md E-31).
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
         let bytes = rstring_to_vec(envelope);
-        let len = bytes.len();
-        if len > i32::MAX as usize {
-            return Err(wasm_err(ruby, "invocation envelope exceeds i32::MAX bytes"));
-        }
+        let len_i32 = envelope_len_to_i32(bytes.len()).map_err(|msg| wasm_err(ruby, msg))?;
 
         let mut store_ref = self.store.borrow_mut();
         let alloc: TypedFunc<u32, u32> = self
@@ -390,7 +387,7 @@ impl Instance {
             .get_typed_func(store_ref.as_context_mut(), "__kobako_alloc")
             .map_err(|_| wasm_err(ruby, "guest does not export __kobako_alloc"))?;
         let ptr = alloc
-            .call(store_ref.as_context_mut(), len as u32)
+            .call(store_ref.as_context_mut(), bytes.len() as u32)
             .map_err(|e| wasm_err(ruby, format!("__kobako_alloc(): {}", e)))?;
         if ptr == 0 {
             return Err(wasm_err(ruby, "__kobako_alloc returned 0 (out of memory)"));
@@ -401,15 +398,11 @@ impl Instance {
             _ => return Err(wasm_err(ruby, "guest does not export 'memory'")),
         };
         let data = memory.data_mut(store_ref.as_context_mut());
-        let end = (ptr as usize)
-            .checked_add(len)
-            .ok_or_else(|| wasm_err(ruby, "envelope: ptr + len overflow"))?;
-        if end > data.len() {
-            return Err(wasm_err(ruby, "envelope: write range exceeds memory size"));
-        }
-        data[ptr as usize..end].copy_from_slice(&bytes);
+        let range = guest_buffer_range(ptr as usize, bytes.len(), data.len())
+            .map_err(|msg| wasm_err(ruby, msg))?;
+        data[range].copy_from_slice(&bytes);
 
-        Ok((ptr as i32, len as i32))
+        Ok((ptr as i32, len_i32))
     }
 
     /// Rebuild the WASI context with fresh stdin (carrying every frame in
@@ -462,30 +455,49 @@ impl Instance {
         let packed = take
             .call(store_ref.as_context_mut(), ())
             .map_err(|e| wasm_err(ruby, format!("__kobako_take_outcome(): {}", e)))?;
-        let ptr = ((packed >> 32) & 0xffff_ffff) as usize;
-        let len = (packed & 0xffff_ffff) as usize;
+        let (ptr, len) = unpack_outcome_packed(packed);
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,
             _ => return Err(wasm_err(ruby, "guest does not export 'memory'")),
         };
         let data = mem.data(store_ref.as_context_mut());
-        let end = ptr
-            .checked_add(len)
-            .ok_or_else(|| wasm_err(ruby, "outcome: ptr + len overflow"))?;
-        if end > data.len() {
-            return Err(wasm_err(
-                ruby,
-                format!(
-                    "outcome: range [{}, {}) exceeds memory size {}",
-                    ptr,
-                    end,
-                    data.len()
-                ),
-            ));
-        }
-        Ok(data[ptr..end].to_vec())
+        let range = guest_buffer_range(ptr, len, data.len())
+            .map_err(|msg| wasm_err(ruby, format!("outcome: {}", msg)))?;
+        Ok(data[range].to_vec())
     }
+}
+
+/// Validate the invocation envelope length and return it as +i32+ — the
+/// signed wasm wire-ABI parameter type for `__kobako_run`. Rejects sizes
+/// above +i32::MAX+ so the downstream cast cannot silently wrap.
+fn envelope_len_to_i32(len: usize) -> Result<i32, &'static str> {
+    i32::try_from(len).map_err(|_| "invocation envelope exceeds i32::MAX bytes")
+}
+
+/// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
+/// copy, validating that the arithmetic does not overflow and the range
+/// fits inside `mem_size`. Shared by [`Instance::write_envelope`] (write
+/// side) and [`Instance::fetch_outcome_bytes`] (read side).
+fn guest_buffer_range(
+    ptr: usize,
+    len: usize,
+    mem_size: usize,
+) -> Result<core::ops::Range<usize>, &'static str> {
+    let end = ptr.checked_add(len).ok_or("ptr + len overflow")?;
+    if end > mem_size {
+        return Err("range exceeds guest memory size");
+    }
+    Ok(ptr..end)
+}
+
+/// Unpack the `(ptr, len)` u64 returned by `__kobako_take_outcome`:
+/// high 32 bits = ptr, low 32 bits = len. Mirrors the guest-side
+/// `crate::abi::unpack_u64` in `wasm/kobako-wasm/src/abi.rs`.
+fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
+    let ptr = (packed >> 32) as u32 as usize;
+    let len = packed as u32 as usize;
+    (ptr, len)
 }
 
 /// Translate a per-channel byte cap into the MemoryOutputPipe capacity:
@@ -542,32 +554,63 @@ fn epoch_deadline_callback(
     }
 }
 
-/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
-/// exception class. `__kobako_eval` / `__kobako_run` traps are downcast
-/// to identify the configured-cap path (docs/behavior.md E-19 / E-20);
-/// everything else surfaces as the base `Kobako::Wasm::Error`. +export+
-/// is the failing export name and appears in the trap message so the
-/// Sandbox layer can attribute the fault to the right verb.
-fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
+/// Configured-cap path classification for a wasmtime error. The
+/// downcast logic stays in a pure helper so the
+/// `Kobako::Wasm::TimeoutError` / `MemoryLimitError` /
+/// `Kobako::Wasm::Error` mapping can be exercised from `cargo test`
+/// without the magnus surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrapClass {
+    /// docs/behavior.md E-19 wall-clock cap path.
+    Timeout,
+    /// docs/behavior.md E-20 linear-memory cap path.
+    MemoryLimit,
+    /// Any other wasmtime error — surfaces as the base
+    /// `Kobako::Wasm::Error`.
+    Other,
+}
+
+/// Inspect a wasmtime error to decide which `Kobako::Wasm::*` class it
+/// should map to. Pure function — operates on the error's downcast
+/// chain only, no magnus / Ruby state required.
+fn classify_trap(err: &wasmtime::Error) -> TrapClass {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
-        return timeout_err(ruby, format!("{}(): {}", export, err));
+        TrapClass::Timeout
+    } else if err.downcast_ref::<MemoryLimitTrap>().is_some() {
+        TrapClass::MemoryLimit
+    } else {
+        TrapClass::Other
     }
-    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("{}(): {}", export, err));
+}
+
+/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
+/// exception class. `__kobako_eval` / `__kobako_run` traps are routed
+/// through [`classify_trap`]; +export+ is the failing export name and
+/// appears in the trap message so the Sandbox layer can attribute the
+/// fault to the right verb.
+fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
+    let msg = format!("{}(): {}", export, err);
+    match classify_trap(&err) {
+        TrapClass::Timeout => timeout_err(ruby, msg),
+        TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
+        TrapClass::Other => wasm_err(ruby, msg),
     }
-    wasm_err(ruby, format!("{}(): {}", export, err))
 }
 
 /// Map an instantiation error to the right `Kobako::Wasm::*` Ruby
 /// exception. The memory cap is dormant during instantiation by design
-/// (see [`HostState::set_memory_cap_active`]), but [`MemoryLimitTrap`]
-/// is still possible if a future Sandbox configuration enables it
-/// during instantiation — keep the mapping symmetric with [`call_err`].
+/// (see [`HostState::arm_memory_cap`] / [`HostState::disarm_memory_cap`]),
+/// but [`MemoryLimitTrap`] is still possible if a future Sandbox
+/// configuration enables it during instantiation — keep the mapping
+/// symmetric with [`call_err`]. [`TrapClass::Timeout`] is unreachable on
+/// the instantiation path (the epoch deadline is not armed yet) but
+/// folding it into the same `match` keeps the two paths visually paired.
 fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("instantiate: {}", err));
+    let msg = format!("instantiate: {}", err);
+    match classify_trap(&err) {
+        TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
+        TrapClass::Timeout | TrapClass::Other => wasm_err(ruby, msg),
     }
-    wasm_err(ruby, format!("instantiate: {}", err))
 }
 
 #[cfg(test)]
@@ -577,7 +620,11 @@ mod tests {
     //! allowlist excludes guest fd 2 writes); these tests pin the
     //! channel-agnostic slicing so a regression that only breaks one
     //! channel cannot sneak through.
-    use super::{clip_capture, pipe_capacity};
+    use super::{
+        classify_trap, clip_capture, envelope_len_to_i32, guest_buffer_range, pipe_capacity,
+        unpack_outcome_packed, TrapClass,
+    };
+    use super::{MemoryLimitTrap, TimeoutTrap};
 
     #[test]
     fn pipe_capacity_adds_one_when_cap_is_set() {
@@ -631,5 +678,75 @@ mod tests {
         let (bytes, truncated) = clip_capture(b"", Some(5));
         assert_eq!(bytes, b"");
         assert!(!truncated);
+    }
+
+    #[test]
+    fn envelope_len_to_i32_accepts_zero_and_max() {
+        assert_eq!(envelope_len_to_i32(0), Ok(0));
+        assert_eq!(envelope_len_to_i32(i32::MAX as usize), Ok(i32::MAX));
+    }
+
+    #[test]
+    fn envelope_len_to_i32_rejects_past_i32_max() {
+        assert!(envelope_len_to_i32(i32::MAX as usize + 1).is_err());
+        assert!(envelope_len_to_i32(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn guest_buffer_range_returns_half_open_range() {
+        // Standard case: ptr + len fits inside memory.
+        assert_eq!(guest_buffer_range(10, 5, 100), Ok(10..15));
+    }
+
+    #[test]
+    fn guest_buffer_range_accepts_zero_length_at_any_in_bounds_ptr() {
+        // Zero-length writes / reads must succeed as long as ptr is in
+        // bounds — both reactor calls hand zero-length frames through
+        // (e.g. an empty Frame 3 snippets list).
+        assert_eq!(guest_buffer_range(0, 0, 0), Ok(0..0));
+        assert_eq!(guest_buffer_range(42, 0, 100), Ok(42..42));
+    }
+
+    #[test]
+    fn guest_buffer_range_rejects_ptr_plus_len_overflow() {
+        assert!(guest_buffer_range(usize::MAX, 1, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn guest_buffer_range_rejects_end_past_memory() {
+        assert!(guest_buffer_range(10, 100, 50).is_err());
+        // End exactly equal to mem_size is in-bounds.
+        assert_eq!(guest_buffer_range(0, 50, 50), Ok(0..50));
+    }
+
+    #[test]
+    fn unpack_outcome_packed_extracts_high_ptr_low_len() {
+        assert_eq!(
+            unpack_outcome_packed(0xAABB_CCDD_1122_3344),
+            (0xAABB_CCDD, 0x1122_3344)
+        );
+    }
+
+    #[test]
+    fn unpack_outcome_packed_zero_decodes_to_zero_pair() {
+        assert_eq!(unpack_outcome_packed(0), (0, 0));
+    }
+
+    #[test]
+    fn classify_trap_routes_timeout_trap_to_timeout() {
+        let err = wasmtime::Error::new(TimeoutTrap);
+        assert_eq!(classify_trap(&err), TrapClass::Timeout);
+    }
+
+    #[test]
+    fn classify_trap_routes_memory_limit_trap_to_memory_limit() {
+        let err = wasmtime::Error::new(MemoryLimitTrap::new(1 << 20, 1 << 19));
+        assert_eq!(classify_trap(&err), TrapClass::MemoryLimit);
+    }
+
+    #[test]
+    fn classify_trap_falls_back_to_other_for_unknown_errors() {
+        let err = wasmtime::Error::msg("some other wasmtime fault");
+        assert_eq!(classify_trap(&err), TrapClass::Other);
     }
 }

@@ -91,6 +91,30 @@ const MRB_QFALSE: u32 = 4; // MRB_Qfalse
                            // MRB_Qnil must be zero so `mrb_value::zeroed()` produces a nil value.
 const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
 
+/// SPEC § Error Classes mapping from a Response.err `type` field to a
+/// guest-side mruby class. Routed through
+/// [`service_error_class_for_kind`] so the decision can be exercised
+/// from host-target `cargo test`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServiceErrorClass {
+    /// `Kobako::ServiceError::Disconnected`. Mapped from `type =
+    /// "disconnected"` — the only named subclass today.
+    Disconnected,
+    /// `Kobako::ServiceError`. Any other reserved or future `type`
+    /// value lands on the parent class.
+    Base,
+}
+
+/// Pure mapping from the Response.err `type` field to the
+/// [`ServiceErrorClass`] used by [`Kobako::raise_service_error`].
+pub(crate) fn service_error_class_for_kind(kind: &str) -> ServiceErrorClass {
+    if kind == "disconnected" {
+        ServiceErrorClass::Disconnected
+    } else {
+        ServiceErrorClass::Base
+    }
+}
+
 /// Failures returned by [`Kobako::install_groups`] when a preamble entry
 /// carries a name that cannot be passed through the mruby C API (which
 /// expects NUL-terminated strings). wasm32-only because the preamble
@@ -460,21 +484,18 @@ impl Kobako {
     ///
     /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
     /// § Fault Envelope pin the mapping from the Response.err `type`
-    /// field to a guest-side mruby class. Only `"disconnected"`
-    /// resolves to a named subclass today
-    /// (`Kobako::ServiceError::Disconnected`); the other three
-    /// reserved types and any future unmapped type land on the parent
-    /// `Kobako::ServiceError`.
+    /// field to a guest-side mruby class. The mapping itself lives in
+    /// the pure helper [`service_error_class_for_kind`] so the routing
+    /// can be exercised from `cargo test` without the FFI surface.
     ///
     /// # Safety
     ///
     /// As [`Kobako::raise_wire_error`].
     #[cfg(target_arch = "wasm32")]
     pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
-        let target_cls = if ex.kind == "disconnected" {
-            self.disconnected_class
-        } else {
-            self.service_error_class
+        let target_cls = match service_error_class_for_kind(&ex.kind) {
+            ServiceErrorClass::Disconnected => self.disconnected_class,
+            ServiceErrorClass::Base => self.service_error_class,
         };
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         sys::mrb_raise(self.mrb, target_cls, msg.as_ptr());
@@ -969,5 +990,36 @@ mod tests {
         unsafe {
             let _ = Kobako::install_raw(core::ptr::null_mut());
         }
+    }
+
+    #[test]
+    fn service_error_class_routes_disconnected_to_subclass() {
+        assert_eq!(
+            service_error_class_for_kind("disconnected"),
+            ServiceErrorClass::Disconnected
+        );
+    }
+
+    #[test]
+    fn service_error_class_routes_unmapped_kinds_to_base() {
+        // SPEC reserves "runtime", "argument", "undefined", "type" plus
+        // any future value; all must land on the base class until a
+        // dedicated guest-side subclass is registered for them.
+        for kind in ["runtime", "argument", "undefined", "type", "future_type"] {
+            assert_eq!(
+                service_error_class_for_kind(kind),
+                ServiceErrorClass::Base,
+                "unmapped kind {kind:?} must fall back to ServiceError base"
+            );
+        }
+    }
+
+    #[test]
+    fn service_error_class_treats_empty_kind_as_base() {
+        // A Response.err with an empty `type` is a wire violation, but
+        // the routing must still land on a real class rather than
+        // panic; SPEC pins "any unmapped value → base" with no
+        // empty-string carve-out.
+        assert_eq!(service_error_class_for_kind(""), ServiceErrorClass::Base);
     }
 }
