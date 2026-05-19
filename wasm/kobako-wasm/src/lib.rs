@@ -48,7 +48,7 @@ pub mod mruby;
 pub mod outcome;
 pub mod rpc;
 
-pub use abi::{pack_u64, unpack_u64, EXPORT_NAMES, IMPORT_MODULE, IMPORT_NAME};
+pub use abi::{pack_u64, unpack_u64};
 pub use codec::{CodecError, Decoder, Encoder, Value};
 pub use outcome::{
     decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,

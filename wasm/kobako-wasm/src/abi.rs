@@ -67,21 +67,6 @@ pub use eval::__kobako_eval;
 pub use outcome_buffer::{__kobako_alloc, __kobako_take_outcome};
 pub use run::__kobako_run;
 
-/// Wasm namespace the host import lives in (`env`, per
-/// docs/wire-codec.md § ABI Signatures).
-pub const IMPORT_MODULE: &str = "env";
-
-/// Sole host-provided import function name.
-pub const IMPORT_NAME: &str = "__kobako_dispatch";
-
-/// All four guest-provided export names, in declaration order.
-pub const EXPORT_NAMES: [&str; 4] = [
-    "__kobako_eval",
-    "__kobako_run",
-    "__kobako_alloc",
-    "__kobako_take_outcome",
-];
-
 // ---------------------------------------------------------------------------
 // Host import declaration.
 // ---------------------------------------------------------------------------
@@ -156,31 +141,6 @@ pub fn unpack_u64(packed: u64) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn import_module_name_is_env() {
-        // docs/wire-codec.md pins host import to the `env` namespace.
-        // Changing this is a wire-breaking change.
-        assert_eq!(IMPORT_MODULE, "env");
-    }
-
-    #[test]
-    fn import_name_matches_spec() {
-        assert_eq!(IMPORT_NAME, "__kobako_dispatch");
-    }
-
-    #[test]
-    fn export_names_match_spec() {
-        assert_eq!(
-            EXPORT_NAMES,
-            [
-                "__kobako_eval",
-                "__kobako_run",
-                "__kobako_alloc",
-                "__kobako_take_outcome",
-            ],
-        );
-    }
 
     #[test]
     fn pack_unpack_roundtrip_zero() {
