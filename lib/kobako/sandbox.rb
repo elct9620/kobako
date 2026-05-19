@@ -140,7 +140,7 @@ module Kobako
     def run(target, *args, **kwargs)
       invocation = RPC::Invocation.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encoded_frame3, RPC.encode_invocation(invocation))
+        @instance.run(@services.encoded_preamble, @snippets.encode, RPC.encode_invocation(invocation))
       end
     end
 
@@ -171,7 +171,7 @@ module Kobako
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       invoke!(:eval) do
-        @instance.eval(@services.encoded_preamble, code.b, @snippets.encoded_frame3)
+        @instance.eval(@services.encoded_preamble, code.b, @snippets.encode)
       end
     end
 

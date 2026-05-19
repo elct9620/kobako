@@ -33,13 +33,13 @@ module Kobako
       @entries = {} # : Hash[Symbol, String]
     end
 
-    # Encode the registered snippets as Frame 3 msgpack bytes
-    # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]).
-    # Layout: msgpack array, one msgpack map per snippet with string keys
-    # +"name"+, +"kind"+, +"body"+. Mandatory-presence — an empty table
-    # encodes as an empty array, never absent. Returns a binary +String+
-    # of msgpack bytes.
-    def encoded_frame3
+    # Serialize the registered snippets to wire bytes. Each snippet
+    # contributes a +{name, kind, body}+ entry under a single
+    # collection; an empty table serializes to an empty collection,
+    # never absent. The wire codec is an implementation detail —
+    # callers receive a binary +String+ that the +Kobako::Wasm+ layer
+    # ships through the invocation channel.
+    def encode
       entries = @entries.map do |name, body|
         { "name" => name.to_s, "kind" => SOURCE_KIND, "body" => body }
       end

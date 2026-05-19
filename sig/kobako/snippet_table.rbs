@@ -8,7 +8,7 @@ module Kobako
 
     def register: (String code, Symbol | String name) -> Symbol
 
-    def encoded_frame3: () -> String
+    def encode: () -> String
 
     def each: () { ([Symbol, String]) -> void } -> Hash[Symbol, String]
             | () -> Enumerator[[Symbol, String], Hash[Symbol, String]]
