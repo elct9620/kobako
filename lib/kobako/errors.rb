@@ -4,7 +4,7 @@
 module Kobako
   # Three-class error taxonomy (docs/behavior.md § Error Scenarios).
   #
-  # Every `Kobako::Sandbox#run` invocation either returns a value or raises
+  # Every `Kobako::Sandbox` invocation (`#eval` or `#run`) either returns a value or raises
   # exactly one of these three classes. Attribution is decided after the
   # guest binary returns control to the host (docs/behavior.md
   # "Step 1 — Wasm trap" then "Step 2 — Outcome envelope tag").
@@ -35,7 +35,7 @@ module Kobako
   # violation that signals a corrupted guest execution environment
   # (zero-length OUTCOME_BUFFER, unknown outcome tag — SPEC E-02 / E-03).
   #
-  # Two named subclasses cover the configured per-run caps from B-01:
+  # Two named subclasses cover the configured per-invocation caps from B-01:
   #
   #   * {TimeoutError}     — wall-clock +timeout+ exceeded (E-19).
   #   * {MemoryLimitError} — guest +memory.grow+ would exceed

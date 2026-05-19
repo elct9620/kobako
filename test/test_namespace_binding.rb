@@ -140,22 +140,22 @@ class TestNamespaceBinding < Minitest::Test
     assert_equal :b_logger, other.services.lookup("Logger::Info")
   end
 
-  # B-07 Notes: define after #run raises ArgumentError.
-  # The minimal.wasm fixture has no SPEC ABI exports, so #run trips on
-  # `__kobako_alloc` and raises Kobako::TrapError — but seal! has
+  # B-07 Notes: define after first invocation raises ArgumentError.
+  # The minimal.wasm fixture has no SPEC ABI exports, so #eval trips on
+  # `__kobako_run` and raises Kobako::TrapError — but seal! has
   # already fired by then, so the registry transitions to sealed and
-  # the post-run #define enforcement still applies.
-  def test_b07_define_after_run_raises
-    @sandbox.define(:Early).bind(:Member, :before_run)
+  # the post-invocation #define enforcement still applies.
+  def test_b07_define_after_first_invocation_raises
+    @sandbox.define(:Early).bind(:Member, :before_eval)
 
-    assert_raises(Kobako::TrapError) { @sandbox.run("nil") }
+    assert_raises(Kobako::TrapError) { @sandbox.eval("nil") }
     assert @sandbox.services.sealed?
 
     err = assert_raises(ArgumentError) { @sandbox.define(:Late) }
-    assert_match(/after Sandbox#run/, err.message)
+    assert_match(/after first Sandbox invocation/, err.message)
 
-    # Pre-run bindings remain accessible.
-    assert_equal :before_run, @sandbox.services.lookup("Early::Member")
+    # Pre-invocation bindings remain accessible.
+    assert_equal :before_eval, @sandbox.services.lookup("Early::Member")
   end
 
   # `Group#to_preamble` returns the structured Frame 1 shape.

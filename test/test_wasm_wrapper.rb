@@ -10,7 +10,7 @@ require "test_helper"
 #
 # Scope is limited to the from_path pipeline and its error-mapping surface —
 # real-guest export presence is covered transitively by the E2E journeys
-# (test_e2e_journeys.rb), which drive +Sandbox#run+ end-to-end and would fail
+# (test_e2e_journeys.rb), which drive +Sandbox#eval+ end-to-end and would fail
 # fast if any SPEC Wire ABI export went missing.
 class TestWasmWrapper < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)

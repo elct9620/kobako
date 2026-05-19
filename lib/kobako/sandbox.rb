@@ -44,30 +44,30 @@ module Kobako
                 :timeout, :memory_limit, :services
 
     # Returns the bytes the guest wrote to stdout during the most recent
-    # +#run+ as a UTF-8 String, clipped at +stdout_limit+. Empty before any
-    # +#run+ call. {docs/behavior.md B-04}[link:../../docs/behavior.md] — the byte content
-    # never contains a truncation sentinel; use +#stdout_truncated?+ to
+    # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
+    # any invocation. {docs/behavior.md B-04}[link:../../docs/behavior.md] — the byte
+    # content never contains a truncation sentinel; use +#stdout_truncated?+ to
     # observe overflow.
     def stdout
       @stdout_capture.bytes
     end
 
     # Returns the bytes the guest wrote to stderr during the most recent
-    # +#run+ as a UTF-8 String, clipped at +stderr_limit+. Empty before any
-    # +#run+ call. Mirror of +#stdout+.
+    # invocation as a UTF-8 String, clipped at +stderr_limit+. Empty before
+    # any invocation. Mirror of +#stdout+.
     def stderr
       @stderr_capture.bytes
     end
 
-    # Returns +true+ iff stdout capture during the most recent +#run+
+    # Returns +true+ iff stdout capture during the most recent invocation
     # exceeded +stdout_limit+ ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Resets
-    # to +false+ at the start of the next +#run+ ({docs/behavior.md
-    # B-03}[link:../../docs/behavior.md]).
+    # to +false+ at the start of the next invocation
+    # ({docs/behavior.md B-03}[link:../../docs/behavior.md]).
     def stdout_truncated?
       @stdout_capture.truncated?
     end
 
-    # Returns +true+ iff stderr capture during the most recent +#run+
+    # Returns +true+ iff stderr capture during the most recent invocation
     # exceeded +stderr_limit+. Mirror of +#stdout_truncated?+.
     def stderr_truncated?
       @stderr_capture.truncated?
@@ -107,28 +107,32 @@ module Kobako
       @services.define(name)
     end
 
-    # Execute a guest mruby script
-    # ({docs/behavior.md B-02 / B-03}[link:../../docs/behavior.md]). +source+ is the mruby
-    # source code as a UTF-8 String. Returns the deserialized last
-    # expression of the script.
+    # Execute a guest mruby source string in a fresh +mrb_state+
+    # ({docs/behavior.md B-02 / B-03 / B-06}[link:../../docs/behavior.md]). +code+ is the
+    # mruby source as a UTF-8 String. Returns the deserialized last
+    # expression of the source.
     #
     # Source delivery uses the WASI stdin two-frame protocol
     # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]):
-    # Frame 1 carries the
-    # msgpack-encoded preamble (Namespace / Member registry snapshot) and Frame 2
-    # carries the user script UTF-8 bytes. Each frame is prefixed by a
-    # 4-byte big-endian u32 length.
+    # Frame 1 carries the msgpack-encoded preamble (Namespace / Member
+    # registry snapshot) and Frame 2 carries the user source UTF-8 bytes.
+    # Each frame is prefixed by a 4-byte big-endian u32 length.
+    #
+    # The first invocation seals the Service registry
+    # ({docs/behavior.md B-07}[link:../../docs/behavior.md]); subsequent +#define+
+    # calls raise +ArgumentError+.
     #
     # Raises +Kobako::TrapError+ on a Wasm trap or wire-violation fallback;
-    # +Kobako::SandboxError+ when the guest ran to completion but failed;
+    # +Kobako::SandboxError+ when the guest ran to completion but failed
+    # (including when +code+ is +nil+ or not a String);
     # +Kobako::ServiceError+ on an unrescued Service capability failure.
-    def run(source)
-      raise SandboxError, "source must be a String, got #{source.class}" unless source.is_a?(String)
+    def eval(code)
+      raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       @services.seal!
-      reset_run_state!
+      reset_invocation_state!
 
-      run_guest(@services.encoded_preamble, source.b)
+      run_guest(@services.encoded_preamble, code.b)
       read_captures!
       take_result!
     end
@@ -163,29 +167,29 @@ module Kobako
       memory_limit
     end
 
-    # Per-run state reset ({docs/behavior.md B-03}[link:../../docs/behavior.md]). Capture
-    # buffers, truncation predicates, and the HandleTable counter are
-    # zeroed before the guest runs.
-    def reset_run_state!
+    # Per-invocation state reset ({docs/behavior.md B-03}[link:../../docs/behavior.md]).
+    # Capture buffers, truncation predicates, and the HandleTable counter
+    # are zeroed before the guest runs.
+    def reset_invocation_state!
       @services.reset_handles!
       clear_captures!
     end
 
-    # Reset both per-channel captures to the pre-run sentinel
+    # Reset both per-channel captures to the pre-invocation sentinel
     # ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Shared by +#initialize+
-    # (first-run setup) and +#reset_run_state!+ (between-run reset) so
-    # both paths agree on what "empty capture" means.
+    # (first-time setup) and +#reset_invocation_state!+ (between-invocation
+    # reset) so both paths agree on what "empty capture" means.
     def clear_captures!
       @stdout_capture = Capture::EMPTY
       @stderr_capture = Capture::EMPTY
     end
 
     # Read the per-channel capture pairs (+[bytes, truncated]+) from the
-    # ext after a guest run completes and wrap each as a +Capture+ value
+    # ext after an invocation completes and wrap each as a +Capture+ value
     # object. The ext clips +bytes+ to the configured cap and sets
     # +truncated+ when the guest produced strictly more than +cap+ bytes
     # ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Mirror of {#clear_captures!}
-    # at the post-run boundary.
+    # at the post-invocation boundary.
     def read_captures!
       out_bytes, out_truncated = @instance.stdout
       err_bytes, err_truncated = @instance.stderr
@@ -219,7 +223,7 @@ module Kobako
     #
     # The bang reflects the destructive ext call beneath: the underlying
     # +__kobako_take_outcome+ export invalidates the buffer pointer, so this
-    # method must be called at most once per +#run+.
+    # method must be called at most once per invocation.
     def take_result!
       Outcome.decode(@instance.outcome!)
     rescue Kobako::Wasm::Error => e

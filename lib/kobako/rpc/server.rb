@@ -44,9 +44,9 @@ module Kobako
       # +Namespace::NAME_PATTERN+). Returns the +Kobako::RPC::Namespace+ for
       # that name, creating it if it does not exist. Raises +ArgumentError+
       # when +name+ is malformed, or when called after the owning Sandbox has
-      # been sealed by +#run+.
+      # been sealed by its first invocation ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
       def define(name)
-        raise ArgumentError, "cannot define after Sandbox#run has been invoked" if @sealed
+        raise ArgumentError, "cannot define after first Sandbox invocation" if @sealed
 
         name_str = name.to_s
         unless Namespace::NAME_PATTERN.match?(name_str)
@@ -91,8 +91,9 @@ module Kobako
         @namespaces.empty?
       end
 
-      # Structured Frame 1 description. Called by +Sandbox#run+ when assembling
-      # stdin Frame 1 ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Returns an
+      # Structured Frame 1 description. Called by +Sandbox#eval+ when
+      # assembling stdin Frame 1
+      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Returns an
       # unencoded preamble array — an +Array+ of two-element +[name, members]+
       # arrays, one per declared namespace.
       def to_preamble
@@ -109,8 +110,8 @@ module Kobako
         MessagePack.pack(to_preamble)
       end
 
-      # Mark the Server as sealed. Called by +Sandbox#run+ on first run.
-      # After sealing, #define raises ArgumentError. Idempotent.
+      # Mark the Server as sealed. Called by +Sandbox+ on the first
+      # invocation. After sealing, #define raises ArgumentError. Idempotent.
       def seal!
         @sealed = true
         self
@@ -121,8 +122,9 @@ module Kobako
         @sealed
       end
 
-      # Reset the HandleTable for a new +#run+ boundary. Called by +Sandbox#run+
-      # before each invocation ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
+      # Reset the HandleTable for a new invocation boundary. Called by
+      # +Sandbox+ before each invocation
+      # ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
       def reset_handles!
         @handle_table.reset!
       end

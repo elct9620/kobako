@@ -2,15 +2,16 @@
 
 module Kobako
   # Host-side captured prefix of guest stdout / stderr produced during a
-  # single +Kobako::Sandbox#run+, paired with the truncation flag the WASI
-  # pipe sets when the guest wrote past the configured per-channel cap
-  # ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
+  # single +Kobako::Sandbox+ invocation, paired with the truncation flag
+  # the WASI pipe sets when the guest wrote past the configured per-channel
+  # cap ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
   #
   # Immutable value object: the captured bytes and the truncation flag
   # always travel together and the instance is frozen on construction.
   # Construct via +Capture.from_ext+ for ext-provided binary bytes (handles
-  # UTF-8 / ASCII-8BIT fallback) or reach +Capture::EMPTY+ for the pre-run
-  # sentinel that +Sandbox+ uses before any +#run+ has executed.
+  # UTF-8 / ASCII-8BIT fallback) or reach +Capture::EMPTY+ for the pre-
+  # invocation sentinel that +Sandbox+ uses before any invocation has
+  # executed.
   class Capture
     attr_reader :bytes
 
@@ -24,7 +25,7 @@ module Kobako
     end
 
     # Returns +true+ iff the underlying capture channel exceeded its
-    # configured cap during the originating +Sandbox#run+
+    # configured cap during the originating +Sandbox+ invocation
     # ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
     def truncated? = @truncated
 
@@ -38,9 +39,10 @@ module Kobako
       new(bytes: copy, truncated: truncated)
     end
 
-    # Pre-run sentinel ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Empty UTF-8
-    # bytes and +truncated? == false+; reused by every fresh +Sandbox+ and
-    # by +Sandbox#run+ between invocations to denote "no capture yet".
+    # Pre-invocation sentinel ({docs/behavior.md B-05}[link:../../docs/behavior.md]).
+    # Empty UTF-8 bytes and +truncated? == false+; reused by every fresh
+    # +Sandbox+ and by +Sandbox+ between invocations to denote "no capture
+    # yet".
     EMPTY = new(bytes: "", truncated: false)
   end
 end

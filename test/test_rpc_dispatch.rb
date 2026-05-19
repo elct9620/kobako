@@ -428,7 +428,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_table_exhaustion_propagates_as_sandbox_error_class
     # Pin the class hierarchy: HandleTableExhausted < HandleTableError <
     # SandboxError (per Kobako::errors). This matters because
-    # Sandbox#run-level callers rescuing SandboxError must catch the
+    # Sandbox-invocation-level callers rescuing SandboxError must catch the
     # exhaustion path; the dispatcher's rescue StandardError branch
     # turns the raise into a Response.error so the guest can observe it,
     # but the underlying class identity is what SPEC B-21 pins.

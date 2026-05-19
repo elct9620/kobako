@@ -32,7 +32,7 @@ module Kobako
 
     def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
-    def run: (String source) -> untyped
+    def eval: (String code) -> untyped
 
     private
 
@@ -42,7 +42,7 @@ module Kobako
 
     def normalize_memory_limit: (Integer? memory_limit) -> Integer?
 
-    def reset_run_state!: () -> void
+    def reset_invocation_state!: () -> void
 
     def read_captures!: () -> void
 
