@@ -19,6 +19,31 @@
 //! return to a trap. Failures during normal dispatch surface as
 //! Response.err envelopes from the Server itself — they never reach
 //! this 0-return path.
+//!
+//! ## Why this module writes to `stderr`
+//!
+//! This file is the one place in `ext/` that deliberately prints
+//! through `eprintln!`. The host normally surfaces faults by
+//! raising a `MagnusError` back into Ruby; the dispatcher contract
+//! is the exception — it must return a packed `i64` to the guest
+//! and cannot raise, so a 0 return is the only signal the wasm side
+//! receives. The guest collapses every 0 into the same trap, so the
+//! Ruby host has no way to attribute the failure to a specific
+//! step (missing `memory` export vs. no Server bound vs. Server
+//! raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
+//! rejected).
+//!
+//! [`handle`] writes a single `[kobako-dispatch] <reason>` line to
+//! `stderr` on each failure path so operators have a breadcrumb to
+//! correlate the trap with the actual cause. The line is emitted in
+//! both debug and release builds on purpose: dispatcher failures
+//! are wire-layer faults rather than expected error paths
+//! (`Kobako::Sandbox` always installs a Server, the Server is
+//! contracted never to raise, etc.), so the "release-build noise"
+//! cost is bounded — under normal operation the line is never
+//! written. Operators that need to silence the channel can redirect
+//! the host process's stderr, but the kobako convention is "ext
+//! never logs" plus this single, named exception.
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{Error as MagnusError, RString, Ruby, Value};
