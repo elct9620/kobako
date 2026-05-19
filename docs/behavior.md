@@ -2,7 +2,9 @@
 
 The behaviors below specify observable outcomes for the Sandbox object and its execution contract. Each behavior uses the form **Initial State → Operation → Result / Final State**. Error attribution (TrapError, SandboxError, ServiceError) is covered in the Error Scenarios subsection; where an error branch is noted below, refer to that subsection for full semantics.
 
-The governing summary of this document — including the four-outcome guarantee for every `Sandbox#run` and the two-step attribution decision — lives in `SPEC.md` § Behavior; this document is the per-anchor reference.
+The Sandbox exposes two synchronous invocation verbs — `#eval` (one-shot mruby source execution, B-02 / B-03 / B-06) and `#run` (entrypoint dispatch into a preloaded constant, B-31) — plus the setup verb `#preload` (snippet registration, B-32 / B-33). The four-outcome guarantee, per-invocation isolation, and two-step attribution decision apply uniformly to both invocation verbs.
+
+The governing summary of this document — including the four-outcome guarantee for every Sandbox invocation and the two-step attribution decision — lives in `SPEC.md` § Behavior; this document is the per-anchor reference.
 
 ---
 
@@ -12,65 +14,65 @@ The governing summary of this document — including the four-outcome guarantee 
 |-------|-------|
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
 | **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `5 << 20` = 5 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
-| **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The Sandbox is ready to accept `#run` calls. |
-| **Notes** | `timeout` is measured as absolute wall-clock time from `Sandbox#run` invocation; the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. Time spent inside a Service callback executing on the host does not itself trigger a trap — no trap fires while host code runs — but the wall-clock time it consumes counts against the deadline, so a long-running callback can cause the next guest wasm safepoint to trap immediately on return. The Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Service declarations and bindings are permitted at any point before the first `#run` call. |
+| **Result / Final State** | A Sandbox instance is returned. No Guest Binary is started. The stdout and stderr buffers are empty. The snippet table (B-32) is empty. The Sandbox is ready to accept setup calls (`#define`, `#preload`) and invocations (`#eval`, `#run`). |
+| **Notes** | `timeout` is measured as absolute wall-clock time from the invocation entry point (`Sandbox#eval` or `Sandbox#run`); the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. Time spent inside a Service callback executing on the host does not itself trigger a trap — no trap fires while host code runs — but the wall-clock time it consumes counts against the deadline, so a long-running callback can cause the next guest wasm safepoint to trap immediately on return. The Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds guest linear memory growth (B-02 Result, E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Service declarations / bindings (B-07 / B-08) and snippet preloads (B-32) are permitted at any point before the first invocation; both sets are sealed simultaneously by B-33. |
 
 ---
 
-## B-02 — Invoke `#run(script)` from a fresh Sandbox
+## B-02 — Invoke `#eval(code)` from a fresh Sandbox
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance with zero prior `#run` calls. Zero or more Members have been bound. The stdout and stderr buffers are empty. |
-| **Operation** | `sandbox.run(script_string)` where `script_string` is a valid mruby script. |
-| **Result / Final State** | Each `#run` call executes with a fresh capability state — the HandleTable counter is reset and no Handles from prior runs are reachable. Service bindings registered on this Sandbox remain active across runs. `#run` blocks until execution completes, up to the configured `timeout`. On success, `#run` returns a single deserialized Ruby value — the script's last expression. The stdout and stderr buffers contain any output the script wrote during execution, bounded by `stdout_limit` / `stderr_limit` (B-04). Per-run cap exhaustion surfaces as `Kobako::TimeoutError` (wall-clock `timeout` exceeded; E-19) or `Kobako::MemoryLimitError` (guest `memory.grow` exceeds `memory_limit`; E-20), both subclasses of `Kobako::TrapError`. If `script_string` is `nil`, not a String, or fails compilation, `#run` raises `Kobako::SandboxError`. |
-| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `script_string` that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. |
+| **Initial State** | A Sandbox instance with zero prior invocations (no `#eval` and no `#run` call). Zero or more Members have been bound. Zero or more snippets have been preloaded (B-32). The stdout and stderr buffers are empty. |
+| **Operation** | `sandbox.eval(code)` where `code` is a String of mruby source. |
+| **Result / Final State** | The HandleTable counter is reset and no Handles from any prior invocation are reachable. Service bindings registered on this Sandbox remain active. Preloaded snippets (B-32) replay in insertion order before `code` executes; each snippet contributes its top-level side effects to the fresh `mrb_state`. `code` then loads with backtrace filename `(eval)`. `#eval` blocks until execution completes, up to the configured `timeout`. On success, `#eval` returns a single deserialized Ruby value — the last mruby expression of `code`. The stdout and stderr buffers contain any output written during execution, bounded by `stdout_limit` / `stderr_limit` (B-04). Per-invocation cap exhaustion surfaces as `Kobako::TimeoutError` (wall-clock `timeout` exceeded; E-19) or `Kobako::MemoryLimitError` (guest `memory.grow` exceeds `memory_limit`; E-20), both subclasses of `Kobako::TrapError`. If `code` is `nil`, not a String, or fails compilation, `#eval` raises `Kobako::SandboxError`. |
+| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `code` argument that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. The first `#eval` (or first `#run`, B-31) seals the snippet table (B-33) and Service registration (B-07). |
 
 ---
 
-## B-03 — Invoke `#run(script)` on a Sandbox that has already run
+## B-03 — Invoke `#eval` or `#run` on a Sandbox that has already invoked
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance that has completed one or more prior `#run` calls. Members bound before the first `#run` remain registered. |
-| **Operation** | `sandbox.run(script_string)` — any invocation after the first. |
-| **Result / Final State** | Each `#run` call executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior runs) from previous runs is fully discarded before the new run begins. All Service bindings registered on this Sandbox at any point remain active across runs and are visible to the new run. `#run` returns the new script's last expression. The stdout and stderr buffers are cleared at the start of this run and contain only output from this invocation; the per-channel truncation predicates (B-04) reset together with the buffers. Per-run cap enforcement (B-02 Result) applies identically to every `#run` invocation. |
-| **Notes** | A Handle issued during run N is not reachable during run N+1. This isolation guarantee is unconditional — it holds whether the previous run succeeded or raised an error. Service bindings are never cleared between runs; only capability state is reset. |
+| **Initial State** | A Sandbox instance that has completed one or more prior invocations (any combination of `#eval` and `#run`). Members bound before the first invocation remain registered. Snippets preloaded before the first invocation remain registered. |
+| **Operation** | `sandbox.eval(code)` or `sandbox.run(target, *args, **kwargs)` — any invocation after the first. |
+| **Result / Final State** | Each invocation executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior invocations) is fully discarded before the new invocation begins. All Service bindings and all preloaded snippets remain active across invocations and are visible to the new invocation. `#eval` returns the last expression of its source; `#run` returns the entrypoint's `#call` return value (B-31). The stdout and stderr buffers are cleared at the start of this invocation and contain only output from this invocation; the per-channel truncation predicates (B-04) reset together with the buffers. Per-invocation cap enforcement (B-02 Result) applies identically to every invocation, regardless of verb. |
+| **Notes** | A Handle issued during invocation N is not reachable during invocation N+1. This isolation guarantee is unconditional — it holds whether the previous invocation succeeded or raised an error, and applies uniformly across `#eval`/`#run` boundaries. Service bindings and preloaded snippets are never cleared between invocations; only capability state is reset. |
 
 ---
 
-## B-04 — Read `#stdout` / `#stderr` after `#run` returns
+## B-04 — Read `#stdout` / `#stderr` after an invocation returns
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance on which `#run` has been called and has returned (either with a value or by raising an error). |
+| **Initial State** | A Sandbox instance on which `#eval` or `#run` has been called and has returned (either with a value or by raising an error). |
 | **Operation** | `sandbox.stdout`, `sandbox.stderr`, `sandbox.stdout_truncated?`, or `sandbox.stderr_truncated?` — any combination, any order, any number of times. |
-| **Result / Final State** | Each byte reader returns the content (as a UTF-8 String) the guest script wrote to its respective output channel during the most recent `#run` invocation, up to the configured `stdout_limit` / `stderr_limit`. The buffers do not change between successive reads. The content contains no kobako protocol bytes and no truncation sentinels. When a channel's cap was reached, the host buffer ends at the cap boundary and subsequent guest writes on that channel fail or are dropped — the script may rescue the failure or ignore it, but no further bytes reach the buffer; this does not cause `#run` to raise an error. Each truncation predicate returns `true` iff its channel hit its cap during the most recent `#run`, otherwise `false`. |
-| **Notes** | The buffers and the truncation predicates remain accessible after an error-raising `#run`; the Host App reads them after catching the error. Per-channel byte caps are set at construction time (B-01). Truncation predicates reset together with the buffers at the start of the next `#run` (B-03). |
+| **Result / Final State** | Each byte reader returns the content (as a UTF-8 String) the guest wrote to its respective output channel during the most recent invocation, up to the configured `stdout_limit` / `stderr_limit`. The buffers do not change between successive reads. The content contains no kobako protocol bytes and no truncation sentinels. When a channel's cap was reached, the host buffer ends at the cap boundary and subsequent guest writes on that channel fail or are dropped — the guest may rescue the failure or ignore it, but no further bytes reach the buffer; this does not cause the invocation to raise an error. Each truncation predicate returns `true` iff its channel hit its cap during the most recent invocation, otherwise `false`. |
+| **Notes** | The buffers and the truncation predicates remain accessible after an error-raising invocation; the Host App reads them after catching the error. Per-channel byte caps are set at construction time (B-01). Truncation predicates reset together with the buffers at the start of the next invocation (B-03). |
 
 ---
 
-## B-05 — Read `#stdout` / `#stderr` before any `#run` call
+## B-05 — Read `#stdout` / `#stderr` before any invocation
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance on which `#run` has never been called. |
+| **Initial State** | A Sandbox instance on which neither `#eval` nor `#run` has ever been called. |
 | **Operation** | `sandbox.stdout` or `sandbox.stderr`. |
 | **Result / Final State** | Each reader returns an empty String (`""`). No error is raised. |
-| **Notes** | Reading either buffer before `#run` is always safe and returns an empty String. |
+| **Notes** | Reading either buffer before any invocation is always safe and returns an empty String. |
 
 ---
 
-## B-06 — Return value semantics of `#run`
+## B-06 — Return value semantics of `#eval`
 
-This behavior refines the Result of B-02 / B-03 by specifying the exact value `#run` produces.
+This behavior refines the Result of B-02 / B-03 by specifying the exact value `#eval` produces. The return value semantics of `#run` are specified in B-31.
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-run (per B-03), with zero or more Members bound. |
-| **Operation** | `sandbox.run(script_string)` — same invocation as B-02 / B-03. |
-| **Result / Final State** | When the guest script completes without raising `Kobako::TrapError`, `#run` returns the deserialized Ruby value of the script's last mruby expression. If the last expression evaluates to `nil` (including scripts with no explicit return expression), `#run` returns Ruby `nil`. If the script's last expression produces an object that cannot be returned as a Ruby value, `#run` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
-| **Notes** | Exactly one value is returned per `#run` call. There is no mechanism for a script to return multiple values or stream values. This error is attributed to the script (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
+| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-invocation (per B-03), with zero or more Members bound and zero or more snippets preloaded. |
+| **Operation** | `sandbox.eval(code)` — same invocation as B-02 / B-03. |
+| **Result / Final State** | When the guest completes without raising `Kobako::TrapError`, `#eval` returns the deserialized Ruby value of the last mruby expression of `code`. If the last expression evaluates to `nil` (including a `code` with no explicit return expression), `#eval` returns Ruby `nil`. If the last expression produces an object that cannot be returned as a Ruby value, `#eval` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
+| **Notes** | Exactly one value is returned per `#eval` call. There is no mechanism to return multiple values or stream values. The unrepresentable-value case is attributed to the script (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
 
 ---
 
@@ -78,10 +80,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance on which `#run` has not yet been called. No Namespace named `Name` exists on this Sandbox. |
+| **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No Namespace named `Name` exists on this Sandbox. |
 | **Operation** | `sandbox.define(:Name)` where `:Name` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
 | **Result / Final State** | A `Kobako::RPC::Namespace` instance is created and associated with this Sandbox under the name `Name`. The namespace has no members yet. The method returns the new `Kobako::RPC::Namespace` instance. The Sandbox's Server now tracks one additional namespace entry. |
-| **Notes** | `Name` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before `#run` is first called. Calling `sandbox.define` after `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent `#run` calls with the bindings that existed at the time of the first `#run`. A namespace may have zero members at declaration time; members are added via B-08. |
+| **Notes** | `Name` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before the first invocation. Calling `sandbox.define` after `#eval` or `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent invocations with the bindings and preloaded snippets that existed at the time of the first invocation. A namespace may have zero members at declaration time; members are added via B-08. Snippet registration is governed by the sibling sealing rule B-33. |
 
 ---
 
@@ -162,14 +164,14 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
-## B-15 — Handle ID is allocated with a monotonically increasing counter scoped to a single `#run`
+## B-15 — Handle ID is allocated with a monotonically increasing counter scoped to a single invocation
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation has just begun. The HandleTable counter is reset to 1. No entries exist in the table. |
+| **Initial State** | An invocation (`#eval` or `#run`) has just begun. The HandleTable counter is reset to 1. No entries exist in the table. |
 | **Operation** | The Host Gem's wire layer allocates a new Handle for a stateful return value (B-14). |
-| **Result / Final State** | The first Handle issued in this run receives ID 1, the second ID 2, and so on. Each ID is unique within the run. The counter never wraps or reuses an ID during a single `#run`. IDs are assigned in allocation order. The counter never wraps or reuses an ID; when the cap is reached, allocation fails (see B-21). ID 0 is reserved as the invalid sentinel; allocation never returns 0. |
-| **Notes** | Counter and IDs are reset at the start of every `#run` — IDs from run N are not carried into run N+1 (see B-18). |
+| **Result / Final State** | The first Handle issued in this invocation receives ID 1, the second ID 2, and so on. Each ID is unique within the invocation. The counter never wraps or reuses an ID during a single invocation. IDs are assigned in allocation order. The counter never wraps or reuses an ID; when the cap is reached, allocation fails (see B-21). ID 0 is reserved as the invalid sentinel; allocation never returns 0. |
+| **Notes** | Counter and IDs are reset at the start of every invocation — IDs from invocation N are not carried into invocation N+1 (see B-18). |
 
 ---
 
@@ -177,7 +179,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. The guest holds a `Kobako::RPC::Handle` (mruby object) obtained from a prior RPC response in the same run. The Handle's internal ID resolves to a live entry in the HandleTable. |
+| **Initial State** | An invocation is in progress. The guest holds a `Kobako::RPC::Handle` (mruby object) obtained from a prior RPC response in the same invocation. The Handle's internal ID resolves to a live entry in the HandleTable. |
 | **Operation** | Guest code invokes a method on a Member and passes the `Kobako::RPC::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
 | **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the HandleTable, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. |
 | **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::RPC::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found or is marked disconnected, the error path is covered in the Error Scenarios subsection. |
@@ -188,21 +190,21 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. Service A has been called via RPC and returned a stateful object; the guest holds `handle_a` (a `Kobako::RPC::Handle` proxy). |
+| **Initial State** | An invocation is in progress. Service A has been called via RPC and returned a stateful object; the guest holds `handle_a` (a `Kobako::RPC::Handle` proxy). |
 | **Operation** | Guest code calls a method directly on `handle_a` (e.g., `handle_a.find(id)`), using the Handle as the RPC target. The wire layer encodes `handle_a` as the `target` field of the Request. |
 | **Result / Final State** | The Host Gem resolves `handle_a`'s ID against the HandleTable and invokes `public_send(:find, id)` on the host-side Ruby object that `handle_a` represents. If that call returns another stateful object, a new Handle `handle_b` is allocated and returned to the guest. Each step in the chain is an independent, synchronous RPC; there is no implicit multi-hop traversal within a single wire call. |
-| **Notes** | Chain depth is unbounded within a single `#run` as long as each step produces a Handle that survives to the next call. Each intermediate Handle is a first-class entry in the HandleTable and follows the same lifecycle rules as any other Handle. Every host object reachable by the guest must have been explicitly returned by a Service method; there is no implicit intermediate binding path. |
+| **Notes** | Chain depth is unbounded within a single invocation as long as each step produces a Handle that survives to the next call. Each intermediate Handle is a first-class entry in the HandleTable and follows the same lifecycle rules as any other Handle. Every host object reachable by the guest must have been explicitly returned by a Service method; there is no implicit intermediate binding path. |
 
 ---
 
-## B-18 — Handle issued in run N is presented as a target in run N+1
+## B-18 — Handle issued in invocation N is presented as a target in invocation N+1
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | Run N has completed. The guest (or a script) attempts to retain a Handle ID from run N and presents it as the `target` in a new `#run` invocation (run N+1). At the start of run N+1 the HandleTable has been fully reset: all entries from run N are cleared and the counter restarted. |
-| **Operation** | Guest code in run N+1 calls a method using the stale Handle ID as the RPC target. |
-| **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Run N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
-| **Notes** | This outcome is unconditional: even if run N and run N+1 execute the same script with the same Service bindings, no Handle survives the `#run` boundary. The HandleTable is reset before the Guest Binary is instantiated for run N+1. |
+| **Initial State** | Invocation N has completed. The guest (or a script) attempts to retain a Handle ID from invocation N and presents it as the `target` in a new invocation (N+1, of either verb). At the start of invocation N+1 the HandleTable has been fully reset: all entries from invocation N are cleared and the counter restarted. |
+| **Operation** | Guest code in invocation N+1 calls a method using the stale Handle ID as the RPC target. |
+| **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Invocation N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
+| **Notes** | This outcome is unconditional: even if invocation N and N+1 execute the same source (or dispatch the same entrypoint) with the same Service bindings, no Handle survives the invocation boundary. The HandleTable is reset before the Guest Binary is instantiated for invocation N+1. |
 
 ---
 
@@ -210,10 +212,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Sandbox` instance exists with zero or more completed `#run` invocations. The HandleTable is owned by this Sandbox instance. |
+| **Initial State** | A `Kobako::Sandbox` instance exists with zero or more completed invocations. The HandleTable is owned by this Sandbox instance. |
 | **Operation** | The Sandbox instance is garbage-collected or goes out of scope; Ruby reclaims it. |
-| **Result / Final State** | The HandleTable and all its entries are destroyed as part of Sandbox teardown. Every Handle that was issued during any `#run` on this Sandbox is permanently invalid. No Handle entry is shared with, transferred to, or reachable from any other Sandbox instance. |
-| **Notes** | Handles are not reference-counted and there is no explicit `release` API for individual entries. Validity is scoped to the owning Sandbox and the specific `#run` in which the Handle was issued (B-18). A Handle that was valid in a prior `#run` on this Sandbox is already invalid by the time the Sandbox is collected (per B-18); Sandbox teardown simply removes the ownership root. |
+| **Result / Final State** | The HandleTable and all its entries are destroyed as part of Sandbox teardown. Every Handle that was issued during any invocation on this Sandbox is permanently invalid. No Handle entry is shared with, transferred to, or reachable from any other Sandbox instance. |
+| **Notes** | Handles are not reference-counted and there is no explicit `release` API for individual entries. Validity is scoped to the owning Sandbox and the specific invocation in which the Handle was issued (B-18). A Handle that was valid in a prior invocation on this Sandbox is already invalid by the time the Sandbox is collected (per B-18); Sandbox teardown simply removes the ownership root. |
 
 ---
 
@@ -221,7 +223,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. The guest mruby script has access to an arbitrary integer value (e.g., `42` or any computed integer). |
+| **Initial State** | An invocation is in progress. The guest mruby has access to an arbitrary integer value (e.g., `42` or any computed integer). |
 | **Operation** | Guest code attempts to use a raw integer as a Handle target for an RPC call — for example, by constructing a `Kobako::RPC::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a prior RPC response. |
 | **Result / Final State** | No valid `Kobako::RPC::Handle` mruby object is produced from a bare integer. The guest mruby API does not expose a constructor that converts an integer to a Handle. A raw integer presented as an RPC target does not carry the Handle wire encoding (`ext 0x01`); the host-side wire decoder rejects the malformed encoding before the value reaches the HandleTable. The error path is covered in the Error Scenarios subsection. |
 | **Notes** | The `Kobako::RPC::Handle` mruby class holds the u32 ID internally but does not expose it as a readable integer attribute. This prevents guest code from forging capability references. Guest code that received no Handle from a Service call has no legitimate path to construct one. |
@@ -232,9 +234,9 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `#run` invocation is in progress. The HandleTable counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
+| **Initial State** | An invocation is in progress. The HandleTable counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
-| **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current `#run` terminates. |
+| **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the HandleTable, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current invocation terminates. |
 | **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
 
 ---
@@ -244,9 +246,9 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | Field | Value |
 |-------|-------|
 | **Initial State** | Two or more Ruby Threads exist within the same process. The Host App has constructed one `Kobako::Sandbox` per Thread (honoring the input assumption in Scope → Interaction). |
-| **Operation** | Each Thread invokes `#run` only on its own owning Sandbox; no Sandbox is shared across Threads. |
-| **Result / Final State** | Each `#run` executes independently — capability state, Handle IDs, and capture buffers are scoped per Sandbox and never observed by another Thread's run. The wasmtime Engine and the compiled Module for `data/kobako.wasm` are shared at process scope: the first Sandbox in the process pays the Engine init and Module compile cost; subsequent Sandboxes in any Thread amortize against that shared state. |
-| **Notes** | Aggregate throughput across Threads is bounded by Ruby's GVL — Kobako's native extension does not call `rb_thread_call_without_gvl` during wasm execution, so wasm-side work is serialized. Ruby-side setup (preamble pack, buffer init) can overlap across Threads, giving modest but non-linear scaling under contention. The Host App is responsible for the one-Thread-per-Sandbox invariant; Kobako provides no locking on `#run` and concurrent invocations on the same Sandbox are unsupported (Scope → Interaction). |
+| **Operation** | Each Thread invokes `#eval` or `#run` only on its own owning Sandbox; no Sandbox is shared across Threads. |
+| **Result / Final State** | Each invocation executes independently — capability state, Handle IDs, and capture buffers are scoped per Sandbox and never observed by another Thread's invocation. The wasmtime Engine and the compiled Module for `data/kobako.wasm` are shared at process scope: the first Sandbox in the process pays the Engine init and Module compile cost; subsequent Sandboxes in any Thread amortize against that shared state. |
+| **Notes** | Aggregate throughput across Threads is bounded by Ruby's GVL — Kobako's native extension does not call `rb_thread_call_without_gvl` during wasm execution, so wasm-side work is serialized. Ruby-side setup (preamble pack, buffer init) can overlap across Threads, giving modest but non-linear scaling under contention. The Host App is responsible for the one-Thread-per-Sandbox invariant; Kobako provides no locking and concurrent invocations on the same Sandbox are unsupported (Scope → Interaction). |
 
 ---
 
@@ -338,9 +340,42 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
+## B-31 — Invoke `#run(target, *args, **kwargs)` for entrypoint dispatch
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance, either fresh (per B-02) or post-invocation (per B-03). At least one snippet preloaded via B-32 defines a top-level constant named `target` that responds to `#call`. |
+| **Operation** | `sandbox.run(target, *args, **kwargs)` where `target` is a Symbol or String matching `/\A[A-Z]\w*\z/`. `args` is zero or more positional arguments; `kwargs` is zero or more Symbol-keyed keyword arguments. |
+| **Result / Final State** | The host normalizes `target` to Symbol via `.to_sym` and applies host pre-flight checks (target type, target pattern, args / kwargs shape). Preloaded snippets (B-32) replay in insertion order. The guest then resolves the Symbol as a top-level constant on `Object` (no `::` nesting is parsed; the Symbol names a single constant on the top-level scope) and invokes `target.call(*args, **kwargs)`. `#run` returns the deserialized Ruby value produced by that call. Per-invocation cap enforcement, capability state reset, and stdout / stderr buffer behavior follow B-02 / B-03 identically. |
+| **Notes** | The constant lookup is restricted to top-level Object — `:"Outer::Inner"` and any other multi-segment Symbol fail the pattern check (E-25) and never reach the guest. The entrypoint convention is duck-typed on `#call`: any constant whose value is a `Proc`, `Class`, `Module`, or instance responding to `#call` is acceptable. The first `#run` (or first `#eval`, B-02) seals the snippet table (B-33) and Service registration (B-07). Error scenarios: `target` not Symbol or String (E-24); `target` fails the constant pattern, including any `::` (E-25); envelope decode fault (E-26); entrypoint constant undefined (E-27 — the guest's panic envelope `details:` carries the available top-level constant list, scoped to constants the preloaded snippets contributed); entrypoint does not respond to `#call` (E-28); `args` contains a Handle (E-29); `kwargs` key is not a Symbol (E-30); host allocation for the invocation envelope fails (E-31). Entrypoint runtime exceptions reuse E-04; unrepresentable return values reuse E-06; timeout / memory caps reuse E-19 / E-20; unrescued Service-call faults inside the entrypoint reuse E-11..E-15. The `#run` backtrace contains no `(eval)` frame because no user source was loaded for the invocation; the trailing frame is `(snippet:Name)` (B-32). |
+
+---
+
+## B-32 — Preload a source snippet onto a Sandbox
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No snippet under name `Name` is currently registered on this Sandbox. |
+| **Operation** | `sandbox.preload(code: source, name: Name)` where `source` is a String of mruby source and `Name` is a Symbol or String matching `/\A[A-Z]\w*\z/`. |
+| **Result / Final State** | A snippet is registered on the Sandbox under the canonical name `Name`. The host performs a synchronous trial load of `source` against a fresh `mrb_state` for validation; if compilation succeeds, the snippet is appended to the Sandbox's insertion-ordered snippet table. If trial load surfaces a compile error or top-level exception, no snippet is registered and `Kobako::SandboxError` is raised with the failure attributed to backtrace filename `(snippet:Name)` (E-32). The method returns the Sandbox instance (`self`) to allow chaining. From this point on, every subsequent invocation (`#eval` or `#run`) replays the snippet — in insertion order, before any per-invocation source or entrypoint resolution — against its fresh `mrb_state`. |
+| **Notes** | `Name` is the snippet identity: it is the filename baked into the loaded IREP's `debug_info` and surfaces in every backtrace frame originating from the snippet as `(snippet:Name):line`. Because that filename is the only locator a reader has to identify which snippet a fault originated in, duplicate names are rejected at preload time (E-33) — two snippets under the same name would produce ambiguous backtrace attribution. A `Name` not matching the constant pattern raises `ArgumentError` (E-34). Calling `#preload` after the first invocation raises `ArgumentError` (E-35, governed by B-33). A snippet's top-level expressions re-execute on every invocation as a consequence of per-invocation `mrb_state` lifecycle (B-02 / B-03); when replay raises, the failure is attributed via the snippet filename (E-36). Inter-snippet dependencies (e.g., snippet B referencing a constant defined by snippet A) require A to be preloaded before B; insertion order is the contract. |
+
+---
+
+## B-33 — Snippet table sealing on first invocation
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox instance with zero or more snippets preloaded via B-32 and zero or more Namespaces / Members registered via B-07 / B-08. No invocation has yet been called. |
+| **Operation** | The first invocation — `sandbox.eval(...)` or `sandbox.run(...)` — is called. |
+| **Result / Final State** | The snippet table becomes immutable. The snippet set replayed on every subsequent invocation is exactly the set registered at the moment of sealing, in insertion order. Any further call to `sandbox.preload(...)` raises `ArgumentError` (E-35); the existing snippet table is preserved unchanged. Service registration (B-07 / B-08) is sealed simultaneously by the same first invocation. |
+| **Notes** | B-33 is the sibling of B-07's `#define`-after-first-invocation sealing rule, not a reuse — setup → first-invocation transitions both Service registration and snippet registration from mutable to frozen as a single boundary. The two anchors are deliberately separate because they govern distinct surfaces (Service registry vs. snippet table) that the Host App reasons about independently. "Probe-then-preload" (run an inert validation invocation, then add more preloads) is intentionally unsupported. |
+
+---
+
 ## Error Scenarios
 
-Every `Sandbox#run` invocation terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after `__kobako_run` returns:
+Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
 
 **Step 1 — Trap detection (highest priority).**
 If the Wasm engine reports a trap (e.g., wasmtime raises a native trap exception), the outcome is `Kobako::TrapError` or one of its named subclasses regardless of any other state. No outcome bytes are inspected. The trap kind determines the raised class: wall-clock timeout traps raise `Kobako::TimeoutError` (E-19), linear-memory-cap traps raise `Kobako::MemoryLimitError` (E-20), and all other engine or wire-violation traps raise the base `Kobako::TrapError` (E-01..E-03).
@@ -364,14 +399,14 @@ If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_
 
 ### `Kobako::TrapError` and its subclasses
 
-Raised when the Wasm execution engine crashes, when the wire layer detects a structural violation that signals a corrupted guest execution environment, or when a configured per-run cap is exceeded. The base class `Kobako::TrapError` covers engine and wire-violation traps; the named subclasses `Kobako::TimeoutError` and `Kobako::MemoryLimitError` cover the configured-cap cases. After any TrapError (base class or subclass), the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next execution.
+Raised when the Wasm execution engine crashes, when the wire layer detects a structural violation that signals a corrupted guest execution environment, or when a configured per-invocation cap is exceeded. The base class `Kobako::TrapError` covers engine and wire-violation traps; the named subclasses `Kobako::TimeoutError` and `Kobako::MemoryLimitError` cover the configured-cap cases. After any TrapError (base class or subclass), the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next invocation.
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
 | E-01 | Wasm engine trap: `unreachable` instruction, stack overflow, or import signature mismatch | Wasm engine reports a native trap; Step 1 fires | `Kobako::TrapError` |
 | E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback | `Kobako::TrapError` |
 | E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback | `Kobako::TrapError` |
-| E-19 | Absolute wall-clock time since `Sandbox#run` invocation reached the configured `timeout` and a guest wasm safepoint was hit thereafter (B-01) | Wasm engine reports a wall-clock interrupt at the first guest wasm safepoint after the absolute deadline; Step 1 fires | `Kobako::TimeoutError` |
+| E-19 | Absolute wall-clock time since invocation entry (`Sandbox#eval` or `Sandbox#run`) reached the configured `timeout` and a guest wasm safepoint was hit thereafter (B-01) | Wasm engine reports a wall-clock interrupt at the first guest wasm safepoint after the absolute deadline; Step 1 fires | `Kobako::TimeoutError` |
 | E-20 | Guest `memory.grow` would exceed the configured `memory_limit` (B-01) | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
 
 **Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`. E-19 fires only at guest wasm safepoints — a Service callback running on the host cannot itself trigger E-19 — but the wall-clock time consumed by host callbacks counts against the `timeout` budget (B-01 Notes).
@@ -387,7 +422,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of `__kobako_run` | B-02, B-03 — script execution |
 | E-05 | Guest boot script fails to load or compile the user script (`mrb_load_string` error before execution begins) | B-02 — fresh run |
 | E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
-| E-07 | Handle issuance for the returned object fails because the per-run Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
+| E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as an RPC argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
@@ -412,10 +447,51 @@ Raised when the guest execution environment ran to completion, the mruby script 
 |---|---------|--------------------------|
 | E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the RPC response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — RPC dispatch |
 | E-12 | The RPC `target` path (e.g., `"Name::MemberName"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
-| E-13 | The RPC `target` is a Handle ID that does not exist in the current run (stale Handle from a prior run presented as target in a new run); error `type="undefined"` | B-18 — stale Handle cross-run |
+| E-13 | The RPC `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); error `type="undefined"` | B-18 — stale Handle cross-invocation |
 | E-14 | The RPC `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable; error `type="disconnected"` | B-16 — Handle referencing |
-| E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby script does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — RPC dispatch |
+| E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — RPC dispatch |
 
-A Handle ID from run N presented as an RPC target in run N+1 produces `type="undefined"` because the Handle table is fully reset at the start of each `#run`; this reaches the host as `Kobako::ServiceError` if the script does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
+A Handle ID from invocation N presented as an RPC target in invocation N+1 produces `type="undefined"` because the Handle table is fully reset at the start of each invocation; this reaches the host as `Kobako::ServiceError` if the guest does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any RPC reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
-When a guest script wraps a Service call in `begin/rescue`, the RPC failure is handled within the script; no `ServiceError` reaches the host and `#run` returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the script.
+When the guest wraps a Service call in `begin/rescue`, the RPC failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
+
+---
+
+### Entrypoint dispatch errors (`#run`)
+
+These error scenarios are specific to the `#run(target, *args, **kwargs)` entrypoint dispatch path (B-31). Host pre-flight cases raise `TypeError` or `ArgumentError` synchronously without engaging the attribution pipeline; guest-detected cases follow the standard Step 2 path and surface as `Kobako::SandboxError`.
+
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-24 | `#run` `target` is neither Symbol nor String | host pre-flight | `TypeError` |
+| E-25 | `#run` `target` (after `.to_s`) does not match `/\A[A-Z]\w*\z/` — including any `::`-segmented name | host pre-flight | `ArgumentError` |
+| E-26 | The invocation envelope written to the command buffer fails to decode as msgpack or fails shape validation on guest entry | guest entry | `Kobako::SandboxError` |
+| E-27 | `#run` target Symbol does not resolve to a defined constant on top-level `Object`; the guest's Panic envelope `details:` field carries the available top-level constants contributed by preloaded snippets | guest (`mrb_const_defined` returns 0) | `Kobako::SandboxError` |
+| E-28 | `#run` entrypoint constant is defined but does not respond to `#call` | guest (`mrb_respond_to(:call)` returns 0) | `Kobako::SandboxError` |
+| E-29 | `#run` `args` contains a `Kobako::RPC::Handle` | host pre-flight | `ArgumentError` |
+| E-30 | `#run` `kwargs` contains a key that is not a Symbol | host pre-flight | `ArgumentError` |
+| E-31 | Host's `__kobako_alloc` returns 0 when reserving guest memory for the invocation envelope | host pre-call | `Kobako::SandboxError` |
+
+`#run` entrypoint runtime exceptions reuse E-04 (the entrypoint's `#call` raises an unrescued Ruby exception); unrepresentable return values reuse E-06 (the entrypoint returns an object with no wire representation); timeout / memory caps reuse E-19 / E-20; unrescued Service-call faults inside the entrypoint reuse E-11..E-15.
+
+E-24, E-25, E-29, and E-30 are Host App programming errors detected before the invocation crosses into the guest; they raise standard Ruby exceptions (`TypeError` / `ArgumentError`) and do not go through the attribution pipeline, mirroring the E-16..E-18 treatment.
+
+---
+
+### Preload errors (`#preload`)
+
+These error scenarios are specific to the `#preload(code:, name:)` setup verb (B-32) and the sealing rule (B-33). Host pre-flight cases raise `ArgumentError` synchronously; trial-load and replay-time failures surface as `Kobako::SandboxError` attributed to the snippet's backtrace filename.
+
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-32 | `#preload(code:)` source fails mruby compilation during the trial load at preload time | guest trial load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)`) |
+| E-33 | `#preload` `name:` matches a snippet already registered on the Sandbox | host pre-flight | `ArgumentError` |
+| E-34 | `#preload` `name:` does not match `/\A[A-Z]\w*\z/` | host pre-flight | `ArgumentError` |
+| E-35 | `#preload` is called after the first invocation (`#eval` or `#run`) — the snippet table is sealed per B-33 | host pre-flight | `ArgumentError` |
+| E-36 | A preloaded snippet's top-level expression raises during replay inside a subsequent invocation | guest static load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)`) |
+
+E-33 is unconditional: duplicate names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two snippets with the same `name:` are never permitted on a single Sandbox. Users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
+
+E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet content; the backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call.
+
+E-33, E-34, and E-35 are Host App programming errors detected before the snippet is registered (E-33 / E-34) or before the invocation reaches the guest (E-35); all three raise `ArgumentError` and do not engage the attribution pipeline.

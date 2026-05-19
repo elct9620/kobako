@@ -1,6 +1,6 @@
 # Wire Contract
 
-This document specifies the abstract logical shape of every message exchanged between the Host Gem and the Guest Binary during a `#run` invocation. It is a **Consistency-layer contract**: both sides implement it independently, and a kobako gem release ships exactly one version of it. Byte-level encoding (msgpack type mapping, ext code numbers, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
+This document specifies the abstract logical shape of every message exchanged between the Host Gem and the Guest Binary during a Sandbox invocation (`#eval` or `#run`). It is a **Consistency-layer contract**: both sides implement it independently, and a kobako gem release ships exactly one version of it. Byte-level encoding (msgpack type mapping, ext code numbers, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
 
 The governing summary of this contract lives in `SPEC.md` § Wire Contract; this document is its abstract reference.
 
@@ -50,7 +50,7 @@ A **Capability Handle** is an opaque token the guest holds to reference a statef
 
 - **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request.
 - **Host-allocated**: the wire layer on the host side allocates a Handle automatically whenever a Service method returns a stateful object. The Host App has no API to create or inspect Handles directly.
-- **Scoped to a single `#run`**: a Handle token issued during run N is invalid in run N+1. The HandleTable is fully reset at the start of every `#run`.
+- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The HandleTable is fully reset at the start of every invocation (`#eval` or `#run`).
 - **Not constructible by the guest**: the guest mruby API does not expose a constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable.
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound).
 
@@ -75,7 +75,7 @@ The four reserved `type` values are:
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
 | `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable (ABA protection rule — the ID exists but the entry is invalidated) |
-| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current run's HandleTable |
+| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's HandleTable |
 
 These four names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 
@@ -83,14 +83,14 @@ These four names are stable and reserved across kobako releases. Adding a new `t
 
 ## Outcome Envelope
 
-The outcome envelope carries the final result of an entire `#run` invocation (the user script's last expression or a top-level execution failure). It is distinct from the per-RPC Response: it is written by the guest at the end of `__kobako_run` and retrieved by the host via an export function after `__kobako_run` returns.
+The outcome envelope carries the final result of an entire invocation (`#eval` source's last expression or `#run` entrypoint's `#call` return value, or a top-level execution failure). It is distinct from the per-RPC Response: it is written by the guest at the end of the invocation export (`__kobako_eval` or `__kobako_run`) and retrieved by the host via `__kobako_take_outcome` after that export returns.
 
 The outcome envelope has two variants:
 
 | Variant | Meaning |
 |---------|---------|
-| **Result envelope** | The script completed without an uncaught top-level exception. Carries the serialized last expression of the mruby script. `Sandbox#run` returns the deserialized Ruby value. |
-| **Panic envelope** | The script terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, and `backtrace` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. |
+| **Result envelope** | The invocation completed without an uncaught top-level exception. Carries the serialized return value — the last mruby expression of `#eval`'s source, or the entrypoint's `#call` return for `#run`. The invocation returns the deserialized Ruby value to the Host App. |
+| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, and `backtrace` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. |
 
 The host reads zero-length outcome bytes or an unrecognized envelope tag as a wire-violation signal and raises `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted). Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via `Sandbox#stdout` / `Sandbox#stderr`.
 
@@ -110,7 +110,7 @@ When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy 
 
 ## YieldResponse Envelope
 
-The YieldResponse envelope carries the outcome of a single yield round-trip from the Guest Binary back to the host yield site. It is distinct from both Response (per-RPC reply) and Outcome (per-`#run` result): it appears only mid-dispatch, inside the host-initiated yield re-entry.
+The YieldResponse envelope carries the outcome of a single yield round-trip from the Guest Binary back to the host yield site. It is distinct from both Response (per-RPC reply) and Outcome (per-invocation result): it appears only mid-dispatch, inside the host-initiated yield re-entry.
 
 The envelope is a tag-prefixed binary structure: a single byte tag followed by an optional MessagePack payload.
 
@@ -139,7 +139,7 @@ A zero-length YieldResponse or any tag outside `{0x01, 0x02, 0x04}` is a wire vi
 
 ## Release-Internal Contract
 
-The Wire Spec is a **release-internal contract**: the Host Gem and Guest Binary ship together in a single kobako gem release and are always version-coupled. A running sandbox is short-lived (instantiated per `#run`, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast a release.
+The Wire Spec is a **release-internal contract**: the Host Gem and Guest Binary ship together in a single kobako gem release and are always version-coupled. A running sandbox is short-lived (instantiated per invocation, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast a release.
 
 Consequently:
 

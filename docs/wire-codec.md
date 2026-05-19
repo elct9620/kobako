@@ -152,7 +152,7 @@ Unknown map keys are silently ignored (forward-compatibility). Missing any of `"
 
 ### Outcome Envelope
 
-The Outcome envelope is the binary layout of OUTCOME_BUFFER — the shared memory region the Guest Binary writes at the end of `__kobako_run` and the Host Gem reads via `__kobako_take_outcome`. It wraps either a Result envelope or a Panic envelope under a one-byte tag:
+The Outcome envelope is the binary layout of OUTCOME_BUFFER — the shared memory region the Guest Binary writes at the end of an invocation export (`__kobako_eval` for `Sandbox#eval`, `__kobako_run` for `Sandbox#run`) and the Host Gem reads via `__kobako_take_outcome`. It wraps either a Result envelope or a Panic envelope under a one-byte tag:
 
 | Byte offset | Content |
 |-------------|---------|
@@ -232,14 +232,40 @@ Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding th
 
 ### Guest-provided exports
 
+The ABI is a closed enumerated set: exactly five guest exports are permitted, listed below. No additional exports may be added without a new SPEC anchor that lifts the count.
+
 | Export name | Wasm signature | Return convention |
 |---|---|---|
-| `__kobako_run` | `() -> ()` | None — outcome is written to OUTCOME_BUFFER before return |
+| `__kobako_eval` | `() -> ()` | None — outcome is written to OUTCOME_BUFFER before return. Entry point for `Sandbox#eval`. |
+| `__kobako_run` | `(env_ptr: i32, env_len: i32) -> ()` | None — outcome is written to OUTCOME_BUFFER before return. Entry point for `Sandbox#run`. `env_ptr` / `env_len` locate the invocation envelope on the command buffer. |
 | `__kobako_alloc` | `(size: i32) -> i32` | wasm linear memory offset (u32, unsigned); 0 indicates allocation failure (trap path) |
 | `__kobako_take_outcome` | `() -> i64` | Packed u64: high 32 bits = OUTCOME_BUFFER ptr; low 32 bits = byte length. `len == 0` is a wire violation. |
 | `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = YieldResponse buffer ptr; low 32 bits = YieldResponse byte length. `len == 0` is a wire violation. |
 
+`__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior.md` § Error Scenarios).
+
 The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its yield proxy (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-RPC 16 MiB payload size limit applies in both directions.
+
+### Invocation channels
+
+Each invocation entry point consumes a fixed sequence of inputs across two host→guest channels: WASI stdin (length-prefixed frames `[u32 be][bytes]`) and the command buffer (msgpack at `(ptr, len)` reachable via `__kobako_alloc` plus a linear-memory write, then surfaced as typed export arguments).
+
+| Export | WASI stdin frames | Command buffer |
+|---|---|---|
+| `__kobako_eval` | Frame 1 preamble · Frame 2 user source · Frame 3 snippets | — |
+| `__kobako_run` | Frame 1 preamble · Frame 3 snippets | invocation envelope at `(env_ptr, env_len)` |
+
+Frame definitions:
+
+- **Frame 1 — preamble**: msgpack-encoded Service registration table (Namespace / Member metadata). Always present.
+- **Frame 2 — user source**: the `code` argument to `#eval`, as raw UTF-8 bytes. Read only by `__kobako_eval`. Loads with backtrace filename `(eval)`.
+- **Frame 3 — snippets**: msgpack array of `{name, kind, body}` entries — one entry per snippet preloaded via `#preload` (B-32), in insertion order. **Mandatory-presence** even when empty: a Sandbox with no preloads sends an empty msgpack array, not an absent frame. The guest loads each entry with backtrace filename `(snippet:<name>)`. Loads execute in insertion order before per-invocation logic (user source for `__kobako_eval`; entrypoint resolution for `__kobako_run`).
+- **Invocation envelope** (`__kobako_run` only): msgpack map carrying entrypoint name + positional args + keyword args. Exact shape:
+  - `entrypoint`: Symbol (ext 0x00) — the host has already normalized any String input via `.to_sym`.
+  - `args`: Array — zero or more positional argument values. Empty array is present, never absent. Handles (ext 0x01) are rejected at host pre-flight (E-29).
+  - `kwargs`: Map — zero or more keyword argument entries. Empty map is present, never absent. Map keys are Symbol (ext 0x00) only; non-Symbol keys are rejected at host pre-flight (E-30).
+
+Mandatory-presence frames (1 and 3 for `__kobako_eval`; 1 and 3 for `__kobako_run`) and explicit empty payloads remove the `read_exact` EOF / partial-read ambiguity from each export's per-invocation contract.
 
 ### Packed u64 return layout
 
