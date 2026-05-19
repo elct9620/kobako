@@ -610,6 +610,26 @@ class TestE2EJourneys < Minitest::Test
     assert_equal(-268_435_457, sandbox.eval("-268_435_457"))
   end
 
+  # H-3 regression: a user-defined `inspect` that raises must not
+  # longjmp past the Rust frame doing wire conversion. The guest
+  # wraps the inspect call in `mrb_protect_error`; on raise the
+  # converter falls back to `"#<ClassName>"` and the host still
+  # observes a clean outcome (no TrapError, no panic).
+  EXPLODING_INSPECT_SCRIPT = <<~RUBY
+    class Boom
+      def inspect; raise "inspect blew up"; end
+      def to_s;    "<boom-to-s>"; end
+    end
+    Boom.new
+  RUBY
+
+  def test_outcome_inspect_raise_is_caught_by_mrb_protect_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    result = sandbox.eval(EXPLODING_INSPECT_SCRIPT)
+    assert_equal "#<Boom>", result,
+                 "H-3: a raising inspect must surface the protected fallback, not a trap"
+  end
+
   def test_outcome_envelope_unknown_type_uses_inspect_not_to_s
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

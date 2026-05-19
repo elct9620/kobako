@@ -112,6 +112,29 @@ pub(crate) fn service_error_class_for_kind(kind: &str) -> ServiceErrorClass {
     }
 }
 
+/// `mrb_protect_error` body that re-enters mruby to compute
+/// `Object#inspect` on the value pointed to by +userdata+. Used by
+/// [`Kobako::protected_inspect_or_classname`] so a user-defined
+/// +inspect+ that raises lands on `*error == TRUE` instead of
+/// longjmp-ing past the Rust frame holding the wire conversion.
+///
+/// # Safety
+///
+/// `userdata` must point to a live `mrb_value` produced by the same
+/// VM as `mrb`. The function reads exactly one `mrb_value` from
+/// `userdata` and does not retain the pointer after return.
+#[cfg(target_arch = "wasm32")]
+unsafe extern "C" fn protected_inspect_body(
+    mrb: *mut sys::mrb_state,
+    userdata: *mut core::ffi::c_void,
+) -> sys::mrb_value {
+    // SAFETY: see item-level doc.
+    let val = unsafe { *(userdata as *const sys::mrb_value) };
+    // SAFETY: `mrb` is live by `mrb_protect_error`'s contract; `val`
+    // came from the same VM by the function-level safety contract.
+    unsafe { val.call(mrb, cstr!("inspect"), &[]) }
+}
+
 /// Failures returned by [`Kobako::install_groups`] when a preamble entry
 /// carries a name that cannot be passed through the mruby C API (which
 /// expects NUL-terminated strings). wasm32-only because the preamble
@@ -935,10 +958,37 @@ impl Kobako {
             "Symbol" => Value::Sym(self.to_string_of(val)),
             "Array" => Value::Array(self.array_to_wire(val, Self::to_wire_outcome)),
             "Hash" => Value::Map(self.hash_to_wire(val, Self::to_wire_outcome)),
-            _ => {
-                let inspect = self.call_method(val, cstr!("inspect"), &[]);
-                Value::Str(self.to_string_of(inspect))
-            }
+            other => Value::Str(self.protected_inspect_or_classname(val, other)),
+        }
+    }
+
+    /// Coerce +val+ to its +Object#inspect+ form for the outcome
+    /// envelope, protected by +mrb_protect_error+ so a user-defined
+    /// +inspect+ that raises does not longjmp past Rust frames.
+    ///
+    /// docs/wire-contract.md § Outcome Envelope leaves the fallback
+    /// string format to the host; we surface +inspect+ on success and
+    /// +"#<ClassName>"+ on the protected-call failure path so the host
+    /// sees a recognisable identifier rather than the raised exception.
+    #[cfg(target_arch = "wasm32")]
+    fn protected_inspect_or_classname(&self, val: sys::mrb_value, class_name: &str) -> String {
+        let mut payload = val;
+        let mut error: sys::mrb_bool = 0;
+        // SAFETY: bridge frame — `self.mrb` is live; the body closure
+        // reads `payload` once via the `userdata` pointer and never
+        // outlives the call frame.
+        let result = unsafe {
+            sys::mrb_protect_error(
+                self.mrb,
+                protected_inspect_body,
+                &mut payload as *mut sys::mrb_value as *mut core::ffi::c_void,
+                &mut error,
+            )
+        };
+        if error != 0 {
+            format!("#<{}>", class_name)
+        } else {
+            self.to_string_of(result)
         }
     }
 
