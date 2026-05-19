@@ -82,6 +82,29 @@ impl Mrb {
     pub fn as_ptr(&self) -> *mut sys::mrb_state {
         self.state.as_ptr()
     }
+
+    /// Return the currently pending mruby exception, or
+    /// `mrb_nil_value()` (`w == 0`) if none. Reads `mrb->exc` via the
+    /// layout-safe C accessor [`sys::kobako_get_exc`]; does NOT clear
+    /// the field — callers pair this with [`Mrb::clear_exc`] after
+    /// they have captured class/message/backtrace.
+    #[cfg(target_arch = "wasm32")]
+    pub fn pending_exc(&self) -> sys::mrb_value {
+        // SAFETY: `self.state` is alive by the `&self` borrow.
+        unsafe { sys::kobako_get_exc(self.as_ptr()) }
+    }
+
+    /// Clear `mrb->exc`. Idempotent; safe to call when no exception
+    /// is pending. Used by [`crate::abi::boot::take_pending_panic`]
+    /// after the pending exception has been extracted, so subsequent
+    /// mruby calls do not observe stale exception state.
+    #[cfg(target_arch = "wasm32")]
+    pub fn clear_exc(&self) {
+        // SAFETY: `self.state` is alive by the `&self` borrow. The
+        // return value (a `mrb_bool` snapshot of the prior `mrb->exc`
+        // state) is intentionally discarded.
+        let _ = unsafe { sys::mrb_check_error(self.as_ptr()) };
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

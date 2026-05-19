@@ -31,7 +31,7 @@ fn eval_body() {
     use super::frames;
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::cstr;
-    use crate::mruby::sys;
+    use crate::mruby::ccontext::Ccontext;
     use crate::outcome::{encode_outcome, Outcome, Panic};
 
     let preamble = match boot::read_preamble() {
@@ -63,24 +63,13 @@ fn eval_body() {
     // `vendor/mruby/src/backtrace.c` skips any frame whose IREP has no
     // debug_info, which is why `Exception#backtrace` returns an empty
     // array when scripts are loaded via the bare `mrb_load_nstring`.
-    //
-    // SAFETY: `mrb` is alive per the &Mrb borrow; ccontext is freed
-    // inside this block; `frame2` outlives the `mrb_load_nstring_cxt`
-    // call because the borrow scope spans both the call and the free.
-    let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-    if cxt.is_null() {
-        return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
-    }
-    unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(eval)")) };
-    let result_val = unsafe {
-        sys::mrb_load_nstring_cxt(
-            mrb.as_ptr(),
-            frame2.as_ptr() as *const core::ffi::c_char,
-            frame2.len(),
-            cxt,
-        )
+    let result_val = {
+        let Some(cxt) = Ccontext::new(&mrb, cstr!("(eval)")) else {
+            return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
+        };
+        cxt.load_nstring(&frame2)
+        // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
-    unsafe { sys::mrb_ccontext_free(mrb.as_ptr(), cxt) };
 
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
         write_panic(panic);

@@ -19,7 +19,9 @@ use crate::cstr;
 #[cfg(target_arch = "wasm32")]
 use crate::kobako::{InstallGroupsError, Kobako};
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::{sys, Mrb};
+use crate::mruby::ccontext::Ccontext;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby::Mrb;
 use crate::outcome::Panic;
 
 /// Build a Panic envelope carrying the kobako boot defaults
@@ -100,28 +102,14 @@ pub(super) fn replay_snippets(
     snippets: &[(String, String)],
 ) -> Result<(), Panic> {
     for (name, body) in snippets {
-        // SAFETY: `mrb` is live by the &Mrb borrow; the ccontext is
-        // freed inside the same block. The body bytes outlive the
-        // `mrb_load_nstring_cxt` call because `snippets` is borrowed
-        // for the whole loop.
-        let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
-        if cxt.is_null() {
-            return Err(boot_panic("mrb_ccontext_new returned NULL"));
-        }
         let filename = format!("(snippet:{})\0", name);
-        unsafe {
-            sys::mrb_ccontext_filename(
-                mrb.as_ptr(),
-                cxt,
-                filename.as_ptr() as *const core::ffi::c_char,
-            );
-            sys::mrb_load_nstring_cxt(
-                mrb.as_ptr(),
-                body.as_ptr() as *const core::ffi::c_char,
-                body.len(),
-                cxt,
-            );
-            sys::mrb_ccontext_free(mrb.as_ptr(), cxt);
+        {
+            let Some(cxt) = Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char)
+            else {
+                return Err(boot_panic("mrb_ccontext_new returned NULL"));
+            };
+            cxt.load_nstring(body.as_bytes());
+            // `cxt` drops here — `mrb_ccontext_free` runs automatically.
         }
         if let Some(mut panic) = take_pending_panic(mrb, kobako) {
             // Replay-time failures are always sandbox origin even when
@@ -136,14 +124,10 @@ pub(super) fn replay_snippets(
 /// If an mruby exception is pending on `mrb`, extract its class name,
 /// message, and backtrace into a Panic envelope (with `origin` chosen
 /// by [`origin_for_class`]). Returns `None` when no exception is
-/// pending. Clears `mrb->exc` via `mrb_check_error` before returning.
+/// pending. Clears `mrb->exc` via [`Mrb::clear_exc`] before returning.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
-    // SAFETY: bridge frame — `mrb` is alive per the &Mrb borrow, and
-    // `kobako_get_exc` is the layout-safe accessor that returns either
-    // `mrb_nil_value()` (w == 0) or a live `mrb_value` from the same
-    // VM. Subsequent FFI calls operate on that same `mrb_value`.
-    let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
+    let exc_val = mrb.pending_exc();
     if exc_val.w == 0 {
         return None;
     }
@@ -165,9 +149,7 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         }
     };
     let backtrace = kobako.extract_backtrace(exc_val);
-    // SAFETY: clears `mrb->exc`; return value is discarded because we
-    // already captured class / message / backtrace above.
-    let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
+    mrb.clear_exc();
     Some(Panic {
         origin: origin_for_class(&class_name).into(),
         class: class_name,

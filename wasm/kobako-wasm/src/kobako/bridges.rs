@@ -119,6 +119,9 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — mrb_func_t shape must keep the params even when
+        // the body is wasm32-only; consume the bindings locally so the
+        // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
         sys::mrb_value::zeroed()
@@ -145,6 +148,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — see `rpc_method_missing` for the shape rationale.
         let _ = mrb;
         let _ = self_;
     }
@@ -209,6 +213,9 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — mrb_func_t shape must keep the params even when
+        // the body is wasm32-only; consume the bindings locally so the
+        // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
         sys::mrb_value::zeroed()
@@ -231,6 +238,7 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — see `rpc_method_missing` for the shape rationale.
         let _ = mrb;
         sys::mrb_value::zeroed()
     }

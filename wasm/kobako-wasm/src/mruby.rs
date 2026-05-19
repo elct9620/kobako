@@ -14,6 +14,8 @@
 //! `Mrb`/`MrbRef` newtype pair that owns/borrows `*mut sys::mrb_state`
 //! and concentrates the remaining `unsafe` blocks behind safe methods.
 
+#[cfg(target_arch = "wasm32")]
+pub mod ccontext;
 pub mod state;
 pub mod sys;
 pub mod value;

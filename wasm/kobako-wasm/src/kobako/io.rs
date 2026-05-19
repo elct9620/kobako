@@ -163,6 +163,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — see `io_write` for the shape rationale.
         let _ = mrb;
         let _ = self_;
     }
@@ -201,6 +202,9 @@ pub(crate) unsafe extern "C" fn io_write(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — mrb_func_t shape must keep the params even when
+        // the body is wasm32-only; consume the bindings locally so the
+        // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
         sys::mrb_value::zeroed()
@@ -221,6 +225,9 @@ pub(crate) unsafe extern "C" fn io_fileno(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Host stub — mrb_func_t shape must keep the params even when
+        // the body is wasm32-only; consume the bindings locally so the
+        // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
         sys::mrb_value::zeroed()
