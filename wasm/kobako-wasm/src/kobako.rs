@@ -182,13 +182,67 @@ pub struct Kobako {
     disconnected_class: *mut sys::RClass,
     wire_error_class: *mut sys::RClass,
     /// Cached `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`
-    /// captured at install time via the `kobako_nil_value` /
-    /// `kobako_true_value` / `kobako_false_value` shims. Caching
-    /// sidesteps a cross-FFI call per value construction without
-    /// hard-coding the word-box bit pattern in Rust.
-    nil: sys::mrb_value,
+    /// snapshots, captured once into the [`Immediates`] static cell at
+    /// the first install and read by both [`Kobako::install_raw`] and
+    /// [`Kobako::resolve_raw`]. The fields end up identical across
+    /// every `Kobako` instance — they live on the struct (instead of
+    /// staying as free accessors) because the per-instance read is
+    /// hotter than the one-time capture, and field reads keep the
+    /// `Kobako::nil_value` / `true_value` / `false_value` accessors
+    /// branch-free.
+    ///
+    /// All three names carry the `q-` prefix even though `nil` is not
+    /// a Rust keyword: mruby's source spells the immediates as
+    /// `Qnil` / `Qtrue` / `Qfalse`, and keeping all three symmetric in
+    /// Rust makes the mruby correspondence obvious.
+    qnil: sys::mrb_value,
     qtrue: sys::mrb_value,
     qfalse: sys::mrb_value,
+}
+
+/// Process-wide cache for mruby's immediate values
+/// (`mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`).
+///
+/// All three are config-level constants under mruby's word-box
+/// configuration — they are decided at libmruby build time and do
+/// not vary across `mrb_state` instances. Capturing them once via
+/// [`Immediates::get`] sidesteps three cross-FFI calls every time a
+/// C bridge enters [`Kobako::resolve_raw`].
+#[cfg(target_arch = "wasm32")]
+struct Immediates {
+    qnil: sys::mrb_value,
+    qtrue: sys::mrb_value,
+    qfalse: sys::mrb_value,
+}
+
+// SAFETY: `mrb_value` on wasm32 is a `#[repr(C)] struct { w: u32 }` —
+// plain old data with no interior mutability. `Immediates` therefore
+// shares only `Copy` snapshots and is trivially Sync across the
+// single-threaded wasm execution model.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Immediates {}
+
+#[cfg(target_arch = "wasm32")]
+static IMMEDIATES: std::sync::OnceLock<Immediates> = std::sync::OnceLock::new();
+
+#[cfg(target_arch = "wasm32")]
+impl Immediates {
+    /// Return the cached snapshot, capturing it on first call.
+    fn get() -> &'static Immediates {
+        IMMEDIATES.get_or_init(|| {
+            // SAFETY: the three shims read mruby's `mrb_nil_value()` /
+            // `mrb_true_value()` / `mrb_false_value()` macros, which
+            // do not touch `mrb_state` — see
+            // `wasm/kobako-wasm/src/mruby/value.c`.
+            unsafe {
+                Immediates {
+                    qnil: sys::kobako_nil_value(),
+                    qtrue: sys::kobako_true_value(),
+                    qfalse: sys::kobako_false_value(),
+                }
+            }
+        })
+    }
 }
 
 /// Host-target stub for [`Kobako`]. See the wasm32 declaration above
@@ -221,14 +275,11 @@ impl Kobako {
     pub unsafe fn install_raw(mrb: *mut sys::mrb_state) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            // Cache the canonical nil / true / false mrb_values through
-            // the value.c shims that wrap mruby's own `mrb_nil_value()`
-            // / `mrb_true_value()` / `mrb_false_value()`. The word-box
-            // layout is mruby's business — kobako never reads the bit
-            // pattern, just stashes the result for reuse.
-            let nil = unsafe { sys::kobako_nil_value() };
-            let qtrue = unsafe { sys::kobako_true_value() };
-            let qfalse = unsafe { sys::kobako_false_value() };
+            // Capture the canonical nil / true / false mrb_values
+            // through the process-wide [`Immediates`] cache — the
+            // word-box layout is mruby's business, kobako never reads
+            // the bit pattern.
+            let immediates = Immediates::get();
 
             // Stage the install across three step helpers so the
             // monolithic 150-line `unsafe` block becomes three
@@ -249,9 +300,9 @@ impl Kobako {
                 service_error_class: classes.service_error_class,
                 disconnected_class: classes.disconnected_class,
                 wire_error_class: classes.wire_error_class,
-                nil,
-                qtrue,
-                qfalse,
+                qnil: immediates.qnil,
+                qtrue: immediates.qtrue,
+                qfalse: immediates.qfalse,
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -292,9 +343,7 @@ impl Kobako {
                     sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
                 let wire_error_class =
                     sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(WIRE_ERROR_NAME));
-                let nil = sys::kobako_nil_value();
-                let qtrue = sys::kobako_true_value();
-                let qfalse = sys::kobako_false_value();
+                let immediates = Immediates::get();
                 Self {
                     mrb,
                     client_class,
@@ -302,9 +351,9 @@ impl Kobako {
                     service_error_class,
                     disconnected_class,
                     wire_error_class,
-                    nil,
-                    qtrue,
-                    qfalse,
+                    qnil: immediates.qnil,
+                    qtrue: immediates.qtrue,
+                    qfalse: immediates.qfalse,
                 }
             }
         }
@@ -395,7 +444,7 @@ impl Kobako {
     /// install time via [`sys::kobako_nil_value`].
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn nil_value(&self) -> sys::mrb_value {
-        self.nil
+        self.qnil
     }
 
     /// Return the canonical mruby `true` value. Mirrors mruby's own
