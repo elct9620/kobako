@@ -141,12 +141,6 @@ impl Encoder {
         Self { buf: Vec::new() }
     }
 
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            buf: Vec::with_capacity(cap),
-        }
-    }
-
     pub fn into_bytes(self) -> Vec<u8> {
         self.buf
     }

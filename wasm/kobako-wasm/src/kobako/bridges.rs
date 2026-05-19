@@ -43,6 +43,30 @@
 use crate::cstr;
 use crate::mruby::sys;
 
+/// Build a borrowed `&[mrb_value]` from a `mrb_get_args("n*", ...)`
+/// out-parameter pair. mruby may set `rest_ptr` to NULL when the
+/// rest-array is empty; reading `rest_len` bytes from a NULL pointer
+/// would be UB, so the helper returns an empty slice in that case.
+///
+/// # Safety
+///
+/// When `rest_len > 0`, `rest_ptr` must point to a contiguous array
+/// of `rest_len` `mrb_value` entries produced by `mrb_get_args` on
+/// the current call frame. The slice borrows from that array and
+/// must not outlive the call.
+#[cfg(target_arch = "wasm32")]
+unsafe fn slice_from_mrb_args<'a>(
+    rest_ptr: *const sys::mrb_value,
+    rest_len: core::ffi::c_int,
+) -> &'a [sys::mrb_value] {
+    if rest_len > 0 && !rest_ptr.is_null() {
+        // SAFETY: see item-level doc.
+        unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
+    } else {
+        &[]
+    }
+}
+
 /// `Kobako::RPC.method_missing(name, *args)` C bridge — singleton-class
 /// level, so `self` is the class object (e.g. `MyService::KV`).
 ///
@@ -99,12 +123,9 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
                 .unwrap_or("")
         };
 
-        let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
-            // SAFETY: mruby passes a valid array on `n*` unpack.
-            unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
-        } else {
-            &[]
-        };
+        // SAFETY: mruby passes a valid array on `n*` unpack; see
+        // [`slice_from_mrb_args`] for the empty-slice handling.
+        let rest = unsafe { slice_from_mrb_args(rest_ptr, rest_len) };
 
         let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
@@ -194,11 +215,8 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
                 .unwrap_or("")
         };
 
-        let rest: &[sys::mrb_value] = if rest_len > 0 && !rest_ptr.is_null() {
-            unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
-        } else {
-            &[]
-        };
+        // SAFETY: see [`slice_from_mrb_args`].
+        let rest = unsafe { slice_from_mrb_args(rest_ptr, rest_len) };
 
         let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Handle(handle_id);

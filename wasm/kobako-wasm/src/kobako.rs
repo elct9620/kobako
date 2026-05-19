@@ -394,21 +394,21 @@ impl Kobako {
     /// `mrb_nil_value()` API; the actual mrb_value was captured at
     /// install time via [`sys::kobako_nil_value`].
     #[cfg(target_arch = "wasm32")]
-    pub fn nil_value(&self) -> sys::mrb_value {
+    pub(crate) fn nil_value(&self) -> sys::mrb_value {
         self.nil
     }
 
     /// Return the canonical mruby `true` value. Mirrors mruby's own
     /// `mrb_true_value()` API.
     #[cfg(target_arch = "wasm32")]
-    pub fn true_value(&self) -> sys::mrb_value {
+    pub(crate) fn true_value(&self) -> sys::mrb_value {
         self.qtrue
     }
 
     /// Return the canonical mruby `false` value. Mirrors mruby's own
     /// `mrb_false_value()` API.
     #[cfg(target_arch = "wasm32")]
-    pub fn false_value(&self) -> sys::mrb_value {
+    pub(crate) fn false_value(&self) -> sys::mrb_value {
         self.qfalse
     }
 

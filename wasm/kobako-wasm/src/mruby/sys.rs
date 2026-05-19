@@ -419,9 +419,6 @@ extern "C" {
     /// as a symbol. Used to build string keys for mrb_hash_get.
     pub fn mrb_intern_cstr(mrb: *mut mrb_state, str: *const c_char) -> mrb_sym;
 
-    /// `mrb_sym_str(mrb, sym)` — converts a symbol to its String representation.
-    pub fn mrb_sym_str(mrb: *mut mrb_state, sym: mrb_sym) -> mrb_value;
-
     /// `mrb_str_new(mrb, p, len)` — create a new mruby String from `p[0..len]`.
     ///
     /// `len` is `mrb_int` which on wasm32 (MRB_INT32 config) is a 32-bit
@@ -489,21 +486,6 @@ extern "C" {
     /// obtain the symbol. Used to wire `$stdout` and `$stderr` to the
     /// freshly-constructed `IO` instances at install time.
     pub fn mrb_gv_set(mrb: *mut mrb_state, sym: mrb_sym, val: mrb_value);
-
-    /// `mrb_module_get(mrb, name)` — fetches a top-level module by name
-    /// (e.g. `"Kernel"`). Used to register `Kernel#puts` / `Kernel#p`
-    /// via `mrb_define_method` without going through `mrb_load_nstring`.
-    pub fn mrb_module_get(mrb: *mut mrb_state, name: *const c_char) -> *mut RClass;
-
-    /// `mrb_ary_new_from_values(mrb, size, vals)` — constructs a new
-    /// mruby Array containing `size` copies of the elements pointed to
-    /// by `vals`. Used by `Kernel#p` to return the original args array
-    /// when called with multiple arguments.
-    pub fn mrb_ary_new_from_values(
-        mrb: *mut mrb_state,
-        size: i32,
-        vals: *const mrb_value,
-    ) -> mrb_value;
 
     /// `mrb_ary_new(mrb)` — constructs a fresh empty mruby Array. Used
     /// as the base for incremental construction via `mrb_ary_push` when

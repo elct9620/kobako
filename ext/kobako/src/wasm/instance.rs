@@ -256,10 +256,7 @@ impl Instance {
         snippets: RString,
     ) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let eval = self
-            .eval
-            .as_ref()
-            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_eval"))?;
+        let eval = require_export(&ruby, self.eval.as_ref(), "__kobako_eval")?;
         self.refresh_wasi(&[
             rstring_to_vec(preamble),
             rstring_to_vec(source),
@@ -290,10 +287,7 @@ impl Instance {
         envelope: RString,
     ) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let run = self
-            .run
-            .as_ref()
-            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
+        let run = require_export(&ruby, self.run.as_ref(), "__kobako_run")?;
         self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.prime_caps();
@@ -446,10 +440,7 @@ impl Instance {
     /// arithmetic overflows, the slice falls outside live memory, or the
     /// `memory` export itself is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
-        let take = self
-            .take_outcome
-            .as_ref()
-            .ok_or_else(|| wasm_err(ruby, "guest does not export __kobako_take_outcome"))?;
+        let take = require_export(ruby, self.take_outcome.as_ref(), "__kobako_take_outcome")?;
 
         let mut store_ref = self.store.borrow_mut();
         let packed = take
@@ -466,6 +457,23 @@ impl Instance {
             .map_err(|msg| wasm_err(ruby, format!("outcome: {}", msg)))?;
         Ok(data[range].to_vec())
     }
+}
+
+/// Return the cached +TypedFunc+ for an ABI export, or raise
+/// +Kobako::Wasm::Error+ when the option is +None+. The run-path
+/// methods (+#eval+, +#run+, +#outcome!+) all share the same
+/// "missing export → Ruby error" boilerplate; this helper collapses
+/// the three sites onto one safe entry.
+fn require_export<'a, Params, Results>(
+    ruby: &Ruby,
+    export: Option<&'a TypedFunc<Params, Results>>,
+    name: &str,
+) -> Result<&'a TypedFunc<Params, Results>, MagnusError>
+where
+    Params: wasmtime::WasmParams,
+    Results: wasmtime::WasmResults,
+{
+    export.ok_or_else(|| wasm_err(ruby, format!("guest does not export {}", name)))
 }
 
 /// Validate the invocation envelope length and return it as +i32+ — the

@@ -96,7 +96,7 @@ fn roundtrip_once(input: &[u8]) -> Result<Vec<u8>, (u8, String)> {
     if !dec.at_end() {
         return Err((b'X', format!("trailing bytes at offset {}", dec.position())));
     }
-    let mut enc = Encoder::with_capacity(input.len());
+    let mut enc = Encoder::new();
     enc.write_value(&value).map_err(wire_to_tag)?;
     Ok(enc.into_bytes())
 }
