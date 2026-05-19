@@ -109,6 +109,35 @@ class TestSandboxRun < Minitest::Test
     assert_match(/undefined entrypoint: Missing/, err.message)
   end
 
+  # E-27 details: the panic envelope carries the snippet-contributed
+  # top-level constants so callers can see what was actually available
+  # when their entrypoint name failed to resolve (docs/behavior.md B-31).
+  def test_e27_details_includes_snippet_contributed_constants
+    err = run_missing_against_sandbox_with_preloads
+    available = err.details.fetch("available")
+    assert_includes available, :Worker
+    assert_includes available, :Helper
+  end
+
+  # E-27 details (baseline filtering): kobako-installed runtime classes and
+  # mruby builtins are subtracted from `available`, so callers only see
+  # constants introduced by the preloaded snippets themselves.
+  def test_e27_details_filters_baseline_constants
+    err = run_missing_against_sandbox_with_preloads
+    available = err.details.fetch("available")
+    refute_includes available, :Object
+    refute_includes available, :Kobako
+  end
+
+  private
+
+  def run_missing_against_sandbox_with_preloads
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
+    sandbox.preload(code: "Helper = Module.new", name: :Helper)
+    assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
+  end
+
   # E-28: entrypoint constant is defined but does not respond to #call.
   def test_e28_entrypoint_without_call_raises_sandbox_error
     sandbox = Kobako::Sandbox.new

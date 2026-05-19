@@ -644,6 +644,33 @@ impl Kobako {
         lines
     }
 
+    /// Snapshot every top-level constant currently defined on `Object`
+    /// by calling `Object.constants` and unpacking the returned Symbol
+    /// Array into a `Vec<String>`. Used by `__kobako_run` to compute
+    /// the E-27 `details:` payload: a baseline taken after kobako
+    /// install + preamble materialise (before snippet replay) is
+    /// subtracted from a post-replay snapshot, yielding the constants
+    /// the preloaded snippets contributed (docs/behavior.md B-31 / E-27).
+    ///
+    /// Returns an empty vec when `Object.constants` does not return an
+    /// Array — Ruby core guarantees it does, but the defensive fallback
+    /// matches [`Self::extract_backtrace`]'s style and keeps the Panic
+    /// envelope serialising cleanly under guest-class shenanigans.
+    #[cfg(target_arch = "wasm32")]
+    pub fn top_level_constants(&self) -> Vec<String> {
+        let object_value = unsafe { sys::kobako_class_value((*self.mrb).object_class) };
+        let consts = self.call_method(object_value, cstr!("constants"), &[]);
+        if self.classname_of(consts) != "Array" {
+            return Vec::new();
+        }
+        let len = self.collection_len(consts);
+        let mut names = Vec::with_capacity(len);
+        for i in 0..len {
+            names.push(self.to_string_of(self.ary_entry(consts, i as i32)));
+        }
+        names
+    }
+
     /// Store `id_val` into a fresh `Kobako::RPC::Handle` instance's
     /// `@__kobako_id__` ivar. Used by the `Kobako::RPC::Handle#initialize`
     /// C bridge.

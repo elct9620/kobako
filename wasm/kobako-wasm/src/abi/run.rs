@@ -145,6 +145,14 @@ fn run_body(env_ptr: i32, env_len: i32) {
         Err(panic) => return write_panic(panic),
     };
 
+    // Baseline snapshot of top-level constants taken after kobako
+    // install + preamble materialisation but before snippet replay.
+    // Used to compute the E-27 `details:` payload — subtracting this
+    // baseline from a post-replay snapshot yields exactly the
+    // constants the preloaded snippets contributed
+    // (docs/behavior.md B-31 / E-27).
+    let baseline_constants = kobako.top_level_constants();
+
     if let Err(panic) = boot::replay_snippets(&mrb, &kobako, &snippets) {
         return write_panic(panic);
     }
@@ -212,12 +220,28 @@ fn run_body(env_ptr: i32, env_len: i32) {
     let object_value = unsafe { sys::kobako_class_value((*mrb.as_ptr()).object_class) };
 
     if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value, target_sym) } == 0 {
+        // Compute the snippet-contributed constants by subtracting the
+        // pre-replay baseline from the current top-level set. Wrapped
+        // as `{ "available" => [Sym, ...] }` so the host decoder can
+        // pull the Array via `panic.details["available"]`.
+        use std::collections::HashSet;
+        let baseline_set: HashSet<&String> = baseline_constants.iter().collect();
+        let post_constants = kobako.top_level_constants();
+        let available: Vec<Value> = post_constants
+            .into_iter()
+            .filter(|name| !baseline_set.contains(name))
+            .map(Value::Sym)
+            .collect();
+        let details = Value::Map(vec![(
+            Value::Str("available".into()),
+            Value::Array(available),
+        )]);
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::SandboxError".into(),
             message: format!("undefined entrypoint: {}", invocation.target),
             backtrace: Vec::new(),
-            details: None,
+            details: Some(details),
         });
     }
 
