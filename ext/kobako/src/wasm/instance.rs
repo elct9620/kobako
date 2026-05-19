@@ -386,6 +386,10 @@ impl Instance {
     /// Raises +Kobako::Wasm::Error+ when the guest export is missing or
     /// allocation fails (docs/behavior.md E-31).
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
+        // SAFETY: the `as_slice` borrow is consumed inline by the
+        // `data.copy_from_slice(bytes)` call below; no Ruby allocation
+        // runs between the borrow and that copy, so the underlying
+        // RString cannot move.
         let bytes: &[u8] = unsafe { envelope.as_slice() };
         let len = bytes.len();
         if len > i32::MAX as usize {

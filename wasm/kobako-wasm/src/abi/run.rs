@@ -230,6 +230,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
         }
     }
 
+    // SAFETY: `mrb` is alive per the &Mrb borrow; the ccontext is
+    // freed inside this block; `DISPATCH_WRAPPER` is a `'static &str`
+    // that outlives the `mrb_load_nstring_cxt` call by construction.
     let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
     if cxt.is_null() {
         return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
