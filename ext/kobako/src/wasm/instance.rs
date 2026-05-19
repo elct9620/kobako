@@ -255,11 +255,19 @@ impl Instance {
             .eval
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_eval"))?;
-        self.refresh_wasi(preamble, source, snippets)?;
+        // SAFETY: each `as_slice` borrow is scoped to building the stdin
+        // Vec inside `refresh_wasi`; no Ruby allocation happens between
+        // the borrow and the copy, so the underlying RString cannot move.
+        let (preamble_bytes, source_bytes, snippets_bytes) =
+            unsafe { (preamble.as_slice(), source.as_slice(), snippets.as_slice()) };
+        self.refresh_wasi(&[preamble_bytes, source_bytes, snippets_bytes]);
         self.prime_caps();
-        let result = self.call_guest(eval);
+        let result = {
+            let mut store_ref = self.store.borrow_mut();
+            eval.call(store_ref.as_context_mut(), ())
+        };
         self.disarm_caps();
-        result.map_err(|e| eval_call_err(&ruby, e))
+        result.map_err(|e| call_err(&ruby, "__kobako_eval", e))
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`).
@@ -282,12 +290,19 @@ impl Instance {
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        self.refresh_wasi_run(preamble, snippets)?;
+        // SAFETY: see [`Instance::eval`] — the two `as_slice` borrows
+        // outlive only the immediate copy into the stdin Vec.
+        let (preamble_bytes, snippets_bytes) =
+            unsafe { (preamble.as_slice(), snippets.as_slice()) };
+        self.refresh_wasi(&[preamble_bytes, snippets_bytes]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.prime_caps();
-        let result = self.call_guest_run(run, env_ptr, env_len);
+        let result = {
+            let mut store_ref = self.store.borrow_mut();
+            run.call(store_ref.as_context_mut(), (env_ptr, env_len))
+        };
         self.disarm_caps();
-        result.map_err(|e| run_call_err(&ruby, e))
+        result.map_err(|e| call_err(&ruby, "__kobako_run", e))
     }
 
     /// Return the stdout capture from the most recent run as a Ruby
@@ -361,29 +376,6 @@ impl Instance {
             .deactivate();
     }
 
-    /// Invoke the cached `__kobako_eval` TypedFunc against the live
-    /// Store. Lives in its own helper so [`Instance::eval`] reads as
-    /// the run-path outline (export check → refresh WASI → prime caps
-    /// → call guest → disarm caps → map errors) without the
-    /// `RefCell::borrow_mut` boilerplate inline.
-    fn call_guest(&self, run: &TypedFunc<(), ()>) -> wasmtime::Result<()> {
-        let mut store_ref = self.store.borrow_mut();
-        run.call(store_ref.as_context_mut(), ())
-    }
-
-    /// Mirror of [`Instance::call_guest`] for the entrypoint-dispatch
-    /// export — the i32 pair locates the invocation envelope inside
-    /// guest linear memory.
-    fn call_guest_run(
-        &self,
-        run: &TypedFunc<(i32, i32), ()>,
-        env_ptr: i32,
-        env_len: i32,
-    ) -> wasmtime::Result<()> {
-        let mut store_ref = self.store.borrow_mut();
-        run.call(store_ref.as_context_mut(), (env_ptr, env_len))
-    }
-
     /// Allocate a +len+-byte buffer in guest linear memory via
     /// `__kobako_alloc`, copy +envelope+ into it, and return +(ptr, len)+
     /// as +i32+ values matching the `__kobako_run(env_ptr, env_len)` ABI.
@@ -424,27 +416,24 @@ impl Instance {
         Ok((ptr as i32, len as i32))
     }
 
-    /// Rebuild the WASI context with fresh stdin (three-frame: preamble,
-    /// source, snippets — docs/wire-codec.md § Invocation channels) plus
-    /// fresh stdout/stderr pipes. Called at the top of every `#run`. Each
-    /// pipe is sized at `cap + 1` so [`Instance::stdout`] /
-    /// [`Instance::stderr`] can distinguish "wrote exactly cap bytes"
-    /// from "exceeded cap"; uncapped channels fall back to `usize::MAX`
-    /// and rely on `memory_limit` (E-20) for the real ceiling.
-    /// Variant of [`Instance::refresh_wasi`] for the entrypoint-dispatch
-    /// path: no user-source frame (docs/wire-codec.md § Invocation
-    /// channels — `__kobako_run` reads only Frame 1 + Frame 3 from
-    /// stdin; the invocation envelope arrives via linear memory).
-    fn refresh_wasi_run(&self, preamble: RString, snippets: RString) -> Result<(), MagnusError> {
-        let preamble_bytes: &[u8] = unsafe { preamble.as_slice() };
-        let snippets_bytes: &[u8] = unsafe { snippets.as_slice() };
-
-        let mut stdin_content: Vec<u8> =
-            Vec::with_capacity(4 + preamble_bytes.len() + 4 + snippets_bytes.len());
-        stdin_content.extend_from_slice(&(preamble_bytes.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(preamble_bytes);
-        stdin_content.extend_from_slice(&(snippets_bytes.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(snippets_bytes);
+    /// Rebuild the WASI context with fresh stdin (carrying every frame in
+    /// +frames+, each prefixed by its 4-byte big-endian u32 length —
+    /// docs/wire-codec.md § Invocation channels) plus fresh stdout / stderr
+    /// pipes. Called at the top of every guest invocation: +#eval+ passes
+    /// three frames (preamble, source, snippets), +#run+ passes two
+    /// (preamble, snippets — the invocation envelope arrives via linear
+    /// memory instead). Each output pipe is sized at `cap + 1` so
+    /// [`Instance::stdout`] / [`Instance::stderr`] can distinguish "wrote
+    /// exactly cap bytes" from "exceeded cap"; uncapped channels fall back
+    /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
+    /// for the real ceiling.
+    fn refresh_wasi(&self, frames: &[&[u8]]) {
+        let total: usize = frames.iter().map(|f| 4 + f.len()).sum();
+        let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
+        for frame in frames {
+            stdin_content.extend_from_slice(&(frame.len() as u32).to_be_bytes());
+            stdin_content.extend_from_slice(frame);
+        }
 
         let stdin_pipe = MemoryInputPipe::new(stdin_content);
         let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));
@@ -460,53 +449,6 @@ impl Instance {
             .borrow_mut()
             .data_mut()
             .install_wasi(wasi, stdout_pipe, stderr_pipe);
-
-        Ok(())
-    }
-
-    fn refresh_wasi(
-        &self,
-        preamble: RString,
-        source: RString,
-        snippets: RString,
-    ) -> Result<(), MagnusError> {
-        // SAFETY: `as_slice` borrows are scoped to building the stdin Vec
-        // below — no Ruby allocations happen between the borrow and the
-        // copy, so the underlying RString cannot move.
-        let preamble_bytes: &[u8] = unsafe { preamble.as_slice() };
-        let source_bytes: &[u8] = unsafe { source.as_slice() };
-        let snippets_bytes: &[u8] = unsafe { snippets.as_slice() };
-
-        let mut stdin_content: Vec<u8> = Vec::with_capacity(
-            4 + preamble_bytes.len() + 4 + source_bytes.len() + 4 + snippets_bytes.len(),
-        );
-        // Frame 1 — preamble
-        stdin_content.extend_from_slice(&(preamble_bytes.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(preamble_bytes);
-        // Frame 2 — user script
-        stdin_content.extend_from_slice(&(source_bytes.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(source_bytes);
-        // Frame 3 — snippets (mandatory-presence: empty table sends an
-        // empty msgpack array, never an absent frame).
-        stdin_content.extend_from_slice(&(snippets_bytes.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(snippets_bytes);
-
-        let stdin_pipe = MemoryInputPipe::new(stdin_content);
-        let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));
-        let stderr_pipe = MemoryOutputPipe::new(pipe_capacity(self.stderr_limit_bytes));
-
-        let mut builder = WasiCtxBuilder::new();
-        builder.stdin(stdin_pipe);
-        builder.stdout(stdout_pipe.clone());
-        builder.stderr(stderr_pipe.clone());
-        let wasi = builder.build_p1();
-
-        self.store
-            .borrow_mut()
-            .data_mut()
-            .install_wasi(wasi, stdout_pipe, stderr_pipe);
-
-        Ok(())
     }
 
     /// Invoke `__kobako_take_outcome`, decode the packed +(ptr<<32)|len+
@@ -669,20 +611,11 @@ fn epoch_deadline_callback(
 }
 
 /// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
-/// exception class. `__kobako_eval` traps are downcast to identify the
-/// configured-cap path (docs/behavior.md E-19 / E-20); everything else surfaces
-/// as the base `Kobako::Wasm::Error`.
-fn eval_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    call_err(ruby, "__kobako_eval", err)
-}
-
-/// Sibling of [`eval_call_err`] for the entrypoint-dispatch export; the
-/// trap surface and configured-cap handling are identical, only the
-/// export name in the failure message differs.
-fn run_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    call_err(ruby, "__kobako_run", err)
-}
-
+/// exception class. `__kobako_eval` / `__kobako_run` traps are downcast
+/// to identify the configured-cap path (docs/behavior.md E-19 / E-20);
+/// everything else surfaces as the base `Kobako::Wasm::Error`. +export+
+/// is the failing export name and appears in the trap message so the
+/// Sandbox layer can attribute the fault to the right verb.
 fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
         return timeout_err(ruby, format!("{}(): {}", export, err));
@@ -697,8 +630,7 @@ fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
 /// exception. The memory cap is dormant during instantiation by design
 /// (see [`HostState::set_memory_cap_active`]), but [`MemoryLimitTrap`]
 /// is still possible if a future Sandbox configuration enables it
-/// during instantiation — keep the mapping symmetric with
-/// [`run_call_err`].
+/// during instantiation — keep the mapping symmetric with [`call_err`].
 fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     if err.downcast_ref::<MemoryLimitTrap>().is_some() {
         return memory_limit_err(ruby, format!("instantiate: {}", err));
