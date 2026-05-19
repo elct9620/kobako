@@ -230,18 +230,24 @@ impl Instance {
     /// Execute one guest run.
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
-    /// (the two-frame stdin protocol carries +preamble+ then +source+ —
-    /// docs/wire-codec.md § ABI Signatures), then invokes `__kobako_run`. Per-run
-    /// caps (docs/behavior.md B-01) are primed here: the wall-clock deadline is
-    /// stamped into [`HostState`] and the epoch deadline is set to fire
-    /// at the next ticker tick; the memory-cap limiter is already wired.
-    pub(crate) fn run(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
+    /// (the three-frame stdin protocol carries +preamble+, +source+, then
+    /// +snippets+ — docs/wire-codec.md § Invocation channels), then
+    /// invokes `__kobako_run`. Per-run caps (docs/behavior.md B-01) are
+    /// primed here: the wall-clock deadline is stamped into [`HostState`]
+    /// and the epoch deadline is set to fire at the next ticker tick; the
+    /// memory-cap limiter is already wired.
+    pub(crate) fn run(
+        &self,
+        preamble: RString,
+        source: RString,
+        snippets: RString,
+    ) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let run = self
             .run
             .as_ref()
             .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
-        self.refresh_wasi(preamble, source)?;
+        self.refresh_wasi(preamble, source, snippets)?;
         self.prime_caps();
         let result = self.call_guest(run);
         self.disarm_caps();
@@ -329,27 +335,39 @@ impl Instance {
         run.call(store_ref.as_context_mut(), ())
     }
 
-    /// Rebuild the WASI context with fresh stdin (two-frame: preamble then
-    /// source) plus fresh stdout/stderr pipes. Called at the top of every
-    /// `#run`. Each pipe is sized at `cap + 1` so [`Instance::stdout`] /
+    /// Rebuild the WASI context with fresh stdin (three-frame: preamble,
+    /// source, snippets — docs/wire-codec.md § Invocation channels) plus
+    /// fresh stdout/stderr pipes. Called at the top of every `#run`. Each
+    /// pipe is sized at `cap + 1` so [`Instance::stdout`] /
     /// [`Instance::stderr`] can distinguish "wrote exactly cap bytes"
     /// from "exceeded cap"; uncapped channels fall back to `usize::MAX`
     /// and rely on `memory_limit` (E-20) for the real ceiling.
-    fn refresh_wasi(&self, preamble: RString, source: RString) -> Result<(), MagnusError> {
+    fn refresh_wasi(
+        &self,
+        preamble: RString,
+        source: RString,
+        snippets: RString,
+    ) -> Result<(), MagnusError> {
         // SAFETY: `as_slice` borrows are scoped to building the stdin Vec
         // below — no Ruby allocations happen between the borrow and the
         // copy, so the underlying RString cannot move.
         let preamble_bytes: &[u8] = unsafe { preamble.as_slice() };
         let source_bytes: &[u8] = unsafe { source.as_slice() };
+        let snippets_bytes: &[u8] = unsafe { snippets.as_slice() };
 
-        let mut stdin_content: Vec<u8> =
-            Vec::with_capacity(4 + preamble_bytes.len() + 4 + source_bytes.len());
+        let mut stdin_content: Vec<u8> = Vec::with_capacity(
+            4 + preamble_bytes.len() + 4 + source_bytes.len() + 4 + snippets_bytes.len(),
+        );
         // Frame 1 — preamble
         stdin_content.extend_from_slice(&(preamble_bytes.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(preamble_bytes);
         // Frame 2 — user script
         stdin_content.extend_from_slice(&(source_bytes.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(source_bytes);
+        // Frame 3 — snippets (mandatory-presence: empty table sends an
+        // empty msgpack array, never an absent frame).
+        stdin_content.extend_from_slice(&(snippets_bytes.len() as u32).to_be_bytes());
+        stdin_content.extend_from_slice(snippets_bytes);
 
         let stdin_pipe = MemoryInputPipe::new(stdin_content);
         let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));

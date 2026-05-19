@@ -178,6 +178,56 @@ pub extern "C" fn __kobako_run() {
             Some(groups)
         }
 
+        // Decode `[{name, kind, body}, ...]` from the Frame 3 msgpack
+        // bytes. Each entry is a map with string keys "name", "kind",
+        // "body"; `kind` must be "source" in this revision
+        // (docs/wire-codec.md § Invocation channels). Returns `None` on
+        // any structural / type / kind violation — caller writes a Panic
+        // envelope.
+        fn decode_snippets(bytes: &[u8]) -> Option<Vec<(String, String)>> {
+            use crate::codec::Decoder;
+            let mut dec = Decoder::new(bytes);
+            let outer = dec.read_value().ok()?;
+            let outer_arr = match outer {
+                Value::Array(items) => items,
+                _ => return None,
+            };
+            let mut entries = Vec::with_capacity(outer_arr.len());
+            for item in outer_arr {
+                let pairs = match item {
+                    Value::Map(p) => p,
+                    _ => return None,
+                };
+                let mut name: Option<String> = None;
+                let mut kind: Option<String> = None;
+                let mut body: Option<String> = None;
+                for (k, v) in pairs {
+                    let key = match k {
+                        Value::Str(s) => s,
+                        _ => return None,
+                    };
+                    let value = match v {
+                        Value::Str(s) => s,
+                        _ => return None,
+                    };
+                    match key.as_str() {
+                        "name" => name = Some(value),
+                        "kind" => kind = Some(value),
+                        "body" => body = Some(value),
+                        _ => {}
+                    }
+                }
+                let name = name?;
+                let kind = kind?;
+                let body = body?;
+                if kind != "source" {
+                    return None;
+                }
+                entries.push((name, body));
+            }
+            Some(entries)
+        }
+
         fn write_panic_outcome(origin: &str, class: &str, message: &str, backtrace: Vec<String>) {
             let panic = Panic {
                 origin: origin.to_string(),
@@ -243,6 +293,35 @@ pub extern "C" fn __kobako_run() {
             }
         };
 
+        // --- Frame 3: read snippets (mandatory-presence; empty table
+        // arrives as an empty msgpack array). ---
+
+        let frame3 = match read_frame() {
+            Some(b) => b,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to read snippets frame",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+
+        let snippets = match decode_snippets(&frame3) {
+            Some(s) => s,
+            None => {
+                write_panic_outcome(
+                    "sandbox",
+                    "Kobako::BootError",
+                    "failed to decode snippets msgpack",
+                    Vec::new(),
+                );
+                return;
+            }
+        };
+
         // --- mruby VM init ---
         //
         // `Mrb::open` wraps `mrb_open` with NULL handling and ties the VM
@@ -295,6 +374,73 @@ pub extern "C" fn __kobako_run() {
             }
         }
 
+        // --- Frame 3 replay: load each snippet ---
+        //
+        // Each snippet's `(snippet:Name)` filename is the locator the
+        // host uses to attribute an E-32 / E-36 failure back to the
+        // originating #preload call (docs/behavior.md B-32). The
+        // ccontext is rebuilt per-snippet so each IREP carries the
+        // correct debug_info filename.
+        let mut snippet_failure: Option<(String, String, String, Vec<String>)> = None;
+        for (name, body) in &snippets {
+            let cxt = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
+            if cxt.is_null() {
+                snippet_failure = Some((
+                    "sandbox".to_string(),
+                    "Kobako::BootError".to_string(),
+                    "mrb_ccontext_new returned NULL".to_string(),
+                    Vec::new(),
+                ));
+                break;
+            }
+            let filename = format!("(snippet:{})\0", name);
+            unsafe {
+                sys::mrb_ccontext_filename(
+                    mrb.as_ptr(),
+                    cxt,
+                    filename.as_ptr() as *const core::ffi::c_char,
+                );
+                sys::mrb_load_nstring_cxt(
+                    mrb.as_ptr(),
+                    body.as_ptr() as *const core::ffi::c_char,
+                    body.len(),
+                    cxt,
+                );
+                sys::mrb_ccontext_free(mrb.as_ptr(), cxt);
+            }
+
+            let exc_val = unsafe { sys::kobako_get_exc(mrb.as_ptr()) };
+            if exc_val.w == 0 {
+                continue;
+            }
+            let class_name = unsafe {
+                let cn = exc_val.classname(mrb.as_ptr());
+                if cn.is_empty() {
+                    "RuntimeError".to_string()
+                } else {
+                    cn.to_string()
+                }
+            };
+            let message = unsafe {
+                let m = exc_val
+                    .call(mrb.as_ptr(), cstr!("message"), &[])
+                    .to_string(mrb.as_ptr());
+                if m.is_empty() {
+                    class_name.clone()
+                } else {
+                    m
+                }
+            };
+            let backtrace = kobako.extract_backtrace(exc_val);
+            let _ = unsafe { sys::mrb_check_error(mrb.as_ptr()) };
+            snippet_failure = Some(("sandbox".to_string(), class_name, message, backtrace));
+            break;
+        }
+        if let Some((origin, class, message, backtrace)) = snippet_failure {
+            write_panic_outcome(&origin, &class, &message, backtrace);
+            return;
+        }
+
         // --- Frame 2: evaluate user script ---
         //
         // `mrb_load_nstring` internally installs its own MRB_TRY frame inside
@@ -328,7 +474,7 @@ pub extern "C" fn __kobako_run() {
             );
             return;
         }
-        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(script)")) };
+        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), cxt, cstr!("(eval)")) };
         let result_val = unsafe {
             sys::mrb_load_nstring_cxt(
                 mrb.as_ptr(),

@@ -25,7 +25,7 @@ module Kobako
 
       def server=: (Kobako::RPC::Server server) -> void
 
-      def run: (String preamble, String source) -> void
+      def run: (String preamble, String source, String snippets) -> void
 
       def stdout: () -> [String, bool]
 

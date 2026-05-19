@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "msgpack"
+
 module Kobako
   # Kobako::SnippetTable — per-Sandbox ordered registry of preloaded source
   # snippets ({docs/behavior.md B-32 / B-33}[link:../../docs/behavior.md]).
@@ -21,8 +23,27 @@ module Kobako
     # ({docs/behavior.md E-34}[link:../../docs/behavior.md]).
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
+    # The only legal value of the +kind+ field on a Frame 3 snippet entry
+    # in this revision; the slot exists as a forward-compatibility point
+    # for the future bytecode preload path
+    # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]).
+    SOURCE_KIND = "source"
+
     def initialize
       @entries = {} # : Hash[Symbol, String]
+    end
+
+    # Encode the registered snippets as Frame 3 msgpack bytes
+    # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]).
+    # Layout: msgpack array, one msgpack map per snippet with string keys
+    # +"name"+, +"kind"+, +"body"+. Mandatory-presence — an empty table
+    # encodes as an empty array, never absent. Returns a binary +String+
+    # of msgpack bytes.
+    def encoded_frame3
+      entries = @entries.map do |name, body|
+        { "name" => name.to_s, "kind" => SOURCE_KIND, "body" => body }
+      end
+      MessagePack.pack(entries)
     end
 
     # Register +code+ under the canonical Symbol form of +name+. +code+ is

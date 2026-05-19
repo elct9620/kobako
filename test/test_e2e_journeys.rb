@@ -870,4 +870,44 @@ class TestE2EJourneys < Minitest::Test
     assert_nil sandbox.memory_limit
     assert_equal 3, sandbox.eval("1 + 2")
   end
+
+  # B-32: preloaded snippets replay in insertion order against the fresh
+  # mrb_state before each invocation. The first snippet defines a top-
+  # level constant; subsequent invocations on the same Sandbox observe
+  # it because the snippet table re-runs on every #eval, not just once.
+  def test_b32_preloaded_snippet_is_visible_to_eval
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "ANSWER = 42", name: :Answers)
+
+    assert_equal 42, sandbox.eval("ANSWER")
+  end
+
+  def test_b32_preloaded_snippets_replay_across_invocations
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "ANSWER = 42", name: :Answers)
+
+    assert_equal 42, sandbox.eval("ANSWER")
+    assert_equal 42, sandbox.eval("ANSWER")
+  end
+
+  def test_b32_preloaded_snippets_replay_in_insertion_order
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "BASE = 10", name: :Alpha)
+    sandbox.preload(code: "EXTENDED = BASE * 2", name: :Beta)
+
+    assert_equal 20, sandbox.eval("EXTENDED")
+  end
+
+  # E-36: a preloaded snippet whose top-level expression raises during
+  # replay surfaces as Kobako::SandboxError with the backtrace attributed
+  # to the snippet's `(snippet:Name)` filename.
+  def test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: 'raise "broken at preload"', name: :Broken)
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
+    assert_match(/broken at preload/, err.message)
+    assert err.backtrace_lines.any? { |line| line.include?("(snippet:Broken)") },
+           "expected backtrace to reference (snippet:Broken), got #{err.backtrace_lines.inspect}"
+  end
 end

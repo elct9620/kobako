@@ -137,19 +137,23 @@ module Kobako
     # mruby source as a UTF-8 String. Returns the deserialized last
     # expression of the source.
     #
-    # Source delivery uses the WASI stdin two-frame protocol
-    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]):
+    # Source delivery uses the WASI stdin three-frame protocol
+    # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]):
     # Frame 1 carries the msgpack-encoded preamble (Namespace / Member
-    # registry snapshot) and Frame 2 carries the user source UTF-8 bytes.
-    # Each frame is prefixed by a 4-byte big-endian u32 length.
+    # registry snapshot), Frame 2 carries the user source UTF-8 bytes, and
+    # Frame 3 carries the snippet table registered via +#preload+ (B-32).
+    # Each frame is prefixed by a 4-byte big-endian u32 length; Frame 3 is
+    # mandatory-presence — an empty snippet table sends an empty msgpack
+    # array, never an absent frame.
     #
-    # The first invocation seals the Service registry
-    # ({docs/behavior.md B-07}[link:../../docs/behavior.md]); subsequent +#define+
-    # calls raise +ArgumentError+.
+    # The first invocation seals the Service registry and snippet table
+    # ({docs/behavior.md B-07 / B-33}[link:../../docs/behavior.md]); subsequent
+    # +#define+ / +#preload+ calls raise +ArgumentError+.
     #
     # Raises +Kobako::TrapError+ on a Wasm trap or wire-violation fallback;
     # +Kobako::SandboxError+ when the guest ran to completion but failed
-    # (including when +code+ is +nil+ or not a String);
+    # (including when +code+ is +nil+ or not a String, or when a preloaded
+    # snippet's replay raises — E-36);
     # +Kobako::ServiceError+ on an unrescued Service capability failure.
     def eval(code)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
@@ -157,7 +161,7 @@ module Kobako
       @services.seal!
       reset_invocation_state!
 
-      run_guest(@services.encoded_preamble, code.b)
+      run_guest(@services.encoded_preamble, code.b, @snippets.encoded_frame3)
       read_captures!
       take_result!
     end
@@ -222,14 +226,15 @@ module Kobako
       @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
     end
 
-    # Drive +Instance#run+ with the two stdin frames (preamble + source).
-    # Wraps wasmtime / wire errors in TrapError so the Sandbox layer maps
-    # cleanly to the three-class taxonomy. The configured-cap paths
-    # (docs/behavior.md E-19 / E-20) are routed to the named TrapError subclasses
-    # so callers that want to surface a specific reason can rescue them;
-    # everything else falls through to the base TrapError.
-    def run_guest(preamble, source)
-      @instance.run(preamble, source)
+    # Drive +Instance#run+ with the three stdin frames (preamble + source
+    # + snippets). Wraps wasmtime / wire errors in TrapError so the
+    # Sandbox layer maps cleanly to the three-class taxonomy. The
+    # configured-cap paths (docs/behavior.md E-19 / E-20) are routed to
+    # the named TrapError subclasses so callers that want to surface a
+    # specific reason can rescue them; everything else falls through to
+    # the base TrapError.
+    def run_guest(preamble, source, snippets)
+      @instance.run(preamble, source, snippets)
     rescue Kobako::Wasm::TimeoutError => e
       raise TimeoutError, "guest exceeded timeout: #{e.message}"
     rescue Kobako::Wasm::MemoryLimitError => e

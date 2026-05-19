@@ -2,9 +2,13 @@ module Kobako
   class SnippetTable
     NAME_PATTERN: Regexp
 
+    SOURCE_KIND: String
+
     def initialize: () -> void
 
     def register: (String code, Symbol | String name) -> Symbol
+
+    def encoded_frame3: () -> String
 
     def each: () { ([Symbol, String]) -> void } -> Hash[Symbol, String]
             | () -> Enumerator[[Symbol, String], Hash[Symbol, String]]

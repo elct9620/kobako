@@ -49,7 +49,7 @@ module Kobako
 
     def read_captures!: () -> void
 
-    def run_guest: (String preamble, String source) -> void
+    def run_guest: (String preamble, String source, String snippets) -> void
 
     def take_result!: () -> untyped
   end
