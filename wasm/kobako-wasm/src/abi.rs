@@ -954,7 +954,7 @@ fn write_outcome(bytes: Vec<u8>) {
 ///
 /// Delegates to `malloc` from wasi-libc. The allocated buffer is intentionally
 /// not freed — its lifetime is bounded by the wasm instance lifetime (one
-/// `Sandbox#run` invocation). The host writes the RPC response into this
+/// Sandbox invocation). The host writes the RPC response into this
 /// buffer inside the `__kobako_dispatch` callback, then the response is
 /// consumed synchronously before the RPC call returns, so the buffer does
 /// not need to outlive the call frame. Instance drop frees all linear memory

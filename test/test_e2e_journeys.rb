@@ -910,4 +910,31 @@ class TestE2EJourneys < Minitest::Test
     assert err.backtrace_lines.any? { |line| line.include?("(snippet:Broken)") },
            "expected backtrace to reference (snippet:Broken), got #{err.backtrace_lines.inspect}"
   end
+
+  # J-07 — Host App preloads a worker and dispatches many invocations.
+  # SPEC.md L243-254: setup-once / dispatch-many pattern using #preload +
+  # #run. Per-invocation isolation (B-03) means no state leaks between
+  # successive #run calls on the same Sandbox.
+  def test_j07_preload_worker_and_dispatch_many_requests
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(
+      code: "class Worker; def self.call(req, multiplier: 1); req * multiplier; end; end",
+      name: :Worker
+    )
+
+    assert_equal 2, sandbox.run(:Worker, 2)
+    assert_equal 9, sandbox.run(:Worker, 3, multiplier: 3)
+    assert_equal 20, sandbox.run(:Worker, 4, multiplier: 5)
+  end
+
+  # J-07 follow-up: #run and #eval interleave freely on the same Sandbox;
+  # both verbs replay the snippet table from a fresh mrb_state.
+  def test_j07_eval_and_run_interleave_with_isolated_state
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "Worker = ->(n) { n * n }", name: :Worker)
+
+    assert_equal 16, sandbox.run(:Worker, 4)
+    assert_equal 16, sandbox.eval("Worker.call(3) + 7")
+    assert_equal 25, sandbox.run(:Worker, 5)
+  end
 end

@@ -9,10 +9,11 @@
 // What this file does NOT do (yet)
 // --------------------------------
 // * It does not run `bindgen`. The mruby C-API binding (`mrb_define_method`,
-//   `mrb_state`, `mrb_value`, `mrb_load_string`, …) referenced by item #16
-//   (Sandbox#run wiring) lands together with that item. Adding bindgen here
-//   would force this build step to depend on a working libclang on every
-//   developer machine, which is heavier than item #11's contract requires.
+//   `mrb_state`, `mrb_value`, `mrb_load_string`, …) referenced by the
+//   Sandbox invocation paths lands hand-rolled (see `src/mruby/sys.rs`).
+//   Adding bindgen here would force this build step to depend on a working
+//   libclang on every developer machine, which is heavier than the build
+//   contract requires.
 // * It does not validate the mruby archive. The Rake driver
 //   (tasks/wasm.rake :: wasm:build) builds libmruby.a immediately before this
 //   build script runs, and the wasm-binary invariant test (item #9, executed

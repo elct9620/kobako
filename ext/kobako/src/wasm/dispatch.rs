@@ -56,11 +56,12 @@ pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
 /// failed (it is contracted never to raise — see
 /// `Kobako::RPC::Server#dispatch`), which we treat as a wire-layer fault.
 fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
-    // The wasmtime callback runs on the same Ruby thread that called
-    // Sandbox#run — the invariant SPEC Implementation Standards
-    // Architecture pins for the host gem — so `Ruby::get()` is always
-    // available here. Panicking with `expect` localises the violation
-    // rather than letting a nonsense error propagate.
+    // The wasmtime callback runs on the same Ruby thread that called the
+    // active Sandbox invocation (#eval or #run) — the invariant SPEC
+    // Implementation Standards Architecture pins for the host gem — so
+    // `Ruby::get()` is always available here. Panicking with `expect`
+    // localises the violation rather than letting a nonsense error
+    // propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
     let server_value: Value = ruby.get_inner(server);
     let req_str = ruby.str_from_slice(req_bytes);
