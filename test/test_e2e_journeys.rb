@@ -964,8 +964,11 @@ class TestE2EJourneys < Minitest::Test
   # successive #run calls on the same Sandbox.
   def test_j07_preload_worker_and_dispatch_many_requests
     sandbox = Kobako::Sandbox.new
+    # B-31 (mruby C API limitation): kwargs land as a trailing positional
+    # Hash, so entrypoints take a Hash parameter and unpack it themselves.
+    # See test_sandbox_run.rb:test_b31_passes_keyword_args_as_trailing_positional_hash.
     sandbox.preload(
-      code: "class Worker; def self.call(req, multiplier: 1); req * multiplier; end; end",
+      code: "class Worker; def self.call(req, opts = {}); req * (opts[:multiplier] || 1); end; end",
       name: :Worker
     )
 

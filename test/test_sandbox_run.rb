@@ -71,9 +71,17 @@ class TestSandboxRun < Minitest::Test
     assert_equal 5, sandbox.run(:Adder, 2, 3)
   end
 
-  def test_b31_passes_keyword_args_to_entrypoint
+  # B-31 (mruby C API limitation): kwargs are delivered to the entrypoint as
+  # a trailing positional Hash, because `mrb_funcall_argv` forces
+  # `ci->nk = 0` on every call (vendor/mruby/src/vm.c:740 — "funcall does not
+  # support keyword arguments"). Entrypoints declare a positional Hash
+  # parameter (`def call(req, opts = {})` / `->(req, opts) { ... }`) and
+  # unpack it themselves; a Ruby-flavour `def call(name:)` signature
+  # cannot be reached from the host C side without re-introducing the
+  # wrapper-eval workaround.
+  def test_b31_passes_keyword_args_as_trailing_positional_hash
     sandbox = Kobako::Sandbox.new
-    sandbox.preload(code: 'Greeter = ->(name:) { "hello " + name }', name: :Greeter)
+    sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)
 
     assert_equal "hello world", sandbox.run(:Greeter, name: "world")
   end

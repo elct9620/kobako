@@ -569,6 +569,35 @@ extern "C" {
     /// `kobako_false_value()` — wraps mruby's `mrb_false_value()` macro.
     pub fn kobako_false_value() -> mrb_value;
 
+    /// `kobako_class_value(c)` — C shim that wraps mruby's inline
+    /// `mrb_obj_value(p)` so a cached `*mut RClass` can be folded back
+    /// into the `mrb_value` form expected by `mrb_const_defined` /
+    /// `mrb_const_get`. Implementation lives in `src/mruby/value.c`.
+    pub fn kobako_class_value(c: *mut RClass) -> mrb_value;
+
+    /// `mrb_const_defined(mrb, mod, sym)` — TRUE when constant `sym` is
+    /// defined on `mod` (with inheritance). The `mod` argument must be
+    /// the `mrb_value` form of a module / class — wrap a cached
+    /// `*mut RClass` via [`kobako_class_value`] before calling.
+    pub fn mrb_const_defined(mrb: *mut mrb_state, mod_: mrb_value, sym: mrb_sym) -> mrb_bool;
+
+    /// `mrb_const_get(mrb, mod, sym)` — fetch the constant value at
+    /// `sym` from `mod`. Sets `mrb->exc` if the constant is undefined,
+    /// so callers should gate with [`mrb_const_defined`] first.
+    pub fn mrb_const_get(mrb: *mut mrb_state, mod_: mrb_value, sym: mrb_sym) -> mrb_value;
+
+    /// `mrb_respond_to(mrb, obj, mid)` — TRUE when `obj` answers to
+    /// the method named by `mid`. Used to enforce the E-28 entrypoint
+    /// constraint (the resolved constant must respond to `:call`).
+    pub fn mrb_respond_to(mrb: *mut mrb_state, obj: mrb_value, mid: mrb_sym) -> mrb_bool;
+
+    /// `mrb_intern_str(mrb, str)` — intern the bytes of an mruby
+    /// String value as a Symbol. Used to turn a host-decoded
+    /// entrypoint name (which arrives as a `Vec<u8>` of arbitrary
+    /// length, not necessarily NUL-safe) into a symbol without the
+    /// NUL-termination requirement of [`mrb_intern_cstr`].
+    pub fn mrb_intern_str(mrb: *mut mrb_state, str: mrb_value) -> mrb_sym;
+
     /// `kobako_io_fwrite(mrb, fd, argv, argc)` — C shim that coerces
     /// each `argv[i]` to a String (via `mrb_obj_as_string`) and writes
     /// its bytes to the fd-selected stream: `fd == 2` routes to

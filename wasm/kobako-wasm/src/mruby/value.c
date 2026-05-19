@@ -41,6 +41,7 @@
 
 #include "mruby.h"
 #include "mruby/value.h"
+#include "mruby/class.h"
 #include <stdint.h>
 
 /* ─── Type predicates ───────────────────────────────────────────── */
@@ -96,4 +97,18 @@ MRB_API mrb_value
 kobako_false_value(void)
 {
   return mrb_false_value();
+}
+
+/* ─── Class → mrb_value wrapping ─────────────────────────────────── */
+/*
+ * `mrb_obj_value(p)` is an inline function in `mruby/value.h` whose
+ * expansion encodes the word-box object tag. Calling it from Rust
+ * requires a real `MRB_API` thunk; `kobako_class_value(c)` packages a
+ * `struct RClass *` (the form the kobako install paths cache) into the
+ * `mrb_value` the `mrb_const_defined` / `mrb_const_get` family expects.
+ */
+MRB_API mrb_value
+kobako_class_value(struct RClass *c)
+{
+  return mrb_obj_value(c);
 }

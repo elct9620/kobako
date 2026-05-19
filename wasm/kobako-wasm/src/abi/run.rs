@@ -15,39 +15,17 @@
 //! 2. Decode the invocation envelope from `(env_ptr, env_len)` via
 //!    [`parse_invocation`]. Decode failure writes a Panic envelope
 //!    (E-26).
-//! 3. Stash `args` / `kwargs` / `entrypoint` in the three mruby globals
-//!    pinned by [`dispatch_globals`] and evaluate [`DISPATCH_WRAPPER`]
-//!    under filename `(dispatch)`. The wrapper checks
-//!    `Object.const_defined?` (E-27) and `respond_to?(:call)` (E-28)
-//!    before invoking `target.call(*args, **kwargs)`.
-//! 4. Serialize the return value as a Result envelope or convert the
-//!    pending mruby exception into a Panic envelope.
-
-/// Names of the three guest-side mruby globals that carry the
-/// invocation tuple from `__kobako_run` into [`DISPATCH_WRAPPER`].
-/// Both ends of the wire ABI agree on these literals — Rust stashes
-/// the values, the wrapper reads them. Each constant is NUL-terminated
-/// to match the `mrb_intern_cstr` signature without an extra
-/// allocation.
-#[cfg(any(target_arch = "wasm32", test))]
-pub(super) mod dispatch_globals {
-    /// `$__kobako_run_target__` — the entrypoint Symbol (as a String).
-    pub const TARGET: &[u8] = b"$__kobako_run_target__\0";
-    /// `$__kobako_run_args__` — the positional args (mruby Array).
-    pub const ARGS: &[u8] = b"$__kobako_run_args__\0";
-    /// `$__kobako_run_kwargs__` — the keyword args (mruby Hash).
-    pub const KWARGS: &[u8] = b"$__kobako_run_kwargs__\0";
-}
-
-/// The mruby dispatch wrapper evaluated by `__kobako_run` after the
-/// invocation tuple has been stashed in [`dispatch_globals`]. Loaded
-/// under filename `(dispatch)` so any wrapper-level failure carries a
-/// clear locator; entrypoint failures keep the `(snippet:Name)` frame
-/// from docs/behavior.md B-32 in their backtrace. Source lives in
-/// `dispatch_wrapper.rb` (alongside this file) so editors can
-/// syntax-highlight and lint the Ruby.
-#[cfg(target_arch = "wasm32")]
-const DISPATCH_WRAPPER: &str = include_str!("dispatch_wrapper.rb");
+//! 3. Resolve the entrypoint Symbol against top-level `Object` via
+//!    [`sys::mrb_const_defined`] (E-27) and confirm the constant
+//!    responds to `:call` via [`sys::mrb_respond_to`] (E-28). Each
+//!    failure writes a Panic envelope directly with the SPEC-mandated
+//!    `Kobako::SandboxError` class string.
+//! 4. Invoke `target.call(*args, **kwargs)` through `mrb_funcall_argv`
+//!    by concatenating the decoded args Array and (when non-empty)
+//!    appending the kwargs Hash as the trailing element — the same
+//!    layout `Method#call` uses internally. Serialize the return
+//!    value as a Result envelope or convert the pending mruby
+//!    exception into a Panic envelope.
 
 #[cfg(any(target_arch = "wasm32", test))]
 use crate::codec::Value;
@@ -150,8 +128,6 @@ fn run_body(env_ptr: i32, env_len: i32) {
     use super::boot;
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::codec::Decoder;
-    use crate::cstr;
-    use crate::mruby::ccontext::Ccontext;
     use crate::mruby::sys;
     use crate::outcome::{encode_outcome, Outcome, Panic};
 
@@ -215,36 +191,107 @@ fn run_body(env_ptr: i32, env_len: i32) {
         }
     };
 
-    let target_mrb = kobako.to_mrb_value(Value::Sym(invocation.target.clone()));
-    let args_mrb = kobako.to_mrb_value(invocation.args);
-    let kwargs_mrb = kobako.to_mrb_value(invocation.kwargs);
-    // SAFETY: bridge frame — all `mrb_value`s come from the same VM,
-    // and `mrb_intern_cstr` accepts the static NUL-terminated names
-    // from [`dispatch_globals`].
-    unsafe {
-        for (name, value) in [
-            (dispatch_globals::TARGET, target_mrb),
-            (dispatch_globals::ARGS, args_mrb),
-            (dispatch_globals::KWARGS, kwargs_mrb),
-        ] {
-            sys::mrb_gv_set(
-                mrb.as_ptr(),
-                sys::mrb_intern_cstr(mrb.as_ptr(), crate::mruby::value::cstr_ptr(name)),
-                value,
-            );
-        }
+    // Resolve entrypoint Symbol against top-level `Object`. The whole
+    // dispatch — const lookup (E-27), `respond_to?(:call)` gate
+    // (E-28), and the `target.call(*args, **kwargs)` invocation —
+    // runs through the mruby C API. No Ruby trampoline, no global
+    // variable injection.
+    //
+    // SAFETY: `mrb` is live by `open_with_preamble` contract; the
+    // cached `object_class` pointer was produced by the same
+    // `mrb_state` and is GC-stable. Every `mrb_value` constructed
+    // here originates from this VM.
+    let target_sym = unsafe {
+        let name_str = sys::mrb_str_new(
+            mrb.as_ptr(),
+            invocation.target.as_ptr() as *const core::ffi::c_char,
+            invocation.target.len() as i32,
+        );
+        sys::mrb_intern_str(mrb.as_ptr(), name_str)
+    };
+    let object_value = unsafe { sys::kobako_class_value((*mrb.as_ptr()).object_class) };
+
+    if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value, target_sym) } == 0 {
+        return write_panic(Panic {
+            origin: "sandbox".into(),
+            class: "Kobako::SandboxError".into(),
+            message: format!("undefined entrypoint: {}", invocation.target),
+            backtrace: Vec::new(),
+            details: None,
+        });
     }
 
-    // Compile and run the dispatch wrapper under a `(dispatch)`
-    // filename so any wrapper-level failure carries a clear locator;
-    // `DISPATCH_WRAPPER` is a `'static &str` and outlives every call
-    // by construction.
-    let result_val = {
-        let Some(cxt) = Ccontext::new(&mrb, cstr!("(dispatch)")) else {
-            return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
-        };
-        cxt.load_nstring(DISPATCH_WRAPPER.as_bytes())
-        // `cxt` drops here — `mrb_ccontext_free` runs automatically.
+    let target_val = unsafe { sys::mrb_const_get(mrb.as_ptr(), object_value, target_sym) };
+    if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
+        // `mrb_const_get` only sets `mrb->exc` for genuinely undefined
+        // constants; the `mrb_const_defined` gate above should make
+        // this branch unreachable. If it ever fires (e.g. autoload
+        // raised), surface the underlying panic verbatim so we never
+        // silently swallow it.
+        return write_panic(panic);
+    }
+
+    let call_sym = unsafe { sys::mrb_intern_cstr(mrb.as_ptr(), crate::cstr!("call")) };
+    if unsafe { sys::mrb_respond_to(mrb.as_ptr(), target_val, call_sym) } == 0 {
+        return write_panic(Panic {
+            origin: "sandbox".into(),
+            class: "Kobako::SandboxError".into(),
+            message: format!("entrypoint {} does not respond to :call", invocation.target),
+            backtrace: Vec::new(),
+            details: None,
+        });
+    }
+
+    // Build argv = [*args, kwargs?] where the trailing kwargs Hash is
+    // appended as a positional argument (omitted when empty so a
+    // `def call(*a)` entrypoint does not see an unwanted Hash tail).
+    //
+    // mruby C API limitation: `mrb_funcall_argv` and the entire
+    // `mrb_funcall_*` family force `ci->nk = 0` on entry
+    // (`vendor/mruby/src/vm.c:740` — "funcall does not support keyword
+    // arguments"), so callers cannot mark the trailing Hash as a
+    // kwargs splat. Entrypoints therefore see kwargs as the last
+    // positional argument and must accept it as a plain `Hash` (e.g.
+    // `def call(req, opts = {})` rather than `def call(req,
+    // multiplier: 1)`). docs/behavior.md B-31 carries the
+    // sandbox-visible side of this contract.
+    let Value::Array(arg_items) = invocation.args else {
+        // `parse_invocation` guarantees Array; the irrefutable shape
+        // is reasserted here for the compiler.
+        return write_panic(Panic {
+            origin: "sandbox".into(),
+            class: "Kobako::RPC::WireError".into(),
+            message: "invocation envelope args must be an array".into(),
+            backtrace: Vec::new(),
+            details: None,
+        });
+    };
+    let Value::Map(kwargs_pairs) = invocation.kwargs else {
+        return write_panic(Panic {
+            origin: "sandbox".into(),
+            class: "Kobako::RPC::WireError".into(),
+            message: "invocation envelope kwargs must be a map".into(),
+            backtrace: Vec::new(),
+            details: None,
+        });
+    };
+    let kwargs_present = !kwargs_pairs.is_empty();
+    let mut argv: Vec<sys::mrb_value> = arg_items
+        .into_iter()
+        .map(|v| kobako.to_mrb_value(v))
+        .collect();
+    if kwargs_present {
+        argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
+    }
+
+    let result_val = unsafe {
+        sys::mrb_funcall_argv(
+            mrb.as_ptr(),
+            target_val,
+            call_sym,
+            argv.len() as core::ffi::c_int,
+            argv.as_ptr(),
+        )
     };
 
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
@@ -355,53 +402,5 @@ mod tests {
             InvocationError::MissingEntrypoint.message(),
             "invocation envelope missing entrypoint Symbol"
         );
-    }
-
-    // ---------------- Dispatch wrapper / gvar ABI pinning ---------------
-
-    /// Strip the trailing NUL from a NUL-terminated `&[u8]` constant
-    /// and return the inner UTF-8 name. The constants in
-    /// `dispatch_globals` are NUL-terminated for direct use with
-    /// `mrb_intern_cstr`; this helper undoes that for textual checks.
-    fn gvar_name(nul_terminated: &[u8]) -> &str {
-        let bytes = nul_terminated
-            .strip_suffix(b"\0")
-            .expect("dispatch global name must be NUL-terminated");
-        std::str::from_utf8(bytes).expect("dispatch global name must be UTF-8")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[test]
-    fn dispatch_wrapper_reads_every_gvar() {
-        // The wrapper is wire ABI between Rust and the embedded mruby
-        // source — if any of the three gvar names drifts, dispatch
-        // silently breaks on the wasm path. Pin the contract here so
-        // a rename trips a host-target test before E2E.
-        for name in [
-            dispatch_globals::TARGET,
-            dispatch_globals::ARGS,
-            dispatch_globals::KWARGS,
-        ] {
-            let needle = gvar_name(name);
-            assert!(
-                DISPATCH_WRAPPER.contains(needle),
-                "DISPATCH_WRAPPER must reference {needle}"
-            );
-        }
-    }
-
-    #[test]
-    fn dispatch_globals_are_all_prefixed_with_kobako_run() {
-        for name in [
-            dispatch_globals::TARGET,
-            dispatch_globals::ARGS,
-            dispatch_globals::KWARGS,
-        ] {
-            let inner = gvar_name(name);
-            assert!(
-                inner.starts_with("$__kobako_run_"),
-                "{inner} must use the $__kobako_run_ prefix reserved for the dispatch wire ABI"
-            );
-        }
     }
 }
