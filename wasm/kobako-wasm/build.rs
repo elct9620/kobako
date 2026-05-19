@@ -58,6 +58,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/mruby/exc.c");
     println!("cargo:rerun-if-changed=src/mruby/io.c");
+    println!("cargo:rerun-if-changed=src/mruby/value.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -122,6 +123,7 @@ fn main() {
         build
             .file("src/mruby/exc.c")
             .file("src/mruby/io.c")
+            .file("src/mruby/value.c")
             .include(&mruby_include);
 
         // Add the wasi build's generated include dir if we can locate it.

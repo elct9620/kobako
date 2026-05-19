@@ -583,6 +583,33 @@ class TestE2EJourneys < Minitest::Test
     Probe.new
   RUBY
 
+  # H-1 regression: a Float returned from the guest must reach the host
+  # bit-identical, not via `Float#to_s` + Rust `parse` (which used the
+  # mruby %.16g formatter and could drop the last ULP on edge values).
+  # `0.1 + 0.2` is the canonical witness: the IEEE-754 result is
+  # `0.30000000000000004` and any narrower text formatting would lose
+  # the trailing 4. Asserting bit equality via `==` is sufficient
+  # because the codec encodes Float as msgpack `float 64`.
+  def test_outcome_float_precision_round_trips_full_f64
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    result = sandbox.eval("0.1 + 0.2")
+    assert_equal 0.30000000000000004, result,
+                 "H-1: Float outcome must round-trip the full 64-bit payload"
+  end
+
+  # H-2 regression: an Integer must round-trip via the direct unbox
+  # path, not the previous +to_s + parse+ pipeline that silently fell
+  # back to 0 on parse failure. mruby's MRB_INT32 word-box reserves a
+  # tag bit on wasm32, so the addressable Fixnum range is narrower than
+  # i32; use 2^28 ± 1 as a representative magnitude that exercises the
+  # signed 32-bit return path of `kobako_fixnum_value` without leaving
+  # the Fixnum-tagged range.
+  def test_outcome_integer_round_trips_via_direct_unbox
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    assert_equal 268_435_457, sandbox.eval("268_435_457")
+    assert_equal(-268_435_457, sandbox.eval("-268_435_457"))
+  end
+
   def test_outcome_envelope_unknown_type_uses_inspect_not_to_s
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

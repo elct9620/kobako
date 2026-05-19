@@ -539,6 +539,54 @@ extern "C" {
     /// after consuming the returned value to reset `mrb->exc`.
     pub fn kobako_get_exc(mrb: *mut mrb_state) -> mrb_value;
 
+    /// `kobako_value_is_integer(v)` — C shim wrapper over the mruby
+    /// `mrb_integer_p(v)` macro (alias of `mrb_fixnum_p` in mruby 4.x).
+    /// Returns TRUE when `v` carries `MRB_TT_INTEGER`. Pair with
+    /// [`kobako_unbox_integer`] for the direct-unbox path used by
+    /// `extract_handle_id` / `collection_len` (`crate::kobako`) and
+    /// `read_fd` (`crate::kobako::io`).
+    pub fn kobako_value_is_integer(v: mrb_value) -> mrb_bool;
+
+    /// `kobako_value_is_float(v)` — C shim wrapper over the mruby
+    /// `mrb_float_p(v)` macro. TRUE when `v` carries `MRB_TT_FLOAT`.
+    /// Pair with [`kobako_unbox_float`].
+    pub fn kobako_value_is_float(v: mrb_value) -> mrb_bool;
+
+    /// `kobako_unbox_integer(v)` — C shim wrapper over the mruby
+    /// `mrb_integer(v)` macro. Returns the raw `mrb_int` payload
+    /// (signed 32-bit on the wasm32 MRB_INT32 config).
+    ///
+    /// # Safety contract
+    ///
+    /// The macro's underlying expansion assumes `v` is Integer-tagged.
+    /// Callers MUST gate this with [`kobako_value_is_integer`]
+    /// returning TRUE; calling on a non-Integer value is undefined
+    /// behaviour per mruby's macro contract.
+    pub fn kobako_unbox_integer(v: mrb_value) -> i32;
+
+    /// `kobako_unbox_float(v)` — C shim wrapper over the mruby
+    /// `mrb_float(v)` macro. Returns the raw `mrb_float` (`f64`)
+    /// payload without going through `Float#to_s`, preserving full
+    /// precision.
+    ///
+    /// # Safety contract
+    ///
+    /// As [`kobako_unbox_integer`]: the caller MUST gate this with
+    /// [`kobako_value_is_float`].
+    pub fn kobako_unbox_float(v: mrb_value) -> f64;
+
+    /// `kobako_nil_value()` — wraps mruby's own `mrb_nil_value()`
+    /// macro. Returns the canonical `nil` mrb_value for the current
+    /// word-box configuration, sparing kobako from having to mirror
+    /// the bit pattern in Rust.
+    pub fn kobako_nil_value() -> mrb_value;
+
+    /// `kobako_true_value()` — wraps mruby's `mrb_true_value()` macro.
+    pub fn kobako_true_value() -> mrb_value;
+
+    /// `kobako_false_value()` — wraps mruby's `mrb_false_value()` macro.
+    pub fn kobako_false_value() -> mrb_value;
+
     /// `kobako_io_fwrite(mrb, fd, argv, argc)` — C shim that coerces
     /// each `argv[i]` to a String (via `mrb_obj_as_string`) and writes
     /// its bytes to the fd-selected stream: `fd == 2` routes to

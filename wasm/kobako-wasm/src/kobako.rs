@@ -80,16 +80,13 @@ mod names {
     pub const MODE_WRITE: &[u8] = b"w\0";
 }
 
-// mruby word-boxing constants for MRB_WORDBOX_NO_INLINE_FLOAT + MRB_INT32
-// (the wasm32 build config). Bit-pattern values from mruby.h; must not
-// change without verifying the mruby header for the targeted version.
-const MRB_QNIL: u32 = 0; // MRB_Qnil
-#[cfg(target_arch = "wasm32")]
-const MRB_QTRUE: u32 = 12; // MRB_Qtrue
-#[cfg(target_arch = "wasm32")]
-const MRB_QFALSE: u32 = 4; // MRB_Qfalse
-                           // MRB_Qnil must be zero so `mrb_value::zeroed()` produces a nil value.
-const _: () = assert!(MRB_QNIL == 0, "MRB_Qnil must be zero (zeroed() == nil)");
+// mruby's `nil` / `true` / `false` mrb_values are constructed through
+// the shims in `wasm/kobako-wasm/src/mruby/value.c`, which delegate to
+// mruby's own `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`
+// macros. kobako does NOT mirror the word-box bit pattern in Rust —
+// the layout is mruby's business. The Rust side caches the three
+// values inside [`Kobako`] at install time so the hot path stays a
+// field read rather than a cross-FFI call.
 
 /// SPEC § Error Classes mapping from a Response.err `type` field to a
 /// guest-side mruby class. Routed through
@@ -180,6 +177,14 @@ pub struct Kobako {
     service_error_class: *mut sys::RClass,
     disconnected_class: *mut sys::RClass,
     wire_error_class: *mut sys::RClass,
+    /// Cached `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`
+    /// captured at install time via the `kobako_nil_value` /
+    /// `kobako_true_value` / `kobako_false_value` shims. Caching
+    /// sidesteps a cross-FFI call per value construction without
+    /// hard-coding the word-box bit pattern in Rust.
+    nil: sys::mrb_value,
+    qtrue: sys::mrb_value,
+    qfalse: sys::mrb_value,
 }
 
 /// Host-target stub for [`Kobako`]. See the wasm32 declaration above
@@ -229,6 +234,16 @@ impl Kobako {
             //     [`bridges`], the only producer of the
             //     `mrb_func_t` signature in this crate.
             unsafe {
+                // (0) Cache the canonical nil / true / false mrb_values
+                //     through the value.c shims that wrap mruby's own
+                //     `mrb_nil_value()` / `mrb_true_value()` /
+                //     `mrb_false_value()`. The word-box layout is
+                //     mruby's business — kobako never reads the bit
+                //     pattern, just stashes the result for reuse.
+                let nil = sys::kobako_nil_value();
+                let qtrue = sys::kobako_true_value();
+                let qfalse = sys::kobako_false_value();
+
                 // (1) Kobako module.
                 let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
 
@@ -377,6 +392,9 @@ impl Kobako {
                     service_error_class,
                     disconnected_class,
                     wire_error_class,
+                    nil,
+                    qtrue,
+                    qfalse,
                 }
             }
         }
@@ -418,6 +436,9 @@ impl Kobako {
                     sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
                 let wire_error_class =
                     sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(WIRE_ERROR_NAME));
+                let nil = sys::kobako_nil_value();
+                let qtrue = sys::kobako_true_value();
+                let qfalse = sys::kobako_false_value();
                 Self {
                     mrb,
                     client_class,
@@ -425,6 +446,9 @@ impl Kobako {
                     service_error_class,
                     disconnected_class,
                     wire_error_class,
+                    nil,
+                    qtrue,
+                    qfalse,
                 }
             }
         }
@@ -503,29 +527,33 @@ impl Kobako {
 
     // ----------------------------------------------------------------
     // mruby value constructors — `nil` / `true` / `false`.
+    //
+    // Each returns the cached mrb_value captured at install time by
+    // the value.c shim wrappers around `mrb_nil_value()` /
+    // `mrb_true_value()` / `mrb_false_value()`. kobako does not know
+    // the word-box bit pattern — the layout is mruby's business.
     // ----------------------------------------------------------------
 
-    /// Return an mruby `nil` value. `MRB_Qnil == 0`, so this is the
-    /// same as `mrb_value::zeroed()` on wasm32; the named accessor
-    /// keeps call sites explicit about intent and mirrors mruby's own
-    /// `mrb_nil_value()` API.
+    /// Return the canonical mruby `nil` value. Mirrors mruby's own
+    /// `mrb_nil_value()` API; the actual mrb_value was captured at
+    /// install time via [`sys::kobako_nil_value`].
     #[cfg(target_arch = "wasm32")]
     pub fn nil_value(&self) -> sys::mrb_value {
-        sys::mrb_value { w: MRB_QNIL }
+        self.nil
     }
 
-    /// Return an mruby `true` value (`MRB_Qtrue == 12`). Mirrors
-    /// mruby's own `mrb_true_value()` API.
+    /// Return the canonical mruby `true` value. Mirrors mruby's own
+    /// `mrb_true_value()` API.
     #[cfg(target_arch = "wasm32")]
     pub fn true_value(&self) -> sys::mrb_value {
-        sys::mrb_value { w: MRB_QTRUE }
+        self.qtrue
     }
 
-    /// Return an mruby `false` value (`MRB_Qfalse == 4`). Mirrors
-    /// mruby's own `mrb_false_value()` API.
+    /// Return the canonical mruby `false` value. Mirrors mruby's own
+    /// `mrb_false_value()` API.
     #[cfg(target_arch = "wasm32")]
     pub fn false_value(&self) -> sys::mrb_value {
-        sys::mrb_value { w: MRB_QFALSE }
+        self.qfalse
     }
 
     // ----------------------------------------------------------------
@@ -586,6 +614,43 @@ impl Kobako {
         unsafe { sys::mrb_ary_entry(ary, idx) }
     }
 
+    /// Direct Integer-tagged predicate via the +kobako_value_is_integer+
+    /// C shim (wrapper around mruby's own +mrb_integer_p+ macro).
+    /// Cheaper than a +classname_of+ string compare and serves as the
+    /// precondition for [`Self::unbox_integer`].
+    #[cfg(target_arch = "wasm32")]
+    fn value_is_integer(&self, val: sys::mrb_value) -> bool {
+        // SAFETY: see "Safe FFI primitives" section doc. The shim does
+        // not touch mrb_state.
+        (unsafe { sys::kobako_value_is_integer(val) }) != 0
+    }
+
+    /// Direct +mrb_integer(v)+ unbox via the +kobako_unbox_integer+ C
+    /// shim. Replaces the previous +.to_s.parse+ round-trip; on wasm32
+    /// (+MRB_INT32+) the payload is a signed 32-bit integer that fits
+    /// in +i64+ without loss. Callers MUST gate on
+    /// [`Self::value_is_integer`] — passing a non-Integer value is
+    /// undefined behaviour per mruby's macro contract.
+    #[cfg(target_arch = "wasm32")]
+    fn unbox_integer(&self, val: sys::mrb_value) -> i32 {
+        // SAFETY: caller has confirmed +val+ is Integer-tagged via
+        // [`Self::value_is_integer`]; the shim does not touch mrb_state.
+        unsafe { sys::kobako_unbox_integer(val) }
+    }
+
+    /// Direct +mrb_float(v)+ unbox via the +kobako_unbox_float+ C shim.
+    /// Preserves full +f64+ precision unlike the previous +.to_s.parse+
+    /// path, which went through mruby's +%.16g+ formatter and lost the
+    /// last ULP at the edges of representable doubles. Caller must have
+    /// confirmed Float-tagging via [`Self::classname_of`] returning
+    /// `"Float"` (which is the existing dispatch precondition in
+    /// `to_wire_value` / `to_wire_outcome`).
+    #[cfg(target_arch = "wasm32")]
+    fn unbox_float(&self, val: sys::mrb_value) -> f64 {
+        // SAFETY: caller has confirmed +val+ is Float-tagged.
+        unsafe { sys::kobako_unbox_float(val) }
+    }
+
     /// +mrb_hash_get(hash, key)+. Returns +nil+ when the key is
     /// missing.
     #[cfg(target_arch = "wasm32")]
@@ -627,13 +692,25 @@ impl Kobako {
     // ----------------------------------------------------------------
 
     /// Return the number of elements in an mruby Array or Hash by
-    /// calling `.length` and parsing the result string. Used wherever a
-    /// collection length is needed without a direct FFI binding for
-    /// `mrb_ary_len`.
+    /// calling `.length` and unboxing the resulting Fixnum directly.
+    /// Used wherever a collection length is needed without a direct
+    /// FFI binding for `mrb_ary_len`. Returns 0 when `.length` does
+    /// not yield a Fixnum — the mruby core implementations always do,
+    /// so non-Fixnum here signals a user-overridden +length+ returning
+    /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
+    /// callers see "empty collection" rather than a panic.
     #[cfg(target_arch = "wasm32")]
     pub fn collection_len(&self, col: sys::mrb_value) -> usize {
         let len_val = self.call_method(col, cstr!("length"), &[]);
-        self.to_string_of(len_val).parse().unwrap_or(0)
+        if !self.value_is_integer(len_val) {
+            return 0;
+        }
+        let len = self.unbox_integer(len_val);
+        if len < 0 {
+            0
+        } else {
+            len as usize
+        }
     }
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
@@ -673,13 +750,26 @@ impl Kobako {
 
     /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
-    /// missing or non-numeric — the resolver downstream treats id 0 as
-    /// undefined per docs/behavior.md B-19.
+    /// missing, not a Fixnum, or carries a negative payload — the
+    /// resolver downstream treats id 0 as undefined per
+    /// docs/behavior.md B-19. The previous +.to_s.parse.unwrap_or(0)+
+    /// path was lossy at the upper boundary (Fixnum > i32::MAX would
+    /// silently truncate) and round-tripped through the mruby string
+    /// machinery on every dispatch; the direct unbox is both faster
+    /// and tighter on the wire-violation surface.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_handle_id(&self, handle_val: sys::mrb_value) -> u32 {
         let id_sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
         let id_val = self.iv_get(handle_val, id_sym);
-        self.to_string_of(id_val).parse().unwrap_or(0)
+        if !self.value_is_integer(id_val) {
+            return 0;
+        }
+        let id = self.unbox_integer(id_val);
+        if id < 0 {
+            0
+        } else {
+            id as u32
+        }
     }
 
     /// Decode every key/value pair from an mruby Hash into `out` as
@@ -805,8 +895,8 @@ impl Kobako {
             "NilClass" => Value::Nil,
             "TrueClass" => Value::Bool(true),
             "FalseClass" => Value::Bool(false),
-            "Integer" => Value::Int(self.to_string_of(val).parse().unwrap_or(0)),
-            "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
+            "Integer" => Value::Int(self.unbox_integer(val) as i64),
+            "Float" => Value::Float(self.unbox_float(val)),
             "String" => Value::Str(self.to_string_of(val)),
             "Symbol" => Value::Sym(self.to_string_of(val)),
             "Array" => Value::Array(self.array_to_wire(val, Self::to_wire_value)),
@@ -839,8 +929,8 @@ impl Kobako {
             "NilClass" => Value::Nil,
             "TrueClass" => Value::Bool(true),
             "FalseClass" => Value::Bool(false),
-            "Integer" => Value::Int(self.to_string_of(val).parse().unwrap_or(0)),
-            "Float" => Value::Float(self.to_string_of(val).parse().unwrap_or(0.0)),
+            "Integer" => Value::Int(self.unbox_integer(val) as i64),
+            "Float" => Value::Float(self.unbox_float(val)),
             "String" => Value::Str(self.to_string_of(val)),
             "Symbol" => Value::Sym(self.to_string_of(val)),
             "Array" => Value::Array(self.array_to_wire(val, Self::to_wire_outcome)),

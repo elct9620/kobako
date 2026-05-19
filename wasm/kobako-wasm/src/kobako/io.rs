@@ -44,9 +44,9 @@ mod names {
     pub const WRITE_NAME: &[u8] = b"write\0";
     pub const FILENO_NAME: &[u8] = b"fileno\0";
     /// `b"@__kobako_fd__\0"` — mangled ivar that holds the underlying
-    /// file descriptor (1 or 2) as a boxed Integer. The bridges
-    /// round-trip through `to_string + parse` to stay consistent with
-    /// the existing handle-id ivar pattern in
+    /// file descriptor (1 or 2) as a boxed Integer. The bridges unbox
+    /// it directly via `sys::kobako_unbox_integer`, mirroring the
+    /// handle-id ivar pattern in
     /// [`super::super::Kobako::extract_handle_id`].
     pub const FD_IVAR: &[u8] = b"@__kobako_fd__\0";
     pub const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
@@ -235,17 +235,21 @@ pub(crate) unsafe extern "C" fn io_fileno(
 }
 
 /// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the
-/// ivar is missing or non-numeric — neither case should arise in
-/// practice because `io_initialize` is the only writer and rejects
-/// invalid fds. The downstream `kobako_io_fwrite` treats `fd != 2` as
-/// "route to stdout", so a degenerate `0` lands on stdout rather than
-/// trapping.
+/// ivar is missing or not Fixnum-tagged — neither case should arise in
+/// practice because `io_initialize` is the only writer and stores the
+/// fd as a boxed Integer. The downstream `kobako_io_fwrite` treats
+/// `fd != 2` as "route to stdout", so a degenerate `0` lands on stdout
+/// rather than trapping. The direct unbox skips the previous
+/// `.to_s.parse` round-trip — see L-4 in the review for the rationale.
 #[cfg(target_arch = "wasm32")]
 unsafe fn read_fd(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -> i32 {
     unsafe {
         let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(FD_IVAR));
         let val = sys::mrb_iv_get(mrb, self_, sym);
-        val.to_string(mrb).parse().unwrap_or(0)
+        if sys::kobako_value_is_integer(val) == 0 {
+            return 0;
+        }
+        sys::kobako_unbox_integer(val)
     }
 }
 
