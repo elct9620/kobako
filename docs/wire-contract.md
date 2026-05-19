@@ -90,7 +90,7 @@ The outcome envelope has two variants:
 | Variant | Meaning |
 |---------|---------|
 | **Result envelope** | The invocation completed without an uncaught top-level exception. Carries the serialized return value — the last mruby expression of `#eval`'s source, or the entrypoint's `#call` return for `#run`. The invocation returns the deserialized Ruby value to the Host App. |
-| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, and `backtrace` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. |
+| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, `backtrace`, and optional `details` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. `details` carries optional structured diagnostics (e.g., the available top-level constant list for an undefined `#run` entrypoint, E-27). |
 
 The host reads zero-length outcome bytes or an unrecognized envelope tag as a wire-violation signal and raises `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted). Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via `Sandbox#stdout` / `Sandbox#stderr`.
 

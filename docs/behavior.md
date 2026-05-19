@@ -72,7 +72,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance, either fresh (per B-02) or post-invocation (per B-03), with zero or more Members bound and zero or more snippets preloaded. |
 | **Operation** | `sandbox.eval(code)` — same invocation as B-02 / B-03. |
 | **Result / Final State** | When the guest completes without raising `Kobako::TrapError`, `#eval` returns the deserialized Ruby value of the last mruby expression of `code`. If the last expression evaluates to `nil` (including a `code` with no explicit return expression), `#eval` returns Ruby `nil`. If the last expression produces an object that cannot be returned as a Ruby value, `#eval` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
-| **Notes** | Exactly one value is returned per `#eval` call. There is no mechanism to return multiple values or stream values. The unrepresentable-value case is attributed to the script (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
+| **Notes** | Exactly one value is returned per `#eval` call. There is no mechanism to return multiple values or stream values. The unrepresentable-value case is attributed to the guest code (`Kobako::SandboxError`), not to the Wasm engine or a Service call. |
 
 ---
 
@@ -135,9 +135,9 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing a mruby script. A Member is bound at `Name::MemberName`. The guest script holds a reference to the constant `Name::MemberName` and calls a method on it. |
+| **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `Name::MemberName`. The guest holds a reference to the constant `Name::MemberName` and calls a method on it. |
 | **Operation** | Guest code executes `Name::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
-| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `Name::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest script's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
+| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `Name::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
 | **Notes** | Each RPC call invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in the Server, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
 
 ---
@@ -148,7 +148,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the RPC response. |
-| **Result / Final State** | The guest script receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
+| **Result / Final State** | The guest receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the HandleTable. |
 | **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::RPC::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
 
 ---
@@ -160,7 +160,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated RPC call (B-12) has been dispatched. The bound Ruby object's method returns a Ruby object that is not wire-representable — for example, a session object, a connection, or any stateful host resource. |
 | **Operation** | A return value is routed through the Handle allocation path if and only if its type is not wire-representable per the definition in B-13. The wire layer then automatically registers the object in the Sandbox's HandleTable. |
 | **Result / Final State** | The host-side object is stored in the HandleTable under a new opaque u32 Handle ID. The guest receives a Capability Handle (an opaque integer token) as the RPC response value, not the object itself. The guest can pass this Handle as the `target` in subsequent RPC calls to invoke methods on the same host-side object. The Host App has no API to create or inspect Handles directly — Handle allocation is an internal wire-layer operation. |
-| **Notes** | Handle lifecycle (per-`#run` scope, ABA protection, ID limits) is specified in the Handle lifecycle behaviors (B-15–B-21). The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
+| **Notes** | Handle lifecycle (per-invocation scope, ABA protection, ID limits) is specified in the Handle lifecycle behaviors (B-15–B-21). The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further RPC calls. |
 
 ---
 
@@ -201,7 +201,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | Invocation N has completed. The guest (or a script) attempts to retain a Handle ID from invocation N and presents it as the `target` in a new invocation (N+1, of either verb). At the start of invocation N+1 the HandleTable has been fully reset: all entries from invocation N are cleared and the counter restarted. |
+| **Initial State** | Invocation N has completed. The guest code attempts to retain a Handle ID from invocation N and presents it as the `target` in a new invocation (N+1, of either verb). At the start of invocation N+1 the HandleTable has been fully reset: all entries from invocation N are cleared and the counter restarted. |
 | **Operation** | Guest code in invocation N+1 calls a method using the stale Handle ID as the RPC target. |
 | **Result / Final State** | The HandleTable lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Invocation N+1 is not interrupted for other RPC calls that do not reference stale IDs. |
 | **Notes** | This outcome is unconditional: even if invocation N and N+1 execute the same source (or dispatch the same entrypoint) with the same Service bindings, no Handle survives the invocation boundary. The HandleTable is reset before the Guest Binary is instantiated for invocation N+1. |
@@ -280,7 +280,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Service method is mid-execution after `yield val` (B-24). |
 | **Operation** | The guest block executes `break val` (where the block is a non-lambda, non-orphan block — the standard form). |
-| **Result / Final State** | The Service method's invocation terminates immediately as if it had `return`ed `val`. No code in the Service method body after the `yield` statement runs. The Member call in the guest script (`Name::MemberName.method_name(...) { ... }`) returns `val`. Subsequent guest code runs normally; `break` does not terminate the enclosing guest method or script. |
+| **Result / Final State** | The Service method's invocation terminates immediately as if it had `return`ed `val`. No code in the Service method body after the `yield` statement runs. The Member call in the guest code (`Name::MemberName.method_name(...) { ... }`) returns `val`. Subsequent guest code runs normally; `break` does not terminate the enclosing guest method or invocation. |
 | **Notes** | This matches standard Ruby `break` semantics — `break` unwinds the most recent yielder. `break` from a deeply-nested block (multiple `Service.outer { Service.inner { break } }`) still terminates only the innermost Service method (B-28). The Service method has no opportunity to observe the break — it is unwound transparently. |
 
 ---
@@ -420,7 +420,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
 | E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of `__kobako_run` | B-02, B-03 — script execution |
-| E-05 | Guest boot script fails to load or compile the user script (`mrb_load_string` error before execution begins) | B-02 — fresh run |
+| E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
 | E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
 | E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
@@ -466,8 +466,8 @@ These error scenarios are specific to the `#run(target, *args, **kwargs)` entryp
 | E-24 | `#run` `target` is neither Symbol nor String | host pre-flight | `TypeError` |
 | E-25 | `#run` `target` (after `.to_s`) does not match `/\A[A-Z]\w*\z/` — including any `::`-segmented name | host pre-flight | `ArgumentError` |
 | E-26 | The invocation envelope written to the command buffer fails to decode as msgpack or fails shape validation on guest entry | guest entry | `Kobako::SandboxError` |
-| E-27 | `#run` target Symbol does not resolve to a defined constant on top-level `Object`; the guest's Panic envelope `details:` field carries the available top-level constants contributed by preloaded snippets | guest (`mrb_const_defined` returns 0) | `Kobako::SandboxError` |
-| E-28 | `#run` entrypoint constant is defined but does not respond to `#call` | guest (`mrb_respond_to(:call)` returns 0) | `Kobako::SandboxError` |
+| E-27 | `#run` target Symbol does not resolve to a defined constant on top-level `Object`; the guest's Panic envelope `details:` field carries the available top-level constants contributed by preloaded snippets | guest: target Symbol does not name a defined top-level constant | `Kobako::SandboxError` |
+| E-28 | `#run` entrypoint constant is defined but does not respond to `#call` | guest: entrypoint constant does not respond to `#call` | `Kobako::SandboxError` |
 | E-29 | `#run` `args` contains a `Kobako::RPC::Handle` | host pre-flight | `ArgumentError` |
 | E-30 | `#run` `kwargs` contains a key that is not a Symbol | host pre-flight | `ArgumentError` |
 | E-31 | Host's `__kobako_alloc` returns 0 when reserving guest memory for the invocation envelope | host pre-call | `Kobako::SandboxError` |
