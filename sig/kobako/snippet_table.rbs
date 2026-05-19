@@ -19,8 +19,6 @@ module Kobako
 
     def empty?: () -> bool
 
-    def key?: (Symbol | String name) -> bool
-
     private
 
     def normalize_name: (Symbol | String name) -> Symbol

@@ -1,7 +1,32 @@
 module Kobako
-  module SandboxOptions
-    def self?.normalize_timeout: ((Float | Integer)? timeout) -> Float?
+  class SandboxOptions < Data
+    DEFAULT_TIMEOUT_SECONDS: Float
+    DEFAULT_MEMORY_LIMIT: Integer
+    DEFAULT_OUTPUT_LIMIT: Integer
 
-    def self?.normalize_memory_limit: (Integer? memory_limit) -> Integer?
+    attr_reader timeout: Float?
+    attr_reader memory_limit: Integer?
+    attr_reader stdout_limit: Integer
+    attr_reader stderr_limit: Integer
+
+    def self.new: (
+      ?timeout: (Float | Integer)?,
+      ?memory_limit: Integer?,
+      ?stdout_limit: Integer?,
+      ?stderr_limit: Integer?
+    ) -> SandboxOptions
+
+    def initialize: (
+      ?timeout: (Float | Integer)?,
+      ?memory_limit: Integer?,
+      ?stdout_limit: Integer?,
+      ?stderr_limit: Integer?
+    ) -> void
+
+    private
+
+    def normalize_timeout: ((Float | Integer)? timeout) -> Float?
+
+    def normalize_memory_limit: (Integer? memory_limit) -> Integer?
   end
 end

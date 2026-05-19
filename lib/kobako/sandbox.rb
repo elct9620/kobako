@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "forwardable"
+
 require_relative "capture"
 require_relative "errors"
 require_relative "outcome"
@@ -30,19 +32,15 @@ module Kobako
   # +#stdout_truncated?+ / +#stderr_truncated?+ are the only way to observe
   # that the cap was hit.
   class Sandbox
-    # Default per-channel capture ceiling: 1 MiB
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
-    DEFAULT_OUTPUT_LIMIT = 1 << 20
+    extend Forwardable
 
-    # Default wall-clock timeout for a single invocation: 60 seconds
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
-    DEFAULT_TIMEOUT_SECONDS = 60.0
+    attr_reader :wasm_path, :instance,
+                :options,
+                :services, :snippets
 
-    # Default cap on guest linear memory growth: 5 MiB
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
-    DEFAULT_MEMORY_LIMIT = 5 << 20
-
-    attr_reader :wasm_path, :instance, :stdout_limit, :stderr_limit, :timeout, :memory_limit, :services, :snippets
+    # Per-cap accessors forward to the immutable +SandboxOptions+ Value
+    # Object so the Host App still reads them off Sandbox directly.
+    def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
@@ -77,24 +75,22 @@ module Kobako
     # Build a fresh Sandbox.
     #
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
-    # gem-bundled +data/kobako.wasm+. +stdout_limit+ and +stderr_limit+ cap
-    # the per-run byte ceiling for each capture channel (default 1 MiB;
-    # +nil+ disables the cap). +timeout+ is the wall-clock cap on a single
-    # +#run+ in seconds ({docs/behavior.md B-01}[link:../../docs/behavior.md]; default 60.0,
-    # +nil+ disables); +memory_limit+ caps guest linear memory growth in
-    # bytes ({docs/behavior.md B-01, E-20}[link:../../docs/behavior.md]; default 5 MiB,
-    # +nil+ disables).
+    # gem-bundled +data/kobako.wasm+. The four caps (+stdout_limit+,
+    # +stderr_limit+, +timeout+, +memory_limit+) are forwarded verbatim to
+    # +Kobako::SandboxOptions+, which owns their DEFAULT fallback and
+    # normalisation. The constructed +SandboxOptions+ is exposed as
+    # +#options+ and the four caps remain readable directly on Sandbox via
+    # +Forwardable+ delegation.
     def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
-                   timeout: DEFAULT_TIMEOUT_SECONDS,
-                   memory_limit: DEFAULT_MEMORY_LIMIT)
+                   timeout: SandboxOptions::DEFAULT_TIMEOUT_SECONDS,
+                   memory_limit: SandboxOptions::DEFAULT_MEMORY_LIMIT)
       @wasm_path = wasm_path || Kobako::Wasm.default_path
-      @stdout_limit = stdout_limit || DEFAULT_OUTPUT_LIMIT
-      @stderr_limit = stderr_limit || DEFAULT_OUTPUT_LIMIT
-      @timeout = SandboxOptions.normalize_timeout(timeout)
-      @memory_limit = SandboxOptions.normalize_memory_limit(memory_limit)
+      @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
+                                    stderr_limit: stderr_limit)
       @services = Kobako::RPC::Server.new
       @snippets = SnippetTable.new
-      @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
+      @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
+                                                   @options.stdout_limit, @options.stderr_limit)
       @instance.server = @services
       clear_captures!
     end
@@ -181,17 +177,20 @@ module Kobako
 
     private
 
-    # Per-invocation state reset ({docs/behavior.md B-03}[link:../../docs/behavior.md]).
-    # Capture buffers, truncation predicates, and the HandleTable counter
-    # are zeroed before the guest runs.
-    def reset_invocation_state!
+    # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /
+    # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet
+    # registries on first call (idempotent) and zeros the per-invocation
+    # capability state — capture buffers, truncation predicates, and the
+    # HandleTable counter — before the guest runs.
+    def begin_invocation!
+      @services.seal!
       @services.reset_handles!
       clear_captures!
     end
 
     # Reset both per-channel captures to the pre-invocation sentinel
     # ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Shared by +#initialize+
-    # (first-time setup) and +#reset_invocation_state!+ (between-invocation
+    # (first-time setup) and +#begin_invocation!+ (between-invocation
     # reset) so both paths agree on what "empty capture" means.
     def clear_captures!
       @stdout_capture = Capture::EMPTY
@@ -212,46 +211,26 @@ module Kobako
     end
 
     # Shared prologue / epilogue + trap-class translator for both
-    # invocation verbs. +verb+ is +:eval+ or +:run+; it appears in the
-    # TrapError message so the failing export is identifiable. Trap-class
-    # mapping lives in {#raise_trap}.
+    # invocation verbs. +verb+ is +:eval+ or +:run+; it tags the
+    # TrapError message so the failing export is identifiable. The
+    # rescue chain is the single trap-translation boundary — wasmtime /
+    # wire failures from the guest call and from the subsequent
+    # +Instance#outcome!+ read both flow through here, so an
+    # OUTCOME_BUFFER read failure attributes to the same export name as
+    # the guest call itself. Configured-cap paths
+    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md]) surface as
+    # named TrapError subclasses.
     def invoke!(verb)
-      @services.seal!
-      reset_invocation_state!
+      begin_invocation!
       yield
       read_captures!
-      take_result!
-    rescue Kobako::Wasm::Error => e
-      raise_trap(verb, e)
-    end
-
-    # Translate +err+ (any +Kobako::Wasm::Error+) into the three-class
-    # TrapError taxonomy. Configured-cap paths
-    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md]) surface as
-    # the named TrapError subclasses; everything else is the base
-    # +TrapError+ tagged with the failing export.
-    def raise_trap(verb, err)
-      raise TimeoutError, "guest exceeded timeout: #{err.message}" if err.is_a?(Kobako::Wasm::TimeoutError)
-      raise MemoryLimitError, "guest exceeded memory_limit: #{err.message}" if err.is_a?(Kobako::Wasm::MemoryLimitError)
-
-      raise TrapError, "guest __kobako_#{verb} trapped: #{err.message}"
-    end
-
-    # Take OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+
-    # and decode them into the Sandbox-level result — the unwrapped mruby
-    # return value, or a raised three-layer
-    # ({docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]) exception. A zero-
-    # length outcome is delivered to +Kobako::Outcome+ as an empty String
-    # so a single boundary attributes every wire-violation outcome
-    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]).
-    #
-    # The bang reflects the destructive ext call beneath: the underlying
-    # +__kobako_take_outcome+ export invalidates the buffer pointer, so this
-    # method must be called at most once per invocation.
-    def take_result!
       Outcome.decode(@instance.outcome!)
+    rescue Kobako::Wasm::TimeoutError => e
+      raise TimeoutError, "guest exceeded timeout: #{e.message}"
+    rescue Kobako::Wasm::MemoryLimitError => e
+      raise MemoryLimitError, "guest exceeded memory_limit: #{e.message}"
     rescue Kobako::Wasm::Error => e
-      raise TrapError, "failed to read OUTCOME_BUFFER: #{e.message}"
+      raise TrapError, "guest __kobako_#{verb} trapped: #{e.message}"
     end
   end
 end

@@ -83,14 +83,6 @@ module Kobako
       @entries.empty?
     end
 
-    # Whether a snippet with +name+ (Symbol or String accepted) is
-    # already registered. Used by tests and the Sandbox to detect
-    # duplicates before delegating to +#register+ where a more specific
-    # error message can be produced.
-    def key?(name)
-      @entries.key?(name.to_sym)
-    end
-
     private
 
     def normalize_name(name)

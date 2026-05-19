@@ -28,8 +28,8 @@ class TestSandbox < Minitest::Test
   def test_default_construction_exposes_default_output_limits
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
-    assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit
-    assert_equal Kobako::Sandbox::DEFAULT_OUTPUT_LIMIT, sandbox.stderr_limit
+    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit
+    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, sandbox.stderr_limit
     assert_equal 1 << 20, sandbox.stdout_limit
   end
 

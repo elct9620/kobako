@@ -22,9 +22,7 @@ class TestSnippetTable < Minitest::Test
 
     assert_equal :Helper, name
     assert_equal 1, @table.size
-    assert_equal [:Helper], @table.names
-    assert @table.key?(:Helper)
-    assert @table.key?("Helper")
+    assert_includes @table.names, :Helper
   end
 
   def test_register_accepts_string_name_and_normalizes_to_symbol

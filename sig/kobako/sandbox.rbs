@@ -1,19 +1,18 @@
 module Kobako
   class Sandbox
-    DEFAULT_OUTPUT_LIMIT: Integer
-
-    DEFAULT_TIMEOUT_SECONDS: Float
-
-    DEFAULT_MEMORY_LIMIT: Integer
+    extend Forwardable
 
     attr_reader wasm_path: String
     attr_reader instance: Kobako::Wasm::Instance
-    attr_reader stdout_limit: Integer
-    attr_reader stderr_limit: Integer
-    attr_reader timeout: Float?
-    attr_reader memory_limit: Integer?
+    attr_reader options: Kobako::SandboxOptions
     attr_reader services: Kobako::RPC::Server
     attr_reader snippets: Kobako::SnippetTable
+
+    # Forwarded to @options via Forwardable#def_delegators.
+    def timeout: () -> Float?
+    def memory_limit: () -> Integer?
+    def stdout_limit: () -> Integer
+    def stderr_limit: () -> Integer
 
     def initialize: (
       ?wasm_path: String?,
@@ -43,14 +42,10 @@ module Kobako
 
     def clear_captures!: () -> void
 
-    def reset_invocation_state!: () -> void
+    def begin_invocation!: () -> void
 
     def read_captures!: () -> void
 
     def invoke!: (Symbol verb) { () -> void } -> untyped
-
-    def raise_trap: (Symbol verb, Kobako::Wasm::Error err) -> bot
-
-    def take_result!: () -> untyped
   end
 end
