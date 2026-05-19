@@ -142,7 +142,7 @@ class TestNamespaceBinding < Minitest::Test
 
   # B-07 Notes: define after first invocation raises ArgumentError.
   # The minimal.wasm fixture has no SPEC ABI exports, so #eval trips on
-  # `__kobako_run` and raises Kobako::TrapError — but seal! has
+  # `__kobako_eval` and raises Kobako::TrapError — but seal! has
   # already fired by then, so the registry transitions to sealed and
   # the post-invocation #define enforcement still applies.
   def test_b07_define_after_first_invocation_raises

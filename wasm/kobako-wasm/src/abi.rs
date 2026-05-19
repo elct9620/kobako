@@ -7,7 +7,7 @@
 //!   uses to dispatch a Service call to the host. Lives in the `env`
 //!   wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
 //! * **Exactly 3 guest exports**:
-//!   - `__kobako_run`             — reactor entry; runs boot script
+//!   - `__kobako_eval`            — reactor entry; runs one-shot user source
 //!   - `__kobako_alloc(size)`     — bump/malloc allocator for buffers
 //!   - `__kobako_take_outcome()`  — returns packed (ptr, len) of OUTCOME_BUFFER
 //!
@@ -49,7 +49,7 @@ pub const IMPORT_MODULE: &str = "env";
 pub const IMPORT_NAME: &str = "__kobako_dispatch";
 
 /// All three guest-provided export names, in declaration order.
-pub const EXPORT_NAMES: [&str; 3] = ["__kobako_run", "__kobako_alloc", "__kobako_take_outcome"];
+pub const EXPORT_NAMES: [&str; 3] = ["__kobako_eval", "__kobako_alloc", "__kobako_take_outcome"];
 
 // ---------------------------------------------------------------------------
 // Host import declaration.
@@ -85,13 +85,13 @@ extern "C" {
 ///
 /// We export a no-op here because wasi-libc reactor init (`crt1-reactor.o`
 /// static ctors) is not required for kobako's boot path — kobako creates
-/// and destroys an `mrb_state` inside `__kobako_run` for every invocation;
+/// and destroys an `mrb_state` inside `__kobako_eval` for every invocation;
 /// there are no static C++ constructors or WASI preopen operations that
 /// need to run before the first call. Approach (a) from the two known
 /// fixes — smaller and sufficient for the kobako use case.
 ///
 /// Per docs/wire-codec.md § ABI Signatures, the "exactly 3 kobako exports" invariant
-/// counts `__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`.
+/// counts `__kobako_eval`, `__kobako_alloc`, `__kobako_take_outcome`.
 /// `_initialize` is a WASI reactor bookkeeping export and is explicitly
 /// excluded from the kobako export count.
 #[cfg(target_arch = "wasm32")]
@@ -119,10 +119,10 @@ pub extern "C" fn _initialize() {
 /// 3. On success: serialize the last-expression value as a Result envelope
 ///    and write it to OUTCOME_BUFFER.
 ///
-/// `__kobako_run` never traps or calls `exit` — the host reads the outcome
+/// `__kobako_eval` never traps or calls `exit` — the host reads the outcome
 /// tag from `__kobako_take_outcome()` after this function returns.
 #[no_mangle]
-pub extern "C" fn __kobako_run() {
+pub extern "C" fn __kobako_eval() {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::codec::Value;
@@ -560,9 +560,9 @@ pub extern "C" fn __kobako_run() {
     }
 }
 
-/// Static outcome buffer — written once by `__kobako_run` and consumed
+/// Static outcome buffer — written once by `__kobako_eval` and consumed
 /// once by `__kobako_take_outcome`. Protected by the single-threaded
-/// wasm execution model: only one `__kobako_run` executes at a time and
+/// wasm execution model: only one `__kobako_eval` executes at a time and
 /// no concurrency is possible inside a single wasm instance.
 #[cfg(target_arch = "wasm32")]
 static mut OUTCOME_BUFFER: Vec<u8> = Vec::new();
@@ -600,12 +600,12 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
     }
 }
 
-/// Outcome reader — host calls this after `__kobako_run` returns to fetch
+/// Outcome reader — host calls this after `__kobako_eval` returns to fetch
 /// the OUTCOME_BUFFER bytes. Returns packed u64 `(ptr << 32) | len`.
 /// `len == 0` is a wire violation (docs/wire-codec.md § ABI Signatures). Signature: `() -> i64`.
 ///
 /// The buffer is owned by the static `OUTCOME_BUFFER`; the host must consume
-/// the bytes before the next `__kobako_run` call (each run resets the buffer).
+/// the bytes before the next `__kobako_eval` call (each invocation resets the buffer).
 #[no_mangle]
 pub extern "C" fn __kobako_take_outcome() -> u64 {
     #[cfg(target_arch = "wasm32")]
@@ -663,7 +663,7 @@ mod tests {
     fn export_names_match_spec() {
         assert_eq!(
             EXPORT_NAMES,
-            ["__kobako_run", "__kobako_alloc", "__kobako_take_outcome"],
+            ["__kobako_eval", "__kobako_alloc", "__kobako_take_outcome"],
         );
     }
 

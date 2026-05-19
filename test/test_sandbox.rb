@@ -77,15 +77,15 @@ class TestSandbox < Minitest::Test
     assert_equal 0, b.services.handle_table.size, "alloc on one Sandbox must not leak to another"
   end
 
-  def test_eval_against_minimal_fixture_raises_trap_error_when_run_missing
+  def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
     # The minimal.wasm fixture has none of the SPEC ABI exports, so the
     # eval step raises Kobako::Wasm::Error which `#eval` re-wraps as a
     # TrapError. Source delivery is via WASI stdin frames now, so the first
-    # ext call is `__kobako_run` (not alloc). Real fixture-based E2E coverage
+    # ext call is `__kobako_eval` (not alloc). Real fixture-based E2E coverage
     # lives in test/test_e2e_journeys.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.eval("nil") }
-    assert_match(/__kobako_run/, err.message)
+    assert_match(/__kobako_eval/, err.message)
   end
 
   def test_eval_rejects_non_string_code

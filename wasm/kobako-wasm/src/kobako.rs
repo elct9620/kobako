@@ -20,7 +20,7 @@
 //!
 //! ## Lifecycle
 //!
-//! [`Kobako::install`] is called once per `__kobako_run` invocation,
+//! [`Kobako::install`] is called once per `__kobako_eval` invocation,
 //! immediately after [`Mrb::open`]. It registers every boot-time entity
 //! and returns a `Kobako` carrying the resolved class handles. The
 //! returned value is then used to drive the Frame 1 preamble through
@@ -555,7 +555,7 @@ impl Kobako {
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
     /// Rust `Vec<String>`. Used by the guest panic path
-    /// (`crate::abi::__kobako_run`) to populate the Panic envelope's
+    /// (`crate::abi::__kobako_eval`) to populate the Panic envelope's
     /// `backtrace` field per SPEC.md "Panic Envelope" L876.
     ///
     /// mruby's default build keeps the backtrace, so `.backtrace`
@@ -755,7 +755,7 @@ impl Kobako {
 
     /// Convert an `mrb_value` to a kobako wire [`crate::codec::Value`]
     /// for inclusion in the outcome Result envelope. Used by
-    /// `__kobako_run` to serialize the user script's last-expression
+    /// `__kobako_eval` to serialize the user script's last-expression
     /// value. Array / Hash values map to [`Value::Array`] /
     /// [`Value::Map`] recursively (docs/wire-codec.md § Type Mapping #7-#8) so a
     /// script returning a collection retains element-level fidelity.

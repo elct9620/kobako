@@ -226,21 +226,21 @@ module Kobako
       @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
     end
 
-    # Drive +Instance#run+ with the three stdin frames (preamble + source
-    # + snippets). Wraps wasmtime / wire errors in TrapError so the
-    # Sandbox layer maps cleanly to the three-class taxonomy. The
+    # Drive +Instance#eval+ with the three stdin frames (preamble +
+    # source + snippets). Wraps wasmtime / wire errors in TrapError so
+    # the Sandbox layer maps cleanly to the three-class taxonomy. The
     # configured-cap paths (docs/behavior.md E-19 / E-20) are routed to
     # the named TrapError subclasses so callers that want to surface a
     # specific reason can rescue them; everything else falls through to
     # the base TrapError.
     def run_guest(preamble, source, snippets)
-      @instance.run(preamble, source, snippets)
+      @instance.eval(preamble, source, snippets)
     rescue Kobako::Wasm::TimeoutError => e
       raise TimeoutError, "guest exceeded timeout: #{e.message}"
     rescue Kobako::Wasm::MemoryLimitError => e
       raise MemoryLimitError, "guest exceeded memory_limit: #{e.message}"
     rescue Kobako::Wasm::Error => e
-      raise TrapError, "guest __kobako_run trapped: #{e.message}"
+      raise TrapError, "guest __kobako_eval trapped: #{e.message}"
     end
 
     # Take OUTCOME_BUFFER bytes from guest memory via +Instance#outcome!+

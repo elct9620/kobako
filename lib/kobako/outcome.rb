@@ -4,7 +4,7 @@ require_relative "outcome/panic"
 
 module Kobako
   # Host-facing boundary for the OUTCOME_BUFFER produced by
-  # +__kobako_run+. Takes raw outcome bytes — a one-byte tag followed by
+  # +__kobako_eval+. Takes raw outcome bytes — a one-byte tag followed by
   # the msgpack-encoded body — and maps them to either the unwrapped
   # mruby return value or a raised three-layer
   # ({docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]) exception.

@@ -10,13 +10,14 @@
 //! The Ruby surface intentionally exposes intent, not the underlying ABI
 //! (SPEC.md "Code Organization"). The two-frame stdin protocol, packed-u64
 //! outcome encoding, and `__kobako_alloc` / `__kobako_take_outcome` /
-//! `__kobako_run` exports are all wrapped inside [`Instance::run`] and
-//! [`Instance::outcome`]; Ruby callers see only `#run(preamble, source)`,
-//! `#stdout`, `#stderr`, `#outcome!`, and `#server=`.
+//! `__kobako_eval` exports are all wrapped inside [`Instance::eval`] and
+//! [`Instance::outcome`]; Ruby callers see only
+//! `#eval(preamble, source, snippets)`, `#stdout`, `#stderr`,
+//! `#outcome!`, and `#server=`.
 //!
 //! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1 bindings
 //! route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`] instances
-//! rebuilt at the start of every [`Instance::run`]. The per-channel cap
+//! rebuilt at the start of every [`Instance::eval`]. The per-channel cap
 //! is enforced directly on the pipe — the pipe is sized at `cap + 1` so
 //! a guest that writes exactly `cap` bytes is distinguishable from one
 //! that exceeded the cap, and `#stdout` / `#stderr` slice the captured
@@ -27,7 +28,7 @@
 //! Per-run cap enforcement (docs/behavior.md B-01, E-19, E-20): every Store
 //! installs an epoch-deadline callback for wall-clock timeout and a
 //! [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
-//! limiter / callback errors into traps; `Instance::run` downcasts the
+//! limiter / callback errors into traps; `Instance::eval` downcasts the
 //! trap source to surface as `Kobako::Wasm::TimeoutError` or
 //! `Kobako::Wasm::MemoryLimitError` so the `Sandbox` layer can map them
 //! to the named `Kobako::TrapError` subclasses.
@@ -66,11 +67,11 @@ pub(crate) struct Instance {
     //
     // `__kobako_alloc` is NOT cached here — only `dispatch.rs` calls it,
     // and it does so through `Caller::get_export` on the wasmtime side.
-    run: Option<TypedFunc<(), ()>>,
+    eval: Option<TypedFunc<(), ()>>,
     take_outcome: Option<TypedFunc<(), u64>>,
     // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
     // the cap. Translated into an `Instant`-based deadline stamped into
-    // [`HostState`] at the top of every `Instance::run`.
+    // [`HostState`] at the top of every `Instance::eval`.
     timeout: Option<Duration>,
     // Per-channel byte caps for guest stdout / stderr capture (SPEC.md
     // B-01 / B-04). `None` disables the cap on that channel. Read by
@@ -151,7 +152,7 @@ impl Instance {
 
         // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
         // to the MemoryOutputPipes set up before each run via
-        // `Instance::run`. The closure pulls a `&mut WasiP1Ctx` out of
+        // `Instance::eval`. The closure pulls a `&mut WasiP1Ctx` out of
         // HostState; the panic semantics live inside `HostState::wasi_mut`
         // so the wiring stays honest about its precondition.
         p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut())
@@ -186,23 +187,23 @@ impl Instance {
         // (test fixture is a bare module); the host enforces presence at
         // invocation time by raising a Ruby `Kobako::Wasm::Error` when the
         // cached Option is None. Only the SPEC ABI `() -> ()` shape is
-        // accepted for `__kobako_run`.
-        let (run, take_outcome) = {
+        // accepted for `__kobako_eval`.
+        let (eval, take_outcome) = {
             let mut store_ref = store_cell.borrow_mut();
             let mut ctx = store_ref.as_context_mut();
-            let run = instance
-                .get_typed_func::<(), ()>(&mut ctx, "__kobako_run")
+            let eval = instance
+                .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")
                 .ok();
             let take_outcome = instance
                 .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
                 .ok();
-            (run, take_outcome)
+            (eval, take_outcome)
         };
 
         Ok(Self {
             inner: instance,
             store: store_cell,
-            run,
+            eval,
             take_outcome,
             timeout,
             stdout_limit_bytes,
@@ -227,31 +228,31 @@ impl Instance {
     // taxonomy.
     // -----------------------------------------------------------------
 
-    /// Execute one guest run.
+    /// Execute one guest invocation (`__kobako_eval` — one-shot source).
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the three-frame stdin protocol carries +preamble+, +source+, then
     /// +snippets+ — docs/wire-codec.md § Invocation channels), then
-    /// invokes `__kobako_run`. Per-run caps (docs/behavior.md B-01) are
-    /// primed here: the wall-clock deadline is stamped into [`HostState`]
-    /// and the epoch deadline is set to fire at the next ticker tick; the
-    /// memory-cap limiter is already wired.
-    pub(crate) fn run(
+    /// invokes `__kobako_eval`. Per-invocation caps (docs/behavior.md
+    /// B-01) are primed here: the wall-clock deadline is stamped into
+    /// [`HostState`] and the epoch deadline is set to fire at the next
+    /// ticker tick; the memory-cap limiter is already wired.
+    pub(crate) fn eval(
         &self,
         preamble: RString,
         source: RString,
         snippets: RString,
     ) -> Result<(), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let run = self
-            .run
+        let eval = self
+            .eval
             .as_ref()
-            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_run"))?;
+            .ok_or_else(|| wasm_err(&ruby, "guest does not export __kobako_eval"))?;
         self.refresh_wasi(preamble, source, snippets)?;
         self.prime_caps();
-        let result = self.call_guest(run);
+        let result = self.call_guest(eval);
         self.disarm_caps();
-        result.map_err(|e| run_call_err(&ruby, e))
+        result.map_err(|e| eval_call_err(&ruby, e))
     }
 
     /// Return the stdout capture from the most recent run as a Ruby
@@ -325,8 +326,8 @@ impl Instance {
             .deactivate();
     }
 
-    /// Invoke the cached `__kobako_run` TypedFunc against the live
-    /// Store. Lives in its own helper so [`Instance::run`] reads as
+    /// Invoke the cached `__kobako_eval` TypedFunc against the live
+    /// Store. Lives in its own helper so [`Instance::eval`] reads as
     /// the run-path outline (export check → refresh WASI → prime caps
     /// → call guest → disarm caps → map errors) without the
     /// `RefCell::borrow_mut` boilerplate inline.
@@ -533,7 +534,7 @@ mod tests {
 /// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
-/// `Instance::run` flow because `set_epoch_deadline(u64::MAX)` is used;
+/// `Instance::eval` flow because `set_epoch_deadline(u64::MAX)` is used;
 /// returning a long extension keeps the callback inert as a defence in
 /// depth.
 fn epoch_deadline_callback(
@@ -547,17 +548,17 @@ fn epoch_deadline_callback(
 }
 
 /// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
-/// exception class. `__kobako_run` traps are downcast to identify the
+/// exception class. `__kobako_eval` traps are downcast to identify the
 /// configured-cap path (docs/behavior.md E-19 / E-20); everything else surfaces
 /// as the base `Kobako::Wasm::Error`.
-fn run_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+fn eval_call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
-        return timeout_err(ruby, format!("__kobako_run(): {}", err));
+        return timeout_err(ruby, format!("__kobako_eval(): {}", err));
     }
     if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        return memory_limit_err(ruby, format!("__kobako_run(): {}", err));
+        return memory_limit_err(ruby, format!("__kobako_eval(): {}", err));
     }
-    wasm_err(ruby, format!("__kobako_run(): {}", err))
+    wasm_err(ruby, format!("__kobako_eval(): {}", err))
 }
 
 /// Map an instantiation error to the right `Kobako::Wasm::*` Ruby

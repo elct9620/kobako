@@ -61,7 +61,7 @@ class TestSandboxPreload < Minitest::Test
   end
 
   # E-35: post-seal calls raise. The minimal.wasm fixture lacks SPEC ABI
-  # exports so #eval trips on __kobako_run and raises TrapError — but
+  # exports so #eval trips on __kobako_eval and raises TrapError — but
   # seal! has already fired by then, so subsequent #preload must raise.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)

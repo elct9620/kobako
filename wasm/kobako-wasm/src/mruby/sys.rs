@@ -279,11 +279,11 @@ extern "C" {
 
     /// `mrb_open()` — creates and initializes a new mruby interpreter
     /// state. Returns NULL on allocation failure. Called once at the
-    /// start of every `__kobako_run` invocation.
+    /// start of every `__kobako_eval` invocation.
     pub fn mrb_open() -> *mut mrb_state;
 
     /// `mrb_close(mrb)` — destroys the mruby state and frees all
-    /// associated memory. Called at the end of `__kobako_run`.
+    /// associated memory. Called at the end of `__kobako_eval`.
     pub fn mrb_close(mrb: *mut mrb_state);
 
     /// `mrb_load_nstring(mrb, s, len)` — compiles and evaluates the
@@ -309,7 +309,7 @@ extern "C" {
     /// Returns the last expression value; sets `mrb->exc` on a malformed
     /// blob (header mismatch, truncated section, version drift). Used at
     /// install time to bring in `mrblib/io.rb` and `mrblib/kernel.rb`
-    /// without paying the parse-source cost on every `__kobako_run`.
+    /// without paying the parse-source cost on every `__kobako_eval`.
     pub fn mrb_load_irep_buf(
         mrb: *mut mrb_state,
         buf: *const core::ffi::c_void,

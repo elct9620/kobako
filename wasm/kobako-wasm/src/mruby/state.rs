@@ -17,7 +17,7 @@
 //!    does nothing more than forward to FFI — "unsafe contagion" across
 //!    every helper that touches the VM.
 //! 2. Manual `mrb_close` calls scatter across every panic-outcome path
-//!    in `__kobako_run`. Forgetting one is a quiet memory leak the
+//!    in `__kobako_eval`. Forgetting one is a quiet memory leak the
 //!    type system cannot catch.
 //!
 //! `Mrb` fixes both: the owning type makes "the VM is live" provable by

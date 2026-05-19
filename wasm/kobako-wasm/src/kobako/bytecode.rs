@@ -11,7 +11,7 @@
 //!
 //! `mrb_load_nstring` runs the full lexer / parser / codegen on every
 //! call. For the ~80-line preamble (`io.rb` + `kernel.rb`) that is
-//! measurable cold-start cost on every `__kobako_run`. `mrb_load_irep_buf`
+//! measurable cold-start cost on every `__kobako_eval`. `mrb_load_irep_buf`
 //! parses only the RITE header and pulls iseq bytes straight into the
 //! VM — the same fast path mruby's own gem mrblib uses.
 //!

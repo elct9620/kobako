@@ -17,7 +17,7 @@
 //!   (SPEC.md "Outcome Envelope"). Shares [`rpc::envelope::EnvelopeError`]
 //!   for codec-shape faults.
 //! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
-//!   the `__kobako_run` / `__kobako_alloc` / `__kobako_take_outcome`
+//!   the `__kobako_eval` / `__kobako_alloc` / `__kobako_take_outcome`
 //!   guest exports (SPEC.md "ABI Signatures").
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::RPC::Handle` /
