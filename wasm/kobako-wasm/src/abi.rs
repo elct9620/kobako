@@ -126,14 +126,21 @@ pub extern "C" fn _initialize() {
 /// Pack `(ptr, len)` into a single u64: high 32 bits = ptr,
 /// low 32 = len. Crate-internal — only the outcome buffer writer in
 /// `super::outcome_buffer` and the RPC client in `crate::rpc::client`
-/// share this layout with the host.
+/// share this layout with the host. The host callers live behind
+/// `#[cfg(target_arch = "wasm32")]`, so on the host target the
+/// function exists only for the inline cargo tests below; the lint
+/// suppression keeps the dead-code analyser quiet without forcing a
+/// wider `pub` than the wasm32 callers need.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[inline]
 pub(crate) fn pack_u64(ptr: u32, len: u32) -> u64 {
     ((ptr as u64) << 32) | (len as u64)
 }
 
 /// Unpack a u64 produced by [`pack_u64`] back into `(ptr, len)`.
-/// Crate-internal companion to [`pack_u64`].
+/// Crate-internal companion to [`pack_u64`]; see that item for the
+/// host-target `dead_code` rationale.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[inline]
 pub(crate) fn unpack_u64(packed: u64) -> (u32, u32) {
     let ptr = (packed >> 32) as u32;
