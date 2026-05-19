@@ -13,6 +13,7 @@ module Kobako
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
     attr_reader services: Kobako::RPC::Server
+    attr_reader snippets: Kobako::SnippetTable
 
     def initialize: (
       ?wasm_path: String?,
@@ -31,6 +32,8 @@ module Kobako
     def stderr_truncated?: () -> bool
 
     def define: (Symbol | String name) -> Kobako::RPC::Namespace
+
+    def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
 
     def eval: (String code) -> untyped
 

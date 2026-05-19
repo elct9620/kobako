@@ -5,6 +5,7 @@ require_relative "errors"
 require_relative "outcome"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
+require_relative "snippet_table"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -31,7 +32,7 @@ module Kobako
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
-    # Default wall-clock timeout for a single +#run+: 60 seconds
+    # Default wall-clock timeout for a single invocation: 60 seconds
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -41,7 +42,7 @@ module Kobako
 
     attr_reader :wasm_path, :instance,
                 :stdout_limit, :stderr_limit,
-                :timeout, :memory_limit, :services
+                :timeout, :memory_limit, :services, :snippets
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
@@ -92,6 +93,7 @@ module Kobako
       @timeout = normalize_timeout(timeout)
       @memory_limit = normalize_memory_limit(memory_limit)
       @services = Kobako::RPC::Server.new
+      @snippets = SnippetTable.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @timeout, @memory_limit, @stdout_limit, @stderr_limit)
       @instance.server = @services
       clear_captures!
@@ -101,10 +103,33 @@ module Kobako
     # ({docs/behavior.md B-07, B-09, B-10}[link:../../docs/behavior.md]). +name+ must be a
     # Symbol or String in constant form. Returns the +Kobako::RPC::Namespace+.
     #
-    # Raises +ArgumentError+ when called after +#run+, or when +name+ does
-    # not match the constant-name pattern.
+    # Raises +ArgumentError+ when called after the first invocation, or
+    # when +name+ does not match the constant-name pattern.
     def define(name)
       @services.define(name)
+    end
+
+    # Register a source snippet on this Sandbox
+    # ({docs/behavior.md B-32}[link:../../docs/behavior.md]). Subsequent
+    # invocations (+#eval+ or +#run+) replay the snippet against the fresh
+    # +mrb_state+ before per-invocation source / entrypoint resolution; the
+    # +name+ becomes the +(snippet:Name)+ backtrace filename. Delegates
+    # name / duplicate validation to +Kobako::SnippetTable+.
+    #
+    # Returns +self+ to allow chaining.
+    #
+    # Raises +ArgumentError+ when +name+ does not match the constant
+    # pattern ({docs/behavior.md E-34}[link:../../docs/behavior.md]), when +name+
+    # duplicates an already-registered snippet
+    # ({docs/behavior.md E-33}[link:../../docs/behavior.md]), or when called
+    # after the first invocation
+    # ({docs/behavior.md E-35, B-33}[link:../../docs/behavior.md]).
+    def preload(code:, name:)
+      raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
+      raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
+
+      @snippets.register(code, name)
+      self
     end
 
     # Execute a guest mruby source string in a fresh +mrb_state+
