@@ -36,6 +36,8 @@ For "N-ops-in-one-invocation" cases (e.g., `2d-1000-rpcs-in-one-eval`), the tabl
 
 For "delta between waypoints" rows (e.g., 8a-1 → 8a-64 isolating per-snippet preload cost), subtract the lower waypoint from the higher and divide by the snippet-count delta. Worked examples are inline in the respective sections.
 
+**Rounding convention.** The script emits one decimal place for ips-derived values (`275.6 µs`) so the conversion is reversible; the prose tables round to three significant figures (`276 µs`) for readability. A future-baseline diff that comes from rounding alone — e.g., `275.6 µs` versus `274.9 µs` both rendering as `275 µs` — is not a real change. When comparing two baselines treat any prose-table delta under 1 µs as noise and consult the JSON / script output for the precise value.
+
 ### Sandbox construction and first run ([`cold_start.rb`](cold_start.rb))
 
 Two costs dominate the very first `Kobako::Sandbox` in a process: wasmtime Engine initialization and `data/kobako.wasm` Module JIT compile. Both are cached at process scope, so every subsequent `Sandbox.new` in the same process is orders of magnitude cheaper.
