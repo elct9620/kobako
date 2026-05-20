@@ -17,11 +17,18 @@
 #        it grows; SPEC's "approach the 2^31 − 1 cap" intent
 #        reframed as "does the dictionary degrade." The cap guard
 #        itself is constant-time and not iterated.
-#   5c — Warm Sandbox#run("nil") round-trip cost. Every #run
-#        triggers HandleTable#reset (B-15 counter → 1; B-19 entries
-#        cleared) plus stdout/stderr buffer clears and the wasi
-#        pipe setup → __kobako_run → drain → decode chain; reset is
-#        only one component of the measured cost.
+#   5c — Warm Sandbox#eval("nil") round-trip cost measured WHILE the
+#        1 M-entry HandleTable grown by 5b is still alive in the same
+#        Ruby process. The clean per-invocation roundtrip number lives
+#        at cold_start.rb 1b (~275 µs); 5c is positioned as the
+#        GC-pressure regression guard — every measured invocation
+#        allocates capture-buffer Strings under heavy heap pressure
+#        from the retained 1 M-entry table, so a regression specific
+#        to "invocation becomes more GC-sensitive when the process
+#        already holds a large HandleTable" is detectable here even
+#        though 1b would miss it. The B-15 / B-19 per-invocation
+#        reset itself is constant-time and not what this case
+#        isolates.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -50,8 +57,11 @@ end
 
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 sandbox = Kobako::Sandbox.new(memory_limit: nil)
-sandbox.run("nil") # warm
+sandbox.eval("nil") # warm
 
-runner.case("5c-warm-run-nil-roundtrip") { sandbox.run("nil") }
+# Runs after the 5b loop has retained `batch_table` (1 M Handles) at
+# module scope for the rest of the process — the GC pressure that
+# distinguishes this case from cold_start.rb 1b.
+runner.case("5c-warm-eval-nil-under-gc-pressure") { sandbox.eval("nil") }
 
 puts runner.write!

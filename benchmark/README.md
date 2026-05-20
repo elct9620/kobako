@@ -125,11 +125,11 @@ The `4d` / `4e` / `4f` rows cover features that landed since `0.1.2`: Onigmo `Re
 | 1 000 allocs against a 10 K-entry table | 0.41 ms |
 | 1 000 allocs against a 100 K-entry table | 0.61 ms |
 | 1 000 allocs against a 1 M-entry table | 0.57 ms |
-| Warm `Sandbox#run("nil")` round-trip (includes per-run reset) | 515 µs |
+| Warm `Sandbox#eval("nil")` round-trip under sustained heap pressure | 515 µs |
 
 The 1 K to 1 M waypoint rows confirm the dictionary stays effectively flat as the table grows — per-alloc cost holds around 350-610 ns across four orders of magnitude. ([SPEC.md B-21](../SPEC.md) caps the counter at `0x7fff_ffff` and rejects allocation past the cap; the cap guard itself is constant-time and not iterated here.)
 
-The `5c-warm-run-nil-roundtrip` row is the slowest case in this suite by an order of magnitude. That number is GC-amplified — it runs after `5b` has grown a 1 M-entry HandleTable that stays alive in the same Ruby process, so each measured `#run` allocates capture-buffer Strings under heavy heap pressure. The cleaner per-`#run` cost is the `1b-sandbox-new+run-nil` 275 µs from cold_start; `5c` is preserved here as the regression guard against changes that make `#run` more GC-sensitive than today.
+The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different dimension than `1b-sandbox-new+eval-nil` from cold_start (~275 µs). It runs **after** the 5b loop has grown a 1 M-entry HandleTable that stays alive in the same Ruby process for the rest of the run, so every measured `#eval` allocates capture-buffer Strings under sustained GC pressure. 1b is the clean per-invocation cost; 5c is the regression signal for changes that make per-invocation work more GC-sensitive when the process is already holding a large HandleTable — a condition 1b cannot detect.
 
 ### Multi-Thread behavior ([`concurrent/threads.rb`](concurrent/threads.rb)) — characterization only
 
