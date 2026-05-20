@@ -257,7 +257,7 @@ The `Worker` snippet replays into a fresh `mrb_state` before every invocation, s
 
 ## Behavior
 
-The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-33 and the Error Scenarios subsection covering E-01..E-36 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
+The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-33 and the Error Scenarios subsection covering E-01..E-38 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
