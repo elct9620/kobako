@@ -91,9 +91,9 @@ The same `Serverless::App` and the same wire path serve both — switching handl
 
 ## Why per-request sandboxes
 
-Each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. Concurrent requests therefore cannot share guest state through globals, instance variables, or class-level mutation — every request gets its own `mrb_state`. This is the strongest isolation kobako offers, and it is cheap: warm Sandbox construction is ~130 µs and the per-request setup adds ~165 µs of `#run` dispatch on top.
+Each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. Concurrent requests therefore cannot share guest state through globals, instance variables, or class-level mutation — every request gets its own `mrb_state`. This is the strongest isolation kobako offers, and it is cheap: warm Sandbox construction is ~125 µs and the per-request setup adds ~160 µs of `#run` dispatch on top.
 
-If your workload is the opposite shape — a stable set of entrypoints, many invocations per process — preload all snippets once at boot into a long-lived Sandbox and dispatch via `#run` per request. The dispatch cost stays at ~165 µs and the Sandbox construction lands off the hot path.
+If your workload is the opposite shape — a stable set of entrypoints, many invocations per process — preload all snippets once at boot into a long-lived Sandbox and dispatch via `#run` per request. The dispatch cost stays at ~160 µs and the Sandbox construction lands off the hot path.
 
 ## Security caveats
 
@@ -107,12 +107,12 @@ Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS ar
 
 | Concurrency | Puma req/s | Puma p99 | Falcon req/s | Falcon p99 |
 |-------------|------------|----------|--------------|------------|
-| 1           | 2,119      | 2 ms     | 1,725        | 2 ms       |
+| 1           | 2,119      | 2 ms     | 1,904        | 1 ms       |
 | 10          | 2,540      | 5 ms     | 2,248        | 6 ms       |
 | 50          | 2,501      | 23 ms    | 2,349        | 24 ms      |
 | 100         | 2,355      | 55 ms    | 2,306        | 47 ms      |
 
-Both servers saturate at ~2.3-2.5k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma is slightly faster at `c=1` because its Rack adapter pipeline is shorter than Falcon's; the gap disappears under load.
+Puma plateaus at ~2.5k req/s and Falcon at ~2.2k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~12-19% faster than Falcon at every concurrency tested; the gap does not close under load.
 
 Two properties of this design suppress Falcon's Fiber advantage:
 
