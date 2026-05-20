@@ -29,7 +29,7 @@ module Kobako
     # Pure-data conversions from the runner's raw JSON shape to the
     # units README.md surfaces. Each helper has exactly one place to
     # change if the unit convention shifts.
-    module Formatter
+    module Units
       module_function
 
       # Time per op derived from an ips number. Picks µs / ms / s so
@@ -108,31 +108,31 @@ module Kobako
         return format_ips(entry) if entry["ips"]
         return format_memory(entry) if entry.key?("rss_kb")
         return format_concurrent(entry) if entry["mode"] == "concurrent"
-        return [Formatter.seconds_to_ms(entry["seconds"]), "one_shot"] if entry["mode"] == "one_shot"
+        return [Units.seconds_to_ms(entry["seconds"]), "one_shot"] if entry["mode"] == "one_shot"
 
         ["", entry.to_json]
       end
 
       def format_ips(entry)
-        value = Formatter.time_per_op(entry["ips"])
-        meta = "#{Formatter.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"
+        value = Units.time_per_op(entry["ips"])
+        meta = "#{Units.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"
         [value, meta]
       end
 
       def format_memory(entry)
-        value = Formatter.kb_to_mb(entry["rss_kb"])
+        value = Units.kb_to_mb(entry["rss_kb"])
         deltas = entry.select { |k, _| k.end_with?("_kb") && k != "rss_kb" }
-                      .map { |k, v| "#{k.sub(/_kb\z/, "")}=#{Formatter.kb_to_mb(v)}" }
+                      .map { |k, v| "#{k.sub(/_kb\z/, "")}=#{Units.kb_to_mb(v)}" }
         [value, deltas.join(", ")]
       end
 
       def format_concurrent(entry)
         if entry["ops_per_sec"]
-          [Formatter.ops_per_sec(entry["ops_per_sec"]), "wall=#{Formatter.seconds_to_ms(entry["seconds"])}"]
+          [Units.ops_per_sec(entry["ops_per_sec"]), "wall=#{Units.seconds_to_ms(entry["seconds"])}"]
         elsif entry["ratio"]
           [format("%.2fx", entry["ratio"]), "baseline=#{format("%.3f", entry["baseline_ms"])} ms"]
         elsif entry["seconds"]
-          [Formatter.seconds_to_ms(entry["seconds"]), entry["mode"]]
+          [Units.seconds_to_ms(entry["seconds"]), entry["mode"]]
         else
           ["", entry.to_json]
         end
