@@ -67,7 +67,7 @@ module Kobako
       # +nil+ — bytecode entries are anonymous on the host side
       # ({docs/behavior.md B-32}[link:../../../docs/behavior.md]); any
       # structural validation
-      # ({docs/behavior.md E-37..E-39}[link:../../../docs/behavior.md])
+      # ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
       # is deferred to the guest at first replay.
       def register_binary(bytes)
         @entries << Binary.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))

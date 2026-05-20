@@ -118,8 +118,8 @@ module Kobako
     # +class="Kobako::ServiceError::Disconnected"+ selects the
     # +Disconnected+ subclass (E-14); +origin="sandbox"+ plus
     # +class="Kobako::BytecodeError"+ selects the +BytecodeError+
-    # subclass (E-37 / E-38 / E-39). Everything else falls back to the
-    # base class for the origin.
+    # subclass (E-37 / E-38). Everything else falls back to the base
+    # class for the origin.
     def panic_target_class(panic)
       case panic.origin
       when Panic::ORIGIN_SERVICE

@@ -152,7 +152,7 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
         // raise it by name; the class handle is not cached on
         // `KobakoClasses` because no compile-time-known call site reads
         // it yet — the snippet-replay path that uses it
-        // ({docs/behavior.md E-37..E-39}[link:../../../docs/behavior.md])
+        // ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
         // looks the class up lazily.
         sys::mrb_define_class_under(
             mrb,

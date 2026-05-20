@@ -9,10 +9,11 @@ module Kobako
     # The +body+ is RITE bytecode (as emitted by +mrbc+) carried as an
     # +ASCII_8BIT+ String so msgpack-ruby encodes it as +bin+ family on
     # the wire ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-    # The host treats the bytes as opaque — the snippet's canonical name
-    # lives in the bytecode's embedded +debug_info+ and is resolved by
-    # the guest at load time; structural validation
-    # ({docs/behavior.md E-37..E-39}[link:../../../docs/behavior.md])
+    # The host treats the bytes as opaque — the snippet's canonical
+    # name, when present, lives in the bytecode's embedded
+    # +debug_info+ and is resolved by the guest at load time;
+    # structural validation
+    # ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
     # is deferred to the first invocation's guest replay.
     #
     # The class is a +Data.define+ subclass — frozen and value-equal.

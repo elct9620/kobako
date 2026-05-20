@@ -112,9 +112,11 @@ module Kobako
   # docs/behavior.md Error Classes: BytecodeError is the SandboxError
   # subclass raised when a `#preload(binary:)` snippet fails structural
   # validation during the first invocation's snippet replay against a
-  # fresh `mrb_state` (E-37 RITE version mismatch, E-38 corrupt body,
-  # E-39 missing debug_info section). Inherits from SandboxError so a
-  # single `rescue Kobako::SandboxError` covers both source and bytecode
+  # fresh `mrb_state` (E-37 RITE version mismatch, E-38 corrupt body).
+  # Bytecode that loads cleanly and then raises at top level is E-36
+  # and surfaces as plain `SandboxError` with the natural mruby class
+  # preserved. Inherits from SandboxError so a single
+  # `rescue Kobako::SandboxError` covers both source and bytecode
   # snippet failures while callers wanting bytecode-specific handling
   # can `rescue Kobako::BytecodeError` directly.
   class BytecodeError < SandboxError; end

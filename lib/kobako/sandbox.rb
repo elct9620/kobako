@@ -113,10 +113,11 @@ module Kobako
     #     becomes the snippet's +(snippet:Name)+ backtrace filename and
     #     is the dedupe key for E-33.
     #   * +preload(binary: bytes)+ — +bytes+ is precompiled RITE
-    #     bytecode as a +String+. The canonical name lives in the
-    #     bytecode's embedded +debug_info+ and is resolved by the guest
-    #     at load time; the host treats the bytes as opaque. Structural
-    #     failures ({docs/behavior.md E-37..E-39}[link:../../docs/behavior.md])
+    #     bytecode as a +String+. The canonical name, when present,
+    #     lives in the bytecode's embedded +debug_info+ and is resolved
+    #     by the guest at load time; the host treats the bytes as
+    #     opaque. Structural failures
+    #     ({docs/behavior.md E-37 / E-38}[link:../../docs/behavior.md])
     #     surface as +Kobako::BytecodeError+ on the first invocation.
     #
     # Subsequent invocations (+#eval+ or +#run+) replay every registered
@@ -213,7 +214,7 @@ module Kobako
     # +code:+ or +name:+ and delegates to
     # +Kobako::Snippet::Table#register_binary+. No host-side bytecode
     # validation runs here — structural failures
-    # ({docs/behavior.md E-37..E-39}[link:../../docs/behavior.md])
+    # ({docs/behavior.md E-37 / E-38}[link:../../docs/behavior.md])
     # surface at first invocation's guest replay.
     def preload_binary!(binary, code, name)
       raise ArgumentError, "cannot combine binary: with code: / name:" unless code.nil? && name.nil?

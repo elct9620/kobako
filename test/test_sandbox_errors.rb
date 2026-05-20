@@ -94,7 +94,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     assert_equal 42, decode(bytes)
   end
 
-  # docs/behavior.md Error Classes + E-37..E-39: a sandbox-origin Panic
+  # docs/behavior.md Error Classes + E-37 / E-38: a sandbox-origin Panic
   # whose +class+ field names +Kobako::BytecodeError+ resolves to the
   # BytecodeError subclass, letting Host Apps rescue bytecode-specific
   # failures separately from generic SandboxError. Pins
