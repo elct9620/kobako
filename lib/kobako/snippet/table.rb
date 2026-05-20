@@ -36,13 +36,15 @@ module Kobako
       end
 
       # Serialize the registered snippets to wire bytes. Each entry
-      # contributes its own msgpack map shape via +#to_wire+; the
-      # collection rides as a single msgpack array. An empty table
-      # serializes to an empty array, never absent. The wire codec is an
-      # implementation detail — callers receive a binary +String+ that
-      # the +Kobako::Wasm+ layer ships through the invocation channel.
+      # contributes a msgpack map shape; the collection rides as a single
+      # msgpack array. An empty table serializes to an empty array, never
+      # absent. The wire codec is an implementation detail — callers
+      # receive a binary +String+ that the +Kobako::Wasm+ layer ships
+      # through the invocation channel. Mirrors the
+      # +Kobako::RPC.encode_request+ pattern: entry value objects stay
+      # pure carriers, this method reads their attributes externally.
       def encode
-        MessagePack.pack(@entries.map(&:to_wire))
+        MessagePack.pack(@entries.map { |entry| entry_payload(entry) })
       end
 
       # Register +code+ under the canonical Symbol form of +name+. +code+
@@ -100,6 +102,20 @@ module Kobako
       end
 
       private
+
+      # Build the msgpack-ready Hash for one entry. Source entries
+      # contribute their host-side +name+; Binary entries omit it
+      # because the canonical name lives in the bytecode's embedded
+      # +debug_info+ and is read by the guest at load time
+      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
+      def entry_payload(entry)
+        case entry
+        when Source
+          { "name" => entry.name.to_s, "kind" => Source::KIND, "body" => entry.body }
+        when Binary
+          { "kind" => Binary::KIND, "body" => entry.body }
+        end
+      end
 
       def normalize_name(name)
         unless name.is_a?(Symbol) || name.is_a?(String)

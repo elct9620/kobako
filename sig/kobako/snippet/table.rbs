@@ -24,6 +24,8 @@ module Kobako
 
       private
 
+      def entry_payload: (entry) -> Hash[String, untyped]
+
       def normalize_name: (Symbol | String name) -> Symbol
     end
   end

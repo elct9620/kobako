@@ -7,8 +7,6 @@ module Kobako
 
       def self.new: (body: String) -> Binary
                   | (String body) -> Binary
-
-      def to_wire: () -> Hash[String, String]
     end
   end
 end

@@ -15,19 +15,14 @@ module Kobako
     # The class is a +Data.define+ subclass — frozen, value-equal, and
     # carries no mutation API. Callers (chiefly +Table+) construct
     # instances via keyword form +Source.new(name: ..., body: ...)+.
+    # Wire-form construction is the +Table+'s responsibility, mirroring
+    # +Kobako::RPC.encode_request+'s pattern of reading attributes off a
+    # carrier rather than asking the carrier to self-describe.
     class Source < Data.define(:name, :body)
       # The +kind+ field value carried by source snippets in their Frame
       # 3 wire envelope entry
       # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
       KIND = "source"
-
-      # Produce the msgpack map this snippet contributes to the Frame 3
-      # array. The +body+ is a UTF-8 String and ships as msgpack +str+;
-      # +name+ is downcast to its String form so the wire decoder sees a
-      # uniform string-keyed map.
-      def to_wire
-        { "name" => name.to_s, "kind" => KIND, "body" => body }
-      end
     end
   end
 end

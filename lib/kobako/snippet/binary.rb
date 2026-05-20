@@ -18,21 +18,13 @@ module Kobako
     #
     # The class is a +Data.define+ subclass — frozen and value-equal.
     # Callers (chiefly +Table+) construct instances via keyword form
-    # +Binary.new(body: ...)+.
+    # +Binary.new(body: ...)+. Wire-form construction is the +Table+'s
+    # responsibility.
     class Binary < Data.define(:body)
       # The +kind+ field value carried by bytecode snippets in their
       # Frame 3 wire envelope entry
       # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
       KIND = "bytecode"
-
-      # Produce the msgpack map this snippet contributes to the Frame 3
-      # array. The +body+ rides as raw bytes — its ASCII-8BIT encoding
-      # makes msgpack-ruby pick the +bin+ family rather than +str+; no
-      # +name+ field appears because the canonical name lives in the
-      # bytecode's embedded +debug_info+ and is read by the guest.
-      def to_wire
-        { "kind" => KIND, "body" => body }
-      end
     end
   end
 end

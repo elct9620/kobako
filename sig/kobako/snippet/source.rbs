@@ -8,8 +8,6 @@ module Kobako
 
       def self.new: (name: Symbol, body: String) -> Source
                   | (Symbol name, String body) -> Source
-
-      def to_wire: () -> Hash[String, String]
     end
   end
 end
