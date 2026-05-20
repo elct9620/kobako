@@ -59,7 +59,12 @@ def gc_then_rss
 end
 
 def warm_sandbox
-  Kobako::Sandbox.new.tap { |s| s.eval("nil") }
+  # memory_limit: nil — see benchmark/mruby_eval.rb for the rationale.
+  # The 7c large-payload return (512 KiB String) and the 7d stdout-fill
+  # script (2 MiB written) would both exceed the default 1 MiB per-
+  # invocation delta cap; this suite measures host-side RSS / allocator
+  # behavior and intentionally keeps the cap path out of the hot loop.
+  Kobako::Sandbox.new(memory_limit: nil).tap { |s| s.eval("nil") }
 end
 
 def record(runner, label, **fields)
@@ -86,7 +91,7 @@ end
 
 def grow_sandboxes(runner, sandboxes, after_first)
   [10, 100, 1000].each do |target|
-    sandboxes << Kobako::Sandbox.new while sandboxes.size < target
+    sandboxes << Kobako::Sandbox.new(memory_limit: nil) while sandboxes.size < target
     record_growth(runner, target, gc_then_rss, after_first)
   end
   sandboxes

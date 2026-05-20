@@ -33,11 +33,11 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("mruby_eval")
 
-# memory_limit: nil disables the default 5 MiB per-run guest memory
-# cap so long benchmark-ips loops do not accumulate mruby heap into
-# a trap (4c's repeated raise/rescue is the canonical trigger). The
-# cap itself is exercised separately at the cold_start / sandbox
-# construction level — #4 is about VM throughput, not cap behavior.
+# memory_limit: nil keeps the default 1 MiB per-invocation delta cap
+# out of the hot loop. Even though per-invocation reset means each
+# benchmark-ips iteration gets a fresh budget, disabling the cap
+# entirely removes the limiter call from the wasmtime callback path
+# so #4 measures VM throughput without the enforcement overhead.
 # stdout_limit stays at the default 1 MiB so 4f saturates the cap
 # without an explicit override.
 sandbox = Kobako::Sandbox.new(memory_limit: nil)

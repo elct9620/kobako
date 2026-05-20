@@ -32,9 +32,10 @@ greeter = Class.new do
   def greet = "hi"
 end
 
-# memory_limit: nil — see benchmark/mruby_eval.rb. Long benchmark-ips
-# loops must not trip the default 5 MiB per-run cap; the cap path is
-# tested separately, this suite measures RPC throughput.
+# memory_limit: nil — see benchmark/mruby_eval.rb. The default 1 MiB
+# per-invocation delta cap is enforced on its own dedicated path; this
+# suite measures RPC throughput, so we keep the limiter callback out
+# of the wasmtime hot loop.
 sandbox = Kobako::Sandbox.new(memory_limit: nil)
 sandbox.define(:Bench)
        .bind(:Noop,    ->        {})
