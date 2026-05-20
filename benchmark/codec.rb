@@ -14,10 +14,10 @@
 #
 # Host side is measured directly against
 # Kobako::Codec::Encoder / Decoder. Guest side is measured by
-# Sandbox#run returning a constructed value — the absolute number
-# bundles guest-side encode + host-side decode + the constant #run
-# overhead; comparison across sizes / depths isolates the codec
-# component.
+# Sandbox#eval returning a constructed value — the absolute number
+# bundles guest-side encode + host-side decode + the constant
+# per-invocation overhead; comparison across sizes / depths isolates
+# the codec component.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -76,12 +76,12 @@ wire_types.each do |name, value|
   runner.case("3c-host-decode-#{name}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
-# 3a / 3b — guest side: Sandbox#run returning a constructed value.
-# Absolute ips includes the constant Sandbox#run overhead (see
+# 3a / 3b — guest side: Sandbox#eval returning a constructed value.
+# Absolute ips includes the constant per-invocation overhead (see
 # #1 1b); per-size and per-depth ratios are the regression signal.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 sandbox = Kobako::Sandbox.new(memory_limit: nil)
-sandbox.run("nil") # warm
+sandbox.eval("nil") # warm
 
 # Guest-side String is capped by MRB_STR_LENGTH_MAX (1 MiB; the
 # parser check is `>= max`, so exactly 1 MiB raises). Cap the
@@ -91,14 +91,14 @@ guest_size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "512KiB"
 
 guest_size_bytes.each do |label, bytes|
   script = "\"x\" * #{bytes}"
-  runner.case("3a-guest-return-#{label}") { sandbox.run(script) }
+  runner.case("3a-guest-return-#{label}") { sandbox.eval(script) }
 end
 
 [1, 4, 16, 64].each do |depth|
   open_b = "[" * depth
   close_b = "]" * depth
   script = "#{open_b}\"x\" * 1024#{close_b}"
-  runner.case("3b-guest-return-depth-#{depth}") { sandbox.run(script) }
+  runner.case("3b-guest-return-depth-#{depth}") { sandbox.eval(script) }
 end
 
 puts runner.write!

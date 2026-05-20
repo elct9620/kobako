@@ -7,18 +7,18 @@
 # future ext/ changes (e.g. introducing rb_thread_call_without_gvl)
 # can be compared before/after.
 #
-#   6a — N Threads each owning a Sandbox, running #run in parallel.
+#   6a — N Threads each owning a Sandbox, running #eval in parallel.
 #        Under Ruby's GVL with no rb_thread_call_without_gvl call
 #        in ext/, total throughput is expected to stay close to flat
 #        across N — modest scaling can appear because Ruby-side
-#        setup before each #run (preamble pack, buffer init) can
+#        setup before each #eval (preamble pack, buffer init) can
 #        overlap across threads even while wasm execution is
 #        serialised.
 #   6b — N Threads each calling Sandbox.new cold. Measures mutex
 #        contention on the shared MODULE_CACHE in
 #        ext/kobako/src/wasm/cache.rs.
 #   6c — Concurrent contention overhead: one Thread runs a long
-#        #run, a second Thread tries to start its own #run("nil").
+#        #eval, a second Thread tries to start its own #eval("nil").
 #        The worker signals readiness via a host-bound Service
 #        (Sync::Ready) from inside wasm, so the measurement is
 #        provably taken after the worker has entered the wasm
@@ -41,7 +41,7 @@ OPS_PER_THREAD_6A = 50
 # Synchronized long script: the first guest expression calls into
 # the host-side Sync::Ready Service, which pushes onto the ready
 # Queue. By the time `Sync::Ready.call` returns inside wasm, the
-# worker Thread is provably past Sandbox#run setup and inside the
+# worker Thread is provably past Sandbox#eval setup and inside the
 # wasm execution path.
 SYNCED_LONG_SCRIPT = <<~RUBY
   Sync::Ready.call
@@ -62,8 +62,8 @@ end
 
 def measure_6a(runner, count)
   sandboxes = Array.new(count) { Kobako::Sandbox.new }
-  sandboxes.each { |s| s.run("nil") }
-  elapsed = time_block { parallel_join(count) { |i| OPS_PER_THREAD_6A.times { sandboxes[i].run("nil") } } }
+  sandboxes.each { |s| s.eval("nil") }
+  elapsed = time_block { parallel_join(count) { |i| OPS_PER_THREAD_6A.times { sandboxes[i].eval("nil") } } }
   total = count * OPS_PER_THREAD_6A
   runner.results << { label: "6a-threads-#{count}", seconds: elapsed,
                       ops: total, ops_per_sec: total / elapsed, mode: "concurrent" }
@@ -83,9 +83,9 @@ def measure_6c(runner)
   ready = Queue.new
   short = Kobako::Sandbox.new
   long = build_synced_long_sandbox(ready)
-  short.run("nil")
-  long.run("nil") # warm — does not trip Sync::Ready
-  baseline = time_block { short.run("nil") }
+  short.eval("nil")
+  long.eval("nil") # warm — does not trip Sync::Ready
+  baseline = time_block { short.eval("nil") }
   contended = run_under_contention(long, short, ready)
   record_6c(runner, baseline, contended)
 end
@@ -100,16 +100,16 @@ def build_synced_long_sandbox(ready)
 end
 
 def run_under_contention(long_sandbox, short_sandbox, ready)
-  worker = Thread.new { long_sandbox.run(SYNCED_LONG_SCRIPT) }
+  worker = Thread.new { long_sandbox.eval(SYNCED_LONG_SCRIPT) }
   ready.pop # blocks until Sync::Ready.call returns inside wasm
-  elapsed = time_block { short_sandbox.run("nil") }
+  elapsed = time_block { short_sandbox.eval("nil") }
   worker.join
   elapsed
 end
 
 def record_6c(runner, baseline, contended)
-  runner.results << { label: "6c-baseline-run-nil", seconds: baseline, mode: "concurrent" }
-  runner.results << { label: "6c-contended-run-nil", seconds: contended, mode: "concurrent" }
+  runner.results << { label: "6c-baseline-eval-nil", seconds: baseline, mode: "concurrent" }
+  runner.results << { label: "6c-contended-eval-nil", seconds: contended, mode: "concurrent" }
   runner.results << { label: "6c-blocking-ratio", ratio: contended / baseline,
                       baseline_ms: baseline * 1000, contended_ms: contended * 1000,
                       mode: "concurrent" }
@@ -119,7 +119,7 @@ def record_6c(runner, baseline, contended)
 end
 
 runner = Kobako::Bench::Runner.new("concurrent")
-Kobako::Sandbox.new.run("nil") # warm process-wide caches
+Kobako::Sandbox.new.eval("nil") # warm process-wide caches
 
 [1, 2, 4, 8].each do |count|
   measure_6a(runner, count)

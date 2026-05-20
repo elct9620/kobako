@@ -3,7 +3,8 @@
 # SPEC.md "Regression benchmarks" #1 — Cold start latency.
 #
 #   1a — Sandbox.new alone (steady-state warm Sandbox construction)
-#   1b — Sandbox.new + first #run("nil") (steady-state warm new + run)
+#   1b — Sandbox.new + first #eval("nil") (steady-state warm new +
+#        first one-shot source invocation)
 #   1c — First 10 Sandbox.new calls in the process, individually
 #        timed. The very first call pays the wasmtime Engine init
 #        and Module compile cost; subsequent calls hit the shared
@@ -25,8 +26,8 @@ end
 
 runner.case("1a-sandbox-new") { Kobako::Sandbox.new }
 
-runner.case("1b-sandbox-new+run-nil") do
-  Kobako::Sandbox.new.run("nil")
+runner.case("1b-sandbox-new+eval-nil") do
+  Kobako::Sandbox.new.eval("nil")
 end
 
 puts runner.write!

@@ -3,8 +3,8 @@
 # SPEC.md "Regression benchmarks" #4 — mruby script evaluation
 # time. SPEC: "Impact of build_config/wasi.rb flag changes on VM
 # execution speed." No RPC: every case is a self-contained mruby
-# computation whose only host cost is the constant Sandbox#run
-# overhead.
+# computation whose only host cost is the constant Sandbox#eval
+# per-invocation overhead.
 #
 #   4a — integer arithmetic loop (sum of first 100k integers)
 #   4b — string concatenation (1000 appends to a String)
@@ -41,7 +41,7 @@ runner = Kobako::Bench::Runner.new("mruby_eval")
 # stdout_limit stays at the default 1 MiB so 4f saturates the cap
 # without an explicit override.
 sandbox = Kobako::Sandbox.new(memory_limit: nil)
-sandbox.run("nil") # warm
+sandbox.eval("nil") # warm
 
 # build_config/wasi.rb pins guest mruby to MRB_INT32; a 100k sum
 # overflows i32, so the loop body avoids accumulating into the
@@ -96,11 +96,11 @@ STDOUT_NEAR_CAP_SCRIPT = <<~RUBY
   2048.times { puts "x" * 1023 }
 RUBY
 
-runner.case("4a-arith-100k-sum") { sandbox.run(ARITH_SCRIPT) }
-runner.case("4b-string-concat-1000") { sandbox.run(STRING_SCRIPT) }
-runner.case("4c-exception-raise-rescue-100") { sandbox.run(EXCEPTION_SCRIPT) }
-runner.case("4d-regexp-match-1000") { sandbox.run(REGEXP_SCRIPT) }
-runner.case("4e-stdout-puts-1000") { sandbox.run(STDOUT_LOOP_SCRIPT) }
-runner.case("4f-stdout-cap-saturation") { sandbox.run(STDOUT_NEAR_CAP_SCRIPT) }
+runner.case("4a-arith-100k-sum") { sandbox.eval(ARITH_SCRIPT) }
+runner.case("4b-string-concat-1000") { sandbox.eval(STRING_SCRIPT) }
+runner.case("4c-exception-raise-rescue-100") { sandbox.eval(EXCEPTION_SCRIPT) }
+runner.case("4d-regexp-match-1000") { sandbox.eval(REGEXP_SCRIPT) }
+runner.case("4e-stdout-puts-1000") { sandbox.eval(STDOUT_LOOP_SCRIPT) }
+runner.case("4f-stdout-cap-saturation") { sandbox.eval(STDOUT_NEAR_CAP_SCRIPT) }
 
 puts runner.write!

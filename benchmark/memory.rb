@@ -5,22 +5,22 @@
 # the Sandbox (no Wasm memory size, no mruby heap inspection); we
 # only observe what the host process consumes via RSS. This is the
 # right granularity for capacity planning ("how many tenants fit in
-# one process?") without violating SPEC's Non-Goal of per-#run
+# one process?") without violating SPEC's Non-Goal of per-invocation
 # instrumentation.
 #
 #   7a — Per-Sandbox RSS cost. Measure RSS at baseline, after the
 #        first Sandbox (which absorbs Engine + Module load), and
 #        after N=10/100/1000 total Sandboxes. The delta divided by
 #        (N - 1) approximates per-additional-Sandbox cost.
-#   7b — Per-#run RSS drift. Run #run("nil") 10 000 times on a
-#        single Sandbox; sample RSS every 1 000 runs. Bounded
-#        sub-linear drift (a few MB at 10k runs) is allocator page
-#        retention and is expected — the SPEC B-15 / B-19 per-run
-#        reset is enforced at the Ruby/Handle level, not at the
-#        malloc level. A real reset violation would show drift
-#        scaling with run count across orders of magnitude longer
-#        runs; that is the regression signal, not a non-zero number
-#        at 10k runs.
+#   7b — Per-invocation RSS drift. Run #eval("nil") 10 000 times on
+#        a single Sandbox; sample RSS every 1 000 invocations.
+#        Bounded sub-linear drift (a few MB at 10k invocations) is
+#        allocator page retention and is expected — the SPEC B-15 /
+#        B-19 per-invocation reset is enforced at the Ruby/Handle
+#        level, not at the malloc level. A real reset violation
+#        would show drift scaling with invocation count across
+#        orders of magnitude longer runs; that is the regression
+#        signal, not a non-zero number at 10k invocations.
 #   7c — Large-payload retention. Measure RSS before, while holding
 #        a 512 KiB return value, and after GC. The retained delta
 #        documents how much the allocator keeps in reserve for
@@ -59,7 +59,7 @@ def gc_then_rss
 end
 
 def warm_sandbox
-  Kobako::Sandbox.new.tap { |s| s.run("nil") }
+  Kobako::Sandbox.new.tap { |s| s.eval("nil") }
 end
 
 def record(runner, label, **fields)
@@ -103,21 +103,21 @@ end
 
 # ---- 7b: per-#run RSS drift ---------------------------------------------
 
-def measure_run_drift(runner)
+def measure_invocation_drift(runner)
   sandbox = warm_sandbox
   baseline = gc_then_rss
-  record(runner, "7b-rss-before-run-loop", rss_kb: baseline)
+  record(runner, "7b-rss-before-eval-loop", rss_kb: baseline)
   puts format("7b baseline (1 sandbox, warm): rss=%<r>d KB", r: baseline)
   10.times { |i| record_drift(runner, sandbox, baseline, (i + 1) * 1000) }
 end
 
 def record_drift(runner, sandbox, baseline_kb, iter)
-  1000.times { sandbox.run("nil") }
+  1000.times { sandbox.eval("nil") }
   rss_kb = gc_then_rss
   drift = rss_kb - baseline_kb
-  record(runner, "7b-rss-after-#{iter}-runs",
+  record(runner, "7b-rss-after-#{iter}-evals",
          rss_kb: rss_kb, delta_from_baseline_kb: drift)
-  puts format("7b after %<n>5d runs: rss=%<r>d KB (drift %<d>+d KB)",
+  puts format("7b after %<n>5d evals: rss=%<r>d KB (drift %<d>+d KB)",
               n: iter, r: rss_kb, d: drift)
 end
 
@@ -132,7 +132,8 @@ end
 
 def sample_during_payload(runner, sandbox, before)
   record(runner, "7c-rss-before-512kib-return", rss_kb: before)
-  result = sandbox.run("\"x\" * #{PAYLOAD_BYTES}")
+  script = "\"x\" * #{PAYLOAD_BYTES}"
+  result = sandbox.eval(script)
   during = sample_rss_kb
   # `payload_bytesize` reads `result` *after* the rss sample, which
   # is what keeps the 512 KiB String alive across `sample_rss_kb`.
@@ -174,7 +175,7 @@ def measure_near_cap_stdout(runner)
 end
 
 def sample_during_near_cap(runner, sandbox, before)
-  sandbox.run(STDOUT_FILL_SCRIPT)
+  sandbox.eval(STDOUT_FILL_SCRIPT)
   during = sample_rss_kb
   # Read sandbox.stdout *after* the rss sample so the captured 1 MiB
   # String stays alive across the measurement window — mirrors the
@@ -204,7 +205,7 @@ sandboxes = measure_per_sandbox_cost(runner)
 sandboxes.clear
 GC.start
 
-measure_run_drift(runner)
+measure_invocation_drift(runner)
 measure_large_payload(runner)
 measure_near_cap_stdout(runner)
 
