@@ -17,9 +17,11 @@ module Kobako
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
-    # Default cap on guest linear memory growth: 5 MiB
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
-    DEFAULT_MEMORY_LIMIT = 5 << 20
+    # Default cap on the per-invocation guest linear-memory delta:
+    # 1 MiB ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
+    # The mruby image's initial allocation and prior invocations'
+    # watermark sit outside this budget — see B-01 Notes.
+    DEFAULT_MEMORY_LIMIT = 1 << 20
 
     # Default per-channel capture ceiling: 1 MiB
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).

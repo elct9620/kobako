@@ -103,14 +103,14 @@ class TestSandbox < Minitest::Test
   end
 
   # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`
-  # to 5 MiB. Both surface as readonly attributes for introspection
+  # to 1 MiB. Both surface as readonly attributes for introspection
   # by Host Apps that need to log policy. Pin the literal SPEC values
   # so the test catches a drift in either direction.
   def test_default_caps_match_spec_b01
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal 60.0, sandbox.timeout
-    assert_equal 5 << 20, sandbox.memory_limit
+    assert_equal 1 << 20, sandbox.memory_limit
   end
 
   def test_custom_caps_reflected
