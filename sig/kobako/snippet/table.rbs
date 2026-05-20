@@ -7,9 +7,7 @@ module Kobako
 
       def initialize: () -> void
 
-      def register: (String code, Symbol | String name) -> Symbol
-
-      def register_binary: (String bytes) -> nil
+      def register: (?code: String?, ?name: (Symbol | String)?, ?binary: String?) -> (Symbol | nil)
 
       def encode: () -> String
 
@@ -23,6 +21,12 @@ module Kobako
       def empty?: () -> bool
 
       private
+
+      def register_source!: (String? code, (Symbol | String)? name) -> Symbol
+
+      def ensure_source_args!: (String? code, (Symbol | String)? name) -> [String, Symbol | String]
+
+      def register_binary!: (String bytes) -> nil
 
       def entry_payload: (entry) -> Hash[String, untyped]
 

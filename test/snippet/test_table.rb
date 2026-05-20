@@ -18,7 +18,7 @@ class TestSnippetTable < Minitest::Test
   end
 
   def test_register_stores_under_symbol_name
-    name = @table.register("X = 1", :Helper)
+    name = @table.register(code: "X = 1", name: :Helper)
 
     assert_equal :Helper, name
     assert_equal 1, @table.size
@@ -26,22 +26,22 @@ class TestSnippetTable < Minitest::Test
   end
 
   def test_register_accepts_string_name_and_normalizes_to_symbol
-    @table.register("Y = 2", "Worker")
+    @table.register(code: "Y = 2", name: "Worker")
 
     assert_equal [:Worker], @table.names
   end
 
   def test_register_preserves_insertion_order
-    @table.register("A", :Alpha)
-    @table.register("B", :Beta)
-    @table.register("C", :Gamma)
+    @table.register(code: "A", name: :Alpha)
+    @table.register(code: "B", name: :Beta)
+    @table.register(code: "C", name: :Gamma)
 
     assert_equal %i[Alpha Beta Gamma], @table.names
   end
 
   def test_each_yields_source_entries_in_insertion_order
-    @table.register("A", :Alpha)
-    @table.register("B", :Beta)
+    @table.register(code: "A", name: :Alpha)
+    @table.register(code: "B", name: :Beta)
 
     entries = @table.each.to_a
 
@@ -54,26 +54,26 @@ class TestSnippetTable < Minitest::Test
   # E-34
   def test_register_rejects_name_not_matching_constant_pattern
     %i[lowercase _Leading 1Digit].each do |bad|
-      err = assert_raises(ArgumentError) { @table.register("X", bad) }
+      err = assert_raises(ArgumentError) { @table.register(code: "X", name: bad) }
       assert_match(/snippet name must match/, err.message)
     end
   end
 
   def test_register_rejects_name_of_wrong_type
-    err = assert_raises(ArgumentError) { @table.register("X", 42) }
+    err = assert_raises(ArgumentError) { @table.register(code: "X", name: 42) }
     assert_match(/must be a Symbol or String/, err.message)
   end
 
   # E-33
   def test_register_rejects_duplicate_name
-    @table.register("first body", :Worker)
-    err = assert_raises(ArgumentError) { @table.register("second body", :Worker) }
+    @table.register(code: "first body", name: :Worker)
+    err = assert_raises(ArgumentError) { @table.register(code: "second body", name: :Worker) }
     assert_match(/already preloaded/, err.message)
   end
 
   def test_register_re_encodes_body_as_utf8
     bytes = String.new("X = 1", encoding: Encoding::ASCII_8BIT)
-    @table.register(bytes, :Helper)
+    @table.register(code: bytes, name: :Helper)
     body = @table.each.to_a.first.body
 
     assert_equal Encoding::UTF_8, body.encoding
@@ -82,7 +82,7 @@ class TestSnippetTable < Minitest::Test
 
   def test_register_detaches_body_from_caller_reference
     original = +"X = 1"
-    @table.register(original, :Helper)
+    @table.register(code: original, name: :Helper)
     original << " # mutated"
 
     body = @table.each.to_a.first.body
@@ -102,7 +102,7 @@ class TestSnippetTable < Minitest::Test
   end
 
   def test_encode_source_entry_wire_shape
-    @table.register("X = 1", :Helper)
+    @table.register(code: "X = 1", name: :Helper)
 
     decoded = MessagePack.unpack(@table.encode)
 
@@ -111,7 +111,7 @@ class TestSnippetTable < Minitest::Test
   end
 
   def test_encode_binary_entry_omits_name_and_carries_bin_body
-    @table.register_binary("RITE\x00bytes")
+    @table.register(binary: "RITE\x00bytes")
 
     decoded = MessagePack.unpack(@table.encode)
 
@@ -122,9 +122,9 @@ class TestSnippetTable < Minitest::Test
   end
 
   def test_encode_preserves_insertion_order_across_mixed_entry_kinds
-    @table.register("A", :Alpha)
-    @table.register_binary("RITE\x00first")
-    @table.register("B", :Beta)
+    @table.register(code: "A", name: :Alpha)
+    @table.register(binary: "RITE\x00first")
+    @table.register(code: "B", name: :Beta)
 
     decoded = MessagePack.unpack(@table.encode)
 

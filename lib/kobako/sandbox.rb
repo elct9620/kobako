@@ -138,11 +138,7 @@ module Kobako
     def preload(code: nil, name: nil, binary: nil)
       raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
 
-      if binary.nil?
-        preload_source!(code, name)
-      else
-        preload_binary!(binary, code, name)
-      end
+      @snippets.register(code: code, name: name, binary: binary)
       self
     end
 
@@ -194,34 +190,6 @@ module Kobako
     end
 
     private
-
-    # +#preload+ source-form path. Validates the +code:+ + +name:+ pair
-    # and delegates registration / dedupe to
-    # +Kobako::Snippet::Table#register+. With both keywords absent the
-    # call is ambiguous between the two legal shapes; once +code:+ is
-    # supplied its String type is enforced before +name:+ presence so
-    # callers passing +code: nil+ explicitly see the type error rather
-    # than the "missing keyword" error.
-    def preload_source!(code, name)
-      raise ArgumentError, "missing keyword: code: + name:, or binary:" if code.nil? && name.nil?
-      raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
-      raise ArgumentError, "missing keyword: name:" if name.nil?
-
-      @snippets.register(code, name)
-    end
-
-    # +#preload+ bytecode-form path. Rejects +binary:+ paired with
-    # +code:+ or +name:+ and delegates to
-    # +Kobako::Snippet::Table#register_binary+. No host-side bytecode
-    # validation runs here — structural failures
-    # ({docs/behavior.md E-37 / E-38}[link:../../docs/behavior.md])
-    # surface at first invocation's guest replay.
-    def preload_binary!(binary, code, name)
-      raise ArgumentError, "cannot combine binary: with code: / name:" unless code.nil? && name.nil?
-      raise ArgumentError, "binary must be a String, got #{binary.class}" unless binary.is_a?(String)
-
-      @snippets.register_binary(binary)
-    end
 
     # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet

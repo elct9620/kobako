@@ -41,10 +41,6 @@ module Kobako
 
     private
 
-    def preload_source!: (String? code, (Symbol | String)? name) -> Symbol
-
-    def preload_binary!: (String binary, String? code, (Symbol | String)? name) -> nil
-
     def clear_captures!: () -> void
 
     def begin_invocation!: () -> void
