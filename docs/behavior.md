@@ -495,8 +495,8 @@ These error scenarios are specific to the `#preload` setup verb (B-32) — cover
 
 E-33 is unconditional: duplicate canonical names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two snippets with the same canonical name are never permitted on a single Sandbox. Users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
 
-E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet content; the backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call. E-38 surfaces as `Kobako::BytecodeError` for the same reason but is the bytecode-content subclass.
+E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet source; the backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call.
 
-E-37, E-38, and E-39 surface as `Kobako::BytecodeError` because they originate in the structural content of supplied bytecode (version mismatch, corrupt body, or missing debug section) rather than in Host App API misuse. The snippet table is never modified when one of these is raised.
+E-37, E-38, and E-39 surface as `Kobako::BytecodeError` because they originate in the structural content of supplied bytecode (version mismatch, corrupt body, or missing debug section). The snippet table is never modified when one of these is raised; E-38's backtrace attributes to the bytecode's `debug_info` filename, while E-37 and E-39 fire before any execution reaches the guest and carry no backtrace.
 
 E-33, E-34, and E-35 are Host App programming errors detected before the snippet is registered (E-33 / E-34) or before the invocation reaches the guest (E-35); all three raise `ArgumentError` and do not engage the attribution pipeline.
