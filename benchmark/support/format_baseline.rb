@@ -1,0 +1,151 @@
+# frozen_string_literal: true
+
+# Formats a benchmark/results/<date>-<sha>.json baseline as a flat
+# table of derived, human-readable values. README.md's per-suite
+# tables are populated from this script's output so future baseline
+# refreshes do not require hand-arithmetic on the raw ips / seconds
+# numbers — every conversion below has exactly one definition.
+#
+# Conversions:
+#
+#   - ips cases  → mean time per op in µs (1e6 / ips) or ms when
+#                  ips < 1000. ±sd is reported as percentage of mean.
+#   - one_shot   → CPU seconds → ms.
+#   - memory     → rss_kb → MB (rss_kb / 1024.0); deltas pass through.
+#   - concurrent → seconds → ms; ops_per_sec passed through.
+#
+# Usage:
+#
+#   bundle exec ruby benchmark/support/format_baseline.rb \
+#       benchmark/results/<date>-<sha>.json
+#
+# Defaults to the most recently modified results/*.json when no
+# argument is given.
+
+require "json"
+
+module Kobako
+  module Bench
+    # Pure-data conversions from the runner's raw JSON shape to the
+    # units README.md surfaces. Each helper has exactly one place to
+    # change if the unit convention shifts.
+    module Formatter
+      module_function
+
+      # Time per op derived from an ips number. Picks µs / ms / s so
+      # the magnitude is readable without dropping precision: ips
+      # >= 1_000_000 → ns; 1_000..1_000_000 → µs; < 1_000 → ms.
+      def time_per_op(ips)
+        return format("%.0f ns", 1_000_000_000 / ips) if ips >= 1_000_000
+        return format("%.1f µs", 1_000_000 / ips) if ips >= 1_000
+
+        format("%.2f ms", 1_000 / ips)
+      end
+
+      # Standard deviation as a percentage of the mean. The runner
+      # records the absolute sd; we want a relative number for the
+      # README's ±x.x% form.
+      def sd_pct(mean, deviation)
+        return "0.0%" if mean.zero?
+
+        format("±%.1f%%", (deviation.to_f / mean) * 100)
+      end
+
+      # CPU one_shot seconds → ms. The README quotes one_shot timings
+      # at ms precision; ns / µs are below the runner's measurement
+      # resolution for single-execution blocks.
+      def seconds_to_ms(seconds)
+        format("%.3f ms", seconds * 1000)
+      end
+
+      # KB → MB with one decimal. The memory suite samples RSS in KB
+      # (`ps -o rss=`); the README quotes MB for capacity planning.
+      def kb_to_mb(kilobytes)
+        format("%.1f MB", kilobytes / 1024.0)
+      end
+
+      # Ops/sec passed through; the concurrent suite's #thread/s and
+      # #eval/s figures are already in the right unit.
+      def ops_per_sec(ops_per_sec)
+        return format("%.0f ops/s", ops_per_sec) if ops_per_sec < 10_000
+
+        format("%.1fk ops/s", ops_per_sec / 1000.0)
+      end
+    end
+
+    # Walks a parsed runner JSON document and emits one row per case
+    # into +stdout+ as `suite | label | derived_value | meta`. Used
+    # by +benchmark/support/format_baseline.rb+ (the CLI shim) and
+    # the README.md regeneration workflow.
+    class BaselineFormatter
+      def initialize(payload)
+        @payload = payload
+      end
+
+      def emit(io)
+        emit_header(io)
+        @payload["suites"].sort.each do |suite, cases|
+          cases.each { |entry| emit_row(io, suite, entry) }
+        end
+      end
+
+      private
+
+      def emit_header(io)
+        env = @payload["env"] || {}
+        io.puts "# baseline #{env["captured_at"]} @ #{env["git_sha"]}"
+        io.puts "# #{env["ruby_platform"]} ruby=#{env["ruby_version"]} yjit=#{env["yjit_enabled"]}"
+        io.puts
+        io.puts ["suite", "label", "value", "±sd / meta"].join("\t")
+      end
+
+      def emit_row(io, suite, entry)
+        value, meta = format_entry(entry)
+        io.puts [suite, entry["label"], value, meta].join("\t")
+      end
+
+      def format_entry(entry)
+        return format_ips(entry) if entry["ips"]
+        return format_memory(entry) if entry.key?("rss_kb")
+        return format_concurrent(entry) if entry["mode"] == "concurrent"
+        return [Formatter.seconds_to_ms(entry["seconds"]), "one_shot"] if entry["mode"] == "one_shot"
+
+        ["", entry.to_json]
+      end
+
+      def format_ips(entry)
+        value = Formatter.time_per_op(entry["ips"])
+        meta = "#{Formatter.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"
+        [value, meta]
+      end
+
+      def format_memory(entry)
+        value = Formatter.kb_to_mb(entry["rss_kb"])
+        deltas = entry.select { |k, _| k.end_with?("_kb") && k != "rss_kb" }
+                      .map { |k, v| "#{k.sub(/_kb\z/, "")}=#{Formatter.kb_to_mb(v)}" }
+        [value, deltas.join(", ")]
+      end
+
+      def format_concurrent(entry)
+        if entry["ops_per_sec"]
+          [Formatter.ops_per_sec(entry["ops_per_sec"]), "wall=#{Formatter.seconds_to_ms(entry["seconds"])}"]
+        elsif entry["ratio"]
+          [format("%.2fx", entry["ratio"]), "baseline=#{format("%.3f", entry["baseline_ms"])} ms"]
+        elsif entry["seconds"]
+          [Formatter.seconds_to_ms(entry["seconds"]), entry["mode"]]
+        else
+          ["", entry.to_json]
+        end
+      end
+    end
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  results_dir = File.expand_path("../results", __dir__)
+  path = ARGV[0] || Dir[File.join(results_dir, "*.json")].max_by { |f| File.mtime(f) }
+  abort "no baseline JSON found" unless path && File.exist?(path)
+
+  payload = JSON.parse(File.read(path))
+  Kobako::Bench::BaselineFormatter.new(payload).emit($stdout)
+end
