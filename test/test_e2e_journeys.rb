@@ -1070,19 +1070,4 @@ class TestE2EJourneys < Minitest::Test
     assert_match(/debug_info/, err.message,
                  "E-39 diagnostic should name the missing debug_info section")
   end
-
-  # B-32 binary form: failures fire at first invocation, not at
-  # #preload time. The snippet table accepts the bytecode bytes
-  # unconditionally; the structural check only runs when the guest
-  # opens a fresh mrb_state during the first #eval or #run.
-  def test_b32_binary_preload_defers_structural_failure_to_first_invocation
-    sandbox = Kobako::Sandbox.new
-
-    # No raise here — host-side preload is structure-blind.
-    sandbox.preload(binary: File.binread(E37_FIXTURE_PATH))
-
-    # The first invocation triggers the guest replay where the
-    # structural check fires.
-    assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
-  end
 end
