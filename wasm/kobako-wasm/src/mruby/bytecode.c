@@ -81,12 +81,25 @@ classify_structural_failure(const void *buf, size_t size)
 int
 kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size)
 {
+  /* Save the GC arena index before parsing and running. mruby/irep.h
+   * documents that `mrb_load_irep*` calls leak one RProc into the
+   * arena per invocation; with multiple `#preload(binary:)` snippets
+   * the retained RProcs accumulate until `mrb_close` and consume
+   * memory the host accounts against the user-configured
+   * `memory_limit`. Restoring on every exit path keeps the per-
+   * invocation cost bounded. mrb->exc is itself a GC root (mrb_gc
+   * marks it in the root scan), so even an exception object
+   * synthesized below survives the restore.
+   */
+  int ai = mrb_gc_arena_save(mrb);
+
   mrb_irep *irep = mrb_read_irep_buf(mrb, buf, size);
   if (irep == NULL) {
     /* E-37 (version) or E-38 (corrupt body / non-RITE input). The
      * caller's class-override step folds the synthesized exception
      * into BytecodeError. */
     set_bytecode_exc(mrb, classify_structural_failure(buf, size));
+    mrb_gc_arena_restore(mrb, ai);
     return 1;
   }
   /* Bytecode emitted without `mrbc -g` carries no `debug_info` section.
@@ -102,5 +115,6 @@ kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size)
   proc->c = NULL;
   mrb_irep_decref(mrb, irep);
   mrb_top_run(mrb, proc, mrb_top_self(mrb), 0);
+  mrb_gc_arena_restore(mrb, ai);
   return 0;
 }
