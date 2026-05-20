@@ -342,7 +342,7 @@ These terms describe the two-level injection model used to expose host capabilit
 
 | Term | Definition | Guest-visible form |
 |------|-----------|-------------------|
-| **Namespace** | A named grouping declared by the Host App via `sandbox.define(:Name)`. Namespaces are declared at setup time before the first `#run`. The namespace itself holds no state — it is a container for Members. Maps to Ruby class `Kobako::RPC::Namespace`. | Ruby module (e.g., `MyService`) |
+| **Namespace** | A named grouping declared by the Host App via `sandbox.define(:Name)`. Namespaces are declared at setup time before the first invocation (`#eval` or `#run`). The namespace itself holds no state — it is a container for Members. Maps to Ruby class `Kobako::RPC::Namespace`. | Ruby module (e.g., `MyService`) |
 | **Member** | A Host Ruby object bound into a Namespace via `namespace.bind(:Name, object)`. The Member is the object that receives RPC calls dispatched from guest code. | Module constant (e.g., `MyService::KV`) |
 
 ---
@@ -476,7 +476,7 @@ Iteration count and the transport between the two codec implementations are impl
 
 | # | Benchmark | What it detects |
 |---|-----------|----------------|
-| 1 | Cold start latency (`Kobako::Sandbox.new` → first `#run`) | wasmtime Module load / Engine initialization regression |
+| 1 | Cold start latency (`Kobako::Sandbox.new` → first invocation, `#eval` or `#run`) | wasmtime Module load / Engine initialization regression |
 | 2 | RPC round-trip latency (single minimal Service call) | Wire codec, import function dispatch, HandleTable lookup combined |
 | 3 | Codec throughput at varying payload sizes and nesting depths (host and guest sides measured separately) | Unnecessary allocations or codec path regressions |
 | 4 | mruby script evaluation time (fixed script, no RPC) | Impact of `build_config/wasi.rb` flag changes on VM execution speed |
