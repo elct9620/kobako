@@ -351,14 +351,14 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
-## B-32 — Preload a source snippet onto a Sandbox
+## B-32 — Preload a snippet onto a Sandbox
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No snippet under name `Name` is currently registered on this Sandbox. |
-| **Operation** | `sandbox.preload(code: source, name: Name)` where `source` is a String of mruby source and `Name` is a Symbol or String matching `/\A[A-Z]\w*\z/`. |
-| **Result / Final State** | A snippet is registered on the Sandbox under the canonical name `Name`. The host performs a synchronous trial load of `source` against a fresh `mrb_state` for validation; if compilation succeeds, the snippet is appended to the Sandbox's insertion-ordered snippet table. If trial load surfaces a compile error or top-level exception, no snippet is registered and `Kobako::SandboxError` is raised with the failure attributed to backtrace filename `(snippet:Name)` (E-32). The method returns the Sandbox instance (`self`) to allow chaining. From this point on, every subsequent invocation (`#eval` or `#run`) replays the snippet — in insertion order, before any per-invocation source or entrypoint resolution — against its fresh `mrb_state`. |
-| **Notes** | `Name` is the snippet identity: it is the filename baked into the loaded IREP's `debug_info` and surfaces in every backtrace frame originating from the snippet as `(snippet:Name):line`. Because that filename is the only locator a reader has to identify which snippet a fault originated in, duplicate names are rejected at preload time (E-33) — two snippets under the same name would produce ambiguous backtrace attribution. A `Name` not matching the constant pattern raises `ArgumentError` (E-34). Calling `#preload` after the first invocation raises `ArgumentError` (E-35, governed by B-33). A snippet's top-level expressions re-execute on every invocation as a consequence of per-invocation `mrb_state` lifecycle (B-02 / B-03); when replay raises, the failure is attributed via the snippet filename (E-36). Inter-snippet dependencies (e.g., snippet B referencing a constant defined by snippet A) require A to be preloaded before B; insertion order is the contract. |
+| **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No snippet is currently registered under the canonical name resolved by this call. |
+| **Operation** | One of two forms: (a) `sandbox.preload(code: source, name: Name)` where `source` is a String of mruby source and `Name` is a Symbol or String matching `/\A[A-Z]\w*\z/`; or (b) `sandbox.preload(binary: bytecode)` where `bytecode` is a String of RITE bytecode bytes. The `binary:` form does not accept a `name:` keyword — the snippet name comes from the bytecode's embedded `debug_info` filename. |
+| **Result / Final State** | The host validates the snippet against a fresh `mrb_state` and, on success, appends it to the Sandbox's insertion-ordered snippet table under the canonical name (`Name` for the `code:` form; the `debug_info` filename for the `binary:` form). The `binary:` form additionally runs a host pre-flight header sniff before trial load: the RITE version must equal the host's pinned `RITE_VM_VER` and the `debug_info` section must be present, otherwise `Kobako::BytecodeError` is raised and the snippet table is not modified (E-37 / E-39). The trial-load step then exercises the snippet against a fresh `mrb_state`: a compile error on the `code:` form (E-32), a top-level exception on either form (E-32 for `code:`, E-38 for `binary:`), or an `mrb->exc` after `mrb_load_irep_buf` on the `binary:` form (E-38) leaves the snippet table unchanged and raises with backtrace attribution to the snippet filename. On success, the method returns the Sandbox instance (`self`) to allow chaining. From this point on, every subsequent invocation (`#eval` or `#run`) replays the snippet — in insertion order, before any per-invocation source or entrypoint resolution — against its fresh `mrb_state`. |
+| **Notes** | The canonical name is the snippet identity: it is the filename in the loaded IREP's `debug_info` and appears in every backtrace frame from the snippet as `(snippet:Name):line`. The `code:` form sets the ccontext filename to `Name` before compile; the `binary:` form receives the filename already baked at compile time by the producing tool (`mrb_load_irep_buf` ignores ccontext, so the host cannot override it). Duplicate canonical names across any combination of forms raise at preload time (E-33). A `code:` form `Name` not matching `/\A[A-Z]\w*\z/` raises `ArgumentError` (E-34); the `binary:` form does not accept `name:` and so does not surface E-34. Calling `#preload` after the first invocation raises `ArgumentError` (E-35, governed by B-33). A snippet's top-level expressions re-execute on every invocation as a consequence of per-invocation `mrb_state` lifecycle (B-02 / B-03); when replay raises, the failure is attributed via the snippet filename (E-36). Inter-snippet dependencies (e.g., snippet B referencing a constant defined by snippet A) require A to be preloaded before B; insertion order is the contract. |
 
 ---
 
@@ -369,7 +369,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance with zero or more snippets preloaded via B-32 and zero or more Namespaces / Members registered via B-07 / B-08. No invocation has yet been called. |
 | **Operation** | The first invocation — `sandbox.eval(...)` or `sandbox.run(...)` — is called. |
 | **Result / Final State** | The snippet table becomes immutable. The snippet set replayed on every subsequent invocation is exactly the set registered at the moment of sealing, in insertion order. Any further call to `sandbox.preload(...)` raises `ArgumentError` (E-35); the existing snippet table is preserved unchanged. Service registration (B-07 / B-08) is sealed simultaneously by the same first invocation. |
-| **Notes** | B-33 is the sibling of B-07's `#define`-after-first-invocation sealing rule, not a reuse — setup → first-invocation transitions both Service registration and snippet registration from mutable to frozen as a single boundary. The two anchors are deliberately separate because they govern distinct surfaces (Service registry vs. snippet table) that the Host App reasons about independently. "Probe-then-preload" (run an inert validation invocation, then add more preloads) is intentionally unsupported. |
+| **Notes** | The first invocation seals both the Service registry (B-07) and the snippet table together. After the seal, `#define` raises `ArgumentError` (E-18) and `#preload` raises `ArgumentError` (E-35). The two registries are stored and validated independently; the sealing boundary is the only event they share. |
 
 ---
 
@@ -480,18 +480,23 @@ E-24, E-25, E-29, and E-30 are Host App programming errors detected before the i
 
 ### Preload errors (`#preload`)
 
-These error scenarios are specific to the `#preload(code:, name:)` setup verb (B-32) and the sealing rule (B-33). Host pre-flight cases raise `ArgumentError` synchronously; trial-load and replay-time failures surface as `Kobako::SandboxError` attributed to the snippet's backtrace filename.
+These error scenarios are specific to the `#preload` setup verb (B-32) — covering both the `code:` source form and the `binary:` bytecode form — and the sealing rule (B-33). Host pre-flight API-misuse cases raise `ArgumentError` synchronously; trial-load and replay-time content failures surface as `Kobako::SandboxError`, with the `Kobako::BytecodeError` subclass reserved for `#preload(binary:)` validation failures. Both content classes carry backtrace attribution to the snippet's filename.
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
 | E-32 | `#preload(code:)` source fails mruby compilation during the trial load at preload time | guest trial load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)`) |
-| E-33 | `#preload` `name:` matches a snippet already registered on the Sandbox | host pre-flight | `ArgumentError` |
-| E-34 | `#preload` `name:` does not match `/\A[A-Z]\w*\z/` | host pre-flight | `ArgumentError` |
+| E-33 | `#preload` canonical name matches a snippet already registered on the Sandbox (across either form) | host pre-flight | `ArgumentError` |
+| E-34 | `#preload(code:)` `name:` does not match `/\A[A-Z]\w*\z/` | host pre-flight | `ArgumentError` |
 | E-35 | `#preload` is called after the first invocation (`#eval` or `#run`) — the snippet table is sealed per B-33 | host pre-flight | `ArgumentError` |
 | E-36 | A preloaded snippet's top-level expression raises during replay inside a subsequent invocation | guest static load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)`) |
+| E-37 | `#preload(binary:)` bytecode's RITE version in the header does not match the host's pinned `RITE_VM_VER` | host pre-flight (header sniff) | `Kobako::BytecodeError` |
+| E-38 | `#preload(binary:)` bytecode passes the header sniff but the body fails trial load (`mrb_load_irep_buf` raises `mrb->exc` on a fresh `mrb_state`) | guest trial load | `Kobako::BytecodeError` (backtrace attributed to the bytecode's `debug_info` filename) |
+| E-39 | `#preload(binary:)` bytecode's `debug_info` section is absent — no filename available for snippet identity | host pre-flight (header sniff) | `Kobako::BytecodeError` |
 
-E-33 is unconditional: duplicate names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two snippets with the same `name:` are never permitted on a single Sandbox. Users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
+E-33 is unconditional: duplicate canonical names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two snippets with the same canonical name are never permitted on a single Sandbox. Users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
 
-E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet content; the backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call.
+E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet content; the backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call. E-38 surfaces as `Kobako::BytecodeError` for the same reason but is the bytecode-content subclass.
+
+E-37, E-38, and E-39 surface as `Kobako::BytecodeError` because they originate in the structural content of supplied bytecode (version mismatch, corrupt body, or missing debug section) rather than in Host App API misuse. The snippet table is never modified when one of these is raised.
 
 E-33, E-34, and E-35 are Host App programming errors detected before the snippet is registered (E-33 / E-34) or before the invocation reaches the guest (E-35); all three raise `ArgumentError` and do not engage the attribution pipeline.
