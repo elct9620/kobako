@@ -88,4 +88,48 @@ class TestSnippetTable < Minitest::Test
     body = @table.each.to_a.first.body
     assert_equal "X = 1", body
   end
+
+  # docs/wire-codec.md § Invocation channels: Frame 3 is a msgpack array of
+  # per-entry maps. Source entries carry "name" / "kind" = "source" /
+  # "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
+  # (bin) and no "name". The encoder lives on Table to keep wire
+  # knowledge in one place (mirroring Kobako::RPC.encode_request /
+  # encode_response on entry-tier carriers).
+  def test_encode_empty_table_serializes_to_empty_msgpack_array
+    decoded = MessagePack.unpack(@table.encode)
+
+    assert_equal [], decoded
+  end
+
+  def test_encode_source_entry_wire_shape
+    @table.register("X = 1", :Helper)
+
+    decoded = MessagePack.unpack(@table.encode)
+
+    assert_equal 1, decoded.length
+    assert_equal({ "name" => "Helper", "kind" => "source", "body" => "X = 1" }, decoded.first)
+  end
+
+  def test_encode_binary_entry_omits_name_and_carries_bin_body
+    @table.register_binary("RITE\x00bytes")
+
+    decoded = MessagePack.unpack(@table.encode)
+
+    assert_equal 1, decoded.length
+    assert_equal({ "kind" => "bytecode", "body" => "RITE\x00bytes".b }, decoded.first)
+    refute_includes decoded.first.keys, "name",
+                    "binary entry's canonical name lives in bytecode debug_info, not on the wire"
+  end
+
+  def test_encode_preserves_insertion_order_across_mixed_entry_kinds
+    @table.register("A", :Alpha)
+    @table.register_binary("RITE\x00first")
+    @table.register("B", :Beta)
+
+    decoded = MessagePack.unpack(@table.encode)
+
+    assert_equal(%w[source bytecode source], decoded.map { |e| e["kind"] })
+    assert_equal "Alpha", decoded[0]["name"]
+    assert_equal "Beta",  decoded[2]["name"]
+  end
 end
