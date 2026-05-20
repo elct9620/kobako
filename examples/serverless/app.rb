@@ -98,7 +98,7 @@ module Serverless
     def call(env)
       return method_not_allowed unless env["REQUEST_METHOD"] == "GET"
 
-      name = env["PATH_INFO"].to_s.sub(%r{\A/}, "")
+      name = env["PATH_INFO"].sub(%r{\A/}, "")
       return index if name.empty?
 
       script = @routes[name]
@@ -113,11 +113,11 @@ module Serverless
 
     def index
       list = @routes.keys.map { |n| "  GET /#{n}" }.join("\n")
-      [200, PLAIN.dup, ["Available scripts:\n#{list}\n"]]
+      [200, PLAIN, ["Available scripts:\n#{list}\n"]]
     end
 
     def not_found(name)
-      [404, PLAIN.dup, ["no script registered for /#{name}\n"]]
+      [404, PLAIN, ["no script registered for /#{name}\n"]]
     end
 
     def method_not_allowed
@@ -125,30 +125,29 @@ module Serverless
     end
 
     def sandbox_error(error)
-      [500, PLAIN.dup, ["#{error.class}: #{error.message}\n"]]
+      [500, PLAIN, ["#{error.class}: #{error.message}\n"]]
     end
 
     # Build a fresh Sandbox per request, preload the script as :App, and
     # invoke it with the wire-friendly env Hash. The mruby triplet
     # +[status, headers, body]+ comes back through msgpack as plain
-    # Integer / Hash / Array and is normalised so Rack's downstream
-    # writers accept it without re-coercion.
+    # mutable Integer / Hash / Array, which is exactly what Rack 3 wants
+    # — no host-side re-coercion needed.
     def render(script, rack_env)
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: script, name: :App)
-      triplet = sandbox.run(:App, guest_env(rack_env))
-      normalise(triplet)
+      sandbox.run(:App, env(rack_env))
     end
 
     # Whitelist Rack env keys that survive the wire codec. The mruby
     # guest only needs method / path / query — IO streams, middleware
     # callables, and host objects in the full Rack env are deliberately
     # excluded so the wire payload stays small and pure data.
-    def guest_env(rack_env)
+    def env(rack_env)
       {
         "method" => rack_env["REQUEST_METHOD"],
         "path" => rack_env["PATH_INFO"],
-        "query" => parse_query(rack_env["QUERY_STRING"].to_s)
+        "query" => parse_query(rack_env["QUERY_STRING"])
       }
     end
 
@@ -157,17 +156,8 @@ module Serverless
 
       query_string.split("&").to_h do |pair|
         k, v = pair.split("=", 2)
-        [URI.decode_www_form_component(k.to_s), URI.decode_www_form_component(v.to_s)]
+        [URI.decode_www_form_component(k), URI.decode_www_form_component(v.to_s)]
       end
-    end
-
-    # Rack 3 requires Integer status, mutable Hash headers with
-    # lowercase keys, and an Array body. The guest already produces
-    # this shape, but we re-wrap the headers Hash so a frozen literal
-    # from the script does not trip middleware that mutates headers.
-    def normalise(triplet)
-      status, headers, body = triplet
-      [Integer(status), Hash(headers).dup, Array(body)]
     end
   end
 end
