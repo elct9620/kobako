@@ -129,7 +129,18 @@ fn decode_snippet_entry(item: Value) -> Option<Snippet> {
             name: name?,
             body: body_str?,
         }),
-        "bytecode" => Some(Snippet::Bytecode { body: body_bin? }),
+        "bytecode" => {
+            // The wire contract (docs/wire-codec.md § Invocation
+            // channels) reserves the `name` field for the source form.
+            // A bytecode entry carrying it is a host bug — the
+            // canonical name lives in the IREP's debug_info — so
+            // surface the violation rather than silently dropping the
+            // stray field.
+            if name.is_some() {
+                return None;
+            }
+            Some(Snippet::Bytecode { body: body_bin? })
+        }
         _ => None,
     }
 }
@@ -220,6 +231,22 @@ mod tests {
         let bytes = encode(&Value::Array(vec![Value::Map(vec![
             (Value::Str("kind".into()), Value::Str("bytecode".into())),
             (Value::Str("body".into()), Value::Str("RITE".into())),
+        ])]));
+        assert!(decode_snippets(&bytes).is_none());
+    }
+
+    #[test]
+    fn decode_snippets_rejects_bytecode_carrying_name_field() {
+        // docs/wire-codec.md § Invocation channels reserves `name` for
+        // the source form. A bytecode entry that ships with a name key
+        // is a host bug — the canonical name lives in the IREP's
+        // debug_info — and must surface as a wire violation rather
+        // than be silently accepted.
+        let body_bytes = vec![0x52, 0x49, 0x54, 0x45];
+        let bytes = encode(&Value::Array(vec![Value::Map(vec![
+            (Value::Str("name".into()), Value::Str("Helper".into())),
+            (Value::Str("kind".into()), Value::Str("bytecode".into())),
+            (Value::Str("body".into()), Value::Bin(body_bytes)),
         ])]));
         assert!(decode_snippets(&bytes).is_none());
     }
