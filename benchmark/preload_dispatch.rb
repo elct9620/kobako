@@ -105,20 +105,33 @@ def helper_snippet_name(index)
   :"Helper#{index}"
 end
 
+# Pre-compute the helper snippet sources and names ONCE at suite
+# setup time. The 8a / 8e timed blocks below index into these frozen
+# arrays so the heredoc interpolation and Symbol construction cost
+# stays out of the measurement window — only Sandbox.new, #preload,
+# and #run land inside the timer. Mirrors the mruby_eval.rb pattern
+# of declaring ARITH_SCRIPT etc. at module top rather than building
+# strings inside the runner.case block.
+HELPER_MAX = 64
+HELPER_CODES = Array.new(HELPER_MAX) { |i| helper_snippet_code(i) }.freeze
+HELPER_NAMES = Array.new(HELPER_MAX) { |i| helper_snippet_name(i) }.freeze
+
 # Process-wide warm-up so 8a's first iteration does not pay the
 # first-Sandbox cold cost (Engine init + Module JIT compile).
 # Mirrors the warm-up pattern in rpc_roundtrip / codec / mruby_eval.
 Kobako::Sandbox.new.eval("nil")
 
 # 8a — preload registration cost. Each iteration constructs a fresh
-# Sandbox and registers N helper snippets. The Sandbox.new term is
+# Sandbox and registers N helper snippets via index lookups into the
+# pre-computed +HELPER_CODES+ / +HELPER_NAMES+ arrays — no string or
+# Symbol construction inside the timer. The Sandbox.new term is
 # constant across the three waypoints; subtract cold_start 1a
 # (Sandbox.new alone) to recover the per-snippet preload cost.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 [1, 8, 64].each do |n|
   runner.case("8a-sandbox-new+preload-#{n}-source") do
     sandbox = Kobako::Sandbox.new(memory_limit: nil)
-    n.times { |i| sandbox.preload(code: helper_snippet_code(i), name: helper_snippet_name(i)) }
+    n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   end
 end
 
@@ -138,11 +151,13 @@ runner.case("8d-run-dispatch-kwargs") { dispatch_sandbox.run(:Greet, name: :alic
 # 8e — per-invocation snippet replay overhead. Each waypoint owns a
 # Sandbox with N additional helpers preloaded alongside the Noop
 # entrypoint. The slope between 0 / 8 / 64 isolates per-snippet
-# replay cost on the steady-state #run path.
+# replay cost on the steady-state #run path. (8e's preload calls
+# already sit outside the timer, but the +HELPER_CODES+ /
+# +HELPER_NAMES+ lookup keeps the setup code uniform with 8a.)
 [0, 8, 64].each do |n|
   sandbox = Kobako::Sandbox.new(memory_limit: nil)
   sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
-  n.times { |i| sandbox.preload(code: helper_snippet_code(i), name: helper_snippet_name(i)) }
+  n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
   runner.case("8e-run-replay-#{n}-snippets") { sandbox.run(:Noop) }
 end
