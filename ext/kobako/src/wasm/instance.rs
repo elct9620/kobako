@@ -348,9 +348,7 @@ impl Instance {
     /// The mruby image's declared initial allocation and the high-water
     /// mark left by prior invocations on the same Sandbox are folded
     /// into the baseline rather than the budget — only `memory.grow`
-    /// past +baseline+ counts against `memory_limit`. Test fixtures
-    /// without a `memory` export fall back to baseline 0; the cap
-    /// still works because such fixtures never call `memory.grow`.
+    /// past +baseline+ counts against `memory_limit`.
     fn prime_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
         match self.timeout {

@@ -140,7 +140,7 @@ impl HostState {
 
     /// Arm the docs/behavior.md E-20 memory cap for one guest run with
     /// the current linear-memory size as the baseline. The limiter
-    /// charges only the `memory.grow` delta past +baseline+ against
+    /// charges only the `memory.grow` delta past `baseline` against
     /// the cap, so the mruby image's initial allocation and the
     /// high-water mark left by prior invocations do not consume the
     /// budget. Paired with [`HostState::disarm_memory_cap`] around the
@@ -164,7 +164,7 @@ impl HostState {
 /// `max_memory` is the byte cap on per-invocation growth (`None` disables
 /// the cap). `baseline` is the linear-memory size captured at invocation
 /// entry by [`KobakoLimiter::activate`]; the limiter charges only the
-/// `memory.grow` delta past +baseline+ against `max_memory`, so the
+/// `memory.grow` delta past `baseline` against `max_memory`, so the
 /// mruby image's initial allocation and any high-water mark left by
 /// prior invocations on the same Sandbox do not consume the budget.
 /// `cap_active` gates whether the cap is enforced — wasmtime's
@@ -195,7 +195,7 @@ impl KobakoLimiter {
     }
 
     /// Arm the cap so subsequent `memory.grow` calls are charged
-    /// against `max_memory` starting from +baseline+ bytes. Called via
+    /// against `max_memory` starting from `baseline` bytes. Called via
     /// [`HostState::arm_memory_cap`] at the top of every invocation;
     /// the cap is dormant by default — the module's declared initial
     /// memory is allocated during `Linker::instantiate` and the
@@ -354,7 +354,7 @@ mod tests {
     //! delta cap. The Ruby-facing E2E suite exercises the full path
     //! through wasmtime; these tests pin the pure delta arithmetic so
     //! a regression that breaks the baseline accounting (e.g. dropping
-    //! the +baseline+ subtraction, or letting `activate` carry stale
+    //! the `baseline` subtraction, or letting `activate` carry stale
     //! state across invocations) is caught without spinning up a
     //! Store.
     use super::{KobakoLimiter, MemoryLimitTrap};

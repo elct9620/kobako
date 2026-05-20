@@ -925,10 +925,11 @@ class TestE2EJourneys < Minitest::Test
 
   # SPEC.md B-01 / E-20: the per-invocation delta cap is enforced even
   # at the default 1 MiB budget — a single invocation whose `memory.grow`
-  # delta past the entry-time baseline pushes past 1 MiB still traps.
-  # Distinct from the 2-MiB-cap runaway case above: this test pins that
-  # the cap fires at the configured threshold, not at some larger value
-  # influenced by initial allocation or prior watermark.
+  # delta past the entry-time baseline pushes past 1 MiB still traps,
+  # complementing the 2-MiB-cap runaway case above. The exact-threshold
+  # bisection lives in the cargo `KobakoLimiter` unit tests; this case
+  # only pins that the cap is wired through the real guest at the
+  # default cap, not at some far larger figure.
   def test_memory_limit_traps_single_invocation_past_default_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
