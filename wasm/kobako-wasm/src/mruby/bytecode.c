@@ -1,22 +1,19 @@
 /*
  * bytecode.c — `#preload(binary:)` snippet loader with deferred structural
- * validation (docs/behavior.md B-32 binary: form, E-37 / E-38 / E-39).
+ * validation (docs/behavior.md B-32 binary: form, E-37 / E-38).
  *
  * Purpose
  * -------
  * mruby's `mrb_load_irep_buf` couples parse + execute, returning only the
- * executed value. The bytecode preload path needs three things between
+ * executed value. The bytecode preload path needs two things between
  * those two steps:
  *
  *   1. Distinguish "RITE header / IREP body parse failed" (E-37 / E-38)
- *      from "IREP loaded but its top-level execution raised" — the host
- *      gem attributes the former as `Kobako::BytecodeError` and the
- *      latter as the existing replay failure path.
- *   2. Inspect the loaded IREP's `debug_info` pointer to detect bytecode
- *      compiled without `mrbc -g` (E-39) — `mrb_load_irep_buf` accepts
- *      such blobs silently and the missing debug section only surfaces
- *      later as empty `Exception#backtrace`s, which is too late.
- *   3. Keep the IREP layout knowledge here: `struct mrb_irep` lives in
+ *      from "IREP loaded but its top-level execution raised" (E-36) —
+ *      the host gem attributes the former as `Kobako::BytecodeError` and
+ *      the latter as the existing replay failure path with the natural
+ *      mruby class preserved. The return value carries that distinction.
+ *   2. Keep the IREP layout knowledge here: `struct mrb_irep` lives in
  *      `mruby/irep.h` and any field-offset reasoning has to follow that
  *      header rather than mirror it in Rust.
  *
@@ -24,11 +21,11 @@
  * ---
  *   int kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size)
  *
- * Returns 0 when the bytecode parsed, validated, and executed; non-zero
- * on any failure that left `mrb->exc` set. The caller treats every
- * non-zero return — and every case where `mrb->exc` is set on return —
- * as bytecode-form replay failure and reshapes the resulting Panic
- * envelope's `class` field to `Kobako::BytecodeError`.
+ * Returns 0 when the IREP parsed successfully — even if its top-level
+ * execution raised, in which case `mrb->exc` is set with the natural
+ * mruby exception. Returns non-zero on a structural failure that left
+ * `mrb->exc` set with a synthesized diagnostic; the caller reshapes
+ * those into the `Kobako::BytecodeError` panic class.
  *
  * The function never longjmps; failures set `mrb->exc` and return so
  * the caller's `take_pending_panic` flow stays uniform with the source
@@ -92,13 +89,11 @@ kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size)
     set_bytecode_exc(mrb, classify_structural_failure(buf, size));
     return 1;
   }
-  if (irep->debug_info == NULL) {
-    /* E-39 — bytecode loaded structurally but carries no debug_info
-     * section, so the snippet has no filename for backtrace attribution. */
-    mrb_irep_decref(mrb, irep);
-    set_bytecode_exc(mrb, "bytecode missing debug_info section");
-    return 2;
-  }
+  /* Bytecode emitted without `mrbc -g` carries no `debug_info` section.
+   * Per B-32 that is a legal payload: mruby's own load path accepts it
+   * and `pack_backtrace` silently omits the frame from
+   * `Exception#backtrace`. The snippet's top-level effects still apply
+   * to the fresh `mrb_state`. */
   /* Mirror the body of mruby's static `load_irep`: wrap the IREP in a
    * top-level Proc, hand IREP ownership to the Proc via decref, then
    * run. Any top-level raise sets mrb->exc and the caller's existing

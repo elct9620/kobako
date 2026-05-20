@@ -1053,21 +1053,23 @@ class TestE2EJourneys < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # docs/behavior.md E-39: bytecode whose `debug_info` section is
-  # absent — typically the result of compiling without `mrbc -g` —
-  # surfaces as Kobako::BytecodeError because the snippet has no
-  # filename for backtrace attribution. The no_debug fixture is the
-  # same source compiled with the debug switch omitted.
-  E39_FIXTURE_PATH = File.expand_path("fixtures/snippet_no_debug.mrb", __dir__)
+  # docs/behavior.md B-32 (binary: form): bytecode emitted without
+  # `mrbc -g` carries no `debug_info` section. Per the relaxed B-32 it
+  # remains a legal payload — the guest loads it normally and the
+  # snippet contributes its top-level effects to the fresh `mrb_state`.
+  # Backtrace frames originating in the snippet are silently omitted
+  # per upstream mruby semantics, but class / message / origin
+  # attribution on raised exceptions remain intact. The no_debug
+  # fixture is the same `ANSWERS = 42` source compiled with the debug
+  # switch omitted.
+  STRIPPED_BYTECODE_FIXTURE_PATH = File.expand_path("fixtures/snippet_no_debug.mrb", __dir__)
 
-  def test_e39_bytecode_missing_debug_info_raises_bytecode_error
+  def test_b32_stripped_bytecode_loads_and_contributes_top_level_effects
     sandbox = Kobako::Sandbox.new
-    sandbox.preload(binary: File.binread(E39_FIXTURE_PATH))
+    sandbox.preload(binary: File.binread(STRIPPED_BYTECODE_FIXTURE_PATH))
 
-    err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
-    assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::BytecodeError", err.klass
-    assert_match(/debug_info/, err.message,
-                 "E-39 diagnostic should name the missing debug_info section")
+    assert_equal 42, sandbox.eval("ANSWERS"),
+                 "B-32: bytecode without debug_info must still contribute " \
+                 "top-level effects on the fresh mrb_state"
   end
 end
