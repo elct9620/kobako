@@ -923,6 +923,22 @@ class TestE2EJourneys < Minitest::Test
     assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize')
   end
 
+  # SPEC.md B-01 / E-20: the per-invocation delta cap is enforced even
+  # at the default 1 MiB budget — a single invocation whose `memory.grow`
+  # delta past the entry-time baseline pushes past 1 MiB still traps.
+  # Distinct from the 2-MiB-cap runaway case above: this test pins that
+  # the cap fires at the configured threshold, not at some larger value
+  # influenced by initial allocation or prior watermark.
+  def test_memory_limit_traps_single_invocation_past_default_cap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
+
+    err = assert_raises(Kobako::MemoryLimitError) do
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
+    end
+
+    assert_match(/memory_limit/, err.message)
+  end
+
   # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
   # the corresponding cap. With caps off, a small script must complete
   # normally — the guards are dormant rather than always-firing.
