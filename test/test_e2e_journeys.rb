@@ -1059,6 +1059,18 @@ class TestE2EJourneys < Minitest::Test
   # promoted to Kobako::BytecodeError, which is reserved for the two
   # structural failure modes (E-37 / E-38). The raise_boom fixture is
   # `raise "boom from snippet"` compiled with `mrbc -g`.
+  #
+  # Scope: this test pins the E-36 dispatch contract only — the spec
+  # change broadens E-36 to cover binary form, and the regression risk
+  # is the silent promotion to BytecodeError that the previous
+  # implementation enforced unconditionally. Backtrace attribution for
+  # binary form (whatever filename the bytecode's debug_info carries,
+  # routed through mruby's own `pack_backtrace`) is inherited from
+  # upstream and unchanged by the spec relaxation, so it is not
+  # separately pinned here. The source-form companion at
+  # `test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error`
+  # exercises the parallel attribution path for the `(snippet:Name)`
+  # ccontext filename, which is host-set rather than upstream-inherited.
   E36_BINARY_FIXTURE_PATH = File.expand_path("fixtures/snippet_raise_boom.mrb", __dir__)
 
   def test_e36_binary_form_replay_raise_is_sandbox_error_not_bytecode_error
