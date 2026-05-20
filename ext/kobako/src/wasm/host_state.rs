@@ -6,11 +6,15 @@
 //! [`crate::wasm::Instance`] install fresh WASI context + pipes before
 //! every `#run` (docs/behavior.md B-03 / B-04).
 //!
-//! The state also carries the per-run wall-clock deadline (docs/behavior.md B-01,
-//! E-19) and the linear-memory cap [`KobakoLimiter`] (docs/behavior.md B-01,
-//! E-20). Both are read from the wasmtime `epoch_deadline_callback` /
-//! `ResourceLimiter` callbacks installed in
-//! [`crate::wasm::Instance::from_path`].
+//! The state also carries the per-invocation wall-clock deadline
+//! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
+//! delta cap [`KobakoLimiter`] (docs/behavior.md B-01, E-20). Both are
+//! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
+//! callbacks installed in [`crate::wasm::Instance::from_path`]. The
+//! memory cap measures only the `memory.grow` delta past the linear-
+//! memory size captured at invocation entry — the mruby image's
+//! initial allocation and prior invocations' watermark are outside the
+//! budget.
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::Instant;
@@ -134,13 +138,17 @@ impl HostState {
         &mut self.limiter
     }
 
-    /// Arm the docs/behavior.md E-20 memory cap for one guest run.
-    /// Paired with [`HostState::disarm_memory_cap`] around the call to
-    /// the corresponding `__kobako_*` export so post-run host
+    /// Arm the docs/behavior.md E-20 memory cap for one guest run with
+    /// the current linear-memory size as the baseline. The limiter
+    /// charges only the `memory.grow` delta past +baseline+ against
+    /// the cap, so the mruby image's initial allocation and the
+    /// high-water mark left by prior invocations do not consume the
+    /// budget. Paired with [`HostState::disarm_memory_cap`] around the
+    /// call to the corresponding `__kobako_*` export so post-run host
     /// bookkeeping (e.g. fetching the OUTCOME_BUFFER) is not
     /// attributed to the user script.
-    pub(super) fn arm_memory_cap(&mut self) {
-        self.limiter.activate();
+    pub(super) fn arm_memory_cap(&mut self, baseline: usize) {
+        self.limiter.activate(baseline);
     }
 
     /// Disarm the docs/behavior.md E-20 memory cap. See
@@ -150,25 +158,30 @@ impl HostState {
     }
 }
 
-/// Resource limiter that enforces the `memory_limit` cap from
-/// docs/behavior.md B-01 / E-20 on every guest `memory.grow`.
+/// Resource limiter that enforces the per-invocation `memory_limit`
+/// cap from docs/behavior.md B-01 / E-20.
 ///
-/// `max_memory` is the byte cap (`None` disables the cap). `cap_active`
-/// gates whether the cap is enforced — wasmtime's `ResourceLimiter`
-/// fires for both the module's declared initial allocation and every
-/// subsequent `memory.grow`, but docs/behavior.md E-20 scopes the trap to
-/// `memory.grow` specifically. [`KobakoLimiter::activate`] /
-/// [`KobakoLimiter::deactivate`] flip the flag for the lifetime of an
+/// `max_memory` is the byte cap on per-invocation growth (`None` disables
+/// the cap). `baseline` is the linear-memory size captured at invocation
+/// entry by [`KobakoLimiter::activate`]; the limiter charges only the
+/// `memory.grow` delta past +baseline+ against `max_memory`, so the
+/// mruby image's initial allocation and any high-water mark left by
+/// prior invocations on the same Sandbox do not consume the budget.
+/// `cap_active` gates whether the cap is enforced — wasmtime's
+/// `ResourceLimiter` also fires for the module's declared initial
+/// allocation at instantiation time, but the cap stays dormant until
+/// [`KobakoLimiter::activate`] flips the flag for one
 /// `Instance::eval` / `Instance::run` call. When `cap_active` is
 /// `false`, the limiter always allows growth.
 ///
-/// When `memory.grow` would push linear memory past the cap, the
-/// limiter returns [`MemoryLimitTrap`] from `memory_growing`; wasmtime
-/// turns that into the trap surfaced to the host as a guest invocation
-/// failure.
+/// When `memory.grow` would push the per-invocation delta past
+/// `max_memory`, the limiter returns [`MemoryLimitTrap`] from
+/// `memory_growing`; wasmtime turns that into the trap surfaced to the
+/// host as a guest invocation failure.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct KobakoLimiter {
     max_memory: Option<usize>,
+    baseline: usize,
     cap_active: bool,
 }
 
@@ -176,18 +189,20 @@ impl KobakoLimiter {
     fn new(max_memory: Option<usize>) -> Self {
         Self {
             max_memory,
+            baseline: 0,
             cap_active: false,
         }
     }
 
-    /// Arm the cap so subsequent `memory.grow` calls are checked
-    /// against `memory_limit`. Called via
-    /// [`HostState::arm_memory_cap`]; the cap is dormant by default —
-    /// the module's declared initial memory is allocated during
-    /// `Linker::instantiate` and docs/behavior.md E-20 scopes the trap
-    /// to `memory.grow` (not the instantiation-time initial
-    /// allocation).
-    fn activate(&mut self) {
+    /// Arm the cap so subsequent `memory.grow` calls are charged
+    /// against `max_memory` starting from +baseline+ bytes. Called via
+    /// [`HostState::arm_memory_cap`] at the top of every invocation;
+    /// the cap is dormant by default — the module's declared initial
+    /// memory is allocated during `Linker::instantiate` and the
+    /// per-invocation budget excludes anything that existed before
+    /// arming (docs/behavior.md B-01 Notes, E-20).
+    fn activate(&mut self, baseline: usize) {
+        self.baseline = baseline;
         self.cap_active = true;
     }
 
@@ -211,7 +226,8 @@ impl ResourceLimiter for KobakoLimiter {
             return Ok(true);
         }
         if let Some(limit) = self.max_memory {
-            if desired > limit {
+            let delta = desired.saturating_sub(self.baseline);
+            if delta > limit {
                 return Err(wasmtime::Error::new(MemoryLimitTrap { desired, limit }));
             }
         }
@@ -331,3 +347,77 @@ impl StoreCell {
 //     holds.
 unsafe impl Send for StoreCell {}
 unsafe impl Sync for StoreCell {}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`KobakoLimiter`] — the per-invocation memory
+    //! delta cap. The Ruby-facing E2E suite exercises the full path
+    //! through wasmtime; these tests pin the pure delta arithmetic so
+    //! a regression that breaks the baseline accounting (e.g. dropping
+    //! the +baseline+ subtraction, or letting `activate` carry stale
+    //! state across invocations) is caught without spinning up a
+    //! Store.
+    use super::{KobakoLimiter, MemoryLimitTrap};
+    use wasmtime::ResourceLimiter;
+
+    fn assert_growing(limiter: &mut KobakoLimiter, desired: usize) {
+        assert!(
+            limiter.memory_growing(0, desired, None).unwrap(),
+            "expected memory_growing({desired}) to allow growth"
+        );
+    }
+
+    fn assert_trapping(limiter: &mut KobakoLimiter, desired: usize) {
+        let err = limiter
+            .memory_growing(0, desired, None)
+            .expect_err("expected memory_growing to trap");
+        assert!(
+            err.downcast_ref::<MemoryLimitTrap>().is_some(),
+            "expected MemoryLimitTrap, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn dormant_limiter_allows_any_growth() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        // Without `activate`, the cap is dormant — the module's
+        // declared initial allocation must pass through unconditionally.
+        assert_growing(&mut limiter, 100 << 20);
+    }
+
+    #[test]
+    fn delta_below_cap_passes_after_activate() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        // baseline=2 MiB, desired=2.5 MiB → delta=0.5 MiB ≤ 1 MiB cap.
+        assert_growing(&mut limiter, (2 << 20) + (1 << 19));
+    }
+
+    #[test]
+    fn delta_past_cap_traps_with_memory_limit_trap() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        // baseline=2 MiB, desired=4 MiB → delta=2 MiB > 1 MiB cap.
+        assert_trapping(&mut limiter, 4 << 20);
+    }
+
+    #[test]
+    fn activate_resets_baseline_on_each_invocation() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        assert_growing(&mut limiter, (2 << 20) + (1 << 20));
+        // Second invocation: linear memory has grown to 3 MiB. Re-arming
+        // must re-anchor the baseline so the next 1 MiB of growth fits
+        // the per-invocation budget rather than being charged against
+        // the prior invocation's residue.
+        limiter.activate(3 << 20);
+        assert_growing(&mut limiter, (3 << 20) + (1 << 20));
+    }
+
+    #[test]
+    fn disabled_cap_ignores_delta_size() {
+        let mut limiter = KobakoLimiter::new(None);
+        limiter.activate(0);
+        assert_growing(&mut limiter, 100 << 20);
+    }
+}

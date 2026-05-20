@@ -892,9 +892,11 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md B-01 / E-20: `memory_limit` traps when guest `memory.grow`
-  # would exceed the cap. The cap is dormant during instantiation so
-  # the module's declared initial memory is allowed through; only
-  # script-driven growth past the cap surfaces.
+  # would push the per-invocation linear-memory delta past the cap.
+  # The cap measures only the growth attributable to this invocation —
+  # the mruby image's initial allocation and the watermark left by
+  # prior invocations sit outside the budget — so a runaway script
+  # that allocates far more than the cap still surfaces as a trap.
   def test_memory_limit_cap_traps_runaway_allocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 2 << 20)
 
@@ -905,6 +907,20 @@ class TestE2EJourneys < Minitest::Test
     assert_kind_of Kobako::TrapError, err,
                    "MemoryLimitError must be a TrapError subclass per SPEC.md E-20"
     assert_match(/memory_limit/, err.message)
+  end
+
+  # SPEC.md B-01 / E-20: `memory_limit` is a per-invocation delta cap,
+  # re-anchored at the linear-memory size observed when each invocation
+  # enters. The same Sandbox can therefore run back-to-back scripts
+  # that each allocate well within the cap, even when their combined
+  # high-water mark exceeds it — the watermark left by the first
+  # invocation is folded into the second invocation's baseline rather
+  # than being charged against its budget.
+  def test_memory_limit_resets_per_invocation
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
+
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize')
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize')
   end
 
   # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable

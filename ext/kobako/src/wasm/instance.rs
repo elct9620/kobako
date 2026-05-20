@@ -337,11 +337,20 @@ impl Instance {
     // Private helpers.
     // -----------------------------------------------------------------
 
-    /// Stamp the per-run wall-clock deadline into [`HostState`] and prime
-    /// the wasmtime epoch deadline so the next ticker tick wakes the
-    /// epoch-deadline callback. When `timeout` is disabled, the deadline
-    /// is set far enough in the future that the callback effectively
-    /// never fires.
+    /// Stamp the per-invocation wall-clock deadline into [`HostState`]
+    /// and prime the wasmtime epoch deadline so the next ticker tick
+    /// wakes the epoch-deadline callback. When `timeout` is disabled,
+    /// the deadline is set far enough in the future that the callback
+    /// effectively never fires.
+    ///
+    /// Also captures the current linear-memory size as the baseline
+    /// for the docs/behavior.md E-20 per-invocation memory delta cap.
+    /// The mruby image's declared initial allocation and the high-water
+    /// mark left by prior invocations on the same Sandbox are folded
+    /// into the baseline rather than the budget — only `memory.grow`
+    /// past +baseline+ counts against `memory_limit`. Test fixtures
+    /// without a `memory` export fall back to baseline 0; the cap
+    /// still works because such fixtures never call `memory.grow`.
     fn prime_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
         match self.timeout {
@@ -355,7 +364,11 @@ impl Instance {
                 store_ref.set_epoch_deadline(u64::MAX);
             }
         }
-        store_ref.data_mut().arm_memory_cap();
+        let baseline = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
+            Some(Extern::Memory(m)) => m.data_size(store_ref.as_context_mut()),
+            _ => 0,
+        };
+        store_ref.data_mut().arm_memory_cap(baseline);
     }
 
     /// Drop the memory cap as soon as the guest call returns so that
