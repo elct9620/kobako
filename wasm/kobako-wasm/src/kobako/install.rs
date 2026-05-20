@@ -125,9 +125,10 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
         );
 
         // `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
-        // / `Kobako::RPC::WireError` — all subclass `RuntimeError`.
-        // ServiceError stays at the Kobako top level (public API);
-        // WireError lives under RPC since it is an RPC-layer fault.
+        // / `Kobako::RPC::WireError` / `Kobako::BytecodeError` — all
+        // subclass `RuntimeError`. ServiceError and BytecodeError stay
+        // at the Kobako top level (public API); WireError lives under
+        // RPC since it is an RPC-layer fault.
         let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
         let service_error_class = sys::mrb_define_class_under(
             mrb,
@@ -145,6 +146,18 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
             mrb,
             rpc_mod,
             cstr_ptr(WIRE_ERROR_NAME),
+            runtime_error_class,
+        );
+        // `Kobako::BytecodeError` is registered here so guest code can
+        // raise it by name; the class handle is not cached on
+        // `KobakoClasses` because no compile-time-known call site reads
+        // it yet — the snippet-replay path that uses it
+        // ({docs/behavior.md E-37..E-39}[link:../../../docs/behavior.md])
+        // looks the class up lazily.
+        sys::mrb_define_class_under(
+            mrb,
+            kobako_mod,
+            cstr_ptr(BYTECODE_ERROR_NAME),
             runtime_error_class,
         );
 

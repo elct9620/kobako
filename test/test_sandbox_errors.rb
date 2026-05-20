@@ -93,4 +93,23 @@ class TestSandboxOutcomeDecoding < Minitest::Test
 
     assert_equal 42, decode(bytes)
   end
+
+  # docs/behavior.md Error Classes + E-37..E-39: a sandbox-origin Panic
+  # whose +class+ field names +Kobako::BytecodeError+ resolves to the
+  # BytecodeError subclass, letting Host Apps rescue bytecode-specific
+  # failures separately from generic SandboxError. Pins
+  # +Outcome.panic_target_class+ — the branch that selects the bytecode
+  # subclass over the SandboxError parent on a non-service origin.
+  def test_panic_envelope_with_bytecode_klass_dispatches_bytecode_subclass
+    bytes = panic_outcome_bytes(
+      origin: "sandbox", klass: "Kobako::BytecodeError",
+      message: "RITE version mismatch", backtrace: ["(snippet:Helper):1"]
+    )
+
+    err = assert_raises(Kobako::BytecodeError) { decode(bytes) }
+    assert_kind_of Kobako::SandboxError, err,
+                   "BytecodeError must remain a SandboxError subclass"
+    assert_equal "sandbox", err.origin
+    assert_equal "Kobako::BytecodeError", err.klass
+  end
 end

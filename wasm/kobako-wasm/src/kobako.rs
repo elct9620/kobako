@@ -72,6 +72,7 @@ pub(crate) mod names {
     pub const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
     pub const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
     pub const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
+    pub const BYTECODE_ERROR_NAME: &[u8] = b"BytecodeError\0";
     /// `b"@__kobako_id__\0"` — mangled instance-variable name that
     /// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by
     /// the handle-id setter / getter on [`super::Kobako`].

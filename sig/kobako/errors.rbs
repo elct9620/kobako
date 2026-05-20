@@ -49,4 +49,7 @@ module Kobako
 
   class HandleTableExhausted < HandleTableError
   end
+
+  class BytecodeError < SandboxError
+  end
 end

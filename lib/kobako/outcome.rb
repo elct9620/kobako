@@ -112,14 +112,21 @@ module Kobako
       )
     end
 
-    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]: when
-    # +origin="service"+ and the panic +class+ field names
-    # +ServiceError::Disconnected+, surface that subclass so callers can
-    # rescue the disconnected path specifically (E-14).
+    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]: map
+    # the panic +class+ field to the matching Ruby exception subclass so
+    # callers can rescue specific failure paths. +origin="service"+ plus
+    # +class="Kobako::ServiceError::Disconnected"+ selects the
+    # +Disconnected+ subclass (E-14); +origin="sandbox"+ plus
+    # +class="Kobako::BytecodeError"+ selects the +BytecodeError+
+    # subclass (E-37 / E-38 / E-39). Everything else falls back to the
+    # base class for the origin.
     def panic_target_class(panic)
-      return SandboxError unless panic.origin == Panic::ORIGIN_SERVICE
-
-      panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
+      case panic.origin
+      when Panic::ORIGIN_SERVICE
+        panic.klass == "Kobako::ServiceError::Disconnected" ? ServiceError::Disconnected : ServiceError
+      else
+        panic.klass == "Kobako::BytecodeError" ? BytecodeError : SandboxError
+      end
     end
 
     def build_wire_violation_error(message)
