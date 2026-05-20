@@ -2,13 +2,13 @@
 
 require "test_helper"
 
-# Unit tests for Kobako::SnippetTable — the per-Sandbox ordered registry
-# of preloaded source snippets (docs/behavior.md B-32 / E-33 / E-34).
-# Behavioural coverage at the Sandbox#preload boundary lives in
-# test_sandbox_preload.rb; this file pins the table's own contract.
+# Unit tests for Kobako::Snippet::Table — the per-Sandbox insertion-
+# ordered registry of preloaded snippets (docs/behavior.md B-32 / E-33 /
+# E-34). Behavioural coverage at the Sandbox#preload boundary lives in
+# test/test_sandbox_preload.rb; this file pins the table's own contract.
 class TestSnippetTable < Minitest::Test
   def setup
-    @table = Kobako::SnippetTable.new
+    @table = Kobako::Snippet::Table.new
   end
 
   def test_new_table_is_empty
@@ -39,14 +39,16 @@ class TestSnippetTable < Minitest::Test
     assert_equal %i[Alpha Beta Gamma], @table.names
   end
 
-  def test_each_yields_pairs_in_insertion_order
+  def test_each_yields_source_entries_in_insertion_order
     @table.register("A", :Alpha)
     @table.register("B", :Beta)
 
-    pairs = @table.each.to_a
+    entries = @table.each.to_a
 
-    assert_equal [%i[Alpha].first, "A"], pairs.first
-    assert_equal [%i[Beta].first, "B"], pairs.last
+    assert_equal :Alpha, entries.first.name
+    assert_equal "A", entries.first.body
+    assert_equal :Beta, entries.last.name
+    assert_equal "B", entries.last.body
   end
 
   # E-34
@@ -72,7 +74,7 @@ class TestSnippetTable < Minitest::Test
   def test_register_re_encodes_body_as_utf8
     bytes = String.new("X = 1", encoding: Encoding::ASCII_8BIT)
     @table.register(bytes, :Helper)
-    body = @table.each.to_a.first.last
+    body = @table.each.to_a.first.body
 
     assert_equal Encoding::UTF_8, body.encoding
     assert_equal "X = 1", body
@@ -83,7 +85,7 @@ class TestSnippetTable < Minitest::Test
     @table.register(original, :Helper)
     original << " # mutated"
 
-    body = @table.each.to_a.first.last
+    body = @table.each.to_a.first.body
     assert_equal "X = 1", body
   end
 end

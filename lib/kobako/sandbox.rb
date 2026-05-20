@@ -9,7 +9,7 @@ require_relative "outcome"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
 require_relative "sandbox_options"
-require_relative "snippet_table"
+require_relative "snippet"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -88,7 +88,7 @@ module Kobako
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
       @services = Kobako::RPC::Server.new
-      @snippets = SnippetTable.new
+      @snippets = Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
       @instance.server = @services
@@ -110,7 +110,7 @@ module Kobako
     # invocations (+#eval+ or +#run+) replay the snippet against the fresh
     # +mrb_state+ before per-invocation source / entrypoint resolution; the
     # +name+ becomes the +(snippet:Name)+ backtrace filename. Delegates
-    # name / duplicate validation to +Kobako::SnippetTable+.
+    # name / duplicate validation to +Kobako::Snippet::Table+.
     #
     # Returns +self+ to allow chaining.
     #

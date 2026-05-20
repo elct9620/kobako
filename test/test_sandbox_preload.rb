@@ -18,7 +18,7 @@ class TestSandboxPreload < Minitest::Test
   end
 
   def test_fresh_sandbox_has_empty_snippet_table
-    assert_instance_of Kobako::SnippetTable, @sandbox.snippets
+    assert_instance_of Kobako::Snippet::Table, @sandbox.snippets
     assert @sandbox.snippets.empty?
   end
 

@@ -1,0 +1,28 @@
+module Kobako
+  module Snippet
+    class Table
+      NAME_PATTERN: Regexp
+
+      SOURCE_KIND: String
+
+      def initialize: () -> void
+
+      def register: (String code, Symbol | String name) -> Symbol
+
+      def encode: () -> String
+
+      def each: () { (Kobako::Snippet::Source) -> void } -> Array[Kobako::Snippet::Source]
+              | () -> Enumerator[Kobako::Snippet::Source, Array[Kobako::Snippet::Source]]
+
+      def names: () -> Array[Symbol]
+
+      def size: () -> Integer
+
+      def empty?: () -> bool
+
+      private
+
+      def normalize_name: (Symbol | String name) -> Symbol
+    end
+  end
+end
