@@ -1,0 +1,14 @@
+module Kobako
+  module Snippet
+    class Binary < Data
+      KIND: String
+
+      attr_reader body: String
+
+      def self.new: (body: String) -> Binary
+                  | (String body) -> Binary
+
+      def to_wire: () -> Hash[String, String]
+    end
+  end
+end

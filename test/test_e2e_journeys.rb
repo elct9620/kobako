@@ -987,4 +987,34 @@ class TestE2EJourneys < Minitest::Test
     assert_equal 16, sandbox.eval("Worker.call(3) + 7")
     assert_equal 25, sandbox.run(:Worker, 5)
   end
+
+  # docs/behavior.md B-32 (binary: form): a precompiled RITE bytecode
+  # blob registered via `#preload(binary:)` is replayed against the
+  # fresh `mrb_state` before each invocation, exactly like a `code:`
+  # form snippet. The constant defined by the bytecode is observable to
+  # subsequent `#eval` calls.
+  #
+  # Fixture source: `test/fixtures/snippet_answers.rb` (literally
+  # `ANSWERS = 42`), compiled with `mrbc -g` to embed a `debug_info`
+  # section so the bytecode meets B-32's identity requirement.
+  BYTECODE_FIXTURE_PATH = File.expand_path("fixtures/snippet_answers.mrb", __dir__)
+
+  def test_b32_preloaded_binary_snippet_is_visible_to_eval
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
+
+    assert_equal 42, sandbox.eval("ANSWERS"),
+                 "B-32 (binary: form): preloaded bytecode must contribute its " \
+                 "top-level constants to subsequent #eval calls"
+  end
+
+  def test_b32_preloaded_binary_snippet_replays_across_invocations
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
+
+    assert_equal 42, sandbox.eval("ANSWERS")
+    assert_equal 42, sandbox.eval("ANSWERS"),
+                 "B-32: bytecode snippet must replay against every fresh mrb_state, " \
+                 "not just the first invocation"
+  end
 end

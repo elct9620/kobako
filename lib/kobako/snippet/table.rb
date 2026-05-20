@@ -2,6 +2,7 @@
 
 require "msgpack"
 
+require_relative "binary"
 require_relative "source"
 
 module Kobako
@@ -18,6 +19,9 @@ module Kobako
     # the +code:+ form would produce ambiguous attribution and are
     # rejected at registration time
     # ({docs/behavior.md E-33}[link:../../../docs/behavior.md]).
+    # +Binary+ entries carry no host-side name — their canonical name
+    # lives in the bytecode's +debug_info+ and is read by the guest at
+    # load time; the host does not extract it.
     #
     # Sealing (B-33) is governed by the owning Sandbox — the table itself
     # is append-only and exposes no mutation API beyond +#register+; the
@@ -27,26 +31,18 @@ module Kobako
       # ({docs/behavior.md E-34}[link:../../../docs/behavior.md]).
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
-      # The +kind+ field value carried by source snippets in their wire
-      # envelope entry
-      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-      SOURCE_KIND = "source"
-
       def initialize
-        @entries = [] # : Array[Kobako::Snippet::Source]
+        @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
       end
 
       # Serialize the registered snippets to wire bytes. Each entry
-      # contributes a +{name, kind, body}+ map under a single msgpack
-      # collection; an empty table serializes to an empty collection,
-      # never absent. The wire codec is an implementation detail —
-      # callers receive a binary +String+ that the +Kobako::Wasm+ layer
-      # ships through the invocation channel.
+      # contributes its own msgpack map shape via +#to_wire+; the
+      # collection rides as a single msgpack array. An empty table
+      # serializes to an empty array, never absent. The wire codec is an
+      # implementation detail — callers receive a binary +String+ that
+      # the +Kobako::Wasm+ layer ships through the invocation channel.
       def encode
-        payload = @entries.map do |entry|
-          { "name" => entry.name.to_s, "kind" => SOURCE_KIND, "body" => entry.body }
-        end
-        MessagePack.pack(payload)
+        MessagePack.pack(@entries.map(&:to_wire))
       end
 
       # Register +code+ under the canonical Symbol form of +name+. +code+
@@ -56,7 +52,7 @@ module Kobako
       # form of +name+.
       #
       # Raises +ArgumentError+ when +name+ is malformed (E-34) or
-      # duplicates an already-registered source snippet (E-33).
+      # duplicates an already-registered +code:+ form snippet (E-33).
       def register(code, name)
         name_sym = normalize_name(name)
         raise ArgumentError, "snippet #{name_sym.inspect} already preloaded" if names.include?(name_sym)
@@ -65,16 +61,32 @@ module Kobako
         name_sym
       end
 
+      # Register a precompiled RITE bytecode blob. +bytes+ is the
+      # bytecode as a String; it is duplicated and forced to ASCII-8BIT
+      # encoding so msgpack-ruby ships it on the wire as +bin+. Returns
+      # +nil+ — bytecode entries are anonymous on the host side
+      # ({docs/behavior.md B-32}[link:../../../docs/behavior.md]); any
+      # structural validation
+      # ({docs/behavior.md E-37..E-39}[link:../../../docs/behavior.md])
+      # is deferred to the guest at first replay.
+      def register_binary(bytes)
+        @entries << Binary.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))
+        nil
+      end
+
       # Iterate over registered entries in insertion order. Yields each
-      # +Kobako::Snippet::Source+ instance. Returns an Enumerator when no
-      # block is given.
+      # entry (a +Kobako::Snippet::Source+ or +Kobako::Snippet::Binary+).
+      # Returns an Enumerator when no block is given.
       def each(&)
         @entries.each(&)
       end
 
-      # All registered snippet names, in insertion order.
+      # Canonical names of every registered +Source+ entry, in insertion
+      # order. +Binary+ entries are skipped — their names live in
+      # bytecode +debug_info+ on the guest side and are not extracted by
+      # the host.
       def names
-        @entries.map(&:name)
+        @entries.filter_map { |entry| entry.name if entry.is_a?(Source) }
       end
 
       # Number of registered snippets.

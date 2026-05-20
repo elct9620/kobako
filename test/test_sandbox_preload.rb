@@ -75,4 +75,57 @@ class TestSandboxPreload < Minitest::Test
     # Pre-invocation snippet remains accessible.
     assert_equal [:Early], @sandbox.snippets.names
   end
+
+  # docs/behavior.md B-32 (binary: form): the bytecode bytes are
+  # recorded verbatim into the snippet table without any host-side
+  # validation. `#names` reports only `code:` form names; the binary
+  # entry contributes to `#size` but stays anonymous on the host.
+  def test_preload_binary_records_bytes_without_validation
+    @sandbox.preload(binary: "RITE\0\0\0\0arbitrary bytes")
+
+    assert_equal 1, @sandbox.snippets.size
+    assert_equal [], @sandbox.snippets.names,
+                 "binary: form snippets must not surface a host-side name"
+  end
+
+  def test_preload_binary_returns_self_for_chaining
+    result = @sandbox.preload(binary: "RITE")
+
+    assert_same @sandbox, result
+  end
+
+  def test_preload_binary_rejects_non_string_bytes
+    err = assert_raises(ArgumentError) { @sandbox.preload(binary: 42) }
+    assert_match(/binary must be a String/, err.message)
+  end
+
+  def test_preload_rejects_combining_binary_with_code
+    err = assert_raises(ArgumentError) do
+      @sandbox.preload(code: "X = 1", binary: "RITE")
+    end
+    assert_match(%r{cannot combine binary: with code: / name:}, err.message)
+  end
+
+  def test_preload_rejects_combining_binary_with_name
+    err = assert_raises(ArgumentError) do
+      @sandbox.preload(binary: "RITE", name: :Helper)
+    end
+    assert_match(%r{cannot combine binary: with code: / name:}, err.message)
+  end
+
+  def test_preload_rejects_call_with_no_keywords
+    err = assert_raises(ArgumentError) { @sandbox.preload }
+    assert_match(/missing keyword/, err.message)
+  end
+
+  # Insertion order is the contract: mixed source / binary entries
+  # round-trip through the table in the order they were registered.
+  def test_preload_mixed_source_and_binary_preserves_insertion_order
+    @sandbox.preload(code: "A", name: :Alpha)
+    @sandbox.preload(binary: "RITE\0bytes")
+    @sandbox.preload(code: "B", name: :Beta)
+
+    assert_equal 3, @sandbox.snippets.size
+    assert_equal %i[Alpha Beta], @sandbox.snippets.names
+  end
 end

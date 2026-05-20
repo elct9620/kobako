@@ -3,16 +3,18 @@ module Kobako
     class Table
       NAME_PATTERN: Regexp
 
-      SOURCE_KIND: String
+      type entry = Kobako::Snippet::Source | Kobako::Snippet::Binary
 
       def initialize: () -> void
 
       def register: (String code, Symbol | String name) -> Symbol
 
+      def register_binary: (String bytes) -> nil
+
       def encode: () -> String
 
-      def each: () { (Kobako::Snippet::Source) -> void } -> Array[Kobako::Snippet::Source]
-              | () -> Enumerator[Kobako::Snippet::Source, Array[Kobako::Snippet::Source]]
+      def each: () { (entry) -> void } -> Array[entry]
+              | () -> Enumerator[entry, Array[entry]]
 
       def names: () -> Array[Symbol]
 

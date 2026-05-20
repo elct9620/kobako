@@ -64,7 +64,7 @@ pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn read_snippets() -> Result<Vec<(String, String)>, Panic> {
+pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
     let bytes =
         super::frames::read_frame().ok_or_else(|| boot_panic("failed to read snippets frame"))?;
     super::frames::decode_snippets(&bytes)
@@ -88,28 +88,29 @@ pub(super) fn open_with_preamble(
     Ok((mrb, kobako))
 }
 
-/// Replay every snippet in `snippets` against `mrb` under
-/// `(snippet:Name)` filenames so any uncaught exception's backtrace
-/// attributes back to the originating `#preload` call
-/// (docs/behavior.md B-32). The first snippet that raises wins: the
-/// resulting Panic carries that snippet's class / message / backtrace
-/// and is forced to sandbox origin even when [`origin_for_class`]
-/// would have chosen `"service"`.
+/// Replay every snippet in `snippets` against `mrb` in insertion order
+/// so any uncaught exception's backtrace attributes back to the
+/// originating `#preload` call (docs/behavior.md B-32). Source entries
+/// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
+/// entries load through `mrb_load_irep_buf` (the filename is baked into
+/// their RITE `debug_info` section). The first snippet that raises
+/// wins: the resulting Panic carries that snippet's class / message /
+/// backtrace and is forced to sandbox origin even when
+/// [`origin_for_class`] would have chosen `"service"`.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn replay_snippets(
     mrb: &Mrb,
     kobako: &Kobako,
-    snippets: &[(String, String)],
+    snippets: &[super::frames::Snippet],
 ) -> Result<(), Panic> {
-    for (name, body) in snippets {
-        let filename = format!("(snippet:{})\0", name);
-        {
-            let Some(cxt) = Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char)
-            else {
-                return Err(boot_panic("mrb_ccontext_new returned NULL"));
-            };
-            cxt.load_nstring(body.as_bytes());
-            // `cxt` drops here — `mrb_ccontext_free` runs automatically.
+    for entry in snippets {
+        match entry {
+            super::frames::Snippet::Source { name, body } => {
+                load_source_snippet(mrb, name, body)?;
+            }
+            super::frames::Snippet::Bytecode { body } => {
+                load_bytecode_snippet(mrb, body);
+            }
         }
         if let Some(mut panic) = take_pending_panic(mrb, kobako) {
             // Replay-time failures are always sandbox origin even when
@@ -119,6 +120,39 @@ pub(super) fn replay_snippets(
         }
     }
     Ok(())
+}
+
+/// Compile and execute a source snippet under a fresh ccontext whose
+/// filename is `(snippet:Name)`. Surfaces ccontext allocation failure
+/// as a [`boot_panic`]; any mruby compile / runtime fault is left in
+/// `mrb->exc` for the shared `take_pending_panic` step.
+#[cfg(target_arch = "wasm32")]
+fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
+    let filename = format!("(snippet:{})\0", name);
+    let Some(cxt) = Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char) else {
+        return Err(boot_panic("mrb_ccontext_new returned NULL"));
+    };
+    cxt.load_nstring(body.as_bytes());
+    // `cxt` drops here — `mrb_ccontext_free` runs automatically.
+    Ok(())
+}
+
+/// Execute a precompiled RITE bytecode blob via `mrb_load_irep_buf`.
+/// `mrb_load_irep_buf` ignores ccontext — the snippet's backtrace
+/// filename is whatever was baked into the IREP's `debug_info` section
+/// at compile time. Structural failures (RITE version mismatch, corrupt
+/// body) leave `mrb->exc` set for the shared `take_pending_panic` step.
+#[cfg(target_arch = "wasm32")]
+fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) {
+    // SAFETY: `mrb` is live by the caller's contract on `&Mrb`;
+    // `body` is a borrowed slice that outlives the synchronous call.
+    unsafe {
+        crate::mruby::sys::mrb_load_irep_buf(
+            mrb.as_ptr(),
+            body.as_ptr() as *const core::ffi::c_void,
+            body.len(),
+        );
+    }
 }
 
 /// If an mruby exception is pending on `mrb`, extract its class name,

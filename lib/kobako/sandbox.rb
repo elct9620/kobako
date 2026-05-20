@@ -105,26 +105,43 @@ module Kobako
       @services.define(name)
     end
 
-    # Register a source snippet on this Sandbox
-    # ({docs/behavior.md B-32}[link:../../docs/behavior.md]). Subsequent
-    # invocations (+#eval+ or +#run+) replay the snippet against the fresh
-    # +mrb_state+ before per-invocation source / entrypoint resolution; the
-    # +name+ becomes the +(snippet:Name)+ backtrace filename. Delegates
-    # name / duplicate validation to +Kobako::Snippet::Table+.
+    # Register a snippet on this Sandbox in one of two forms
+    # ({docs/behavior.md B-32}[link:../../docs/behavior.md]):
+    #
+    #   * +preload(code: source, name: Name)+ — +source+ is mruby source
+    #     as a +String+ and +Name+ matches +/\A[A-Z]\w*\z/+. The +name+
+    #     becomes the snippet's +(snippet:Name)+ backtrace filename and
+    #     is the dedupe key for E-33.
+    #   * +preload(binary: bytes)+ — +bytes+ is precompiled RITE
+    #     bytecode as a +String+. The canonical name lives in the
+    #     bytecode's embedded +debug_info+ and is resolved by the guest
+    #     at load time; the host treats the bytes as opaque. Structural
+    #     failures ({docs/behavior.md E-37..E-39}[link:../../docs/behavior.md])
+    #     surface as +Kobako::BytecodeError+ on the first invocation.
+    #
+    # Subsequent invocations (+#eval+ or +#run+) replay every registered
+    # snippet — in insertion order — against the fresh +mrb_state+
+    # before per-invocation source or entrypoint resolution.
     #
     # Returns +self+ to allow chaining.
     #
-    # Raises +ArgumentError+ when +name+ does not match the constant
-    # pattern ({docs/behavior.md E-34}[link:../../docs/behavior.md]), when +name+
-    # duplicates an already-registered snippet
-    # ({docs/behavior.md E-33}[link:../../docs/behavior.md]), or when called
-    # after the first invocation
+    # Raises +ArgumentError+ when neither form's keyword set is
+    # supplied, when both forms are mixed (e.g., +code:+ and +binary:+
+    # together, or +binary:+ paired with +name:+), when +code+ / +bytes+
+    # is not a +String+, when +name+ does not match the constant
+    # pattern ({docs/behavior.md E-34}[link:../../docs/behavior.md]),
+    # when +name+ duplicates an already-registered +code:+ form snippet
+    # ({docs/behavior.md E-33}[link:../../docs/behavior.md]), or when
+    # called after the first invocation
     # ({docs/behavior.md E-35, B-33}[link:../../docs/behavior.md]).
-    def preload(code:, name:)
+    def preload(code: nil, name: nil, binary: nil)
       raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
-      raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      @snippets.register(code, name)
+      if binary.nil?
+        preload_source!(code, name)
+      else
+        preload_binary!(binary, code, name)
+      end
       self
     end
 
@@ -176,6 +193,34 @@ module Kobako
     end
 
     private
+
+    # +#preload+ source-form path. Validates the +code:+ + +name:+ pair
+    # and delegates registration / dedupe to
+    # +Kobako::Snippet::Table#register+. With both keywords absent the
+    # call is ambiguous between the two legal shapes; once +code:+ is
+    # supplied its String type is enforced before +name:+ presence so
+    # callers passing +code: nil+ explicitly see the type error rather
+    # than the "missing keyword" error.
+    def preload_source!(code, name)
+      raise ArgumentError, "missing keyword: code: + name:, or binary:" if code.nil? && name.nil?
+      raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
+      raise ArgumentError, "missing keyword: name:" if name.nil?
+
+      @snippets.register(code, name)
+    end
+
+    # +#preload+ bytecode-form path. Rejects +binary:+ paired with
+    # +code:+ or +name:+ and delegates to
+    # +Kobako::Snippet::Table#register_binary+. No host-side bytecode
+    # validation runs here — structural failures
+    # ({docs/behavior.md E-37..E-39}[link:../../docs/behavior.md])
+    # surface at first invocation's guest replay.
+    def preload_binary!(binary, code, name)
+      raise ArgumentError, "cannot combine binary: with code: / name:" unless code.nil? && name.nil?
+      raise ArgumentError, "binary must be a String, got #{binary.class}" unless binary.is_a?(String)
+
+      @snippets.register_binary(binary)
+    end
 
     # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet

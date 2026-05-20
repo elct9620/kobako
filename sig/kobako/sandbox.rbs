@@ -33,12 +33,17 @@ module Kobako
     def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
+               | (binary: String) -> Kobako::Sandbox
 
     def run: (Symbol | String target, *untyped args, **untyped kwargs) -> untyped
 
     def eval: (String code) -> untyped
 
     private
+
+    def preload_source!: (String? code, (Symbol | String)? name) -> Symbol
+
+    def preload_binary!: (String binary, String? code, (Symbol | String)? name) -> nil
 
     def clear_captures!: () -> void
 
