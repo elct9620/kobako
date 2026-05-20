@@ -108,12 +108,12 @@ pub(super) fn replay_snippets(
     snippets: &[super::frames::Snippet],
 ) -> Result<(), Panic> {
     for entry in snippets {
-        let bytecode_structural_failure = match entry {
+        let load = match entry {
             super::frames::Snippet::Source { name, body } => {
                 load_source_snippet(mrb, name, body)?;
-                false
+                BytecodeLoad::Loaded
             }
-            super::frames::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body) != 0,
+            super::frames::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
         };
         if let Some(mut panic) = take_pending_panic(mrb, kobako) {
             // Replay-time failures are always sandbox origin even when
@@ -123,13 +123,27 @@ pub(super) fn replay_snippets(
             // BytecodeError. A bytecode snippet that loaded cleanly
             // and then raised at top level is E-36, with the natural
             // mruby class preserved.
-            if bytecode_structural_failure {
+            if matches!(load, BytecodeLoad::StructuralFailure) {
                 panic.class = "Kobako::BytecodeError".into();
             }
             return Err(panic);
         }
     }
     Ok(())
+}
+
+/// Outcome of a bytecode-form snippet load. Distinguishes the two
+/// failure shapes the caller's class-override step needs to tell
+/// apart: a successful parse (whose top-level execution may still have
+/// raised — E-36, natural mruby class preserved) from a structural
+/// failure on the RITE header / IREP body
+/// ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md]),
+/// which gets promoted to +Kobako::BytecodeError+.
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BytecodeLoad {
+    Loaded,
+    StructuralFailure,
 }
 
 /// Compile and execute a source snippet under a fresh ccontext whose
@@ -149,23 +163,30 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 
 /// Execute a precompiled RITE bytecode blob via the
 /// [`crate::mruby::sys::kobako_load_bytecode`] shim. The shim parses
-/// the IREP and runs its top-level Proc. Returns 0 when the IREP
-/// parsed (even if its top-level execution then raised — E-36) and
-/// non-zero on a structural failure (RITE version mismatch / corrupt
-/// body — E-37 / E-38). Either way, a pending exception is left in
-/// `mrb->exc` for the shared `take_pending_panic` step; the caller
-/// uses the return code to decide whether to promote the resulting
-/// panic to `Kobako::BytecodeError`.
+/// the IREP and runs its top-level Proc. Returns
+/// [`BytecodeLoad::Loaded`] when the IREP parsed (even if its top-
+/// level execution then raised — E-36) and
+/// [`BytecodeLoad::StructuralFailure`] when the RITE header / IREP
+/// body failed structural validation (E-37 / E-38). Either way, a
+/// pending exception is left in `mrb->exc` for the shared
+/// `take_pending_panic` step. Folding the C return code into a typed
+/// enum at the FFI boundary keeps the `c_int` from leaking into the
+/// replay control flow.
 #[cfg(target_arch = "wasm32")]
-fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> core::ffi::c_int {
+fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
     // SAFETY: `mrb` is live by the caller's contract on `&Mrb`;
     // `body` is a borrowed slice that outlives the synchronous call.
-    unsafe {
+    let rc = unsafe {
         crate::mruby::sys::kobako_load_bytecode(
             mrb.as_ptr(),
             body.as_ptr() as *const core::ffi::c_void,
             body.len(),
         )
+    };
+    if rc == 0 {
+        BytecodeLoad::Loaded
+    } else {
+        BytecodeLoad::StructuralFailure
     }
 }
 
