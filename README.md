@@ -206,6 +206,45 @@ Handles are scoped to a single invocation — a Handle obtained in invocation N 
 
 A single Sandbox can serve many invocations. Service bindings and preloaded snippets persist; capability state (Handles, stdout, stderr) resets between invocations.
 
+```
+   ───────────── setup phase (mutable) ─────────────
+
+     sandbox = Kobako::Sandbox.new
+     sandbox.define(:KV).bind(:Lookup, ...)
+     sandbox.preload(code: ..., name: :Adder)
+     sandbox.preload(code: ..., name: :Greeter)
+
+                          │
+                          ▼
+
+   ═════════════════ seal point ═════════════════
+   First #eval or #run freezes the Service registry
+   and snippet table. Further define / preload now
+   raise ArgumentError.
+
+                          │
+                          ▼
+
+   ──────────────── invocation N ───────────────────
+
+     1. allocate fresh mrb_state
+
+     2. replay snippets (in insertion order):
+          :Adder     → defines Adder
+          :Greeter   → defines Greeter
+
+     3. dispatch:  eval(source)  or  run(:Target, *args)
+
+     4. return value to host
+
+     5. discard mrb_state; reset per-invocation state:
+          · Handles invalidated
+          · stdout / stderr buffers cleared
+          · memory delta zeroed
+
+     Services + snippets persist; invocation N+1 repeats.
+```
+
 ```ruby
 sandbox = Kobako::Sandbox.new
 sandbox.define(:Data).bind(:Fetch, ->(id) { records[id] })
@@ -239,6 +278,21 @@ sandbox.run(:Greeter, name: "world")   # => "hello, world"
 The source form trial-compiles each snippet against a fresh `mrb_state` at preload time, so compile errors surface immediately at the `#preload` call. The bytecode form treats `binary:` as opaque bytes and defers RITE version / body validation to the first invocation's replay, because that is when the payload loads into a fresh `mrb_state`. Bytecode compiled without `debug_info` (`mrbc` without `-g`) is still accepted — only its backtrace frames are omitted, while exception class, message, and `origin` attribution are preserved.
 
 Snippets replay in insertion order, so later snippets can reference constants defined by earlier ones. The snippet table is sealed by the first invocation alongside Service registration; additional `#preload` calls after the first `#eval` or `#run` raise `ArgumentError`.
+
+```
+   per-invocation replay (every #eval / #run, snippets in insertion order):
+
+      fresh mrb_state
+            │
+            ├──▶ replay :Adder            (defines Adder)
+            │
+            ├──▶ replay :Greeter          (defines Greeter)
+            │
+            └──▶ eval(source)  -or-  run(:Target, *args, **kwargs)
+                       │
+                       ▼
+                  return value, then mrb_state discarded
+```
 
 `#run` resolves `target` (Symbol or String, normalized to Symbol) only as a top-level `Object` constant — `::`-segmented names and lowercase forms fail at host pre-flight with `ArgumentError`. A `Kobako::SandboxError` surfaces when the constant is missing or does not respond to `#call`.
 
