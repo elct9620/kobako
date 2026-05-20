@@ -115,21 +115,32 @@ pub(super) fn replay_snippets(
             }
             super::frames::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
         };
-        if let Some(mut panic) = take_pending_panic(mrb, kobako) {
-            // Replay-time failures are always sandbox origin even when
-            // the class would normally map to service.
-            panic.origin = "sandbox".into();
-            // Only structural failures (E-37 / E-38) attribute to
-            // BytecodeError. A bytecode snippet that loaded cleanly
-            // and then raised at top level is E-36, with the natural
-            // mruby class preserved.
-            if matches!(load, BytecodeLoad::StructuralFailure) {
-                panic.class = "Kobako::BytecodeError".into();
-            }
-            return Err(panic);
+        if let Some(panic) = take_pending_panic(mrb, kobako) {
+            return Err(reshape_replay_panic(panic, load));
         }
     }
     Ok(())
+}
+
+/// Apply the replay-specific reshape to a pending Panic. Replay-time
+/// failures are always sandbox origin even when the class would
+/// normally map to service. Structural failures (E-37 / E-38) further
+/// override the class to `Kobako::BytecodeError`; a bytecode snippet
+/// that loaded cleanly and then raised at top level is E-36 with the
+/// natural mruby class preserved. Functional struct-update keeps the
+/// reshape in one expression — no mid-life mutation of the panic
+/// fields.
+#[cfg(target_arch = "wasm32")]
+fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
+    let class = match load {
+        BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
+        BytecodeLoad::Loaded => panic.class,
+    };
+    Panic {
+        origin: "sandbox".into(),
+        class,
+        ..panic
+    }
 }
 
 /// Outcome of a bytecode-form snippet load. Distinguishes the two
