@@ -1017,4 +1017,72 @@ class TestE2EJourneys < Minitest::Test
                  "B-32: bytecode snippet must replay against every fresh mrb_state, " \
                  "not just the first invocation"
   end
+
+  # docs/behavior.md E-37: bytecode whose RITE version mismatches the
+  # guest's pinned version surfaces as Kobako::BytecodeError on the
+  # first invocation's snippet replay. The wrong_version fixture takes
+  # the valid bytecode and flips the version bytes ("0400" → "9999")
+  # so the failure path triggers without depending on a future mruby
+  # version bump.
+  E37_FIXTURE_PATH = File.expand_path("fixtures/snippet_wrong_version.mrb", __dir__)
+
+  def test_e37_bytecode_wrong_version_raises_bytecode_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(E37_FIXTURE_PATH))
+
+    err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
+    assert_kind_of Kobako::SandboxError, err,
+                   "BytecodeError must remain a SandboxError subclass"
+    assert_equal "sandbox", err.origin
+    assert_equal "Kobako::BytecodeError", err.klass
+  end
+
+  # docs/behavior.md E-38: bytecode body that fails structural parse
+  # against the loaded IREP reader surfaces as Kobako::BytecodeError.
+  # The corrupt fixture is a header-prefix truncation of the valid
+  # bytecode — enough to pass the four-byte RITE ident check but short
+  # enough that section parsing fails inside mruby's load path.
+  E38_FIXTURE_PATH = File.expand_path("fixtures/snippet_corrupt.mrb", __dir__)
+
+  def test_e38_bytecode_corrupt_body_raises_bytecode_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(E38_FIXTURE_PATH))
+
+    err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
+    assert_kind_of Kobako::SandboxError, err
+    assert_equal "Kobako::BytecodeError", err.klass
+  end
+
+  # docs/behavior.md E-39: bytecode whose `debug_info` section is
+  # absent — typically the result of compiling without `mrbc -g` —
+  # surfaces as Kobako::BytecodeError because the snippet has no
+  # filename for backtrace attribution. The no_debug fixture is the
+  # same source compiled with the debug switch omitted.
+  E39_FIXTURE_PATH = File.expand_path("fixtures/snippet_no_debug.mrb", __dir__)
+
+  def test_e39_bytecode_missing_debug_info_raises_bytecode_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(E39_FIXTURE_PATH))
+
+    err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
+    assert_kind_of Kobako::SandboxError, err
+    assert_equal "Kobako::BytecodeError", err.klass
+    assert_match(/debug_info/, err.message,
+                 "E-39 diagnostic should name the missing debug_info section")
+  end
+
+  # B-32 binary form: failures fire at first invocation, not at
+  # #preload time. The snippet table accepts the bytecode bytes
+  # unconditionally; the structural check only runs when the guest
+  # opens a fresh mrb_state during the first #eval or #run.
+  def test_b32_binary_preload_defers_structural_failure_to_first_invocation
+    sandbox = Kobako::Sandbox.new
+
+    # No raise here — host-side preload is structure-blind.
+    sandbox.preload(binary: File.binread(E37_FIXTURE_PATH))
+
+    # The first invocation triggers the guest replay where the
+    # structural check fires.
+    assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
+  end
 end

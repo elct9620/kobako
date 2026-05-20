@@ -92,11 +92,14 @@ pub(super) fn open_with_preamble(
 /// so any uncaught exception's backtrace attributes back to the
 /// originating `#preload` call (docs/behavior.md B-32). Source entries
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
-/// entries load through `mrb_load_irep_buf` (the filename is baked into
-/// their RITE `debug_info` section). The first snippet that raises
-/// wins: the resulting Panic carries that snippet's class / message /
-/// backtrace and is forced to sandbox origin even when
-/// [`origin_for_class`] would have chosen `"service"`.
+/// entries load through `kobako_load_bytecode` (the filename is baked
+/// into their RITE `debug_info` section). The first snippet that
+/// raises wins: the resulting Panic carries that snippet's class /
+/// message / backtrace and is forced to sandbox origin even when
+/// [`origin_for_class`] would have chosen `"service"`. Bytecode entries
+/// additionally override the panic class to `Kobako::BytecodeError`
+/// (docs/behavior.md E-37 / E-38 / E-39) so the host gem dispatches the
+/// failure to the BytecodeError subclass.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn replay_snippets(
     mrb: &Mrb,
@@ -116,6 +119,12 @@ pub(super) fn replay_snippets(
             // Replay-time failures are always sandbox origin even when
             // the class would normally map to service.
             panic.origin = "sandbox".into();
+            // Bytecode-form replay failures attribute to BytecodeError
+            // regardless of the underlying mruby class — the original
+            // diagnostic is preserved in the message / backtrace.
+            if matches!(entry, super::frames::Snippet::Bytecode { .. }) {
+                panic.class = "Kobako::BytecodeError".into();
+            }
             return Err(panic);
         }
     }
@@ -137,17 +146,19 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     Ok(())
 }
 
-/// Execute a precompiled RITE bytecode blob via `mrb_load_irep_buf`.
-/// `mrb_load_irep_buf` ignores ccontext — the snippet's backtrace
-/// filename is whatever was baked into the IREP's `debug_info` section
-/// at compile time. Structural failures (RITE version mismatch, corrupt
-/// body) leave `mrb->exc` set for the shared `take_pending_panic` step.
+/// Execute a precompiled RITE bytecode blob via the
+/// [`crate::mruby::sys::kobako_load_bytecode`] shim. The shim parses
+/// the IREP, validates the `debug_info` section is present, then
+/// executes the resulting top-level Proc. Any structural failure
+/// (RITE version mismatch, corrupt body, missing `debug_info`) or
+/// top-level raise during execution leaves `mrb->exc` set for the
+/// shared `take_pending_panic` step.
 #[cfg(target_arch = "wasm32")]
 fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) {
     // SAFETY: `mrb` is live by the caller's contract on `&Mrb`;
     // `body` is a borrowed slice that outlives the synchronous call.
     unsafe {
-        crate::mruby::sys::mrb_load_irep_buf(
+        crate::mruby::sys::kobako_load_bytecode(
             mrb.as_ptr(),
             body.as_ptr() as *const core::ffi::c_void,
             body.len(),

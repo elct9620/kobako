@@ -509,6 +509,20 @@ extern "C" {
     /// `mrb_hash_new` to build mruby Hashes from Rust-side iterators.
     pub fn mrb_hash_set(mrb: *mut mrb_state, hash: mrb_value, key: mrb_value, val: mrb_value);
 
+    /// `kobako_load_bytecode(mrb, buf, size)` — load + validate +
+    /// execute a `#preload(binary:)` snippet (docs/behavior.md B-32
+    /// binary: form). Returns 0 on success and non-zero when the load
+    /// failed; failures set `mrb->exc` so the caller's existing
+    /// `take_pending_panic` flow extracts class / message / backtrace
+    /// uniformly with the source snippet path. Implemented in
+    /// `src/mruby/bytecode.c` so the IREP layout knowledge stays inside
+    /// a C translation unit driven by mruby's own headers.
+    pub fn kobako_load_bytecode(
+        mrb: *mut mrb_state,
+        buf: *const core::ffi::c_void,
+        size: usize,
+    ) -> core::ffi::c_int;
+
     /// `kobako_get_exc(mrb)` — layout-safe accessor for `mrb->exc`.
     ///
     /// Returns `mrb_obj_value(mrb->exc)` if an exception is pending, or

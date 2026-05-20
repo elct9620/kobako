@@ -56,6 +56,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-env-changed=MRBC_PATH");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/mruby/bytecode.c");
     println!("cargo:rerun-if-changed=src/mruby/exc.c");
     println!("cargo:rerun-if-changed=src/mruby/io.c");
     println!("cargo:rerun-if-changed=src/mruby/value.c");
@@ -121,6 +122,7 @@ fn main() {
         // sets up include dirs for C files that include <mruby.h>.
         let mut build = cc::Build::new();
         build
+            .file("src/mruby/bytecode.c")
             .file("src/mruby/exc.c")
             .file("src/mruby/io.c")
             .file("src/mruby/value.c")
