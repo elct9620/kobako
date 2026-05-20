@@ -1053,6 +1053,28 @@ class TestE2EJourneys < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
+  # docs/behavior.md E-36 (binary: form): bytecode that loads cleanly
+  # but whose top-level expression raises at replay surfaces as
+  # Kobako::SandboxError with the natural mruby class preserved — NOT
+  # promoted to Kobako::BytecodeError, which is reserved for the two
+  # structural failure modes (E-37 / E-38). The raise_boom fixture is
+  # `raise "boom from snippet"` compiled with `mrbc -g`.
+  E36_BINARY_FIXTURE_PATH = File.expand_path("fixtures/snippet_raise_boom.mrb", __dir__)
+
+  def test_e36_binary_form_replay_raise_is_sandbox_error_not_bytecode_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(binary: File.binread(E36_BINARY_FIXTURE_PATH))
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
+    refute_kind_of Kobako::BytecodeError, err,
+                   "E-36: a binary-form snippet that raises at top level is " \
+                   "a replay failure, not a bytecode structural failure"
+    assert_equal "RuntimeError", err.klass,
+                 "E-36: the natural mruby exception class must survive replay"
+    assert_equal "sandbox", err.origin
+    assert_match(/boom from snippet/, err.message)
+  end
+
   # docs/behavior.md B-32 (binary: form): bytecode emitted without
   # `mrbc -g` carries no `debug_info` section. Per the relaxed B-32 it
   # remains a legal payload — the guest loads it normally and the

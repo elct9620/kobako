@@ -92,14 +92,15 @@ pub(super) fn open_with_preamble(
 /// so any uncaught exception's backtrace attributes back to the
 /// originating `#preload` call (docs/behavior.md B-32). Source entries
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
-/// entries load through `kobako_load_bytecode` (the filename is baked
-/// into their RITE `debug_info` section). The first snippet that
-/// raises wins: the resulting Panic carries that snippet's class /
-/// message / backtrace and is forced to sandbox origin even when
-/// [`origin_for_class`] would have chosen `"service"`. Bytecode entries
-/// additionally override the panic class to `Kobako::BytecodeError`
-/// (docs/behavior.md E-37 / E-38 / E-39) so the host gem dispatches the
-/// failure to the BytecodeError subclass.
+/// entries load through `kobako_load_bytecode` (the filename, when
+/// present, is baked into their RITE `debug_info` section). The first
+/// snippet that raises wins: the resulting Panic carries that snippet's
+/// class / message / backtrace and is forced to sandbox origin even
+/// when [`origin_for_class`] would have chosen `"service"`. Bytecode
+/// entries whose load returned a structural-failure code (E-37 / E-38)
+/// additionally override the panic class to `Kobako::BytecodeError`;
+/// a successful load that then raised at top level (E-36) keeps the
+/// natural mruby class.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn replay_snippets(
     mrb: &Mrb,
@@ -107,22 +108,22 @@ pub(super) fn replay_snippets(
     snippets: &[super::frames::Snippet],
 ) -> Result<(), Panic> {
     for entry in snippets {
-        match entry {
+        let bytecode_structural_failure = match entry {
             super::frames::Snippet::Source { name, body } => {
                 load_source_snippet(mrb, name, body)?;
+                false
             }
-            super::frames::Snippet::Bytecode { body } => {
-                load_bytecode_snippet(mrb, body);
-            }
-        }
+            super::frames::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body) != 0,
+        };
         if let Some(mut panic) = take_pending_panic(mrb, kobako) {
             // Replay-time failures are always sandbox origin even when
             // the class would normally map to service.
             panic.origin = "sandbox".into();
-            // Bytecode-form replay failures attribute to BytecodeError
-            // regardless of the underlying mruby class — the original
-            // diagnostic is preserved in the message / backtrace.
-            if matches!(entry, super::frames::Snippet::Bytecode { .. }) {
+            // Only structural failures (E-37 / E-38) attribute to
+            // BytecodeError. A bytecode snippet that loaded cleanly
+            // and then raised at top level is E-36, with the natural
+            // mruby class preserved.
+            if bytecode_structural_failure {
                 panic.class = "Kobako::BytecodeError".into();
             }
             return Err(panic);
@@ -148,13 +149,15 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 
 /// Execute a precompiled RITE bytecode blob via the
 /// [`crate::mruby::sys::kobako_load_bytecode`] shim. The shim parses
-/// the IREP, validates the `debug_info` section is present, then
-/// executes the resulting top-level Proc. Any structural failure
-/// (RITE version mismatch, corrupt body, missing `debug_info`) or
-/// top-level raise during execution leaves `mrb->exc` set for the
-/// shared `take_pending_panic` step.
+/// the IREP and runs its top-level Proc. Returns 0 when the IREP
+/// parsed (even if its top-level execution then raised — E-36) and
+/// non-zero on a structural failure (RITE version mismatch / corrupt
+/// body — E-37 / E-38). Either way, a pending exception is left in
+/// `mrb->exc` for the shared `take_pending_panic` step; the caller
+/// uses the return code to decide whether to promote the resulting
+/// panic to `Kobako::BytecodeError`.
 #[cfg(target_arch = "wasm32")]
-fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) {
+fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> core::ffi::c_int {
     // SAFETY: `mrb` is live by the caller's contract on `&Mrb`;
     // `body` is a borrowed slice that outlives the synchronous call.
     unsafe {
@@ -162,7 +165,7 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) {
             mrb.as_ptr(),
             body.as_ptr() as *const core::ffi::c_void,
             body.len(),
-        );
+        )
     }
 }
 
