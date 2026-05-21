@@ -232,6 +232,50 @@ impl Value {
         Self(unsafe { sys::mrb_word_boxing_float_value(mrb.as_ptr(), f) })
     }
 
+    /// `mrb_obj_as_string(mrb, self)` — coerce `self` to a String
+    /// value via mruby's public coercion helper. Returns `self`
+    /// unchanged when it is already a String; otherwise calls `to_s`
+    /// and returns the result. May raise `TypeError` when the
+    /// receiver's `to_s` does not return a String — only safe to
+    /// call from contexts that can absorb a longjmp (C bridges,
+    /// `mrb_protect_error` bodies).
+    #[inline]
+    pub fn obj_as_string(self, mrb: &Mrb) -> Value {
+        // SAFETY: `mrb` is alive by the borrow; `self` originates
+        // from the same VM.
+        Value::from_raw(unsafe { sys::mrb_obj_as_string(mrb.as_ptr(), self.0) })
+    }
+
+    /// Borrow the raw bytes of a String-tagged `self`. Routes through
+    /// the `mrb_rstring_ptr` / `mrb_rstring_len` static-inline
+    /// wrappers in `wrapper.h`, which expand the `RSTRING_PTR(s)` /
+    /// `RSTRING_LEN(s)` macros inside the C compiler so the
+    /// embed-vs-heap branch comes from mruby's own header rather
+    /// than a Rust-side mirror.
+    ///
+    /// The returned slice points at storage owned by the mruby VM;
+    /// the `&Mrb` borrow keeps the state alive for the slice's
+    /// lifetime, but does not block GC or string mutation. Callers
+    /// must consume the slice before the next mruby call that could
+    /// touch this string.
+    ///
+    /// # Safety
+    ///
+    /// `self` must be a String-tagged `Value`. Caller must not
+    /// invoke another mruby API that could free or move the
+    /// string's backing buffer before consuming the slice.
+    #[inline]
+    pub unsafe fn as_bytes(self, _mrb: &Mrb) -> &[u8] {
+        // SAFETY: forwarded from caller. The wrapper-h inline
+        // helpers expand the RSTRING_PTR / RSTRING_LEN macros
+        // against mruby's own headers.
+        let ptr = unsafe { sys::mrb_rstring_ptr(self.0) } as *const u8;
+        let len = unsafe { sys::mrb_rstring_len(self.0) } as usize;
+        // SAFETY: ptr / len pair describes a buffer owned by mruby
+        // and alive while the borrowed `&Mrb` outlives this slice.
+        unsafe { core::slice::from_raw_parts(ptr, len) }
+    }
+
     /// `mrb_obj_classname(mrb, self)` — return the Ruby class name of
     /// `self` as a borrowed `&'static str`, or `""` when mruby
     /// returns NULL.

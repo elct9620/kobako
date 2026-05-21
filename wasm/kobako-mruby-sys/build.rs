@@ -56,7 +56,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/wrapper.h");
     println!("cargo:rerun-if-changed=src/bytecode.c");
-    println!("cargo:rerun-if-changed=src/io.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -214,7 +213,6 @@ fn compile_shims(
         .compiler(format!("{}/bin/clang", wasi_sdk))
         .flag(format!("--sysroot={}/share/wasi-sysroot", wasi_sdk))
         .file("src/bytecode.c")
-        .file("src/io.c")
         .include(mruby_include)
         .include(mruby_build_include);
     if static_wrappers_c.exists() {

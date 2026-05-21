@@ -6,10 +6,9 @@
 //!
 //! The IO surface is a separate concern from the Kobako module / RPC
 //! handles housed in [`super::Kobako`]: there is no instance state to
-//! cache beyond the fd ivar, and the bridges talk to wasi-libc's
-//! `stdout` / `stderr` `FILE *` globals via a C shim
-//! ([`crate::mruby::sys::kobako_io_fwrite`]) rather than re-entering
-//! the Kobako token machinery.
+//! cache beyond the fd ivar, and the write path talks directly to
+//! the wasi-libc `write(2)` syscall instead of re-entering the
+//! Kobako token machinery.
 //!
 //! ## Shape vs. mruby-io
 //!
@@ -111,14 +110,15 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
     Value::zeroed()
 }
 
-/// `IO#write(*objs)` — coerce each object via `Object#to_s` and pump
-/// the bytes through `fwrite` to the descriptor-selected stream.
-/// Returns the total bytes accepted (an `Integer`).
+/// `IO#write(*objs)` — coerce each object via `mrb_obj_as_string`
+/// and pump the bytes through `write(2)` to the descriptor-selected
+/// stream. Returns the total bytes accepted (an `Integer`).
 ///
-/// Truncation on cap exhaustion (docs/behavior.md B-04) surfaces as a short
-/// return value: when wasmtime's `MemoryOutputPipe` rejects bytes past
-/// its limit, `fwrite` short-writes and the returned total reflects
-/// only the accepted bytes. No Ruby-level error is raised.
+/// Truncation on cap exhaustion (docs/behavior.md B-04) surfaces as
+/// a short return value: when wasmtime's `MemoryOutputPipe` rejects
+/// bytes past its limit, `write(2)` short-writes and the returned
+/// total reflects only the accepted bytes. No Ruby-level error is
+/// raised.
 pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
@@ -127,18 +127,29 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         let fd = read_fd(mrb_ref, self_);
         let argv = mrb_ref.get_args_rest();
 
-        // SAFETY: kobako_io_fwrite reads exactly `argv.len()` cells
-        // from the argv buffer mruby produced on this call frame.
-        // Value is `#[repr(transparent)]` over mrb_value so the slice
-        // pointer reuses the layout.
-        let total = unsafe {
-            sys::kobako_io_fwrite(
-                mrb,
-                fd,
-                argv.as_ptr() as *const sys::mrb_value,
-                argv.len() as i32,
-            )
-        };
+        let mut total: i32 = 0;
+        for val in argv {
+            // `obj_as_string` may raise TypeError; bridge frame
+            // tolerates the longjmp.
+            let s = val.obj_as_string(mrb_ref);
+            // SAFETY: `obj_as_string` returns a String-tagged Value;
+            // the slice is consumed before the next mruby call.
+            let bytes = unsafe { s.as_bytes(mrb_ref) };
+            if !bytes.is_empty() {
+                // SAFETY: ptr / len describe a live mruby-owned
+                // buffer; `write(2)` reads it without retaining.
+                let n = unsafe {
+                    write(
+                        fd as core::ffi::c_int,
+                        bytes.as_ptr() as *const core::ffi::c_void,
+                        bytes.len(),
+                    )
+                };
+                if n > 0 {
+                    total = total.saturating_add(n as i32);
+                }
+            }
+        }
         Value::from_int(mrb_ref, total)
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -150,6 +161,16 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         let _ = self_;
         Value::zeroed()
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+unsafe extern "C" {
+    /// wasi-libc `write(2)` syscall. Declared locally because this
+    /// is a libc concern, not a mruby concern — keeping it out of
+    /// `kobako-mruby-sys`' public surface preserves that crate's
+    /// mruby-only scope. wasm32-wasip1 auto-links wasi-libc, so
+    /// the symbol resolves at link time.
+    fn write(fd: core::ffi::c_int, buf: *const core::ffi::c_void, n: usize) -> isize;
 }
 
 /// `IO#fileno` — returns the stored fd as an `Integer`. Used by the
