@@ -158,14 +158,14 @@ enum BytecodeLoad {
 /// Compile and execute a source snippet under a fresh ccontext whose
 /// filename is `(snippet:Name)`. Surfaces ccontext allocation failure
 /// as a [`boot_panic`]; any mruby compile / runtime fault is left in
-/// `mrb->exc` for the shared `take_pending_panic` step.
+/// `mrb->exc` for the shared `take_pending_panic` step. A snippet
+/// `name` carrying an interior NUL byte (wire violation) also fails
+/// through [`boot_panic`] since `CString::new` rejects it.
 #[cfg(target_arch = "wasm32")]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
-    let filename = format!("(snippet:{})\0", name);
-    // SAFETY: `filename` is constructed above with a trailing `\0`
-    // and lives across the call.
-    let Some(cxt) = (unsafe { Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char) })
-    else {
+    let filename = std::ffi::CString::new(format!("(snippet:{})", name))
+        .map_err(|_| boot_panic("snippet name contains NUL byte"))?;
+    let Some(cxt) = Ccontext::new(mrb, &filename) else {
         return Err(boot_panic("mrb_ccontext_new returned NULL"));
     };
     cxt.load_nstring(body.as_bytes());

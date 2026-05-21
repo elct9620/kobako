@@ -15,8 +15,8 @@
 //! (`abi::boot::replay_snippets`, `abi::eval::eval_body`,
 //! `abi::run::run_body`), each guarded by its own `unsafe { ... }`
 //! block and a manual NULL check. The wrapper collapses that to one
-//! `Ccontext::new(&mrb, cstr!("..."))` + `cxt.load_nstring(bytes)`
-//! pair; `Drop` runs the free unconditionally.
+//! `Ccontext::new(&mrb, c"...")` + `cxt.load_nstring(bytes)` pair;
+//! `Drop` runs the free unconditionally.
 
 use crate as sys;
 use crate::Mrb;
@@ -34,27 +34,22 @@ pub struct Ccontext<'mrb> {
 }
 
 impl<'mrb> Ccontext<'mrb> {
-    /// Allocate a fresh compile context and stamp `filename` (a
-    /// NUL-terminated C string). Returns `None` when
-    /// `mrb_ccontext_new` returns NULL — callers map that to a
-    /// `Kobako::BootError` Panic.
+    /// Allocate a fresh compile context and stamp it with `filename`.
+    /// Returns `None` when `mrb_ccontext_new` returns NULL — callers
+    /// map that to a `Kobako::BootError` Panic.
     ///
-    /// # Safety
-    ///
-    /// `filename` must be a NUL-terminated `*const c_char`. Caller
-    /// retains ownership of the underlying buffer; `mrb_ccontext_filename`
-    /// interns the bytes so the pointer only has to live for the
-    /// duration of this call.
-    pub unsafe fn new(mrb: &'mrb Mrb, filename: *const core::ffi::c_char) -> Option<Self> {
+    /// `mrb_ccontext_filename` interns the bytes, so the `&CStr`
+    /// borrow only has to outlive this call.
+    pub fn new(mrb: &'mrb Mrb, filename: &core::ffi::CStr) -> Option<Self> {
         // SAFETY: `mrb` is live by the borrow.
         let raw = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
         if raw.is_null() {
             return None;
         }
         // SAFETY: `mrb` is live; `raw` was just produced by the
-        // matching `mrb_ccontext_new`; `filename` is NUL-terminated
-        // by the function's safety contract.
-        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), raw, filename) };
+        // matching `mrb_ccontext_new`; `filename.as_ptr()` is a
+        // NUL-terminated `*const c_char` by `CStr`'s invariant.
+        unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), raw, filename.as_ptr()) };
         Some(Self { mrb, raw })
     }
 

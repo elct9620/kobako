@@ -30,7 +30,6 @@ fn eval_body() {
     use super::boot;
     use super::frames;
     use super::outcome_buffer::{write_outcome, write_panic};
-    use crate::cstr;
     use crate::mruby::Ccontext;
     use crate::outcome::{encode_outcome, Outcome, Panic};
 
@@ -64,9 +63,7 @@ fn eval_body() {
     // debug_info, which is why `Exception#backtrace` returns an empty
     // array when scripts are loaded via the bare `mrb_load_nstring`.
     let result_val = {
-        // SAFETY: the `cstr!("(eval)")` literal expands to a
-        // compile-time NUL-terminated `*const c_char`.
-        let Some(cxt) = (unsafe { Ccontext::new(&mrb, cstr!("(eval)")) }) else {
+        let Some(cxt) = Ccontext::new(&mrb, c"(eval)") else {
             return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
         };
         cxt.load_nstring(&frame2)
