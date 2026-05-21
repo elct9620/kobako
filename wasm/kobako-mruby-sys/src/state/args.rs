@@ -21,7 +21,7 @@
 //! Rest-form variants borrow the call frame's argv buffer; the
 //! lifetime is tied to `&self`, which the bridge body holds for the
 //! duration of the C call. mruby may set the rest pointer to NULL
-//! when the rest count is zero — [`slice_from_argv`] folds that into
+//! when the rest count is zero — `slice_from_argv` folds that into
 //! an empty `&[Value]` so callers do not have to gate on NULL.
 //!
 //! ## Why a trait rather than per-method wrappers
@@ -48,7 +48,7 @@
 //! impl Format for S {
 //!     type Output<'a> = Value;
 //!     const FMT: &'static core::ffi::CStr = c"S";
-//!     fn read<'a>(mrb: &'a Mrb) -> Self::Output<'a> {
+//!     fn read(mrb: &Mrb) -> Self::Output<'_> {
 //!         // mrb_get_args(mrb, "S", &out) — see `format::O` for the pattern
 //!         # unimplemented!()
 //!     }
@@ -110,7 +110,8 @@ impl Mrb {
 /// one mruby format string to a typed Rust return.
 #[cfg(target_arch = "wasm32")]
 pub mod format {
-    use super::{slice_from_argv, sys, Format, Mrb, Value};
+    use super::sys;
+    use super::{slice_from_argv, Format, Mrb, Value};
 
     /// `mrb_get_args(mrb, "o", &val)` — read a single positional
     /// argument as a [`Value`].

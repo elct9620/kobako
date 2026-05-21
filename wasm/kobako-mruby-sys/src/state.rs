@@ -32,7 +32,8 @@
 //!   * [`Build`](crate::Build) — `String` / `Array` / `Hash` factory + ops
 //!   * [`Intern`](crate::Intern) — symbol intern + name lookup
 //!   * [`Define`](crate::Define) — top-level module / class / const / gvar
-//!   * [`Args`](crate::Args) — `mrb_get_args` shape-specific wrappers
+//!   * [`Format`](crate::Format) / [`format`](crate::format) —
+//!     `mrb_get_args` shape-typed dispatch via trait + ZST markers
 //!   * [`Load`](crate::Load) — RITE / kobako bytecode loaders
 //!   * [`Protect`](crate::Protect) — closure-based `mrb_protect_error`
 //!
