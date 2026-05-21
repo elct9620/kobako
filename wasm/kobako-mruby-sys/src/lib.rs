@@ -143,6 +143,22 @@ const _: () = assert!(
     "mrb_value alignment diverged from MRB_WORDBOX_NO_INLINE_FLOAT layout"
 );
 
+// `Mrb::pending_exc` and `Mrb::load_bytecode`'s exception
+// synthesiser read / write `mrb_state.exc` through bindgen's
+// struct accessor. Pin the field's offset so a future bindgen run
+// or mruby vendor bump that shifts it fails at compile time
+// rather than silently reading the wrong slot. The field sits
+// after `jmp` / `c` / `root_c` / `globals` (four pointer-sized
+// fields); `mrb_gc` (which carries the bitfield workaround) lives
+// further down the struct, so the bitfield mis-pack does not
+// affect this offset.
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(
+    core::mem::offset_of!(mrb_state, exc) == 4 * core::mem::size_of::<*const core::ffi::c_void>(),
+    "mrb_state.exc offset diverged from the vendored mruby layout — \
+     the pending-exception helpers read this field directly"
+);
+
 /// Read `mrb->object_class` from a raw `*mut mrb_state`. Companion
 /// accessor for code paths that hold a raw pointer rather than an
 /// [`Mrb`] borrow — currently the `install_*` helpers in
