@@ -112,11 +112,7 @@ impl Mrb {
                 msg.len() as sys::mrb_int,
             )
         });
-        // SAFETY: `err` is the just-created exception; `mrb->exc`
-        // is the documented field for the pending exception slot.
-        let obj_ptr = unsafe { sys::mrb_obj_ptr_func(err.into_raw()) };
-        // SAFETY: `self.state` is alive by the &self borrow.
-        unsafe { (*self.as_ptr()).exc = obj_ptr };
+        self.set_pending_exc(err);
     }
 }
 

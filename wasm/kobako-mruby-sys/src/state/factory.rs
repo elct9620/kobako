@@ -1,14 +1,11 @@
 //! String / Array / Hash factories on [`Mrb`].
 //!
-//! Magnus's `Ruby` token holds factories like `ary_new` / `hash_new`
-//! / `str_new` as **inherent methods**, not on traits. We follow that
-//! pattern: this file adds inherent factory methods to [`Mrb`] via an
-//! `impl Mrb` block, mirroring magnus's `src/api.rs` style.
-//!
-//! Collection factories (`ary_new`, `hash_new`) return typed newtypes
-//! [`Array`] / [`Hash`] so per-collection operations (`push`, `set`,
-//! `get`, `keys`) cluster on the value type rather than on `Mrb` —
-//! the magnus shape (see `src/r_array.rs` / `src/r_hash.rs`).
+//! `str_new` / `str_new_cstr` construct mruby Strings from Rust byte
+//! slices or a NUL-terminated `&CStr`. `ary_new` / `hash_new` return
+//! typed [`Array`] / [`Hash`] newtypes — per-collection operations
+//! (`push`, `set`, `get`, `keys`) live on the value newtype rather
+//! than on [`Mrb`] so the call shape mirrors Ruby (`arr.push(x)`,
+//! not `mrb.ary_push(arr, x)`).
 
 #[cfg(target_arch = "wasm32")]
 use crate as sys;

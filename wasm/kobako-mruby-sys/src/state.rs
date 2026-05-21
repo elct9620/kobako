@@ -24,23 +24,25 @@
 //! `Mrb` fixes both: the owning type makes "the VM is live" provable
 //! by the borrow checker, and `Drop` makes `mrb_close` automatic.
 //!
-//! ## Capability traits
+//! ## Capability clusters
 //!
 //! The mruby C API surface that the kobako guest actually uses is
-//! grouped into one trait per concern under [`crate::state`]:
+//! grouped into per-concern files under `state::`. Each file extends
+//! [`Mrb`] with inherent methods covering one concern:
 //!
-//!   * [`Build`](crate::Build) — `String` / `Array` / `Hash` factory + ops
-//!   * [`Intern`](crate::Intern) — symbol intern + name lookup
-//!   * [`Define`](crate::Define) — top-level module / class / const / gvar
-//!   * [`Format`](crate::Format) / [`format`](crate::format) —
-//!     `mrb_get_args` shape-typed dispatch via trait + ZST markers
-//!   * [`Load`](crate::Load) — RITE / kobako bytecode loaders
-//!   * [`Protect`](crate::Protect) — closure-based `mrb_protect_error`
+//!   * [`factory`] — `String` / `Array` / `Hash` factories
+//!   * [`symbol`] — symbol intern + name lookup
+//!   * [`define`] — top-level module / class / const / gvar
+//!   * [`args`] — `mrb_get_args` shape-typed dispatch via
+//!     [`Format`](crate::Format) trait + [`format`](crate::format)
+//!     ZST markers (currently the only trait-based cluster — see the
+//!     `args` module doc for the pattern, applicable to future
+//!     clusters once combinatorial pressure shows up)
+//!   * [`load`] — RITE / kobako bytecode loaders
+//!   * [`protect`] — closure-based `mrb_protect_error`
 //!
-//! Bring them in en masse with `use kobako_mruby_sys::prelude::*;`
-//! or pick the ones a given file needs. Following the magnus pattern
-//! of splitting capability traits keeps the per-file surface small
-//! and the rustdoc on each cluster focused.
+//! Splitting per concern keeps each file's surface small and the
+//! rustdoc on each cluster focused.
 
 pub mod args;
 pub mod define;
@@ -182,6 +184,29 @@ impl Mrb {
         }
     }
 
+    /// Set `mrb->exc` to `exc`, replacing whatever was there. Used by
+    /// synthesis paths where an FFI call signals failure by returning
+    /// NULL without raising — see [`Mrb::load_bytecode`]'s
+    /// `mrb_read_irep_buf` recovery. Most code paths should let mruby
+    /// raise via `mrb_raise` from inside a C bridge instead; that path
+    /// triggers the normal exception flow without needing a manual
+    /// slot write.
+    ///
+    /// `exc` must be an exception-object-tagged [`Value`]; mruby's
+    /// downstream machinery dereferences the slot as `RObject *`. Pass
+    /// nil or a non-object value at your peril (segfault on the next
+    /// exception check).
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_pending_exc(&self, exc: Value) {
+        // SAFETY: `self.state` is alive by the `&self` borrow; `exc`
+        // originates from the same VM. `mrb_obj_ptr_func` extracts the
+        // RObject pointer carried by the value; the assignment installs
+        // it as the new pending exception, replacing whatever sat in
+        // the slot.
+        let obj_ptr = unsafe { sys::mrb_obj_ptr_func(exc.into_raw()) };
+        unsafe { (*self.state.as_ptr()).exc = obj_ptr };
+    }
+
     /// Clear `mrb->exc`. Idempotent; safe to call when no exception
     /// is pending. Used by the consumer crate's panic-recovery paths
     /// after the pending exception has been extracted, so subsequent
@@ -239,6 +264,10 @@ mod tests {
         // yield `Err` without attempting an FFI call. This is the
         // documented host-side contract; wasm32 coverage runs
         // through the E2E journeys.
-        assert_eq!(Mrb::open().err(), Some(MrbOpenError));
+        assert_eq!(
+            Mrb::open().err(),
+            Some(MrbOpenError),
+            "Mrb::open on a host target must return Err(MrbOpenError) without invoking FFI — mrb_open is not linked there"
+        );
     }
 }
