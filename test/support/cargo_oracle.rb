@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "open3"
 
 # Test helper for driving a Rust "oracle" subprocess from a Minitest test.
@@ -44,10 +45,16 @@ class CargoOracle
   def initialize(crate_dir:, bin_name:)
     @crate_dir = crate_dir
     @bin_name = bin_name
-    @binary_path = File.join(crate_dir, "target", "release", bin_name)
   end
 
-  attr_reader :binary_path, :bin_name
+  attr_reader :bin_name
+
+  # Lazily-resolved absolute path to the oracle binary. The lookup
+  # delegates to +cargo metadata+ so workspace members emit into the
+  # workspace-shared +target/+ directory rather than the per-crate one.
+  def binary_path
+    @binary_path ||= File.join(target_directory, "release", @bin_name)
+  end
 
   # Memoised build of the oracle binary. Returns a +BuildResult+. Safe
   # to call from +setup+ on every test method — the actual cargo
@@ -60,7 +67,7 @@ class CargoOracle
   # caller owns the lifecycle — call +#close+ in +teardown+ or wrap
   # the whole exchange in +#open+ to get automatic cleanup.
   def spawn
-    Channel.new(*Open3.popen2(@binary_path))
+    Channel.new(*Open3.popen2(binary_path))
   end
 
   # Spawn the oracle, yield the +Channel+ facade, and close it on block
@@ -80,16 +87,34 @@ class CargoOracle
 
     out, status = Open3.capture2e(
       "cargo", "build", "--release",
-      "--manifest-path", File.join(@crate_dir, "Cargo.toml"),
+      "--manifest-path", manifest_path,
       "--bin", @bin_name
     )
-    return BuildResult.new(status: :ok, error: nil) if status.success? && File.executable?(@binary_path)
+    return BuildResult.new(status: :ok, error: nil) if status.success? && File.executable?(binary_path)
 
     BuildResult.new(status: :build_failed, error: out)
   end
 
   def cargo_on_path?
     system("command -v cargo > /dev/null 2>&1")
+  end
+
+  # Resolve the cargo +target_directory+ for the crate's manifest. For a
+  # workspace member this is the workspace-shared +target/+ at the
+  # workspace root, not the per-crate +<crate_dir>/target/+ that cargo
+  # would synthesise for a standalone crate.
+  def target_directory
+    out, status = Open3.capture2(
+      "cargo", "metadata", "--no-deps", "--format-version", "1",
+      "--manifest-path", manifest_path
+    )
+    raise "cargo metadata failed for #{manifest_path}" unless status.success?
+
+    JSON.parse(out).fetch("target_directory")
+  end
+
+  def manifest_path
+    File.join(@crate_dir, "Cargo.toml")
   end
 
   # Framed I/O channel to a spawned oracle subprocess. +send_frame+
