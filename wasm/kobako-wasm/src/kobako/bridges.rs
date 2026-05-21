@@ -62,7 +62,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest) = kobako.mrb().get_args_n_rest();
+        let (method_sym, rest) = kobako.mrb().get_args::<sys::format::NRest>();
 
         // SAFETY: `self_` is the class receiver of a singleton-class
         // `method_missing` shim — class-tagged by mruby itself.
@@ -110,7 +110,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     {
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let id_val = kobako.mrb().get_args_o();
+        let id_val = kobako.mrb().get_args::<sys::format::O>();
         kobako.set_handle_id(self_, id_val);
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -136,7 +136,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest) = kobako.mrb().get_args_n_rest();
+        let (method_sym, rest) = kobako.mrb().get_args::<sys::format::NRest>();
 
         let handle_id = kobako.extract_handle_id(self_);
 

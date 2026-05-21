@@ -69,7 +69,7 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
     {
         // SAFETY: bridge frame — mruby invoked us with a live state.
         let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-        let (fd, mode_val) = mrb_ref.get_args_io();
+        let (fd, mode_val) = mrb_ref.get_args::<sys::format::Io>();
 
         if fd != 1 && fd != 2 {
             unsafe {
@@ -113,7 +113,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         // SAFETY: bridge frame — mruby invoked us with a live state.
         let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
         let fd = read_fd(mrb_ref, self_);
-        let argv = mrb_ref.get_args_rest();
+        let argv = mrb_ref.get_args::<sys::format::Rest>();
 
         let mut total: i32 = 0;
         for val in argv {

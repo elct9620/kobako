@@ -1,96 +1,210 @@
-//! `mrb_get_args` shape-specific wrappers on [`Mrb`].
+//! `mrb_get_args` shape-typed dispatch on [`Mrb`].
 //!
-//! Inherent methods mapping the four argument-unpack patterns kobako
-//! bridges actually use. Each method maps one mruby format string to
-//! a typed Rust return, hiding the variadic FFI plumbing:
+//! mruby's `mrb_get_args` is a variadic C function whose format string
+//! drives heterogeneous out-parameters at runtime. Rust cannot express
+//! that signature directly: a single Rust function cannot vary its
+//! return type with a runtime format string, and `extern "C"` variadics
+//! force every call site into hand-counted `unsafe` plumbing.
 //!
-//!   - [`Mrb::get_args_o`]       — `"o"`  → single positional
-//!   - [`Mrb::get_args_rest`]    — `"*"`  → rest array
-//!   - [`Mrb::get_args_n_rest`]  — `"n*"` → symbol + rest array
-//!   - [`Mrb::get_args_io`]      — `"io"` → integer + object
+//! The trade is to lift the format string to the *type* level. Each
+//! format becomes a zero-sized marker type implementing [`Format`];
+//! [`Mrb::get_args`] is the single safe entry point that
+//! monomorphises the FFI call against `F::FMT` and returns the typed
+//! tuple from `F::Output`.
 //!
-//! The rest-form variants borrow the call frame's argv buffer; the
+//!   - [`format::O`]      — `"o"`  → single positional
+//!   - [`format::Rest`]   — `"*"`  → rest array borrowed from the
+//!     call frame
+//!   - [`format::NRest`]  — `"n*"` → symbol + rest array
+//!   - [`format::Io`]     — `"io"` → integer + object
+//!
+//! Rest-form variants borrow the call frame's argv buffer; the
 //! lifetime is tied to `&self`, which the bridge body holds for the
 //! duration of the C call. mruby may set the rest pointer to NULL
-//! when the rest count is zero — the helpers fold that into an empty
-//! `&[Value]` so callers do not have to gate on NULL.
+//! when the rest count is zero — [`slice_from_argv`] folds that into
+//! an empty `&[Value]` so callers do not have to gate on NULL.
+//!
+//! ## Why a trait rather than per-method wrappers
+//!
+//! The previous shape was four inherent methods on [`Mrb`] — one per
+//! format string. That worked for a closed set, but every new format
+//! widened the [`Mrb`] surface and duplicated the variadic FFI dance.
+//! The trait pattern flips the axis: format identity moves to a ZST,
+//! the dispatch surface collapses to a single `get_args::<F>()`, and
+//! adding a fifth format means adding a struct + impl — not editing
+//! `impl Mrb`. The same pattern is the right template for any other
+//! capability cluster that currently lives as fan-of-methods on
+//! [`Mrb`] (`Define`, `Build`, etc.) once a similar combinatorial
+//! pressure shows up.
+//!
+//! ## Extending with a new format
+//!
+//! Add a marker ZST under [`format`] and implement [`Format`]:
+//!
+//! ```ignore
+//! use kobako_mruby_sys::{Format, Mrb, Value};
+//!
+//! pub struct S;
+//! impl Format for S {
+//!     type Output<'a> = Value;
+//!     const FMT: &'static core::ffi::CStr = c"S";
+//!     fn read<'a>(mrb: &'a Mrb) -> Self::Output<'a> {
+//!         // mrb_get_args(mrb, "S", &out) — see `format::O` for the pattern
+//!         # unimplemented!()
+//!     }
+//! }
+//! ```
 
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
 use crate::{Mrb, Value};
 
+/// Type-level marker for a single `mrb_get_args` format string.
+///
+/// Implementors are zero-sized structs (see [`format`]) whose
+/// [`Format::FMT`] supplies the mruby format and whose
+/// [`Format::Output`] names the typed return shape. The GAT lifetime
+/// `'a` carries the borrow from the call-frame argv slot for
+/// rest-form formats; immediate formats leave it unused.
+///
+/// New implementors should monomorphise the `mrb_get_args` call inside
+/// [`Format::read`] against [`Format::FMT`] — see `format::O` for the
+/// minimal pattern.
+#[cfg(target_arch = "wasm32")]
+pub trait Format {
+    /// Typed shape returned by [`Format::read`]. The `'a` lifetime is
+    /// the borrow on the call-frame argv slot for rest-form formats;
+    /// immediate formats leave it unused.
+    type Output<'a>;
+
+    /// mruby format string (e.g. `c"o"`, `c"n*"`). Static-lifetime
+    /// `&CStr` so the format byte sequence is interned at compile
+    /// time alongside the impl.
+    const FMT: &'static core::ffi::CStr;
+
+    /// Read the call-frame argv against `Self::FMT` and project it
+    /// into [`Format::Output`]. The body issues exactly one
+    /// `mrb_get_args` call with the per-format out-parameter shape.
+    fn read(mrb: &Mrb) -> Self::Output<'_>;
+}
+
 #[cfg(target_arch = "wasm32")]
 impl Mrb {
+    /// Read the call-frame argv using a [`Format`] marker. The
+    /// monomorphised call expands to a single `mrb_get_args` against
+    /// `F::FMT` and returns the typed tuple from `F::Output`.
+    ///
+    /// ```ignore
+    /// use kobako_mruby_sys::format::{Io, Rest};
+    /// let (fd, mode_val) = mrb.get_args::<Io>();
+    /// let argv = mrb.get_args::<Rest>();
+    /// ```
+    #[inline]
+    pub fn get_args<F: Format>(&self) -> F::Output<'_> {
+        F::read(self)
+    }
+}
+
+/// Zero-sized marker types implementing [`Format`]. Each marker maps
+/// one mruby format string to a typed Rust return.
+#[cfg(target_arch = "wasm32")]
+pub mod format {
+    use super::{slice_from_argv, sys, Format, Mrb, Value};
+
     /// `mrb_get_args(mrb, "o", &val)` — read a single positional
     /// argument as a [`Value`].
-    pub fn get_args_o(&self) -> Value {
-        let mut raw = sys::mrb_value::zeroed();
-        // SAFETY: `self` is alive by the `&self` borrow; `&mut raw`
-        // is a valid `*mut mrb_value`; the `"o"` format writes
-        // exactly one cell.
-        unsafe {
-            sys::mrb_get_args(
-                self.as_ptr(),
-                crate::cstr!("o"),
-                &mut raw as *mut sys::mrb_value,
-            );
+    pub struct O;
+    impl Format for O {
+        type Output<'a> = Value;
+        const FMT: &'static core::ffi::CStr = c"o";
+
+        fn read(mrb: &Mrb) -> Value {
+            let mut raw = sys::mrb_value::zeroed();
+            // SAFETY: `mrb` is alive by the `&Mrb` borrow; `&mut raw`
+            // is a valid `*mut mrb_value`; the `"o"` format writes
+            // exactly one cell.
+            unsafe {
+                sys::mrb_get_args(
+                    mrb.as_ptr(),
+                    Self::FMT.as_ptr(),
+                    &mut raw as *mut sys::mrb_value,
+                );
+            }
+            Value::from_raw(raw)
         }
-        Value::from_raw(raw)
     }
 
     /// `mrb_get_args(mrb, "*", &argv, &argc)` — read the rest array
     /// as a borrowed slice into the call frame.
-    pub fn get_args_rest(&self) -> &[Value] {
-        let mut argv: *const sys::mrb_value = core::ptr::null();
-        let mut argc: core::ffi::c_int = 0;
-        // SAFETY: as `get_args_o`; the `"*"` format writes the argv
-        // pointer + length pair.
-        unsafe {
-            sys::mrb_get_args(
-                self.as_ptr(),
-                crate::cstr!("*"),
-                &mut argv as *mut *const sys::mrb_value,
-                &mut argc as *mut core::ffi::c_int,
-            );
+    pub struct Rest;
+    impl Format for Rest {
+        type Output<'a> = &'a [Value];
+        const FMT: &'static core::ffi::CStr = c"*";
+
+        fn read(mrb: &Mrb) -> &[Value] {
+            let mut argv: *const sys::mrb_value = core::ptr::null();
+            let mut argc: core::ffi::c_int = 0;
+            // SAFETY: as `O::read`; the `"*"` format writes the argv
+            // pointer + length pair.
+            unsafe {
+                sys::mrb_get_args(
+                    mrb.as_ptr(),
+                    Self::FMT.as_ptr(),
+                    &mut argv as *mut *const sys::mrb_value,
+                    &mut argc as *mut core::ffi::c_int,
+                );
+            }
+            slice_from_argv(argv, argc)
         }
-        slice_from_argv(argv, argc)
     }
 
     /// `mrb_get_args(mrb, "n*", &sym, &argv, &argc)` — read a leading
     /// symbol followed by a rest array.
-    pub fn get_args_n_rest(&self) -> (sys::mrb_sym, &[Value]) {
-        let mut sym: sys::mrb_sym = 0;
-        let mut argv: *const sys::mrb_value = core::ptr::null();
-        let mut argc: core::ffi::c_int = 0;
-        // SAFETY: as `get_args_o`.
-        unsafe {
-            sys::mrb_get_args(
-                self.as_ptr(),
-                crate::cstr!("n*"),
-                &mut sym as *mut sys::mrb_sym,
-                &mut argv as *mut *const sys::mrb_value,
-                &mut argc as *mut core::ffi::c_int,
-            );
+    pub struct NRest;
+    impl Format for NRest {
+        type Output<'a> = (sys::mrb_sym, &'a [Value]);
+        const FMT: &'static core::ffi::CStr = c"n*";
+
+        fn read(mrb: &Mrb) -> (sys::mrb_sym, &[Value]) {
+            let mut sym: sys::mrb_sym = 0;
+            let mut argv: *const sys::mrb_value = core::ptr::null();
+            let mut argc: core::ffi::c_int = 0;
+            // SAFETY: as `O::read`.
+            unsafe {
+                sys::mrb_get_args(
+                    mrb.as_ptr(),
+                    Self::FMT.as_ptr(),
+                    &mut sym as *mut sys::mrb_sym,
+                    &mut argv as *mut *const sys::mrb_value,
+                    &mut argc as *mut core::ffi::c_int,
+                );
+            }
+            (sym, slice_from_argv(argv, argc))
         }
-        (sym, slice_from_argv(argv, argc))
     }
 
     /// `mrb_get_args(mrb, "io", &n, &val)` — read an integer followed
     /// by an object.
-    pub fn get_args_io(&self) -> (core::ffi::c_int, Value) {
-        let mut n: core::ffi::c_int = 0;
-        let mut raw = sys::mrb_value::zeroed();
-        // SAFETY: as `get_args_o`.
-        unsafe {
-            sys::mrb_get_args(
-                self.as_ptr(),
-                crate::cstr!("io"),
-                &mut n as *mut core::ffi::c_int,
-                &mut raw as *mut sys::mrb_value,
-            );
+    pub struct Io;
+    impl Format for Io {
+        type Output<'a> = (core::ffi::c_int, Value);
+        const FMT: &'static core::ffi::CStr = c"io";
+
+        fn read(mrb: &Mrb) -> (core::ffi::c_int, Value) {
+            let mut n: core::ffi::c_int = 0;
+            let mut raw = sys::mrb_value::zeroed();
+            // SAFETY: as `O::read`.
+            unsafe {
+                sys::mrb_get_args(
+                    mrb.as_ptr(),
+                    Self::FMT.as_ptr(),
+                    &mut n as *mut core::ffi::c_int,
+                    &mut raw as *mut sys::mrb_value,
+                );
+            }
+            (n, Value::from_raw(raw))
         }
-        (n, Value::from_raw(raw))
     }
 }
 

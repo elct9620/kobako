@@ -76,6 +76,9 @@ pub mod value;
 pub use state::{Mrb, MrbOpenError};
 
 #[cfg(target_arch = "wasm32")]
+pub use state::args::{format, Format};
+
+#[cfg(target_arch = "wasm32")]
 pub use ccontext::Ccontext;
 
 #[cfg(target_arch = "wasm32")]
