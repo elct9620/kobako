@@ -1,19 +1,18 @@
 # kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
 #
-# Two responsibilities:
+# Sole responsibility: `bindgen`-generated FFI declarations for the
+# mruby C API surface the Guest Binary calls (the `mrb_open` /
+# `mrb_load_nstring` / `mrb_define_class_under` / … family plus the
+# `mrb_value` and `mrb_state` ABI types). Bindings are produced at
+# build time from `src/wrapper.h` against `vendor/mruby/include/`.
 #
-#   1. `bindgen`-generated FFI declarations for the mruby C API surface
-#      the Guest Binary calls (the `mrb_open` / `mrb_load_nstring` /
-#      `mrb_define_class_under` / … family plus the `mrb_value` and
-#      `mrb_state` ABI types). The bindings are produced at build time
-#      from `src/wrapper.h` against `vendor/mruby/include/`.
-#   2. Layout-safe C shims (`bytecode.c`, `io.c`, `value.c`) that
-#      wrap the macro-only mruby APIs not covered by bindgen's
-#      static-fn trampolines. `bytecode.c` parses + classifies IREP
-#      blobs; `io.c` carries the `mrb_obj_as_string` + `fwrite` loop
-#      for `$stdout` / `$stderr` writes; `value.c` keeps a single
-#      float-unbox shim that sidesteps a `union mrb_value_` return
-#      ABI mismatch under `MRB_WORDBOX_NO_INLINE_FLOAT`.
+# `wrapper.h` also carries `static inline` wrappers around mruby
+# macros and unexported helpers that bindgen cannot reach directly
+# (`RSTRING_PTR` / `RSTRING_LEN`, `mrb_obj_ptr`, `mrb_gc_arena_save`
+# / `_restore`, `mrb_proc_new`). bindgen's `wrap_static_fns` emits
+# trampolines for each into the single `mruby_static_wrappers.c`
+# file in OUT_DIR — that file is the entire C translation unit the
+# crate compiles. No hand-written `.c` shims remain.
 #
 # Build-time inputs (consumed via env, populated by `tasks/wasm.rake`):
 #

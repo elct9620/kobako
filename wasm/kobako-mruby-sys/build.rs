@@ -1,5 +1,5 @@
-// build.rs — kobako-mruby-sys link wiring, bindgen run, and C shim
-// compilation.
+// build.rs — kobako-mruby-sys link wiring, bindgen run, and static-fn
+// trampoline compilation.
 //
 // Purpose
 // -------
@@ -8,11 +8,15 @@
 //
 //   1. Runs bindgen against `src/wrapper.h` to emit the mruby C API
 //      FFI surface into `$OUT_DIR/bindings.rs`. The static-fn
-//      trampolines bindgen needs to reach `MRB_INLINE` helpers land
-//      in `$OUT_DIR/mruby_static_wrappers.c`.
-//   2. Compiles the layout-safe C shims (`bytecode.c`, `exc.c`,
-//      `io.c`, `value.c`) plus the bindgen-emitted static-fn
-//      trampoline file against mruby's own headers.
+//      trampolines bindgen needs to reach `MRB_INLINE` helpers and
+//      the `wrapper.h`-defined inline wrappers land in
+//      `$OUT_DIR/mruby_static_wrappers.c`.
+//   2. Compiles the bindgen-emitted trampoline file against mruby's
+//      headers so the trampoline symbols (`mrb_obj_value__extern`,
+//      `mrb_rstring_ptr__extern`, etc.) resolve into the rlib's
+//      object set. No hand-written C shims remain — the
+//      single-translation-unit file produced by bindgen is the
+//      entire C surface.
 //   3. Emits `cargo:rustc-link-search=native=$MRUBY_LIB_DIR` plus
 //      `cargo:rustc-link-lib=static=mruby` so the resulting rlib drags
 //      `libmruby.a` into the eventual `kobako-wasm` cdylib's link
@@ -55,7 +59,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/wrapper.h");
-    println!("cargo:rerun-if-changed=src/bytecode.c");
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -116,7 +119,7 @@ fn main() {
         &bindings_rs,
         &static_wrappers_c,
     );
-    compile_shims(
+    compile_trampolines(
         &mruby_include,
         mruby_build_include,
         wasi_sdk,
@@ -186,11 +189,11 @@ fn run_bindgen(
         // clang for sizeof(mrb_gc) (correct) and emit an opaque blob.
         .opaque_type("mrb_gc")
         .prepend_enum_name(false)
-        // Generate trampolines for MRB_INLINE helpers so Rust can call
-        // them through real extern symbols (later stages depend on
-        // this for mrb_integer_func / mrb_word_boxing_value_float /
-        // mrb_obj_value / mrb_nil_value / mrb_true_value /
-        // mrb_false_value / mrb_type).
+        // Generate trampolines for `static inline` helpers reached
+        // through `wrapper.h` — both mruby's own (`mrb_integer_func`,
+        // `mrb_obj_value`, `mrb_type`, …) and the macro wrappers
+        // declared in `wrapper.h` (`mrb_rstring_ptr`, `mrb_obj_ptr_func`,
+        // `mrb_gc_arena_save_func`, `mrb_proc_new_func`, …).
         .wrap_static_fns(true)
         .wrap_static_fns_path(static_wrappers_c.with_extension(""))
         .layout_tests(false)
@@ -202,21 +205,27 @@ fn run_bindgen(
         .expect("bindgen: failed to write bindings.rs");
 }
 
-fn compile_shims(
+fn compile_trampolines(
     mruby_include: &Path,
     mruby_build_include: &Path,
     wasi_sdk: &str,
     static_wrappers_c: &Path,
 ) {
-    let mut build = cc::Build::new();
-    build
+    if !static_wrappers_c.exists() {
+        // bindgen always emits this file when `wrap_static_fns` is
+        // on; absence means the build is incomplete. Fail loudly so
+        // a stale OUT_DIR cannot ship a link graph missing trampoline
+        // symbols.
+        panic!(
+            "kobako-mruby-sys: bindgen did not emit {}",
+            static_wrappers_c.display()
+        );
+    }
+    cc::Build::new()
         .compiler(format!("{}/bin/clang", wasi_sdk))
         .flag(format!("--sysroot={}/share/wasi-sysroot", wasi_sdk))
-        .file("src/bytecode.c")
+        .file(static_wrappers_c)
         .include(mruby_include)
-        .include(mruby_build_include);
-    if static_wrappers_c.exists() {
-        build.file(static_wrappers_c);
-    }
-    build.compile("kobako_mruby_shims");
+        .include(mruby_build_include)
+        .compile("kobako_mruby_trampolines");
 }

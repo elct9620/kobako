@@ -1,9 +1,11 @@
 /*
  * wrapper.h — bindgen entry point for the kobako-mruby-sys crate.
  *
- * Pulled in by `build.rs::run_bindgen` to expose the mruby C API the
- * kobako Guest Binary needs, plus the layout-safe C shim compiled
- * alongside mruby (see `src/bytecode.c`).
+ * Pulled in by `build.rs::run_bindgen` to expose the mruby C API
+ * the kobako Guest Binary needs. No hand-written C translation
+ * units live in the crate any more: the static inline wrappers
+ * below are the entire C surface, and bindgen's `wrap_static_fns`
+ * emits a single trampoline file from them.
  *
  * The `<stdbool.h>` and `<sys/select.h>` pre-includes are not used
  * by the mruby surface itself — they cover bindgen's `wrap_static_fns`
@@ -27,12 +29,10 @@
 #include <mruby/error.h>
 #include <mruby/hash.h>
 #include <mruby/irep.h>
+#include <mruby/proc.h>
 #include <mruby/string.h>
 #include <mruby/value.h>
 #include <mruby/variable.h>
-
-/* C shims that remain in this crate. */
-int kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size);
 
 /*
  * Static inline wrappers around mruby macros that lack a public
@@ -59,4 +59,43 @@ static inline mrb_int
 mrb_rstring_len(mrb_value s)
 {
   return RSTRING_LEN(s);
+}
+
+/* Object pointer extractor from an object-tagged mrb_value.
+ * Counterpart to the `mrb_obj_ptr(v)` macro in <mruby/value.h>,
+ * which expands via `mrb_val_union(v).p`. Folding the union read
+ * into a single C function sidesteps the wasm32 union-return ABI
+ * mismatch bindgen's trampoline would otherwise hit. */
+static inline struct RObject *
+mrb_obj_ptr_func(mrb_value v)
+{
+  return mrb_obj_ptr(v);
+}
+
+/* GC arena bracketing helpers. mruby exposes these as macros that
+ * read / write `mrb->gc.arena_idx`; bindgen treats `mrb_gc` as
+ * opaque (workaround for the bitfield mis-pack on wasm32, see
+ * `build.rs::run_bindgen`), so reaching the field from Rust
+ * requires routing through the C compiler. */
+static inline int
+mrb_gc_arena_save_func(mrb_state *mrb)
+{
+  return mrb_gc_arena_save(mrb);
+}
+
+static inline void
+mrb_gc_arena_restore_func(mrb_state *mrb, int idx)
+{
+  mrb_gc_arena_restore(mrb, idx);
+}
+
+/* `mrb_proc_new` is declared in <mruby/proc.h> without `MRB_API`,
+ * so the `-fvisibility=default` workaround in `build.rs` does not
+ * make bindgen pick it up. The static archive still resolves the
+ * symbol at link time; wrap it in a `static inline` here so
+ * bindgen's `wrap_static_fns` emits a trampoline Rust can call. */
+static inline struct RProc *
+mrb_proc_new_func(mrb_state *mrb, const mrb_irep *irep)
+{
+  return mrb_proc_new(mrb, irep);
 }
