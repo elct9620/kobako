@@ -490,8 +490,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval('print "abcdefghijk"')
     assert_equal "abcdefghijk", sandbox.stdout,
-                 "embed-tagged String must round-trip the full 11 bytes through " \
-                 "the inline RStringEmbed.ary branch"
+                 "short string passed to `print` must reach stdout intact"
   end
 
   # Strings beyond the embed cap live in as_.heap.{ptr,len}; the
@@ -504,8 +503,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval('print "x" * 100')
     assert_equal "x" * 100, sandbox.stdout,
-                 "heap-tagged String must round-trip all 100 bytes through " \
-                 "the as_.heap.ptr / as_.heap.len branch"
+                 "long string passed to `print` must reach stdout intact"
   end
 
   # IO#write routes through `write(2)` with an explicit `ptr + len`,
@@ -515,7 +513,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval("print \"a\\0b\"")
     assert_equal "a\0b".b, sandbox.stdout.b,
-                 "ptr + len IO path must preserve NUL bytes inside the payload"
+                 "NUL bytes inside a `print` payload must reach stdout"
   end
 
   # `mrb_obj_as_string` on a value that is already a String returns
@@ -525,7 +523,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval('print "literal-string"')
     assert_equal "literal-string", sandbox.stdout,
-                 "Already-String arguments must skip the to_s coercion arm"
+                 "String argument to `print` must reach stdout verbatim"
   end
 
   # `mrb_obj_as_string` on a non-String calls Object#to_s. Integer
@@ -536,7 +534,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval("print 42")
     assert_equal "42", sandbox.stdout,
-                 "Non-String arguments must reach write(2) via the Object#to_s coercion"
+                 "Integer argument to `print` must reach stdout as its `to_s` form"
   end
 
   # Reassigning $stdout inside a #run must not bleed into the next
