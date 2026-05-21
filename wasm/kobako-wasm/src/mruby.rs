@@ -30,10 +30,8 @@ pub use kobako_mruby_sys::Mrb;
 #[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys::Ccontext;
 
-#[cfg(target_arch = "wasm32")]
-pub use kobako_mruby_sys::cstr_ptr;
-
 // Re-export the `cstr!` macro at the consumer crate's root so the
-// existing `use crate::cstr;` pattern at every FFI call site keeps
-// resolving. The macro itself ships from `kobako-mruby-sys` with
+// existing `use crate::cstr;` pattern at the few remaining raw-FFI
+// call sites (e.g. `mrb_get_args` format strings) keeps resolving.
+// The macro itself ships from `kobako-mruby-sys` with
 // `#[macro_export]`; this re-export lives in `lib.rs`.

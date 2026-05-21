@@ -279,6 +279,71 @@ impl Mrb {
         unsafe { sys::mrb_intern_str(self.as_ptr(), s.as_raw()) }
     }
 
+    // ----------------------------------------------------------------
+    // Top-level module / class registration.
+    //
+    // Each method mirrors the mruby C API one-to-one:
+    //   - mrb_define_module(mrb, name)         -> define_module
+    //   - mrb_define_class(mrb, name, super)   -> define_class
+    //   - mrb_class_get(mrb, name)             -> class_get
+    //   - mrb_define_global_const(mrb, n, v)   -> define_global_const
+    //   - mrb_gv_set(mrb, sym, val)            -> gv_set
+    //
+    // The class lookup paths return a typed [`Class`]; consumers
+    // check [`Class::is_null`] for "not found" the same way they
+    // would on the C side.
+    // ----------------------------------------------------------------
+
+    /// `mrb_define_module(mrb, name)` — return the module named
+    /// `name`, defining it at top level if not already present.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn define_module(&self, name: &core::ffi::CStr) -> Class {
+        // SAFETY: `self.state` is alive; `name` is NUL-terminated.
+        Class::from_raw(unsafe { sys::mrb_define_module(self.as_ptr(), name.as_ptr()) })
+    }
+
+    /// `mrb_define_class(mrb, name, super_)` — define a top-level
+    /// class named `name` inheriting from `super_`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn define_class(&self, name: &core::ffi::CStr, super_: Class) -> Class {
+        // SAFETY: `self.state` is alive; `name` is NUL-terminated;
+        // `super_` was produced by the same VM.
+        Class::from_raw(unsafe {
+            sys::mrb_define_class(self.as_ptr(), name.as_ptr(), super_.as_raw())
+        })
+    }
+
+    /// `mrb_class_get(mrb, name)` — fetch the top-level class named
+    /// `name`. The returned [`Class`] may be null when no such class
+    /// is registered.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn class_get(&self, name: &core::ffi::CStr) -> Class {
+        // SAFETY: `self.state` is alive; `name` is NUL-terminated.
+        Class::from_raw(unsafe { sys::mrb_class_get(self.as_ptr(), name.as_ptr()) })
+    }
+
+    /// `mrb_define_global_const(mrb, name, val)` — bind a top-level
+    /// constant. Reachable as `name` and as `Object::name`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn define_global_const(&self, name: &core::ffi::CStr, val: Value) {
+        // SAFETY: `self.state` is alive; `name` is NUL-terminated;
+        // `val` originates from the same VM.
+        unsafe { sys::mrb_define_global_const(self.as_ptr(), name.as_ptr(), val.as_raw()) };
+    }
+
+    /// `mrb_gv_set(mrb, sym, val)` — assign a global variable.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn gv_set(&self, sym: sys::mrb_sym, val: Value) {
+        // SAFETY: `self.state` is alive; `val` originates from the
+        // same VM.
+        unsafe { sys::mrb_gv_set(self.as_ptr(), sym, val.as_raw()) };
+    }
+
     /// `mrb_sym_name(mrb, sym)` — return the C string name of `sym`,
     /// or `None` if mruby yields a NULL pointer (e.g. uninterned id).
     /// The returned slice points into mruby's interned string storage

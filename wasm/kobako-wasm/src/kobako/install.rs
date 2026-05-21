@@ -17,8 +17,6 @@
 //! `service_group.rb` modules: the façade ([`super::Kobako`]) stays
 //! lean while the bulk of the boot wiring lives in sibling files.
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
 
 #[cfg(target_arch = "wasm32")]
@@ -27,9 +25,6 @@ use super::bridges;
 use super::bytecode;
 #[cfg(target_arch = "wasm32")]
 use super::io;
-
-#[cfg(target_arch = "wasm32")]
-use super::names::*;
 
 /// Bundle of [`sys::Class`] handles produced by
 /// [`install_kobako_classes`]. Internal to the install pipeline —
@@ -52,130 +47,94 @@ pub(super) struct KobakoClasses {
 ///
 /// # Safety
 ///
-/// `mrb` must be a live mruby state. Every C-string passed
-/// (`cstr_ptr(*_NAME)`) is compile-time NUL-terminated. Function
-/// pointers come from [`bridges`], the only producer of
-/// `mrb_func_t` in this crate. Class handles returned by
-/// `mrb_define_module` / `mrb_define_class_under` are owned by
-/// mruby and live for the duration of `mrb`.
+/// `mrb` must be a live mruby state. Function pointers come from
+/// [`bridges`], the only producer of `mrb_func_t` in this crate.
+/// Class handles produced by `define_*_under` are owned by mruby
+/// and live for the duration of `mrb`.
 #[cfg(target_arch = "wasm32")]
 pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoClasses {
     // SAFETY: see item-level doc.
-    unsafe {
-        // Kobako module.
-        let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
+    let mrb = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let object_class = mrb.object_class();
 
-        // Kobako::RPC module — protocol namespace shared with the
-        // host gem's lib/kobako/rpc.rb. Houses the Client base
-        // class plus Handle / WireError value objects that ride on
-        // the wire.
-        let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
+    // Kobako module.
+    let kobako_mod = mrb.define_module(c"Kobako");
 
-        // Kobako::RPC::Client base class — parent of every Member
-        // installed via `Kobako::install_groups`. Spell the super
-        // class as `sys::mrb_object_class(mrb)` to match the
-        // mrbgems/mruby-io convention; passing NULL would log
-        // "no super class for ..., Object assumed" via mrb_warn on
-        // every install.
-        let client_class = sys::mrb_define_class_under(
-            mrb,
-            rpc_mod,
-            cstr_ptr(CLIENT_NAME),
-            sys::mrb_object_class(mrb),
-        );
+    // Kobako::RPC module — protocol namespace shared with the
+    // host gem's lib/kobako/rpc.rb. Houses the Client base class
+    // plus Handle / WireError value objects that ride on the wire.
+    let rpc_mod = kobako_mod.define_module_under(mrb, c"RPC");
 
-        // Singleton-class `method_missing` / `respond_to_missing?`
-        // on `Kobako::RPC::Client`. Subclasses inherit through the
-        // metaclass-chain dispatch.
-        sys::mrb_define_singleton_method(
-            mrb,
-            client_class as *mut sys::RObject,
-            cstr_ptr(METHOD_MISSING_NAME),
-            bridges::rpc_method_missing,
-            sys::MRB_ARGS_ANY,
-        );
-        sys::mrb_define_singleton_method(
-            mrb,
-            client_class as *mut sys::RObject,
-            cstr_ptr(RESPOND_TO_MISSING_NAME),
-            bridges::rpc_respond_to_missing,
-            sys::MRB_ARGS_ANY,
-        );
+    // Kobako::RPC::Client base class — parent of every Member
+    // installed via `Kobako::install_groups`. Spell the super
+    // class as `mrb.object_class()` to match the mrbgems/mruby-io
+    // convention; passing NULL would log "no super class for ...,
+    // Object assumed" via mrb_warn on every install.
+    let client_class = rpc_mod.define_class_under(mrb, c"Client", object_class);
 
-        // `Kobako::RPC::Handle` instance class. Same explicit
-        // `sys::mrb_object_class(mrb)` super as the Client class above.
-        let handle_class = sys::mrb_define_class_under(
-            mrb,
-            rpc_mod,
-            cstr_ptr(HANDLE_NAME),
-            sys::mrb_object_class(mrb),
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(INITIALIZE_NAME),
-            bridges::handle_initialize,
-            sys::mrb_args_req(1),
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(METHOD_MISSING_NAME),
-            bridges::handle_method_missing,
-            sys::MRB_ARGS_ANY,
-        );
-        sys::mrb_define_method(
-            mrb,
-            handle_class,
-            cstr_ptr(RESPOND_TO_MISSING_NAME),
-            bridges::rpc_respond_to_missing,
-            sys::MRB_ARGS_ANY,
-        );
+    // Singleton-class `method_missing` / `respond_to_missing?` on
+    // `Kobako::RPC::Client`. Subclasses inherit through the
+    // metaclass-chain dispatch.
+    client_class.define_singleton_method(
+        mrb,
+        c"method_missing",
+        bridges::rpc_method_missing,
+        sys::MRB_ARGS_ANY,
+    );
+    client_class.define_singleton_method(
+        mrb,
+        c"respond_to_missing?",
+        bridges::rpc_respond_to_missing,
+        sys::MRB_ARGS_ANY,
+    );
 
-        // `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
-        // / `Kobako::RPC::WireError` / `Kobako::BytecodeError` — all
-        // subclass `RuntimeError`. ServiceError and BytecodeError stay
-        // at the Kobako top level (public API); WireError lives under
-        // RPC since it is an RPC-layer fault.
-        let runtime_error_class = sys::mrb_class_get(mrb, cstr_ptr(RUNTIME_ERROR_NAME));
-        let service_error_class = sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(SERVICE_ERROR_NAME),
-            runtime_error_class,
-        );
-        let disconnected_class = sys::mrb_define_class_under(
-            mrb,
-            service_error_class,
-            cstr_ptr(DISCONNECTED_NAME),
-            service_error_class,
-        );
-        let wire_error_class = sys::mrb_define_class_under(
-            mrb,
-            rpc_mod,
-            cstr_ptr(WIRE_ERROR_NAME),
-            runtime_error_class,
-        );
-        // `Kobako::BytecodeError` is registered here so guest code can
-        // raise it by name; the class handle is not cached on
-        // `KobakoClasses` because no compile-time-known call site reads
-        // it yet — the snippet-replay path that uses it
-        // ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
-        // looks the class up lazily.
-        sys::mrb_define_class_under(
-            mrb,
-            kobako_mod,
-            cstr_ptr(BYTECODE_ERROR_NAME),
-            runtime_error_class,
-        );
+    // `Kobako::RPC::Handle` instance class. Same explicit
+    // `mrb.object_class()` super as the Client class above.
+    let handle_class = rpc_mod.define_class_under(mrb, c"Handle", object_class);
+    handle_class.define_method(
+        mrb,
+        c"initialize",
+        bridges::handle_initialize,
+        sys::mrb_args_req(1),
+    );
+    handle_class.define_method(
+        mrb,
+        c"method_missing",
+        bridges::handle_method_missing,
+        sys::MRB_ARGS_ANY,
+    );
+    handle_class.define_method(
+        mrb,
+        c"respond_to_missing?",
+        bridges::rpc_respond_to_missing,
+        sys::MRB_ARGS_ANY,
+    );
 
-        KobakoClasses {
-            client_class: sys::Class::from_raw(client_class),
-            handle_class: sys::Class::from_raw(handle_class),
-            service_error_class: sys::Class::from_raw(service_error_class),
-            disconnected_class: sys::Class::from_raw(disconnected_class),
-            wire_error_class: sys::Class::from_raw(wire_error_class),
-        }
+    // `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
+    // / `Kobako::RPC::WireError` / `Kobako::BytecodeError` — all
+    // subclass `RuntimeError`. ServiceError and BytecodeError stay
+    // at the Kobako top level (public API); WireError lives under
+    // RPC since it is an RPC-layer fault.
+    let runtime_error_class = mrb.class_get(c"RuntimeError");
+    let service_error_class =
+        kobako_mod.define_class_under(mrb, c"ServiceError", runtime_error_class);
+    let disconnected_class =
+        service_error_class.define_class_under(mrb, c"Disconnected", service_error_class);
+    let wire_error_class = rpc_mod.define_class_under(mrb, c"WireError", runtime_error_class);
+    // `Kobako::BytecodeError` is registered here so guest code can
+    // raise it by name; the class handle is not cached on
+    // `KobakoClasses` because no compile-time-known call site reads
+    // it yet — the snippet-replay path that uses it
+    // ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
+    // looks the class up lazily.
+    kobako_mod.define_class_under(mrb, c"BytecodeError", runtime_error_class);
+
+    KobakoClasses {
+        client_class,
+        handle_class,
+        service_error_class,
+        disconnected_class,
+        wire_error_class,
     }
 }
 
@@ -192,30 +151,29 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
 #[cfg(target_arch = "wasm32")]
 pub(super) unsafe fn install_io_globals(mrb: *mut sys::mrb_state) {
     // SAFETY: see item-level doc.
-    unsafe {
-        // Top-level `::IO` class. Registers the constructor + `#write`
-        // / `#fileno` C bridges and then loads `mrblib/io.rb` to layer
-        // the rest of the IO surface (`#print`, `#puts`, `#printf`,
-        // `#p`, `#<<`, etc.) in pure Ruby. The bridges talk to
-        // wasi-libc's `stdout` / `stderr` via the `kobako_io_fwrite`
-        // C shim (docs/behavior.md B-04).
-        io::install(mrb);
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
 
-        let io_class = sys::mrb_class_get(mrb, cstr_ptr(IO_NAME));
-        let mode_str = sys::mrb_str_new_cstr(mrb, cstr_ptr(MODE_WRITE));
-        let stdout_args = [sys::mrb_boxing_int_value(mrb, 1), mode_str];
-        let stdout_val = sys::mrb_obj_new(mrb, io_class, 2, stdout_args.as_ptr());
-        let stderr_args = [sys::mrb_boxing_int_value(mrb, 2), mode_str];
-        let stderr_val = sys::mrb_obj_new(mrb, io_class, 2, stderr_args.as_ptr());
+    // Top-level `::IO` class. Registers the constructor + `#write` /
+    // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
+    // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
+    // `#<<`, etc.) in pure Ruby. The bridges talk to wasi-libc's
+    // `stdout` / `stderr` via the `kobako_io_fwrite` C shim
+    // (docs/behavior.md B-04).
+    // SAFETY: same liveness contract as the outer function.
+    unsafe { io::install(mrb) };
 
-        sys::mrb_define_global_const(mrb, cstr_ptr(STDOUT_CONST_NAME), stdout_val);
-        sys::mrb_define_global_const(mrb, cstr_ptr(STDERR_CONST_NAME), stderr_val);
+    let io_class = mrb_ref.class_get(c"IO");
+    let mode_str = mrb_ref.str_new_cstr(c"w");
+    let stdout_val = io_class.obj_new(mrb_ref, &[sys::Value::from_int(mrb_ref, 1), mode_str]);
+    let stderr_val = io_class.obj_new(mrb_ref, &[sys::Value::from_int(mrb_ref, 2), mode_str]);
 
-        let stdout_gvar = sys::mrb_intern_cstr(mrb, cstr_ptr(STDOUT_GVAR_NAME));
-        let stderr_gvar = sys::mrb_intern_cstr(mrb, cstr_ptr(STDERR_GVAR_NAME));
-        sys::mrb_gv_set(mrb, stdout_gvar, stdout_val);
-        sys::mrb_gv_set(mrb, stderr_gvar, stderr_val);
-    }
+    mrb_ref.define_global_const(c"STDOUT", stdout_val);
+    mrb_ref.define_global_const(c"STDERR", stderr_val);
+
+    let stdout_gvar = mrb_ref.intern_cstr(c"$stdout");
+    let stderr_gvar = mrb_ref.intern_cstr(c"$stderr");
+    mrb_ref.gv_set(stdout_gvar, stdout_val);
+    mrb_ref.gv_set(stderr_gvar, stderr_val);
 }
 
 /// Load the precompiled `mrblib/kernel.rb` bytecode. The blob

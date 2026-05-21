@@ -110,24 +110,18 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
 
         // SAFETY: `self_` is the class receiver of a singleton-class
         // `method_missing` shim — class-tagged by mruby itself.
-        let class_ptr = unsafe { self_.as_class_ptr() };
-        let class_name_ptr = unsafe { sys::mrb_class_name(mrb, class_ptr) };
-        let target_str = if class_name_ptr.is_null() {
-            // SAFETY: bridge frame.
-            unsafe { kobako.raise_wire_error(b"RPC target class name is null\0") };
-        } else {
-            unsafe { core::ffi::CStr::from_ptr(class_name_ptr) }
-                .to_str()
-                .unwrap_or("")
+        let class = sys::Class::from_raw(unsafe { self_.as_class_ptr() });
+        let target_str = match class.name(kobako.mrb()) {
+            Some(name) => name,
+            None => unsafe {
+                // SAFETY: bridge frame.
+                kobako.raise_wire_error(c"RPC target class name is null")
+            },
         };
 
-        let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
-        let method_name = if method_name_ptr.is_null() {
-            unsafe { kobako.raise_wire_error(b"RPC method symbol name is null\0") };
-        } else {
-            unsafe { core::ffi::CStr::from_ptr(method_name_ptr) }
-                .to_str()
-                .unwrap_or("")
+        let method_name = match kobako.mrb().sym_name(method_sym) {
+            Some(name) => name,
+            None => unsafe { kobako.raise_wire_error(c"RPC method symbol name is null") },
         };
 
         // SAFETY: mruby passes a valid array on `n*` unpack; see
@@ -142,7 +136,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             method_name,
             &wire_args,
             &wire_kwargs,
-            b"RPC wire error\0",
+            c"RPC wire error",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -212,13 +206,9 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 
         let handle_id = kobako.extract_handle_id(self_);
 
-        let method_name_ptr = unsafe { sys::mrb_sym_name(mrb, method_sym) };
-        let method_name = if method_name_ptr.is_null() {
-            unsafe { kobako.raise_wire_error(b"Handle method symbol name is null\0") };
-        } else {
-            unsafe { core::ffi::CStr::from_ptr(method_name_ptr) }
-                .to_str()
-                .unwrap_or("")
+        let method_name = match kobako.mrb().sym_name(method_sym) {
+            Some(name) => name,
+            None => unsafe { kobako.raise_wire_error(c"Handle method symbol name is null") },
         };
 
         // SAFETY: see [`slice_from_mrb_args`].
@@ -232,7 +222,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             method_name,
             &wire_args,
             &wire_kwargs,
-            b"RPC wire error (Handle dispatch)\0",
+            c"RPC wire error (Handle dispatch)",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]

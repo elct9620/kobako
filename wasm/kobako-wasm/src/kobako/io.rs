@@ -30,22 +30,8 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
-
-#[cfg(target_arch = "wasm32")]
-use names::*;
-
-#[cfg(target_arch = "wasm32")]
-mod names {
-    pub const IO_NAME: &[u8] = b"IO\0";
-    pub const INITIALIZE_NAME: &[u8] = b"initialize\0";
-    pub const WRITE_NAME: &[u8] = b"write\0";
-    pub const FILENO_NAME: &[u8] = b"fileno\0";
-    pub const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
-}
 
 /// Install the top-level `::IO` class on `mrb` and load the
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
@@ -60,52 +46,27 @@ mod names {
 /// liveness contract.
 #[cfg(target_arch = "wasm32")]
 pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
-    {
-        // SAFETY: `mrb` is live per the function's safety contract.
-        // Every C-string passed (`cstr_ptr(*_NAME)`) is NUL-terminated.
-        // The function-pointer arguments are `unsafe extern "C" fn`
-        // items from this module — the only producer of `mrb_func_t`
-        // for the IO class in this crate.
-        unsafe {
-            // Spell `Object` as the super class via the canonical
-            // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
-            // line 2241). Passing a NULL super to `mrb_define_class` makes
-            // mruby emit `"no super class for 'IO', Object assumed"` via
-            // `mrb_warn` on every install, leaking onto the guest `stderr`
-            // capture pipe (docs/behavior.md B-04).
-            let io_class =
-                sys::mrb_define_class(mrb, cstr_ptr(IO_NAME), sys::mrb_object_class(mrb));
+    // SAFETY: `mrb` is live per the function's safety contract.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
 
-            sys::mrb_define_method(
-                mrb,
-                io_class,
-                cstr_ptr(INITIALIZE_NAME),
-                io_initialize,
-                sys::mrb_args_req(2),
-            );
-            sys::mrb_define_method(
-                mrb,
-                io_class,
-                cstr_ptr(WRITE_NAME),
-                io_write,
-                sys::MRB_ARGS_ANY,
-            );
-            sys::mrb_define_method(
-                mrb,
-                io_class,
-                cstr_ptr(FILENO_NAME),
-                io_fileno,
-                sys::MRB_ARGS_NONE,
-            );
-        }
+    // Spell `Object` as the super class via the canonical
+    // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
+    // line 2241). Passing a NULL super to `mrb_define_class` makes
+    // mruby emit `"no super class for 'IO', Object assumed"` via
+    // `mrb_warn` on every install, leaking onto the guest `stderr`
+    // capture pipe (docs/behavior.md B-04).
+    let io_class = mrb_ref.define_class(c"IO", mrb_ref.object_class());
 
-        // Load the Ruby-level instance methods (#print / #puts / #printf
-        // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,
-        // plus the `to_i` alias). The bytecode loader has the same
-        // liveness contract as this function.
-        unsafe {
-            crate::kobako::bytecode::load(mrb, crate::kobako::bytecode::IO_MRB);
-        }
+    io_class.define_method(mrb_ref, c"initialize", io_initialize, sys::mrb_args_req(2));
+    io_class.define_method(mrb_ref, c"write", io_write, sys::MRB_ARGS_ANY);
+    io_class.define_method(mrb_ref, c"fileno", io_fileno, sys::MRB_ARGS_NONE);
+
+    // Load the Ruby-level instance methods (#print / #puts / #printf
+    // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,
+    // plus the `to_i` alias). The bytecode loader has the same
+    // liveness contract as this function.
+    unsafe {
+        crate::kobako::bytecode::load(mrb, crate::kobako::bytecode::IO_MRB);
     }
 }
 
@@ -140,17 +101,15 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
         if fd != 1 && fd != 2 {
             unsafe {
                 raise_argument_error(
-                    mrb,
-                    b"kobako IO only supports fd 1 (stdout) or fd 2 (stderr)\0",
+                    mrb_ref,
+                    c"kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
                 );
             }
         }
 
         let mode = Value::from_raw(mode_raw).to_string(mrb_ref);
         if mode != "w" {
-            unsafe {
-                raise_argument_error(mrb, b"kobako IO only supports mode \"w\"\0");
-            }
+            unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
         }
 
         let fd_val = Value::from_int(mrb_ref, fd);
@@ -246,19 +205,17 @@ fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
     unsafe { val.unbox_integer() }
 }
 
-/// Raise `ArgumentError` with a NUL-terminated message. Diverges —
-/// `mrb_raise` does not return.
+/// Raise `ArgumentError` with `msg`. Diverges — `mrb_raise` does not
+/// return.
 ///
 /// # Safety
 ///
 /// Only callable from contexts that mruby may unwind from (C bridges).
-/// `msg` must be NUL-terminated.
 #[cfg(target_arch = "wasm32")]
-unsafe fn raise_argument_error(mrb: *mut sys::mrb_state, msg: &[u8]) -> ! {
-    unsafe {
-        let cls = sys::mrb_class_get(mrb, cstr_ptr(ARGUMENT_ERROR_NAME));
-        sys::mrb_raise(mrb, cls, cstr_ptr(msg));
-    }
+unsafe fn raise_argument_error(mrb: &crate::mruby::Mrb, msg: &core::ffi::CStr) -> ! {
+    let cls = mrb.class_get(c"ArgumentError");
+    // SAFETY: bridge frame — caller upholds the unwind contract.
+    unsafe { cls.raise(mrb, msg) };
 }
 
 #[cfg(test)]

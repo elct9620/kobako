@@ -40,8 +40,6 @@ pub(crate) mod io;
 #[cfg(target_arch = "wasm32")]
 mod wire_convert;
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys::Value;
@@ -49,37 +47,6 @@ use crate::mruby::sys::Value;
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
-
-// --------------------------------------------------------------------
-// C-string constants — NUL-terminated names passed to the mruby C API.
-// Bundled into one wasm32-gated module so the per-const cfg attribute
-// does not multiply across the surface.
-// --------------------------------------------------------------------
-
-#[cfg(target_arch = "wasm32")]
-use names::*;
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod names {
-    pub const KOBAKO_NAME: &[u8] = b"Kobako\0";
-    pub const RPC_NAME: &[u8] = b"RPC\0";
-    pub const CLIENT_NAME: &[u8] = b"Client\0";
-    pub const HANDLE_NAME: &[u8] = b"Handle\0";
-    pub const METHOD_MISSING_NAME: &[u8] = b"method_missing\0";
-    pub const RESPOND_TO_MISSING_NAME: &[u8] = b"respond_to_missing?\0";
-    pub const INITIALIZE_NAME: &[u8] = b"initialize\0";
-    pub const SERVICE_ERROR_NAME: &[u8] = b"ServiceError\0";
-    pub const DISCONNECTED_NAME: &[u8] = b"Disconnected\0";
-    pub const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
-    pub const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
-    pub const BYTECODE_ERROR_NAME: &[u8] = b"BytecodeError\0";
-    pub const IO_NAME: &[u8] = b"IO\0";
-    pub const STDOUT_CONST_NAME: &[u8] = b"STDOUT\0";
-    pub const STDERR_CONST_NAME: &[u8] = b"STDERR\0";
-    pub const STDOUT_GVAR_NAME: &[u8] = b"$stdout\0";
-    pub const STDERR_GVAR_NAME: &[u8] = b"$stderr\0";
-    pub const MODE_WRITE: &[u8] = b"w\0";
-}
 
 /// SPEC § Error Classes mapping from a Response.err `type` field to a
 /// guest-side mruby class. Routed through
@@ -251,49 +218,25 @@ impl Kobako {
     /// (they are invoked through registrations done at install time).
     #[cfg(target_arch = "wasm32")]
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
-        {
-            // SAFETY of every FFI call below: `mrb` is live by the
-            // function's safety contract; `mrb_define_module` is
-            // idempotent (returns the existing module if already
-            // registered); `mrb_class_get_under` returns the
-            // already-registered class produced by `install_raw`.
-            unsafe {
-                let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
-                let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
-                let client_class = sys::Class::from_raw(sys::mrb_class_get_under(
-                    mrb,
-                    rpc_mod,
-                    cstr_ptr(CLIENT_NAME),
-                ));
-                let handle_class = sys::Class::from_raw(sys::mrb_class_get_under(
-                    mrb,
-                    rpc_mod,
-                    cstr_ptr(HANDLE_NAME),
-                ));
-                let service_error_class = sys::Class::from_raw(sys::mrb_class_get_under(
-                    mrb,
-                    kobako_mod,
-                    cstr_ptr(SERVICE_ERROR_NAME),
-                ));
-                let disconnected_class = sys::Class::from_raw(sys::mrb_class_get_under(
-                    mrb,
-                    service_error_class.as_raw(),
-                    cstr_ptr(DISCONNECTED_NAME),
-                ));
-                let wire_error_class = sys::Class::from_raw(sys::mrb_class_get_under(
-                    mrb,
-                    rpc_mod,
-                    cstr_ptr(WIRE_ERROR_NAME),
-                ));
-                Self {
-                    mrb,
-                    client_class,
-                    handle_class,
-                    service_error_class,
-                    disconnected_class,
-                    wire_error_class,
-                }
-            }
+        // SAFETY: `mrb` is live by the function's safety contract.
+        // `mrb_define_module` is idempotent (returns the existing
+        // module if already registered); `class_get_under` returns
+        // the already-registered class produced by `install_raw`.
+        let mrb_ref = unsafe { Mrb::borrow_raw(mrb) };
+        let kobako_mod = mrb_ref.define_module(c"Kobako");
+        let rpc_mod = kobako_mod.define_module_under(mrb_ref, c"RPC");
+        let client_class = rpc_mod.class_get_under(mrb_ref, c"Client");
+        let handle_class = rpc_mod.class_get_under(mrb_ref, c"Handle");
+        let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
+        let disconnected_class = service_error_class.class_get_under(mrb_ref, c"Disconnected");
+        let wire_error_class = rpc_mod.class_get_under(mrb_ref, c"WireError");
+        Self {
+            mrb,
+            client_class,
+            handle_class,
+            service_error_class,
+            disconnected_class,
+            wire_error_class,
         }
     }
 
@@ -307,29 +250,18 @@ impl Kobako {
         &self,
         preamble: &[(String, Vec<String>)],
     ) -> Result<(), InstallGroupsError> {
-        {
-            for (group_name, members) in preamble {
-                let group_cstr = std::ffi::CString::new(group_name.as_str())
-                    .map_err(|_| InstallGroupsError::NulInGroupName)?;
-                // SAFETY: `self.mrb` is alive; group name is NUL-terminated.
-                let group_mod = unsafe { sys::mrb_define_module(self.mrb, group_cstr.as_ptr()) };
-                for member_name in members {
-                    let member_cstr = std::ffi::CString::new(member_name.as_str())
-                        .map_err(|_| InstallGroupsError::NulInMemberName)?;
-                    // SAFETY: as above; `self.client_class` was produced by
-                    // install_raw.
-                    unsafe {
-                        sys::mrb_define_class_under(
-                            self.mrb,
-                            group_mod,
-                            member_cstr.as_ptr(),
-                            self.client_class.as_raw(),
-                        )
-                    };
-                }
+        let mrb = self.mrb();
+        for (group_name, members) in preamble {
+            let group_cstr = std::ffi::CString::new(group_name.as_str())
+                .map_err(|_| InstallGroupsError::NulInGroupName)?;
+            let group_mod = mrb.define_module(&group_cstr);
+            for member_name in members {
+                let member_cstr = std::ffi::CString::new(member_name.as_str())
+                    .map_err(|_| InstallGroupsError::NulInMemberName)?;
+                group_mod.define_class_under(mrb, &member_cstr, self.client_class);
             }
-            Ok(())
         }
+        Ok(())
     }
 
     /// Raise `Kobako::RPC::WireError` with `msg`. Diverges — `mrb_raise` does
@@ -342,8 +274,9 @@ impl Kobako {
     /// would jump through mruby's exception machinery in a way the Rust
     /// stack does not anticipate.
     #[cfg(target_arch = "wasm32")]
-    pub unsafe fn raise_wire_error(&self, msg: &[u8]) -> ! {
-        sys::mrb_raise(self.mrb, self.wire_error_class.as_raw(), cstr_ptr(msg));
+    pub unsafe fn raise_wire_error(&self, msg: &core::ffi::CStr) -> ! {
+        // SAFETY: bridge frame — caller upholds the unwind contract.
+        unsafe { self.wire_error_class.raise(self.mrb(), msg) };
     }
 
     /// Raise the matching `Kobako::ServiceError` subclass for `ex`.
@@ -365,7 +298,8 @@ impl Kobako {
             ServiceErrorClass::Base => self.service_error_class,
         };
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-        sys::mrb_raise(self.mrb, target_cls.as_raw(), msg.as_ptr());
+        // SAFETY: bridge frame — caller upholds the unwind contract.
+        unsafe { target_cls.raise(self.mrb(), &msg) };
     }
 
     // ----------------------------------------------------------------
@@ -526,7 +460,7 @@ impl Kobako {
         method_name: &str,
         wire_args: &[crate::codec::Value],
         wire_kwargs: &[(String, crate::codec::Value)],
-        wire_err_msg: &[u8],
+        wire_err_msg: &core::ffi::CStr,
     ) -> Value {
         use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
