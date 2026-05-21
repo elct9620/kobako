@@ -344,7 +344,9 @@ impl Value {
         unsafe { sys::kobako_value_is_float(self.0) }
     }
 
-    /// Direct `mrb_integer(v)` unbox.
+    /// Direct `mrb_integer(v)` unbox via mruby's own
+    /// `mrb_integer_func` helper (a `MRB_INLINE` reached through
+    /// bindgen's static-fn trampoline).
     ///
     /// # Safety
     ///
@@ -354,10 +356,19 @@ impl Value {
     #[inline]
     pub unsafe fn unbox_integer(self) -> i32 {
         // SAFETY: forwarded from caller.
-        unsafe { sys::kobako_unbox_integer(self.0) }
+        unsafe { sys::mrb_integer_func(self.0) }
     }
 
     /// Direct `mrb_float(v)` unbox. Preserves full f64 precision.
+    ///
+    /// Routed through the [`sys::kobako_unbox_float`] shim because
+    /// under the wasm32 `MRB_WORDBOX_NO_INLINE_FLOAT` config mruby
+    /// has no `MRB_API` float unboxer — the `mrb_float(o)` macro
+    /// expands to `mrb_rfloat_value(mrb_val_union(o).fp)`, and the
+    /// `mrb_val_union` step returns a `union mrb_value_` whose FFI
+    /// return-value ABI differs between bindgen's trampoline and
+    /// rustc on wasm32. Keeping the call inside C avoids the
+    /// mismatch.
     ///
     /// # Safety
     ///

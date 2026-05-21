@@ -16,27 +16,19 @@
  * `MRB_Qnil` / `MRB_Qtrue` / `MRB_Qfalse` word values. Everything is a
  * call into the mruby header — the header decides the bit layout.
  *
- * Coercion vs. direct unbox
- * -------------------------
- * `mrb_ensure_int_type` / `mrb_ensure_float_type` are public
- * `MRB_API` functions that coerce any mruby value to Integer / Float
- * respectively, raising `TypeError` on non-numeric input. The direct
- * unbox macros (`mrb_integer(v)`, `mrb_float(v)`) require the caller
- * to have confirmed the type tag via `mrb_integer_p(v)` /
- * `mrb_float_p(v)` first.
+ * Direct unbox
+ * ------------
+ * Integer unboxing is no longer wrapped here: the safe layer calls
+ * mruby's own `mrb_integer_func` (`MRB_INLINE`) directly through
+ * bindgen's static-fn trampoline.
  *
- * kobako uses both paths:
- *
- *   - The wire-conversion call sites
- *     (`Kobako::to_wire_value` / `to_wire_outcome`) already have a
- *     classname-based dispatch that confirms the type, so they use
- *     the direct unbox via the `kobako_unbox_*` shims below.
- *   - The `Kobako::Handle` ivar reader (`extract_handle_id`) and the
- *     `IO#fileno` ivar reader (`read_fd`) test
- *     `kobako_value_is_integer` before unboxing — the ivar is written
- *     once at construction, but a malformed `Kobako::RPC::Handle.new(:sym)`
- *     would still arrive here as a non-Integer ivar, and `mrb_integer`
- *     on a non-Integer is UB per mruby's contract.
+ * Float unboxing keeps a shim because under
+ * `MRB_WORDBOX_NO_INLINE_FLOAT` mruby exposes no `MRB_API` float
+ * accessor — the `mrb_float(v)` macro composes
+ * `mrb_rfloat_value(mrb_val_union(v).fp)`, and `mrb_val_union`
+ * returns a `union mrb_value_` whose FFI return-value ABI differs
+ * between bindgen's trampoline and rustc on wasm32. Keeping the
+ * macro call inside C avoids that mismatch.
  */
 
 #include "mruby.h"
@@ -58,13 +50,7 @@ kobako_value_is_float(mrb_value v)
   return mrb_float_p(v);
 }
 
-/* ─── Direct unbox (precondition: caller has confirmed the type) ── */
-
-MRB_API mrb_int
-kobako_unbox_integer(mrb_value v)
-{
-  return mrb_integer(v);
-}
+/* ─── Direct float unbox (precondition: caller has confirmed Float) ── */
 
 MRB_API mrb_float
 kobako_unbox_float(mrb_value v)
