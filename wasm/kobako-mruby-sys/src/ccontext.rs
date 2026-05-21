@@ -38,15 +38,22 @@ impl<'mrb> Ccontext<'mrb> {
     /// NUL-terminated C string). Returns `None` when
     /// `mrb_ccontext_new` returns NULL — callers map that to a
     /// `Kobako::BootError` Panic.
-    pub fn new(mrb: &'mrb Mrb, filename: *const core::ffi::c_char) -> Option<Self> {
-        // SAFETY: `mrb` is live by the borrow; `filename` is required
-        // to be NUL-terminated by the function contract.
+    ///
+    /// # Safety
+    ///
+    /// `filename` must be a NUL-terminated `*const c_char`. Caller
+    /// retains ownership of the underlying buffer; `mrb_ccontext_filename`
+    /// interns the bytes so the pointer only has to live for the
+    /// duration of this call.
+    pub unsafe fn new(mrb: &'mrb Mrb, filename: *const core::ffi::c_char) -> Option<Self> {
+        // SAFETY: `mrb` is live by the borrow.
         let raw = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
         if raw.is_null() {
             return None;
         }
         // SAFETY: `mrb` is live; `raw` was just produced by the
-        // matching `mrb_ccontext_new`; `filename` is NUL-terminated.
+        // matching `mrb_ccontext_new`; `filename` is NUL-terminated
+        // by the function's safety contract.
         unsafe { sys::mrb_ccontext_filename(mrb.as_ptr(), raw, filename) };
         Some(Self { mrb, raw })
     }

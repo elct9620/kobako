@@ -164,7 +164,10 @@ enum BytecodeLoad {
 #[cfg(target_arch = "wasm32")]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = format!("(snippet:{})\0", name);
-    let Some(cxt) = Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char) else {
+    // SAFETY: `filename` is constructed above with a trailing `\0`
+    // and lives across the call.
+    let Some(cxt) = (unsafe { Ccontext::new(mrb, filename.as_ptr() as *const core::ffi::c_char) })
+    else {
         return Err(boot_panic("mrb_ccontext_new returned NULL"));
     };
     cxt.load_nstring(body.as_bytes());

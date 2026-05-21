@@ -64,7 +64,9 @@ fn eval_body() {
     // debug_info, which is why `Exception#backtrace` returns an empty
     // array when scripts are loaded via the bare `mrb_load_nstring`.
     let result_val = {
-        let Some(cxt) = Ccontext::new(&mrb, cstr!("(eval)")) else {
+        // SAFETY: the `cstr!("(eval)")` literal expands to a
+        // compile-time NUL-terminated `*const c_char`.
+        let Some(cxt) = (unsafe { Ccontext::new(&mrb, cstr!("(eval)")) }) else {
             return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
         };
         cxt.load_nstring(&frame2)
