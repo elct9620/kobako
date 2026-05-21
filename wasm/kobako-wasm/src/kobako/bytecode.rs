@@ -56,7 +56,7 @@ pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/k
 #[cfg(target_arch = "wasm32")]
 pub(crate) unsafe fn load(mrb: *mut sys::mrb_state, bytes: &[u8]) {
     // SAFETY: `mrb` is live by the caller's contract.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
     let _ = mrb_ref.load_irep_buf(bytes);
 }
 

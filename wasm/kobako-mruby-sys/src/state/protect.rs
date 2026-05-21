@@ -62,7 +62,7 @@ impl Mrb {
             // mrb_protect_error.
             let slot: &mut Option<F> = unsafe { &mut *(userdata as *mut Option<F>) };
             let body = slot.take().expect("Mrb::protect trampoline invoked twice");
-            let mrb_ref = unsafe { Mrb::borrow_raw(mrb) };
+            let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
             body(mrb_ref).into_raw()
         }
 

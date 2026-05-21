@@ -54,7 +54,7 @@ pub(super) struct KobakoClasses {
 #[cfg(target_arch = "wasm32")]
 pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoClasses {
     // SAFETY: see item-level doc.
-    let mrb = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let mrb = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
     let object_class = mrb.object_class();
 
     // Kobako module.
@@ -151,7 +151,7 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
 #[cfg(target_arch = "wasm32")]
 pub(super) unsafe fn install_io_globals(mrb: *mut sys::mrb_state) {
     // SAFETY: see item-level doc.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
 
     // Top-level `::IO` class. Registers the constructor + `#write` /
     // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the

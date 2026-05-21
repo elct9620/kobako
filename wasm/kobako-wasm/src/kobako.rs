@@ -230,7 +230,7 @@ impl Kobako {
         // `mrb_define_module` is idempotent (returns the existing
         // module if already registered); `class_get_under` returns
         // the already-registered class produced by `install_raw`.
-        let mrb_ref = unsafe { Mrb::borrow_raw(mrb) };
+        let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
         let kobako_mod = mrb_ref.define_module(c"Kobako");
         let rpc_mod = kobako_mod.define_module_under(mrb_ref, c"RPC");
         let client_class = rpc_mod.class_get_under(mrb_ref, c"Client");
@@ -327,7 +327,7 @@ impl Kobako {
         // `mrb_state` (via `install_raw` / `resolve_raw`), and the
         // caller upholds liveness for the duration of any method
         // call on it.
-        unsafe { Mrb::borrow_raw(self.mrb) }
+        unsafe { Mrb::borrow_raw(&self.mrb) }
     }
 
     // ----------------------------------------------------------------

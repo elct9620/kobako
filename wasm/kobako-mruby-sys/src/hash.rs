@@ -12,7 +12,7 @@
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
-use crate::{Mrb, Array, Value};
+use crate::{Array, Mrb, Value};
 
 /// Typed handle on an mruby `Hash`. `#[repr(transparent)]` over
 /// [`Value`] so the C ABI is preserved.

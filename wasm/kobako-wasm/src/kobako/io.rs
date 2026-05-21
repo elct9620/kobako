@@ -45,7 +45,7 @@ use crate::mruby::sys::Value;
 #[cfg(target_arch = "wasm32")]
 pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
     // SAFETY: `mrb` is live per the function's safety contract.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
 
     // Spell `Object` as the super class via the canonical
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
@@ -81,7 +81,7 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
         let (fd, mode_val) = mrb_ref.get_args_io();
 
         if fd != 1 && fd != 2 {
@@ -123,7 +123,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
         let fd = read_fd(mrb_ref, self_);
         let argv = mrb_ref.get_args_rest();
 
@@ -159,7 +159,7 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
         let fd = read_fd(mrb_ref, self_);
         Value::from_int(mrb_ref, fd)
     }

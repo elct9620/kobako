@@ -13,7 +13,7 @@
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
-use crate::{Mrb, Array, Hash, Value};
+use crate::{Array, Hash, Mrb, Value};
 
 #[cfg(target_arch = "wasm32")]
 impl Mrb {

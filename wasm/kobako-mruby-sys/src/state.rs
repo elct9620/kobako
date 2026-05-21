@@ -128,22 +128,38 @@ impl Mrb {
     /// runs when it goes out of scope. The owning `Mrb` (the one
     /// produced by [`Mrb::open`]) keeps Drop responsibility.
     ///
+    /// ## Why a `&*mut mrb_state` parameter instead of a raw pointer
+    ///
+    /// `Mrb` is `#[repr(transparent)]` over `NonNull<mrb_state>`, so
+    /// the *storage* of a `*mut mrb_state` variable has the same
+    /// layout as an `Mrb` value. Taking a reference to that storage
+    /// (`&*mut mrb_state`) and reinterpreting it as `&Mrb` is sound.
+    ///
+    /// Casting the pointer *value* itself (`mrb as *const Mrb`) is
+    /// **not** equivalent: that produces a pointer to the bytes at
+    /// address `mrb`, which are the first field of the `mrb_state`
+    /// struct (`jmp: *mut mrb_jmpbuf`) — not an `Mrb` value containing
+    /// the `mrb_state *` pointer. Reading through such an `&Mrb`
+    /// would treat the `jmp` pointer as an `mrb_state *`, leading to
+    /// silent UB and guest traps once any later mruby call dereferences
+    /// the bogus state.
+    ///
     /// # Safety
     ///
-    /// `mrb` must point to a live mruby state that remains open for
-    /// the lifetime `'a` of the returned borrow. Passing NULL is
-    /// undefined behaviour. Sound only on wasm32 where `Mrb` is
-    /// `#[repr(transparent)]` over `NonNull<mrb_state>`.
+    /// `*mrb_ref` must be a live mruby state that remains open for
+    /// the lifetime of the returned borrow. Passing storage holding
+    /// NULL is undefined behaviour.
     #[cfg(target_arch = "wasm32")]
     #[inline]
-    pub unsafe fn borrow_raw<'a>(mrb: *mut sys::mrb_state) -> &'a Mrb {
-        debug_assert!(!mrb.is_null());
+    pub unsafe fn borrow_raw(mrb_ref: &*mut sys::mrb_state) -> &Mrb {
+        debug_assert!(!mrb_ref.is_null());
         // SAFETY: `Mrb` is `#[repr(transparent)]` over
         // `NonNull<mrb_state>`, which is itself `#[repr(transparent)]`
-        // over `*mut mrb_state`. Casting `*mut mrb_state` to
-        // `*const Mrb` produces a pointer with identical bit pattern.
-        // Liveness for `'a` is upheld by the caller.
-        unsafe { &*(mrb as *const Mrb) }
+        // over `*mut mrb_state`. So a `*const *mut mrb_state` (the
+        // address of the caller's pointer variable) and a `*const Mrb`
+        // index into the same storage layout. The borrow lifetime is
+        // inherited from `mrb_ref` via lifetime elision.
+        unsafe { &*(mrb_ref as *const *mut sys::mrb_state as *const Mrb) }
     }
 
     /// Return the currently pending mruby exception, or
