@@ -318,7 +318,7 @@ impl Kobako {
                     let id_val = sys::mrb_boxing_int_value(self.mrb, id as i32);
                     Value::from_raw(sys::mrb_obj_new(
                         self.mrb,
-                        self.handle_class,
+                        self.handle_class.as_raw(),
                         1,
                         &id_val as *const sys::mrb_value,
                     ))

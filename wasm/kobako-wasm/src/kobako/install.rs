@@ -31,17 +31,17 @@ use super::io;
 #[cfg(target_arch = "wasm32")]
 use super::names::*;
 
-/// Bundle of `RClass *` handles produced by
+/// Bundle of [`sys::Class`] handles produced by
 /// [`install_kobako_classes`]. Internal to the install pipeline —
 /// the caller pulls each handle into the matching field on
 /// [`super::Kobako`].
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
-    pub(super) client_class: *mut sys::RClass,
-    pub(super) handle_class: *mut sys::RClass,
-    pub(super) service_error_class: *mut sys::RClass,
-    pub(super) disconnected_class: *mut sys::RClass,
-    pub(super) wire_error_class: *mut sys::RClass,
+    pub(super) client_class: sys::Class,
+    pub(super) handle_class: sys::Class,
+    pub(super) service_error_class: sys::Class,
+    pub(super) disconnected_class: sys::Class,
+    pub(super) wire_error_class: sys::Class,
 }
 
 /// Register the Kobako module, the `Kobako::RPC` namespace, the
@@ -170,11 +170,11 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
         );
 
         KobakoClasses {
-            client_class,
-            handle_class,
-            service_error_class,
-            disconnected_class,
-            wire_error_class,
+            client_class: sys::Class::from_raw(client_class),
+            handle_class: sys::Class::from_raw(handle_class),
+            service_error_class: sys::Class::from_raw(service_error_class),
+            disconnected_class: sys::Class::from_raw(disconnected_class),
+            wire_error_class: sys::Class::from_raw(wire_error_class),
         }
     }
 }

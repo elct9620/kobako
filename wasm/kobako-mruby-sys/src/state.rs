@@ -26,6 +26,8 @@
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
+use crate::Class;
+#[cfg(target_arch = "wasm32")]
 use crate::Value;
 #[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
@@ -108,17 +110,18 @@ impl Mrb {
         let _ = unsafe { sys::mrb_check_error(self.as_ptr()) };
     }
 
-    /// Return `mrb->object_class` as a raw `*mut RClass`. Replaces
-    /// direct field access — the `object_class` field on the
-    /// [`crate::mrb_state`] struct is `pub(crate)` so this accessor
-    /// is the one external entry point. A typed `Class` newtype will
-    /// supersede the raw pointer in a follow-up; the method stays
-    /// stable across that migration.
+    /// Return `mrb->object_class` as a typed [`Class`] handle.
+    /// Replaces direct field access — the `object_class` field on
+    /// the [`crate::mrb_state`] struct is `pub(crate)` so this
+    /// accessor is the one external entry point. The free function
+    /// [`crate::mrb_object_class`] remains for code paths that hold
+    /// only a raw `*mut mrb_state` (currently the kobako-wasm
+    /// install helpers).
     #[cfg(target_arch = "wasm32")]
     #[inline]
-    pub fn object_class(&self) -> *mut sys::RClass {
+    pub fn object_class(&self) -> Class {
         // SAFETY: `self.state` is alive by the `&self` borrow.
-        unsafe { sys::mrb_object_class(self.as_ptr()) }
+        Class::from_raw(unsafe { sys::mrb_object_class(self.as_ptr()) })
     }
 }
 

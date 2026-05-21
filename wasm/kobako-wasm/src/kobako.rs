@@ -178,11 +178,11 @@ pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::RPC::Client` base class — parent of every Member
     /// installed via [`Kobako::install_groups`].
-    client_class: *mut sys::RClass,
-    handle_class: *mut sys::RClass,
-    service_error_class: *mut sys::RClass,
-    disconnected_class: *mut sys::RClass,
-    wire_error_class: *mut sys::RClass,
+    client_class: sys::Class,
+    handle_class: sys::Class,
+    service_error_class: sys::Class,
+    disconnected_class: sys::Class,
+    wire_error_class: sys::Class,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -273,14 +273,31 @@ impl Kobako {
             unsafe {
                 let kobako_mod = sys::mrb_define_module(mrb, cstr_ptr(KOBAKO_NAME));
                 let rpc_mod = sys::mrb_define_module_under(mrb, kobako_mod, cstr_ptr(RPC_NAME));
-                let client_class = sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(CLIENT_NAME));
-                let handle_class = sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(HANDLE_NAME));
-                let service_error_class =
-                    sys::mrb_class_get_under(mrb, kobako_mod, cstr_ptr(SERVICE_ERROR_NAME));
-                let disconnected_class =
-                    sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
-                let wire_error_class =
-                    sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(WIRE_ERROR_NAME));
+                let client_class = sys::Class::from_raw(sys::mrb_class_get_under(
+                    mrb,
+                    rpc_mod,
+                    cstr_ptr(CLIENT_NAME),
+                ));
+                let handle_class = sys::Class::from_raw(sys::mrb_class_get_under(
+                    mrb,
+                    rpc_mod,
+                    cstr_ptr(HANDLE_NAME),
+                ));
+                let service_error_class = sys::Class::from_raw(sys::mrb_class_get_under(
+                    mrb,
+                    kobako_mod,
+                    cstr_ptr(SERVICE_ERROR_NAME),
+                ));
+                let disconnected_class = sys::Class::from_raw(sys::mrb_class_get_under(
+                    mrb,
+                    service_error_class.as_raw(),
+                    cstr_ptr(DISCONNECTED_NAME),
+                ));
+                let wire_error_class = sys::Class::from_raw(sys::mrb_class_get_under(
+                    mrb,
+                    rpc_mod,
+                    cstr_ptr(WIRE_ERROR_NAME),
+                ));
                 Self {
                     mrb,
                     client_class,
@@ -319,7 +336,7 @@ impl Kobako {
                             self.mrb,
                             group_mod,
                             member_cstr.as_ptr(),
-                            self.client_class,
+                            self.client_class.as_raw(),
                         )
                     };
                 }
@@ -339,7 +356,7 @@ impl Kobako {
     /// stack does not anticipate.
     #[cfg(target_arch = "wasm32")]
     pub unsafe fn raise_wire_error(&self, msg: &[u8]) -> ! {
-        sys::mrb_raise(self.mrb, self.wire_error_class, cstr_ptr(msg));
+        sys::mrb_raise(self.mrb, self.wire_error_class.as_raw(), cstr_ptr(msg));
     }
 
     /// Raise the matching `Kobako::ServiceError` subclass for `ex`.
@@ -361,7 +378,7 @@ impl Kobako {
             ServiceErrorClass::Base => self.service_error_class,
         };
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
-        sys::mrb_raise(self.mrb, target_cls, msg.as_ptr());
+        sys::mrb_raise(self.mrb, target_cls.as_raw(), msg.as_ptr());
     }
 
     // ----------------------------------------------------------------

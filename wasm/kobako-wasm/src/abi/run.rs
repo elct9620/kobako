@@ -217,9 +217,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
         );
         sys::mrb_intern_str(mrb.as_ptr(), name_str)
     };
-    let object_value = unsafe { sys::kobako_class_value(mrb.object_class()) };
+    let object_value = unsafe { mrb.object_class().as_value(&mrb) };
 
-    if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value, target_sym) } == 0 {
+    if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value.as_raw(), target_sym) } == 0 {
         // Compute the snippet-contributed constants by subtracting the
         // pre-replay baseline from the current top-level set. Wrapped
         // as `{ "available" => [Sym, ...] }` so the host decoder can
@@ -245,7 +245,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         });
     }
 
-    let target_val = unsafe { sys::mrb_const_get(mrb.as_ptr(), object_value, target_sym) };
+    let target_val = unsafe { sys::mrb_const_get(mrb.as_ptr(), object_value.as_raw(), target_sym) };
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
         // `mrb_const_get` only sets `mrb->exc` for genuinely undefined
         // constants; the `mrb_const_defined` gate above should make

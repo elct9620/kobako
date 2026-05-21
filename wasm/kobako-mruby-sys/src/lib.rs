@@ -76,11 +76,13 @@ use core::ffi::{c_char, c_int};
 
 // Safe-layer modules. These hold the kobako safe abstractions over
 // the raw FFI surface declared below — `Mrb` RAII, `Ccontext` RAII,
-// the typed `Value` newtype, and the `cstr!` / `cstr_ptr` C-string
-// helpers. They live in this crate so the FFI types they wrap and the
-// abstractions over them ship as one cohesive surface to consumers.
+// the typed `Value` / `Class` newtypes, and the `cstr!` / `cstr_ptr`
+// C-string helpers. They live in this crate so the FFI types they
+// wrap and the abstractions over them ship as one cohesive surface
+// to consumers.
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod ccontext;
+pub mod class;
 pub mod state;
 pub mod value;
 
@@ -90,6 +92,7 @@ pub use state::{Mrb, MrbOpenError};
 #[cfg(target_arch = "wasm32")]
 pub use ccontext::Ccontext;
 
+pub use class::{Class, Module};
 pub use value::cstr_ptr;
 pub use value::Value;
 
