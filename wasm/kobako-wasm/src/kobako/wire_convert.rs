@@ -25,33 +25,6 @@ use super::Kobako;
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
-/// `mrb_protect_error` body that re-enters mruby to compute
-/// `Object#inspect` on the value pointed to by `userdata`. Used by
-/// [`Kobako::protected_inspect_or_classname`] so a user-defined
-/// `inspect` that raises lands on `*error == TRUE` instead of
-/// longjmp-ing past the Rust frame holding the wire conversion.
-///
-/// Stays in raw `mrb_value` form because mruby's `mrb_protect_error`
-/// expects a `mrb_value (*body)(mrb_state*, void*)`; the userdata
-/// pointer aliases a raw `mrb_value` on the caller's stack.
-///
-/// # Safety
-///
-/// `userdata` must point to a live `mrb_value` produced by the same
-/// VM as `mrb`. The function reads exactly one `mrb_value` from
-/// `userdata` and does not retain the pointer after return.
-#[cfg(target_arch = "wasm32")]
-unsafe extern "C" fn protected_inspect_body(
-    mrb: *mut sys::mrb_state,
-    userdata: *mut core::ffi::c_void,
-) -> sys::mrb_value {
-    // SAFETY: see item-level doc.
-    let val = Value::from_raw(unsafe { *(userdata as *const sys::mrb_value) });
-    // SAFETY: `mrb` is live by `mrb_protect_error`'s contract.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
-    val.call(mrb_ref, c"inspect", &[]).into_raw()
-}
-
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
@@ -238,27 +211,15 @@ impl Kobako {
     /// sees a recognisable identifier rather than the raised exception.
     #[cfg(target_arch = "wasm32")]
     fn protected_inspect_or_classname(&self, val: Value, class_name: &str) -> String {
-        // mrb_protect_error's body signature uses raw mrb_value (it's
-        // a typedef on the mruby side), so the userdata pointer
-        // aliases a raw mrb_value cell — drop into the raw form for
-        // the duration of the call.
-        let mut payload = val.as_raw();
-        let mut error: sys::mrb_bool = 0;
-        // SAFETY: bridge frame — `self.mrb` is live; the body closure
-        // reads `payload` once via the `userdata` pointer and never
-        // outlives the call frame.
-        let result = Value::from_raw(unsafe {
-            sys::mrb_protect_error(
-                self.mrb,
-                protected_inspect_body,
-                &mut payload as *mut sys::mrb_value as *mut core::ffi::c_void,
-                &mut error,
-            )
-        });
-        if error != 0 {
-            format!("#<{}>", class_name)
-        } else {
-            result.to_string(self.mrb())
+        // [`Mrb::protect`] catches any exception `inspect` might raise
+        // (user-defined `inspect` overriding the default) and surfaces
+        // it as `Err` instead of long-jumping past the Rust frame.
+        // docs/wire-contract.md § Outcome Envelope leaves the
+        // fallback string format to the host — `"#<ClassName>"` is a
+        // recognisable identifier when the raise path fires.
+        match self.mrb().protect(|mrb| val.call(mrb, c"inspect", &[])) {
+            Ok(result) => result.to_string(self.mrb()),
+            Err(_) => format!("#<{}>", class_name),
         }
     }
 
