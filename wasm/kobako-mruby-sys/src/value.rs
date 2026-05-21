@@ -351,16 +351,32 @@ impl Value {
 
     /// Invoke `self.<method>(args...)` via the non-variadic
     /// `mrb_funcall_argv`. The method name is interned through
-    /// [`Mrb::intern_cstr`].
+    /// [`Mrb::intern_cstr`]; use [`Value::call_argv`] directly when
+    /// the caller already holds an interned [`sys::mrb_sym`] (e.g. a
+    /// dispatch site that cached the sym across a `respond_to?`
+    /// gate).
     #[inline]
     pub fn call(self, mrb: &Mrb, name: &core::ffi::CStr, args: &[Value]) -> Value {
         let sym = mrb.intern_cstr(name);
-        // Value is repr(transparent) over mrb_value, so &[Value] and
-        // &[mrb_value] share layout. Cast the slice pointer.
+        self.call_argv(mrb, sym, args)
+    }
+
+    /// `mrb_funcall_argv(mrb, self, sym, argc, argv)` — invoke the
+    /// method already interned as `sym`. Counterpart to [`Value::call`]
+    /// for sites that pre-intern (typically because the same symbol is
+    /// queried via `respond_to?` first).
+    ///
+    /// `args` is `&[Value]`; `Value` is `#[repr(transparent)]` over
+    /// `mrb_value`, so the slice layout matches mruby's `mrb_value`
+    /// argv exactly — the pointer cast on the way through is a no-op
+    /// at codegen level.
+    #[inline]
+    pub fn call_argv(self, mrb: &Mrb, sym: sys::mrb_sym, args: &[Value]) -> Value {
         let argv = args.as_ptr() as *const sys::mrb_value;
         // SAFETY: `mrb` is alive by the borrow; `self` and every
         // `args` entry originate from the same VM by the single-VM
-        // contract; `sym` was just interned against the same VM.
+        // contract; `sym` was interned against the same VM (caller
+        // contract).
         Value(unsafe {
             sys::mrb_funcall_argv(
                 mrb.as_ptr(),

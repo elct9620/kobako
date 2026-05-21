@@ -298,18 +298,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
     }
 
-    // mrb_funcall_argv's argv parameter is typed `*const mrb_value`;
-    // cast through the transparent `Value` slice pointer (layouts
-    // identical by `repr(transparent)`).
-    let result_val = sys::Value::from_raw(unsafe {
-        sys::mrb_funcall_argv(
-            mrb.as_ptr(),
-            target_val.as_raw(),
-            call_sym,
-            argv.len() as core::ffi::c_int,
-            argv.as_ptr() as *const sys::mrb_value,
-        )
-    });
+    let result_val = target_val.call_argv(&mrb, call_sym, &argv);
 
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
         write_panic(panic);
