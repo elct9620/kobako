@@ -103,14 +103,15 @@ impl Immediates {
     /// Return the cached snapshot, capturing it on first call.
     fn get() -> &'static Immediates {
         IMMEDIATES.get_or_init(|| {
-            // SAFETY: the three shims read mruby's `mrb_nil_value()` /
-            // `mrb_true_value()` / `mrb_false_value()` macros, which
-            // do not touch `mrb_state` — see `src/value.c`.
+            // SAFETY: the three helpers are mruby's own
+            // `mrb_nil_value` / `mrb_true_value` / `mrb_false_value`
+            // (`MRB_INLINE`s reached through bindgen's static-fn
+            // trampolines). They do not touch `mrb_state`.
             unsafe {
                 Immediates {
-                    qnil: sys::kobako_nil_value(),
-                    qtrue: sys::kobako_true_value(),
-                    qfalse: sys::kobako_false_value(),
+                    qnil: sys::mrb_nil_value(),
+                    qtrue: sys::mrb_true_value(),
+                    qfalse: sys::mrb_false_value(),
                 }
             }
         })

@@ -88,12 +88,12 @@ impl Class {
         self.0.is_null()
     }
 
-    /// Reify this class handle as an mruby [`Value`] via the
-    /// layout-safe `kobako_class_value` C shim
-    /// (wrapper around mruby's `mrb_obj_value(p)` inline). Used by
-    /// call paths that need to pass the class through generic mruby
-    /// APIs that accept `mrb_value` (e.g. `mrb_const_defined` /
-    /// `mrb_const_get` / `Object#constants`).
+    /// Reify this class handle as an mruby [`Value`] via mruby's own
+    /// `mrb_obj_value` (an `MRB_INLINE` reached through bindgen's
+    /// static-fn trampoline). Used by call paths that need to pass
+    /// the class through generic mruby APIs that accept `mrb_value`
+    /// (e.g. `mrb_const_defined` / `mrb_const_get` /
+    /// `Object#constants`).
     ///
     /// # Safety
     ///
@@ -102,9 +102,9 @@ impl Class {
     #[cfg(target_arch = "wasm32")]
     #[inline]
     pub unsafe fn as_value(self, _mrb: &Mrb) -> Value {
-        // SAFETY: forwarded from caller; the shim reads only the
-        // pointer payload and reuses mruby's own boxing logic.
-        Value::from_raw(unsafe { sys::kobako_class_value(self.0) })
+        // SAFETY: forwarded from caller; mrb_obj_value reads only
+        // the pointer payload and reuses mruby's own boxing logic.
+        Value::from_raw(unsafe { sys::mrb_obj_value(self.0 as *mut core::ffi::c_void) })
     }
 
     // ----------------------------------------------------------------

@@ -29,8 +29,4 @@ mrb_float kobako_unbox_float(mrb_value v);
 /* Transitional shims — staged removal in follow-up commits. */
 mrb_bool kobako_value_is_integer(mrb_value v);
 mrb_bool kobako_value_is_float(mrb_value v);
-mrb_value kobako_nil_value(void);
-mrb_value kobako_true_value(void);
-mrb_value kobako_false_value(void);
-mrb_value kobako_class_value(struct RClass *c);
 mrb_value kobako_get_exc(mrb_state *mrb);
