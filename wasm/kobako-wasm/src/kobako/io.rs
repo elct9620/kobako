@@ -44,12 +44,6 @@ mod names {
     pub const INITIALIZE_NAME: &[u8] = b"initialize\0";
     pub const WRITE_NAME: &[u8] = b"write\0";
     pub const FILENO_NAME: &[u8] = b"fileno\0";
-    /// `b"@__kobako_fd__\0"` — mangled ivar that holds the underlying
-    /// file descriptor (1 or 2) as a boxed Integer. The bridges unbox
-    /// it directly via `sys::kobako_unbox_integer`, mirroring the
-    /// handle-id ivar pattern in
-    /// [`super::super::Kobako::extract_handle_id`].
-    pub const FD_IVAR: &[u8] = b"@__kobako_fd__\0";
     pub const ARGUMENT_ERROR_NAME: &[u8] = b"ArgumentError\0";
 }
 
@@ -127,6 +121,9 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
 pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
+        // SAFETY: bridge frame — mruby invoked us with a live state.
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+
         let mut fd: core::ffi::c_int = 0;
         // mrb_get_args `"o"` writes a raw mrb_value cell; wrap once
         // after the call.
@@ -149,18 +146,16 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
             }
         }
 
-        let mode = unsafe { Value::from_raw(mode_raw).to_string(mrb) };
+        let mode = Value::from_raw(mode_raw).to_string(mrb_ref);
         if mode != "w" {
             unsafe {
                 raise_argument_error(mrb, b"kobako IO only supports mode \"w\"\0");
             }
         }
 
-        let fd_val = unsafe { sys::mrb_boxing_int_value(mrb, fd) };
-        unsafe {
-            let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(FD_IVAR));
-            sys::mrb_iv_set(mrb, self_.as_raw(), sym, fd_val);
-        }
+        let fd_val = Value::from_int(mrb_ref, fd);
+        let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
+        self_.iv_set(mrb_ref, sym, fd_val);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -182,7 +177,9 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
 pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        let fd = unsafe { read_fd(mrb, self_) };
+        // SAFETY: bridge frame — mruby invoked us with a live state.
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+        let fd = read_fd(mrb_ref, self_);
 
         let mut argv: *const sys::mrb_value = core::ptr::null();
         let mut argc: core::ffi::c_int = 0;
@@ -196,7 +193,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         }
 
         let total = unsafe { sys::kobako_io_fwrite(mrb, fd, argv, argc) };
-        Value::from_raw(unsafe { sys::mrb_boxing_int_value(mrb, total) })
+        Value::from_int(mrb_ref, total)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -215,8 +212,10 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
 pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        let fd = unsafe { read_fd(mrb, self_) };
-        Value::from_raw(unsafe { sys::mrb_boxing_int_value(mrb, fd) })
+        // SAFETY: bridge frame — mruby invoked us with a live state.
+        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+        let fd = read_fd(mrb_ref, self_);
+        Value::from_int(mrb_ref, fd)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -237,15 +236,14 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// rather than trapping. The direct unbox skips the previous
 /// `.to_s.parse` round-trip — see L-4 in the review for the rationale.
 #[cfg(target_arch = "wasm32")]
-unsafe fn read_fd(mrb: *mut sys::mrb_state, self_: Value) -> i32 {
-    unsafe {
-        let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(FD_IVAR));
-        let val = Value::from_raw(sys::mrb_iv_get(mrb, self_.as_raw(), sym));
-        if !val.is_integer() {
-            return 0;
-        }
-        val.unbox_integer()
+fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
+    let sym = mrb.intern_cstr(c"@__kobako_fd__");
+    let val = self_.iv_get(mrb, sym);
+    if !val.is_integer() {
+        return 0;
     }
+    // SAFETY: gated by the is_integer check above.
+    unsafe { val.unbox_integer() }
 }
 
 /// Raise `ArgumentError` with a NUL-terminated message. Diverges —

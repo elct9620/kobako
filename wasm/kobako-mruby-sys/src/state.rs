@@ -38,6 +38,12 @@ use core::ptr::NonNull;
 /// [`Mrb::open`] always returns `Err` there; the type still compiles so
 /// that `Result<Mrb, MrbOpenError>` is a uniform return type across
 /// targets.
+///
+/// On wasm32 the type is `#[repr(transparent)]` over
+/// `NonNull<mrb_state>` so [`Mrb::borrow_raw`] can fabricate a `&Mrb`
+/// reference from a raw `*mut mrb_state` received at a C-bridge frame.
+/// The two layouts are byte-identical there.
+#[cfg_attr(target_arch = "wasm32", repr(transparent))]
 pub struct Mrb {
     #[cfg(target_arch = "wasm32")]
     state: NonNull<sys::mrb_state>,
@@ -87,6 +93,33 @@ impl Mrb {
         self.state.as_ptr()
     }
 
+    /// Borrow a live `*mut mrb_state` as an `&Mrb` reference. Used by
+    /// C-bridge frames that receive a raw pointer from mruby and need
+    /// to call the safe [`Mrb`] methods without first acquiring an
+    /// owning [`Mrb`].
+    ///
+    /// The returned reference does not own the state; no `mrb_close`
+    /// runs when it goes out of scope. The owning `Mrb` (the one
+    /// produced by [`Mrb::open`]) keeps Drop responsibility.
+    ///
+    /// # Safety
+    ///
+    /// `mrb` must point to a live mruby state that remains open for
+    /// the lifetime `'a` of the returned borrow. Passing NULL is
+    /// undefined behaviour. Sound only on wasm32 where `Mrb` is
+    /// `#[repr(transparent)]` over `NonNull<mrb_state>`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub unsafe fn borrow_raw<'a>(mrb: *mut sys::mrb_state) -> &'a Mrb {
+        debug_assert!(!mrb.is_null());
+        // SAFETY: `Mrb` is `#[repr(transparent)]` over
+        // `NonNull<mrb_state>`, which is itself `#[repr(transparent)]`
+        // over `*mut mrb_state`. Casting `*mut mrb_state` to
+        // `*const Mrb` produces a pointer with identical bit pattern.
+        // Liveness for `'a` is upheld by the caller.
+        unsafe { &*(mrb as *const Mrb) }
+    }
+
     /// Return the currently pending mruby exception, or
     /// `mrb_nil_value()` (`w == 0`) if none. Reads `mrb->exc` via the
     /// layout-safe C accessor [`sys::kobako_get_exc`]; does NOT clear
@@ -122,6 +155,151 @@ impl Mrb {
     pub fn object_class(&self) -> Class {
         // SAFETY: `self.state` is alive by the `&self` borrow.
         Class::from_raw(unsafe { sys::mrb_object_class(self.as_ptr()) })
+    }
+
+    // ----------------------------------------------------------------
+    // String / Array / Hash factories.
+    //
+    // The mruby C API spells these as `mrb_str_new` / `mrb_ary_new` /
+    // `mrb_hash_new` / `_set` / `_get` / `_keys`; the inherent methods
+    // here keep the same names so call sites read with one-to-one
+    // mapping to the C-side documentation. The `&Mrb` borrow upholds
+    // liveness so each method is safe.
+    // ----------------------------------------------------------------
+
+    /// `mrb_str_new(mrb, p, len)` — construct an mruby `String` from
+    /// `bytes`. The buffer is copied into the mruby heap; the slice
+    /// only has to live for the duration of the call.
+    ///
+    /// `bytes.len()` saturates to [`i32::MAX`] (mruby's `mrb_int` on
+    /// wasm32 is signed 32-bit). Real callers never reach that — the
+    /// host-side String size cap (8 MiB) sits well below.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn str_new(&self, bytes: &[u8]) -> Value {
+        let len = bytes.len().min(i32::MAX as usize) as i32;
+        // SAFETY: `self.state` is alive by the `&self` borrow; `bytes`
+        // outlives the synchronous call.
+        Value::from_raw(unsafe {
+            sys::mrb_str_new(
+                self.as_ptr(),
+                bytes.as_ptr() as *const core::ffi::c_char,
+                len,
+            )
+        })
+    }
+
+    /// `mrb_str_new_cstr(mrb, s)` — construct an mruby `String` from a
+    /// NUL-terminated C string. The `&CStr` borrow guarantees the
+    /// terminator.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn str_new_cstr(&self, s: &core::ffi::CStr) -> Value {
+        // SAFETY: `self.state` is alive; `s.as_ptr()` is
+        // NUL-terminated by the `&CStr` contract.
+        Value::from_raw(unsafe { sys::mrb_str_new_cstr(self.as_ptr(), s.as_ptr()) })
+    }
+
+    /// `mrb_ary_new(mrb)` — construct a fresh empty mruby `Array`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn ary_new(&self) -> Value {
+        // SAFETY: `self.state` is alive.
+        Value::from_raw(unsafe { sys::mrb_ary_new(self.as_ptr()) })
+    }
+
+    /// `mrb_ary_push(mrb, ary, val)` — append `val` to `ary`. `ary`
+    /// must be an Array-tagged [`Value`] produced by the same VM.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn ary_push(&self, ary: Value, val: Value) {
+        // SAFETY: `self.state` is alive; both values originate from
+        // the same VM by the single-VM contract.
+        unsafe { sys::mrb_ary_push(self.as_ptr(), ary.as_raw(), val.as_raw()) };
+    }
+
+    /// `mrb_hash_new(mrb)` — construct a fresh empty mruby `Hash`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn hash_new(&self) -> Value {
+        // SAFETY: `self.state` is alive.
+        Value::from_raw(unsafe { sys::mrb_hash_new(self.as_ptr()) })
+    }
+
+    /// `mrb_hash_set(mrb, hash, key, val)` — assign `key => val` in
+    /// `hash`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn hash_set(&self, hash: Value, key: Value, val: Value) {
+        // SAFETY: as `ary_push`.
+        unsafe { sys::mrb_hash_set(self.as_ptr(), hash.as_raw(), key.as_raw(), val.as_raw()) };
+    }
+
+    /// `mrb_hash_get(mrb, hash, key)` — return the value for `key`, or
+    /// `nil` when absent.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn hash_get(&self, hash: Value, key: Value) -> Value {
+        // SAFETY: as `ary_push`.
+        Value::from_raw(unsafe { sys::mrb_hash_get(self.as_ptr(), hash.as_raw(), key.as_raw()) })
+    }
+
+    /// `mrb_hash_keys(mrb, hash)` — return the Array of keys in
+    /// `hash`.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn hash_keys(&self, hash: Value) -> Value {
+        // SAFETY: as `ary_push`.
+        Value::from_raw(unsafe { sys::mrb_hash_keys(self.as_ptr(), hash.as_raw()) })
+    }
+
+    // ----------------------------------------------------------------
+    // Symbol intern / lookup.
+    // ----------------------------------------------------------------
+
+    /// `mrb_intern_cstr(mrb, s)` — intern a NUL-terminated C string
+    /// as a Symbol id.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn intern_cstr(&self, s: &core::ffi::CStr) -> sys::mrb_sym {
+        // SAFETY: `self.state` is alive; `s.as_ptr()` is
+        // NUL-terminated by the `&CStr` contract.
+        unsafe { sys::mrb_intern_cstr(self.as_ptr(), s.as_ptr()) }
+    }
+
+    /// `mrb_intern_str(mrb, str)` — intern the bytes of an mruby
+    /// String value as a Symbol. Use this when the name arrives as
+    /// arbitrary bytes that may not be NUL-safe; otherwise prefer
+    /// [`Mrb::intern_cstr`].
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn intern_str(&self, s: Value) -> sys::mrb_sym {
+        // SAFETY: `self.state` is alive; `s` originates from the same
+        // VM.
+        unsafe { sys::mrb_intern_str(self.as_ptr(), s.as_raw()) }
+    }
+
+    /// `mrb_sym_name(mrb, sym)` — return the C string name of `sym`,
+    /// or `None` if mruby yields a NULL pointer (e.g. uninterned id).
+    /// The returned slice points into mruby's interned string storage
+    /// and lives for the duration of the VM.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn sym_name(&self, sym: sys::mrb_sym) -> Option<&'static str> {
+        // SAFETY: `self.state` is alive.
+        let ptr = unsafe { sys::mrb_sym_name(self.as_ptr(), sym) };
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: mruby's interned symbol storage lives for the
+        // duration of the VM; treating the slice as `'static` is
+        // sound for that lifetime, which the caller upholds via the
+        // owning `Mrb`.
+        Some(
+            unsafe { core::ffi::CStr::from_ptr(ptr) }
+                .to_str()
+                .unwrap_or(""),
+        )
     }
 }
 

@@ -22,8 +22,6 @@
 //!    and trailing-Hash kwargs.
 
 use super::Kobako;
-#[cfg(target_arch = "wasm32")]
-use crate::cstr;
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
@@ -49,9 +47,9 @@ unsafe extern "C" fn protected_inspect_body(
 ) -> sys::mrb_value {
     // SAFETY: see item-level doc.
     let val = Value::from_raw(unsafe { *(userdata as *const sys::mrb_value) });
-    // SAFETY: `mrb` is live by `mrb_protect_error`'s contract; `val`
-    // came from the same VM by the function-level safety contract.
-    (unsafe { val.call(mrb, cstr!("inspect"), &[]) }).into_raw()
+    // SAFETY: `mrb` is live by `mrb_protect_error`'s contract.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    val.call(mrb_ref, c"inspect", &[]).into_raw()
 }
 
 impl Kobako {
@@ -64,17 +62,14 @@ impl Kobako {
     /// through [`Kobako::to_wire_value`].
     #[cfg(target_arch = "wasm32")]
     pub fn extract_hash_kwargs(&self, hash: Value, out: &mut Vec<(String, crate::codec::Value)>) {
-        let keys_ary = self.hash_keys(hash);
+        let keys_ary = self.mrb().hash_keys(hash);
         let keys_len = self.collection_len(keys_ary);
         for i in 0..keys_len {
-            // SAFETY (every unsafe in this method): values originate
-            // from +self.mrb+ by the Kobako single-VM contract.
+            // SAFETY: `keys_ary` is Array-tagged (mrb_hash_keys always
+            // returns an Array); `i` stays in range by `keys_len`.
             let key_val = unsafe { keys_ary.ary_entry(i as i32) };
-            let val = self.hash_get(hash, key_val);
-            out.push((
-                unsafe { key_val.to_string(self.mrb) },
-                self.to_wire_value(val),
-            ));
+            let val = self.mrb().hash_get(hash, key_val);
+            out.push((key_val.to_string(self.mrb()), self.to_wire_value(val)));
         }
     }
 
@@ -96,9 +91,7 @@ impl Kobako {
         let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
 
         for (idx, &mrb_val) in rest.iter().enumerate() {
-            // SAFETY: mrb_val originates from +self.mrb+ by the
-            // Kobako single-VM contract.
-            let is_hash = unsafe { mrb_val.classname(self.mrb) } == "Hash" && idx == rest.len() - 1;
+            let is_hash = mrb_val.classname(self.mrb()) == "Hash" && idx == rest.len() - 1;
             if is_hash {
                 self.extract_hash_kwargs(mrb_val, &mut wire_kwargs);
             } else {
@@ -146,14 +139,14 @@ impl Kobako {
         val: Value,
         convert: fn(&Self, Value) -> crate::codec::Value,
     ) -> Vec<(crate::codec::Value, crate::codec::Value)> {
-        let keys_ary = self.hash_keys(val);
+        let keys_ary = self.mrb().hash_keys(val);
         let len = self.collection_len(keys_ary);
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
             // SAFETY: keys_ary is Array-tagged from hash_keys, val is
-            // Hash-tagged from caller, both originate from +self.mrb+.
+            // Hash-tagged from caller; `i` stays in range by `len`.
             let key = unsafe { keys_ary.ary_entry(i as i32) };
-            let v = self.hash_get(val, key);
+            let v = self.mrb().hash_get(val, key);
             pairs.push((convert(self, key), convert(self, v)));
         }
         pairs
@@ -183,22 +176,20 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_wire_value(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as WireValue;
-        // SAFETY (every unsafe in this method): val originates from
-        // +self.mrb+ by the Kobako single-VM contract; classname /
-        // to_string / unbox_* preconditions are gated by the
-        // classname dispatch arms.
-        match unsafe { val.classname(self.mrb) } {
+        // SAFETY in this method: `unbox_integer` / `unbox_float` are
+        // gated by their respective classname arms.
+        match val.classname(self.mrb()) {
             "NilClass" => WireValue::Nil,
             "TrueClass" => WireValue::Bool(true),
             "FalseClass" => WireValue::Bool(false),
             "Integer" => WireValue::Int(unsafe { val.unbox_integer() } as i64),
             "Float" => WireValue::Float(unsafe { val.unbox_float() }),
-            "String" => WireValue::Str(unsafe { val.to_string(self.mrb) }),
-            "Symbol" => WireValue::Sym(unsafe { val.to_string(self.mrb) }),
+            "String" => WireValue::Str(val.to_string(self.mrb())),
+            "Symbol" => WireValue::Sym(val.to_string(self.mrb())),
             "Array" => WireValue::Array(self.array_to_wire(val, Self::to_wire_value)),
             "Hash" => WireValue::Map(self.hash_to_wire(val, Self::to_wire_value)),
             // Fallback: route through `.to_s`.
-            _ => WireValue::Str(unsafe { val.to_string(self.mrb) }),
+            _ => WireValue::Str(val.to_string(self.mrb())),
         }
     }
 
@@ -222,15 +213,15 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_wire_outcome(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as WireValue;
-        // SAFETY: as `to_wire_value`.
-        match unsafe { val.classname(self.mrb) } {
+        // SAFETY in this method: as `to_wire_value`.
+        match val.classname(self.mrb()) {
             "NilClass" => WireValue::Nil,
             "TrueClass" => WireValue::Bool(true),
             "FalseClass" => WireValue::Bool(false),
             "Integer" => WireValue::Int(unsafe { val.unbox_integer() } as i64),
             "Float" => WireValue::Float(unsafe { val.unbox_float() }),
-            "String" => WireValue::Str(unsafe { val.to_string(self.mrb) }),
-            "Symbol" => WireValue::Sym(unsafe { val.to_string(self.mrb) }),
+            "String" => WireValue::Str(val.to_string(self.mrb())),
+            "Symbol" => WireValue::Sym(val.to_string(self.mrb())),
             "Array" => WireValue::Array(self.array_to_wire(val, Self::to_wire_outcome)),
             "Hash" => WireValue::Map(self.hash_to_wire(val, Self::to_wire_outcome)),
             other => WireValue::Str(self.protected_inspect_or_classname(val, other)),
@@ -267,9 +258,7 @@ impl Kobako {
         if error != 0 {
             format!("#<{}>", class_name)
         } else {
-            // SAFETY: result is the protected body's return value,
-            // produced from +self.mrb+.
-            unsafe { result.to_string(self.mrb) }
+            result.to_string(self.mrb())
         }
     }
 
@@ -282,86 +271,73 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_mrb_value(&self, val: crate::codec::Value) -> Value {
         use crate::codec::Value as WireValue;
-        // SAFETY: `self.mrb` is live; cached class refs were produced by
-        // `install_raw` / `resolve_raw`.
-        unsafe {
-            match val {
-                WireValue::Nil => Value::nil(),
-                WireValue::Bool(b) => {
-                    if b {
-                        Value::true_()
-                    } else {
-                        Value::false_()
-                    }
+        let mrb = self.mrb();
+        match val {
+            WireValue::Nil => Value::nil(),
+            WireValue::Bool(b) => {
+                if b {
+                    Value::true_()
+                } else {
+                    Value::false_()
                 }
-                WireValue::Int(n) => {
-                    // mrb_int on wasm32 is 32-bit (MRB_INT32); clamp to i32.
-                    let n32 = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-                    Value::from_raw(sys::mrb_boxing_int_value(self.mrb, n32))
-                }
-                WireValue::UInt(n) => {
-                    let n32 = n.min(i32::MAX as u64) as i32;
-                    Value::from_raw(sys::mrb_boxing_int_value(self.mrb, n32))
-                }
-                WireValue::Float(f) => {
-                    Value::from_raw(sys::mrb_word_boxing_float_value(self.mrb, f))
-                }
-                WireValue::Str(s) => match std::ffi::CString::new(s.as_str()) {
-                    Ok(cs) => Value::from_raw(sys::mrb_str_new_cstr(self.mrb, cs.as_ptr())),
-                    Err(_) => Value::from_raw(sys::mrb_str_new(
-                        self.mrb,
-                        s.as_ptr() as *const core::ffi::c_char,
-                        s.len() as i32,
-                    )),
-                },
-                WireValue::Handle(id) => {
-                    let id_val = sys::mrb_boxing_int_value(self.mrb, id as i32);
-                    Value::from_raw(sys::mrb_obj_new(
-                        self.mrb,
+            }
+            WireValue::Int(n) => {
+                // mrb_int on wasm32 is 32-bit (MRB_INT32); clamp to i32.
+                let n32 = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                Value::from_int(mrb, n32)
+            }
+            WireValue::UInt(n) => {
+                let n32 = n.min(i32::MAX as u64) as i32;
+                Value::from_int(mrb, n32)
+            }
+            WireValue::Float(f) => Value::from_float(mrb, f),
+            WireValue::Str(s) => match std::ffi::CString::new(s.as_str()) {
+                Ok(cs) => mrb.str_new_cstr(&cs),
+                Err(_) => mrb.str_new(s.as_bytes()),
+            },
+            WireValue::Handle(id) => {
+                let id_val = Value::from_int(mrb, id as i32).as_raw();
+                // SAFETY: `mrb` is live; `self.handle_class` was
+                // produced by `install_raw` / `resolve_raw`; `id_val`
+                // originates from the same VM.
+                Value::from_raw(unsafe {
+                    sys::mrb_obj_new(
+                        mrb.as_ptr(),
                         self.handle_class.as_raw(),
                         1,
                         &id_val as *const sys::mrb_value,
-                    ))
-                }
-                WireValue::Bin(bytes) => Value::from_raw(sys::mrb_str_new(
-                    self.mrb,
-                    bytes.as_ptr() as *const core::ffi::c_char,
-                    bytes.len() as i32,
-                )),
-                WireValue::Sym(name) => {
-                    // Intern via String#to_sym — mruby's mrb_symbol_value
-                    // bit-layout is build-private (we use
-                    // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
-                    let str_val = Value::from_raw(sys::mrb_str_new(
-                        self.mrb,
-                        name.as_ptr() as *const core::ffi::c_char,
-                        name.len() as i32,
-                    ));
-                    str_val.call(self.mrb, cstr!("to_sym"), &[])
-                }
-                WireValue::Array(items) => {
-                    let ary = sys::mrb_ary_new(self.mrb);
-                    for item in items {
-                        let elem = self.to_mrb_value(item);
-                        sys::mrb_ary_push(self.mrb, ary, elem.as_raw());
-                    }
-                    Value::from_raw(ary)
-                }
-                WireValue::Map(pairs) => {
-                    let hash = sys::mrb_hash_new(self.mrb);
-                    for (k, v) in pairs {
-                        let key = self.to_mrb_value(k);
-                        let val = self.to_mrb_value(v);
-                        sys::mrb_hash_set(self.mrb, hash, key.as_raw(), val.as_raw());
-                    }
-                    Value::from_raw(hash)
-                }
-                // ext 0x02 envelopes are consumed by the exception path
-                // (`raise_service_error`) before reaching value
-                // conversion; the defensive nil here covers any
-                // malformed Response that smuggles one through.
-                WireValue::ErrEnv(_) => Value::nil(),
+                    )
+                })
             }
+            WireValue::Bin(bytes) => mrb.str_new(&bytes),
+            WireValue::Sym(name) => {
+                // Intern via String#to_sym — mruby's mrb_symbol_value
+                // bit-layout is build-private (we use
+                // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
+                mrb.str_new(name.as_bytes()).call(mrb, c"to_sym", &[])
+            }
+            WireValue::Array(items) => {
+                let ary = mrb.ary_new();
+                for item in items {
+                    let elem = self.to_mrb_value(item);
+                    mrb.ary_push(ary, elem);
+                }
+                ary
+            }
+            WireValue::Map(pairs) => {
+                let hash = mrb.hash_new();
+                for (k, v) in pairs {
+                    let key = self.to_mrb_value(k);
+                    let val = self.to_mrb_value(v);
+                    mrb.hash_set(hash, key, val);
+                }
+                hash
+            }
+            // ext 0x02 envelopes are consumed by the exception path
+            // (`raise_service_error`) before reaching value
+            // conversion; the defensive nil here covers any
+            // malformed Response that smuggles one through.
+            WireValue::ErrEnv(_) => Value::nil(),
         }
     }
 }

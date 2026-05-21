@@ -204,22 +204,12 @@ fn run_body(env_ptr: i32, env_len: i32) {
     // (E-28), and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
-    //
-    // SAFETY: `mrb` is live by `open_with_preamble` contract; the
-    // cached `object_class` pointer was produced by the same
-    // `mrb_state` and is GC-stable. Every `mrb_value` constructed
-    // here originates from this VM.
-    let target_sym = unsafe {
-        let name_str = sys::mrb_str_new(
-            mrb.as_ptr(),
-            invocation.target.as_ptr() as *const core::ffi::c_char,
-            invocation.target.len() as i32,
-        );
-        sys::mrb_intern_str(mrb.as_ptr(), name_str)
-    };
+    let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()));
+    // SAFETY: the cached `object_class` pointer was produced by the
+    // same `mrb_state` and is GC-stable for the VM's lifetime.
     let object_value = unsafe { mrb.object_class().as_value(&mrb) };
 
-    if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value.as_raw(), target_sym) } == 0 {
+    if !object_value.const_defined(&mrb, target_sym) {
         // Compute the snippet-contributed constants by subtracting the
         // pre-replay baseline from the current top-level set. Wrapped
         // as `{ "available" => [Sym, ...] }` so the host decoder can
@@ -245,7 +235,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         });
     }
 
-    let target_val = unsafe { sys::mrb_const_get(mrb.as_ptr(), object_value.as_raw(), target_sym) };
+    let target_val = object_value.const_get(&mrb, target_sym);
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
         // `mrb_const_get` only sets `mrb->exc` for genuinely undefined
         // constants; the `mrb_const_defined` gate above should make
@@ -255,8 +245,8 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return write_panic(panic);
     }
 
-    let call_sym = unsafe { sys::mrb_intern_cstr(mrb.as_ptr(), crate::cstr!("call")) };
-    if unsafe { sys::mrb_respond_to(mrb.as_ptr(), target_val, call_sym) } == 0 {
+    let call_sym = mrb.intern_cstr(c"call");
+    if !target_val.respond_to(&mrb, call_sym) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::SandboxError".into(),
@@ -314,7 +304,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
     let result_val = sys::Value::from_raw(unsafe {
         sys::mrb_funcall_argv(
             mrb.as_ptr(),
-            target_val,
+            target_val.as_raw(),
             call_sym,
             argv.len() as core::ffi::c_int,
             argv.as_ptr() as *const sys::mrb_value,

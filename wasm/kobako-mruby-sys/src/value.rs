@@ -214,64 +214,51 @@ impl Value {
         Self(Immediates::get().qfalse)
     }
 
-    /// Construct an mruby Integer from `n`. Wraps
-    /// [`sys::mrb_boxing_int_value`] — on wasm32 (`MRB_INT32`) the
-    /// payload is a signed 32-bit integer.
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *`.
+    /// `mrb_boxing_int_value(mrb, n)` — construct an mruby Integer
+    /// from `n`. On wasm32 (`MRB_INT32`) the payload is signed 32-bit.
     #[inline]
-    pub unsafe fn from_int(mrb: &Mrb, n: i32) -> Self {
-        // SAFETY: forwarded from caller.
+    pub fn from_int(mrb: &Mrb, n: i32) -> Self {
+        // SAFETY: `mrb` is alive by the `&Mrb` borrow.
         Self(unsafe { sys::mrb_boxing_int_value(mrb.as_ptr(), n) })
     }
 
-    /// Construct an mruby Float from `f`. Wraps
-    /// [`sys::mrb_word_boxing_float_value`] — used on wasm32 with
+    /// `mrb_word_boxing_float_value(mrb, f)` — construct an mruby
+    /// Float from `f`. Used on wasm32 with
     /// `MRB_WORDBOX_NO_INLINE_FLOAT` where floats are heap-allocated.
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *`.
     #[inline]
-    pub unsafe fn from_float(mrb: &Mrb, f: f64) -> Self {
-        // SAFETY: forwarded from caller.
+    pub fn from_float(mrb: &Mrb, f: f64) -> Self {
+        // SAFETY: `mrb` is alive by the `&Mrb` borrow.
         Self(unsafe { sys::mrb_word_boxing_float_value(mrb.as_ptr(), f) })
     }
 
-    /// Returns the Ruby class name of this value as a borrowed
-    /// `&'static str`, or `""` if mruby returns NULL.
+    /// `mrb_obj_classname(mrb, self)` — return the Ruby class name of
+    /// `self` as a borrowed `&'static str`, or `""` when mruby
+    /// returns NULL.
     ///
     /// The returned slice points into mruby's interned class-name
-    /// storage, which lives for the duration of the `mrb_state`. We
-    /// expose it as `&'static str` for ergonomic comparisons; callers
-    /// that need to retain the name across a GC point should
+    /// storage, which lives for the duration of the `mrb_state`.
+    /// Callers that need to retain the name across a GC point should
     /// `.to_string()` it.
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *` and `self` must have been
-    /// produced by the same VM.
     #[inline]
-    pub unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str {
-        // SAFETY: forwarded from caller.
-        let ptr = unsafe { sys::mrb_obj_classname(mrb, self.0) };
+    pub fn classname(self, mrb: &Mrb) -> &'static str {
+        // SAFETY: `mrb` is alive by the borrow; `self` originates
+        // from the same VM by the single-VM contract.
+        let ptr = unsafe { sys::mrb_obj_classname(mrb.as_ptr(), self.0) };
         if ptr.is_null() {
             return "";
         }
         // SAFETY: mruby's class-name storage lives for the duration
         // of the `mrb_state`; treating it as `'static` is sound for
-        // the lifetime of the VM, which the caller upholds.
+        // the lifetime of the VM.
         unsafe { core::ffi::CStr::from_ptr(ptr) }
             .to_str()
             .unwrap_or("")
     }
 
     /// Coerce to a Rust `String` by calling `Object#to_s` and copying
-    /// the bytes. Works on any value type — `String#to_s` is
-    /// idempotent on mruby Strings, so the redundant call is cheap
-    /// and keeps a single conversion entry point.
+    /// the bytes. `String#to_s` is idempotent on mruby Strings, so
+    /// the redundant call is cheap and keeps a single conversion
+    /// entry point.
     ///
     /// ## Exception handling
     ///
@@ -281,23 +268,22 @@ impl Value {
     /// empty `String` is returned. This prevents the leaked
     /// exception from corrupting subsequent mruby calls in the same
     /// C bridge.
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *` and `self` must have been
-    /// produced by the same VM.
     #[inline]
-    pub unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String {
-        // SAFETY: forwarded from caller.
-        let s_val = unsafe { self.call(mrb, cstr!("to_s"), &[]) };
-        let ptr = unsafe { sys::mrb_str_to_cstr(mrb, s_val.0) };
+    pub fn to_string(self, mrb: &Mrb) -> String {
+        let s_val = self.call(mrb, c"to_s", &[]);
+        // SAFETY: `mrb` is alive by the borrow; `s_val` originates
+        // from the same VM.
+        let ptr = unsafe { sys::mrb_str_to_cstr(mrb.as_ptr(), s_val.0) };
         if ptr.is_null() {
-            // `.to_s` raised or returned a non-String. Clear `mrb->exc`
-            // so subsequent mruby calls in the same C bridge don't see
-            // corrupted state.
-            let _ = unsafe { sys::mrb_check_error(mrb) };
+            // `.to_s` raised or returned a non-String. Clear
+            // `mrb->exc` so subsequent mruby calls in the same C
+            // bridge don't see corrupted state.
+            mrb.clear_exc();
             return String::new();
         }
+        // SAFETY: mruby's `mrb_str_to_cstr` returns a NUL-terminated
+        // pointer valid until the next GC cycle; copying the bytes
+        // before any further mruby call is sound.
         unsafe { core::ffi::CStr::from_ptr(ptr) }
             .to_str()
             .unwrap_or("")
@@ -318,27 +304,26 @@ impl Value {
         self.0.w as *mut sys::RClass
     }
 
-    /// Invoke `self.method_name(args...)` via the non-variadic
-    /// `mrb_funcall_argv`.
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *`. `self` and every `args`
-    /// entry must have been produced by the same VM.
+    /// Invoke `self.<method>(args...)` via the non-variadic
+    /// `mrb_funcall_argv`. The method name is interned through
+    /// [`Mrb::intern_cstr`].
     #[inline]
-    pub unsafe fn call(
-        self,
-        mrb: *mut sys::mrb_state,
-        name_cstr: *const core::ffi::c_char,
-        args: &[Value],
-    ) -> Value {
-        // SAFETY: forwarded from caller.
-        let sym = unsafe { sys::mrb_intern_cstr(mrb, name_cstr) };
+    pub fn call(self, mrb: &Mrb, name: &core::ffi::CStr, args: &[Value]) -> Value {
+        let sym = mrb.intern_cstr(name);
         // Value is repr(transparent) over mrb_value, so &[Value] and
         // &[mrb_value] share layout. Cast the slice pointer.
         let argv = args.as_ptr() as *const sys::mrb_value;
+        // SAFETY: `mrb` is alive by the borrow; `self` and every
+        // `args` entry originate from the same VM by the single-VM
+        // contract; `sym` was just interned against the same VM.
         Value(unsafe {
-            sys::mrb_funcall_argv(mrb, self.0, sym, args.len() as core::ffi::c_int, argv)
+            sys::mrb_funcall_argv(
+                mrb.as_ptr(),
+                self.0,
+                sym,
+                args.len() as core::ffi::c_int,
+                argv,
+            )
         })
     }
 
@@ -396,6 +381,59 @@ impl Value {
     pub unsafe fn ary_entry(self, idx: i32) -> Value {
         // SAFETY: forwarded from caller.
         Value(unsafe { sys::mrb_ary_entry(self.0, idx) })
+    }
+
+    // ----------------------------------------------------------------
+    // Instance variable / constant accessors. The mruby C API spells
+    // these as `mrb_iv_set` / `mrb_iv_get` / `mrb_const_defined` /
+    // `mrb_const_get` / `mrb_respond_to`; the inherent methods carry
+    // the same names so the call shape mirrors the C-side
+    // documentation one-to-one. The `&Mrb` borrow upholds liveness,
+    // and `self` provides the receiver — together the methods are
+    // safe Rust.
+    // ----------------------------------------------------------------
+
+    /// `mrb_iv_set(mrb, self, sym, val)` — assign instance variable
+    /// `sym` on `self` to `val`. `self` must be an object value
+    /// produced by `mrb`.
+    #[inline]
+    pub fn iv_set(self, mrb: &Mrb, sym: sys::mrb_sym, val: Value) {
+        // SAFETY: `mrb` is alive by the borrow; `self` and `val`
+        // originate from the same VM by the single-VM contract.
+        unsafe { sys::mrb_iv_set(mrb.as_ptr(), self.0, sym, val.0) };
+    }
+
+    /// `mrb_iv_get(mrb, self, sym)` — return instance variable `sym`
+    /// from `self`, or `nil` when unset.
+    #[inline]
+    pub fn iv_get(self, mrb: &Mrb, sym: sys::mrb_sym) -> Value {
+        // SAFETY: as `iv_set`.
+        Value(unsafe { sys::mrb_iv_get(mrb.as_ptr(), self.0, sym) })
+    }
+
+    /// `mrb_const_defined(mrb, self, sym)` — TRUE when constant `sym`
+    /// is defined on `self` (the module or class value).
+    #[inline]
+    pub fn const_defined(self, mrb: &Mrb, sym: sys::mrb_sym) -> bool {
+        // SAFETY: as `iv_set`.
+        (unsafe { sys::mrb_const_defined(mrb.as_ptr(), self.0, sym) }) != 0
+    }
+
+    /// `mrb_const_get(mrb, self, sym)` — fetch the constant value at
+    /// `sym` from `self`. Sets `mrb->exc` if the constant is
+    /// undefined; callers should gate with [`Value::const_defined`].
+    #[inline]
+    pub fn const_get(self, mrb: &Mrb, sym: sys::mrb_sym) -> Value {
+        // SAFETY: as `iv_set`.
+        Value(unsafe { sys::mrb_const_get(mrb.as_ptr(), self.0, sym) })
+    }
+
+    /// `mrb_respond_to(mrb, self, mid)` — TRUE when `self` answers to
+    /// the method named by `mid`.
+    #[inline]
+    pub fn respond_to(self, mrb: &Mrb, mid: sys::mrb_sym) -> bool {
+        // SAFETY: as `iv_set`.
+        (unsafe { sys::mrb_respond_to(mrb.as_ptr(), self.0, mid) }) != 0
     }
 }
 

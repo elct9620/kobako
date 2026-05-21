@@ -15,8 +15,6 @@
 //! map to "service" — preloaded snippets are sandbox code.
 
 #[cfg(target_arch = "wasm32")]
-use crate::cstr;
-#[cfg(target_arch = "wasm32")]
 use crate::kobako::{InstallGroupsError, Kobako};
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Ccontext;
@@ -215,9 +213,7 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         return None;
     }
     let class_name = {
-        // SAFETY: exc_val comes from `mrb` directly; safe under the
-        // Mrb borrow.
-        let cn = unsafe { exc_val.classname(mrb.as_ptr()) };
+        let cn = exc_val.classname(mrb);
         if cn.is_empty() {
             "RuntimeError".to_string()
         } else {
@@ -225,9 +221,8 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         }
     };
     let message = {
-        // SAFETY: see class_name extraction.
-        let msg_val = unsafe { exc_val.call(mrb.as_ptr(), cstr!("message"), &[]) };
-        let m = unsafe { msg_val.to_string(mrb.as_ptr()) };
+        let msg_val = exc_val.call(mrb, c"message", &[]);
+        let m = msg_val.to_string(mrb);
         if m.is_empty() {
             class_name.clone()
         } else {

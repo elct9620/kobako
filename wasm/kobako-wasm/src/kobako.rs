@@ -41,8 +41,6 @@ pub(crate) mod io;
 mod wire_convert;
 
 #[cfg(target_arch = "wasm32")]
-use crate::cstr;
-#[cfg(target_arch = "wasm32")]
 use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
@@ -75,10 +73,6 @@ pub(crate) mod names {
     pub const RUNTIME_ERROR_NAME: &[u8] = b"RuntimeError\0";
     pub const WIRE_ERROR_NAME: &[u8] = b"WireError\0";
     pub const BYTECODE_ERROR_NAME: &[u8] = b"BytecodeError\0";
-    /// `b"@__kobako_id__\0"` — mangled instance-variable name that
-    /// `Kobako::RPC::Handle#initialize` stores the Handle id under. Used by
-    /// the handle-id setter / getter on [`super::Kobako`].
-    pub const HANDLE_ID_IVAR: &[u8] = b"@__kobako_id__\0";
     pub const IO_NAME: &[u8] = b"IO\0";
     pub const STDOUT_CONST_NAME: &[u8] = b"STDOUT\0";
     pub const STDERR_CONST_NAME: &[u8] = b"STDERR\0";
@@ -375,53 +369,23 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // mruby helpers that still need +self.mrb+.
-    //
-    // The remaining methods below thread `self.mrb` into mruby FFI
-    // calls that take an `mrb_state *` first argument. Once `Mrb`
-    // grows method counterparts (hash_get / intern / iv_set / iv_get
-    // / hash_keys), these become candidates to retire — the
-    // value-only operations (classname / to_string / call / unbox /
-    // ary_entry / immediates) already live on [`Value`] and are
-    // called directly at every site.
+    // VM access. The +mrb+ accessor synthesises a borrowed [`Mrb`]
+    // reference over the raw pointer so callers can use the safe
+    // builder / accessor methods (`hash_get`, `intern_cstr`, etc.)
+    // without each method re-implementing the same FFI dispatch.
     // ----------------------------------------------------------------
 
-    /// +mrb_hash_get(hash, key)+. Returns +nil+ when the key is
-    /// missing.
+    /// Borrow `self.mrb` as `&Mrb`. The borrow lives for the duration
+    /// of `&self`, which the [`Kobako`] construction contract ties
+    /// to the underlying `mrb_state`'s liveness.
     #[cfg(target_arch = "wasm32")]
-    fn hash_get(&self, hash: Value, key: Value) -> Value {
-        // SAFETY: +self.mrb+ is live by the Kobako contract; +hash+
-        // and +key+ originate from the same VM.
-        Value::from_raw(unsafe { sys::mrb_hash_get(self.mrb, hash.as_raw(), key.as_raw()) })
-    }
-
-    /// +mrb_hash_keys(hash)+ — returns the key Array.
-    #[cfg(target_arch = "wasm32")]
-    fn hash_keys(&self, hash: Value) -> Value {
-        // SAFETY: as +hash_get+.
-        Value::from_raw(unsafe { sys::mrb_hash_keys(self.mrb, hash.as_raw()) })
-    }
-
-    /// Intern +name+ (NUL-terminated) as an mruby Symbol id.
-    #[cfg(target_arch = "wasm32")]
-    fn intern(&self, name: *const core::ffi::c_char) -> sys::mrb_sym {
-        // SAFETY: +self.mrb+ is live by the Kobako contract.
-        unsafe { sys::mrb_intern_cstr(self.mrb, name) }
-    }
-
-    /// Set the instance variable +sym+ on +obj+ to +val+.
-    #[cfg(target_arch = "wasm32")]
-    fn iv_set(&self, obj: Value, sym: sys::mrb_sym, val: Value) {
-        // SAFETY: +self.mrb+ is live by the Kobako contract; +obj+
-        // and +val+ originate from the same VM.
-        unsafe { sys::mrb_iv_set(self.mrb, obj.as_raw(), sym, val.as_raw()) };
-    }
-
-    /// Read the instance variable +sym+ from +obj+ (+nil+ if unset).
-    #[cfg(target_arch = "wasm32")]
-    fn iv_get(&self, obj: Value, sym: sys::mrb_sym) -> Value {
-        // SAFETY: as +iv_set+.
-        Value::from_raw(unsafe { sys::mrb_iv_get(self.mrb, obj.as_raw(), sym) })
+    #[inline]
+    pub(crate) fn mrb(&self) -> &Mrb {
+        // SAFETY: `Kobako` is only constructed against a live
+        // `mrb_state` (via `install_raw` / `resolve_raw`), and the
+        // caller upholds liveness for the duration of any method
+        // call on it.
+        unsafe { Mrb::borrow_raw(self.mrb) }
     }
 
     // ----------------------------------------------------------------
@@ -438,9 +402,7 @@ impl Kobako {
     /// callers see "empty collection" rather than a panic.
     #[cfg(target_arch = "wasm32")]
     pub fn collection_len(&self, col: Value) -> usize {
-        // SAFETY: +col+ originates from +self.mrb+ by the Kobako
-        // single-VM contract.
-        let len_val = unsafe { col.call(self.mrb, cstr!("length"), &[]) };
+        let len_val = col.call(self.mrb(), c"length", &[]);
         if !len_val.is_integer() {
             return 0;
         }
@@ -466,18 +428,17 @@ impl Kobako {
     /// serializes cleanly.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
-        // SAFETY (every unsafe block in this method): +exc_val+ and
-        // every transient +Value+ originate from +self.mrb+ by the
-        // Kobako single-VM contract.
-        let bt_val = unsafe { exc_val.call(self.mrb, cstr!("backtrace"), &[]) };
-        if unsafe { bt_val.classname(self.mrb) } != "Array" {
+        let bt_val = exc_val.call(self.mrb(), c"backtrace", &[]);
+        if bt_val.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
+            // SAFETY: +bt_val+ is Array-tagged by the classname check
+            // above; +i+ stays in range by the +len+ bound.
             let line = unsafe { bt_val.ary_entry(i as i32) };
-            lines.push(unsafe { line.to_string(self.mrb) });
+            lines.push(line.to_string(self.mrb()));
         }
         lines
     }
@@ -496,22 +457,21 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     #[cfg(target_arch = "wasm32")]
     pub fn top_level_constants(&self) -> Vec<String> {
-        // SAFETY: +self.mrb+ is live by the Kobako contract; the
-        // class value the shim produces lives until +mrb_close+.
+        // SAFETY: the shim turns +mrb->object_class+ (which lives
+        // until +mrb_close+) into the canonical class-tagged Value.
         let object_value =
             Value::from_raw(unsafe { sys::kobako_class_value(sys::mrb_object_class(self.mrb)) });
-        // SAFETY: object_value originates from +self.mrb+.
-        let consts = unsafe { object_value.call(self.mrb, cstr!("constants"), &[]) };
-        if unsafe { consts.classname(self.mrb) } != "Array" {
+        let consts = object_value.call(self.mrb(), c"constants", &[]);
+        if consts.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: as above; consts is an Array, ary_entry stays
-            // in range by the +len+ bound.
+            // SAFETY: consts is Array-tagged by the classname check;
+            // ary_entry stays in range by the +len+ bound.
             let entry = unsafe { consts.ary_entry(i as i32) };
-            names.push(unsafe { entry.to_string(self.mrb) });
+            names.push(entry.to_string(self.mrb()));
         }
         names
     }
@@ -521,8 +481,8 @@ impl Kobako {
     /// C bridge.
     #[cfg(target_arch = "wasm32")]
     pub fn set_handle_id(&self, target: Value, id_val: Value) {
-        let sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
-        self.iv_set(target, sym, id_val);
+        let sym = self.mrb().intern_cstr(c"@__kobako_id__");
+        target.iv_set(self.mrb(), sym, id_val);
     }
 
     /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
@@ -536,8 +496,8 @@ impl Kobako {
     /// and tighter on the wire-violation surface.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
-        let id_sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
-        let id_val = self.iv_get(handle_val, id_sym);
+        let id_sym = self.mrb().intern_cstr(c"@__kobako_id__");
+        let id_val = handle_val.iv_get(self.mrb(), id_sym);
         if !id_val.is_integer() {
             return 0;
         }
