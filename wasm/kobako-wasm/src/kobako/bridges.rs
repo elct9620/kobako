@@ -42,6 +42,8 @@
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby::MrbValueExt;
 
 /// Build a borrowed `&[mrb_value]` from a `mrb_get_args("n*", ...)`
 /// out-parameter pair. mruby may set `rest_ptr` to NULL when the

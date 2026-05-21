@@ -1,19 +1,21 @@
 # kobako-wasm — Guest Binary crate.
 #
-# This crate compiles to `kobako.wasm` (the Guest Binary artifact) and houses
-# the MessagePack wire codec. Per SPEC.md "Implementation Standards", this
-# crate declares itself as its own workspace root so that `cargo` does not
-# collapse it into the repo-root workspace (which would force wasmtime — a
-# host-only crate — into the wasm32-wasip1 dependency graph).
+# This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
+# houses the MessagePack wire codec, the RPC client, the ABI exports,
+# and the Ruby boot bytecode pipeline. The mruby C API FFI surface
+# (hand-rolled `extern "C"` decls + the layout-safe C shims) lives in
+# the sibling `kobako-mruby-sys` crate; `kobako-wasm` consumes it as a
+# path dependency and re-exports it as `crate::mruby::sys`.
+#
+# This crate is a member of the `wasm/` sub-workspace (see
+# `wasm/Cargo.toml`). The repo-root `Cargo.toml` excludes the entire
+# `wasm/` subtree so the wasmtime-bearing host workspace does not pull
+# the wasm32-wasip1 crates into its dependency graph.
 #
 # Wire codec backbone is the `rmp` crate — the Rust counterpart of the
 # msgpack-ruby gem used on the host side. This gives the guest a thin glue
 # layer (Value <-> rmp encode/decode helpers) instead of a hand-rolled
 # binary codec, and keeps the wire byte form aligned with the host.
-
-[workspace]
-# Empty workspace table marks this directory as a workspace root and stops
-# `cargo`'s upward search for an enclosing workspace manifest.
 
 [package]
 name = "kobako-wasm"
@@ -36,17 +38,11 @@ crate-type = ["cdylib", "rlib"]
 # wasm32-wasip1 target, which already pays for `std` through mruby.
 rmp = { version = "0.8", default-features = false }
 
-[build-dependencies]
-# `cc` compiles the layout-safe C shim (`src/mruby/exc.c`) that exposes
-# `mrb->exc` through mruby's own headers rather than Rust-side offset arithmetic.
-# Only active on wasm32 (build.rs gates compilation behind target_arch check).
-cc = "1"
+# `kobako-mruby-sys` — sibling crate carrying the mruby C API FFI
+# declarations and the four layout-safe C shims. Re-exported through
+# `crate::mruby::sys` so existing `use crate::mruby::sys;` call sites
+# stay intact.
+kobako-mruby-sys = { path = "../kobako-mruby-sys" }
 
-[profile.release]
-# wasm size hygiene. These are not load-bearing for the skeleton, but pin
-# the intent so item #6 / #9 inherit a sensible baseline.
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+# `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
+# so both members share the same wasm size hygiene tuning.

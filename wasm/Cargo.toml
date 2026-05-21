@@ -1,0 +1,36 @@
+# wasm/ sub-workspace.
+#
+# This `Cargo.toml` exists solely to group the two wasm32-wasip1 member
+# crates under a single workspace so they share a `target/` directory,
+# `Cargo.lock`, and `[profile.release]` settings. The repo-root
+# `Cargo.toml` explicitly excludes `wasm` (see the root manifest's
+# `exclude = ["wasm", "vendor"]`), so this sub-workspace stays isolated
+# from the host (`wasmtime`) dependency graph that lives there.
+#
+# Members
+# -------
+#   * `kobako-mruby-sys` — Hand-rolled mruby C API FFI surface plus the
+#     four layout-safe C shims that bridge macro-only mruby APIs. The
+#     consumer of `MRUBY_LIB_DIR` and `WASI_SDK_PATH`. Future home for a
+#     bindgen-driven binding.
+#   * `kobako-wasm` — Guest Binary crate producing `kobako.wasm`. Owns
+#     the wire codec, RPC client, ABI exports, and the Ruby boot bytecode
+#     pipeline (`mrblib/*.rb` precompiled to RITE via host `mrbc`).
+#
+# The split keeps "talk to libmruby.a" (sys) separate from "what to do
+# with mruby" (kobako-wasm) so future bindgen migration and external
+# mruby customization can touch one crate at a time.
+
+[workspace]
+members = ["kobako-mruby-sys", "kobako-wasm"]
+resolver = "2"
+
+[profile.release]
+# wasm size hygiene applied to the cdylib member. Workspace-level so
+# both members compile under the same release tuning if one of them
+# ever grows a release-tested binary.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

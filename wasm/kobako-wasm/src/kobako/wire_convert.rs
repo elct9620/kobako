@@ -25,6 +25,8 @@ use super::Kobako;
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby::MrbValueExt;
 
 /// `mrb_protect_error` body that re-enters mruby to compute
 /// `Object#inspect` on the value pointed to by `userdata`. Used by

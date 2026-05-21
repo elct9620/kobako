@@ -37,6 +37,18 @@
 //! us most of the ergonomic win without committing to a typed value
 //! framework — the same trade-off discussed at the top of
 //! `mruby::sys`.
+//!
+//! ## Why a trait and not an inherent `impl`
+//!
+//! `sys::mrb_value` is defined in the sibling `kobako-mruby-sys`
+//! crate; Rust's orphan rule forbids adding inherent methods to a
+//! foreign type. The [`MrbValueExt`] extension trait sidesteps that —
+//! a local trait may be implemented for any type — while keeping the
+//! call-site shape (`val.classname(mrb)`, `val.call(mrb, …)`)
+//! identical to a regular inherent method. The trait is re-exported
+//! from [`crate::mruby`] so existing `use crate::mruby::sys;` call
+//! sites only need an additional `use crate::mruby::MrbValueExt;`
+//! to bring the methods into scope.
 
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
@@ -66,8 +78,19 @@ pub const fn cstr_ptr(b: &[u8]) -> *const core::ffi::c_char {
     b.as_ptr() as *const core::ffi::c_char
 }
 
+/// Extension trait adding the kobako-side ergonomic methods to
+/// [`sys::mrb_value`]. Defined as a trait rather than an inherent
+/// `impl` because `mrb_value` lives in the sibling
+/// `kobako-mruby-sys` crate — Rust's orphan rule forbids inherent
+/// methods on foreign types. Bring this trait into scope at any call
+/// site that needs `val.classname(mrb)` / `val.to_string(mrb)` /
+/// `val.call(mrb, …)` / `val.as_class_ptr()`.
+///
+/// The trait is re-exported from [`crate::mruby`] so the call-site
+/// import reads `use crate::mruby::MrbValueExt;`, side-by-side with
+/// the existing `use crate::mruby::sys;`.
 #[cfg(target_arch = "wasm32")]
-impl sys::mrb_value {
+pub trait MrbValueExt: Copy {
     /// Returns the Ruby class name of this value as a borrowed
     /// `&'static str`, or `""` if mruby returns NULL.
     ///
@@ -81,14 +104,7 @@ impl sys::mrb_value {
     ///
     /// `mrb` must be a live `mrb_state *` and `self` must have been
     /// produced by the same VM.
-    #[inline]
-    pub unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str {
-        let ptr = sys::mrb_obj_classname(mrb, self);
-        if ptr.is_null() {
-            return "";
-        }
-        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("")
-    }
+    unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str;
 
     /// Coerce to a Rust `String` by calling `Object#to_s` and copying
     /// the bytes. Works on any value type — `String#to_s` is
@@ -124,23 +140,7 @@ impl sys::mrb_value {
     ///
     /// `mrb` must be a live `mrb_state *` and `self` must have been
     /// produced by the same VM.
-    #[inline]
-    pub unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String {
-        let s_val = self.call(mrb, cstr!("to_s"), &[]);
-        let ptr = sys::mrb_str_to_cstr(mrb, s_val);
-        if ptr.is_null() {
-            // `.to_s` raised or returned a non-String. Clear `mrb->exc`
-            // so subsequent mruby calls in the same C bridge don't see
-            // corrupted state. See the "Exception handling" doc note
-            // above for the rationale.
-            let _ = sys::mrb_check_error(mrb);
-            return String::new();
-        }
-        core::ffi::CStr::from_ptr(ptr)
-            .to_str()
-            .unwrap_or("")
-            .to_string()
-    }
+    unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String;
 
     /// Recover the `*mut RClass` pointer from a class-tagged
     /// `mrb_value`. Implements the C macro `mrb_class_ptr(v)` —
@@ -159,10 +159,7 @@ impl sys::mrb_value {
     /// of a singleton-class `method_missing` shim, or any other
     /// `Class` value produced by the same VM). Calling on a non-class
     /// value yields a bogus pointer.
-    #[inline]
-    pub unsafe fn as_class_ptr(self) -> *mut sys::RClass {
-        self.w as *mut sys::RClass
-    }
+    unsafe fn as_class_ptr(self) -> *mut sys::RClass;
 
     /// Invoke `self.method_name(args...)` via the non-variadic
     /// `mrb_funcall_argv`. The method name is interned each call;
@@ -188,8 +185,50 @@ impl sys::mrb_value {
     ///
     /// `mrb` must be a live `mrb_state *`. `self` and every `args`
     /// entry must have been produced by the same VM.
+    unsafe fn call(
+        self,
+        mrb: *mut sys::mrb_state,
+        name_cstr: *const core::ffi::c_char,
+        args: &[sys::mrb_value],
+    ) -> sys::mrb_value;
+}
+
+#[cfg(target_arch = "wasm32")]
+impl MrbValueExt for sys::mrb_value {
     #[inline]
-    pub unsafe fn call(
+    unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str {
+        let ptr = sys::mrb_obj_classname(mrb, self);
+        if ptr.is_null() {
+            return "";
+        }
+        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("")
+    }
+
+    #[inline]
+    unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String {
+        let s_val = self.call(mrb, cstr!("to_s"), &[]);
+        let ptr = sys::mrb_str_to_cstr(mrb, s_val);
+        if ptr.is_null() {
+            // `.to_s` raised or returned a non-String. Clear `mrb->exc`
+            // so subsequent mruby calls in the same C bridge don't see
+            // corrupted state. See the "Exception handling" doc note
+            // above for the rationale.
+            let _ = sys::mrb_check_error(mrb);
+            return String::new();
+        }
+        core::ffi::CStr::from_ptr(ptr)
+            .to_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[inline]
+    unsafe fn as_class_ptr(self) -> *mut sys::RClass {
+        self.w as *mut sys::RClass
+    }
+
+    #[inline]
+    unsafe fn call(
         self,
         mrb: *mut sys::mrb_state,
         name_cstr: *const core::ffi::c_char,

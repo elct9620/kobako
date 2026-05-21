@@ -14,15 +14,23 @@ require "open3"
 # +tasks/wasm.rake+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
 # the orchestrator class.
 module KobakoWasm
-  ROOT       = File.expand_path("../..", __dir__)
-  CRATE_DIR  = File.join(ROOT, "wasm", "kobako-wasm").freeze
+  ROOT = File.expand_path("../..", __dir__)
+  # `wasm/` is now a cargo sub-workspace whose members share a single
+  # `target/` directory at the workspace root. `kobako-wasm` is the
+  # cdylib-bearing member; its sibling `kobako-mruby-sys` carries the
+  # mruby FFI surface (path dependency, no separate artifact).
+  WASM_WORKSPACE_DIR = File.join(ROOT, "wasm").freeze
+  CRATE_DIR  = File.join(WASM_WORKSPACE_DIR, "kobako-wasm").freeze
   MANIFEST   = File.join(CRATE_DIR, "Cargo.toml").freeze
   WASM_TARGET = "wasm32-wasip1"
 
   # Stage C inputs / outputs.
   CRATE_SRC_DIR     = File.join(CRATE_DIR, "src").freeze
   CRATE_BUILD_RS    = File.join(CRATE_DIR, "build.rs").freeze
-  CRATE_TARGET_DIR  = File.join(CRATE_DIR, "target").freeze
+  # Workspace-shared target directory — both members emit artifacts
+  # here. Cargo derives the path from the workspace root rather than
+  # the cdylib member.
+  CRATE_TARGET_DIR  = File.join(WASM_WORKSPACE_DIR, "target").freeze
   CRATE_WASM_OUTPUT = File.join(CRATE_TARGET_DIR, WASM_TARGET, "release", "kobako_wasm.wasm").freeze
 
   DATA_DIR  = File.join(ROOT, "data").freeze

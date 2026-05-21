@@ -1,0 +1,54 @@
+# kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
+#
+# Two responsibilities:
+#
+#   1. `extern "C"` declarations for the mruby C API subset that the
+#      Guest Binary calls (the `mrb_open` / `mrb_load_nstring` /
+#      `mrb_define_class_under` / … family plus the `mrb_value` and
+#      `mrb_state` ABI types).
+#   2. Four layout-safe C shims (`bytecode.c`, `exc.c`, `io.c`,
+#      `value.c`) that wrap mruby's macro-only APIs (`mrb_obj_value`,
+#      `mrb_integer_p`, `RSTRING_PTR`, `mrb_load_irep_buf`) in real
+#      `MRB_API` functions Rust can reach through `extern "C"`. These
+#      stay in C translation units driven by mruby's own headers so
+#      kobako never has to mirror mruby's word-box / string layout in
+#      Rust.
+#
+# Build-time inputs (consumed via env, populated by `tasks/wasm.rake`):
+#
+#   * `MRUBY_LIB_DIR` — absolute path to the directory containing the
+#     pre-built `libmruby.a` (Stage B output). Drives `cargo:rustc-link-*`.
+#   * `WASI_SDK_PATH` — absolute path to the unpacked wasi-sdk. Drives
+#     the setjmp library link directive (required for mruby's WebAssembly
+#     exception handling).
+#
+# What this crate is NOT (yet)
+# ----------------------------
+#   * Not yet bindgen-driven. The current `lib.rs` carries hand-written
+#     `extern "C"` blocks; introducing bindgen is the next step after
+#     this split lands, scoped entirely to this crate so libclang
+#     becomes a sys-only build dependency rather than a global one.
+#   * Not a magnus-style typed value wrapper. The safe `Mrb` / `Ccontext`
+#     / `mrb_value` ergonomics live one layer up in the `kobako-wasm`
+#     crate (`src/mruby/{state,ccontext,value}.rs`) so this crate stays
+#     a pure FFI surface.
+
+[package]
+name = "kobako-mruby-sys"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Hand-rolled mruby C API FFI bindings + layout-safe C shims for the kobako Guest Binary."
+license = "Apache-2.0"
+
+[lib]
+# `rlib` only — this crate produces no standalone artefact. It is
+# consumed as a path dependency by `kobako-wasm`, whose cdylib carries
+# the eventual symbol surface into `kobako.wasm`.
+crate-type = ["rlib"]
+
+[build-dependencies]
+# `cc` compiles the four mruby header-driven C shims. The shims include
+# `<mruby.h>` and friends, so the build only runs when the wasi-sdk
+# toolchain is staged (see `build.rs`).
+cc = "1"

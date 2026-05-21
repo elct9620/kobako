@@ -34,18 +34,25 @@
 require_relative "support/kobako_wasm"
 
 namespace :wasm do
-  desc "cargo check the kobako-wasm crate (wasm32-wasip1 if available, host otherwise)"
+  desc "cargo check the wasm sub-workspace (wasm32-wasip1 if available, host otherwise)"
   task :check do
     abort "cargo not on PATH; install Rust toolchain to run wasm:check" unless KobakoWasm.cargo_available?
     target = KobakoWasm.wasm_target_or_host
     target_flag = target ? ["--target", target] : []
-    sh "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, *target_flag
+    # `--workspace` covers both `kobako-wasm` and the sibling
+    # `kobako-mruby-sys` FFI crate so the wasm32 lane catches breakage
+    # in either member.
+    sh "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, "--workspace", *target_flag
   end
 
-  desc "cargo test the kobako-wasm crate on the host (wasm32 has no test runner)"
+  desc "cargo test the wasm sub-workspace on the host (wasm32 has no test runner)"
   task :test do
     abort "cargo not on PATH; install Rust toolchain to run wasm:test" unless KobakoWasm.cargo_available?
-    sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST
+    # `--workspace` includes the `kobako-mruby-sys` layout assertions
+    # (`mrb_args_constants_match_mruby_layout`, `mrb_value_size_covers_known_layouts`,
+    # `mrb_func_t_is_a_valid_extern_c_fn_pointer`) alongside the
+    # `kobako-wasm` codec / envelope tests.
+    sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
 
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"

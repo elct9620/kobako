@@ -24,10 +24,13 @@
 //!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::RPC::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
 //!   its `bridges` submodule. No Ruby boot text.
-//! * `mruby` — façade for the mruby C API binding. Submodule `mruby::sys`
-//!   holds the hand-rolled FFI declarations; `mruby::value` adds the small
-//!   ergonomic layer (inherent methods on `mrb_value` + the `cstr!` macro);
-//!   `mruby::state` exposes the `Mrb` RAII wrapper around `mrb_state *`.
+//! * `mruby` — façade for the mruby C API binding. `mruby::sys` re-exports
+//!   the sibling `kobako-mruby-sys` crate (hand-rolled FFI declarations +
+//!   the four layout-safe C shims compiled by that crate's `build.rs`);
+//!   `mruby::value` adds the small ergonomic layer (`MrbValueExt`
+//!   extension trait on `mrb_value` + the `cstr!` macro);
+//!   `mruby::state` exposes the `Mrb` RAII wrapper around `mrb_state *`;
+//!   `mruby::ccontext` wraps `mrb_ccontext *` lifecycle.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
 //! target — see SPEC.md "Implementation Standards" Architecture) ships a

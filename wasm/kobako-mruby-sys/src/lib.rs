@@ -1,47 +1,59 @@
-//! Hand-rolled mruby C API FFI bindings — minimum surface needed for
-//! the Guest Binary boot mechanism.
+//! kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
+//!
+//! This crate is the boundary between `kobako-wasm` and `libmruby.a`.
+//! It carries two pieces of FFI surface:
+//!
+//!   1. Hand-written `extern "C"` declarations for the mruby C API
+//!      subset the Guest Binary calls.
+//!   2. Companion C shims (compiled by the crate's `build.rs`) that
+//!      wrap mruby's macro-only APIs in real `MRB_API` functions Rust
+//!      can reach through `extern "C"` — `kobako_get_exc`,
+//!      `kobako_value_is_integer`, `kobako_unbox_*`, `kobako_io_fwrite`,
+//!      `kobako_load_bytecode`, the `kobako_*_value` constant accessors.
 //!
 //! ## Why hand-rolled and not bindgen
 //!
 //! A future bindgen-driven binding generated from `vendor/mruby/include/`
-//! at build time is anticipated, with `extern "C"` shim wrappers for any
-//! C API exposed as a `static inline` macro in mruby headers. That path
-//! is not yet wired in `build.rs` (the file comment in `build.rs` itself
-//! documents this: "It does not run bindgen").
+//! at build time is anticipated, scoped to this crate so libclang
+//! becomes a sys-only build dependency rather than something every
+//! `kobako-wasm` build must pay for. The current `build.rs` does not
+//! run bindgen; the FFI surface below is small and stable across
+//! mruby 3.x / 4.x and easy to maintain by hand for now.
 //!
-//! For the boot mechanism the surface we actually call is small and
-//! stable across mruby 3.x — the half-dozen registration functions
-//! used by `crate::kobako::bridges`. Hand-declaring them as `extern "C"`
-//! gives us:
+//! Hand-declaring the surface as `extern "C"` gives us:
 //!
-//!   * A wasm32 build that links against `libmruby.a` (host-side build
-//!     pipeline already stages the archive — see `build.rs` and
-//!     `tasks/wasm.rake`).
+//!   * A wasm32 build that links against `libmruby.a` (the Rake driver
+//!     stages the archive — see `tasks/wasm.rake` and `tasks/mruby.rake`).
 //!   * A host-target build that compiles cleanly: every mruby symbol is
 //!     `#[cfg(target_arch = "wasm32")]`-gated, so the rlib used by
 //!     `cargo test` on macOS / Linux never needs the symbols resolved.
 //!
-//! If bindgen is ever wired into the build (see the file comment in
-//! `build.rs`), this module migrates to using the bindgen-emitted types
-//! and the C-side shims for the `static inline` boxing macros.
+//! When bindgen lands here, the safe layer in `kobako-wasm`
+//! (`src/mruby/{state,value,ccontext}.rs`) continues to import from this
+//! crate exactly as it does today — only the contents of this `lib.rs`
+//! and the cross-crate path remain unchanged.
 //!
 //! ## What is bound
 //!
-//! Only the C API functions needed for the boot-script registrations
-//! and the `method_missing` argument unpacking:
+//! The mruby C API functions called from the kobako boot / bridge
+//! mechanism:
 //!
-//!   * `mrb_define_module`
-//!   * `mrb_define_class_under`
-//!   * `mrb_define_singleton_method`
-//!   * `mrb_class_ptr`
-//!   * `mrb_class_name`
-//!   * `mrb_get_args`
-//!   * `mrb_str_new` / `mrb_str_to_cstr` (string round-trip)
-//!   * `mrb_raise` / `mrb_class_get_under` / `mrb_class_get` /
-//!     `mrb_module_get` (exception path + Kernel registration)
+//!   * Module / class / method registration:
+//!     `mrb_define_module`, `mrb_define_class_under`,
+//!     `mrb_define_singleton_method`, `mrb_define_method`.
+//!   * Lookup: `mrb_class_ptr`, `mrb_class_name`, `mrb_class_get`,
+//!     `mrb_class_get_under`.
+//!   * Argument unpack: `mrb_get_args`.
+//!   * String round-trip: `mrb_str_new`, `mrb_str_new_cstr`,
+//!     `mrb_str_to_cstr`.
+//!   * Exception path: `mrb_raise`, `mrb_check_error`, `mrb_protect_error`.
+//!   * State lifecycle: `mrb_open`, `mrb_close`.
+//!   * Source evaluation: `mrb_load_nstring`, `mrb_load_nstring_cxt`,
+//!     `mrb_load_irep_buf`.
+//!   * Compiler context: `mrb_ccontext_new` / `_free` / `_filename`.
 //!   * The `mrb_value` boxing helpers (declared as opaque `extern "C"`
-//!     to side-step the static-inline issue — the future
-//!     `crates/mruby-sys/wrapper.h` shim path).
+//!     against the companion C shims to side-step the static-inline
+//!     issue).
 //!
 //! No other mruby C API is touched here.
 //!
@@ -49,9 +61,9 @@
 //!
 //! `mrb_value` layout depends on mruby compile-time configuration. For
 //! wasm32 with `MRB_INT32` and `MRB_WORDBOX_NO_INLINE_FLOAT` the value
-//! is a 64-bit word-box. We treat `mrb_value` as opaque (16 bytes to be
-//! safe across all documented mruby configurations) and never inspect
-//! its bits — the boxing helpers above are the only way we construct or
+//! is a 32-bit word-box (`struct { uintptr_t w }` where `uintptr_t` is
+//! 4 bytes). We treat `mrb_value` as opaque and never inspect its bits
+//! — the boxing helpers above are the only way we construct or
 //! destructure values. Hand-rolled bit patterns would be an ABI
 //! assumption violation; macro-routed values are not.
 
@@ -93,7 +105,8 @@ pub type mrb_protect_error_func =
 /// the prefix will fail to compile rather than silently read the
 /// wrong field. The six padding fields are private because they exist
 /// solely to align `object_class` at the correct offset; `object_class`
-/// itself is `pub(crate)` for the kobako install paths.
+/// itself is `pub` so the kobako-wasm install paths can spell
+/// `(*mrb).object_class` directly without a getter shim.
 #[repr(C)]
 pub struct mrb_state {
     jmp: *mut c_void,      // struct mrb_jmpbuf *
@@ -102,7 +115,7 @@ pub struct mrb_state {
     globals: *mut c_void,  // struct iv_tbl *
     exc: *mut c_void,      // struct RObject *
     top_self: *mut c_void, // struct RObject *
-    pub(crate) object_class: *mut RClass,
+    pub object_class: *mut RClass,
 }
 
 const _: () = assert!(

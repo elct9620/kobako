@@ -48,6 +48,8 @@ use crate::mruby::value::cstr_ptr;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
+use crate::mruby::MrbValueExt;
+#[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
 
 // --------------------------------------------------------------------
