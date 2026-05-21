@@ -26,11 +26,12 @@
 //!   its `bridges` submodule. No Ruby boot text.
 //! * `mruby` — thin façade re-exporting the mruby C-API binding from
 //!   the sibling `kobako-mruby-sys` crate. Both the raw FFI surface
-//!   (`mruby::sys`) and every safe wrapper (`Mrb`, `Ccontext`,
-//!   `MrbValueExt`, `cstr_ptr`) now live in that crate; this module
-//!   forwards the existing `use crate::mruby::*` call-site shape until
-//!   the consumer code finishes migrating to typed `Value` / `Class`
-//!   newtypes (planned follow-up), at which point the façade collapses.
+//!   (`mruby::sys`) and every safe wrapper (`Mrb`, `Ccontext`, the
+//!   typed `Value` / `Class` newtypes, `cstr_ptr`) now live in that
+//!   crate; this module forwards the existing `use crate::mruby::*`
+//!   call-site shape until the consumer code adopts the longer
+//!   `crate::mruby::sys::*` paths everywhere, at which point the
+//!   façade collapses.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
 //! target — see SPEC.md "Implementation Standards" Architecture) ships a

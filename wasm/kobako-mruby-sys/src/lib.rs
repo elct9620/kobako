@@ -80,7 +80,14 @@ use core::ffi::{c_char, c_int};
 // C-string helpers. They live in this crate so the FFI types they
 // wrap and the abstractions over them ship as one cohesive surface
 // to consumers.
-#[cfg(any(target_arch = "wasm32", test))]
+//
+// `ccontext` is wasm32-only because its body calls
+// `mrb_ccontext_new` / `_filename` / `_free` and `mrb_load_nstring_cxt`
+// — all gated to wasm32 in the FFI block below. Including it on
+// host targets (or under `cfg(test)`) would surface
+// `unresolved import` and `function not found in sys` errors as soon
+// as `cargo test` ran the sys crate on its own.
+#[cfg(target_arch = "wasm32")]
 pub mod ccontext;
 pub mod class;
 pub mod state;
@@ -420,9 +427,8 @@ extern "C" {
 
     /// `mrb_funcall_argv(mrb, val, mid, argc, argv)` — non-variadic
     /// counterpart to `mrb_funcall`. Takes a pre-interned method
-    /// symbol and an `argv` array pointer. Used by `mrb_value::call`
-    /// (`crate::mruby::value`) so call sites stop reaching for the
-    /// variadic `mrb_funcall`.
+    /// symbol and an `argv` array pointer. Used by [`crate::Value::call`]
+    /// so call sites stop reaching for the variadic `mrb_funcall`.
     pub fn mrb_funcall_argv(
         mrb: *mut mrb_state,
         val: mrb_value,
@@ -650,7 +656,7 @@ extern "C" {
     /// `kobako_class_value(c)` — C shim that wraps mruby's inline
     /// `mrb_obj_value(p)` so a cached `*mut RClass` can be folded back
     /// into the `mrb_value` form expected by `mrb_const_defined` /
-    /// `mrb_const_get`. Implementation lives in `src/mruby/value.c`.
+    /// `mrb_const_get`. Implementation lives in `src/value.c`.
     pub fn kobako_class_value(c: *mut RClass) -> mrb_value;
 
     /// `mrb_const_defined(mrb, mod, sym)` — TRUE when constant `sym` is

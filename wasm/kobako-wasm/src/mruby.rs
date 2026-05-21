@@ -2,18 +2,20 @@
 //! `kobako-mruby-sys` crate.
 //!
 //! Existing call sites continue to spell their imports as
-//! `use crate::mruby::sys;` / `use crate::mruby::MrbValueExt;` /
-//! `use crate::mruby::Mrb;` — this module forwards each to its real
-//! home in `kobako-mruby-sys`. The submodules that previously lived
-//! here (`state.rs`, `ccontext.rs`, `value.rs`) have moved into
+//! `use crate::mruby::sys;` / `use crate::mruby::Mrb;` /
+//! `use crate::mruby::Ccontext;` — this module forwards each to its
+//! real home in `kobako-mruby-sys`. The submodules that previously
+//! lived here (`state.rs`, `ccontext.rs`, `value.rs`) have moved into
 //! `kobako-mruby-sys/src/` alongside the FFI declarations they wrap.
 //!
-//! This façade exists so the migration to the typed `Value` / `Class`
-//! newtypes (next refactor steps) can land incrementally without
-//! touching every `use crate::mruby::*` in the codebase. Once the
-//! consumer crate has fully adopted those newtypes, the façade can
-//! collapse into a direct `pub use kobako_mruby_sys;` or be removed
-//! entirely from `lib.rs`.
+//! This façade exists so the typed-newtype migration could land
+//! incrementally without touching every `use crate::mruby::*` in the
+//! codebase. Now that `Value` / `Class` are in place, the next step
+//! is to retire the façade — either by switching every call site to
+//! `use kobako_mruby_sys as sys;` / `use kobako_mruby_sys::Mrb;`
+//! directly, or by collapsing this module into a single
+//! `pub use kobako_mruby_sys;` line. Left in place for now so this
+//! commit stays a pure clean-up of stale references.
 
 pub use kobako_mruby_sys as sys;
 
@@ -28,6 +30,7 @@ pub use kobako_mruby_sys::Mrb;
 #[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys::Ccontext;
 
+#[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys::cstr_ptr;
 
 // Re-export the `cstr!` macro at the consumer crate's root so the

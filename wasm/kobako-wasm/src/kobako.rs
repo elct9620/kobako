@@ -45,6 +45,7 @@ use crate::cstr;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
+#[cfg(target_arch = "wasm32")]
 use crate::mruby::sys::Value;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
@@ -85,14 +86,6 @@ pub(crate) mod names {
     pub const STDERR_GVAR_NAME: &[u8] = b"$stderr\0";
     pub const MODE_WRITE: &[u8] = b"w\0";
 }
-
-// mruby's `nil` / `true` / `false` mrb_values are constructed through
-// the shims in `wasm/kobako-wasm/src/mruby/value.c`, which delegate to
-// mruby's own `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`
-// macros. kobako does NOT mirror the word-box bit pattern in Rust —
-// the layout is mruby's business. The Rust side caches the three
-// values inside [`Kobako`] at install time so the hot path stays a
-// field read rather than a cross-FFI call.
 
 /// SPEC § Error Classes mapping from a Response.err `type` field to a
 /// guest-side mruby class. Routed through
