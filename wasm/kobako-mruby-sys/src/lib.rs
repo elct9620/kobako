@@ -1,19 +1,24 @@
 //! kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
 //!
 //! This crate is the boundary between `kobako-wasm` and `libmruby.a`.
-//! It carries two pieces of FFI surface:
+//! The entire FFI surface comes from `bindgen` at build time:
 //!
-//!   1. A `bindgen`-generated binding of mruby's C API (produced at
-//!      build time from `src/wrapper.h` against `vendor/mruby/include/`
-//!      and `include!`-d below). See `build.rs::run_bindgen` for the
-//!      knobs and the three documented workarounds.
-//!   2. A small set of layout-safe C shims (compiled by the crate's
-//!      `build.rs`) that wrap mruby's macro-only APIs in real
-//!      `MRB_API` functions Rust can reach through `extern "C"`. The
-//!      long-term destination is `bytecode.c` (IREP parse + classify)
-//!      and `io.c` (`fwrite` + `mrb_obj_as_string` loop); the
-//!      transitional `exc.c` / `value.c` shims retire as bindgen-routed
-//!      replacements land.
+//!   * `src/wrapper.h` is the bindgen entry header. It includes the
+//!     mruby header subset the Guest Binary calls and adds a small
+//!     set of `static inline` wrappers around mruby's function-like
+//!     macros (`RSTRING_PTR` / `RSTRING_LEN`, `mrb_obj_ptr`,
+//!     `mrb_gc_arena_save` / `_restore`) and unexported helpers
+//!     (`mrb_proc_new`) that bindgen cannot reach directly.
+//!   * `build.rs::run_bindgen` emits the Rust bindings into
+//!     `$OUT_DIR/bindings.rs` and the static-fn trampolines into
+//!     `$OUT_DIR/mruby_static_wrappers.c`. The trampoline file is
+//!     the single C translation unit the crate compiles — no
+//!     hand-written `.c` shims live in `src/` any more.
+//!
+//! See `build.rs::run_bindgen` for the three documented
+//! workarounds (`-fvisibility=default` for rust-bindgen #751,
+//! `opaque_type("mrb_gc")` for the bitfield mis-pack, file-level
+//! allowlist over name-regex).
 //!
 //! ## Why bindgen runs from inside this crate
 //!
