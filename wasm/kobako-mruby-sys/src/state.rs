@@ -163,14 +163,22 @@ impl Mrb {
     }
 
     /// Return the currently pending mruby exception, or
-    /// `mrb_nil_value()` (`w == 0`) if none. Reads `mrb->exc` via
-    /// the layout-safe C accessor [`sys::kobako_get_exc`]; does NOT
+    /// `mrb_nil_value()` (`w == 0`) if none. Reads `mrb->exc`
+    /// directly through the bindgen-exposed struct field; does NOT
     /// clear the field — callers pair this with [`Mrb::clear_exc`]
     /// after they have captured class/message/backtrace.
     #[cfg(target_arch = "wasm32")]
     pub fn pending_exc(&self) -> Value {
-        // SAFETY: `self.state` is alive by the `&self` borrow.
-        Value::from_raw(unsafe { sys::kobako_get_exc(self.as_ptr()) })
+        // SAFETY: `self.state` is alive by the `&self` borrow. The
+        // `exc` field is exposed by bindgen as `*mut RObject`; when
+        // non-null it is the boxed exception's object pointer, which
+        // `mrb_obj_value` reifies into the matching `mrb_value`.
+        let exc = unsafe { (*self.state.as_ptr()).exc };
+        if exc.is_null() {
+            Value::from_raw(unsafe { sys::mrb_nil_value() })
+        } else {
+            Value::from_raw(unsafe { sys::mrb_obj_value(exc as *mut core::ffi::c_void) })
+        }
     }
 
     /// Clear `mrb->exc`. Idempotent; safe to call when no exception

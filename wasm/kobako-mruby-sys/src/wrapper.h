@@ -3,7 +3,7 @@
  *
  * Pulled in by `build.rs::run_bindgen` to expose the mruby C API the
  * kobako Guest Binary needs, plus the layout-safe C shims compiled
- * alongside mruby (see `src/{bytecode,exc,io,value}.c`).
+ * alongside mruby (see `src/{bytecode,io,value}.c`).
  */
 
 #include <mruby.h>
@@ -25,6 +25,3 @@ int kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size);
  * has no MRB_API float accessor; keeping the macro call inside C
  * avoids a union-return ABI mismatch on the bindgen path. */
 mrb_float kobako_unbox_float(mrb_value v);
-
-/* Transitional shim — staged removal in follow-up commit. */
-mrb_value kobako_get_exc(mrb_state *mrb);

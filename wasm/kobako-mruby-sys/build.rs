@@ -56,7 +56,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/wrapper.h");
     println!("cargo:rerun-if-changed=src/bytecode.c");
-    println!("cargo:rerun-if-changed=src/exc.c");
     println!("cargo:rerun-if-changed=src/io.c");
     println!("cargo:rerun-if-changed=src/value.c");
 
@@ -216,7 +215,6 @@ fn compile_shims(
         .compiler(format!("{}/bin/clang", wasi_sdk))
         .flag(format!("--sysroot={}/share/wasi-sysroot", wasi_sdk))
         .file("src/bytecode.c")
-        .file("src/exc.c")
         .file("src/io.c")
         .file("src/value.c")
         .include(mruby_include)
