@@ -26,7 +26,5 @@ int kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size);
  * avoids a union-return ABI mismatch on the bindgen path. */
 mrb_float kobako_unbox_float(mrb_value v);
 
-/* Transitional shims — staged removal in follow-up commits. */
-mrb_bool kobako_value_is_integer(mrb_value v);
-mrb_bool kobako_value_is_float(mrb_value v);
+/* Transitional shim — staged removal in follow-up commit. */
 mrb_value kobako_get_exc(mrb_state *mrb);

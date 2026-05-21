@@ -328,21 +328,23 @@ impl Value {
         })
     }
 
-    /// `mrb_integer_p(v)` — TRUE when `self` carries `MRB_TT_INTEGER`.
-    /// Pair with [`Value::unbox_integer`] for the direct-unbox path.
+    /// TRUE when `self` carries `MRB_TT_INTEGER`. Checks via mruby's
+    /// own `mrb_type` (`MRB_INLINE`, reached through bindgen's
+    /// static-fn trampoline). Pair with [`Value::unbox_integer`] for
+    /// the direct-unbox path.
     #[inline]
     pub fn is_integer(self) -> bool {
-        // SAFETY: the C shim is a pure predicate that does not touch
-        // `mrb_state`.
-        unsafe { sys::kobako_value_is_integer(self.0) }
+        // SAFETY: mrb_type is a pure predicate over the value tag and
+        // does not touch `mrb_state`.
+        unsafe { sys::mrb_type(self.0) == sys::MRB_TT_INTEGER }
     }
 
-    /// `mrb_float_p(v)` — TRUE when `self` carries `MRB_TT_FLOAT`.
+    /// TRUE when `self` carries `MRB_TT_FLOAT`. See [`Value::is_integer`].
     /// Pair with [`Value::unbox_float`].
     #[inline]
     pub fn is_float(self) -> bool {
         // SAFETY: as `is_integer`.
-        unsafe { sys::kobako_value_is_float(self.0) }
+        unsafe { sys::mrb_type(self.0) == sys::MRB_TT_FLOAT }
     }
 
     /// Direct `mrb_integer(v)` unbox via mruby's own
