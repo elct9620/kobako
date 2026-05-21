@@ -43,23 +43,21 @@ pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/k
 /// On a malformed blob (version drift between the linked `libmruby.a`
 /// and the host `mrbc` that produced the blob, truncated buffer, etc.)
 /// mruby sets `mrb->exc` and returns. Callers that need to surface the
-/// fault should inspect the exception via [`kobako_get_exc`] before
-/// proceeding. The build pipeline guarantees `mrbc` and `libmruby.a`
-/// originate from the same `vendor/mruby/` tree, so under correct
-/// builds the load is unconditional.
+/// fault should inspect the exception via [`crate::mruby::Mrb::pending_exc`]
+/// before proceeding. The build pipeline guarantees `mrbc` and
+/// `libmruby.a` originate from the same `vendor/mruby/` tree, so under
+/// correct builds the load is unconditional.
 ///
 /// # Safety
 ///
 /// `mrb` must be a live mruby state. `bytes` must reference a buffer
 /// that lives for the duration of the call; the static `IO_MRB` /
 /// `KERNEL_MRB` constants above always satisfy this.
-///
-/// [`kobako_get_exc`]: crate::mruby::sys::kobako_get_exc
 #[cfg(target_arch = "wasm32")]
 pub(crate) unsafe fn load(mrb: *mut sys::mrb_state, bytes: &[u8]) {
-    unsafe {
-        sys::mrb_load_irep_buf(mrb, bytes.as_ptr() as *const core::ffi::c_void, bytes.len());
-    }
+    // SAFETY: `mrb` is live by the caller's contract.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
+    let _ = mrb_ref.load_irep_buf(bytes);
 }
 
 // No host-target stubs needed. Every consumer of `IO_MRB` / `KERNEL_MRB`

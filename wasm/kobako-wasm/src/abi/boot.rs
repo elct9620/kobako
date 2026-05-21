@@ -186,16 +186,7 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 /// replay control flow.
 #[cfg(target_arch = "wasm32")]
 fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
-    // SAFETY: `mrb` is live by the caller's contract on `&Mrb`;
-    // `body` is a borrowed slice that outlives the synchronous call.
-    let rc = unsafe {
-        crate::mruby::sys::kobako_load_bytecode(
-            mrb.as_ptr(),
-            body.as_ptr() as *const core::ffi::c_void,
-            body.len(),
-        )
-    };
-    if rc == 0 {
+    if mrb.load_bytecode(body) == 0 {
         BytecodeLoad::Loaded
     } else {
         BytecodeLoad::StructuralFailure

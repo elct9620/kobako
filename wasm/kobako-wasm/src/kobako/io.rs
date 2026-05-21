@@ -28,8 +28,6 @@
 //! `ArgumentError` immediately; the sandbox has no other captured fds
 //! to route to.
 
-#[cfg(target_arch = "wasm32")]
-use crate::cstr;
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
@@ -84,19 +82,7 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
     {
         // SAFETY: bridge frame — mruby invoked us with a live state.
         let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
-
-        let mut fd: core::ffi::c_int = 0;
-        // mrb_get_args `"o"` writes a raw mrb_value cell; wrap once
-        // after the call.
-        let mut mode_raw = sys::mrb_value::zeroed();
-        unsafe {
-            sys::mrb_get_args(
-                mrb,
-                cstr!("io"),
-                &mut fd as *mut core::ffi::c_int,
-                &mut mode_raw as *mut sys::mrb_value,
-            );
-        }
+        let (fd, mode_val) = mrb_ref.get_args_io();
 
         if fd != 1 && fd != 2 {
             unsafe {
@@ -107,7 +93,7 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
             }
         }
 
-        let mode = Value::from_raw(mode_raw).to_string(mrb_ref);
+        let mode = mode_val.to_string(mrb_ref);
         if mode != "w" {
             unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
         }
@@ -139,19 +125,20 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         // SAFETY: bridge frame — mruby invoked us with a live state.
         let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(mrb) };
         let fd = read_fd(mrb_ref, self_);
+        let argv = mrb_ref.get_args_rest();
 
-        let mut argv: *const sys::mrb_value = core::ptr::null();
-        let mut argc: core::ffi::c_int = 0;
-        unsafe {
-            sys::mrb_get_args(
+        // SAFETY: kobako_io_fwrite reads exactly `argv.len()` cells
+        // from the argv buffer mruby produced on this call frame.
+        // Value is `#[repr(transparent)]` over mrb_value so the slice
+        // pointer reuses the layout.
+        let total = unsafe {
+            sys::kobako_io_fwrite(
                 mrb,
-                cstr!("*"),
-                &mut argv as *mut *const sys::mrb_value,
-                &mut argc as *mut core::ffi::c_int,
-            );
-        }
-
-        let total = unsafe { sys::kobako_io_fwrite(mrb, fd, argv, argc) };
+                fd,
+                argv.as_ptr() as *const sys::mrb_value,
+                argv.len() as i32,
+            )
+        };
         Value::from_int(mrb_ref, total)
     }
     #[cfg(not(target_arch = "wasm32"))]

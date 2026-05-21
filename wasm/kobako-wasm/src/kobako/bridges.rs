@@ -39,40 +39,8 @@
 //! safe `Kobako` token; from then on the work is safe Rust with
 //! explicit `unsafe { ... }` blocks at each remaining FFI call site.
 
-#[cfg(target_arch = "wasm32")]
-use crate::cstr;
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
-
-/// Build a borrowed `&[Value]` from a `mrb_get_args("n*", ...)`
-/// out-parameter pair. mruby may set `rest_ptr` to NULL when the
-/// rest-array is empty; reading `rest_len` bytes from a NULL pointer
-/// would be UB, so the helper returns an empty slice in that case.
-///
-/// `rest_ptr` arrives typed as `*const sys::mrb_value` (matching
-/// mruby's variadic out-param contract); the cast to `*const Value`
-/// is sound because `Value` is `#[repr(transparent)]` over
-/// `mrb_value`.
-///
-/// # Safety
-///
-/// When `rest_len > 0`, `rest_ptr` must point to a contiguous array
-/// of `rest_len` `mrb_value` entries produced by `mrb_get_args` on
-/// the current call frame. The slice borrows from that array and
-/// must not outlive the call.
-#[cfg(target_arch = "wasm32")]
-unsafe fn slice_from_mrb_args<'a>(
-    rest_ptr: *const sys::mrb_value,
-    rest_len: core::ffi::c_int,
-) -> &'a [Value] {
-    if rest_len > 0 && !rest_ptr.is_null() {
-        // SAFETY: see item-level doc. Cast through `*const Value` is
-        // sound by `repr(transparent)`.
-        unsafe { core::slice::from_raw_parts(rest_ptr as *const Value, rest_len as usize) }
-    } else {
-        &[]
-    }
-}
 
 /// `Kobako::RPC.method_missing(name, *args)` C bridge — singleton-class
 /// level, so `self` is the class object (e.g. `MyService::KV`).
@@ -94,19 +62,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-
-        let mut method_sym: sys::mrb_sym = 0;
-        let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
-        let mut rest_len: core::ffi::c_int = 0;
-        unsafe {
-            sys::mrb_get_args(
-                mrb,
-                cstr!("n*"),
-                &mut method_sym as *mut sys::mrb_sym,
-                &mut rest_ptr as *mut *const sys::mrb_value,
-                &mut rest_len as *mut core::ffi::c_int,
-            );
-        }
+        let (method_sym, rest) = kobako.mrb().get_args_n_rest();
 
         // SAFETY: `self_` is the class receiver of a singleton-class
         // `method_missing` shim — class-tagged by mruby itself.
@@ -123,10 +79,6 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             Some(name) => name,
             None => unsafe { kobako.raise_wire_error(c"RPC method symbol name is null") },
         };
-
-        // SAFETY: mruby passes a valid array on `n*` unpack; see
-        // [`slice_from_mrb_args`] for the empty-slice handling.
-        let rest = unsafe { slice_from_mrb_args(rest_ptr, rest_len) };
 
         let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
@@ -158,14 +110,8 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     {
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-
-        // mrb_get_args writes its `"o"` slot as a raw mrb_value; wrap
-        // the cell once retrieved.
-        let mut id_raw = sys::mrb_value::zeroed();
-        unsafe {
-            sys::mrb_get_args(mrb, cstr!("o"), &mut id_raw as *mut sys::mrb_value);
-        }
-        kobako.set_handle_id(self_, Value::from_raw(id_raw));
+        let id_val = kobako.mrb().get_args_o();
+        kobako.set_handle_id(self_, id_val);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -190,19 +136,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-
-        let mut method_sym: sys::mrb_sym = 0;
-        let mut rest_ptr: *const sys::mrb_value = core::ptr::null();
-        let mut rest_len: core::ffi::c_int = 0;
-        unsafe {
-            sys::mrb_get_args(
-                mrb,
-                cstr!("n*"),
-                &mut method_sym as *mut sys::mrb_sym,
-                &mut rest_ptr as *mut *const sys::mrb_value,
-                &mut rest_len as *mut core::ffi::c_int,
-            );
-        }
+        let (method_sym, rest) = kobako.mrb().get_args_n_rest();
 
         let handle_id = kobako.extract_handle_id(self_);
 
@@ -210,9 +144,6 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             Some(name) => name,
             None => unsafe { kobako.raise_wire_error(c"Handle method symbol name is null") },
         };
-
-        // SAFETY: see [`slice_from_mrb_args`].
-        let rest = unsafe { slice_from_mrb_args(rest_ptr, rest_len) };
 
         let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Handle(handle_id);
