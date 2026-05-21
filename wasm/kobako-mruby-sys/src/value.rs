@@ -364,22 +364,26 @@ impl Value {
 
     /// Direct `mrb_float(v)` unbox. Preserves full f64 precision.
     ///
-    /// Routed through the [`sys::kobako_unbox_float`] shim because
-    /// under the wasm32 `MRB_WORDBOX_NO_INLINE_FLOAT` config mruby
-    /// has no `MRB_API` float unboxer — the `mrb_float(o)` macro
-    /// expands to `mrb_rfloat_value(mrb_val_union(o).fp)`, and the
-    /// `mrb_val_union` step returns a `union mrb_value_` whose FFI
-    /// return-value ABI differs between bindgen's trampoline and
-    /// rustc on wasm32. Keeping the call inside C avoids the
-    /// mismatch.
+    /// Under `MRB_WORDBOX_NO_INLINE_FLOAT` (the wasm32 kobako
+    /// config) Float values are always object-tagged with two
+    /// trailing zero bits — `mrb_value.w` is the `RFloat *` word
+    /// directly, so we cast through it instead of routing through
+    /// the `mrb_val_union` static inline (whose `union mrb_value_`
+    /// return type carries a wasm32 FFI ABI mismatch between
+    /// bindgen's trampoline and rustc). The result is fed to
+    /// mruby's own `mrb_rfloat_value` (`static inline`, reached via
+    /// bindgen's static-fn trampoline) which reads the f64 payload
+    /// out of `RFloat`.
     ///
     /// # Safety
     ///
     /// As [`Value::unbox_integer`]: caller has confirmed Float-tagging.
     #[inline]
     pub unsafe fn unbox_float(self) -> f64 {
-        // SAFETY: forwarded from caller.
-        unsafe { sys::kobako_unbox_float(self.0) }
+        // SAFETY: forwarded from caller. Float-tagged values have
+        // the object-tag bit pattern, so `w` aliases an `RFloat *`.
+        let fp = self.0.w as *mut sys::RFloat;
+        unsafe { sys::mrb_rfloat_value(fp) }
     }
 
     /// `mrb_ary_entry(self, idx)` — read the element at `idx` from

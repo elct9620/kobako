@@ -3,7 +3,7 @@
  *
  * Pulled in by `build.rs::run_bindgen` to expose the mruby C API the
  * kobako Guest Binary needs, plus the layout-safe C shims compiled
- * alongside mruby (see `src/{bytecode,io,value}.c`).
+ * alongside mruby (see `src/{bytecode,io}.c`).
  *
  * The `<stdbool.h>` and `<sys/select.h>` pre-includes are not used
  * by the mruby surface itself — they cover bindgen's `wrap_static_fns`
@@ -34,8 +34,3 @@
 /* C shims that remain in this crate after the full migration. */
 mrb_int kobako_io_fwrite(mrb_state *mrb, int fd, const mrb_value *argv, mrb_int argc);
 int kobako_load_bytecode(mrb_state *mrb, const void *buf, size_t size);
-
-/* kobako_unbox_float — the wasm32 MRB_WORDBOX_NO_INLINE_FLOAT config
- * has no MRB_API float accessor; keeping the macro call inside C
- * avoids a union-return ABI mismatch on the bindgen path. */
-mrb_float kobako_unbox_float(mrb_value v);
