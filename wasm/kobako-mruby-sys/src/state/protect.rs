@@ -66,20 +66,22 @@ impl Mrb {
             body(mrb_ref).into_raw()
         }
 
-        let mut error: sys::mrb_bool = 0;
+        let mut error: sys::mrb_bool = false;
         // SAFETY: `self` is alive; `trampoline::<F>` upholds the
         // `mrb_protect_error_func` ABI; `userdata` points to `slot`
-        // on this stack frame which outlives the call.
+        // on this stack frame which outlives the call. bindgen wraps
+        // function-typedef parameters in `Option<…>`, so the
+        // trampoline must be passed via `Some`.
         let ret = unsafe {
             sys::mrb_protect_error(
                 self.as_ptr(),
-                trampoline::<F>,
+                Some(trampoline::<F>),
                 &mut slot as *mut Option<F> as *mut core::ffi::c_void,
                 &mut error,
             )
         };
         let value = Value::from_raw(ret);
-        if error != 0 {
+        if error {
             Err(value)
         } else {
             Ok(value)

@@ -2,43 +2,39 @@
 #
 # Two responsibilities:
 #
-#   1. `extern "C"` declarations for the mruby C API subset that the
-#      Guest Binary calls (the `mrb_open` / `mrb_load_nstring` /
+#   1. `bindgen`-generated FFI declarations for the mruby C API surface
+#      the Guest Binary calls (the `mrb_open` / `mrb_load_nstring` /
 #      `mrb_define_class_under` / … family plus the `mrb_value` and
-#      `mrb_state` ABI types).
-#   2. Four layout-safe C shims (`bytecode.c`, `exc.c`, `io.c`,
-#      `value.c`) that wrap mruby's macro-only APIs (`mrb_obj_value`,
-#      `mrb_integer_p`, `RSTRING_PTR`, `mrb_load_irep_buf`) in real
-#      `MRB_API` functions Rust can reach through `extern "C"`. These
-#      stay in C translation units driven by mruby's own headers so
-#      kobako never has to mirror mruby's word-box / string layout in
-#      Rust.
+#      `mrb_state` ABI types). The bindings are produced at build time
+#      from `src/wrapper.h` against `vendor/mruby/include/`.
+#   2. Layout-safe C shims (`bytecode.c`, `exc.c`, `io.c`, `value.c`)
+#      that wrap the macro-only mruby APIs not covered by bindgen's
+#      static-fn trampolines. Each shim retires once its replacement
+#      via the mruby helper lands; the long-term destination is
+#      `bytecode.c` + `io.c` only.
 #
 # Build-time inputs (consumed via env, populated by `tasks/wasm.rake`):
 #
 #   * `MRUBY_LIB_DIR` — absolute path to the directory containing the
 #     pre-built `libmruby.a` (Stage B output). Drives `cargo:rustc-link-*`.
 #   * `WASI_SDK_PATH` — absolute path to the unpacked wasi-sdk. Drives
-#     the setjmp library link directive (required for mruby's WebAssembly
-#     exception handling).
+#     both the bindgen clang invocation (`--sysroot`, `--target`) and
+#     the setjmp library link directive (required for mruby's
+#     WebAssembly exception handling).
 #
-# What this crate is NOT (yet)
-# ----------------------------
-#   * Not yet bindgen-driven. The current `lib.rs` carries hand-written
-#     `extern "C"` blocks; introducing bindgen is the next step after
-#     this split lands, scoped entirely to this crate so libclang
-#     becomes a sys-only build dependency rather than a global one.
+# What this crate is NOT
+# ----------------------
 #   * Not a magnus-style typed value wrapper. The safe `Mrb` / `Ccontext`
-#     / `mrb_value` ergonomics live one layer up in the `kobako-wasm`
-#     crate (`src/mruby/{state,ccontext,value}.rs`) so this crate stays
-#     a pure FFI surface.
+#     / `mrb_value` ergonomics live in the safe-layer modules in this
+#     same crate (`src/{state,value,class,ccontext}.rs`); the bindgen
+#     output stays a pure FFI surface beneath them.
 
 [package]
 name = "kobako-mruby-sys"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "Hand-rolled mruby C API FFI bindings + layout-safe C shims for the kobako Guest Binary."
+description = "bindgen-driven mruby C API FFI bindings + layout-safe C shims for the kobako Guest Binary."
 license = "Apache-2.0"
 
 [lib]
@@ -48,7 +44,12 @@ license = "Apache-2.0"
 crate-type = ["rlib"]
 
 [build-dependencies]
-# `cc` compiles the four mruby header-driven C shims. The shims include
-# `<mruby.h>` and friends, so the build only runs when the wasi-sdk
-# toolchain is staged (see `build.rs`).
+# `cc` compiles the remaining mruby header-driven C shims plus the
+# bindgen-emitted static-fn trampolines. The shims include `<mruby.h>`
+# and friends, so the build only runs when the wasi-sdk toolchain is
+# staged (see `build.rs`).
 cc = "1"
+# `bindgen` generates the mruby C API FFI surface from `src/wrapper.h`.
+# Pinned to the major that `rb_sys` already drags into the host workspace
+# so a future cargo unification keeps a single bindgen entry.
+bindgen = "0.72"

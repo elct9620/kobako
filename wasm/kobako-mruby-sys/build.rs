@@ -1,45 +1,32 @@
-// build.rs — kobako-mruby-sys link wiring + C shim compilation.
+// build.rs — kobako-mruby-sys link wiring, bindgen run, and C shim
+// compilation.
 //
 // Purpose
 // -------
 // On the production target (wasm32-wasip1), this build script does
-// three things:
+// four things:
 //
-//   1. Compiles the four layout-safe C shims (`bytecode.c`, `exc.c`,
-//      `io.c`, `value.c`) against mruby's own headers so the macro-only
-//      mruby APIs (`mrb_obj_value`, `mrb_integer_p`, `RSTRING_PTR`,
-//      `mrb_load_irep_buf`) become real `MRB_API` functions Rust can
-//      reach through `extern "C"`.
-//   2. Emits `cargo:rustc-link-search=native=$MRUBY_LIB_DIR` plus
+//   1. Runs bindgen against `src/wrapper.h` to emit the mruby C API
+//      FFI surface into `$OUT_DIR/bindings.rs`. The static-fn
+//      trampolines bindgen needs to reach `MRB_INLINE` helpers land
+//      in `$OUT_DIR/mruby_static_wrappers.c`.
+//   2. Compiles the layout-safe C shims (`bytecode.c`, `exc.c`,
+//      `io.c`, `value.c`) plus the bindgen-emitted static-fn
+//      trampoline file against mruby's own headers.
+//   3. Emits `cargo:rustc-link-search=native=$MRUBY_LIB_DIR` plus
 //      `cargo:rustc-link-lib=static=mruby` so the resulting rlib drags
 //      `libmruby.a` into the eventual `kobako-wasm` cdylib's link
 //      graph.
-//   3. Emits the matching `setjmp` library link directives sourced
+//   4. Emits the matching `setjmp` library link directives sourced
 //      from `$WASI_SDK_PATH` so mruby's WebAssembly exception handling
 //      (`__wasm_setjmp` / `__wasm_longjmp` / `__wasm_setjmp_test`)
 //      resolves cleanly against wasi-sdk's `libsetjmp.a`.
 //
 // On every other target this script is a near no-op: the early-return
-// below skips both the cc::Build run and the link directives, because
-// host targets do not have `libmruby.a` and the host-target rlib is
-// only used for `cargo test` against the codec / outcome / RPC
+// below skips bindgen, the cc::Build run, and the link directives,
+// because host targets do not have `libmruby.a` and the host-target
+// rlib is only used for `cargo test` against the codec / outcome / RPC
 // envelope unit tests in the consumer crate.
-//
-// What this file does NOT do
-// --------------------------
-//   * It does not run `bindgen`. The mruby C-API binding referenced by
-//     the consumer crate's call sites lives hand-rolled in `src/lib.rs`.
-//     Wiring bindgen into this script would force libclang onto every
-//     developer machine; the upcoming bindgen migration is scoped to
-//     this crate alone so that cost stays contained.
-//   * It does not validate the mruby archive. The Rake driver
-//     (`tasks/wasm.rake :: wasm:build`) builds `libmruby.a` immediately
-//     before invoking cargo, and the wasm-binary invariant tests in
-//     `kobako-wasm`'s E2E suite catch link-time regressions.
-//   * It does not precompile `mrblib/*.rb`. That belongs to the
-//     `kobako-wasm` crate (whose `build.rs` calls host `mrbc` to
-//     produce RITE blobs embedded via `include_bytes!`) — kobako's
-//     own Ruby boot code is not a sys-layer concern.
 //
 // Contract with the Rake driver
 // -----------------------------
@@ -51,9 +38,8 @@
 //     link-search + link-lib directives, and the build-dir include
 //     resolution for mruby's generated headers (`mruby/presym/id.h`).
 //   * `WASI_SDK_PATH` — absolute path to the unpacked wasi-sdk root
-//     (i.e. `vendor/wasi-sdk`). Drives setjmp library resolution and
-//     gates the cc::Build run (without the wasi sysroot the C shims'
-//     `#include <stdio.h>` would fail to resolve).
+//     (i.e. `vendor/wasi-sdk`). Drives bindgen's clang invocation and
+//     the setjmp library link directive.
 //
 // Idempotency
 // -----------
@@ -62,12 +48,13 @@
 // entries below changes.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-env-changed=MRUBY_LIB_DIR");
     println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/wrapper.h");
     println!("cargo:rerun-if-changed=src/bytecode.c");
     println!("cargo:rerun-if-changed=src/exc.c");
     println!("cargo:rerun-if-changed=src/io.c");
@@ -84,75 +71,64 @@ fn main() {
         return;
     }
 
-    // Locate vendor/mruby/include relative to the crate root.
-    // CARGO_MANIFEST_DIR is always set by cargo; this crate lives at
-    // `wasm/kobako-mruby-sys/` so `../../vendor/mruby/include`
-    // resolves to the project-level vendor tree.
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let mruby_include = manifest_dir
-        .join("..")
-        .join("..")
-        .join("vendor")
-        .join("mruby")
-        .join("include");
+    let vendor_dir = manifest_dir.join("..").join("..").join("vendor");
+    let mruby_include = vendor_dir.join("mruby").join("include");
 
-    // Compile the layout-safe C shims that expose mruby's macro-only
-    // APIs through clean FFI functions. Delegating field-offset and
-    // boxing-bit knowledge to mruby's own headers means a minor-version
-    // bump that reorders struct fields is caught at compile time
-    // rather than silently shifting the target word at runtime.
-    //
-    // Guard: only compile when WASI_SDK_PATH or CC_wasm32_wasip1 is
-    // set (i.e. the full wasm:build pipeline). Bare `cargo check`
-    // without the wasi-sdk toolchain would use the host clang which
-    // lacks the WASI sysroot — `mruby.h` includes `<stdio.h>` and
-    // would fail. This mirrors the link-wiring guard below.
-    let wasi_sdk = env::var("WASI_SDK_PATH").ok().filter(|s| !s.is_empty());
-    let cc_override = env::var("CC_wasm32_wasip1").ok().filter(|s| !s.is_empty());
+    let wasi_sdk = env::var("WASI_SDK_PATH")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let p = vendor_dir.join("wasi-sdk");
+            p.exists().then(|| p.to_string_lossy().into_owned())
+        });
+    let mruby_lib_dir = env::var("MRUBY_LIB_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let p = vendor_dir
+                .join("mruby")
+                .join("build")
+                .join("wasi")
+                .join("lib");
+            p.exists().then(|| p.to_string_lossy().into_owned())
+        });
+    let mruby_build_include = mruby_lib_dir.as_ref().and_then(|lib_dir| {
+        let p = PathBuf::from(lib_dir).join("..").join("include");
+        p.exists().then_some(p)
+    });
 
-    if (wasi_sdk.is_some() || cc_override.is_some()) && mruby_include.exists() {
-        // The mruby build process generates some headers (e.g.
-        // `mruby/presym/id.h`) into the target-specific build directory.
-        // We need both the source headers AND the generated build
-        // headers in the include path, mirroring how mruby's own build
-        // system sets up include dirs for C files that include
-        // <mruby.h>.
-        let mut build = cc::Build::new();
-        build
-            .file("src/bytecode.c")
-            .file("src/exc.c")
-            .file("src/io.c")
-            .file("src/value.c")
-            .include(&mruby_include);
-
-        // Add the wasi build's generated include dir if we can locate
-        // it. MRUBY_LIB_DIR is `vendor/mruby/build/wasi/lib`; the
-        // generated headers are one level up at
-        // `vendor/mruby/build/wasi/include`.
-        if let Ok(lib_dir) = env::var("MRUBY_LIB_DIR") {
-            if !lib_dir.is_empty() {
-                let build_include = PathBuf::from(&lib_dir).join("..").join("include");
-                if build_include.exists() {
-                    build.include(&build_include);
-                }
-            }
-        }
-
-        build.compile("kobako_exc");
+    if !mruby_include.exists() || mruby_build_include.is_none() || wasi_sdk.is_none() {
+        panic!(
+            "kobako-mruby-sys: vendor toolchain not staged for wasm32 build. \
+             Run `bundle exec rake vendor:setup mruby:build` first."
+        );
     }
 
-    // wasm32 path: emit link directives only when the Rake driver has
-    // staged libmruby.a. In practice `cargo check --target
-    // wasm32-wasip1` may run without `MRUBY_LIB_DIR` set (e.g. from
-    // `wasm:check`); in that lane we want a clean compile-only signal,
-    // so we silently skip the link wiring. The downstream `cargo
-    // build` invocation in `wasm:build` always has the env var set
-    // (see tasks/wasm.rake).
-    if let Ok(lib_dir) = env::var("MRUBY_LIB_DIR") {
-        if !lib_dir.is_empty() {
-            println!("cargo:rustc-link-search=native={}", lib_dir);
-            println!("cargo:rustc-link-lib=static=mruby");
-        }
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let bindings_rs = out_dir.join("bindings.rs");
+    let static_wrappers_c = out_dir.join("mruby_static_wrappers.c");
+    let wasi_sdk = wasi_sdk.as_deref().unwrap();
+    let mruby_build_include = mruby_build_include.as_deref().unwrap();
+
+    run_bindgen(
+        &manifest_dir,
+        &mruby_include,
+        mruby_build_include,
+        wasi_sdk,
+        &bindings_rs,
+        &static_wrappers_c,
+    );
+    compile_shims(
+        &mruby_include,
+        mruby_build_include,
+        wasi_sdk,
+        &static_wrappers_c,
+    );
+
+    if let Some(lib_dir) = mruby_lib_dir.as_ref() {
+        println!("cargo:rustc-link-search=native={}", lib_dir);
+        println!("cargo:rustc-link-lib=static=mruby");
     }
 
     // wasi-sdk setjmp library — required because libmruby.a uses
@@ -164,11 +140,89 @@ fn main() {
     // wasm32-wasip1 self-contained libc). Without this library,
     // rust-lld's `--allow-undefined` flag would turn these into wasm
     // imports that the host cannot satisfy.
-    if let Ok(sdk_path) = env::var("WASI_SDK_PATH") {
-        if !sdk_path.is_empty() {
-            let setjmp_dir = format!("{}/share/wasi-sysroot/lib/wasm32-wasi", sdk_path);
-            println!("cargo:rustc-link-search=native={}", setjmp_dir);
-            println!("cargo:rustc-link-lib=static=setjmp");
-        }
+    let setjmp_dir = format!("{}/share/wasi-sysroot/lib/wasm32-wasi", wasi_sdk);
+    println!("cargo:rustc-link-search=native={}", setjmp_dir);
+    println!("cargo:rustc-link-lib=static=setjmp");
+}
+
+fn run_bindgen(
+    manifest_dir: &Path,
+    mruby_include: &Path,
+    mruby_build_include: &Path,
+    wasi_sdk: &str,
+    bindings_rs: &Path,
+    static_wrappers_c: &Path,
+) {
+    let wrapper_h = manifest_dir.join("src/wrapper.h");
+    let bindings = bindgen::Builder::default()
+        .header(wrapper_h.to_str().unwrap())
+        .clang_arg("--target=wasm32-wasi")
+        .clang_arg(format!("--sysroot={}/share/wasi-sysroot", wasi_sdk))
+        // WORKAROUND rust-bindgen #751: clang's wasm32 frontend defaults
+        // to -fvisibility=hidden, so libclang flags every MRB_API
+        // function as CXVisibility_Hidden and bindgen drops them. Only
+        // the wrap_static_fns wrappers survive without this.
+        .clang_arg("-fvisibility=default")
+        .clang_arg(format!("-I{}", mruby_include.display()))
+        .clang_arg(format!("-I{}", mruby_build_include.display()))
+        // Mirror build_config/wasi.rb rules #3 / #4 — without these
+        // defines bindgen sees a different mrb_value layout than
+        // libmruby.a was built with and the wasm32 ABI silently
+        // diverges.
+        .clang_arg("-DMRB_INT32")
+        .clang_arg("-DMRB_WORDBOX_NO_INLINE_FLOAT")
+        // WORKAROUND: allowlist_function by name regex misses items
+        // under some attribute combinations (related to #751). File-level
+        // allowlist matches every declaration in the mruby header tree
+        // and is the pattern rb-sys uses.
+        .allowlist_file(".*mruby.*\\.h")
+        .allowlist_file(".*wrapper\\.h")
+        // Blocklist mrb_func_t so its name resolves to our typed alias
+        // in lib.rs (with `Value` parameters) instead of bindgen's
+        // Option<unsafe extern "C" fn(...)>-wrapped version.
+        .blocklist_type("mrb_func_t")
+        // WORKAROUND: mrb_gc has mixed `int:2` and `mrb_bool:1`
+        // bitfields. clang's actual wasm32 codegen keeps the int
+        // portion in its own 4-byte container; bindgen merges all 7
+        // bits into a single byte, shifting every field after mrb_gc
+        // in mrb_state by 4 bytes. opaque_type makes bindgen ask
+        // clang for sizeof(mrb_gc) (correct) and emit an opaque blob.
+        .opaque_type("mrb_gc")
+        .prepend_enum_name(false)
+        // Generate trampolines for MRB_INLINE helpers so Rust can call
+        // them through real extern symbols (later stages depend on
+        // this for mrb_integer_func / mrb_word_boxing_value_float /
+        // mrb_obj_value / mrb_nil_value / mrb_true_value /
+        // mrb_false_value / mrb_type).
+        .wrap_static_fns(true)
+        .wrap_static_fns_path(static_wrappers_c.with_extension(""))
+        .layout_tests(false)
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .generate()
+        .expect("bindgen: failed to generate mruby bindings");
+    bindings
+        .write_to_file(bindings_rs)
+        .expect("bindgen: failed to write bindings.rs");
+}
+
+fn compile_shims(
+    mruby_include: &Path,
+    mruby_build_include: &Path,
+    wasi_sdk: &str,
+    static_wrappers_c: &Path,
+) {
+    let mut build = cc::Build::new();
+    build
+        .compiler(format!("{}/bin/clang", wasi_sdk))
+        .flag(format!("--sysroot={}/share/wasi-sysroot", wasi_sdk))
+        .file("src/bytecode.c")
+        .file("src/exc.c")
+        .file("src/io.c")
+        .file("src/value.c")
+        .include(mruby_include)
+        .include(mruby_build_include);
+    if static_wrappers_c.exists() {
+        build.file(static_wrappers_c);
     }
+    build.compile("kobako_mruby_shims");
 }

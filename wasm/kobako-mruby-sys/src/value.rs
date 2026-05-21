@@ -333,7 +333,7 @@ impl Value {
     pub fn is_integer(self) -> bool {
         // SAFETY: the C shim is a pure predicate that does not touch
         // `mrb_state`.
-        (unsafe { sys::kobako_value_is_integer(self.0) }) != 0
+        unsafe { sys::kobako_value_is_integer(self.0) }
     }
 
     /// `mrb_float_p(v)` — TRUE when `self` carries `MRB_TT_FLOAT`.
@@ -341,7 +341,7 @@ impl Value {
     #[inline]
     pub fn is_float(self) -> bool {
         // SAFETY: as `is_integer`.
-        (unsafe { sys::kobako_value_is_float(self.0) }) != 0
+        unsafe { sys::kobako_value_is_float(self.0) }
     }
 
     /// Direct `mrb_integer(v)` unbox.
@@ -416,7 +416,7 @@ impl Value {
     #[inline]
     pub fn const_defined(self, mrb: &Mrb, sym: sys::mrb_sym) -> bool {
         // SAFETY: as `iv_set`.
-        (unsafe { sys::mrb_const_defined(mrb.as_ptr(), self.0, sym) }) != 0
+        unsafe { sys::mrb_const_defined(mrb.as_ptr(), self.0, sym) }
     }
 
     /// `mrb_const_get(mrb, self, sym)` — fetch the constant value at
@@ -433,7 +433,7 @@ impl Value {
     #[inline]
     pub fn respond_to(self, mrb: &Mrb, mid: sys::mrb_sym) -> bool {
         // SAFETY: as `iv_set`.
-        (unsafe { sys::mrb_respond_to(mrb.as_ptr(), self.0, mid) }) != 0
+        unsafe { sys::mrb_respond_to(mrb.as_ptr(), self.0, mid) }
     }
 }
 
