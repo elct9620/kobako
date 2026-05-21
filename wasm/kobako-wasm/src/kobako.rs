@@ -41,6 +41,7 @@ pub(crate) mod io;
 #[cfg(target_arch = "wasm32")]
 mod wire_convert;
 
+#[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys::Value;
