@@ -18,8 +18,8 @@
 //! `Ccontext::new(&mrb, cstr!("..."))` + `cxt.load_nstring(bytes)`
 //! pair; `Drop` runs the free unconditionally.
 
-use crate::mruby::sys;
-use crate::mruby::Mrb;
+use crate as sys;
+use crate::Mrb;
 
 /// Owned mruby compile context, tied to the lifetime of an [`Mrb`].
 ///
@@ -27,7 +27,7 @@ use crate::mruby::Mrb;
 /// `mrb_state` that produced it: when [`Drop`] runs we still need
 /// `self.mrb.as_ptr()` to call `mrb_ccontext_free`, and the borrow
 /// checker keeps `Mrb` alive long enough.
-pub(crate) struct Ccontext<'mrb> {
+pub struct Ccontext<'mrb> {
     mrb: &'mrb Mrb,
     raw: *mut sys::mrb_ccontext,
 }
@@ -37,7 +37,7 @@ impl<'mrb> Ccontext<'mrb> {
     /// NUL-terminated C string). Returns `None` when
     /// `mrb_ccontext_new` returns NULL — callers map that to a
     /// `Kobako::BootError` Panic.
-    pub(crate) fn new(mrb: &'mrb Mrb, filename: *const core::ffi::c_char) -> Option<Self> {
+    pub fn new(mrb: &'mrb Mrb, filename: *const core::ffi::c_char) -> Option<Self> {
         // SAFETY: `mrb` is live by the borrow; `filename` is required
         // to be NUL-terminated by the function contract.
         let raw = unsafe { sys::mrb_ccontext_new(mrb.as_ptr()) };
@@ -52,7 +52,7 @@ impl<'mrb> Ccontext<'mrb> {
 
     /// Compile and evaluate `source` under this context. `source` is
     /// raw bytes (ptr + len), not NUL-terminated.
-    pub(crate) fn load_nstring(&self, source: &[u8]) -> sys::mrb_value {
+    pub fn load_nstring(&self, source: &[u8]) -> sys::mrb_value {
         // SAFETY: `self.mrb` is live by the borrow; `self.raw` was
         // produced by `mrb_ccontext_new` in `Self::new` and is owned
         // for the lifetime of `&self`; the source bytes outlive the

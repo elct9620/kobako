@@ -31,7 +31,7 @@ fn eval_body() {
     use super::frames;
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::cstr;
-    use crate::mruby::ccontext::Ccontext;
+    use crate::mruby::Ccontext;
     use crate::outcome::{encode_outcome, Outcome, Panic};
 
     let preamble = match boot::read_preamble() {

@@ -24,7 +24,7 @@
 //! the borrow checker, and `Drop` makes `mrb_close` automatic.
 
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::sys;
+use crate as sys;
 #[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
 
@@ -95,7 +95,7 @@ impl Mrb {
     }
 
     /// Clear `mrb->exc`. Idempotent; safe to call when no exception
-    /// is pending. Used by [`crate::abi::boot::take_pending_panic`]
+    /// is pending. Used by the consumer crate's panic-recovery paths
     /// after the pending exception has been extracted, so subsequent
     /// mruby calls do not observe stale exception state.
     #[cfg(target_arch = "wasm32")]
@@ -104,6 +104,19 @@ impl Mrb {
         // return value (a `mrb_bool` snapshot of the prior `mrb->exc`
         // state) is intentionally discarded.
         let _ = unsafe { sys::mrb_check_error(self.as_ptr()) };
+    }
+
+    /// Return `mrb->object_class` as a raw `*mut RClass`. Replaces
+    /// direct field access — the `object_class` field on the
+    /// [`crate::mrb_state`] struct is `pub(crate)` so this accessor
+    /// is the one external entry point. A typed `Class` newtype will
+    /// supersede the raw pointer in a follow-up; the method stays
+    /// stable across that migration.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub fn object_class(&self) -> *mut sys::RClass {
+        // SAFETY: `self.state` is alive by the `&self` borrow.
+        unsafe { sys::mrb_object_class(self.as_ptr()) }
     }
 }
 

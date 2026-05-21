@@ -74,6 +74,26 @@ use core::ffi::c_void;
 #[cfg(target_arch = "wasm32")]
 use core::ffi::{c_char, c_int};
 
+// Safe-layer modules. These hold the kobako safe abstractions over
+// the raw FFI surface declared below — `Mrb` RAII, `Ccontext` RAII,
+// the `MrbValueExt` ergonomics, and the `cstr!` / `cstr_ptr` C-string
+// helpers. They live in this crate so the FFI types they wrap and the
+// abstractions over them ship as one cohesive surface to consumers.
+#[cfg(any(target_arch = "wasm32", test))]
+pub mod ccontext;
+pub mod state;
+pub mod value;
+
+#[cfg(target_arch = "wasm32")]
+pub use state::{Mrb, MrbOpenError};
+
+#[cfg(target_arch = "wasm32")]
+pub use ccontext::Ccontext;
+
+pub use value::cstr_ptr;
+#[cfg(target_arch = "wasm32")]
+pub use value::MrbValueExt;
+
 /// `mrb_bool` — mruby's boolean C type (unsigned char / u8).
 #[cfg(target_arch = "wasm32")]
 pub type mrb_bool = u8;
@@ -105,8 +125,12 @@ pub type mrb_protect_error_func =
 /// the prefix will fail to compile rather than silently read the
 /// wrong field. The six padding fields are private because they exist
 /// solely to align `object_class` at the correct offset; `object_class`
-/// itself is `pub` so the kobako-wasm install paths can spell
-/// `(*mrb).object_class` directly without a getter shim.
+/// itself is `pub(crate)` because consumer crates reach for it through
+/// the [`mrb_object_class`] free function or [`Mrb::object_class`],
+/// not through direct field access. Keeping it `pub(crate)` here
+/// stops the field from being part of the FFI crate's external ABI
+/// — when [`Class`] arrives in a follow-up, only those accessors
+/// have to migrate.
 #[repr(C)]
 pub struct mrb_state {
     jmp: *mut c_void,      // struct mrb_jmpbuf *
@@ -115,7 +139,26 @@ pub struct mrb_state {
     globals: *mut c_void,  // struct iv_tbl *
     exc: *mut c_void,      // struct RObject *
     top_self: *mut c_void, // struct RObject *
-    pub object_class: *mut RClass,
+    pub(crate) object_class: *mut RClass,
+}
+
+/// Read `mrb->object_class` from a raw `*mut mrb_state`. Companion
+/// accessor for code paths that hold a raw pointer rather than a
+/// [`Mrb`] borrow — currently the `install_*` helpers in
+/// `kobako-wasm/src/kobako/install.rs` which are themselves called
+/// with a raw `*mut mrb_state` from `Kobako::install_raw`.
+///
+/// Prefer [`Mrb::object_class`] when an `Mrb` borrow is in scope.
+///
+/// # Safety
+///
+/// `mrb` must be a live mruby state. The returned pointer aliases the
+/// state's interior `object_class` field; it remains valid for the
+/// state's lifetime and must not be passed to `mrb_close` or freed.
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub unsafe fn mrb_object_class(mrb: *mut mrb_state) -> *mut RClass {
+    (*mrb).object_class
 }
 
 const _: () = assert!(

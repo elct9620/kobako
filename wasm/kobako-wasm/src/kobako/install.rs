@@ -17,9 +17,9 @@
 //! `service_group.rb` modules: the façade ([`super::Kobako`]) stays
 //! lean while the bulk of the boot wiring lives in sibling files.
 
-use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::value::cstr_ptr;
+use crate::mruby::cstr_ptr;
+use crate::mruby::sys;
 
 #[cfg(target_arch = "wasm32")]
 use super::bridges;
@@ -73,12 +73,16 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
 
         // Kobako::RPC::Client base class — parent of every Member
         // installed via `Kobako::install_groups`. Spell the super
-        // class as `(*mrb).object_class` to match the
+        // class as `sys::mrb_object_class(mrb)` to match the
         // mrbgems/mruby-io convention; passing NULL would log
         // "no super class for ..., Object assumed" via mrb_warn on
         // every install.
-        let client_class =
-            sys::mrb_define_class_under(mrb, rpc_mod, cstr_ptr(CLIENT_NAME), (*mrb).object_class);
+        let client_class = sys::mrb_define_class_under(
+            mrb,
+            rpc_mod,
+            cstr_ptr(CLIENT_NAME),
+            sys::mrb_object_class(mrb),
+        );
 
         // Singleton-class `method_missing` / `respond_to_missing?`
         // on `Kobako::RPC::Client`. Subclasses inherit through the
@@ -99,9 +103,13 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
         );
 
         // `Kobako::RPC::Handle` instance class. Same explicit
-        // `(*mrb).object_class` super as the Client class above.
-        let handle_class =
-            sys::mrb_define_class_under(mrb, rpc_mod, cstr_ptr(HANDLE_NAME), (*mrb).object_class);
+        // `sys::mrb_object_class(mrb)` super as the Client class above.
+        let handle_class = sys::mrb_define_class_under(
+            mrb,
+            rpc_mod,
+            cstr_ptr(HANDLE_NAME),
+            sys::mrb_object_class(mrb),
+        );
         sys::mrb_define_method(
             mrb,
             handle_class,

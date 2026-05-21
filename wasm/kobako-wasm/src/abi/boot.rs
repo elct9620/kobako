@@ -19,7 +19,7 @@ use crate::cstr;
 #[cfg(target_arch = "wasm32")]
 use crate::kobako::{InstallGroupsError, Kobako};
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::ccontext::Ccontext;
+use crate::mruby::Ccontext;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
 use crate::outcome::Panic;

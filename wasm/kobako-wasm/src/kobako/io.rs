@@ -30,9 +30,9 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
-use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::value::cstr_ptr;
+use crate::mruby::cstr_ptr;
+use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::MrbValueExt;
 
@@ -80,7 +80,8 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
             // mruby emit `"no super class for 'IO', Object assumed"` via
             // `mrb_warn` on every install, leaking onto the guest `stderr`
             // capture pipe (docs/behavior.md B-04).
-            let io_class = sys::mrb_define_class(mrb, cstr_ptr(IO_NAME), (*mrb).object_class);
+            let io_class =
+                sys::mrb_define_class(mrb, cstr_ptr(IO_NAME), sys::mrb_object_class(mrb));
 
             sys::mrb_define_method(
                 mrb,

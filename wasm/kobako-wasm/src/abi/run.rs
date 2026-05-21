@@ -217,7 +217,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         );
         sys::mrb_intern_str(mrb.as_ptr(), name_str)
     };
-    let object_value = unsafe { sys::kobako_class_value((*mrb.as_ptr()).object_class) };
+    let object_value = unsafe { sys::kobako_class_value(mrb.object_class()) };
 
     if unsafe { sys::mrb_const_defined(mrb.as_ptr(), object_value, target_sym) } == 0 {
         // Compute the snippet-contributed constants by subtracting the

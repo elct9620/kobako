@@ -35,23 +35,27 @@
 //! wasm32 `mrb_value` word-box ABI is small enough that we keep
 //! passing `mrb_value` directly. Methods on the FFI type itself give
 //! us most of the ergonomic win without committing to a typed value
-//! framework — the same trade-off discussed at the top of
-//! `mruby::sys`.
+//! framework — the same trade-off discussed at the crate-root doc.
 //!
 //! ## Why a trait and not an inherent `impl`
 //!
-//! `sys::mrb_value` is defined in the sibling `kobako-mruby-sys`
-//! crate; Rust's orphan rule forbids adding inherent methods to a
-//! foreign type. The [`MrbValueExt`] extension trait sidesteps that —
+//! `mrb_value` is declared at the crate root for raw FFI consumers,
+//! and the extension methods historically lived in the consumer crate
+//! across a crate boundary (which Rust's orphan rule forbids inherent
+//! impls for). The [`MrbValueExt`] extension trait sidesteps that —
 //! a local trait may be implemented for any type — while keeping the
 //! call-site shape (`val.classname(mrb)`, `val.call(mrb, …)`)
 //! identical to a regular inherent method. The trait is re-exported
-//! from [`crate::mruby`] so existing `use crate::mruby::sys;` call
-//! sites only need an additional `use crate::mruby::MrbValueExt;`
-//! to bring the methods into scope.
+//! from this crate's root so consumers only need
+//! `use kobako_mruby_sys::MrbValueExt;` to bring the methods into
+//! scope.
+//!
+//! A follow-up will fold these methods into an inherent `impl` on a
+//! `Value` newtype shipped from this crate — at that point the trait
+//! disappears and the call sites stop needing a separate `use`.
 
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::sys;
+use crate as sys;
 
 /// Compile-time NUL-terminated C-string literal pointer.
 ///

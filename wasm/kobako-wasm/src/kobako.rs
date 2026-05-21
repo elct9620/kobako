@@ -42,9 +42,9 @@ mod wire_convert;
 
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
-use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::value::cstr_ptr;
+use crate::mruby::cstr_ptr;
+use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
@@ -661,7 +661,7 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     #[cfg(target_arch = "wasm32")]
     pub fn top_level_constants(&self) -> Vec<String> {
-        let object_value = unsafe { sys::kobako_class_value((*self.mrb).object_class) };
+        let object_value = unsafe { sys::kobako_class_value(sys::mrb_object_class(self.mrb)) };
         let consts = self.call_method(object_value, cstr!("constants"), &[]);
         if self.classname_of(consts) != "Array" {
             return Vec::new();

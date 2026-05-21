@@ -1,31 +1,34 @@
-//! Mruby C-API binding surface.
+//! Façade re-exporting the mruby C-API binding from the sibling
+//! `kobako-mruby-sys` crate.
 //!
-//! Three pieces stack here:
+//! Existing call sites continue to spell their imports as
+//! `use crate::mruby::sys;` / `use crate::mruby::MrbValueExt;` /
+//! `use crate::mruby::Mrb;` — this module forwards each to its real
+//! home in `kobako-mruby-sys`. The submodules that previously lived
+//! here (`state.rs`, `ccontext.rs`, `value.rs`) have moved into
+//! `kobako-mruby-sys/src/` alongside the FFI declarations they wrap.
 //!
-//!   * [`sys`] — re-exported from the sibling `kobako-mruby-sys` crate.
-//!     Carries the hand-rolled `extern "C"` declarations plus the four
-//!     layout-safe C shims compiled by that crate's `build.rs`. All
-//!     symbol-level FFI work lives there; the re-export keeps every
-//!     `use crate::mruby::sys;` call site intact after the sys split.
-//!   * [`value`] — small ergonomic layer over `sys::mrb_value` (inherent
-//!     methods + the [`cstr!`] macro re-export). Designed to mirror the
-//!     `magnus::Value` shape for CRuby — value-centric methods on the
-//!     value type, byte-string utilities as free items.
-//!   * [`state`] — `Mrb` RAII wrapper around `mrb_state *` (open / close
-//!     lifecycle plus the pending-exception accessors).
-//!   * [`ccontext`] — `Ccontext` RAII wrapper around `mrb_ccontext *`
-//!     (compile-context allocation, filename stamping, and
-//!     `mrb_load_nstring_cxt` invocation).
-
-#[cfg(target_arch = "wasm32")]
-pub mod ccontext;
-pub mod state;
-pub mod value;
+//! This façade exists so the migration to the typed `Value` / `Class`
+//! newtypes (next refactor steps) can land incrementally without
+//! touching every `use crate::mruby::*` in the codebase. Once the
+//! consumer crate has fully adopted those newtypes, the façade can
+//! collapse into a direct `pub use kobako_mruby_sys;` or be removed
+//! entirely from `lib.rs`.
 
 pub use kobako_mruby_sys as sys;
 
 #[cfg(target_arch = "wasm32")]
-pub use state::Mrb;
+pub use kobako_mruby_sys::Mrb;
 
 #[cfg(target_arch = "wasm32")]
-pub use value::MrbValueExt;
+pub use kobako_mruby_sys::MrbValueExt;
+
+#[cfg(target_arch = "wasm32")]
+pub use kobako_mruby_sys::Ccontext;
+
+pub use kobako_mruby_sys::cstr_ptr;
+
+// Re-export the `cstr!` macro at the consumer crate's root so the
+// existing `use crate::cstr;` pattern at every FFI call site keeps
+// resolving. The macro itself ships from `kobako-mruby-sys` with
+// `#[macro_export]`; this re-export lives in `lib.rs`.
