@@ -45,10 +45,9 @@ use crate::cstr;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
+use crate::mruby::sys::Value;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::MrbValueExt;
 #[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
 
@@ -184,69 +183,14 @@ pub struct Kobako {
     service_error_class: *mut sys::RClass,
     disconnected_class: *mut sys::RClass,
     wire_error_class: *mut sys::RClass,
-    /// Cached `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`
-    /// snapshots, captured once into the [`Immediates`] static cell at
-    /// the first install and read by both [`Kobako::install_raw`] and
-    /// [`Kobako::resolve_raw`]. The fields end up identical across
-    /// every `Kobako` instance — they live on the struct (instead of
-    /// staying as free accessors) because the per-instance read is
-    /// hotter than the one-time capture, and field reads keep the
-    /// `Kobako::nil_value` / `true_value` / `false_value` accessors
-    /// branch-free.
-    ///
-    /// All three names carry the `q-` prefix even though `nil` is not
-    /// a Rust keyword: mruby's source spells the immediates as
-    /// `Qnil` / `Qtrue` / `Qfalse`, and keeping all three symmetric in
-    /// Rust makes the mruby correspondence obvious.
-    qnil: sys::mrb_value,
-    qtrue: sys::mrb_value,
-    qfalse: sys::mrb_value,
 }
 
-/// Process-wide cache for mruby's immediate values
-/// (`mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()`).
-///
-/// All three are config-level constants under mruby's word-box
-/// configuration — they are decided at libmruby build time and do
-/// not vary across `mrb_state` instances. Capturing them once via
-/// [`Immediates::get`] sidesteps three cross-FFI calls every time a
-/// C bridge enters [`Kobako::resolve_raw`].
-#[cfg(target_arch = "wasm32")]
-struct Immediates {
-    qnil: sys::mrb_value,
-    qtrue: sys::mrb_value,
-    qfalse: sys::mrb_value,
-}
-
-// SAFETY: `mrb_value` on wasm32 is a `#[repr(C)] struct { w: u32 }` —
-// plain old data with no interior mutability. `Immediates` therefore
-// shares only `Copy` snapshots and is trivially Sync across the
-// single-threaded wasm execution model.
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for Immediates {}
-
-#[cfg(target_arch = "wasm32")]
-static IMMEDIATES: std::sync::OnceLock<Immediates> = std::sync::OnceLock::new();
-
-#[cfg(target_arch = "wasm32")]
-impl Immediates {
-    /// Return the cached snapshot, capturing it on first call.
-    fn get() -> &'static Immediates {
-        IMMEDIATES.get_or_init(|| {
-            // SAFETY: the three shims read mruby's `mrb_nil_value()` /
-            // `mrb_true_value()` / `mrb_false_value()` macros, which
-            // do not touch `mrb_state` — see
-            // `wasm/kobako-wasm/src/mruby/value.c`.
-            unsafe {
-                Immediates {
-                    qnil: sys::kobako_nil_value(),
-                    qtrue: sys::kobako_true_value(),
-                    qfalse: sys::kobako_false_value(),
-                }
-            }
-        })
-    }
-}
+// The canonical mruby `nil` / `true` / `false` value snapshots no
+// longer live on the `Kobako` struct. They are captured once into
+// the sys-side [`Value`] immediates cache and read via
+// `Value::nil()` / `Value::true_()` / `Value::false_()` — each call
+// is a single atomic load against the `OnceLock`, on par with the
+// previous per-instance field read.
 
 /// Host-target stub for [`Kobako`]. See the wasm32 declaration above
 /// for the production-target shape and field-level docs.
@@ -278,12 +222,6 @@ impl Kobako {
     pub unsafe fn install_raw(mrb: *mut sys::mrb_state) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            // Capture the canonical nil / true / false mrb_values
-            // through the process-wide [`Immediates`] cache — the
-            // word-box layout is mruby's business, kobako never reads
-            // the bit pattern.
-            let immediates = Immediates::get();
-
             // Stage the install across three step helpers so the
             // monolithic 150-line `unsafe` block becomes three
             // localised ones, each with its own SAFETY note. Order
@@ -303,9 +241,6 @@ impl Kobako {
                 service_error_class: classes.service_error_class,
                 disconnected_class: classes.disconnected_class,
                 wire_error_class: classes.wire_error_class,
-                qnil: immediates.qnil,
-                qtrue: immediates.qtrue,
-                qfalse: immediates.qfalse,
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -346,7 +281,6 @@ impl Kobako {
                     sys::mrb_class_get_under(mrb, service_error_class, cstr_ptr(DISCONNECTED_NAME));
                 let wire_error_class =
                     sys::mrb_class_get_under(mrb, rpc_mod, cstr_ptr(WIRE_ERROR_NAME));
-                let immediates = Immediates::get();
                 Self {
                     mrb,
                     client_class,
@@ -354,9 +288,6 @@ impl Kobako {
                     service_error_class,
                     disconnected_class,
                     wire_error_class,
-                    qnil: immediates.qnil,
-                    qtrue: immediates.qtrue,
-                    qfalse: immediates.qfalse,
                 }
             }
         }
@@ -434,165 +365,53 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // mruby value constructors — `nil` / `true` / `false`.
+    // mruby helpers that still need +self.mrb+.
     //
-    // Each returns the cached mrb_value captured at install time by
-    // the value.c shim wrappers around `mrb_nil_value()` /
-    // `mrb_true_value()` / `mrb_false_value()`. kobako does not know
-    // the word-box bit pattern — the layout is mruby's business.
+    // The remaining methods below thread `self.mrb` into mruby FFI
+    // calls that take an `mrb_state *` first argument. Once `Mrb`
+    // grows method counterparts (hash_get / intern / iv_set / iv_get
+    // / hash_keys), these become candidates to retire — the
+    // value-only operations (classname / to_string / call / unbox /
+    // ary_entry / immediates) already live on [`Value`] and are
+    // called directly at every site.
     // ----------------------------------------------------------------
-
-    /// Return the canonical mruby `nil` value. Mirrors mruby's own
-    /// `mrb_nil_value()` API; the actual mrb_value was captured at
-    /// install time via [`sys::kobako_nil_value`].
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn nil_value(&self) -> sys::mrb_value {
-        self.qnil
-    }
-
-    /// Return the canonical mruby `true` value. Mirrors mruby's own
-    /// `mrb_true_value()` API.
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn true_value(&self) -> sys::mrb_value {
-        self.qtrue
-    }
-
-    /// Return the canonical mruby `false` value. Mirrors mruby's own
-    /// `mrb_false_value()` API.
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn false_value(&self) -> sys::mrb_value {
-        self.qfalse
-    }
-
-    // ----------------------------------------------------------------
-    // Safe FFI primitives.
-    //
-    // Each method below wraps a single mruby C API call. They are safe
-    // by construction under the +Kobako+ contract: holding +&Kobako+
-    // proves that +self.mrb+ is live (its only constructor is the
-    // wasm32 +install_raw+ arm, called once per +__kobako_eval+ /
-    // +__kobako_run+ invocation and only released when the owning
-    // +Mrb+ drops), and every +mrb_value+ passed in must originate
-    // from that same VM (a single-VM-per-call invariant the guest
-    // crate maintains by construction — there is no path that mixes
-    // values from two states).
-    //
-    // The bodies are the only places +unsafe { ... }+ wraps these
-    // primitives; callers stop repeating the same SAFETY note at
-    // every dispatch site.
-    // ----------------------------------------------------------------
-
-    /// Ruby class name of +val+ (or +""+ when mruby returns NULL).
-    /// Wraps [`sys::mrb_value::classname`].
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn classname_of(&self, val: sys::mrb_value) -> &'static str {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { val.classname(self.mrb) }
-    }
-
-    /// Coerce +val+ to a Rust +String+ via +Object#to_s+. Wraps
-    /// [`sys::mrb_value::to_string`].
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn to_string_of(&self, val: sys::mrb_value) -> String {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { val.to_string(self.mrb) }
-    }
-
-    /// Invoke +val.method_name(args...)+. +name+ is a NUL-terminated
-    /// C string (use the [`cstr!`] macro at call sites). Wraps
-    /// [`sys::mrb_value::call`].
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn call_method(
-        &self,
-        val: sys::mrb_value,
-        name: *const core::ffi::c_char,
-        args: &[sys::mrb_value],
-    ) -> sys::mrb_value {
-        // SAFETY: see "Safe FFI primitives" section doc. +name+ must
-        // be NUL-terminated; callers obtain it from +cstr!+ or
-        // [`cstr_ptr`], both of which guarantee that.
-        unsafe { val.call(self.mrb, name, args) }
-    }
-
-    /// +mrb_ary_entry(ary, idx)+. No bounds checking — callers must
-    /// keep +idx+ within +0..ary.length+.
-    #[cfg(target_arch = "wasm32")]
-    fn ary_entry(&self, ary: sys::mrb_value, idx: i32) -> sys::mrb_value {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { sys::mrb_ary_entry(ary, idx) }
-    }
-
-    /// Direct Integer-tagged predicate via the +kobako_value_is_integer+
-    /// C shim (wrapper around mruby's own +mrb_integer_p+ macro).
-    /// Cheaper than a +classname_of+ string compare and serves as the
-    /// precondition for [`Self::unbox_integer`].
-    #[cfg(target_arch = "wasm32")]
-    fn value_is_integer(&self, val: sys::mrb_value) -> bool {
-        // SAFETY: see "Safe FFI primitives" section doc. The shim does
-        // not touch mrb_state.
-        (unsafe { sys::kobako_value_is_integer(val) }) != 0
-    }
-
-    /// Direct +mrb_integer(v)+ unbox via the +kobako_unbox_integer+ C
-    /// shim. Replaces the previous +.to_s.parse+ round-trip; on wasm32
-    /// (+MRB_INT32+) the payload is a signed 32-bit integer that fits
-    /// in +i64+ without loss. Callers MUST gate on
-    /// [`Self::value_is_integer`] — passing a non-Integer value is
-    /// undefined behaviour per mruby's macro contract.
-    #[cfg(target_arch = "wasm32")]
-    fn unbox_integer(&self, val: sys::mrb_value) -> i32 {
-        // SAFETY: caller has confirmed +val+ is Integer-tagged via
-        // [`Self::value_is_integer`]; the shim does not touch mrb_state.
-        unsafe { sys::kobako_unbox_integer(val) }
-    }
-
-    /// Direct +mrb_float(v)+ unbox via the +kobako_unbox_float+ C shim.
-    /// Preserves full +f64+ precision unlike the previous +.to_s.parse+
-    /// path, which went through mruby's +%.16g+ formatter and lost the
-    /// last ULP at the edges of representable doubles. Caller must have
-    /// confirmed Float-tagging via [`Self::classname_of`] returning
-    /// `"Float"` (which is the existing dispatch precondition in
-    /// `to_wire_value` / `to_wire_outcome`).
-    #[cfg(target_arch = "wasm32")]
-    fn unbox_float(&self, val: sys::mrb_value) -> f64 {
-        // SAFETY: caller has confirmed +val+ is Float-tagged.
-        unsafe { sys::kobako_unbox_float(val) }
-    }
 
     /// +mrb_hash_get(hash, key)+. Returns +nil+ when the key is
     /// missing.
     #[cfg(target_arch = "wasm32")]
-    fn hash_get(&self, hash: sys::mrb_value, key: sys::mrb_value) -> sys::mrb_value {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { sys::mrb_hash_get(self.mrb, hash, key) }
+    fn hash_get(&self, hash: Value, key: Value) -> Value {
+        // SAFETY: +self.mrb+ is live by the Kobako contract; +hash+
+        // and +key+ originate from the same VM.
+        Value::from_raw(unsafe { sys::mrb_hash_get(self.mrb, hash.as_raw(), key.as_raw()) })
     }
 
     /// +mrb_hash_keys(hash)+ — returns the key Array.
     #[cfg(target_arch = "wasm32")]
-    fn hash_keys(&self, hash: sys::mrb_value) -> sys::mrb_value {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { sys::mrb_hash_keys(self.mrb, hash) }
+    fn hash_keys(&self, hash: Value) -> Value {
+        // SAFETY: as +hash_get+.
+        Value::from_raw(unsafe { sys::mrb_hash_keys(self.mrb, hash.as_raw()) })
     }
 
     /// Intern +name+ (NUL-terminated) as an mruby Symbol id.
     #[cfg(target_arch = "wasm32")]
     fn intern(&self, name: *const core::ffi::c_char) -> sys::mrb_sym {
-        // SAFETY: see "Safe FFI primitives" section doc.
+        // SAFETY: +self.mrb+ is live by the Kobako contract.
         unsafe { sys::mrb_intern_cstr(self.mrb, name) }
     }
 
     /// Set the instance variable +sym+ on +obj+ to +val+.
     #[cfg(target_arch = "wasm32")]
-    fn iv_set(&self, obj: sys::mrb_value, sym: sys::mrb_sym, val: sys::mrb_value) {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { sys::mrb_iv_set(self.mrb, obj, sym, val) };
+    fn iv_set(&self, obj: Value, sym: sys::mrb_sym, val: Value) {
+        // SAFETY: +self.mrb+ is live by the Kobako contract; +obj+
+        // and +val+ originate from the same VM.
+        unsafe { sys::mrb_iv_set(self.mrb, obj.as_raw(), sym, val.as_raw()) };
     }
 
     /// Read the instance variable +sym+ from +obj+ (+nil+ if unset).
     #[cfg(target_arch = "wasm32")]
-    fn iv_get(&self, obj: sys::mrb_value, sym: sys::mrb_sym) -> sys::mrb_value {
-        // SAFETY: see "Safe FFI primitives" section doc.
-        unsafe { sys::mrb_iv_get(self.mrb, obj, sym) }
+    fn iv_get(&self, obj: Value, sym: sys::mrb_sym) -> Value {
+        // SAFETY: as +iv_set+.
+        Value::from_raw(unsafe { sys::mrb_iv_get(self.mrb, obj.as_raw(), sym) })
     }
 
     // ----------------------------------------------------------------
@@ -608,12 +427,15 @@ impl Kobako {
     /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
     /// callers see "empty collection" rather than a panic.
     #[cfg(target_arch = "wasm32")]
-    pub fn collection_len(&self, col: sys::mrb_value) -> usize {
-        let len_val = self.call_method(col, cstr!("length"), &[]);
-        if !self.value_is_integer(len_val) {
+    pub fn collection_len(&self, col: Value) -> usize {
+        // SAFETY: +col+ originates from +self.mrb+ by the Kobako
+        // single-VM contract.
+        let len_val = unsafe { col.call(self.mrb, cstr!("length"), &[]) };
+        if !len_val.is_integer() {
             return 0;
         }
-        let len = self.unbox_integer(len_val);
+        // SAFETY: gated by the is_integer check above.
+        let len = unsafe { len_val.unbox_integer() };
         if len < 0 {
             0
         } else {
@@ -633,16 +455,19 @@ impl Kobako {
     /// `nil`); fall back to an empty vec so the Panic envelope still
     /// serializes cleanly.
     #[cfg(target_arch = "wasm32")]
-    pub fn extract_backtrace(&self, exc_val: sys::mrb_value) -> Vec<String> {
-        let bt_val = self.call_method(exc_val, cstr!("backtrace"), &[]);
-        if self.classname_of(bt_val) != "Array" {
+    pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
+        // SAFETY (every unsafe block in this method): +exc_val+ and
+        // every transient +Value+ originate from +self.mrb+ by the
+        // Kobako single-VM contract.
+        let bt_val = unsafe { exc_val.call(self.mrb, cstr!("backtrace"), &[]) };
+        if unsafe { bt_val.classname(self.mrb) } != "Array" {
             return Vec::new();
         }
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
-            let line = self.ary_entry(bt_val, i as i32);
-            lines.push(self.to_string_of(line));
+            let line = unsafe { bt_val.ary_entry(i as i32) };
+            lines.push(unsafe { line.to_string(self.mrb) });
         }
         lines
     }
@@ -661,15 +486,22 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     #[cfg(target_arch = "wasm32")]
     pub fn top_level_constants(&self) -> Vec<String> {
-        let object_value = unsafe { sys::kobako_class_value(sys::mrb_object_class(self.mrb)) };
-        let consts = self.call_method(object_value, cstr!("constants"), &[]);
-        if self.classname_of(consts) != "Array" {
+        // SAFETY: +self.mrb+ is live by the Kobako contract; the
+        // class value the shim produces lives until +mrb_close+.
+        let object_value =
+            Value::from_raw(unsafe { sys::kobako_class_value(sys::mrb_object_class(self.mrb)) });
+        // SAFETY: object_value originates from +self.mrb+.
+        let consts = unsafe { object_value.call(self.mrb, cstr!("constants"), &[]) };
+        if unsafe { consts.classname(self.mrb) } != "Array" {
             return Vec::new();
         }
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
-            names.push(self.to_string_of(self.ary_entry(consts, i as i32)));
+            // SAFETY: as above; consts is an Array, ary_entry stays
+            // in range by the +len+ bound.
+            let entry = unsafe { consts.ary_entry(i as i32) };
+            names.push(unsafe { entry.to_string(self.mrb) });
         }
         names
     }
@@ -678,7 +510,7 @@ impl Kobako {
     /// `@__kobako_id__` ivar. Used by the `Kobako::RPC::Handle#initialize`
     /// C bridge.
     #[cfg(target_arch = "wasm32")]
-    pub fn set_handle_id(&self, target: sys::mrb_value, id_val: sys::mrb_value) {
+    pub fn set_handle_id(&self, target: Value, id_val: Value) {
         let sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
         self.iv_set(target, sym, id_val);
     }
@@ -693,13 +525,14 @@ impl Kobako {
     /// machinery on every dispatch; the direct unbox is both faster
     /// and tighter on the wire-violation surface.
     #[cfg(target_arch = "wasm32")]
-    pub fn extract_handle_id(&self, handle_val: sys::mrb_value) -> u32 {
+    pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         let id_sym = self.intern(cstr_ptr(HANDLE_ID_IVAR));
         let id_val = self.iv_get(handle_val, id_sym);
-        if !self.value_is_integer(id_val) {
+        if !id_val.is_integer() {
             return 0;
         }
-        let id = self.unbox_integer(id_val);
+        // SAFETY: gated by the is_integer check above.
+        let id = unsafe { id_val.unbox_integer() };
         if id < 0 {
             0
         } else {
@@ -711,7 +544,7 @@ impl Kobako {
     // RPC dispatch.
     // ----------------------------------------------------------------
 
-    /// Invoke `invoke_rpc` and convert the result to an `mrb_value`. On
+    /// Invoke `invoke_rpc` and convert the result to a [`Value`]. On
     /// `Response.err`, raises a matching `Kobako::ServiceError`
     /// subclass; on any other wire-layer fault, raises `Kobako::RPC::WireError`
     /// with `wire_err_msg`. Both raise paths diverge — `mrb_raise` does
@@ -724,7 +557,7 @@ impl Kobako {
         wire_args: &[crate::codec::Value],
         wire_kwargs: &[(String, crate::codec::Value)],
         wire_err_msg: &[u8],
-    ) -> sys::mrb_value {
+    ) -> Value {
         use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, wire_args, wire_kwargs) {
             Ok(wire_val) => self.to_mrb_value(wire_val),

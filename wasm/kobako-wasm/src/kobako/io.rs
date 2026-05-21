@@ -33,8 +33,7 @@ use crate::cstr;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::cstr_ptr;
 use crate::mruby::sys;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::MrbValueExt;
+use crate::mruby::sys::Value;
 
 #[cfg(target_arch = "wasm32")]
 use names::*;
@@ -125,20 +124,19 @@ pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
 ///   * `mode` is anything other than `"w"` — only the write-path is
 ///     implemented (mruby-io's read-path is intentionally out of
 ///     scope, see `mrblib/io.rb` class doc).
-pub(crate) unsafe extern "C" fn io_initialize(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         let mut fd: core::ffi::c_int = 0;
-        let mut mode_val = sys::mrb_value::zeroed();
+        // mrb_get_args `"o"` writes a raw mrb_value cell; wrap once
+        // after the call.
+        let mut mode_raw = sys::mrb_value::zeroed();
         unsafe {
             sys::mrb_get_args(
                 mrb,
                 cstr!("io"),
                 &mut fd as *mut core::ffi::c_int,
-                &mut mode_val as *mut sys::mrb_value,
+                &mut mode_raw as *mut sys::mrb_value,
             );
         }
 
@@ -151,7 +149,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
             }
         }
 
-        let mode = unsafe { mode_val.to_string(mrb) };
+        let mode = unsafe { Value::from_raw(mode_raw).to_string(mrb) };
         if mode != "w" {
             unsafe {
                 raise_argument_error(mrb, b"kobako IO only supports mode \"w\"\0");
@@ -161,7 +159,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
         let fd_val = unsafe { sys::mrb_boxing_int_value(mrb, fd) };
         unsafe {
             let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(FD_IVAR));
-            sys::mrb_iv_set(mrb, self_, sym, fd_val);
+            sys::mrb_iv_set(mrb, self_.as_raw(), sym, fd_val);
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -170,7 +168,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
         let _ = mrb;
         let _ = self_;
     }
-    sys::mrb_value::zeroed()
+    Value::zeroed()
 }
 
 /// `IO#write(*objs)` — coerce each object via `Object#to_s` and pump
@@ -181,10 +179,7 @@ pub(crate) unsafe extern "C" fn io_initialize(
 /// return value: when wasmtime's `MemoryOutputPipe` rejects bytes past
 /// its limit, `fwrite` short-writes and the returned total reflects
 /// only the accepted bytes. No Ruby-level error is raised.
-pub(crate) unsafe extern "C" fn io_write(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         let fd = unsafe { read_fd(mrb, self_) };
@@ -201,7 +196,7 @@ pub(crate) unsafe extern "C" fn io_write(
         }
 
         let total = unsafe { sys::kobako_io_fwrite(mrb, fd, argv, argc) };
-        unsafe { sys::mrb_boxing_int_value(mrb, total) }
+        Value::from_raw(unsafe { sys::mrb_boxing_int_value(mrb, total) })
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -210,21 +205,18 @@ pub(crate) unsafe extern "C" fn io_write(
         // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
-        sys::mrb_value::zeroed()
+        Value::zeroed()
     }
 }
 
 /// `IO#fileno` — returns the stored fd as an `Integer`. Used by the
 /// `IO#to_i` alias in `mrblib/io.rb` and by introspecting callers
 /// (e.g. `$stdout.fileno == 1`).
-pub(crate) unsafe extern "C" fn io_fileno(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         let fd = unsafe { read_fd(mrb, self_) };
-        unsafe { sys::mrb_boxing_int_value(mrb, fd) }
+        Value::from_raw(unsafe { sys::mrb_boxing_int_value(mrb, fd) })
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -233,7 +225,7 @@ pub(crate) unsafe extern "C" fn io_fileno(
         // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
-        sys::mrb_value::zeroed()
+        Value::zeroed()
     }
 }
 
@@ -245,14 +237,14 @@ pub(crate) unsafe extern "C" fn io_fileno(
 /// rather than trapping. The direct unbox skips the previous
 /// `.to_s.parse` round-trip — see L-4 in the review for the rationale.
 #[cfg(target_arch = "wasm32")]
-unsafe fn read_fd(mrb: *mut sys::mrb_state, self_: sys::mrb_value) -> i32 {
+unsafe fn read_fd(mrb: *mut sys::mrb_state, self_: Value) -> i32 {
     unsafe {
         let sym = sys::mrb_intern_cstr(mrb, cstr_ptr(FD_IVAR));
-        let val = sys::mrb_iv_get(mrb, self_, sym);
-        if sys::kobako_value_is_integer(val) == 0 {
+        let val = Value::from_raw(sys::mrb_iv_get(mrb, self_.as_raw(), sym));
+        if !val.is_integer() {
             return 0;
         }
-        sys::kobako_unbox_integer(val)
+        val.unbox_integer()
     }
 }
 

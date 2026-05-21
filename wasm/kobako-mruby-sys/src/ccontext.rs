@@ -20,6 +20,7 @@
 
 use crate as sys;
 use crate::Mrb;
+use crate::Value;
 
 /// Owned mruby compile context, tied to the lifetime of an [`Mrb`].
 ///
@@ -52,20 +53,20 @@ impl<'mrb> Ccontext<'mrb> {
 
     /// Compile and evaluate `source` under this context. `source` is
     /// raw bytes (ptr + len), not NUL-terminated.
-    pub fn load_nstring(&self, source: &[u8]) -> sys::mrb_value {
+    pub fn load_nstring(&self, source: &[u8]) -> Value {
         // SAFETY: `self.mrb` is live by the borrow; `self.raw` was
         // produced by `mrb_ccontext_new` in `Self::new` and is owned
         // for the lifetime of `&self`; the source bytes outlive the
         // call because `mrb_load_nstring_cxt` does not retain a
         // reference past return.
-        unsafe {
+        Value::from_raw(unsafe {
             sys::mrb_load_nstring_cxt(
                 self.mrb.as_ptr(),
                 source.as_ptr() as *const core::ffi::c_char,
                 source.len(),
                 self.raw,
             )
-        }
+        })
     }
 }
 

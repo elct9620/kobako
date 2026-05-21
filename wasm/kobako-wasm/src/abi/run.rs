@@ -300,7 +300,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         });
     };
     let kwargs_present = !kwargs_pairs.is_empty();
-    let mut argv: Vec<sys::mrb_value> = arg_items
+    let mut argv: Vec<sys::Value> = arg_items
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
         .collect();
@@ -308,15 +308,18 @@ fn run_body(env_ptr: i32, env_len: i32) {
         argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
     }
 
-    let result_val = unsafe {
+    // mrb_funcall_argv's argv parameter is typed `*const mrb_value`;
+    // cast through the transparent `Value` slice pointer (layouts
+    // identical by `repr(transparent)`).
+    let result_val = sys::Value::from_raw(unsafe {
         sys::mrb_funcall_argv(
             mrb.as_ptr(),
             target_val,
             call_sym,
             argv.len() as core::ffi::c_int,
-            argv.as_ptr(),
+            argv.as_ptr() as *const sys::mrb_value,
         )
-    };
+    });
 
     if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
         write_panic(panic);

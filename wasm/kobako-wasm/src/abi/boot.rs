@@ -208,11 +208,13 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
 #[cfg(target_arch = "wasm32")]
 pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     let exc_val = mrb.pending_exc();
-    if exc_val.w == 0 {
+    if exc_val.as_raw().w == 0 {
         return None;
     }
     let class_name = {
-        let cn = kobako.classname_of(exc_val);
+        // SAFETY: exc_val comes from `mrb` directly; safe under the
+        // Mrb borrow.
+        let cn = unsafe { exc_val.classname(mrb.as_ptr()) };
         if cn.is_empty() {
             "RuntimeError".to_string()
         } else {
@@ -220,8 +222,9 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         }
     };
     let message = {
-        let msg_val = kobako.call_method(exc_val, cstr!("message"), &[]);
-        let m = kobako.to_string_of(msg_val);
+        // SAFETY: see class_name extraction.
+        let msg_val = unsafe { exc_val.call(mrb.as_ptr(), cstr!("message"), &[]) };
+        let m = unsafe { msg_val.to_string(mrb.as_ptr()) };
         if m.is_empty() {
             class_name.clone()
         } else {

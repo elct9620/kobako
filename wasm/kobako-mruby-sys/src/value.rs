@@ -1,61 +1,48 @@
-//! Lightweight Rust-side conveniences over the mruby C API.
+//! Typed `Value` newtype around the raw `mrb_value` FFI word-box.
 //!
-//! This module adds **inherent methods on `mrb_value`** for the three
-//! patterns that appear dozens of times across the guest binary, plus
-//! two free items for static C-string handling. The shape mirrors how
-//! the [`magnus`](https://docs.rs/magnus) crate exposes `Value` methods
-//! for the CRuby C API: value-centric operations are methods on the
-//! value, byte-string utilities are free items.
+//! ## Why a newtype
 //!
-//! ## Methods on `mrb_value`
+//! Three reasons stack here:
 //!
-//! All three are `unsafe` — they forward to FFI calls that require a
-//! live `mrb_state *` produced by the same VM as `self`.
+//! 1. **Orphan rule** — `mrb_value` is declared at this crate's root
+//!    so the FFI ABI stays accessible to other crates. Consumers
+//!    (notably `kobako-wasm`) previously could not attach inherent
+//!    methods to it; the predecessor of this module worked around
+//!    that with a `MrbValueExt` extension trait. Wrapping the type
+//!    inside this crate removes the trait + per-call-site `use`.
+//! 2. **API surface clarity** — methods that operate on values
+//!    (classname, to_string, predicates, unboxers) become inherent
+//!    on `Value`, so the call shape is `val.classname(mrb)` rather
+//!    than splatting raw FFI calls.
+//! 3. **Migration anchor** — typed `Value` is the natural place to
+//!    later attach typed variants (`MString`, `MArray`, `MHash`) and
+//!    convert between them. Today no typed variants exist; the
+//!    newtype is the floor on which they can be added.
 //!
-//!   * [`mrb_value::classname`] — Ruby class name of this value.
-//!   * [`mrb_value::to_string`] — coerce to Rust `String` via
-//!     `Object#to_s`. Works on any value type (Strings included —
-//!     `String#to_s` is idempotent).
-//!   * [`mrb_value::call`] — invoke `self.method_name(args...)` via
-//!     `mrb_funcall_argv` (non-variadic, slice-based).
+//! ## ABI guarantee
 //!
-//! ## Free items
+//! `Value` is `#[repr(transparent)]` over [`mrb_value`]. The wasm32
+//! `mrb_value` is a 4-byte word; `Value` is therefore also 4 bytes
+//! and shares the C ABI. This matters at the `mrb_func_t` boundary:
+//! a bridge declared with `Value` parameters and return type
+//! produces the same wasm function signature as one declared with
+//! `mrb_value`. Round-tripping through [`Value::from_raw`] /
+//! [`Value::into_raw`] is therefore a no-op at the codegen level.
 //!
-//! Generic NUL-terminated C-string helpers — they take or produce
-//! `*const c_char` and have no dependency on `mrb_state`.
+//! ## What lives next to `Value` here
 //!
-//!   * [`cstr_ptr`] — coerce a NUL-terminated `&[u8]` constant to
-//!     `*const c_char`.
-//!   * [`cstr!`] macro — compile-time NUL-terminate a string literal
-//!     and return `*const c_char`.
-//!
-//! ## What is intentionally NOT here
-//!
-//! No typed `MString` / `MArray` / `MHash` newtype wrappers. The
-//! wasm32 `mrb_value` word-box ABI is small enough that we keep
-//! passing `mrb_value` directly. Methods on the FFI type itself give
-//! us most of the ergonomic win without committing to a typed value
-//! framework — the same trade-off discussed at the crate-root doc.
-//!
-//! ## Why a trait and not an inherent `impl`
-//!
-//! `mrb_value` is declared at the crate root for raw FFI consumers,
-//! and the extension methods historically lived in the consumer crate
-//! across a crate boundary (which Rust's orphan rule forbids inherent
-//! impls for). The [`MrbValueExt`] extension trait sidesteps that —
-//! a local trait may be implemented for any type — while keeping the
-//! call-site shape (`val.classname(mrb)`, `val.call(mrb, …)`)
-//! identical to a regular inherent method. The trait is re-exported
-//! from this crate's root so consumers only need
-//! `use kobako_mruby_sys::MrbValueExt;` to bring the methods into
-//! scope.
-//!
-//! A follow-up will fold these methods into an inherent `impl` on a
-//! `Value` newtype shipped from this crate — at that point the trait
-//! disappears and the call sites stop needing a separate `use`.
+//!   * The [`cstr!`] macro and [`cstr_ptr`] helper — generic
+//!     NUL-terminated `*const c_char` plumbing; unchanged across
+//!     the `Value` introduction.
+//!   * The [`Immediates`] cache — `nil` / `true` / `false`
+//!     `mrb_value` snapshots captured once via the layout-safe C
+//!     shims, exposed through [`Value::nil`] / [`Value::true_`] /
+//!     [`Value::false_`].
+
+use crate as sys;
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
+use crate::Mrb;
 
 /// Compile-time NUL-terminated C-string literal pointer.
 ///
@@ -82,19 +69,177 @@ pub const fn cstr_ptr(b: &[u8]) -> *const core::ffi::c_char {
     b.as_ptr() as *const core::ffi::c_char
 }
 
-/// Extension trait adding the kobako-side ergonomic methods to
-/// [`sys::mrb_value`]. Defined as a trait rather than an inherent
-/// `impl` because `mrb_value` lives in the sibling
-/// `kobako-mruby-sys` crate — Rust's orphan rule forbids inherent
-/// methods on foreign types. Bring this trait into scope at any call
-/// site that needs `val.classname(mrb)` / `val.to_string(mrb)` /
-/// `val.call(mrb, …)` / `val.as_class_ptr()`.
-///
-/// The trait is re-exported from [`crate::mruby`] so the call-site
-/// import reads `use crate::mruby::MrbValueExt;`, side-by-side with
-/// the existing `use crate::mruby::sys;`.
+// --------------------------------------------------------------------
+// Immediates cache.
+// --------------------------------------------------------------------
+//
+// `mrb_nil_value()` / `mrb_true_value()` / `mrb_false_value()` are
+// config-level constants under mruby's word-box configuration — they
+// are decided at libmruby build time and do not vary across
+// `mrb_state` instances. Capturing them once via the C shims sidesteps
+// a cross-FFI call every time a hot path wants `nil` / `true` /
+// `false`. Previous home: `kobako::Immediates` in the consumer crate;
+// re-located here so the cache ships from the same crate as `Value`.
+
 #[cfg(target_arch = "wasm32")]
-pub trait MrbValueExt: Copy {
+struct Immediates {
+    qnil: sys::mrb_value,
+    qtrue: sys::mrb_value,
+    qfalse: sys::mrb_value,
+}
+
+// SAFETY: `mrb_value` on wasm32 is a `#[repr(C)] struct { w: u32 }` —
+// plain old data with no interior mutability. `Immediates` therefore
+// shares only `Copy` snapshots and is trivially Sync across the
+// single-threaded wasm execution model.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Immediates {}
+
+#[cfg(target_arch = "wasm32")]
+static IMMEDIATES: std::sync::OnceLock<Immediates> = std::sync::OnceLock::new();
+
+#[cfg(target_arch = "wasm32")]
+impl Immediates {
+    /// Return the cached snapshot, capturing it on first call.
+    fn get() -> &'static Immediates {
+        IMMEDIATES.get_or_init(|| {
+            // SAFETY: the three shims read mruby's `mrb_nil_value()` /
+            // `mrb_true_value()` / `mrb_false_value()` macros, which
+            // do not touch `mrb_state` — see `src/value.c`.
+            unsafe {
+                Immediates {
+                    qnil: sys::kobako_nil_value(),
+                    qtrue: sys::kobako_true_value(),
+                    qfalse: sys::kobako_false_value(),
+                }
+            }
+        })
+    }
+}
+
+// --------------------------------------------------------------------
+// Value newtype.
+// --------------------------------------------------------------------
+
+/// Typed handle on a single mruby value. `#[repr(transparent)]` over
+/// [`mrb_value`] so the C ABI is preserved.
+///
+/// Construct via [`Value::from_raw`] (at FFI boundaries),
+/// [`Value::nil`] / [`Value::true_`] / [`Value::false_`] (immediates),
+/// or [`Value::from_int`] / [`Value::from_float`] (numeric factories).
+/// Round-trip back to the raw type via [`Value::as_raw`] /
+/// [`Value::into_raw`] when calling raw FFI that has not yet been
+/// migrated.
+///
+/// ## What is intentionally NOT here
+///
+/// No typed variants (`MString` / `MArray` / `MHash`). The
+/// `mrb_value` word-box ABI is small enough that we keep passing
+/// `Value` directly through the codebase. Typed variants can land
+/// later as `pub struct MString(Value)` newtypes if the call sites
+/// justify them.
+///
+/// ## Cross-target availability
+///
+/// `Value` itself, [`Value::from_raw`] / [`Value::as_raw`] /
+/// [`Value::into_raw`] / [`Value::zeroed`], and the
+/// [`sys::mrb_func_t`] typedef are available on every target so the
+/// host-target signature-match tests
+/// (`c_bridges_have_mrb_func_t_signature` in the consumer crate) keep
+/// compiling. Methods that talk to mruby (`classname` / `call` /
+/// numeric factories / predicates) live behind
+/// `#[cfg(target_arch = "wasm32")]` because they would link against
+/// unresolved mruby symbols on the host.
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct Value(pub(crate) sys::mrb_value);
+
+impl Value {
+    /// Wrap a raw `mrb_value` produced by FFI. The most common
+    /// caller is a bridge function pointer receiving the receiver
+    /// from mruby.
+    #[inline]
+    pub const fn from_raw(v: sys::mrb_value) -> Self {
+        Self(v)
+    }
+
+    /// Borrow the inner `mrb_value` for raw FFI calls. Use this when
+    /// passing the value through an as-yet-unmigrated `extern "C" fn`
+    /// parameter. The wrapper itself stays usable after the borrow
+    /// (`Value: Copy`).
+    #[inline]
+    pub const fn as_raw(self) -> sys::mrb_value {
+        self.0
+    }
+
+    /// Consume and return the inner `mrb_value`. Identical to
+    /// [`Value::as_raw`] semantically — `Value: Copy` makes the move
+    /// vs. borrow distinction immaterial — but reads cleaner at the
+    /// final return statement of a bridge function.
+    #[inline]
+    pub const fn into_raw(self) -> sys::mrb_value {
+        self.0
+    }
+
+    /// All-zero `Value`. On wasm32 with the kobako mruby
+    /// configuration this matches `mrb_nil_value()` (MRB_Qnil = 0),
+    /// but callers that need a guaranteed nil should prefer
+    /// [`Value::nil`] which reads through the mruby shim. The
+    /// zeroed form exists for out-parameter initialization
+    /// (`mrb_get_args` writes to it).
+    #[inline]
+    pub fn zeroed() -> Self {
+        Self(sys::mrb_value::zeroed())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Value {
+    /// Canonical mruby `nil`. Reads through the process-wide
+    /// [`Immediates`] cache; capture is lazy and one-shot.
+    #[inline]
+    pub fn nil() -> Self {
+        Self(Immediates::get().qnil)
+    }
+
+    /// Canonical mruby `true`. See [`Value::nil`].
+    #[inline]
+    pub fn true_() -> Self {
+        Self(Immediates::get().qtrue)
+    }
+
+    /// Canonical mruby `false`. See [`Value::nil`].
+    #[inline]
+    pub fn false_() -> Self {
+        Self(Immediates::get().qfalse)
+    }
+
+    /// Construct an mruby Integer from `n`. Wraps
+    /// [`sys::mrb_boxing_int_value`] — on wasm32 (`MRB_INT32`) the
+    /// payload is a signed 32-bit integer.
+    ///
+    /// # Safety
+    ///
+    /// `mrb` must be a live `mrb_state *`.
+    #[inline]
+    pub unsafe fn from_int(mrb: &Mrb, n: i32) -> Self {
+        // SAFETY: forwarded from caller.
+        Self(unsafe { sys::mrb_boxing_int_value(mrb.as_ptr(), n) })
+    }
+
+    /// Construct an mruby Float from `f`. Wraps
+    /// [`sys::mrb_word_boxing_float_value`] — used on wasm32 with
+    /// `MRB_WORDBOX_NO_INLINE_FLOAT` where floats are heap-allocated.
+    ///
+    /// # Safety
+    ///
+    /// `mrb` must be a live `mrb_state *`.
+    #[inline]
+    pub unsafe fn from_float(mrb: &Mrb, f: f64) -> Self {
+        // SAFETY: forwarded from caller.
+        Self(unsafe { sys::mrb_word_boxing_float_value(mrb.as_ptr(), f) })
+    }
+
     /// Returns the Ruby class name of this value as a borrowed
     /// `&'static str`, or `""` if mruby returns NULL.
     ///
@@ -108,144 +253,149 @@ pub trait MrbValueExt: Copy {
     ///
     /// `mrb` must be a live `mrb_state *` and `self` must have been
     /// produced by the same VM.
-    unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str;
+    #[inline]
+    pub unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str {
+        // SAFETY: forwarded from caller.
+        let ptr = unsafe { sys::mrb_obj_classname(mrb, self.0) };
+        if ptr.is_null() {
+            return "";
+        }
+        // SAFETY: mruby's class-name storage lives for the duration
+        // of the `mrb_state`; treating it as `'static` is sound for
+        // the lifetime of the VM, which the caller upholds.
+        unsafe { core::ffi::CStr::from_ptr(ptr) }
+            .to_str()
+            .unwrap_or("")
+    }
 
     /// Coerce to a Rust `String` by calling `Object#to_s` and copying
     /// the bytes. Works on any value type — `String#to_s` is
-    /// idempotent on mruby Strings, so the redundant call is cheap and
-    /// keeps a single conversion entry point.
-    ///
-    /// Equivalent to the inlined sequence:
-    ///
-    /// ```text
-    /// mrb_funcall(.., "to_s", 0) → mrb_str_to_cstr → CStr::from_ptr
-    ///                            → to_str → to_string
-    /// ```
-    ///
-    /// Returns `String::new()` on any failure (NULL pointer, non-UTF-8
-    /// content, or `.to_s` raising a Ruby exception).
+    /// idempotent on mruby Strings, so the redundant call is cheap
+    /// and keeps a single conversion entry point.
     ///
     /// ## Exception handling
     ///
-    /// If `.to_s` raises a Ruby exception (e.g. a user object overrides
-    /// `to_s` with `raise`), the failure is **swallowed**: the pending
-    /// `mrb->exc` is cleared via `mrb_check_error` and an empty
-    /// `String` is returned. This prevents the leaked exception from
-    /// corrupting subsequent mruby calls in the same C bridge.
-    ///
-    /// Callers that need to distinguish "`.to_s` raised" from "`.to_s`
-    /// returned `\"\"`" must check `mrb_check_error` themselves before
-    /// invoking `to_string` — at the moment no caller in the guest
-    /// crate does so, because every call site is on a value whose
-    /// `.to_s` is built-in (`Integer`, `Float`, `String`, `Symbol`,
-    /// `Exception#message`).
+    /// If `.to_s` raises a Ruby exception (e.g. a user object
+    /// overrides `to_s` with `raise`), the failure is **swallowed**:
+    /// the pending `mrb->exc` is cleared via `mrb_check_error` and an
+    /// empty `String` is returned. This prevents the leaked
+    /// exception from corrupting subsequent mruby calls in the same
+    /// C bridge.
     ///
     /// # Safety
     ///
     /// `mrb` must be a live `mrb_state *` and `self` must have been
     /// produced by the same VM.
-    unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String;
-
-    /// Recover the `*mut RClass` pointer from a class-tagged
-    /// `mrb_value`. Implements the C macro `mrb_class_ptr(v)` —
-    /// `((struct RClass*)(mrb_ptr(v)))` — inline so we do not have to
-    /// declare it as an extern "C" fn (it is a macro, not a real C
-    /// function; an FFI declaration would produce an unresolved wasm
-    /// import).
-    ///
-    /// On wasm32 with `MRB_WORDBOX_NO_INLINE_FLOAT` + `MRB_INT32` the
-    /// raw pointer lives in the lower 32 bits of `mrb_value.w` for
-    /// object-tagged values.
-    ///
-    /// # Safety
-    ///
-    /// `self` must be a class-tagged `mrb_value` (i.e., the receiver
-    /// of a singleton-class `method_missing` shim, or any other
-    /// `Class` value produced by the same VM). Calling on a non-class
-    /// value yields a bogus pointer.
-    unsafe fn as_class_ptr(self) -> *mut sys::RClass;
-
-    /// Invoke `self.method_name(args...)` via the non-variadic
-    /// `mrb_funcall_argv`. The method name is interned each call;
-    /// mruby's symbol table makes this cheap.
-    ///
-    /// `name_cstr` must be a NUL-terminated byte slice pointer —
-    /// produce one with the [`cstr!`] macro for inline literals or
-    /// with [`cstr_ptr`] for a named constant. `args` may be empty for
-    /// arity-0 calls.
-    ///
-    /// The wrapper exists so call sites stop reaching for the variadic
-    /// `sys::mrb_funcall` directly (every variadic FFI call in Rust is
-    /// an `unsafe` footgun the type checker can't help with).
-    ///
-    /// # Examples (caller code shape)
-    ///
-    /// ```ignore
-    /// val.call(mrb, cstr!("to_s"), &[]);
-    /// str_val.call(mrb, cstr!("getbyte"), &[idx]);
-    /// ```
-    ///
-    /// # Safety
-    ///
-    /// `mrb` must be a live `mrb_state *`. `self` and every `args`
-    /// entry must have been produced by the same VM.
-    unsafe fn call(
-        self,
-        mrb: *mut sys::mrb_state,
-        name_cstr: *const core::ffi::c_char,
-        args: &[sys::mrb_value],
-    ) -> sys::mrb_value;
-}
-
-#[cfg(target_arch = "wasm32")]
-impl MrbValueExt for sys::mrb_value {
     #[inline]
-    unsafe fn classname(self, mrb: *mut sys::mrb_state) -> &'static str {
-        let ptr = sys::mrb_obj_classname(mrb, self);
-        if ptr.is_null() {
-            return "";
-        }
-        core::ffi::CStr::from_ptr(ptr).to_str().unwrap_or("")
-    }
-
-    #[inline]
-    unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String {
-        let s_val = self.call(mrb, cstr!("to_s"), &[]);
-        let ptr = sys::mrb_str_to_cstr(mrb, s_val);
+    pub unsafe fn to_string(self, mrb: *mut sys::mrb_state) -> String {
+        // SAFETY: forwarded from caller.
+        let s_val = unsafe { self.call(mrb, cstr!("to_s"), &[]) };
+        let ptr = unsafe { sys::mrb_str_to_cstr(mrb, s_val.0) };
         if ptr.is_null() {
             // `.to_s` raised or returned a non-String. Clear `mrb->exc`
             // so subsequent mruby calls in the same C bridge don't see
-            // corrupted state. See the "Exception handling" doc note
-            // above for the rationale.
-            let _ = sys::mrb_check_error(mrb);
+            // corrupted state.
+            let _ = unsafe { sys::mrb_check_error(mrb) };
             return String::new();
         }
-        core::ffi::CStr::from_ptr(ptr)
+        unsafe { core::ffi::CStr::from_ptr(ptr) }
             .to_str()
             .unwrap_or("")
             .to_string()
     }
 
+    /// Recover the `*mut RClass` pointer from a class-tagged
+    /// `Value`. Implements the C macro `mrb_class_ptr(v)` —
+    /// `((struct RClass*)(mrb_ptr(v)))` — inline so we do not have
+    /// to declare it as an extern "C" fn (it is a macro, not a real
+    /// C function).
+    ///
+    /// # Safety
+    ///
+    /// `self` must be a class-tagged `Value`.
     #[inline]
-    unsafe fn as_class_ptr(self) -> *mut sys::RClass {
-        self.w as *mut sys::RClass
+    pub unsafe fn as_class_ptr(self) -> *mut sys::RClass {
+        self.0.w as *mut sys::RClass
     }
 
+    /// Invoke `self.method_name(args...)` via the non-variadic
+    /// `mrb_funcall_argv`.
+    ///
+    /// # Safety
+    ///
+    /// `mrb` must be a live `mrb_state *`. `self` and every `args`
+    /// entry must have been produced by the same VM.
     #[inline]
-    unsafe fn call(
+    pub unsafe fn call(
         self,
         mrb: *mut sys::mrb_state,
         name_cstr: *const core::ffi::c_char,
-        args: &[sys::mrb_value],
-    ) -> sys::mrb_value {
-        let sym = sys::mrb_intern_cstr(mrb, name_cstr);
-        sys::mrb_funcall_argv(
-            mrb,
-            self,
-            sym,
-            args.len() as core::ffi::c_int,
-            args.as_ptr(),
-        )
+        args: &[Value],
+    ) -> Value {
+        // SAFETY: forwarded from caller.
+        let sym = unsafe { sys::mrb_intern_cstr(mrb, name_cstr) };
+        // Value is repr(transparent) over mrb_value, so &[Value] and
+        // &[mrb_value] share layout. Cast the slice pointer.
+        let argv = args.as_ptr() as *const sys::mrb_value;
+        Value(unsafe {
+            sys::mrb_funcall_argv(mrb, self.0, sym, args.len() as core::ffi::c_int, argv)
+        })
+    }
+
+    /// `mrb_integer_p(v)` — TRUE when `self` carries `MRB_TT_INTEGER`.
+    /// Pair with [`Value::unbox_integer`] for the direct-unbox path.
+    #[inline]
+    pub fn is_integer(self) -> bool {
+        // SAFETY: the C shim is a pure predicate that does not touch
+        // `mrb_state`.
+        (unsafe { sys::kobako_value_is_integer(self.0) }) != 0
+    }
+
+    /// `mrb_float_p(v)` — TRUE when `self` carries `MRB_TT_FLOAT`.
+    /// Pair with [`Value::unbox_float`].
+    #[inline]
+    pub fn is_float(self) -> bool {
+        // SAFETY: as `is_integer`.
+        (unsafe { sys::kobako_value_is_float(self.0) }) != 0
+    }
+
+    /// Direct `mrb_integer(v)` unbox.
+    ///
+    /// # Safety
+    ///
+    /// Caller must have confirmed Integer-tagging via
+    /// [`Value::is_integer`]; calling on a non-Integer is undefined
+    /// behaviour per mruby's macro contract.
+    #[inline]
+    pub unsafe fn unbox_integer(self) -> i32 {
+        // SAFETY: forwarded from caller.
+        unsafe { sys::kobako_unbox_integer(self.0) }
+    }
+
+    /// Direct `mrb_float(v)` unbox. Preserves full f64 precision.
+    ///
+    /// # Safety
+    ///
+    /// As [`Value::unbox_integer`]: caller has confirmed Float-tagging.
+    #[inline]
+    pub unsafe fn unbox_float(self) -> f64 {
+        // SAFETY: forwarded from caller.
+        unsafe { sys::kobako_unbox_float(self.0) }
+    }
+
+    /// `mrb_ary_entry(self, idx)` — read the element at `idx` from
+    /// `self` (which must be an Array `Value`). No bounds checking;
+    /// caller must keep `idx` within `0..self.length`.
+    ///
+    /// # Safety
+    ///
+    /// `self` must be an Array-tagged `Value`. Out-of-range `idx`
+    /// returns `mrb_nil_value` rather than reading past the buffer;
+    /// passing a non-Array yields an undefined `Value`.
+    #[inline]
+    pub unsafe fn ary_entry(self, idx: i32) -> Value {
+        // SAFETY: forwarded from caller.
+        Value(unsafe { sys::mrb_ary_entry(self.0, idx) })
     }
 }
 

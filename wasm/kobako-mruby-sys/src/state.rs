@@ -26,6 +26,8 @@
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
+use crate::Value;
+#[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
 
 /// Owning handle to a live mruby VM. Closed automatically on drop.
@@ -89,9 +91,9 @@ impl Mrb {
     /// the field — callers pair this with [`Mrb::clear_exc`] after
     /// they have captured class/message/backtrace.
     #[cfg(target_arch = "wasm32")]
-    pub fn pending_exc(&self) -> sys::mrb_value {
+    pub fn pending_exc(&self) -> Value {
         // SAFETY: `self.state` is alive by the `&self` borrow.
-        unsafe { sys::kobako_get_exc(self.as_ptr()) }
+        Value::from_raw(unsafe { sys::kobako_get_exc(self.as_ptr()) })
     }
 
     /// Clear `mrb->exc`. Idempotent; safe to call when no exception

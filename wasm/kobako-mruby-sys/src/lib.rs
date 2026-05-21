@@ -76,7 +76,7 @@ use core::ffi::{c_char, c_int};
 
 // Safe-layer modules. These hold the kobako safe abstractions over
 // the raw FFI surface declared below — `Mrb` RAII, `Ccontext` RAII,
-// the `MrbValueExt` ergonomics, and the `cstr!` / `cstr_ptr` C-string
+// the typed `Value` newtype, and the `cstr!` / `cstr_ptr` C-string
 // helpers. They live in this crate so the FFI types they wrap and the
 // abstractions over them ship as one cohesive surface to consumers.
 #[cfg(any(target_arch = "wasm32", test))]
@@ -91,8 +91,7 @@ pub use state::{Mrb, MrbOpenError};
 pub use ccontext::Ccontext;
 
 pub use value::cstr_ptr;
-#[cfg(target_arch = "wasm32")]
-pub use value::MrbValueExt;
+pub use value::Value;
 
 /// `mrb_bool` — mruby's boolean C type (unsigned char / u8).
 #[cfg(target_arch = "wasm32")]
@@ -230,7 +229,13 @@ pub type mrb_sym = u32;
 /// C function pointer matching mruby's method-implementation signature
 /// `mrb_value (*)(mrb_state*, mrb_value)`. Used by `mrb_define_method`
 /// and `mrb_define_singleton_method`.
-pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: mrb_value) -> mrb_value;
+///
+/// Declared with [`Value`] parameters and return so bridge functions
+/// in consumer crates use the typed surface throughout. `Value` is
+/// `#[repr(transparent)]` over `mrb_value`, so the wasm function
+/// signature this typedef produces is byte-identical to mruby's
+/// own `mrb_func_t`.
+pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: Value) -> Value;
 
 /// `mrb_aspec` — packed argument specification (e.g. `MRB_ARGS_REQ(4)`).
 /// In mruby this is a `uint32_t`. Construction macros listed below.
@@ -726,8 +731,8 @@ mod tests {
         // signature must coerce to `mrb_func_t` without an explicit
         // cast. If the `mrb_func_t` shape ever drifts, this function
         // definition fails to compile.
-        unsafe extern "C" fn _stub(_mrb: *mut mrb_state, _self_: mrb_value) -> mrb_value {
-            mrb_value::zeroed()
+        unsafe extern "C" fn _stub(_mrb: *mut mrb_state, _self_: Value) -> Value {
+            Value::zeroed()
         }
         let _f: mrb_func_t = _stub;
     }

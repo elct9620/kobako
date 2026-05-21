@@ -20,8 +20,10 @@ pub use kobako_mruby_sys as sys;
 #[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys::Mrb;
 
-#[cfg(target_arch = "wasm32")]
-pub use kobako_mruby_sys::MrbValueExt;
+// `Value` is reached via `crate::mruby::sys::Value` at call sites;
+// no shorter re-export here to avoid an unused-import warning while
+// keeping the canonical path explicit. Once Class arrives the same
+// principle applies (`crate::mruby::sys::Class`).
 
 #[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys::Ccontext;

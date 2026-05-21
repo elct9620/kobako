@@ -34,7 +34,7 @@
 //! ## Safety
 //!
 //! Each bridge is `unsafe extern "C" fn` because mruby invokes it from
-//! the C side with a raw `*mut mrb_state` and an `mrb_value` receiver.
+//! the C side with a raw `*mut mrb_state` and a `Value` receiver.
 //! Bodies open with `unsafe { Kobako::resolve_raw(mrb) }` to obtain the
 //! safe `Kobako` token; from then on the work is safe Rust with
 //! explicit `unsafe { ... }` blocks at each remaining FFI call site.
@@ -42,13 +42,17 @@
 #[cfg(target_arch = "wasm32")]
 use crate::cstr;
 use crate::mruby::sys;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::MrbValueExt;
+use crate::mruby::sys::Value;
 
-/// Build a borrowed `&[mrb_value]` from a `mrb_get_args("n*", ...)`
+/// Build a borrowed `&[Value]` from a `mrb_get_args("n*", ...)`
 /// out-parameter pair. mruby may set `rest_ptr` to NULL when the
 /// rest-array is empty; reading `rest_len` bytes from a NULL pointer
 /// would be UB, so the helper returns an empty slice in that case.
+///
+/// `rest_ptr` arrives typed as `*const sys::mrb_value` (matching
+/// mruby's variadic out-param contract); the cast to `*const Value`
+/// is sound because `Value` is `#[repr(transparent)]` over
+/// `mrb_value`.
 ///
 /// # Safety
 ///
@@ -60,10 +64,11 @@ use crate::mruby::MrbValueExt;
 unsafe fn slice_from_mrb_args<'a>(
     rest_ptr: *const sys::mrb_value,
     rest_len: core::ffi::c_int,
-) -> &'a [sys::mrb_value] {
+) -> &'a [Value] {
     if rest_len > 0 && !rest_ptr.is_null() {
-        // SAFETY: see item-level doc.
-        unsafe { core::slice::from_raw_parts(rest_ptr, rest_len as usize) }
+        // SAFETY: see item-level doc. Cast through `*const Value` is
+        // sound by `repr(transparent)`.
+        unsafe { core::slice::from_raw_parts(rest_ptr as *const Value, rest_len as usize) }
     } else {
         &[]
     }
@@ -81,8 +86,8 @@ unsafe fn slice_from_mrb_args<'a>(
 /// Forwards to [`super::Kobako::dispatch_invoke`].
 pub(crate) unsafe extern "C" fn rpc_method_missing(
     mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+    self_: Value,
+) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::rpc::envelope::Target;
@@ -147,27 +152,26 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
         // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
-        sys::mrb_value::zeroed()
+        Value::zeroed()
     }
 }
 
 /// `Kobako::RPC::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// [`super::Kobako::set_handle_id`].
-pub(crate) unsafe extern "C" fn handle_initialize(
-    mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-        let mut id_val = sys::mrb_value::zeroed();
+        // mrb_get_args writes its `"o"` slot as a raw mrb_value; wrap
+        // the cell once retrieved.
+        let mut id_raw = sys::mrb_value::zeroed();
         unsafe {
-            sys::mrb_get_args(mrb, cstr!("o"), &mut id_val as *mut sys::mrb_value);
+            sys::mrb_get_args(mrb, cstr!("o"), &mut id_raw as *mut sys::mrb_value);
         }
-        kobako.set_handle_id(self_, id_val);
+        kobako.set_handle_id(self_, Value::from_raw(id_raw));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -175,7 +179,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(
         let _ = mrb;
         let _ = self_;
     }
-    sys::mrb_value::zeroed()
+    Value::zeroed()
 }
 
 /// `Kobako::RPC::Handle#method_missing(name, *args)` C bridge. Forwards every
@@ -184,8 +188,8 @@ pub(crate) unsafe extern "C" fn handle_initialize(
 /// (docs/behavior.md B-17 — Handle chaining).
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
-    self_: sys::mrb_value,
-) -> sys::mrb_value {
+    self_: Value,
+) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::rpc::envelope::Target;
@@ -238,7 +242,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
         // `unused_variables` lint is satisfied without an `#[allow]`.
         let _ = mrb;
         let _ = self_;
-        sys::mrb_value::zeroed()
+        Value::zeroed()
     }
 }
 
@@ -248,19 +252,21 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// `respond_to?` must succeed.
 pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     mrb: *mut sys::mrb_state,
-    _self_: sys::mrb_value,
-) -> sys::mrb_value {
+    _self_: Value,
+) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        // SAFETY: bridge contract.
-        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        kobako.true_value()
+        // SAFETY: bridge contract — resolve_raw needed only to assert
+        // the install precondition; the immediate `true` is sourced
+        // from the sys-side cache directly.
+        let _kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+        Value::true_()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Host stub — see `rpc_method_missing` for the shape rationale.
         let _ = mrb;
-        sys::mrb_value::zeroed()
+        Value::zeroed()
     }
 }
 
