@@ -200,7 +200,7 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
 #[cfg(target_arch = "wasm32")]
 pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     let exc_val = mrb.pending_exc();
-    if exc_val.as_raw().w == 0 {
+    if exc_val.is_nil() {
         return None;
     }
     let class_name = {

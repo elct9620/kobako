@@ -372,6 +372,17 @@ impl Value {
         })
     }
 
+    /// TRUE when `self` is `nil`. Routes through mruby's own
+    /// `mrb_nil_p(v)` (a macro under some boxing configs, a
+    /// `static inline` under others) via the `wrapper.h` shim, so the
+    /// nil-tag check matches the layout libmruby.a was built with.
+    #[inline]
+    pub fn is_nil(self) -> bool {
+        // SAFETY: mrb_nil_p is a pure predicate over the value tag and
+        // does not touch `mrb_state`.
+        unsafe { sys::mrb_nil_p_func(self.0) }
+    }
+
     /// TRUE when `self` carries `MRB_TT_INTEGER`. Checks via mruby's
     /// own `mrb_type` (`MRB_INLINE`, reached through bindgen's
     /// static-fn trampoline). Pair with [`Value::unbox_integer`] for

@@ -99,3 +99,13 @@ mrb_proc_new_func(mrb_state *mrb, const mrb_irep *irep)
 {
   return mrb_proc_new(mrb, irep);
 }
+
+/* `mrb_nil_p(v)` expands differently across boxing configs
+ * (word-box / NaN-box / no-box); reaching it from Rust must go
+ * through the C compiler so we always read the layout libmruby.a
+ * was built with. */
+static inline mrb_bool
+mrb_nil_p_func(mrb_value v)
+{
+  return mrb_nil_p(v);
+}
