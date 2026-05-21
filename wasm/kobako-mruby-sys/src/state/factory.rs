@@ -1,15 +1,19 @@
 //! String / Array / Hash factories on [`Mrb`].
 //!
-//! Magnus's `Ruby` token holds factories like `ary_new` /
-//! `hash_new` / `str_new` as **inherent methods**, not on traits.
-//! We follow that pattern: this file adds inherent factory methods
-//! to [`Mrb`] via an `impl Mrb` block, mirroring magnus's
-//! `src/api.rs` style.
+//! Magnus's `Ruby` token holds factories like `ary_new` / `hash_new`
+//! / `str_new` as **inherent methods**, not on traits. We follow that
+//! pattern: this file adds inherent factory methods to [`Mrb`] via an
+//! `impl Mrb` block, mirroring magnus's `src/api.rs` style.
+//!
+//! Collection factories (`ary_new`, `hash_new`) return typed newtypes
+//! [`Array`] / [`Hash`] so per-collection operations (`push`, `set`,
+//! `get`, `keys`) cluster on the value type rather than on `Mrb` —
+//! the magnus shape (see `src/r_array.rs` / `src/r_hash.rs`).
 
 #[cfg(target_arch = "wasm32")]
 use crate as sys;
 #[cfg(target_arch = "wasm32")]
-use crate::{Mrb, Value};
+use crate::{Mrb, Array, Hash, Value};
 
 #[cfg(target_arch = "wasm32")]
 impl Mrb {
@@ -44,57 +48,23 @@ impl Mrb {
         Value::from_raw(unsafe { sys::mrb_str_new_cstr(self.as_ptr(), s.as_ptr()) })
     }
 
-    /// `mrb_ary_new(mrb)` — construct a fresh empty mruby `Array`.
-    ///
-    /// **Transitional API:** returns a generic [`Value`] for now;
-    /// a follow-up commit replaces this with a typed `RArray`
-    /// return and moves element ops (`ary_push`, `ary_entry`) onto
-    /// that newtype.
+    /// `mrb_ary_new(mrb)` — construct a fresh empty mruby `Array` as
+    /// a typed [`Array`]. Element operations (`push`, `entry`) live
+    /// on the returned newtype.
     #[inline]
-    pub fn ary_new(&self) -> Value {
-        // SAFETY: `self` is alive.
-        Value::from_raw(unsafe { sys::mrb_ary_new(self.as_ptr()) })
+    pub fn ary_new(&self) -> Array {
+        // SAFETY: `self` is alive; `mrb_ary_new` always returns an
+        // Array-tagged value, so the unchecked wrap is sound.
+        unsafe { Array::from_value_unchecked(Value::from_raw(sys::mrb_ary_new(self.as_ptr()))) }
     }
 
-    /// `mrb_ary_push(mrb, ary, val)` — append `val` to `ary`. `ary`
-    /// must be an Array-tagged [`Value`] produced by the same VM.
+    /// `mrb_hash_new(mrb)` — construct a fresh empty mruby `Hash` as
+    /// a typed [`Hash`]. Element operations (`set`, `get`, `keys`)
+    /// live on the returned newtype.
     #[inline]
-    pub fn ary_push(&self, ary: Value, val: Value) {
-        // SAFETY: `self` is alive; both values originate from the
-        // same VM by the single-VM contract.
-        unsafe { sys::mrb_ary_push(self.as_ptr(), ary.as_raw(), val.as_raw()) };
-    }
-
-    /// `mrb_hash_new(mrb)` — construct a fresh empty mruby `Hash`.
-    ///
-    /// **Transitional API:** see [`Mrb::ary_new`].
-    #[inline]
-    pub fn hash_new(&self) -> Value {
-        // SAFETY: `self` is alive.
-        Value::from_raw(unsafe { sys::mrb_hash_new(self.as_ptr()) })
-    }
-
-    /// `mrb_hash_set(mrb, hash, key, val)` — assign `key => val` in
-    /// `hash`.
-    #[inline]
-    pub fn hash_set(&self, hash: Value, key: Value, val: Value) {
-        // SAFETY: as `ary_push`.
-        unsafe { sys::mrb_hash_set(self.as_ptr(), hash.as_raw(), key.as_raw(), val.as_raw()) };
-    }
-
-    /// `mrb_hash_get(mrb, hash, key)` — return the value for `key`,
-    /// or `nil` when absent.
-    #[inline]
-    pub fn hash_get(&self, hash: Value, key: Value) -> Value {
-        // SAFETY: as `ary_push`.
-        Value::from_raw(unsafe { sys::mrb_hash_get(self.as_ptr(), hash.as_raw(), key.as_raw()) })
-    }
-
-    /// `mrb_hash_keys(mrb, hash)` — return the Array of keys in
-    /// `hash`.
-    #[inline]
-    pub fn hash_keys(&self, hash: Value) -> Value {
-        // SAFETY: as `ary_push`.
-        Value::from_raw(unsafe { sys::mrb_hash_keys(self.as_ptr(), hash.as_raw()) })
+    pub fn hash_new(&self) -> Hash {
+        // SAFETY: `self` is alive; `mrb_hash_new` always returns a
+        // Hash-tagged value, so the unchecked wrap is sound.
+        unsafe { Hash::from_value_unchecked(Value::from_raw(sys::mrb_hash_new(self.as_ptr()))) }
     }
 }

@@ -88,8 +88,12 @@ use core::ffi::{c_char, c_int};
 // `unresolved import` and `function not found in sys` errors as soon
 // as `cargo test` ran the sys crate on its own.
 #[cfg(target_arch = "wasm32")]
+pub mod array;
+#[cfg(target_arch = "wasm32")]
 pub mod ccontext;
 pub mod class;
+#[cfg(target_arch = "wasm32")]
+pub mod hash;
 pub mod state;
 pub mod value;
 
@@ -99,7 +103,11 @@ pub use state::{Mrb, MrbOpenError};
 #[cfg(target_arch = "wasm32")]
 pub use ccontext::Ccontext;
 
+#[cfg(target_arch = "wasm32")]
+pub use array::Array;
 pub use class::{Class, Module};
+#[cfg(target_arch = "wasm32")]
+pub use hash::Hash;
 pub use value::cstr_ptr;
 pub use value::Value;
 

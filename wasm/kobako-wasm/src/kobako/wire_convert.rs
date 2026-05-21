@@ -35,13 +35,14 @@ impl Kobako {
     /// through [`Kobako::to_wire_value`].
     #[cfg(target_arch = "wasm32")]
     pub fn extract_hash_kwargs(&self, hash: Value, out: &mut Vec<(String, crate::codec::Value)>) {
-        let keys_ary = self.mrb().hash_keys(hash);
-        let keys_len = self.collection_len(keys_ary);
+        // SAFETY: callers reach this only after a `classname == "Hash"`
+        // gate, so the unchecked wrap is sound.
+        let hash = unsafe { sys::Hash::from_value_unchecked(hash) };
+        let keys_ary = hash.keys(self.mrb());
+        let keys_len = self.collection_len(keys_ary.as_value());
         for i in 0..keys_len {
-            // SAFETY: `keys_ary` is Array-tagged (mrb_hash_keys always
-            // returns an Array); `i` stays in range by `keys_len`.
-            let key_val = unsafe { keys_ary.ary_entry(i as i32) };
-            let val = self.mrb().hash_get(hash, key_val);
+            let key_val = keys_ary.entry(i as i32);
+            let val = hash.get(self.mrb(), key_val);
             out.push((key_val.to_string(self.mrb()), self.to_wire_value(val)));
         }
     }
@@ -89,12 +90,13 @@ impl Kobako {
         val: Value,
         convert: fn(&Self, Value) -> crate::codec::Value,
     ) -> Vec<crate::codec::Value> {
+        // SAFETY: callers reach this only after a `classname == "Array"`
+        // gate, so the unchecked wrap is sound.
+        let ary = unsafe { sys::Array::from_value_unchecked(val) };
         let len = self.collection_len(val);
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: val is Array-tagged (callers gate by classname),
-            // and originates from +self.mrb+.
-            let elem = unsafe { val.ary_entry(i as i32) };
+            let elem = ary.entry(i as i32);
             items.push(convert(self, elem));
         }
         items
@@ -112,14 +114,15 @@ impl Kobako {
         val: Value,
         convert: fn(&Self, Value) -> crate::codec::Value,
     ) -> Vec<(crate::codec::Value, crate::codec::Value)> {
-        let keys_ary = self.mrb().hash_keys(val);
-        let len = self.collection_len(keys_ary);
+        // SAFETY: callers reach this only after a `classname == "Hash"`
+        // gate, so the unchecked wrap is sound.
+        let hash = unsafe { sys::Hash::from_value_unchecked(val) };
+        let keys_ary = hash.keys(self.mrb());
+        let len = self.collection_len(keys_ary.as_value());
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: keys_ary is Array-tagged from hash_keys, val is
-            // Hash-tagged from caller; `i` stays in range by `len`.
-            let key = unsafe { keys_ary.ary_entry(i as i32) };
-            let v = self.mrb().hash_get(val, key);
+            let key = keys_ary.entry(i as i32);
+            let v = hash.get(self.mrb(), key);
             pairs.push((convert(self, key), convert(self, v)));
         }
         pairs
@@ -256,20 +259,9 @@ impl Kobako {
                 Ok(cs) => mrb.str_new_cstr(&cs),
                 Err(_) => mrb.str_new(s.as_bytes()),
             },
-            WireValue::Handle(id) => {
-                let id_val = Value::from_int(mrb, id as i32).as_raw();
-                // SAFETY: `mrb` is live; `self.handle_class` was
-                // produced by `install_raw` / `resolve_raw`; `id_val`
-                // originates from the same VM.
-                Value::from_raw(unsafe {
-                    sys::mrb_obj_new(
-                        mrb.as_ptr(),
-                        self.handle_class.as_raw(),
-                        1,
-                        &id_val as *const sys::mrb_value,
-                    )
-                })
-            }
+            WireValue::Handle(id) => self
+                .handle_class
+                .obj_new(mrb, &[Value::from_int(mrb, id as i32)]),
             WireValue::Bin(bytes) => mrb.str_new(&bytes),
             WireValue::Sym(name) => {
                 // Intern via String#to_sym — mruby's mrb_symbol_value
@@ -281,18 +273,18 @@ impl Kobako {
                 let ary = mrb.ary_new();
                 for item in items {
                     let elem = self.to_mrb_value(item);
-                    mrb.ary_push(ary, elem);
+                    ary.push(mrb, elem);
                 }
-                ary
+                ary.as_value()
             }
             WireValue::Map(pairs) => {
                 let hash = mrb.hash_new();
                 for (k, v) in pairs {
                     let key = self.to_mrb_value(k);
                     let val = self.to_mrb_value(v);
-                    mrb.hash_set(hash, key, val);
+                    hash.set(mrb, key, val);
                 }
-                hash
+                hash.as_value()
             }
             // ext 0x02 envelopes are consumed by the exception path
             // (`raise_service_error`) before reaching value

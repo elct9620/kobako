@@ -366,13 +366,12 @@ impl Kobako {
         if bt_val.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
+        // SAFETY: classname check above proves Array-tagged.
+        let bt_ary = unsafe { sys::Array::from_value_unchecked(bt_val) };
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: +bt_val+ is Array-tagged by the classname check
-            // above; +i+ stays in range by the +len+ bound.
-            let line = unsafe { bt_val.ary_entry(i as i32) };
-            lines.push(line.to_string(self.mrb()));
+            lines.push(bt_ary.entry(i as i32).to_string(self.mrb()));
         }
         lines
     }
@@ -399,13 +398,12 @@ impl Kobako {
         if consts.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
+        // SAFETY: classname check above proves Array-tagged.
+        let consts_ary = unsafe { sys::Array::from_value_unchecked(consts) };
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
-            // SAFETY: consts is Array-tagged by the classname check;
-            // ary_entry stays in range by the +len+ bound.
-            let entry = unsafe { consts.ary_entry(i as i32) };
-            names.push(entry.to_string(self.mrb()));
+            names.push(consts_ary.entry(i as i32).to_string(self.mrb()));
         }
         names
     }
