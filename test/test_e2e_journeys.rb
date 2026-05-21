@@ -473,6 +473,72 @@ class TestE2EJourneys < Minitest::Test
     assert_equal 2, sandbox.eval("STDERR.fileno")
   end
 
+  # IO#write byte-pumping coverage — pins the two paths the safe
+  # layer exercises through every `print` / `puts` / `$stdout.write`:
+  # `mrb_obj_as_string` coercion (already-String vs to_s detour) and
+  # the `mrb_rstring_ptr` / `mrb_rstring_len` static-inline wrappers
+  # that follow the embed-vs-heap RString branch. A drift in the
+  # `wrapper.h` macro expansion or the `RString` header layout would
+  # surface as a mismatched byte assertion below.
+
+  # Strings short enough to fit inside RStringEmbed.ary go through
+  # the embed branch of RSTRING_PTR / RSTRING_LEN. 11 bytes sits at
+  # the inline boundary (`RSTRING_EMBED_LEN_MAX` on wasm32) — a
+  # regression that read past the embed buffer or returned the
+  # wrong length would corrupt the captured output.
+  def test_io_write_round_trips_embed_tagged_string
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval('print "abcdefghijk"')
+    assert_equal "abcdefghijk", sandbox.stdout,
+                 "embed-tagged String must round-trip the full 11 bytes through " \
+                 "the inline RStringEmbed.ary branch"
+  end
+
+  # Strings beyond the embed cap live in as_.heap.{ptr,len}; the
+  # same wrappers must follow the heap-pointer branch. 100 bytes
+  # is well clear of the boundary so any embed-only regression
+  # would yield a truncated or zero-length capture. mruby builds
+  # the string itself via `"x" * 100` so the test does not need
+  # Ruby-side interpolation.
+  def test_io_write_round_trips_heap_tagged_string
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval('print "x" * 100')
+    assert_equal "x" * 100, sandbox.stdout,
+                 "heap-tagged String must round-trip all 100 bytes through " \
+                 "the as_.heap.ptr / as_.heap.len branch"
+  end
+
+  # IO#write routes through `write(2)` with an explicit `ptr + len`,
+  # not `mrb_str_to_cstr` (which would truncate at the first NUL
+  # byte). Embedded NUL must reach the capture pipe intact.
+  def test_io_write_preserves_embedded_nul_bytes
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval("print \"a\\0b\"")
+    assert_equal "a\0b".b, sandbox.stdout.b,
+                 "ptr + len IO path must preserve NUL bytes inside the payload"
+  end
+
+  # `mrb_obj_as_string` on a value that is already a String returns
+  # the receiver unchanged — no Object#to_s detour. The literal's
+  # bytes reach `write(2)` verbatim.
+  def test_io_write_passes_through_already_string_without_coercion
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval('print "literal-string"')
+    assert_equal "literal-string", sandbox.stdout,
+                 "Already-String arguments must skip the to_s coercion arm"
+  end
+
+  # `mrb_obj_as_string` on a non-String calls Object#to_s. Integer
+  # 42 round-trips as the canonical "42" decimal string; a skipped
+  # coercion path would surface a raw boxed representation (or
+  # trap).
+  def test_io_write_coerces_non_string_via_to_s
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval("print 42")
+    assert_equal "42", sandbox.stdout,
+                 "Non-String arguments must reach write(2) via the Object#to_s coercion"
+  end
+
   # Reassigning $stdout inside a #run must not bleed into the next
   # #run — each invocation rebuilds the mruby state and reinstalls
   # the globals, so a subsequent puts always lands on the host's
