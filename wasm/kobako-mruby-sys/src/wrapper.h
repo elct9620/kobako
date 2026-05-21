@@ -4,7 +4,21 @@
  * Pulled in by `build.rs::run_bindgen` to expose the mruby C API the
  * kobako Guest Binary needs, plus the layout-safe C shims compiled
  * alongside mruby (see `src/{bytecode,io,value}.c`).
+ *
+ * The `<stdbool.h>` and `<sys/select.h>` pre-includes are not used
+ * by the mruby surface itself — they cover bindgen's `wrap_static_fns`
+ * trampoline file. bindgen emits a trampoline for every `static inline`
+ * function reached through the include tree, including wasi-libc
+ * helpers like `FD_ISSET`. The generated trampoline file `#include`s
+ * only this wrapper, so `bool` and `fd_set` must resolve here even
+ * though the safe layer never calls those helpers. Release builds
+ * happened to inline-strip the unused trampolines; debug builds keep
+ * them, which is what surfaces the compile failure without these
+ * pre-includes.
  */
+
+#include <stdbool.h>
+#include <sys/select.h>
 
 #include <mruby.h>
 #include <mruby/array.h>

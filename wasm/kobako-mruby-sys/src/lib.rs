@@ -46,6 +46,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+#[cfg(not(target_arch = "wasm32"))]
 use core::ffi::c_void;
 
 // Safe-layer modules. These hold the kobako abstractions over the FFI
@@ -88,9 +89,29 @@ pub use value::Value;
 // pure-Rust unit suite (codec / outcome / RPC envelope) still need
 // `mrb_value` / `mrb_state` / `RClass` etc. to resolve as types — the
 // stub aliases below cover that.
+//
+// The generated `bindings.rs` is `include!`-d into a private
+// submodule so the `#![allow(clippy::all)]` / `#![allow(warnings)]`
+// scope contains the auto-generated bitfield accessors (which use
+// `unsafe { transmute(...) }` patterns clippy flags). The `pub use`
+// re-exports every name at the crate root, keeping the consumer
+// import path unchanged.
 
 #[cfg(target_arch = "wasm32")]
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+#[allow(clippy::all)]
+#[allow(warnings)]
+mod bindings {
+    // `mrb_func_t` is blocklisted in bindgen so consumers see the
+    // typed-`Value` alias declared at the crate root. The generated
+    // bindings still reference the bare name in function signatures
+    // (e.g. `mrb_define_method`'s `func` parameter); pull the parent
+    // alias into scope so those references resolve.
+    use super::mrb_func_t;
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use bindings::*;
 
 #[cfg(target_arch = "wasm32")]
 impl mrb_value {
