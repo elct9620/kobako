@@ -1,11 +1,9 @@
-//! Per-step install helpers for [`super::Kobako::install_raw`].
+//! Per-step install helpers for [`super::Kobako::install`].
 //!
-//! `install_raw` runs three independent registrations against a
-//! freshly opened mruby state — class hierarchy, IO globals, Kernel
-//! delegators — each with its own preconditions. Keeping the steps in
-//! their own functions (rather than one ~150-line `unsafe { ... }`
-//! body) lets each carry a focused SAFETY note and lets `install_raw`
-//! read as a four-line orchestration.
+//! `install` runs three independent registrations against a freshly
+//! opened mruby state — class hierarchy, IO globals, Kernel delegators.
+//! Keeping the steps in their own functions (rather than one ~150-line
+//! body) lets +Kobako::install+ read as a four-line orchestration.
 //!
 //! The helpers are crate-private and wasm32-only by design — they
 //! exist solely to support the wasm32 install path; the host target
@@ -45,16 +43,12 @@ pub(super) struct KobakoClasses {
 /// exception hierarchy. Returns the five class handles the
 /// [`super::Kobako`] token needs to keep around.
 ///
-/// # Safety
-///
-/// `mrb` must be a live mruby state. Function pointers come from
-/// [`bridges`], the only producer of `mrb_func_t` in this crate.
-/// Class handles produced by `define_*_under` are owned by mruby
-/// and live for the duration of `mrb`.
+/// Function pointers come from [`bridges`], the only producer of
+/// `mrb_func_t` in this crate. Class handles produced by
+/// `define_*_under` are owned by mruby and live for the duration of
+/// `mrb`.
 #[cfg(target_arch = "wasm32")]
-pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoClasses {
-    // SAFETY: see item-level doc.
-    let mrb = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     let object_class = mrb.object_class();
 
     // Kobako module.
@@ -144,36 +138,28 @@ pub(super) unsafe fn install_kobako_classes(mrb: *mut sys::mrb_state) -> KobakoC
 /// to them. Guests can reassign either global at script time, which
 /// is the whole point of routing through the kernel delegators that
 /// load next.
-///
-/// # Safety
-///
-/// As [`install_kobako_classes`].
 #[cfg(target_arch = "wasm32")]
-pub(super) unsafe fn install_io_globals(mrb: *mut sys::mrb_state) {
-    // SAFETY: see item-level doc.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-
+pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
     // Top-level `::IO` class. Registers the constructor + `#write` /
     // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
     // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
     // `#<<`, etc.) in pure Ruby. The bridges talk to wasi-libc's
     // `stdout` / `stderr` via the `kobako_io_fwrite` C shim
     // (docs/behavior.md B-04).
-    // SAFETY: same liveness contract as the outer function.
-    unsafe { io::install(mrb) };
+    io::install(mrb);
 
-    let io_class = mrb_ref.class_get(c"IO");
-    let mode_str = mrb_ref.str_new_cstr(c"w");
-    let stdout_val = io_class.obj_new(mrb_ref, &[sys::Value::from_int(mrb_ref, 1), mode_str]);
-    let stderr_val = io_class.obj_new(mrb_ref, &[sys::Value::from_int(mrb_ref, 2), mode_str]);
+    let io_class = mrb.class_get(c"IO");
+    let mode_str = mrb.str_new_cstr(c"w");
+    let stdout_val = io_class.obj_new(mrb, &[sys::Value::from_int(mrb, 1), mode_str]);
+    let stderr_val = io_class.obj_new(mrb, &[sys::Value::from_int(mrb, 2), mode_str]);
 
-    mrb_ref.define_global_const(c"STDOUT", stdout_val);
-    mrb_ref.define_global_const(c"STDERR", stderr_val);
+    mrb.define_global_const(c"STDOUT", stdout_val);
+    mrb.define_global_const(c"STDERR", stderr_val);
 
-    let stdout_gvar = mrb_ref.intern_cstr(c"$stdout");
-    let stderr_gvar = mrb_ref.intern_cstr(c"$stderr");
-    mrb_ref.gv_set(stdout_gvar, stdout_val);
-    mrb_ref.gv_set(stderr_gvar, stderr_val);
+    let stdout_gvar = mrb.intern_cstr(c"$stdout");
+    let stderr_gvar = mrb.intern_cstr(c"$stderr");
+    mrb.gv_set(stdout_gvar, stdout_val);
+    mrb.gv_set(stderr_gvar, stderr_val);
 }
 
 /// Load the precompiled `mrblib/kernel.rb` bytecode. The blob
@@ -184,14 +170,9 @@ pub(super) unsafe fn install_io_globals(mrb: *mut sys::mrb_state) {
 /// the delegators look up the globals at call time but would
 /// NoMethodError if called before they exist.
 ///
-/// # Safety
-///
-/// As [`install_kobako_classes`]. The bytecode blob is a `'static`
-/// `&[u8]` produced at build time by mrbc.
+/// The bytecode blob is a `'static` `&[u8]` produced at build time
+/// by mrbc.
 #[cfg(target_arch = "wasm32")]
-pub(super) unsafe fn install_kernel_delegators(mrb: *mut sys::mrb_state) {
-    // SAFETY: see item-level doc.
-    unsafe {
-        bytecode::load(mrb, bytecode::KERNEL_MRB);
-    }
+pub(super) fn install_kernel_delegators(mrb: &crate::mruby::Mrb) {
+    bytecode::load(mrb, bytecode::KERNEL_MRB);
 }

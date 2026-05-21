@@ -35,36 +35,24 @@ use crate::mruby::sys::Value;
 /// against an already-installed state just re-defines the methods,
 /// which is harmless given mruby's last-write-wins semantics).
 /// wasm32-only — host callers do not run the IO install path.
-///
-/// # Safety
-///
-/// `mrb` must be a live mruby state. Intended to run inside
-/// [`super::Kobako::install_raw`], which already holds the same
-/// liveness contract.
 #[cfg(target_arch = "wasm32")]
-pub(crate) unsafe fn install(mrb: *mut sys::mrb_state) {
-    // SAFETY: `mrb` is live per the function's safety contract.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-
+pub(crate) fn install(mrb: &crate::mruby::Mrb) {
     // Spell `Object` as the super class via the canonical
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
     // line 2241). Passing a NULL super to `mrb_define_class` makes
     // mruby emit `"no super class for 'IO', Object assumed"` via
     // `mrb_warn` on every install, leaking onto the guest `stderr`
     // capture pipe (docs/behavior.md B-04).
-    let io_class = mrb_ref.define_class(c"IO", mrb_ref.object_class());
+    let io_class = mrb.define_class(c"IO", mrb.object_class());
 
-    io_class.define_method(mrb_ref, c"initialize", io_initialize, sys::mrb_args_req(2));
-    io_class.define_method(mrb_ref, c"write", io_write, sys::MRB_ARGS_ANY);
-    io_class.define_method(mrb_ref, c"fileno", io_fileno, sys::MRB_ARGS_NONE);
+    io_class.define_method(mrb, c"initialize", io_initialize, sys::mrb_args_req(2));
+    io_class.define_method(mrb, c"write", io_write, sys::MRB_ARGS_ANY);
+    io_class.define_method(mrb, c"fileno", io_fileno, sys::MRB_ARGS_NONE);
 
     // Load the Ruby-level instance methods (#print / #puts / #printf
     // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,
-    // plus the `to_i` alias). The bytecode loader has the same
-    // liveness contract as this function.
-    unsafe {
-        crate::kobako::bytecode::load(mrb, crate::kobako::bytecode::IO_MRB);
-    }
+    // plus the `to_i` alias).
+    crate::kobako::bytecode::load(mrb, crate::kobako::bytecode::IO_MRB);
 }
 
 /// `IO.new(fd, mode)` — initialize a sandbox-scoped IO bound to a

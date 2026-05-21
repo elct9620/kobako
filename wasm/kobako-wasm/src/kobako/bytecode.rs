@@ -18,9 +18,6 @@
 //! [`mrb_load_irep_buf`]: crate::mruby::sys::mrb_load_irep_buf
 //! [`mrb_load_nstring`]: crate::mruby::sys::mrb_load_nstring
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::sys;
-
 /// Compiled bytecode for `mrblib/io.rb` — defines the instance method
 /// surface on the top-level `IO` class (`#print`, `#puts`, `#printf`,
 /// `#p`, `#<<`, `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`,
@@ -32,7 +29,7 @@ pub(crate) const IO_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/io.mr
 /// Compiled bytecode for `mrblib/kernel.rb` — defines `Kernel#print`,
 /// `#puts`, `#printf`, `#p`, `#warn` as delegators to the assignable
 /// `$stdout` / `$stderr` globals. Loaded after `STDOUT` / `STDERR` /
-/// `$stdout` / `$stderr` are wired in `install_raw`.
+/// `$stdout` / `$stderr` are wired by +install_io_globals+.
 #[cfg(target_arch = "wasm32")]
 pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kernel.mrb"));
 
@@ -47,17 +44,9 @@ pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/k
 /// before proceeding. The build pipeline guarantees `mrbc` and
 /// `libmruby.a` originate from the same `vendor/mruby/` tree, so under
 /// correct builds the load is unconditional.
-///
-/// # Safety
-///
-/// `mrb` must be a live mruby state. `bytes` must reference a buffer
-/// that lives for the duration of the call; the static `IO_MRB` /
-/// `KERNEL_MRB` constants above always satisfy this.
 #[cfg(target_arch = "wasm32")]
-pub(crate) unsafe fn load(mrb: *mut sys::mrb_state, bytes: &[u8]) {
-    // SAFETY: `mrb` is live by the caller's contract.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let _ = mrb_ref.load_irep_buf(bytes);
+pub(crate) fn load(mrb: &crate::mruby::Mrb, bytes: &[u8]) {
+    let _ = mrb.load_irep_buf(bytes);
 }
 
 // No host-target stubs needed. Every consumer of `IO_MRB` / `KERNEL_MRB`
