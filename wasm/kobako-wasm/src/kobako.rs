@@ -48,6 +48,14 @@ use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
 
+/// Mangled instance-variable name that `Kobako::RPC::Handle#initialize`
+/// stores the Handle id under. Read back through [`Kobako::extract_handle_id`]
+/// at every method dispatch — keeping the literal in a single
+/// `const` makes the writer / reader pairing impossible to drift
+/// silently when the ivar layout changes.
+#[cfg(target_arch = "wasm32")]
+const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
+
 /// SPEC § Error Classes mapping from a Response.err `type` field to a
 /// guest-side mruby class. Routed through
 /// [`service_error_class_for_kind`] so the decision can be exercised
@@ -390,10 +398,10 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     #[cfg(target_arch = "wasm32")]
     pub fn top_level_constants(&self) -> Vec<String> {
-        // SAFETY: the shim turns +mrb->object_class+ (which lives
-        // until +mrb_close+) into the canonical class-tagged Value.
-        let object_value =
-            Value::from_raw(unsafe { sys::kobako_class_value(sys::mrb_object_class(self.mrb)) });
+        // SAFETY: `mrb->object_class` lives until `mrb_close`; the
+        // shim behind `Class::as_value` reuses mruby's own boxing
+        // logic.
+        let object_value = unsafe { self.mrb().object_class().as_value(self.mrb()) };
         let consts = object_value.call(self.mrb(), c"constants", &[]);
         if consts.classname(self.mrb()) != "Array" {
             return Vec::new();
@@ -413,7 +421,7 @@ impl Kobako {
     /// C bridge.
     #[cfg(target_arch = "wasm32")]
     pub fn set_handle_id(&self, target: Value, id_val: Value) {
-        let sym = self.mrb().intern_cstr(c"@__kobako_id__");
+        let sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
         target.iv_set(self.mrb(), sym, id_val);
     }
 
@@ -428,7 +436,7 @@ impl Kobako {
     /// and tighter on the wire-violation surface.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
-        let id_sym = self.mrb().intern_cstr(c"@__kobako_id__");
+        let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
         let id_val = handle_val.iv_get(self.mrb(), id_sym);
         if !id_val.is_integer() {
             return 0;
