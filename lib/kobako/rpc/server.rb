@@ -4,7 +4,7 @@ require "msgpack"
 require_relative "../errors"
 require_relative "envelope"
 require_relative "namespace"
-require_relative "handle_table"
+require_relative "../handle_table"
 require_relative "dispatcher"
 
 module Kobako
@@ -24,10 +24,11 @@ module Kobako
     #
     # Namespaces live at +Kobako::RPC::Namespace+
     # (lib/kobako/rpc/namespace.rb). The opaque Handle allocator lives at
-    # +Kobako::RPC::HandleTable+
-    # (lib/kobako/rpc/handle_table.rb). Dispatch helpers live at
-    # +Kobako::RPC::Dispatcher+
-    # (lib/kobako/rpc/dispatcher.rb).
+    # +Kobako::HandleTable+ (lib/kobako/handle_table.rb) and is owned by
+    # the Sandbox — the Server only holds an injected reference so RPC
+    # dispatch resolves against the same table the wire layer allocates
+    # into (docs/behavior.md B-19). Dispatch helpers live at
+    # +Kobako::RPC::Dispatcher+ (lib/kobako/rpc/dispatcher.rb).
     class Server
       # Build a fresh Server. +handle_table+ is an internal seam that
       # injects a pre-configured +HandleTable+; tests pass one whose +next_id+
@@ -120,13 +121,6 @@ module Kobako
       # Returns +true+ when {#seal!} has been called, +false+ otherwise.
       def sealed?
         @sealed
-      end
-
-      # Reset the HandleTable for a new invocation boundary. Called by
-      # +Sandbox+ before each invocation
-      # ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
-      def reset_handles!
-        @handle_table.reset!
       end
 
       # Dispatch a single RPC request and return the encoded response bytes

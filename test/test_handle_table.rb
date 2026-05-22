@@ -20,7 +20,7 @@ require "kobako/rpc/server"
 
 module Kobako
   class HandleTableTest < Minitest::Test
-    Table = Kobako::RPC::HandleTable
+    Table = Kobako::HandleTable
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 

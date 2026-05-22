@@ -13,15 +13,15 @@ module Kobako
 
       def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs) -> untyped
 
-      def self?.resolve_arg: (untyped value, HandleTable handle_table) -> untyped
+      def self?.resolve_arg: (untyped value, Kobako::HandleTable handle_table) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Server server, HandleTable handle_table) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Server server, Kobako::HandleTable handle_table) -> untyped
 
       def self?.resolve_path: (String path, Server server) -> untyped
 
-      def self?.resolve_handle: (Kobako::Handle handle, HandleTable handle_table) -> untyped
+      def self?.resolve_handle: (Kobako::Handle handle, Kobako::HandleTable handle_table) -> untyped
 
-      def self?.require_live_object!: (Integer id, HandleTable handle_table) -> untyped
+      def self?.require_live_object!: (Integer id, Kobako::HandleTable handle_table) -> untyped
 
       def self?.encode_ok: (untyped value, Server server) -> String
 

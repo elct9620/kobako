@@ -4,6 +4,7 @@ require "forwardable"
 
 require_relative "capture"
 require_relative "errors"
+require_relative "handle_table"
 require_relative "invocation"
 require_relative "outcome"
 require_relative "rpc/server"
@@ -16,12 +17,14 @@ module Kobako
   # scripts inside a wasmtime-hosted Wasm module
   # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
   #
-  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-instance RPC Server
-  # (which itself owns the per-run HandleTable), and the per-channel byte
-  # caches for guest stdout / stderr capture. The underlying wasmtime Engine
-  # and compiled Module are cached at process scope by the native ext and
-  # never surface to Ruby — constructing many Sandboxes amortises both costs
-  # automatically.
+  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-Sandbox
+  # +Kobako::HandleTable+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
+  # the per-instance RPC Server (which receives the HandleTable by
+  # injection so guest→host dispatch and host→guest auto-wrap share one
+  # allocator), and the per-channel byte caches for guest stdout / stderr
+  # capture. The underlying wasmtime Engine and compiled Module are cached
+  # at process scope by the native ext and never surface to Ruby —
+  # constructing many Sandboxes amortises both costs automatically.
   #
   # Output capture policy ({docs/behavior.md B-04}[link:../../docs/behavior.md]): the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
@@ -36,6 +39,7 @@ module Kobako
 
     attr_reader :wasm_path, :instance,
                 :options,
+                :handle_table,
                 :services, :snippets
 
     # Per-cap accessors forward to the immutable +SandboxOptions+ Value
@@ -87,7 +91,8 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Wasm.default_path
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
-      @services = Kobako::RPC::Server.new
+      @handle_table = HandleTable.new
+      @services = Kobako::RPC::Server.new(handle_table: @handle_table)
       @snippets = Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
@@ -198,7 +203,7 @@ module Kobako
     # HandleTable counter — before the guest runs.
     def begin_invocation!
       @services.seal!
-      @services.reset_handles!
+      @handle_table.reset!
       clear_captures!
     end
 
