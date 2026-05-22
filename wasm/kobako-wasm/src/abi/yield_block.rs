@@ -91,11 +91,16 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
     // Step 4: protected yield. `mrb_yield_argv` raises via `MRB_THROW`
     // for break / return / raise; `mrb.protect` installs a local
     // `c_jmp` that catches it and surfaces the exception value as
-    // `Err`.
+    // `Err`. Snapshot the current callinfo index *before* the
+    // protected call so step 5's classification can place any RBreak
+    // destination relative to this yielder's frame.
     let mrb_ptr = mrb.as_ptr();
     let block_raw = block.as_raw();
     let argc = mrb_args.len() as i32;
     let argv_ptr = mrb_args.as_ptr();
+    // SAFETY: `mrb_ptr` is live by the outer `&Mrb` borrow; the shim
+    // reads only the public `mrb_context.ci` / `cibase` fields.
+    let enter_idx = unsafe { sys::mrb_current_ci_index_func(mrb_ptr) };
     let result = mrb.protect(|_inner| {
         // SAFETY: `mrb_ptr` is live by the outer `&Mrb` borrow;
         // `block_raw` was pushed onto BLOCK_STACK by the still-active
@@ -108,12 +113,75 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
 
     // Step 5: encode the outcome. F-A1 — extract any exception fields
     // immediately on the Err path before any other mruby allocation
-    // could sweep the exception object out of the GC arena.
+    // could sweep the exception object out of the GC arena. RBreak
+    // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21
+    // (BLOCK_RESEARCH R-02).
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
-        Err(exc) => encode_error_response_from_exception(&kobako, mrb, exc),
+        Err(exc) => classify_protected_error(&kobako, mrb, exc, enter_idx),
     };
     write_yield_buffer(&bytes)
+}
+
+/// Classify the value `mrb_protect_error` surfaced on its `Err` path
+/// into a YieldResponse. mruby's vm.c already raises
+/// `E_LOCALJUMP_ERROR` directly for the orphan-block / orphan-Proc
+/// shapes (vm.c:2756 / 2776), so any RBreak we see here is either a
+/// real `break` from a non-lambda block or a non-orphan Proc `return`
+/// — discriminate them by comparing `RBreak.ci_break_index` against
+/// the `enter_idx` snapshot taken immediately before the protected
+/// yield.
+#[cfg(target_arch = "wasm32")]
+fn classify_protected_error(
+    kobako: &crate::kobako::Kobako,
+    mrb: &crate::mruby::Mrb,
+    exc: crate::mruby::sys::Value,
+    enter_idx: usize,
+) -> Vec<u8> {
+    use crate::mruby::sys;
+    // SAFETY: `mrb_break_p_func` only reads the value's type tag,
+    // safe on any mrb_value.
+    if !unsafe { sys::mrb_break_p_func(exc.as_raw()) } {
+        return encode_error_response_from_exception(kobako, mrb, exc);
+    }
+    // SAFETY: `mrb_break_p_func` returned non-zero, so `exc` is a
+    // valid RBreak-tagged value and the cast inside the shim is sound.
+    let brk_idx = unsafe { sys::mrb_break_ci_index_func(exc.as_raw()) };
+    if brk_idx >= enter_idx {
+        // SAFETY: same gate as `mrb_break_ci_index_func` above.
+        let brk_val_raw = unsafe { sys::mrb_break_value_func(exc.as_raw()) };
+        encode_break_response(kobako, sys::Value::from_raw(brk_val_raw))
+    } else {
+        // RBreak whose destination is deeper than the yielder's frame
+        // is a non-orphan Proc `return` aimed at an outer guest method
+        // — unrepresentable across the host yield boundary (E-21).
+        encode_error_bytes(
+            "LocalJumpError",
+            "unexpected return across a Kobako yield boundary",
+            Vec::new(),
+        )
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn encode_break_response(
+    kobako: &crate::kobako::Kobako,
+    value: crate::mruby::sys::Value,
+) -> Vec<u8> {
+    use crate::yield_response::{encode_response, Response, TAG_BREAK};
+    let codec_value = kobako.to_codec_value(value);
+    let resp = Response {
+        tag: TAG_BREAK,
+        value: codec_value,
+    };
+    match encode_response(&resp) {
+        Ok(bytes) => bytes,
+        Err(_) => encode_error_bytes(
+            "Kobako::RPC::WireError",
+            "failed to encode break value",
+            Vec::new(),
+        ),
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

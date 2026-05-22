@@ -109,3 +109,54 @@ mrb_nil_p_func(mrb_value v)
 {
   return mrb_nil_p(v);
 }
+
+/* RBreak predicate. Counterpart to `mrb_break_p(o)` in
+ * <mruby/value.h>, which expands via `mrb_type(o) == MRB_TT_BREAK`.
+ * Safe on any `mrb_value`; only reads the type tag. Used by
+ * `__kobako_yield_to_block` to gate the `break` / Proc-`return`
+ * classification (docs/behavior.md B-25 / E-21). */
+static inline mrb_bool
+mrb_break_p_func(mrb_value v)
+{
+  return mrb_break_p(v);
+}
+
+/* Read the `val` field of an RBreak-tagged `mrb_value`.
+ *
+ * Counterpart to the `mrb_break_value_get(brk)` macro in
+ * <mruby/error.h> with kobako's MRB_WORD_BOXING configuration
+ * (which leaves `MRB_USE_RBREAK_VALUE_UNION` undefined, so the
+ * macro resolves to a simple `brk->val` read).
+ *
+ * Caller must ensure `v` is RBreak-tagged via `mrb_break_p_func`;
+ * behaviour is undefined otherwise. */
+static inline mrb_value
+mrb_break_value_func(mrb_value v)
+{
+  struct RBreak *brk = (struct RBreak *)mrb_obj_ptr(v);
+  return mrb_break_value_get(brk);
+}
+
+/* Read the `ci_break_index` field of an RBreak-tagged `mrb_value`.
+ * The index points at the destination callinfo frame mruby will
+ * unwind to. `__kobako_yield_to_block` compares it against the
+ * pre-yield baseline from `mrb_current_ci_index_func` to discriminate
+ * a real `break` (target ≥ baseline) from a non-orphan Proc `return`
+ * (target < baseline) per docs/behavior.md E-21. */
+static inline uintptr_t
+mrb_break_ci_index_func(mrb_value v)
+{
+  struct RBreak *brk = (struct RBreak *)mrb_obj_ptr(v);
+  return brk->ci_break_index;
+}
+
+/* Current callinfo index: `mrb->c->ci - mrb->c->cibase`. Snapshotted
+ * before the protected `mrb_yield_argv` call so the post-catch
+ * comparison can place the RBreak's destination relative to the
+ * yielder's frame. Public `mrb_context` fields per `<mruby.h>`
+ * lines 196-202. */
+static inline uintptr_t
+mrb_current_ci_index_func(mrb_state *mrb)
+{
+  return (uintptr_t)(mrb->c->ci - mrb->c->cibase);
+}

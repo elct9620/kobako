@@ -1222,4 +1222,69 @@ class TestE2EJourneys < Minitest::Test
                  "B-30: a Service that receives a block but never invokes " \
                  "it must complete normally — the block body never executes"
   end
+
+  # ── B-25 / B-27 / E-21 — break / lambda-break / Proc-return discrimination ──
+  #
+  # The guest yield export classifies the post-protect RBreak by
+  # comparing its `ci_break_index` against the pre-yield baseline:
+  # an index ≥ baseline lands on the yielder's frame (a real `break`)
+  # and emits tag 0x02; an index < baseline aims past the yielder
+  # (a non-orphan Proc `return`) and emits tag 0x04 LocalJumpError per
+  # E-21. The Service method observes the tag 0x02 path as a
+  # +RuntimeError+ at its +yield+ site for now; S6b wires the
+  # +catch+/+throw+ path so the Service method actually returns the
+  # break value as B-25 expects.
+
+  def test_b25_break_in_block_emits_break_tag_pending_s6b_unwind
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }")
+    end
+
+    # S6a wire-level: the guest export classifies the RBreak with
+    # `ci_break_index == enter_idx` as `tag 0x02 break`; the S5b host
+    # proxy reifies that into a controlled +RuntimeError+ with the
+    # "break" label. S6b will replace the raise with `throw` so
+    # +Probe::Each+ actually returns :stop normally.
+    assert_match(/break/, err.message,
+                 "B-25 wire emission: tag 0x02 must reach the host proxy as " \
+                 "a break-labelled error pending S6b's catch/throw")
+  end
+
+  def test_b27_lambda_break_returns_value_silently
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+
+    # mruby treats lambda `break` as a silent normal return
+    # (MRB_PROC_STRICT_P → NORMAL_RETURN, vm.c:2749) — `mrb->exc`
+    # stays nil and the block evaluates to the break value via
+    # tag 0x01 ok. From the Service method's view, this is
+    # indistinguishable from a regular `next val` return.
+    result = sandbox.eval("Probe::OnceX.call(7, &->(x) { break x * 3 })")
+
+    assert_equal 21, result,
+                 "B-27: lambda `break val` is a silent return — the Service's " \
+                 "yield observes the break value as a normal `next` outcome"
+  end
+
+  # E-21: `return val` inside a guest block whose enclosing method is
+  # still on the guest call stack would unwind across the host yield
+  # boundary — unrepresentable on the wire. The guest classifier sees
+  # an RBreak whose `ci_break_index` points deeper than the yielder's
+  # frame and emits tag 0x04 LocalJumpError; the host proxy surfaces
+  # it as a Ruby exception.
+  E21_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; end; make_return"
+
+  def test_e21_proc_return_aimed_past_yield_boundary_raises_local_jump_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT) }
+
+    assert_match(/LocalJumpError/, err.message,
+                 "E-21: Proc `return` aimed past the host yield boundary " \
+                 "must surface as a LocalJumpError at the yield site")
+  end
 end
