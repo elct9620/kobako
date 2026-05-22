@@ -35,9 +35,7 @@ module Kobako
 
       def outcome!: () -> String
 
-      def wall_time: () -> Float
-
-      def memory_peak: () -> Integer
+      def usage: () -> [Float, Integer]
     end
   end
 end

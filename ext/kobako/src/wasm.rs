@@ -120,8 +120,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     instance.define_method("stdout", method!(Instance::stdout, 0))?;
     instance.define_method("stderr", method!(Instance::stderr, 0))?;
     instance.define_method("outcome!", method!(Instance::outcome, 0))?;
-    instance.define_method("wall_time", method!(Instance::wall_time, 0))?;
-    instance.define_method("memory_peak", method!(Instance::memory_peak, 0))?;
+    instance.define_method("usage", method!(Instance::usage, 0))?;
 
     Ok(())
 }

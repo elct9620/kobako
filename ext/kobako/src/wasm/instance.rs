@@ -344,23 +344,36 @@ impl Instance {
         Ok(ruby.str_from_slice(&bytes))
     }
 
-    /// Return the wall-clock duration the most recent invocation spent
-    /// inside the guest export call as a Float number of seconds
-    /// (docs/behavior.md B-35). The bracket is opened by
-    /// [`Instance::prime_caps`] and closed by [`Instance::disarm_caps`],
-    /// so the value mirrors the `timeout` deadline accounting and
-    /// excludes `OUTCOME_BUFFER` decoding and stdout / stderr capture
-    /// readout. Returns `0.0` before the first invocation.
-    pub(crate) fn wall_time(&self) -> f64 {
-        self.store.borrow().data().wall_time().as_secs_f64()
-    }
-
-    /// Return the docs/behavior.md B-35 `memory_peak` — the high-water
-    /// mark, in bytes, of the per-invocation `memory.grow` delta past
-    /// the linear-memory size captured at invocation entry. Returns `0`
-    /// before the first invocation.
-    pub(crate) fn memory_peak(&self) -> usize {
-        self.store.borrow().data().memory_peak()
+    /// Return the docs/behavior.md B-35 per-last-invocation usage as a
+    /// Ruby 2-tuple `[wall_time, memory_peak]`. The element order
+    /// matches the `Kobako::Usage` field order declared in
+    /// `lib/kobako/usage.rb`; reorder both sides together if the field
+    /// list ever grows.
+    ///
+    ///   * `wall_time` (Float seconds) — the wall-clock duration the
+    ///     most recent invocation spent inside the guest export call.
+    ///     Bracket opens in [`Instance::prime_caps`] and closes in
+    ///     [`Instance::disarm_caps`], so the value mirrors the
+    ///     `timeout` deadline accounting and excludes `OUTCOME_BUFFER`
+    ///     decoding and stdout / stderr capture readout. `0.0` before
+    ///     the first invocation.
+    ///   * `memory_peak` (Integer bytes) — the high-water mark of the
+    ///     per-invocation `memory.grow` delta past the linear-memory
+    ///     size captured at invocation entry. `0` before the first
+    ///     invocation.
+    ///
+    /// Packing both readers into one ext call mirrors the
+    /// [`Instance::stdout`] / [`Instance::stderr`] pattern: one
+    /// `store.borrow()` per readout and a single magnus binding to
+    /// extend when B-35's field list grows past two.
+    pub(crate) fn usage(&self) -> Result<RArray, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let state = self.store.borrow();
+        let data = state.data();
+        let arr = ruby.ary_new_capa(2);
+        arr.push(data.wall_time().as_secs_f64())?;
+        arr.push(data.memory_peak())?;
+        Ok(arr)
     }
 
     // -----------------------------------------------------------------

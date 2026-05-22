@@ -255,8 +255,15 @@ module Kobako
     # every outcome — value return, +Kobako::TrapError+ (including
     # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
     # and +Kobako::ServiceError+.
+    #
+    # The ext returns a positional 2-tuple +[wall_time, memory_peak]+
+    # whose order matches the +Kobako::Usage+ field order; the
+    # destructure-then-kwargs handoff below is the explicit
+    # positional→keyword conversion point, mirroring
+    # +#read_captures!+'s +Capture.from_ext(bytes, truncated)+ shape.
     def read_usage!
-      @usage = Usage.new(wall_time: @instance.wall_time, memory_peak: @instance.memory_peak)
+      wall_time, memory_peak = @instance.usage
+      @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
     end
 
     # Map a wasmtime trap class to the matching three-layer Ruby
