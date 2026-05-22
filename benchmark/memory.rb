@@ -76,13 +76,8 @@ def warm_sandbox
 end
 
 def record(runner, label, sandbox: nil, **fields)
-  entry = { label: label, mode: "memory", **fields }
-  if sandbox
-    usage = sandbox.usage
-    entry[:wall_time] = usage.wall_time
-    entry[:memory_peak] = usage.memory_peak
-  end
-  runner.results << entry
+  runner.results << { label: label, mode: "memory", **fields }
+  runner.annotate_usage!(sandbox) if sandbox
 end
 
 # ---- 7a: per-Sandbox RSS cost -------------------------------------------

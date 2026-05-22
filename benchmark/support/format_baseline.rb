@@ -36,14 +36,13 @@ module Kobako
     module Units
       module_function
 
-      # Time per op derived from an ips number. Picks µs / ms / s so
-      # the magnitude is readable without dropping precision: ips
-      # >= 1_000_000 → ns; 1_000..1_000_000 → µs; < 1_000 → ms.
+      # Time per op derived from an ips number. Routes through
+      # {format_seconds} so the magnitude bucket is identical to the
+      # one B-35 +wall_time+ rendering uses — readers can compare
+      # ips-derived per-op cost against the guest export portion
+      # without mental unit-juggling.
       def time_per_op(ips)
-        return format("%.0f ns", 1_000_000_000 / ips) if ips >= 1_000_000
-        return format("%.1f µs", 1_000_000 / ips) if ips >= 1_000
-
-        format("%.2f ms", 1_000 / ips)
+        format_seconds(1.0 / ips)
       end
 
       # Standard deviation as a percentage of the mean. The runner
@@ -76,11 +75,11 @@ module Kobako
         format("%.1fk ops/s", ops_per_sec / 1000.0)
       end
 
-      # Per-invocation +wall_time+ ({SPEC.md B-35}) → ns / µs / ms.
-      # The runner records seconds; thresholds mirror {time_per_op} so
-      # readers can compare ips-derived per-op cost against the guest
-      # export portion without mental unit-juggling.
-      def wall_time(seconds)
+      # Seconds → ns / µs / ms. Single definition of the magnitude
+      # buckets shared by {time_per_op} (ips-derived per-op cost) and
+      # the B-35 +wall_time+ rendering in {BaselineFormatter#format_usage}:
+      # +< 1 µs+ renders as ns; +1 µs..1 ms+ as µs; +>= 1 ms+ as ms.
+      def format_seconds(seconds)
         return format("%.0f ns", seconds * 1_000_000_000) if seconds < 0.000_001
         return format("%.1f µs", seconds * 1_000_000) if seconds < 0.001
 
@@ -159,7 +158,7 @@ module Kobako
       # {Runner#case_with_usage} and the memory suite's +record+
       # helper fold into ips and memory rows.
       def format_usage(entry)
-        "wall=#{Units.wall_time(entry["wall_time"])} mem=#{Units.memory_peak(entry["memory_peak"])}"
+        "wall=#{Units.format_seconds(entry["wall_time"])} mem=#{Units.memory_peak(entry["memory_peak"])}"
       end
 
       def format_concurrent(entry)
