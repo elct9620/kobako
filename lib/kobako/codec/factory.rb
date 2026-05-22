@@ -89,10 +89,12 @@ module Kobako
       # binary-encoding fallback that msgpack-gem's default unpacker
       # would otherwise apply. The re-tag step lives here because the
       # msgpack ext-type unpacker hands us binary bytes; the assertion
-      # itself is shared with {Decoder} via {Utils.assert_utf8!}.
+      # itself is shared with {Decoder} via {Utils.assert_utf8!}. The
+      # +"Symbol"+ label keeps the error message in Ruby vocabulary
+      # rather than wire-ext-code vocabulary.
       def unpack_symbol(payload)
         name = payload.b.force_encoding(Encoding::UTF_8)
-        Utils.assert_utf8!(name, "ext 0x00 payload")
+        Utils.assert_utf8!(name, "Symbol payload")
         name.to_sym
       end
 
@@ -120,7 +122,7 @@ module Kobako
       # owns the frame shape.
       def unpack_handle(payload)
         bytes = payload.b
-        raise InvalidType, "ext 0x01 payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
+        raise InvalidType, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
         Codec::Utils.wire_boundary { Kobako::Handle.from_wire(id) }
@@ -149,7 +151,7 @@ module Kobako
       # and re-opens the Decoder's special case for Fault (removed in M5).
       def unpack_fault(payload)
         map = Decoder.decode(payload)
-        raise InvalidType, "ext 0x02 payload must be a map" unless map.is_a?(Hash)
+        raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
 
         Codec::Utils.wire_boundary do
           RPC::Fault.new(type: map["type"], message: map["message"], details: map["details"])
