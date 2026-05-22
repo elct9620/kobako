@@ -69,21 +69,34 @@ pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
         .ok_or_else(|| boot_panic("failed to decode snippets msgpack"))
 }
 
-/// Open an mruby VM, install the Kobako runtime, then materialise the
-/// Group / Member proxy classes from `preamble`. Returns the live
-/// [`Mrb`] + [`Kobako`] pair so the entry-specific body can keep
-/// driving the same VM.
+/// Open an mruby VM, install it into [`super::mrb_slot::MRB`], wire
+/// the Kobako runtime, then materialise the Group / Member proxy
+/// classes from `preamble`. Returns the live [`Kobako`] handle so the
+/// entry-specific body can keep driving the same VM through
+/// [`super::mrb_slot::MRB`]. On any `Err`, the slot is cleared so the
+/// caller's [`super::mrb_slot::MrbScope`] does not observe a half-set
+/// state.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn open_with_preamble(
-    preamble: &[(String, Vec<String>)],
-) -> Result<(Mrb, Kobako), Panic> {
+pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<Kobako, Panic> {
     let mrb = Mrb::open().map_err(|_| boot_panic("mrb_open returned NULL"))?;
-    let kobako = Kobako::install(&mrb);
-    kobako.install_groups(preamble).map_err(|err| match err {
-        InstallGroupsError::NulInGroupName => boot_panic("group name contains NUL byte"),
-        InstallGroupsError::NulInMemberName => boot_panic("member name contains NUL byte"),
-    })?;
-    Ok((mrb, kobako))
+    super::mrb_slot::MRB.install(mrb);
+
+    let result: Result<Kobako, Panic> = (|| {
+        let mrb = super::mrb_slot::MRB
+            .as_ref()
+            .expect("MRB just installed above");
+        let kobako = Kobako::install(mrb);
+        kobako.install_groups(preamble).map_err(|err| match err {
+            InstallGroupsError::NulInGroupName => boot_panic("group name contains NUL byte"),
+            InstallGroupsError::NulInMemberName => boot_panic("member name contains NUL byte"),
+        })?;
+        Ok(kobako)
+    })();
+
+    if result.is_err() {
+        super::mrb_slot::MRB.clear();
+    }
+    result
 }
 
 /// Replay every snippet in `snippets` against `mrb` in insertion order

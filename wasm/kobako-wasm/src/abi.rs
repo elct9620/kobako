@@ -60,6 +60,8 @@ mod boot;
 mod eval;
 #[cfg(any(target_arch = "wasm32", test))]
 mod frames;
+#[cfg(target_arch = "wasm32")]
+mod mrb_slot;
 mod outcome_buffer;
 mod run;
 

@@ -29,9 +29,17 @@ pub extern "C" fn __kobako_eval() {
 fn eval_body() {
     use super::boot;
     use super::frames;
+    use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::mruby::Ccontext;
     use crate::outcome::{encode_outcome, Outcome, Panic};
+
+    // Declare the MRB cleanup scope early. Any `return write_panic(...)`
+    // below drops `_mrb_scope` first, which calls `MRB.clear()` and
+    // runs `mrb_close` if the slot was already installed. Calling
+    // `clear` on an empty slot is a no-op, so this guard is safe to
+    // declare before the install actually succeeds.
+    let _mrb_scope = MrbScope;
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -48,12 +56,13 @@ fn eval_body() {
         Err(panic) => return write_panic(panic),
     };
 
-    let (mrb, kobako) = match boot::open_with_preamble(&preamble) {
-        Ok(pair) => pair,
+    let kobako = match boot::open_with_preamble(&preamble) {
+        Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
+    let mrb = MRB.as_ref().expect("MRB installed by open_with_preamble");
 
-    if let Err(panic) = boot::replay_snippets(&mrb, &kobako, &snippets) {
+    if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
         return write_panic(panic);
     }
 
@@ -63,14 +72,14 @@ fn eval_body() {
     // debug_info, which is why `Exception#backtrace` returns an empty
     // array when scripts are loaded via the bare `mrb_load_nstring`.
     let result_val = {
-        let Some(cxt) = Ccontext::new(&mrb, c"(eval)") else {
+        let Some(cxt) = Ccontext::new(mrb, c"(eval)") else {
             return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
         };
         cxt.load_nstring(&frame2)
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
 
-    if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
+    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
         write_panic(panic);
         return;
     }
@@ -86,5 +95,6 @@ fn eval_body() {
             details: None,
         }),
     }
-    // `mrb` drops here — `mrb_close` runs automatically.
+    // `_mrb_scope` drops here — `MRB.clear()` runs and the held `Mrb`
+    // drops, which closes the underlying `mrb_state`.
 }

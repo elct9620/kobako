@@ -126,10 +126,15 @@ pub extern "C" fn __kobako_run(env_ptr: i32, env_len: i32) {
 #[cfg(target_arch = "wasm32")]
 fn run_body(env_ptr: i32, env_len: i32) {
     use super::boot;
+    use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::codec::Decoder;
     use crate::mruby::sys;
     use crate::outcome::{encode_outcome, Outcome, Panic};
+
+    // See `eval_body` for the MRB scope-guard rationale — declared
+    // early so every `return write_panic(...)` clears the slot.
+    let _mrb_scope = MrbScope;
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -140,10 +145,11 @@ fn run_body(env_ptr: i32, env_len: i32) {
         Err(panic) => return write_panic(panic),
     };
 
-    let (mrb, kobako) = match boot::open_with_preamble(&preamble) {
-        Ok(pair) => pair,
+    let kobako = match boot::open_with_preamble(&preamble) {
+        Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
+    let mrb = MRB.as_ref().expect("MRB installed by open_with_preamble");
 
     // Baseline snapshot of top-level constants taken after kobako
     // install + preamble materialisation but before snippet replay.
@@ -153,7 +159,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
     // (docs/behavior.md B-31 / E-27).
     let baseline_constants = kobako.top_level_constants();
 
-    if let Err(panic) = boot::replay_snippets(&mrb, &kobako, &snippets) {
+    if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
         return write_panic(panic);
     }
 
@@ -207,9 +213,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
     let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()));
     // SAFETY: the cached `object_class` pointer was produced by the
     // same `mrb_state` and is GC-stable for the VM's lifetime.
-    let object_value = unsafe { mrb.object_class().as_value(&mrb) };
+    let object_value = unsafe { mrb.object_class().as_value(mrb) };
 
-    if !object_value.const_defined(&mrb, target_sym) {
+    if !object_value.const_defined(mrb, target_sym) {
         // Compute the snippet-contributed constants by subtracting the
         // pre-replay baseline from the current top-level set. Wrapped
         // as `{ "available" => [Sym, ...] }` so the host decoder can
@@ -235,8 +241,8 @@ fn run_body(env_ptr: i32, env_len: i32) {
         });
     }
 
-    let target_val = object_value.const_get(&mrb, target_sym);
-    if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
+    let target_val = object_value.const_get(mrb, target_sym);
+    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
         // `mrb_const_get` only sets `mrb->exc` for genuinely undefined
         // constants; the `mrb_const_defined` gate above should make
         // this branch unreachable. If it ever fires (e.g. autoload
@@ -246,7 +252,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
     }
 
     let call_sym = mrb.intern_cstr(c"call");
-    if !target_val.respond_to(&mrb, call_sym) {
+    if !target_val.respond_to(mrb, call_sym) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::SandboxError".into(),
@@ -298,9 +304,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
         argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
     }
 
-    let result_val = target_val.call_argv(&mrb, call_sym, &argv);
+    let result_val = target_val.call_argv(mrb, call_sym, &argv);
 
-    if let Some(panic) = boot::take_pending_panic(&mrb, &kobako) {
+    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
         write_panic(panic);
         return;
     }
