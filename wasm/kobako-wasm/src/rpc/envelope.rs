@@ -37,7 +37,7 @@ pub enum EnvelopeError {
     /// Underlying codec rejected the input bytes.
     Codec(CodecError),
     /// The decoded value does not match the SPEC envelope shape (e.g.
-    /// Request was not a 4-element array, Response status was outside
+    /// Request was not a 5-element array, Response status was outside
     /// {0, 1}, Outcome tag byte was neither 0x01 nor 0x02).
     Shape(&'static str),
     /// A required field was missing from a Panic envelope (SPEC pins
@@ -80,16 +80,19 @@ impl std::error::Error for EnvelopeError {
 // Value objects
 // ============================================================
 
-/// docs/wire-codec.md § Envelope Encoding → Request: 4-element msgpack
-/// array `[target, method, args, kwargs]`. `target` is either a Member
-/// constant path (str, e.g. `"Namespace::Member"`) or a Capability
-/// Handle.
+/// docs/wire-codec.md § Envelope Encoding → Request: 5-element msgpack
+/// array `[target, method, args, kwargs, block_given]`. `target` is
+/// either a Member constant path (str, e.g. `"Namespace::Member"`) or a
+/// Capability Handle. `block_given` is a Boolean signalling whether the
+/// guest call site supplied a block (B-23); the block body itself never
+/// crosses the wire.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
     pub target: Target,
     pub method: String,
     pub args: Vec<Value>,
     pub kwargs: Vec<(String, Value)>,
+    pub block_given: bool,
 }
 
 /// The two distinguishable forms of a Request `target` (docs/wire-codec.md
@@ -121,7 +124,7 @@ pub enum Response {
 
 // ---------------- Request ----------------
 
-/// Encode a [`Request`] to its 4-field msgpack array bytes. Per SPEC
+/// Encode a [`Request`] to its 5-field msgpack array bytes. Per SPEC
 /// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
 /// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
 /// slot.
@@ -140,6 +143,7 @@ pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
         Value::Str(req.method.clone()),
         Value::Array(req.args.clone()),
         Value::Map(kwargs_pairs),
+        Value::Bool(req.block_given),
     ]);
     let mut enc = Encoder::new();
     enc.write_value(&frame)?;
@@ -152,9 +156,9 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
     let frame = dec.read_value()?;
     // `try_into` on a Vec succeeds iff length matches; the preceding guard
     // makes that condition true, so the unwrap is unreachable in practice.
-    let [target_v, method_v, args_v, kwargs_v]: [Value; 4] = match frame {
-        Value::Array(items) if items.len() == 4 => items.try_into().unwrap(),
-        _ => return Err(EnvelopeError::Shape("Request must be a 4-element array")),
+    let [target_v, method_v, args_v, kwargs_v, block_given_v]: [Value; 5] = match frame {
+        Value::Array(items) if items.len() == 5 => items.try_into().unwrap(),
+        _ => return Err(EnvelopeError::Shape("Request must be a 5-element array")),
     };
 
     let target = match target_v {
@@ -192,11 +196,20 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
         }
         _ => return Err(EnvelopeError::WrongFieldType("Request kwargs must be map")),
     };
+    let block_given = match block_given_v {
+        Value::Bool(b) => b,
+        _ => {
+            return Err(EnvelopeError::WrongFieldType(
+                "Request block_given must be bool",
+            ))
+        }
+    };
     Ok(Request {
         target,
         method,
         args,
         kwargs,
+        block_given,
     })
 }
 
@@ -265,6 +278,7 @@ mod tests {
             method: "find".into(),
             args: vec![Value::Int(42), Value::Str("alice".into())],
             kwargs: vec![("active".into(), Value::Bool(true))],
+            block_given: false,
         };
         let bytes = encode_request(&req).unwrap();
         let out = decode_request(&bytes).unwrap();
@@ -278,6 +292,7 @@ mod tests {
             method: "save".into(),
             args: vec![],
             kwargs: vec![],
+            block_given: false,
         };
         let bytes = encode_request(&req).unwrap();
         let out = decode_request(&bytes).unwrap();
@@ -291,23 +306,59 @@ mod tests {
             method: "link".into(),
             args: vec![Value::Handle(1), Value::Handle(2), Value::Str("tag".into())],
             kwargs: vec![("k".into(), Value::Handle(1))],
+            block_given: false,
         };
         let bytes = encode_request(&req).unwrap();
         assert_eq!(decode_request(&bytes).unwrap(), req);
     }
 
     #[test]
+    fn request_round_trip_with_block_given_true() {
+        let req = Request {
+            target: Target::Path("Each::Iter".into()),
+            method: "run".into(),
+            args: vec![Value::Array(vec![Value::Int(1), Value::Int(2)])],
+            kwargs: vec![],
+            block_given: true,
+        };
+        let bytes = encode_request(&req).unwrap();
+        let out = decode_request(&bytes).unwrap();
+        assert_eq!(req, out);
+        assert!(out.block_given);
+    }
+
+    #[test]
     fn request_decode_rejects_wrong_arity() {
         let mut enc = Encoder::new();
+        // 4-element array — post-B-23 the Request envelope carries
+        // `block_given` as the 5th element.
         enc.write_value(&Value::Array(vec![
             Value::Str("G::M".into()),
             Value::Str("x".into()),
             Value::Array(vec![]),
+            Value::Map(vec![]),
         ]))
         .unwrap();
         assert!(matches!(
             decode_request(&enc.into_bytes()),
             Err(EnvelopeError::Shape(_))
+        ));
+    }
+
+    #[test]
+    fn request_decode_rejects_non_bool_block_given() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Array(vec![
+            Value::Str("G::M".into()),
+            Value::Str("x".into()),
+            Value::Array(vec![]),
+            Value::Map(vec![]),
+            Value::Int(0),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            decode_request(&enc.into_bytes()),
+            Err(EnvelopeError::WrongFieldType(_))
         ));
     }
 
@@ -318,17 +369,19 @@ mod tests {
             method: "ping".into(),
             args: vec![],
             kwargs: vec![],
+            block_given: false,
         };
         let bytes = encode_request(&req).unwrap();
         // Same hex as the Ruby golden test in test_rpc_envelope.rb.
         assert_eq!(
             bytes,
             vec![
-                0x94, // fixarray 4
+                0x95, // fixarray 5
                 0xa4, b'G', b':', b':', b'M', // fixstr 4 "G::M"
                 0xa4, b'p', b'i', b'n', b'g', // fixstr 4 "ping"
                 0x90, // fixarray 0
                 0x80, // fixmap 0
+                0xc2, // false
             ]
         );
     }

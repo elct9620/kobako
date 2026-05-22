@@ -381,7 +381,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # the msgpack bytes via Kobako::Codec::Encoder so the malformed payload reaches
   # the dispatcher exactly as a misbehaving guest would emit it.
   def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
-    bad_request_bytes = Kobako::Codec::Encoder.encode([42, "call", ["x"], {}])
+    bad_request_bytes = Kobako::Codec::Encoder.encode([42, "call", ["x"], {}, false])
 
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 

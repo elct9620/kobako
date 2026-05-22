@@ -18,21 +18,27 @@ module Kobako
     # Value object for a single guest-initiated RPC Request
     # ({docs/wire-codec.md Envelope Encoding → Request}[link:../../../docs/wire-codec.md]).
     #
-    # 4-element msgpack array: +[target, method, args, kwargs]+. +target+
-    # is either a +String+ (+"Namespace::Member"+) or a {Handle}. SPEC pins
-    # +kwargs+ map keys to ext 0x00 Symbol; enforced at construction so the
-    # Value Object is the single source of truth.
-    Request = Data.define(:target, :method_name, :args, :kwargs) do
+    # 5-element msgpack array:
+    # +[target, method, args, kwargs, block_given]+. +target+ is either a
+    # +String+ (+"Namespace::Member"+) or a {Handle}. SPEC pins +kwargs+
+    # map keys to ext 0x00 Symbol; enforced at construction so the Value
+    # Object is the single source of truth. +block_given+ is a Boolean
+    # signalling whether the guest call site supplied a block (B-23); the
+    # block body itself never crosses the wire.
+    Request = Data.define(:target, :method_name, :args, :kwargs, :block_given) do
       # steep:ignore:start
-      def initialize(target:, method:, args: [], kwargs: {})
+      def initialize(target:, method:, args: [], kwargs: {}, block_given: false)
         unless target.is_a?(String) || target.is_a?(Kobako::Handle)
           raise ArgumentError, "Request target must be String or Kobako::Handle, got #{target.class}"
         end
         raise ArgumentError, "Request method must be String" unless method.is_a?(String)
         raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)
+        unless block_given.is_a?(TrueClass) || block_given.is_a?(FalseClass)
+          raise ArgumentError, "Request block_given must be Boolean, got #{block_given.class}"
+        end
 
         validate_kwargs!(kwargs)
-        super(target: target, method_name: method, args: args, kwargs: kwargs)
+        super(target: target, method_name: method, args: args, kwargs: kwargs, block_given: block_given)
       end
 
       private
@@ -50,18 +56,21 @@ module Kobako
     # Encode a {Request} to msgpack bytes. The Value Object's own
     # invariants are the contract; this method does not re-check the shape.
     def self.encode_request(request)
-      Codec::Encoder.encode([request.target, request.method_name, request.args, request.kwargs])
+      Codec::Encoder.encode([
+                              request.target, request.method_name,
+                              request.args, request.kwargs, request.block_given
+                            ])
     end
 
     def self.decode_request(bytes)
       arr = Codec::Decoder.decode(bytes)
-      unless arr.is_a?(Array) && arr.length == 4
-        raise Codec::InvalidType, "Request envelope is malformed (expected a 4-element array)"
+      unless arr.is_a?(Array) && arr.length == 5
+        raise Codec::InvalidType, "Request envelope is malformed (expected a 5-element array)"
       end
 
-      target, method_name, args, kwargs = arr
+      target, method_name, args, kwargs, block_given = arr
       Codec::Utils.wire_boundary do
-        Request.new(target: target, method: method_name, args: args, kwargs: kwargs)
+        Request.new(target: target, method: method_name, args: args, kwargs: kwargs, block_given: block_given)
       end
     end
 

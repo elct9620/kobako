@@ -26,16 +26,30 @@ module Kobako
     # ============================================================
 
     def test_request_construction_validates_field_types
-      assert_raises(ArgumentError) { Envelope::Request.new(target: 123, method: "x") }
-      assert_raises(ArgumentError) do
-        Envelope::Request.new(target: "G::M", method: :sym)
-      end
-      assert_raises(ArgumentError) do
-        Envelope::Request.new(target: "G::M", method: "x", args: "no")
-      end
-      assert_raises(ArgumentError) do
-        Envelope::Request.new(target: "G::M", method: "x", kwargs: [])
-      end
+      base = { target: "G::M", method: "x" }
+      overrides = [
+        { target: 123 }, { method: :sym }, { args: "no" },
+        { kwargs: [] }, { block_given: "true" }
+      ]
+      overrides.each { |o| assert_raises(ArgumentError) { Envelope::Request.new(**base, **o) } }
+    end
+
+    def test_request_block_given_defaults_to_false
+      req = Envelope::Request.new(target: "G::M", method: "ping")
+      refute req.block_given
+    end
+
+    def test_request_round_trip_with_block_given_true
+      req = Envelope::Request.new(
+        target: "Each::Iter",
+        method: "run",
+        args: [[1, 2, 3]],
+        kwargs: {},
+        block_given: true
+      )
+      decoded = Envelope.decode_request(Envelope.encode_request(req))
+      assert_equal req, decoded
+      assert decoded.block_given
     end
 
     def test_request_round_trip_with_string_target
@@ -90,24 +104,26 @@ module Kobako
       # Forge wire bytes with an int kwargs key — msgpack-legal but
       # envelope-illegal. The decoder must translate the value-object
       # ArgumentError into a wire-layer InvalidType.
-      bytes = Encoder.encode(["G::M", "x", [], { 42 => "v" }])
+      bytes = Encoder.encode(["G::M", "x", [], { 42 => "v" }, false])
       assert_raises(InvalidType) { Envelope.decode_request(bytes) }
     end
 
     def test_request_decode_rejects_wrong_arity
-      # 3-element array, not 4
-      bytes = Encoder.encode(["G::M", "x", []])
+      # 4-element array, not 5 — post-B-23 the Request envelope carries
+      # +block_given+ as the 5th element.
+      bytes = Encoder.encode(["G::M", "x", [], {}])
       assert_raises(InvalidType) { Envelope.decode_request(bytes) }
     end
 
     # ---------- Request golden vector ----------
 
     def test_request_golden_empty_args_and_kwargs
-      # Request: ["G::M", "ping", [], {}]
-      # fixarray 4 (0x94) | fixstr 4 "G::M" (0xa4 47 3a 3a 4d) |
-      # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) | fixmap 0 (0x80)
+      # Request: ["G::M", "ping", [], {}, false]
+      # fixarray 5 (0x95) | fixstr 4 "G::M" (0xa4 47 3a 3a 4d) |
+      # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) |
+      # fixmap 0 (0x80) | false (0xc2)
       bytes = Envelope.encode_request(Envelope::Request.new(target: "G::M", method: "ping"))
-      assert_equal "94a4473a3a4da470696e679080", hex(bytes)
+      assert_equal "95a4473a3a4da470696e679080c2", hex(bytes)
     end
 
     # ============================================================

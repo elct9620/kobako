@@ -132,7 +132,7 @@ impl std::error::Error for InvokeError {
 /// only [`invoke_rpc`] and its host-target tests call this.
 ///
 /// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
-/// (4-element array, encoded narrowest).
+/// (5-element array, encoded narrowest).
 pub(crate) fn build_request_bytes(
     target: Target,
     method: &str,
@@ -144,6 +144,10 @@ pub(crate) fn build_request_bytes(
         method: method.to_string(),
         args: args.to_vec(),
         kwargs: kwargs.to_vec(),
+        // S2a baseline: guest dispatch never carries a block on the
+        // wire yet. S3 will lift this from the per-call block slot
+        // captured by `mrb_get_args("n*&")`.
+        block_given: false,
     };
     encode_request(&req)
 }
@@ -347,6 +351,7 @@ mod tests {
             method: method.into(),
             args,
             kwargs,
+            block_given: false,
         })
         .unwrap();
         assert_eq!(direct, viaenv);
@@ -362,10 +367,11 @@ mod tests {
         assert_eq!(
             bytes,
             vec![
-                0x94, // fixarray 4
+                0x95, // fixarray 5
                 0xa4, b'G', b':', b':', b'M', 0xa4, b'p', b'i', b'n', b'g',
                 0x90, // fixarray 0
                 0x80, // fixmap 0
+                0xc2, // false
             ]
         );
     }
@@ -390,6 +396,7 @@ mod tests {
             method: "value".into(),
             args: vec![],
             kwargs: vec![],
+            block_given: false,
         })
         .unwrap();
         assert_eq!(*captured.lock().unwrap(), expected);
@@ -410,11 +417,11 @@ mod tests {
         clear_loopback();
 
         assert_eq!(out, Ok(Value::Str("ok".into())));
-        // Spot-check: first byte indicates fixarray 4 envelope; second
+        // Spot-check: first byte indicates fixarray 5 envelope; second
         // byte is the ext 0x01 Handle marker (`0xd6`), proving the
         // Handle target was encoded as ext rather than str.
         let req = captured.lock().unwrap().clone();
-        assert_eq!(req[0], 0x94, "fixarray 4 envelope");
+        assert_eq!(req[0], 0x95, "fixarray 5 envelope");
         assert_eq!(req[1], 0xd6, "fixext 4 marker for Handle target");
     }
 

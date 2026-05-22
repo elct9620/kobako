@@ -8,10 +8,11 @@ module Kobako
       attr_reader method_name: String
       attr_reader args: Array[untyped]
       attr_reader kwargs: Hash[Symbol, untyped]
+      attr_reader block_given: bool
 
-      def initialize: (target: String | Kobako::Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> void
+      def initialize: (target: String | Kobako::Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> void
 
-      def with: (?target: String | Kobako::Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped]) -> Request
+      def with: (?target: String | Kobako::Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
 
       def ==: (untyped other) -> bool
 
