@@ -33,7 +33,7 @@
 //! ## Where the mruby C-side bridge lives
 //!
 //! User-script RPC calls land in C via the `Kobako::RPC::Client` singleton-class
-//! `method_missing` shim (and `Kobako::RPC::Handle#method_missing` for the
+//! `method_missing` shim (and `Kobako::Handle#method_missing` for the
 //! Handle chaining path, docs/behavior.md B-17). Both shims live in
 //! `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
 //! which in turn calls [`invoke_rpc`] here. This module's role is the
@@ -283,7 +283,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 // ---------------------------------------------------------------------
 //
 // The C-side dispatch entries are the `Kobako::RPC::Client` singleton-class
-// `method_missing` shim and `Kobako::RPC::Handle#method_missing`. Both
+// `method_missing` shim and `Kobako::Handle#method_missing`. Both
 // live in `crate::kobako::bridges` and reach this module through
 // `Kobako::dispatch_invoke`.
 

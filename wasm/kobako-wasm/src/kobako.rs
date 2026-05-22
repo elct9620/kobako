@@ -6,7 +6,7 @@
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
 //! kobako-specific registrations (`Kobako` module, `Kobako::RPC` base
-//! class, `Kobako::RPC::Handle`, `Kobako::ServiceError` /
+//! class, `Kobako::Handle`, `Kobako::ServiceError` /
 //! `Kobako::RPC::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
 //! different concern and live behind this domain boundary.
 //!
@@ -50,7 +50,7 @@ use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::rpc::client::ExceptionPayload;
 
-/// Mangled instance-variable name that `Kobako::RPC::Handle#initialize`
+/// Mangled instance-variable name that `Kobako::Handle#initialize`
 /// stores the Handle id under. Read back through [`Kobako::extract_handle_id`]
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
@@ -198,7 +198,7 @@ impl Kobako {
         let kobako_mod = mrb_ref.define_module(c"Kobako");
         let rpc_mod = kobako_mod.define_module_under(mrb_ref, c"RPC");
         let client_class = rpc_mod.class_get_under(mrb_ref, c"Client");
-        let handle_class = rpc_mod.class_get_under(mrb_ref, c"Handle");
+        let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
         let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
         let disconnected_class = service_error_class.class_get_under(mrb_ref, c"Disconnected");
         let wire_error_class = rpc_mod.class_get_under(mrb_ref, c"WireError");
@@ -371,15 +371,15 @@ impl Kobako {
         names
     }
 
-    /// Store `id_val` into a fresh `Kobako::RPC::Handle` instance's
-    /// `@__kobako_id__` ivar. Used by the `Kobako::RPC::Handle#initialize`
+    /// Store `id_val` into a fresh `Kobako::Handle` instance's
+    /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
     /// C bridge.
     pub fn set_handle_id(&self, target: Value, id_val: Value) {
         let sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
         target.iv_set(self.mrb(), sym, id_val);
     }
 
-    /// Read the `u32` Handle id stored in a `Kobako::RPC::Handle` instance's
+    /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
     /// missing, not a Fixnum, or carries a negative payload — the
     /// resolver downstream treats id 0 as undefined per

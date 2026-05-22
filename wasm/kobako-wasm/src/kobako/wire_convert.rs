@@ -228,9 +228,9 @@ impl Kobako {
 
     /// Convert a kobako wire [`crate::codec::Value`] into a [`Value`]
     /// suitable for handing back to the mruby VM. Handle values are
-    /// boxed into a fresh `Kobako::RPC::Handle` instance carrying the id
+    /// boxed into a fresh `Kobako::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
-    /// `Kobako::RPC::Handle#method_missing` → [`Kobako::dispatch_invoke`],
+    /// `Kobako::Handle#method_missing` → [`Kobako::dispatch_invoke`],
     /// docs/behavior.md B-17).
     #[cfg(target_arch = "wasm32")]
     pub fn to_mrb_value(&self, val: crate::codec::Value) -> Value {

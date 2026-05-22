@@ -27,7 +27,7 @@
 //!   crate::rpc::client::invoke_rpc(...)
 //! ```
 //!
-//! Handle dispatch (`Kobako::RPC::Handle#method_missing`, docs/behavior.md B-17)
+//! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md B-17)
 //! follows the same shape: `handle_method_missing` builds a Handle
 //! target and calls `dispatch_invoke` directly.
 //!
@@ -102,7 +102,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
     }
 }
 
-/// `Kobako::RPC::Handle#initialize(id)` C bridge. Stores the Handle integer
+/// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// [`super::Kobako::set_handle_id`].
 pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
@@ -122,7 +122,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     Value::zeroed()
 }
 
-/// `Kobako::RPC::Handle#method_missing(name, *args)` C bridge. Forwards every
+/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards every
 /// method call on a Handle instance to the host via
 /// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
 /// (docs/behavior.md B-17 — Handle chaining).

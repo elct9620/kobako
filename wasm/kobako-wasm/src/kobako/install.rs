@@ -38,10 +38,10 @@ pub(super) struct KobakoClasses {
 }
 
 /// Register the Kobako module, the `Kobako::RPC` namespace, the
-/// `Kobako::RPC::Client` / `Kobako::RPC::Handle` classes, and the
-/// `Kobako::ServiceError` / `Disconnected` / `Kobako::RPC::WireError`
-/// exception hierarchy. Returns the five class handles the
-/// [`super::Kobako`] token needs to keep around.
+/// `Kobako::RPC::Client` class plus the top-level `Kobako::Handle`
+/// value object, and the `Kobako::ServiceError` / `Disconnected` /
+/// `Kobako::RPC::WireError` exception hierarchy. Returns the five
+/// class handles the [`super::Kobako`] token needs to keep around.
 ///
 /// Function pointers come from [`bridges`], the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by
@@ -56,7 +56,11 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
 
     // Kobako::RPC module — protocol namespace shared with the
     // host gem's lib/kobako/rpc.rb. Houses the Client base class
-    // plus Handle / WireError value objects that ride on the wire.
+    // and the WireError fault. The Handle value object lives at
+    // top level (Kobako::Handle) — it is a Sandbox-level domain
+    // entity used in both directions across the wire (B-14 service
+    // return, B-34 host-side argument auto-wrap) and is not owned
+    // by the RPC namespace.
     let rpc_mod = kobako_mod.define_module_under(mrb, c"RPC");
 
     // Kobako::RPC::Client base class — parent of every Member
@@ -82,9 +86,10 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         sys::MRB_ARGS_ANY,
     );
 
-    // `Kobako::RPC::Handle` instance class. Same explicit
+    // `Kobako::Handle` instance class — top-level Sandbox-level
+    // value object, not nested under RPC. Same explicit
     // `mrb.object_class()` super as the Client class above.
-    let handle_class = rpc_mod.define_class_under(mrb, c"Handle", object_class);
+    let handle_class = kobako_mod.define_class_under(mrb, c"Handle", object_class);
     handle_class.define_method(
         mrb,
         c"initialize",
