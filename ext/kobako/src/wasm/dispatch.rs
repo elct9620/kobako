@@ -79,19 +79,20 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = read_caller_memory(caller, req_ptr, req_len)
-        .ok_or("guest 'memory' export missing or request slice out of bounds")?;
+    let req_bytes = read_caller_memory(caller, req_ptr, req_len).ok_or(
+        "Sandbox runtime does not export linear memory, or RPC request slice falls outside it",
+    )?;
 
-    // `Kobako::Sandbox` always installs a Server before invoking the
-    // guest, so reaching this branch indicates a misuse rather than a
-    // normal control path.
+    // `Kobako::Sandbox` always installs an RPC server before invoking
+    // the runtime, so reaching this branch indicates a misuse rather
+    // than a normal control path.
     let server = caller
         .data()
         .server()
-        .ok_or("no Ruby Server bound — Sandbox#run must precede __kobako_dispatch")?;
+        .ok_or("RPC dispatched outside an active Sandbox#run — internal wiring bug")?;
 
     let resp_bytes = invoke_server(server, &req_bytes).map_err(|_| {
-        "Ruby Server#dispatch raised — contract is to fold faults into Response.err"
+        "RPC server raised an exception instead of returning a fault — please report this as a kobako bug"
     })?;
 
     write_response(caller, &resp_bytes)
@@ -123,23 +124,23 @@ fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<i6
     let alloc = match caller.get_export("__kobako_alloc") {
         Some(Extern::Func(f)) => f
             .typed::<i32, i32>(&*caller)
-            .map_err(|_| "guest '__kobako_alloc' export has wrong signature")?,
-        _ => return Err("guest '__kobako_alloc' export missing"),
+            .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
+        _ => return Err("Sandbox runtime is missing the allocation hook"),
     };
-    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "response exceeds i32::MAX bytes")?;
+    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "RPC response exceeds 2 GiB")?;
     let ptr = alloc
         .call(&mut *caller, len_i32)
-        .map_err(|_| "__kobako_alloc trapped")?;
+        .map_err(|_| "Sandbox allocation trapped while preparing the RPC response")?;
     if ptr == 0 {
-        return Err("__kobako_alloc returned 0 (out of memory)");
+        return Err("Sandbox is out of memory while preparing the RPC response");
     }
 
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
-        _ => return Err("guest 'memory' export missing"),
+        _ => return Err("Sandbox runtime does not export linear memory"),
     };
     mem.write(&mut *caller, ptr as usize, bytes)
-        .map_err(|_| "memory.write rejected response buffer range")?;
+        .map_err(|_| "could not write the RPC response into Sandbox memory (range invalid)")?;
 
     let ptr_u32 = ptr as u32;
     let len_u32 = bytes.len() as u32;
