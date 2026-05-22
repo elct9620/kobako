@@ -157,7 +157,7 @@ module Kobako
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.
       def wrap_as_handle(value, handle_table)
-        Kobako::Handle.new(handle_table.alloc(value))
+        Kobako::Handle.from_wire(handle_table.alloc(value))
       end
 
       def encode_error(type, message)

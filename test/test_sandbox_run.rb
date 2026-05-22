@@ -45,7 +45,7 @@ class TestSandboxRun < Minitest::Test
   # constructed by the caller can only be smuggled, so the wire layer
   # never sees one in this position.
   def test_e29_args_must_not_contain_handle
-    handle = Kobako::Handle.new(1)
+    handle = Kobako::Handle.from_wire(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, handle) }
     assert_match(/Handle/, err.message)
   end
@@ -54,7 +54,7 @@ class TestSandboxRun < Minitest::Test
   # value is rejected with the same message structure as the args
   # branch (both go through Invocation#forged_handle_message).
   def test_e29_kwargs_values_must_not_contain_handle
-    handle = Kobako::Handle.new(1)
+    handle = Kobako::Handle.from_wire(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, env: handle) }
     assert_match(/Handle/, err.message)
   end

@@ -8,6 +8,8 @@ module Kobako
     def initialize: (Integer id) -> void
                   | (id: Integer) -> void
 
+    def self.from_wire: (Integer id) -> Handle
+
     def with: (?id: Integer) -> Handle
 
     def ==: (untyped other) -> bool

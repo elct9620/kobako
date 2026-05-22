@@ -621,7 +621,7 @@ class TestE2EJourneys < Minitest::Test
     lambda do
       id = sandbox.handle_table.alloc(Object.new)
       sandbox.handle_table.mark_disconnected(id)
-      Kobako::Handle.new(id)
+      Kobako::Handle.from_wire(id)
     end
   end
 

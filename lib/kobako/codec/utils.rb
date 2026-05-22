@@ -107,7 +107,7 @@ module Kobako
         when ::Array then value.map { |element| Utils.deep_wrap(element, handle_table) }
         when ::Hash  then value.transform_values { |val| Utils.deep_wrap(val, handle_table) }
         else
-          wire_representable?(value) ? value : Kobako::Handle.new(handle_table.alloc(value))
+          wire_representable?(value) ? value : Kobako::Handle.from_wire(handle_table.alloc(value))
         end
       end
 

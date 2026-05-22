@@ -214,7 +214,7 @@ class TestRPCDispatchUnit < Minitest::Test
     end.new("Alice")
     handle_id = @handle_table.alloc(greeter)
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.new(handle_id)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id)], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -228,7 +228,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     capture = []
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
-    req = encode_request("K::Run", "run", [], { target: Kobako::Handle.new(handle_id) })
+    req = encode_request("K::Run", "run", [], { target: Kobako::Handle.from_wire(handle_id) })
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -238,7 +238,7 @@ class TestRPCDispatchUnit < Minitest::Test
   end
 
   def test_unknown_handle_arg_returns_undefined_exception
-    req = encode_request("Logger::Echo", "call", [Kobako::Handle.new(999)], {})
+    req = encode_request("Logger::Echo", "call", [Kobako::Handle.from_wire(999)], {})
     @registry.define(:Logger).bind(:Echo, ->(x) { x })
 
     resp = decode_response(@registry.dispatch(req))
@@ -256,7 +256,7 @@ class TestRPCDispatchUnit < Minitest::Test
       def find(id) = "row:#{id}"
     end.new
     handle_id = @handle_table.alloc(obj)
-    req = encode_request_with_target(Kobako::Handle.new(handle_id), "find", [42], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "find", [42], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -268,7 +268,7 @@ class TestRPCDispatchUnit < Minitest::Test
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
     parent_id = @handle_table.alloc(leaf_factory)
-    req = encode_request_with_target(Kobako::Handle.new(parent_id), "make", [], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(parent_id), "make", [], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -279,7 +279,7 @@ class TestRPCDispatchUnit < Minitest::Test
   end
 
   def test_unknown_handle_target_returns_undefined_exception
-    req = encode_request_with_target(Kobako::Handle.new(7), "any", [], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(7), "any", [], {})
 
     resp = decode_response(@registry.dispatch(req))
 
@@ -295,7 +295,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     @handle_table.reset!
 
-    req = encode_request_with_target(Kobako::Handle.new(handle_id), "tag", [], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "tag", [], {})
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.error?
@@ -317,7 +317,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj)
     @handle_table.mark_disconnected(handle_id)
 
-    req = encode_request_with_target(Kobako::Handle.new(handle_id), "any", [], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "any", [], {})
     resp = decode_response(@registry.dispatch(req))
 
     assert resp.error?
@@ -342,7 +342,7 @@ class TestRPCDispatchUnit < Minitest::Test
     # The integer id has meaning in A but must NOT cross over to B —
     # B's HandleTable does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
-    req = encode_request_with_target(Kobako::Handle.new(handle_id_in_a), "ping", [], {})
+    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id_in_a), "ping", [], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.error?
@@ -359,7 +359,7 @@ class TestRPCDispatchUnit < Minitest::Test
     registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new)
 
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.new(handle_id_in_a)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id_in_a)], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.error?

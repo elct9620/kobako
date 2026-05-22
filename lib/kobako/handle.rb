@@ -12,29 +12,51 @@ module Kobako
   # § Ext Types → ext 0x01). ID 0 is reserved as the invalid sentinel;
   # the maximum valid ID is 0x7fff_ffff (2^31 - 1).
   #
-  # This is intentionally a thin value object built on +Data.define+ so
-  # equality, hash, and immutability are inherited. The mruby counterpart
-  # +Kobako::Handle+ lives inside the Wasm guest under the same canonical
-  # name and shares neither code nor instances with this host-side class.
-  Handle = Data.define(:id) do
-    # +MIN_ID+ / +MAX_ID+ live on the Handle class (defined below this
-    # block), not in this block's binding — Data.define's block scope
-    # resolves bare constants against the enclosing +Kobako+ module, so
-    # +MIN_ID+ would raise +NameError+. Use +self.class::CONST+ to
-    # reach the constants attached to the Handle class itself. Do not
-    # "simplify" this back to bare +MIN_ID+/+MAX_ID+.
+  # The constructor is internal to the Host Gem. +Kobako::Handle.new+ is
+  # privatised so Host App code cannot fabricate a Handle from a bare
+  # integer; legitimate Handle instances enter Host App code only as
+  # fields on raised error objects. The Host Gem itself constructs
+  # Handles through {.from_wire}, which exists at exactly two call
+  # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
+  # +Kobako::Codec::Utils.deep_wrap+ / +Kobako::RPC::Dispatcher#wrap_as_handle+
+  # (allocator paths). Both live inside +lib/kobako/+ and are not part
+  # of any public surface.
+  #
+  # The mruby counterpart +Kobako::Handle+ lives inside the Wasm guest
+  # under the same canonical name and shares neither code nor instances
+  # with this host-side class.
+  class Handle < Data.define(:id)
+    # Inclusive lower bound on the wire Handle ID. ID 0 is reserved as
+    # the invalid sentinel and is never allocated.
+    MIN_ID = 1
+    # Inclusive upper bound on the wire Handle ID. The cap matches the
+    # u32 signed-positive range so Handle IDs fit in a signed integer
+    # on either side of the wire without re-encoding.
+    MAX_ID = 0x7fff_ffff
+
     # steep:ignore:start
     def initialize(id:)
-      min = self.class::MIN_ID
-      max = self.class::MAX_ID
       raise ArgumentError, "Handle id must be Integer" unless id.is_a?(Integer)
-      raise ArgumentError, "Handle id #{id} out of range [#{min}, #{max}]" unless id.between?(min, max)
+      raise ArgumentError, "Handle id #{id} out of range [#{MIN_ID}, #{MAX_ID}]" unless id.between?(MIN_ID, MAX_ID)
 
       super
     end
     # steep:ignore:end
-  end
 
-  Handle::MIN_ID = 1
-  Handle::MAX_ID = 0x7fff_ffff
+    private_class_method :new
+
+    # Host Gem–internal factory. Allocates the Data instance through
+    # +Class#allocate+ and dispatches +#initialize+ explicitly so the
+    # invariant checks still run, while keeping the public +.new+
+    # privatised against Host App callers.
+    #
+    # Two collaborators call this: the codec when an ext 0x01 frame is
+    # decoded off the wire, and the allocator paths when a host-side
+    # Ruby object is registered into the Sandbox's +HandleTable+. Both
+    # paths live inside +lib/kobako/+ and treat this method as a
+    # package-private constructor.
+    def self.from_wire(id)
+      allocate.tap { |handle| handle.send(:initialize, id: id) }
+    end
+  end
 end
