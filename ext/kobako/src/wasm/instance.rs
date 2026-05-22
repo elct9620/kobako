@@ -354,9 +354,10 @@ impl Instance {
     ///     most recent invocation spent inside the guest export call.
     ///     Bracket opens in [`Instance::prime_caps`] and closes in
     ///     [`Instance::disarm_caps`], so the value mirrors the
-    ///     `timeout` deadline accounting and excludes `OUTCOME_BUFFER`
-    ///     decoding and stdout / stderr capture readout. `0.0` before
-    ///     the first invocation.
+    ///     `timeout` deadline accounting and excludes everything that
+    ///     runs after the guest export returns — the post-export
+    ///     `OUTCOME_BUFFER` fetch and decode, plus stdout / stderr
+    ///     capture readout. `0.0` before the first invocation.
     ///   * `memory_peak` (Integer bytes) — the high-water mark of the
     ///     per-invocation `memory.grow` delta past the linear-memory
     ///     size captured at invocation entry. `0` before the first

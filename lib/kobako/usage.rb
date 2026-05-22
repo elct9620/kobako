@@ -9,8 +9,10 @@ module Kobako
   #     spent inside wasmtime during the most recent invocation. The
   #     measurement bracket aligns with the +timeout+ deadline
   #     ({docs/behavior.md B-01}[link:../../docs/behavior.md]); time spent
-  #     in host Service callbacks is included, +OUTCOME_BUFFER+ decoding
-  #     and stdout / stderr capture readout are excluded.
+  #     in host Service callbacks is included, but everything that runs
+  #     after the guest export returns — the post-export
+  #     +OUTCOME_BUFFER+ fetch and decode, plus stdout / stderr capture
+  #     readout — is excluded.
   #   * +memory_peak+ — the Integer high-water mark, in bytes, of the
   #     per-invocation +memory.grow+ delta past the linear-memory size
   #     captured at invocation entry. Same baseline accounting as
