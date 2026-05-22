@@ -39,8 +39,11 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     # Garbage payload that is not valid msgpack.
     bytes << "\xc1\xc1\xc1".b
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
+    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
+    assert_kind_of Kobako::SandboxError, err,
+                   "WireError must remain rescuable as SandboxError for callers " \
+                   "that don't distinguish wire-violation from script failure"
     assert_equal "Kobako::RPC::WireError", err.klass
     assert_equal "sandbox", err.origin
   end
@@ -51,8 +54,10 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     # Garbage payload that is not a valid panic-shaped msgpack map.
     bytes << "\xc1\xc1\xc1".b
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
+    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
+    assert_kind_of Kobako::SandboxError, err,
+                   "WireError must remain rescuable as SandboxError"
     assert_equal "Kobako::RPC::WireError", err.klass
   end
 

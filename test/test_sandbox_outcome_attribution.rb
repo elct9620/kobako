@@ -71,8 +71,9 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     )
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
+    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
+    assert_kind_of Kobako::SandboxError, err
     assert_equal "Kobako::RPC::WireError", err.klass
   end
 
@@ -80,12 +81,13 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   #
   # An empty result body is not a valid msgpack value, so decode_result raises
   # Kobako::Codec::Truncated (a Kobako::Codec::Error subclass).  The Sandbox rescue chain wraps
-  # that as SandboxError (E-09: result envelope decode failed).
+  # that as WireError (E-09: result envelope decode failed).
   def test_result_envelope_with_empty_body_raises_sandbox_error
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
+    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
+    assert_kind_of Kobako::SandboxError, err
     assert_equal "Kobako::RPC::WireError", err.klass
     assert_match(/result envelope decode failed/, err.message)
   end
