@@ -3,7 +3,7 @@
 //! This crate is the source of `kobako.wasm`, the Guest Binary artifact
 //! described in SPEC.md "Core Abstractions". It hosts:
 //!
-//! * `codec` — MessagePack wire codec, a thin glue layer over the `rmp`
+//! * `codec` — MessagePack codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (docs/wire-codec.md).
 //! * `rpc` — Per-call RPC layer mirroring the host's `lib/kobako/rpc/`.
 //!   Holds `rpc::envelope` (Request / Response value objects and their
@@ -16,7 +16,7 @@
 //!   `decode_panic` / `encode_result` / `decode_result` helpers
 //!   (docs/wire-contract.md § Outcome Envelope). Shares
 //!   [`rpc::envelope::EnvelopeError`] for codec-shape faults.
-//! * `abi` — Wire ABI surface: the `__kobako_dispatch` host import and
+//! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
 //!   § ABI Signatures).
@@ -40,9 +40,8 @@
 //! custom panic handler) without buying anything for the Guest Binary,
 //! which already pays for `std` through the embedded mruby interpreter.
 
-/// Width in bytes of the wire-protocol length prefix that precedes each
-/// stdin frame and outcome buffer (docs/wire-codec.md § Invocation
-/// channels).
+/// Width in bytes of the length prefix that precedes each stdin frame
+/// and outcome buffer (docs/wire-codec.md § Invocation channels).
 pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;

@@ -15,7 +15,7 @@
 //!    inspect call is protected by `mrb_protect_error` (see H-3 in
 //!    docs/spec-rubrics-todo.md) so a user-defined `inspect` that
 //!    raises cannot longjmp past the Rust frame.
-//! 3. **Wire-arg unpacking** (`extract_hash_kwargs` /
+//! 3. **Args / kwargs unpacking** (`extract_hash_kwargs` /
 //!    `unpack_args_kwargs`) — used by the `method_missing` C bridges
 //!    to split a `mrb_get_args` "n*" rest slice into positional args
 //!    and trailing-Hash kwargs.
@@ -27,11 +27,11 @@ use crate::mruby::sys::Value;
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; [`crate::rpc::envelope::encode_request`] re-emits each name
-    /// as a wire-level `Value::Sym` (ext 0x00) per docs/wire-codec.md
-    /// § Ext Types. Keys arriving as either mruby `Symbol` or `String`
-    /// reduce to the same UTF-8 name via `Object#to_s`. Values go
-    /// through [`Kobako::to_codec_value`].
+    /// key's name; [`crate::rpc::envelope::encode_request`] re-emits each
+    /// name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
+    /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
+    /// to the same UTF-8 name via `Object#to_s`. Values go through
+    /// [`Kobako::to_codec_value`].
     #[cfg(target_arch = "wasm32")]
     pub fn extract_hash_kwargs(&self, hash: Value, out: &mut Vec<(String, crate::codec::Value)>) {
         // SAFETY: callers reach this only after a `classname == "Hash"`
@@ -105,8 +105,8 @@ impl Kobako {
     /// `convert`, returning a `Vec<(Value, Value)>` ready to wrap in
     /// [`Value::Map`]. Both the key and the value flow through the
     /// same `convert` so a `Symbol` key arrives as [`Value::Sym`]
-    /// (ext 0x00) and a `String` key as [`Value::Str`] — distinct on
-    /// the wire per docs/wire-codec.md § Ext Types.
+    /// (ext 0x00) and a `String` key as [`Value::Str`] — distinct codec
+    /// encodings per docs/wire-codec.md § Ext Types.
     #[cfg(target_arch = "wasm32")]
     fn hash_to_codec(
         &self,

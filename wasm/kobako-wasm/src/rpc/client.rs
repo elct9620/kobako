@@ -57,7 +57,7 @@ use crate::rpc::envelope::{encode_request, EnvelopeError, Request, Response, Tar
 /// `kind` and `message` to do so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExceptionPayload {
-    /// The wire `type` field of the inner ext 0x02 map (e.g.
+    /// The envelope `type` field of the inner ext 0x02 map (e.g.
     /// `"runtime"`, `"undefined"`). Named `kind` on the Rust side to
     /// avoid the raw-identifier escape for the `type` keyword.
     /// docs/wire-contract.md § Fault Envelope pins the field shape;

@@ -14,7 +14,7 @@
 #     consumer of `MRUBY_LIB_DIR` and `WASI_SDK_PATH`. Future home for a
 #     bindgen-driven binding.
 #   * `kobako-wasm` — Guest Binary crate producing `kobako.wasm`. Owns
-#     the wire codec, RPC client, ABI exports, and the Ruby boot bytecode
+#     the codec, RPC client, ABI exports, and the Ruby boot bytecode
 #     pipeline (`mrblib/*.rb` precompiled to RITE via host `mrbc`).
 #
 # The split keeps "talk to libmruby.a" (sys) separate from "what to do

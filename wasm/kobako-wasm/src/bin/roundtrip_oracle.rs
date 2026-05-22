@@ -92,16 +92,16 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 /// input bytes (narrowest-encoding rule).
 fn roundtrip_once(input: &[u8]) -> Result<Vec<u8>, (u8, String)> {
     let mut dec = Decoder::new(input);
-    let value = dec.read_value().map_err(wire_to_tag)?;
+    let value = dec.read_value().map_err(codec_to_tag)?;
     if !dec.at_end() {
         return Err((b'X', format!("trailing bytes at offset {}", dec.position())));
     }
     let mut enc = Encoder::new();
-    enc.write_value(&value).map_err(wire_to_tag)?;
+    enc.write_value(&value).map_err(codec_to_tag)?;
     Ok(enc.into_bytes())
 }
 
-fn wire_to_tag(e: CodecError) -> (u8, String) {
+fn codec_to_tag(e: CodecError) -> (u8, String) {
     let tag = match e {
         CodecError::Truncated => b'T',
         CodecError::InvalidType => b'I',

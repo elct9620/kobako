@@ -34,7 +34,7 @@ const STATUS_ERROR: i64 = 1;
 /// hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvelopeError {
-    /// Underlying wire codec rejected the input bytes.
+    /// Underlying codec rejected the input bytes.
     Codec(CodecError),
     /// The decoded value does not match the SPEC envelope shape (e.g.
     /// Request was not a 4-element array, Response status was outside
@@ -57,7 +57,7 @@ impl From<CodecError> for EnvelopeError {
 impl std::fmt::Display for EnvelopeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EnvelopeError::Codec(e) => write!(f, "wire codec rejected envelope bytes: {e}"),
+            EnvelopeError::Codec(e) => write!(f, "codec rejected envelope bytes: {e}"),
             EnvelopeError::Shape(msg) => write!(f, "envelope shape mismatch: {msg}"),
             EnvelopeError::MissingField(name) => {
                 write!(f, "envelope missing required field: {name}")
@@ -122,8 +122,9 @@ pub enum Response {
 // ---------------- Request ----------------
 
 /// Encode a [`Request`] to its 4-field msgpack array bytes. Per SPEC
-/// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys travel on
-/// the wire as Symbols, so we emit [`Value::Sym`] at every kwargs-key slot.
+/// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
+/// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
+/// slot.
 pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
     let target_value = match &req.target {
         Target::Path(s) => Value::Str(s.clone()),
@@ -319,7 +320,7 @@ mod tests {
             kwargs: vec![],
         };
         let bytes = encode_request(&req).unwrap();
-        // Same hex as the Ruby golden test in test_wire_envelope.rb.
+        // Same hex as the Ruby golden test in test_rpc_envelope.rb.
         assert_eq!(
             bytes,
             vec![

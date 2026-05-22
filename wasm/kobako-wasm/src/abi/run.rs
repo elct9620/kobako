@@ -31,10 +31,10 @@
 use crate::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
-/// name (the wire-level Symbol); `args` is always a [`Value::Array`]
-/// and `kwargs` always a [`Value::Map`] — callers can hand them
-/// straight to [`crate::kobako::Kobako::to_mrb_value`] without
-/// re-checking.
+/// name (a Symbol on the codec side); `args` is always a
+/// [`Value::Array`] and `kwargs` always a [`Value::Map`] — callers can
+/// hand them straight to [`crate::kobako::Kobako::to_mrb_value`]
+/// without re-checking.
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, PartialEq)]
 pub(super) struct Invocation {

@@ -1,28 +1,28 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
-# houses the MessagePack wire codec, the RPC client, the ABI exports,
-# and the Ruby boot bytecode pipeline. The mruby C API FFI surface
-# (hand-rolled `extern "C"` decls + the layout-safe C shims) lives in
-# the sibling `kobako-mruby-sys` crate; `kobako-wasm` consumes it as a
-# path dependency and re-exports it as `crate::mruby::sys`.
+# houses the MessagePack codec, the RPC client, the ABI exports, and the
+# Ruby boot bytecode pipeline. The mruby C API FFI surface (hand-rolled
+# `extern "C"` decls + the layout-safe C shims) lives in the sibling
+# `kobako-mruby-sys` crate; `kobako-wasm` consumes it as a path
+# dependency and re-exports it as `crate::mruby::sys`.
 #
 # This crate is a member of the `wasm/` sub-workspace (see
 # `wasm/Cargo.toml`). The repo-root `Cargo.toml` excludes the entire
 # `wasm/` subtree so the wasmtime-bearing host workspace does not pull
 # the wasm32-wasip1 crates into its dependency graph.
 #
-# Wire codec backbone is the `rmp` crate — the Rust counterpart of the
+# Codec backbone is the `rmp` crate — the Rust counterpart of the
 # msgpack-ruby gem used on the host side. This gives the guest a thin glue
 # layer (Value <-> rmp encode/decode helpers) instead of a hand-rolled
-# binary codec, and keeps the wire byte form aligned with the host.
+# binary codec, and keeps the byte form aligned with the host.
 
 [package]
 name = "kobako-wasm"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "kobako Guest Binary — mruby-on-wasm interpreter and MessagePack wire codec (rmp-backed)."
+description = "kobako Guest Binary — mruby-on-wasm interpreter and MessagePack codec (rmp-backed)."
 license = "Apache-2.0"
 
 [lib]

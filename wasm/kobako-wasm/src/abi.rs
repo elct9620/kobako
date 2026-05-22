@@ -1,4 +1,4 @@
-//! Wire ABI surface — host import + guest exports.
+//! Guest ABI surface — host import + guest exports.
 //!
 //! This module is the façade for the wasm import/export contract pinned
 //! by docs/wire-codec.md § ABI Signatures. The contract is:

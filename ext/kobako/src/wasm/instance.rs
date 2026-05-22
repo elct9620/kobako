@@ -170,7 +170,8 @@ impl Instance {
             },
         )?;
 
-        // `__kobako_dispatch` host import. Signature per SPEC Wire ABI:
+        // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
+        // § ABI Signatures:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
         // `Kobako::RPC::Server` (set per-run via `set_server`), allocates a
@@ -567,7 +568,7 @@ where
 }
 
 /// Validate the invocation envelope length and return it as +i32+ — the
-/// signed wasm wire-ABI parameter type for the guest-run entrypoint.
+/// signed wasm ABI parameter type for the guest-run entrypoint.
 /// Rejects sizes above +i32::MAX+ (2 GiB) so the downstream cast cannot
 /// silently wrap.
 fn envelope_len_to_i32(len: usize) -> Result<i32, &'static str> {

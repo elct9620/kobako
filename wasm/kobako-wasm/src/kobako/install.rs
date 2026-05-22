@@ -58,9 +58,9 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // host gem's lib/kobako/rpc.rb. Houses the Client base class
     // and the WireError fault. The Handle value object lives at
     // top level (Kobako::Handle) — it is a Sandbox-level domain
-    // entity used in both directions across the wire (B-14 service
-    // return, B-34 host-side argument auto-wrap) and is not owned
-    // by the RPC namespace.
+    // entity used in both directions across the host↔guest boundary
+    // (B-14 service return, B-34 host-side argument auto-wrap) and
+    // is not owned by the RPC namespace.
     let rpc_mod = kobako_mod.define_module_under(mrb, c"RPC");
 
     // Kobako::RPC::Client base class — parent of every Member

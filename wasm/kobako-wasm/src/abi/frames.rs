@@ -74,7 +74,7 @@ pub(super) enum Snippet {
     Bytecode { body: Vec<u8> },
 }
 
-/// Decode Frame 3 snippets. The wire shape is `[entry, ...]` where each
+/// Decode Frame 3 snippets. The shape is `[entry, ...]` where each
 /// entry is a msgpack map keyed by `kind`:
 ///
 ///   * `"source"` — `{name: <str>, kind: "source", body: <str>}`

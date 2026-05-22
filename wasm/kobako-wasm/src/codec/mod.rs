@@ -1,6 +1,6 @@
-//! MessagePack wire codec — guest-side glue over the `rmp` crate.
+//! MessagePack codec — guest-side glue over the `rmp` crate.
 //!
-//! The kobako wire format (docs/wire-codec.md) is plain MessagePack with
+//! The kobako codec (docs/wire-codec.md) is plain MessagePack with
 //! three ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes), 0x01 Capability Handle (`fixext 4`,
 //! big-endian u32) and 0x02 Exception envelope (variable-length ext
@@ -43,7 +43,7 @@ const EXT_ERRENV: i8 = 0x02;
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// Errors raised by the codec when input bytes do not conform to the
-/// kobako wire (docs/wire-codec.md).
+/// kobako codec (docs/wire-codec.md).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodecError {
     Truncated,
@@ -58,7 +58,7 @@ impl std::fmt::Display for CodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CodecError::Truncated => f.write_str("truncated msgpack input"),
-            CodecError::InvalidType => f.write_str("invalid msgpack type for kobako wire"),
+            CodecError::InvalidType => f.write_str("invalid msgpack type for kobako codec"),
             CodecError::Utf8 => f.write_str("invalid UTF-8 in msgpack str"),
             CodecError::InvalidHandle => f.write_str("invalid Capability Handle (ext 0x01)"),
             CodecError::InvalidErrEnv => f.write_str("invalid Exception envelope (ext 0x02)"),
@@ -69,8 +69,8 @@ impl std::fmt::Display for CodecError {
 
 impl std::error::Error for CodecError {}
 
-/// A decoded msgpack value, restricted to the 12 wire types the kobako
-/// wire accepts (docs/wire-codec.md § Type Mapping). Anything outside
+/// A decoded msgpack value, restricted to the 12 codec types the kobako
+/// codec accepts (docs/wire-codec.md § Type Mapping). Anything outside
 /// this set is rejected at decode time with `CodecError::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn value_variants_cover_twelve_wire_types() {
+    fn value_variants_cover_twelve_codec_types() {
         let _ = Value::Nil;
         let _ = Value::Bool(true);
         let _ = Value::Int(-1);
