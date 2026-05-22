@@ -17,7 +17,7 @@
 //! budget.
 
 use std::cell::{Ref, RefCell, RefMut};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use magnus::{value::Opaque, Value};
 use wasmtime::{ResourceLimiter, Store as WtStore};
@@ -39,6 +39,8 @@ pub(super) struct HostState {
     server: Option<Opaque<Value>>,
     deadline: Option<Instant>,
     limiter: KobakoLimiter,
+    wall_entry: Option<Instant>,
+    wall_time: Duration,
 }
 
 impl HostState {
@@ -54,6 +56,8 @@ impl HostState {
             server: None,
             deadline: None,
             limiter: KobakoLimiter::new(memory_limit),
+            wall_entry: None,
+            wall_time: Duration::ZERO,
         }
     }
 
@@ -156,6 +160,42 @@ impl HostState {
     pub(super) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }
+
+    /// Stamp the wall-clock entry instant for the docs/behavior.md
+    /// B-35 `wall_time` measurement. Called at the top of every
+    /// invocation immediately before the guest export call so the
+    /// bracket matches the `timeout` deadline accounting (B-01) and
+    /// excludes post-run host bookkeeping such as `OUTCOME_BUFFER`
+    /// decoding.
+    pub(super) fn start_wall_clock(&mut self) {
+        self.wall_entry = Some(Instant::now());
+    }
+
+    /// Close the docs/behavior.md B-35 `wall_time` measurement
+    /// started by [`HostState::start_wall_clock`]. Idempotent — a
+    /// stop with no matching start (e.g. if the guest export call
+    /// never executed because of a host-side allocation failure)
+    /// leaves the previously-recorded value untouched.
+    pub(super) fn stop_wall_clock(&mut self) {
+        if let Some(entry) = self.wall_entry.take() {
+            self.wall_time = entry.elapsed();
+        }
+    }
+
+    /// Return the wall-clock duration the most recent invocation
+    /// spent inside the guest export call (docs/behavior.md B-35).
+    /// Zero before the first invocation.
+    pub(super) fn wall_time(&self) -> Duration {
+        self.wall_time
+    }
+
+    /// Return the docs/behavior.md B-35 `memory_peak` — the high-
+    /// water mark of the per-invocation `memory.grow` delta past the
+    /// linear-memory size captured at invocation entry. Zero before
+    /// the first invocation.
+    pub(super) fn memory_peak(&self) -> usize {
+        self.limiter.peak()
+    }
 }
 
 /// Resource limiter that enforces the per-invocation `memory_limit`
@@ -183,6 +223,7 @@ pub(super) struct KobakoLimiter {
     max_memory: Option<usize>,
     baseline: usize,
     cap_active: bool,
+    peak: usize,
 }
 
 impl KobakoLimiter {
@@ -191,6 +232,7 @@ impl KobakoLimiter {
             max_memory,
             baseline: 0,
             cap_active: false,
+            peak: 0,
         }
     }
 
@@ -200,10 +242,14 @@ impl KobakoLimiter {
     /// the cap is dormant by default — the module's declared initial
     /// memory is allocated during `Linker::instantiate` and the
     /// per-invocation budget excludes anything that existed before
-    /// arming (docs/behavior.md B-01 Notes, E-20).
+    /// arming (docs/behavior.md B-01 Notes, E-20). Also clears the
+    /// per-invocation [`KobakoLimiter::peak`] high-water so the
+    /// docs/behavior.md B-35 `memory_peak` accounting restarts from
+    /// zero for the new invocation.
     fn activate(&mut self, baseline: usize) {
         self.baseline = baseline;
         self.cap_active = true;
+        self.peak = 0;
     }
 
     /// Disarm the cap so post-run host bookkeeping (e.g. fetching the
@@ -212,6 +258,18 @@ impl KobakoLimiter {
     /// [`KobakoLimiter::activate`].
     fn deactivate(&mut self) {
         self.cap_active = false;
+    }
+
+    /// Return the high-water mark of the per-invocation
+    /// `memory.grow` delta past `baseline` observed since the last
+    /// [`KobakoLimiter::activate`]. Read after the guest export
+    /// returns to populate `Kobako::Usage#memory_peak`
+    /// (docs/behavior.md B-35). Pinned to the last accepted grow —
+    /// rejected `desired` values that trip the docs/behavior.md E-20
+    /// cap never update the peak, so the reported value never exceeds
+    /// `memory_limit`.
+    pub(super) fn peak(&self) -> usize {
+        self.peak
     }
 }
 
@@ -225,11 +283,14 @@ impl ResourceLimiter for KobakoLimiter {
         if !self.cap_active {
             return Ok(true);
         }
+        let delta = desired.saturating_sub(self.baseline);
         if let Some(limit) = self.max_memory {
-            let delta = desired.saturating_sub(self.baseline);
             if delta > limit {
                 return Err(wasmtime::Error::new(MemoryLimitTrap { desired, limit }));
             }
+        }
+        if delta > self.peak {
+            self.peak = delta;
         }
         Ok(true)
     }
@@ -420,5 +481,49 @@ mod tests {
         let mut limiter = KobakoLimiter::new(None);
         limiter.activate(0);
         assert_growing(&mut limiter, 100 << 20);
+    }
+
+    #[test]
+    fn peak_starts_at_zero_before_any_grow() {
+        let limiter = KobakoLimiter::new(Some(1 << 20));
+        assert_eq!(limiter.peak(), 0);
+    }
+
+    #[test]
+    fn peak_tracks_high_water_of_delta_past_baseline() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        assert_growing(&mut limiter, (2 << 20) + (1 << 18)); // delta=256 KiB
+        assert_growing(&mut limiter, (2 << 20) + (1 << 19)); // delta=512 KiB (new peak)
+        assert_growing(&mut limiter, (2 << 20) + (1 << 17)); // delta=128 KiB (below peak)
+        assert_eq!(limiter.peak(), 1 << 19);
+    }
+
+    #[test]
+    fn trap_does_not_update_peak() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        assert_growing(&mut limiter, (2 << 20) + (1 << 19)); // delta=512 KiB
+        assert_trapping(&mut limiter, (2 << 20) + (2 << 20)); // would be 2 MiB > 1 MiB cap
+                                                              // Peak reflects the last accepted grow, not the rejected desired.
+        assert_eq!(limiter.peak(), 1 << 19);
+    }
+
+    #[test]
+    fn activate_resets_peak_for_new_invocation() {
+        let mut limiter = KobakoLimiter::new(Some(1 << 20));
+        limiter.activate(2 << 20);
+        assert_growing(&mut limiter, (2 << 20) + (1 << 19));
+        assert_eq!(limiter.peak(), 1 << 19);
+        limiter.activate(3 << 20);
+        assert_eq!(limiter.peak(), 0);
+    }
+
+    #[test]
+    fn disabled_cap_still_tracks_peak() {
+        let mut limiter = KobakoLimiter::new(None);
+        limiter.activate(1 << 20);
+        assert_growing(&mut limiter, (1 << 20) + (4 << 20));
+        assert_eq!(limiter.peak(), 4 << 20);
     }
 }

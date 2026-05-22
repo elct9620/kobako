@@ -344,6 +344,25 @@ impl Instance {
         Ok(ruby.str_from_slice(&bytes))
     }
 
+    /// Return the wall-clock duration the most recent invocation spent
+    /// inside the guest export call as a Float number of seconds
+    /// (docs/behavior.md B-35). The bracket is opened by
+    /// [`Instance::prime_caps`] and closed by [`Instance::disarm_caps`],
+    /// so the value mirrors the `timeout` deadline accounting and
+    /// excludes `OUTCOME_BUFFER` decoding and stdout / stderr capture
+    /// readout. Returns `0.0` before the first invocation.
+    pub(crate) fn wall_time(&self) -> f64 {
+        self.store.borrow().data().wall_time().as_secs_f64()
+    }
+
+    /// Return the docs/behavior.md B-35 `memory_peak` — the high-water
+    /// mark, in bytes, of the per-invocation `memory.grow` delta past
+    /// the linear-memory size captured at invocation entry. Returns `0`
+    /// before the first invocation.
+    pub(crate) fn memory_peak(&self) -> usize {
+        self.store.borrow().data().memory_peak()
+    }
+
     // -----------------------------------------------------------------
     // Private helpers.
     // -----------------------------------------------------------------
@@ -360,6 +379,12 @@ impl Instance {
     /// mark left by prior invocations on the same Sandbox are folded
     /// into the baseline rather than the budget — only `memory.grow`
     /// past +baseline+ counts against `memory_limit`.
+    ///
+    /// Also stamps the wall-clock entry instant for the
+    /// docs/behavior.md B-35 `wall_time` measurement. The bracket
+    /// closes in [`Instance::disarm_caps`] so it matches the
+    /// `timeout` deadline window and excludes `OUTCOME_BUFFER`
+    /// decoding and stdout / stderr capture readout.
     fn prime_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
         match self.timeout {
@@ -378,14 +403,19 @@ impl Instance {
             _ => 0,
         };
         store_ref.data_mut().arm_memory_cap(baseline);
+        store_ref.data_mut().start_wall_clock();
     }
 
     /// Drop the memory cap as soon as the guest call returns so that
     /// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
     /// which can grow guest memory transiently) is not attributed to
-    /// the user script. Paired with [`Instance::prime_caps`].
+    /// the user script. Also closes the docs/behavior.md B-35
+    /// `wall_time` bracket opened by [`Instance::prime_caps`]. Paired
+    /// with [`Instance::prime_caps`].
     fn disarm_caps(&self) {
-        self.store.borrow_mut().data_mut().disarm_memory_cap();
+        let mut store_ref = self.store.borrow_mut();
+        store_ref.data_mut().stop_wall_clock();
+        store_ref.data_mut().disarm_memory_cap();
     }
 
     /// Allocate a +len+-byte buffer in guest linear memory via
