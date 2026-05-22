@@ -112,16 +112,24 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
         return Err(MagnusError::new(
             ruby.get_inner(&MODULE_NOT_BUILT_ERROR),
             format!(
-                "wasm module not found at {}; run `bundle exec rake wasm:build` to build it",
+                "Sandbox runtime not found at {}; run `bundle exec rake wasm:build` to build it",
                 path.display()
             ),
         ));
     }
 
-    let bytes =
-        fs::read(path).map_err(|e| wasm_err(&ruby, format!("read {}: {}", path.display(), e)))?;
+    let bytes = fs::read(path).map_err(|e| {
+        wasm_err(
+            &ruby,
+            format!(
+                "failed to read Sandbox runtime at {}: {}",
+                path.display(),
+                e
+            ),
+        )
+    })?;
     let module = WtModule::new(shared_engine()?, &bytes)
-        .map_err(|e| wasm_err(&ruby, format!("compile module: {}", e)))?;
+        .map_err(|e| wasm_err(&ruby, format!("failed to compile Sandbox runtime: {}", e)))?;
     cache
         .lock()
         .expect("module cache mutex poisoned")

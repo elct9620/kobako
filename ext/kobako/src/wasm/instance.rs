@@ -401,7 +401,7 @@ impl Instance {
         let alloc: TypedFunc<u32, u32> = self
             .inner
             .get_typed_func(store_ref.as_context_mut(), "__kobako_alloc")
-            .map_err(|_| wasm_err(ruby, GUEST_BINARY_MISSING_RUNTIME))?;
+            .map_err(|_| wasm_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))?;
         let ptr = alloc
             .call(store_ref.as_context_mut(), bytes.len() as u32)
             .map_err(|e| wasm_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
@@ -414,7 +414,7 @@ impl Instance {
 
         let memory: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,
-            _ => return Err(wasm_err(ruby, GUEST_BINARY_NOT_KOBAKO)),
+            _ => return Err(wasm_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
         };
         let data = memory.data_mut(store_ref.as_context_mut());
         let range = guest_buffer_range(ptr as usize, bytes.len(), data.len())
@@ -475,7 +475,7 @@ impl Instance {
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,
-            _ => return Err(wasm_err(ruby, GUEST_BINARY_NOT_KOBAKO)),
+            _ => return Err(wasm_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
         };
         let data = mem.data(store_ref.as_context_mut());
         let range = guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
@@ -485,21 +485,22 @@ impl Instance {
     }
 }
 
-/// User-facing message for the "guest binary is missing one of the
-/// internal Kobako runtime exports" failure mode. Phrased in caller
-/// vocabulary — the underlying ABI symbol names (`__kobako_alloc`,
-/// `__kobako_eval`, `__kobako_take_outcome`) are not actionable for
-/// Host App authors; the actionable diagnosis is "your kobako.wasm
-/// does not match the host gem version".
-const GUEST_BINARY_MISSING_RUNTIME: &str =
-    "guest binary is missing required Kobako runtime exports; \
-     verify data/kobako.wasm matches the host gem version";
+/// User-facing message for the "Sandbox runtime is missing one of the
+/// internal Kobako hooks" failure mode. Phrased in caller vocabulary —
+/// the underlying ABI symbol names (`__kobako_alloc`, `__kobako_eval`,
+/// `__kobako_take_outcome`) are not actionable to callers, and the
+/// gem itself raises this error so a self-reference like "matches the
+/// kobako gem version" reads as third-person. The actionable
+/// diagnosis is "your data/kobako.wasm is out of sync; rebuild it".
+const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required hooks; \
+     rebuild data/kobako.wasm against the installed version";
 
-/// User-facing message for the "guest binary is not a kobako-shaped
-/// Wasm module at all" failure mode (no linear memory export). Same
-/// phrasing philosophy as [`GUEST_BINARY_MISSING_RUNTIME`].
-const GUEST_BINARY_NOT_KOBAKO: &str =
-    "guest binary does not export linear memory; this is not a kobako-compatible Wasm module";
+/// User-facing message for the "the loaded Wasm module is not a
+/// Kobako-shaped runtime at all" failure mode (no linear memory
+/// export). Same phrasing philosophy as
+/// [`SANDBOX_RUNTIME_MISSING_HOOKS`].
+const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear memory; \
+     this is not a Kobako-compatible Wasm module";
 
 /// Return the cached +TypedFunc+ for an ABI export, or raise
 /// +Kobako::Wasm::Error+ when the option is +None+. The run-path
@@ -508,7 +509,7 @@ const GUEST_BINARY_NOT_KOBAKO: &str =
 /// the three sites onto one safe entry. The +_name+ argument is
 /// retained for future operator-side logging but is deliberately not
 /// spliced into the user-facing message (see
-/// [`GUEST_BINARY_MISSING_RUNTIME`]).
+/// [`SANDBOX_RUNTIME_MISSING_HOOKS`]).
 fn require_export<'a, Params, Results>(
     ruby: &Ruby,
     export: Option<&'a TypedFunc<Params, Results>>,
@@ -518,7 +519,7 @@ where
     Params: wasmtime::WasmParams,
     Results: wasmtime::WasmResults,
 {
-    export.ok_or_else(|| wasm_err(ruby, GUEST_BINARY_MISSING_RUNTIME))
+    export.ok_or_else(|| wasm_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))
 }
 
 /// Validate the invocation envelope length and return it as +i32+ — the
