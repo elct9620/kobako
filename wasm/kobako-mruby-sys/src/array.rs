@@ -1,9 +1,9 @@
 //! Typed `Array` newtype around an Array-tagged [`Value`].
 //!
 //! `Array` is `#[repr(transparent)]` over [`Value`] (which is itself
-//! `#[repr(transparent)]` over `mrb_value`). The two share their wire
-//! layout — `Array` is exactly an `mrb_value` known to carry an
-//! mruby `Array`. Construction is by explicit unchecked cast from
+//! `#[repr(transparent)]` over `mrb_value`). The two share their
+//! in-memory layout — `Array` is exactly an `mrb_value` known to carry
+//! an mruby `Array`. Construction is by explicit unchecked cast from
 //! [`Value`]; element operations cluster on the resulting newtype.
 //!
 //! Mirrors magnus's `src/r_array.rs`: factories live on `Ruby` /
