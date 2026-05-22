@@ -77,11 +77,13 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     assert_equal "Kobako::RPC::WireError", err.klass
   end
 
-  # --- Result envelope with empty bytes body raises SandboxError (SPEC E-09) ---
+  # --- Result envelope with empty bytes body raises WireError (SPEC E-09) ---
   #
-  # An empty result body is not a valid msgpack value, so decode_result raises
-  # Kobako::Codec::Truncated (a Kobako::Codec::Error subclass).  The Sandbox rescue chain wraps
-  # that as WireError (E-09: result envelope decode failed).
+  # An empty result body is not a valid msgpack value, so decode_value
+  # raises Kobako::Codec::Truncated (a Kobako::Codec::Error subclass).
+  # The Sandbox rescue chain wraps that as a WireError (E-09) whose
+  # user-facing message stays in caller vocabulary; the inner codec
+  # diagnostic is preserved under +details[:wire_error]+ for operators.
   def test_result_envelope_with_empty_body_raises_sandbox_error
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)
 
@@ -89,6 +91,10 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
     assert_equal "Kobako::RPC::WireError", err.klass
-    assert_match(/result envelope decode failed/, err.message)
+    assert_match(/guest produced an invalid result value/, err.message)
+    refute_match(/envelope|decode failed/, err.message,
+                 "internal codec vocabulary must not leak into the user-facing message")
+    assert_kind_of String, err.details[:wire_error],
+                   "operator-side codec diagnostic must be preserved in details"
   end
 end

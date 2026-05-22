@@ -47,11 +47,19 @@ module Kobako
 
     # TrapError for unknown or absent tag
     # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]:
-    # len=0 and unknown-tag both walk the trap path).
+    # zero-length output and unrecognised first byte both walk the trap
+    # path). The user-facing message stays in caller vocabulary — the
+    # raw tag byte (or absence) belongs in +details+ for operators, not
+    # in the message a Host App sees.
     def build_trap_error(tag)
-      return TrapError.new("guest exited without writing an outcome (len=0)") if tag.nil?
-
-      TrapError.new(format("unknown outcome tag 0x%<tag>02x", tag: tag))
+      if tag.nil?
+        TrapError.new("guest exited without producing a result")
+      else
+        TrapError.new(
+          "guest produced an unrecognised result; the guest runtime is corrupted, " \
+          "discard this Sandbox before another invocation"
+        )
+      end
     end
 
     def split_tag(bytes)
@@ -64,11 +72,18 @@ module Kobako
     end
 
     # Decode failure on the success tag is a SandboxError (E-09): the
-    # framing was fine, but the carried value is unrepresentable.
+    # framing was fine, but the carried value is unrepresentable. The
+    # specific codec fault is stashed in +details[:wire_error]+ rather
+    # than spliced into the message — Host Apps cannot act on the inner
+    # "ext 0x.. payload must be …" wording, but operators triaging a
+    # corrupted guest binary still need it.
     def decode_value(body)
       Kobako::Codec::Decoder.decode(body)
     rescue Kobako::Codec::Error => e
-      raise build_wire_violation_error("result envelope decode failed: #{e.message}")
+      raise build_wire_violation_error(
+        "guest produced an invalid result value",
+        wire_error: e.message
+      )
     end
 
     # Decode failure on the panic tag is a SandboxError (E-08). Either
@@ -78,16 +93,21 @@ module Kobako
     def decode_panic(body)
       raise build_panic_error(parse_panic(body))
     rescue Kobako::Codec::Error => e
-      raise build_wire_violation_error("panic envelope decode failed: #{e.message}")
+      raise build_wire_violation_error(
+        "guest produced an invalid panic record",
+        wire_error: e.message
+      )
     end
 
     # Build a +Panic+ value object from the msgpack-decoded body. Raises
     # +Kobako::Codec::InvalidType+ when the body is not a map or
     # when required keys are missing — both routed by +decode_panic+ to
-    # +build_wire_violation_error+.
+    # +build_wire_violation_error+. The +InvalidType+ message itself is
+    # never user-facing; it lands in +details[:wire_error]+ via the
+    # rescue chain above.
     def parse_panic(body)
       map = Kobako::Codec::Decoder.decode(body)
-      raise Kobako::Codec::InvalidType, "Panic envelope must be a map, got #{map.class}" unless map.is_a?(Hash)
+      raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
 
       Kobako::Codec::Utils.wire_boundary do
         Panic.new(
@@ -135,11 +155,15 @@ module Kobako
     # specifically instead of pattern-matching on +error.klass+. The
     # +klass+ field is still populated so existing operator-side
     # tooling that greps on the string continues to work.
-    def build_wire_violation_error(message)
+    # +wire_error+ carries the inner codec / framing message for
+    # operator diagnosis without polluting the user-facing
+    # +#message+.
+    def build_wire_violation_error(message, wire_error: nil)
       Kobako::RPC::WireError.new(
         message,
         origin: Panic::ORIGIN_SANDBOX,
-        klass: "Kobako::RPC::WireError"
+        klass: "Kobako::RPC::WireError",
+        details: wire_error.nil? ? nil : { wire_error: wire_error }
       )
     end
   end

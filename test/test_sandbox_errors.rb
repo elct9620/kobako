@@ -16,21 +16,29 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   end
 
   # SPEC.md ABI Signatures: "len == 0 is a wire violation; host walks trap path."
-  # Empty outcome bytes have no tag → the host emits TrapError.
+  # Empty outcome bytes have no tag → the host emits TrapError. The user-
+  # facing message stays in caller vocabulary — "len=0" is a wire-codec
+  # detail Host Apps can't act on, so it never appears in +message+.
   def test_zero_length_outcome_bytes_raises_trap_error
     err = assert_raises(Kobako::TrapError) { decode("".b) }
 
-    assert_match(/len=0/, err.message,
-                 "SPEC.md ABI: len=0 outcome → TrapError with len=0 in message")
+    assert_match(/without producing a result/, err.message,
+                 "len=0 outcome → TrapError attributed to the guest, not to the wire tag byte")
   end
 
-  # SPEC.md Error Scenarios: unknown outcome tag → TrapError (wire violation fallback).
+  # SPEC.md Error Scenarios: unknown outcome tag → TrapError (wire
+  # violation fallback). Hex tag value belongs in operator-side
+  # diagnostics, not the user-facing message — the contract here is "an
+  # unrecognised result means the guest runtime is corrupted; discard
+  # the Sandbox", phrased in caller vocabulary.
   def test_unknown_outcome_tag_raises_trap_error
     bytes = String.new(encoding: Encoding::ASCII_8BIT)
     bytes << 0xff.chr(Encoding::ASCII_8BIT)
 
     err = assert_raises(Kobako::TrapError) { decode(bytes) }
-    assert_match(/unknown outcome tag/, err.message)
+    assert_match(/guest runtime is corrupted/, err.message)
+    refute_match(/0xff/i, err.message,
+                 "raw tag byte must not leak into the user-facing message")
   end
 
   def test_malformed_result_envelope_raises_sandbox_error
