@@ -51,8 +51,21 @@
 #        that makes replay super-linear in snippet count would show
 #        here.
 #
+#   8f — #run dispatch with a non-wire-representable positional
+#        arg (B-34 host→guest auto-wrap). The args walker routes
+#        the StringIO through Codec::Utils.deep_wrap, which routes
+#        non-wire-representable leaves through HandleTable#alloc;
+#        the guest receives a +Kobako::Handle+ proxy. The entrypoint
+#        ignores the proxy, so this case isolates the host-side
+#        auto-wrap cost (predicate + alloc + wire encode) without
+#        also incurring a guest→host RPC roundtrip — 8c / 8d only
+#        cover the wire-fast path and miss any regression in the
+#        auto-wrap branch.
+#
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
+
+require "stringio"
 
 require "kobako"
 require "runner"
@@ -81,6 +94,18 @@ GREET_SNIPPET_CODE = <<~RUBY
   module Greet
     def self.call(opts)
       opts[:name]
+    end
+  end
+RUBY
+
+# 8f auto-wrap target. The entrypoint discards the Handle proxy so
+# the case measures only the host-side wrap path (predicate +
+# HandleTable#alloc + wire encode) — calling #read on the proxy
+# would add a guest→host RPC roundtrip that confounds the signal.
+WRAP_SNIPPET_CODE = <<~RUBY
+  module Wrap
+    def self.call(_handle)
+      nil
     end
   end
 RUBY
@@ -160,6 +185,21 @@ runner.case_with_usage("8d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sa
   n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
   runner.case_with_usage("8e-run-replay-#{n}-snippets", sandbox) { sandbox.run(:Noop) }
+end
+
+# 8f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
+# already sealed by 8b's warm-up #run; subsequent #preload would
+# raise E-35. The same +autowrap_arg+ is reused across iterations,
+# but B-15 / B-19 reset the HandleTable at the start of every
+# invocation, so each measured #run still pays for one fresh
+# HandleTable#alloc.
+autowrap_sandbox = Kobako::Sandbox.new(memory_limit: nil)
+autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
+autowrap_arg = StringIO.new("payload")
+autowrap_sandbox.run(:Wrap, autowrap_arg) # warm + seal
+
+runner.case_with_usage("8f-run-dispatch-autowrap", autowrap_sandbox) do
+  autowrap_sandbox.run(:Wrap, autowrap_arg)
 end
 
 puts runner.write!

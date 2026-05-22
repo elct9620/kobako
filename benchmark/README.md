@@ -179,10 +179,13 @@ Coverage of the two verbs added after the SPEC #1..#5 suite was written. `#prelo
 | Warm `#run(:Noop)` with 0 helper snippets preloaded | 147 µs |
 | Warm `#run(:Noop)` with 8 helper snippets preloaded | 204 µs |
 | Warm `#run(:Noop)` with 64 helper snippets preloaded | 713 µs |
+| Warm `#run(:Wrap, StringIO)` (B-34 host→guest auto-wrap) | _pending next baseline_ |
 
 8a's 1→8→64 sweep is dominated by the `Sandbox.new` term (~132 µs from `1a-sandbox-new`) at low N; the meaningful signal is the 1→64 delta — 287 − 129 = 158 µs spread across 63 extra `#preload` calls, which puts the per-snippet preload cost at ~2.5 µs. The `#preload(code:)` path trial-compiles each source against a fresh `mrb_state` to catch E-32 early; that compile dominates per-snippet cost.
 
 8b / 8c / 8d show that positional args and Symbol kwargs add essentially nothing on top of the empty `#run` baseline (162-163 µs vs 164 µs). The Invocation envelope's args / kwargs encoding is cheap compared to the per-invocation setup. The ext 0x00 path here is the host→guest direction; the structurally distinct guest→host kwargs path is covered by `rpc_roundtrip 2c` at ~137 µs.
+
+8f covers the [B-34](../docs/behavior.md) host→guest auto-wrap path that 8c / 8d miss. The arg (a `StringIO`) is not wire-representable, so `Kobako::Codec::Utils.deep_wrap` routes it through `HandleTable#alloc` and the guest sees a `Kobako::Handle` proxy in its place. The entrypoint discards the proxy without calling back, so the case isolates the host-side wrap cost — predicate + `alloc` + wire encode — without compounding with a guest→host RPC roundtrip. The delta against 8c (positional `Integer`) measures exactly that wrap branch. Numbers will populate with the next baseline refresh.
 
 8e isolates per-invocation snippet replay cost: the 0→8 delta gives (204 − 147) / 8 ≈ 7.1 µs per snippet per invocation, and the 0→64 delta gives (713 − 147) / 64 ≈ 8.8 µs per snippet — linear in snippet count, which is what B-32's "replay every snippet against the fresh `mrb_state`" contract requires. A regression that adds super-linear work (e.g., O(N²) constant resolution) would show as a curved slope here, not the current near-linear one.
 
