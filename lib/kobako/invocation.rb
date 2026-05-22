@@ -128,13 +128,15 @@ module Kobako
     end
 
     # Single source of truth for the E-29 reject message so the args
-    # and kwargs branches stay phrased identically. Message stays
-    # Host App–facing: it names the affected slot and the reason in
-    # the caller's vocabulary, without leaking SPEC anchor identifiers
-    # (B-xx / E-xx live in source comments, not user-visible errors).
+    # and kwargs branches stay phrased identically. Message stays in
+    # caller vocabulary: it names the affected slot and the reason
+    # without leaking SPEC anchor identifiers (B-xx / E-xx live in
+    # source comments, not user-visible errors) or self-referential
+    # architecture terms — the error is raised BY kobako, so saying
+    # "allocated by the Host Gem" reads as third-person about self.
     def forged_handle_message(slot)
       "Invocation #{slot} must not contain a Kobako::Handle — " \
-        "Handle objects are allocated by the Host Gem and cannot be constructed by Host App code"
+        "Kobako::Handle instances are internal wire tokens, not caller-constructible"
     end
     # steep:ignore:end
   end
