@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push to RubyGems'
+        required: false
+        default: false
+        type: boolean
+  release:
+    types:
+      - released
+
+env:
+  RUBY_VERSION: '3.4'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Build and publish plain gem
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@97ecb7b512899eb71ab1bf2310a624c6f1589ac6 # v1.308.0
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: |
+            .
+            wasm/kobako-wasm
+      - name: Build plain gem (compile ext + wasm:build chained by rake build)
+        run: bundle exec rake build
+      - name: Upload plain gem
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: plain-gem
+          path: pkg/*.gem
+      - name: Configure trusted publishing credentials
+        if: github.event_name == 'release' || inputs.push
+        uses: rubygems/configure-rubygems-credentials@bc6dd217f8a4f919d6835fcfefd470ef821f5c44 # v1.0.0
+      - name: Publish plain gem
+        if: github.event_name == 'release' || inputs.push
+        run: gem push pkg/*.gem
