@@ -70,7 +70,10 @@ Gem::Specification.new do |spec|
   # and ext type 0x02 (Exception envelope) on a `MessagePack::Factory`; the
   # gem's hand-written byte-level encoder/decoder has been retired.
   spec.add_dependency "msgpack", "~> 1.7"
-  spec.add_dependency "rb_sys", "~> 0.9.91"
+  # Pin to rb_sys 0.9.128+ so the oxidize-rb/cross-gem action picks up the
+  # rb-sys-dock image variant whose orchestration Ruby is new enough to
+  # satisfy our dev-tool Gemfile entries (steep ~> 2.0 needs Ruby >= 3.2).
+  spec.add_dependency "rb_sys", "~> 0.9.128"
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html
