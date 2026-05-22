@@ -44,7 +44,7 @@ module Kobako
       # normal RPC error rather than a wasm trap
       # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       def dispatch(request_bytes)
-        Dispatcher.dispatch(request_bytes, @server, @handle_table)
+        Dispatcher.dispatch(request_bytes, @server, @handle_table, self)
       end
 
       # Host → Guest re-entry. Serialises +args_bytes+ into the active

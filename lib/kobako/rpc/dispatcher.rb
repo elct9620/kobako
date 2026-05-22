@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../codec"
+require_relative "../yield"
+
 module Kobako
   module RPC
     # Pure-function dispatcher for guest-initiated RPC calls. Decodes a
@@ -32,27 +35,40 @@ module Kobako
       class DisconnectedTargetError < StandardError; end
 
       # Dispatch a single RPC request and return the encoded response bytes.
-      # Called by +Kobako::RPC::Server#dispatch+ which is invoked from the
-      # Rust ext inside +__kobako_dispatch+. +request_bytes+ is the
+      # Called by +Kobako::RPC::Channel#dispatch+ which is invoked from
+      # the Rust ext inside +__kobako_dispatch+. +request_bytes+ is the
       # msgpack-encoded Request envelope. +server+ resolves path-based
       # Member targets via +#lookup+. +handle_table+ is the Sandbox's
       # HandleTable, injected separately so Dispatcher does not depend
       # on Server publishing a Handle accessor — Handle is a
       # Sandbox-level domain entity (B-19) and the dispatcher is its
-      # only consumer here. Always returns a binary String — never
-      # raises. Any failure during decode, lookup, or method invocation
-      # is reified as a Response.error envelope so the guest sees the
+      # only consumer here. +channel+ is the +Kobako::RPC::Channel+ the
+      # block proxy uses to re-enter the guest (B-24); also injected
+      # rather than read off Server so the namespace registry stays
+      # Channel-unaware. Always returns a binary String — never raises.
+      # Any failure during decode, lookup, or method invocation is
+      # reified as a Response.error envelope so the guest sees the
       # failure as a normal RPC error rather than a wasm trap
       # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-      def dispatch(request_bytes, server, handle_table)
+      def dispatch(request_bytes, server, handle_table, channel)
         request = Kobako::RPC.decode_request(request_bytes)
         target = resolve_target(request.target, server, handle_table)
-        args = request.args.map { |v| resolve_arg(v, handle_table) }
-        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
-        value = invoke(target, request.method_name, args, kwargs)
+        args, kwargs = resolve_call_args(request, handle_table)
+        block_proxy = build_block_proxy(channel) if request.block_given
+        value = invoke(target, request.method_name, args, kwargs, block_proxy)
         encode_ok(value, handle_table)
       rescue StandardError => e
         encode_caught_error(e)
+      end
+
+      # Resolve positional and keyword arguments off +request+ in one
+      # step. Both pass through {#resolve_arg} so Capability Handles
+      # round-trip back to the host-side Ruby object before the call
+      # reaches +public_send+.
+      def resolve_call_args(request, handle_table)
+        args = request.args.map { |v| resolve_arg(v, handle_table) }
+        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
+        [args, kwargs]
       end
 
       # Map an error caught at the dispatch boundary to a +Response.error+
@@ -80,12 +96,55 @@ module Kobako
       # branch omits the +**+ splat so Ruby 3.x's strict kwargs
       # separation does not reject calls to no-kwarg methods when the
       # wire carries the uniform empty-map shape.
-      def invoke(target, method, args, kwargs)
+      #
+      # +block_proxy+ is the host-side yield proxy materialised when
+      # the guest call site supplied a block ({docs/behavior.md
+      # B-23}[link:../../../docs/behavior.md]). +&nil+ is a no-op block
+      # argument in Ruby, so the same call site handles both cases
+      # without an explicit conditional.
+      def invoke(target, method, args, kwargs, block_proxy = nil)
         if kwargs.empty?
-          target.public_send(method.to_sym, *args)
+          target.public_send(method.to_sym, *args, &block_proxy)
         else
-          target.public_send(method.to_sym, *args, **kwargs)
+          target.public_send(method.to_sym, *args, **kwargs, &block_proxy)
         end
+      end
+
+      # Build the host-side yield proxy passed to the Service method as
+      # its +&block+ argument ({docs/behavior.md B-23 /
+      # B-24}[link:../../../docs/behavior.md]). The proxy is a +Proc+
+      # (not a +Lambda+) so it inherits the loose arity Ruby's +&block+
+      # convention implies. Each invocation serialises positional args
+      # as a msgpack array, hands the bytes to the Channel for guest
+      # re-entry, and classifies the +YieldResponse+:
+      #
+      #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
+      #   * +tag 0x02+ break — raise (S6b wires the +catch+/+throw+ path
+      #     that unwinds the Service method per B-25; for now break
+      #     surfaces as a controlled error)
+      #   * +tag 0x04+ error — raise with the +{class, message,
+      #     backtrace}+ payload the guest produced
+      def build_block_proxy(channel)
+        proc do |*args|
+          response = Kobako::Yield.decode_response(channel.yield_to_block(Kobako::Codec::Encoder.encode(args)))
+          next response.value if response.ok?
+
+          raise yield_failure(response.value, default: response.break? ? "break" : "yield error")
+        end
+      end
+
+      # Reify a +YieldResponse+ error / break payload into a
+      # +RuntimeError+ the Service method observes at its +yield+ call
+      # site. The +{class, message, backtrace}+ shape mirrors the
+      # +Kobako::Yield::Response+ tag 0x04 payload; +default+ provides a
+      # fallback when the payload is not a Hash (defensive — the
+      # guest's encoder always emits the map shape).
+      def yield_failure(payload, default:)
+        return RuntimeError.new(default) unless payload.is_a?(Hash)
+
+        klass = payload["class"] || "RuntimeError"
+        message = payload["message"] || default
+        RuntimeError.new("#{klass}: #{message}")
       end
 
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword

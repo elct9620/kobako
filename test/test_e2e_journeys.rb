@@ -1143,4 +1143,54 @@ class TestE2EJourneys < Minitest::Test
                  "B-32: bytecode without debug_info must still contribute " \
                  "top-level effects on the fresh mrb_state"
   end
+
+  # ── B-23 / B-24 — Block / Yield round-trip (S5a stub) ──
+  #
+  # The block / yield mechanism (docs/behavior.md B-23..B-30) lands
+  # incrementally. At S5a the host-side proxy is fully wired but the
+  # guest's `__kobako_yield_to_block` export is still a stub that always
+  # returns +tag 0x04+ +NotImplementedError+ — so every Service method
+  # that actually invokes +yield+ observes the stub's error at the
+  # yield site and (when unrescued) surfaces it as a +ServiceError+ to
+  # the Host App. The full happy path lands in S5b.
+
+  def test_b23_block_given_reaches_host_when_guest_supplies_block
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    observed = []
+    sandbox.define(:Probe).bind(:Sees, ->(*, &block) { observed << !block.nil? })
+
+    sandbox.eval("Probe::Sees.call { |x| x }")
+
+    assert_equal [true], observed,
+                 "B-23: guest call site supplying a block must surface as " \
+                 "non-nil &block on the host Service method"
+  end
+
+  def test_b23_no_block_means_block_given_false_on_host
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    observed = []
+    sandbox.define(:Probe).bind(:Sees, ->(*, &block) { observed << !block.nil? })
+
+    sandbox.eval("Probe::Sees.call")
+
+    assert_equal [false], observed,
+                 "B-23: guest call without a block leaves &block nil"
+  end
+
+  def test_b24_unimplemented_yield_stub_surfaces_as_service_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    # +yield+ inside a lambda body refers to the enclosing method's
+    # block, not the lambda's own +&block+ argument. Use the explicit
+    # +&blk+ binding so the proxy Dispatcher hands in is the one we
+    # actually exercise.
+    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| x * 2 }")
+    end
+
+    assert_match(/NotImplementedError/, err.message,
+                 "S5a stub: guest export returns tag 0x04 NotImplementedError; " \
+                 "the host proxy must reify it as a Ruby exception at the yield site")
+  end
 end
