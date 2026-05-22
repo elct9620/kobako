@@ -126,10 +126,11 @@ impl std::error::Error for InvokeError {
 // Pure Request builder — decoupled from the host import for testing.
 // ---------------------------------------------------------------------
 
-/// Build the bytes of a Request envelope from the four-tuple every RPC
-/// site provides (target, method, args, kwargs). Pure function; does
-/// not touch wasm linear memory or the host import. Crate-internal —
-/// only [`invoke_rpc`] and its host-target tests call this.
+/// Build the bytes of a Request envelope from the five-tuple every RPC
+/// site provides (target, method, args, kwargs, block_given). Pure
+/// function; does not touch wasm linear memory or the host import.
+/// Crate-internal — only [`invoke_rpc`] and its host-target tests call
+/// this.
 ///
 /// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
 /// (5-element array, encoded narrowest).
@@ -138,16 +139,14 @@ pub(crate) fn build_request_bytes(
     method: &str,
     args: &[Value],
     kwargs: &[(String, Value)],
+    block_given: bool,
 ) -> Result<Vec<u8>, EnvelopeError> {
     let req = Request {
         target,
         method: method.to_string(),
         args: args.to_vec(),
         kwargs: kwargs.to_vec(),
-        // S2a baseline: guest dispatch never carries a block on the
-        // wire yet. S3 will lift this from the per-call block slot
-        // captured by `mrb_get_args("n*&")`.
-        block_given: false,
+        block_given,
     };
     encode_request(&req)
 }
@@ -185,8 +184,9 @@ pub fn invoke_rpc(
     method: &str,
     args: &[Value],
     kwargs: &[(String, Value)],
+    block_given: bool,
 ) -> Result<Value, InvokeError> {
-    let req_bytes = build_request_bytes(target, method, args, kwargs)?;
+    let req_bytes = build_request_bytes(target, method, args, kwargs, block_given)?;
     let resp_bytes = host_call(&req_bytes)?;
     let resp = crate::rpc::envelope::decode_response(&resp_bytes)?;
     classify_response(resp)
@@ -345,7 +345,7 @@ mod tests {
         let args = vec![Value::Str("hello".into())];
         let kwargs: Vec<(String, Value)> = vec![];
 
-        let direct = build_request_bytes(target.clone(), method, &args, &kwargs).unwrap();
+        let direct = build_request_bytes(target.clone(), method, &args, &kwargs, false).unwrap();
         let viaenv = encode_request(&Request {
             target,
             method: method.into(),
@@ -363,7 +363,8 @@ mod tests {
         // `request_golden_empty_args_and_kwargs` test; if either layer
         // drifts, both tests fail simultaneously and the discrepancy is
         // immediately localised.
-        let bytes = build_request_bytes(Target::Path("G::M".into()), "ping", &[], &[]).unwrap();
+        let bytes =
+            build_request_bytes(Target::Path("G::M".into()), "ping", &[], &[], false).unwrap();
         assert_eq!(
             bytes,
             vec![
@@ -384,7 +385,13 @@ mod tests {
         let response = encode_response(&Response::Ok(Value::Int(42))).unwrap();
         install_canned(captured.clone(), response);
 
-        let out = invoke_rpc(Target::Path("MyService::Counter".into()), "value", &[], &[]);
+        let out = invoke_rpc(
+            Target::Path("MyService::Counter".into()),
+            "value",
+            &[],
+            &[],
+            false,
+        );
         clear_loopback();
 
         assert_eq!(out, Ok(Value::Int(42)));
@@ -413,6 +420,7 @@ mod tests {
             "commit",
             &[Value::Bool(true)],
             &[("force".into(), Value::Bool(false))],
+            false,
         );
         clear_loopback();
 
@@ -436,6 +444,7 @@ mod tests {
             "get",
             &[Value::Str("missing".into())],
             &[],
+            false,
         );
         clear_loopback();
 
@@ -455,7 +464,7 @@ mod tests {
         // Garbage: a single 0xc1 byte (reserved msgpack family).
         install_canned(captured, vec![0xc1]);
 
-        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[]);
+        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[], false);
         clear_loopback();
 
         match out {
@@ -469,7 +478,7 @@ mod tests {
         // Defensive: if a test forgets to install a loopback, the
         // function must fail loudly rather than block or panic.
         clear_loopback();
-        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[]);
+        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[], false);
         match out {
             Err(InvokeError::Envelope(EnvelopeError::Shape(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");

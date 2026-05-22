@@ -12,11 +12,13 @@
 //! monomorphises the FFI call against `F::FMT` and returns the typed
 //! tuple from `F::Output`.
 //!
-//!   - [`format::O`]      — `"o"`  → single positional
-//!   - [`format::Rest`]   — `"*"`  → rest array borrowed from the
+//!   - [`format::O`]          — `"o"`   → single positional
+//!   - [`format::Rest`]       — `"*"`   → rest array borrowed from the
 //!     call frame
-//!   - [`format::NRest`]  — `"n*"` → symbol + rest array
-//!   - [`format::Io`]     — `"io"` → integer + object
+//!   - [`format::NRest`]      — `"n*"`  → symbol + rest array
+//!   - [`format::NRestBlock`] — `"n*&"` → symbol + rest array + block
+//!     slot
+//!   - [`format::Io`]         — `"io"`  → integer + object
 //!
 //! Rest-form variants borrow the call frame's argv buffer; the
 //! lifetime is tied to `&self`, which the bridge body holds for the
@@ -182,6 +184,40 @@ pub mod format {
                 );
             }
             (sym, slice_from_argv(argv, argc))
+        }
+    }
+
+    /// `mrb_get_args(mrb, "n*&", &sym, &argv, &argc, &block)` — read a
+    /// leading symbol, then a rest array, then the block slot from the
+    /// call frame. The `&` specifier produces a value copy of the block
+    /// `mrb_value` without invoking `mrb_proc_copy`, so the captured
+    /// block stays non-orphan
+    /// (`vendor/mruby/src/class.c:1593-1604`). When the caller supplied
+    /// no block the slot decodes as `mrb_nil`.
+    pub struct NRestBlock;
+    impl Format for NRestBlock {
+        type Output<'a> = (sys::mrb_sym, &'a [Value], Value);
+        const FMT: &'static core::ffi::CStr = c"n*&";
+
+        fn read(mrb: &Mrb) -> (sys::mrb_sym, &[Value], Value) {
+            let mut sym: sys::mrb_sym = 0;
+            let mut argv: *const sys::mrb_value = core::ptr::null();
+            let mut argc: core::ffi::c_int = 0;
+            let mut block_raw = sys::mrb_value::zeroed();
+            // SAFETY: as `O::read`; the `"n*&"` format writes the
+            // leading symbol, the argv pointer + length pair, and a
+            // single block-slot value.
+            unsafe {
+                sys::mrb_get_args(
+                    mrb.as_ptr(),
+                    Self::FMT.as_ptr(),
+                    &mut sym as *mut sys::mrb_sym,
+                    &mut argv as *mut *const sys::mrb_value,
+                    &mut argc as *mut core::ffi::c_int,
+                    &mut block_raw as *mut sys::mrb_value,
+                );
+            }
+            (sym, slice_from_argv(argv, argc), Value::from_raw(block_raw))
         }
     }
 

@@ -418,10 +418,11 @@ impl Kobako {
         method_name: &str,
         args: &[crate::codec::Value],
         kwargs: &[(String, crate::codec::Value)],
+        block_given: bool,
         err_msg: &core::ffi::CStr,
     ) -> Value {
         use crate::rpc::client::invoke_rpc;
-        match invoke_rpc(target, method_name, args, kwargs) {
+        match invoke_rpc(target, method_name, args, kwargs, block_given) {
             Ok(value) => self.to_mrb_value(value),
             Err(crate::rpc::client::InvokeError::Service(ex)) => {
                 // SAFETY: bridge frame — mruby will unwind through

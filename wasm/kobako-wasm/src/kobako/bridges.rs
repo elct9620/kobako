@@ -58,11 +58,19 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
+        use crate::abi::block_stack::BlockFrame;
         use crate::rpc::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest) = kobako.mrb().get_args::<sys::format::NRest>();
+        let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
+
+        // Push the block onto BLOCK_STACK for the duration of this
+        // bridge frame; drops + pops automatically on return / mruby
+        // raise. The wire-level `block_given` bit (B-23) is the
+        // observable shadow of the same fact.
+        let block_given = !block.is_nil();
+        let _block_frame = BlockFrame::push_if_block(block);
 
         // SAFETY: `self_` is the class receiver of a singleton-class
         // `method_missing` shim — class-tagged by mruby itself.
@@ -83,7 +91,14 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
         let (args, kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
 
-        kobako.dispatch_invoke(target, method_name, &args, &kwargs, c"RPC envelope error")
+        kobako.dispatch_invoke(
+            target,
+            method_name,
+            &args,
+            &kwargs,
+            block_given,
+            c"RPC envelope error",
+        )
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -126,11 +141,17 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
+        use crate::abi::block_stack::BlockFrame;
         use crate::rpc::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest) = kobako.mrb().get_args::<sys::format::NRest>();
+        let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
+
+        // See `rpc_method_missing` for the BLOCK_STACK / block_given
+        // rationale; same shape applies to Handle dispatch (B-17).
+        let block_given = !block.is_nil();
+        let _block_frame = BlockFrame::push_if_block(block);
 
         let handle_id = kobako.extract_handle_id(self_);
 
@@ -147,6 +168,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             method_name,
             &args,
             &kwargs,
+            block_given,
             c"RPC envelope error (Handle dispatch)",
         )
     }

@@ -55,6 +55,8 @@
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod block_stack;
 #[cfg(any(target_arch = "wasm32", test))]
 mod boot;
 mod eval;
