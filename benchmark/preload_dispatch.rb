@@ -50,7 +50,7 @@
 #        replay cost on the steady-state #run path. A regression
 #        that makes replay super-linear in snippet count would show
 #        here.
-
+#
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
@@ -144,9 +144,9 @@ dispatch_sandbox.preload(code: ECHO_SNIPPET_CODE, name: :Echo)
 dispatch_sandbox.preload(code: GREET_SNIPPET_CODE, name: :Greet)
 dispatch_sandbox.run(:Noop) # warm + seal
 
-runner.case("8b-run-dispatch-empty") { dispatch_sandbox.run(:Noop) }
-runner.case("8c-run-dispatch-positional") { dispatch_sandbox.run(:Echo, 42) }
-runner.case("8d-run-dispatch-kwargs") { dispatch_sandbox.run(:Greet, name: :alice) }
+runner.case_with_usage("8b-run-dispatch-empty", dispatch_sandbox) { dispatch_sandbox.run(:Noop) }
+runner.case_with_usage("8c-run-dispatch-positional", dispatch_sandbox) { dispatch_sandbox.run(:Echo, 42) }
+runner.case_with_usage("8d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sandbox.run(:Greet, name: :alice) }
 
 # 8e — per-invocation snippet replay overhead. Each waypoint owns a
 # Sandbox with N additional helpers preloaded alongside the Noop
@@ -159,7 +159,7 @@ runner.case("8d-run-dispatch-kwargs") { dispatch_sandbox.run(:Greet, name: :alic
   sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
   n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
-  runner.case("8e-run-replay-#{n}-snippets") { sandbox.run(:Noop) }
+  runner.case_with_usage("8e-run-replay-#{n}-snippets", sandbox) { sandbox.run(:Noop) }
 end
 
 puts runner.write!

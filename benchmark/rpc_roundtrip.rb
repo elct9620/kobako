@@ -47,23 +47,23 @@ sandbox.define(:Bench)
 # does not pay one-shot init cost.
 sandbox.eval("nil")
 
-runner.case("2a-empty-rpc") do
+runner.case_with_usage("2a-empty-rpc", sandbox) do
   sandbox.eval("Bench::Noop.call")
 end
 
-runner.case("2b-primitive-arg") do
+runner.case_with_usage("2b-primitive-arg", sandbox) do
   sandbox.eval("Bench::Echo.call(42)")
 end
 
-runner.case("2c-kwargs") do
+runner.case_with_usage("2c-kwargs", sandbox) do
   sandbox.eval('Bench::Greet.call(name: "alice")')
 end
 
-runner.case("2d-1000-rpcs-in-one-eval") do
+runner.case_with_usage("2d-1000-rpcs-in-one-eval", sandbox) do
   sandbox.eval("1000.times { Bench::Noop.call }")
 end
 
-runner.case("2e-handle-chain") do
+runner.case_with_usage("2e-handle-chain", sandbox) do
   sandbox.eval("g = Bench::Factory.call(nil); g.greet")
 end
 

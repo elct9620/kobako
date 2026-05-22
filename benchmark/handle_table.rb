@@ -62,6 +62,6 @@ sandbox.eval("nil") # warm
 # Runs after the 5b loop has retained `batch_table` (1 M Handles) at
 # module scope for the rest of the process — the GC pressure that
 # distinguishes this case from cold_start.rb 1b.
-runner.case("5c-warm-eval-nil-under-gc-pressure") { sandbox.eval("nil") }
+runner.case_with_usage("5c-warm-eval-nil-under-gc-pressure", sandbox) { sandbox.eval("nil") }
 
 puts runner.write!

@@ -13,6 +13,10 @@
 #   - one_shot   → CPU seconds → ms.
 #   - memory     → rss_kb → MB (rss_kb / 1024.0); deltas pass through.
 #   - concurrent → seconds → ms; ops_per_sec passed through.
+#   - usage      → wall_time seconds → ns / µs / ms (matches
+#                  +time_per_op+'s thresholds); memory_peak bytes →
+#                  B / KiB / MiB. Sandbox-driven ips rows carry both
+#                  alongside the throughput number.
 #
 # Usage:
 #
@@ -71,6 +75,28 @@ module Kobako
 
         format("%.1fk ops/s", ops_per_sec / 1000.0)
       end
+
+      # Per-invocation +wall_time+ ({SPEC.md B-35}) → ns / µs / ms.
+      # The runner records seconds; thresholds mirror {time_per_op} so
+      # readers can compare ips-derived per-op cost against the guest
+      # export portion without mental unit-juggling.
+      def wall_time(seconds)
+        return format("%.0f ns", seconds * 1_000_000_000) if seconds < 0.000_001
+        return format("%.1f µs", seconds * 1_000_000) if seconds < 0.001
+
+        format("%.2f ms", seconds * 1000)
+      end
+
+      # Per-invocation +memory_peak+ ({SPEC.md B-35}) → B / KiB / MiB.
+      # +0+ is common for cases that don't grow guest linear memory
+      # (nil-returning evals, RPC roundtrips); the B form preserves
+      # that signal instead of rounding it away.
+      def memory_peak(bytes)
+        return format("%.1f MiB", bytes / 1_048_576.0) if bytes >= 1_048_576
+        return format("%.1f KiB", bytes / 1024.0) if bytes >= 1024
+
+        format("%d B", bytes)
+      end
     end
 
     # Walks a parsed runner JSON document and emits one row per case
@@ -115,15 +141,25 @@ module Kobako
 
       def format_ips(entry)
         value = Units.time_per_op(entry["ips"])
-        meta = "#{Units.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"
-        [value, meta]
+        meta_parts = ["#{Units.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"]
+        meta_parts << format_usage(entry) if entry.key?("wall_time")
+        [value, meta_parts.join(" | ")]
       end
 
       def format_memory(entry)
         value = Units.kb_to_mb(entry["rss_kb"])
         deltas = entry.select { |k, _| k.end_with?("_kb") && k != "rss_kb" }
                       .map { |k, v| "#{k.sub(/_kb\z/, "")}=#{Units.kb_to_mb(v)}" }
-        [value, deltas.join(", ")]
+        meta_parts = [deltas.join(", ")].reject(&:empty?)
+        meta_parts << format_usage(entry) if entry.key?("wall_time")
+        [value, meta_parts.join(" | ")]
+      end
+
+      # Render the B-35 +wall_time+ / +memory_peak+ pair that
+      # {Runner#case_with_usage} and the memory suite's +record+
+      # helper fold into ips and memory rows.
+      def format_usage(entry)
+        "wall=#{Units.wall_time(entry["wall_time"])} mem=#{Units.memory_peak(entry["memory_peak"])}"
       end
 
       def format_concurrent(entry)

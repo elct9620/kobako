@@ -91,14 +91,14 @@ guest_size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "512KiB"
 
 guest_size_bytes.each do |label, bytes|
   script = "\"x\" * #{bytes}"
-  runner.case("3a-guest-return-#{label}") { sandbox.eval(script) }
+  runner.case_with_usage("3a-guest-return-#{label}", sandbox) { sandbox.eval(script) }
 end
 
 [1, 4, 16, 64].each do |depth|
   open_b = "[" * depth
   close_b = "]" * depth
   script = "#{open_b}\"x\" * 1024#{close_b}"
-  runner.case("3b-guest-return-depth-#{depth}") { sandbox.eval(script) }
+  runner.case_with_usage("3b-guest-return-depth-#{depth}", sandbox) { sandbox.eval(script) }
 end
 
 puts runner.write!

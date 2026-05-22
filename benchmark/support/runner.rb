@@ -23,6 +23,16 @@ module Kobako
     # does not inflate the measurement. Multi-thread suites that
     # intentionally measure scheduling overhead keep their own
     # wall-clock helper and bypass this runner.
+    #
+    # For sandbox-driven cases the runner can also fold the last
+    # invocation's {Kobako::Sandbox#usage} ({docs/behavior.md B-35}) —
+    # +wall_time+ (guest export seconds) and +memory_peak+
+    # (per-invocation +memory.grow+ delta) — into the same result
+    # row via {#case_with_usage} or the lower-level
+    # {#annotate_usage!}. Host throughput and guest budget land
+    # together so the JSON output makes per-invocation overhead and
+    # VM execution time directly readable instead of derived by
+    # subtraction.
     class Runner
       ROOT = File.expand_path("../..", __dir__)
       RESULTS_DIR = File.join(ROOT, "benchmark", "results")
@@ -60,6 +70,31 @@ module Kobako
         elapsed = cpu_time(&)
         @results << { label: label, seconds: elapsed, mode: "one_shot" }
         puts format("%<label>-35s %<ms>10.3f ms (CPU, one-shot)", label: label, ms: elapsed * 1000)
+      end
+
+      # Sample +sandbox.usage+ ({docs/behavior.md B-35}) and merge
+      # +wall_time+ / +memory_peak+ into the most recently recorded
+      # entry. Called right after +#case+ or +#one_shot+ on the same
+      # +sandbox+, while +sandbox.usage+ still reflects the last
+      # invocation the measurement loop performed. The two readers
+      # land alongside +ips+ in the same JSON row so host throughput
+      # and per-invocation guest budget surface together; the
+      # measurement loop is untouched.
+      def annotate_usage!(sandbox)
+        usage = sandbox.usage
+        @results.last.merge!(
+          wall_time: usage.wall_time,
+          memory_peak: usage.memory_peak
+        )
+      end
+
+      # Sugar for the common +#case+ + +#annotate_usage!+ pairing.
+      # The block must drive +sandbox+ (an +#eval+ or +#run+ call)
+      # so the last measurement iteration leaves a meaningful
+      # +sandbox.usage+ for +#annotate_usage!+ to sample.
+      def case_with_usage(label, sandbox, &)
+        self.case(label, &)
+        annotate_usage!(sandbox)
       end
 
       # Persist the collected results to

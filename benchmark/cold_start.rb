@@ -26,8 +26,16 @@ end
 
 runner.case("1a-sandbox-new") { Kobako::Sandbox.new }
 
+# 1b constructs a fresh Sandbox per iteration, so the +sandbox+ to
+# sample +usage+ from is only knowable after the block runs; expose
+# it through a closure-local binding the runner can read once the
+# measurement loop finishes. +Sandbox.new+ alone leaves +usage+ at
+# the EMPTY sentinel, which is why 1a does not annotate.
+last_sandbox = nil
 runner.case("1b-sandbox-new+eval-nil") do
-  Kobako::Sandbox.new.eval("nil")
+  last_sandbox = Kobako::Sandbox.new
+  last_sandbox.eval("nil")
 end
+runner.annotate_usage!(last_sandbox)
 
 puts runner.write!

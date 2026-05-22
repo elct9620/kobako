@@ -11,6 +11,7 @@ How the numbers are obtained:
 - **`ips` cases** — the runner calibrates an iteration count that lands ~1/5 of the time budget per cycle, runs a warmup pass with the same iteration shape, then records CPU time per cycle until the budget is exhausted. `ips` is the mean of per-cycle samples; `±ips_sd` is the sample standard deviation as a percentage. CPU time excludes scheduler / background-load noise, so the same code on the same machine reproduces within the reported `±ips_sd`.
 - **`one_shot` cases** — the block runs exactly once and the CPU seconds consumed are recorded. Used for cold-path costs (the very first `Sandbox.new` in a process, large-table allocations) where iterating would only ever observe the warm path.
 - **Multi-thread cases** keep their own wall-clock helper and bypass the runner, because measuring scheduler overhead by CPU time would defeat the purpose.
+- **Per-invocation `usage`** (sandbox-driven `ips` cases only) — for cases whose block drives a `Kobako::Sandbox`, the runner samples `sandbox.usage` ([SPEC.md B-35](../SPEC.md)) right after the measurement loop and folds `wall_time` (Float seconds the guest export call spent inside wasmtime during the last iteration) and `memory_peak` (Integer bytes of `memory.grow` delta past the per-invocation baseline) into the same JSON row. Host throughput (`ips`) and per-invocation guest budget surface together, so the per-`#eval` overhead and the VM execution time are directly readable instead of derived by subtraction. The `memory.rb` (#7) suite samples the same two fields alongside the RSS deltas it already records.
 
 ### Reading the numbers
 
@@ -29,12 +30,20 @@ The script defaults to the most recently modified result file when no path is gi
 | `ips` (< 1 000) | `ms` per op | `1000 / ips` |
 | `ips_sd` | `±sd` percentage | `(ips_sd / ips) * 100` |
 | `seconds` (`one_shot`) | `ms` | `seconds * 1000` |
+| `wall_time` (< 1e-6 s) | `ns` | `wall_time * 1e9` |
+| `wall_time` (1e-6 .. 1e-3 s) | `µs` | `wall_time * 1e6` |
+| `wall_time` (≥ 1e-3 s) | `ms` | `wall_time * 1e3` |
+| `memory_peak` (< 1024 B) | `B` | direct |
+| `memory_peak` (1024 .. 1 048 575 B) | `KiB` | `memory_peak / 1024` |
+| `memory_peak` (≥ 1 048 576 B) | `MiB` | `memory_peak / 1 048 576` |
 | `rss_kb` | `MB` | `rss_kb / 1024` |
 | `ops_per_sec` (concurrent) | `ops/s` (pretty-printed) | direct, with `k` suffix above 10 000 |
 
 For "N-ops-in-one-invocation" cases (e.g., `2d-1000-rpcs-in-one-eval`), the table cell shows both the per-invocation total (`N / ips`) and the per-op cost (the same value divided by N). The script emits the per-invocation total; the per-op interpretation is added in prose.
 
 For "delta between waypoints" rows (e.g., 8a-1 → 8a-64 isolating per-snippet preload cost), subtract the lower waypoint from the higher and divide by the snippet-count delta. Worked examples are inline in the respective sections.
+
+For sandbox-driven `ips` cases the JSON now also carries `wall_time` and `memory_peak` from `Kobako::Sandbox#usage`. `format_baseline.rb` renders them next to the ips meta as `wall=… mem=…` (e.g. `±1.4%, n=3 | wall=80.0 µs mem=0 B`). The two readers turn the per-`#eval` overhead into a directly recorded number: subtract `wall_time` from `1 / ips` to get the host wrapper cost. For "N-ops-in-one-invocation" cases divide `wall_time` by N to get the steady-state per-op guest cost without the host wrapper term — `2d-1000-rpcs-in-one-eval` is the canonical example. `memory_peak` is `0` for cases that don't grow guest linear memory (nil-returning evals, RPC roundtrips); for cases that do (large String returns, deep Array construction), it reports the high-water `memory.grow` delta past the per-invocation baseline.
 
 **Rounding convention.** The script emits one decimal place for ips-derived values (`275.6 µs`) so the conversion is reversible; the prose tables round to three significant figures (`276 µs`) for readability. A future-baseline diff that comes from rounding alone — e.g., `275.6 µs` versus `274.9 µs` both rendering as `275 µs` — is not a real change. When comparing two baselines treat any prose-table delta under 1 µs as noise and consult the JSON / script output for the precise value.
 
@@ -270,8 +279,9 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
     "captured_at": "2026-05-20T16:09:55Z"
   },
   "suites": {
-    "cold_start":   [ { "label": "1a-sandbox-new", "ips": 8080.0, "ips_sd": 112, "iterations": 24576, "cycles": 3 } ],
-    "rpc_roundtrip": [ ... ],
+    "cold_start":     [ { "label": "1a-sandbox-new", "ips": 8080.0, "ips_sd": 112, "iterations": 24576, "cycles": 3 } ],
+    "rpc_roundtrip":  [ { "label": "2a-empty-rpc",   "ips": 7407.0, "ips_sd": 80,  "iterations": 18432, "cycles": 3,
+                          "wall_time": 0.0000045, "memory_peak": 0 } ],
     ...
   }
 }
@@ -281,6 +291,7 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
 - **`ips_sd`** — standard deviation of the per-cycle `ips` samples; report as a percentage of `ips`.
 - **`iterations`** / **`cycles`** — total iterations measured and number of samples; small `cycles` means few samples were collected within the time budget (high per-iter cost), and the corresponding `ips_sd` should be read accordingly.
 - **`seconds`** — appears on one-shot entries (cold construction, large-table allocs, concurrent measurements) where iterating would mask the cold-path cost. CPU seconds for the `case`/`one_shot` runners; wall-clock seconds for the multi-thread suite.
+- **`wall_time`** / **`memory_peak`** — present on sandbox-driven `ips` rows ([SPEC.md B-35](../SPEC.md)). `wall_time` is the Float seconds the guest export call spent inside wasmtime during the last measured iteration; `memory_peak` is the Integer high-water `memory.grow` delta past the per-invocation baseline. Both reflect *one* invocation, not the loop total — combine with `ips` for steady-state interpretation.
 
 Release baselines are additionally marked with annotated git tags following `benchmark/<semver>` (per SPEC.md).
 

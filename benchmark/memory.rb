@@ -1,41 +1,49 @@
 # frozen_string_literal: true
 
 # Characterization benchmark (not in release gate) — measures the
-# *external* memory cost of running Sandboxes. We never look inside
-# the Sandbox (no Wasm memory size, no mruby heap inspection); we
-# only observe what the host process consumes via RSS. This is the
-# right granularity for capacity planning ("how many tenants fit in
-# one process?") without violating SPEC's Non-Goal of per-invocation
-# instrumentation.
+# memory cost of running Sandboxes across two complementary lenses:
+#
+#   - External RSS via `ps -o rss=`. Captures what the host process
+#     consumes in total — Engine + compiled Module + every Sandbox
+#     instance + every retained capture buffer. The right granularity
+#     for capacity planning ("how many tenants fit in one process?").
+#   - Per-invocation `Sandbox#usage` (docs/behavior.md B-35). The
+#     guest's `memory.grow` delta and the guest export's wall-clock
+#     time are sampled directly off `sandbox.usage` after the
+#     measured invocation, so the JSON now attributes growth to the
+#     guest linear-memory layer instead of folding it into host
+#     allocator noise. 7c / 7d in particular benefit: a regression
+#     that grows guest memory for the stdout-overflow path would be
+#     invisible at the RSS layer but immediate at `memory_peak`.
 #
 #   7a — Per-Sandbox RSS cost. Measure RSS at baseline, after the
 #        first Sandbox (which absorbs Engine + Module load), and
-#        after N=10/100/1000 total Sandboxes. The delta divided by
-#        (N - 1) approximates per-additional-Sandbox cost.
+#        after N=10/100/1000 total Sandboxes. No usage attribution —
+#        7a never invokes the guest, so `sandbox.usage` would be the
+#        EMPTY sentinel.
 #   7b — Per-invocation RSS drift. Run #eval("nil") 10 000 times on
-#        a single Sandbox; sample RSS every 1 000 invocations.
-#        Bounded sub-linear drift (a few MB at 10k invocations) is
-#        allocator page retention and is expected — the SPEC B-15 /
-#        B-19 per-invocation reset is enforced at the Ruby/Handle
-#        level, not at the malloc level. A real reset violation
-#        would show drift scaling with invocation count across
-#        orders of magnitude longer runs; that is the regression
-#        signal, not a non-zero number at 10k invocations.
+#        a single Sandbox; sample RSS every 1 000 invocations and
+#        sample the last invocation's `usage` alongside the RSS
+#        sample. Bounded sub-linear RSS drift is allocator page
+#        retention and expected; `memory_peak` per nil-returning
+#        eval should stay ~0 because the script doesn't grow linear
+#        memory. A B-15 / B-19 per-invocation reset violation *at
+#        the linear-memory layer* would now surface as nonzero
+#        `memory_peak` per call — a signal RSS drift cannot isolate.
 #   7c — Large-payload retention. Measure RSS before, while holding
-#        a 512 KiB return value, and after GC. The retained delta
-#        documents how much the allocator keeps in reserve for
-#        large-payload paths after the Ruby reference is dropped;
-#        non-zero is normal (the allocator does not eagerly return
-#        pages to the OS). A sudden jump versus a prior baseline
-#        indicates a regression, not the absolute value.
+#        a 512 KiB return value, and after GC. `usage.memory_peak`
+#        from the same invocation directly reports how much the
+#        guest's `memory.grow` had to allocate for the 512 KiB
+#        String, making the RSS jump attributable to guest growth
+#        rather than allocator slack.
 #   7d — Near-cap stdout retention. Run a script that fills the
 #        default 1 MiB stdout_limit, sample RSS while the host-side
 #        capture buffer still holds the bytes, then drop the
-#        Sandbox reference and re-sample after GC. The peak delta
-#        documents how much the WASI pipe + Sandbox#stdout String
-#        cost per saturated channel (SPEC.md B-04); a sudden jump
-#        versus baseline indicates a regression in the capture
-#        buffer path.
+#        Sandbox reference and re-sample after GC. `usage.memory_peak`
+#        is expected to stay small (stdout flows through the WASI
+#        pipe, not guest linear memory); a regression that grows
+#        guest memory on the stdout-overflow path would show up
+#        here even though RSS would only see allocator slack.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -67,8 +75,14 @@ def warm_sandbox
   Kobako::Sandbox.new(memory_limit: nil).tap { |s| s.eval("nil") }
 end
 
-def record(runner, label, **fields)
-  runner.results << { label: label, mode: "memory", **fields }
+def record(runner, label, sandbox: nil, **fields)
+  entry = { label: label, mode: "memory", **fields }
+  if sandbox
+    usage = sandbox.usage
+    entry[:wall_time] = usage.wall_time
+    entry[:memory_peak] = usage.memory_peak
+  end
+  runner.results << entry
 end
 
 # ---- 7a: per-Sandbox RSS cost -------------------------------------------
@@ -121,6 +135,7 @@ def record_drift(runner, sandbox, baseline_kb, iter)
   rss_kb = gc_then_rss
   drift = rss_kb - baseline_kb
   record(runner, "7b-rss-after-#{iter}-evals",
+         sandbox: sandbox,
          rss_kb: rss_kb, delta_from_baseline_kb: drift)
   puts format("7b after %<n>5d evals: rss=%<r>d KB (drift %<d>+d KB)",
               n: iter, r: rss_kb, d: drift)
@@ -146,6 +161,7 @@ def sample_during_payload(runner, sandbox, before)
   # stripped the unused `result =` assignment and silently broke
   # the during-payload measurement.
   record(runner, "7c-rss-while-holding-return-value",
+         sandbox: sandbox,
          rss_kb: during,
          peak_delta_kb: during - before,
          payload_bytesize: result.bytesize)
@@ -187,6 +203,7 @@ def sample_during_near_cap(runner, sandbox, before)
   # 7c pattern (rubocop's auto-correct will strip an "unused" read).
   bytes = sandbox.stdout.bytesize
   record(runner, "7d-rss-while-holding-near-cap-stdout",
+         sandbox: sandbox,
          rss_kb: during,
          peak_delta_kb: during - before,
          stdout_bytesize: bytes,
