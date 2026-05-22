@@ -28,7 +28,7 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs`; Panic envelope payload | `Hash` | `Hash` (mruby) / struct or `HashMap` |
 | 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
-| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::RPC::Handle` | `Kobako::RPC::Handle` (mruby) / `Handle(u32)` |
+| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
 | 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::RPC::Fault` (deserialized per error type, → `SPEC.md` § Error Classes) | `Errenv` struct |
 
 ---
@@ -85,7 +85,7 @@ Position rules for ext 0x00:
 
 The Handle ID field carries the opaque identifier allocated by the HandleTable (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
 
-ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field. It must not appear in any other position.
+ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior.md`](behavior.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
 
 ### ext 0x02 — Fault Envelope
 

@@ -46,12 +46,12 @@ A Response always matches exactly one variant. There is no partial success or st
 
 ## Capability Handle
 
-A **Capability Handle** is an opaque token the guest holds to reference a stateful host-side Ruby object (e.g., a session, connection, or any object that is not a primitive wire type). The abstract contract is:
+A **Capability Handle** is an opaque token used on either side of the wire to reference a stateful Ruby object that is not directly wire-representable (e.g., a session, connection, `StringIO`, custom Env / Context class). The abstract contract is:
 
-- **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request.
-- **Host-allocated**: the wire layer on the host side allocates a Handle automatically whenever a Service method returns a stateful object. The Host App has no API to create or inspect Handles directly.
-- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The HandleTable is fully reset at the start of every invocation (`#eval` or `#run`).
-- **Not constructible by the guest**: the guest mruby API does not expose a constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable.
+- **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request, or invoking methods on it which dispatch as RPC calls.
+- **Host-allocated**: the wire layer on the host side allocates a Handle automatically in two symmetric situations — whenever a Service method returns a stateful object (host→guest return path, → [`docs/behavior.md`](behavior.md) § B-14), and whenever `#run` is invoked with arguments containing non-wire-representable objects (host→guest argument path, → [`docs/behavior.md`](behavior.md) § B-34). The Host App has no API to create or inspect Handles directly.
+- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The HandleTable is fully reset at the start of every invocation (`#eval` or `#run`); the reset is uniform regardless of allocation source.
+- **Not constructible by guest or Host App**: neither the guest mruby API nor the Host App API exposes a public constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable; a `Kobako::Handle` instance fabricated through any non-public path on the host side is rejected at `#run` host pre-flight. Handle allocation is exclusively internal to the Host Gem's wire layer.
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound).
 
 Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
