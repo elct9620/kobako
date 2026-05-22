@@ -27,10 +27,11 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 | Per-invocation caps | Every invocation enforces a wall-clock `timeout` (default 60 s) and a per-invocation linear-memory `memory_limit` (default 1 MiB); exhaustion raises `Kobako::TimeoutError` / `Kobako::MemoryLimitError`. |
 | Capability injection via Services | Guest scripts can only call Ruby objects you explicitly `bind` under a two-level `Namespace::Member` path. |
 | Preloaded snippets | `Sandbox#preload` registers source or RITE bytecode for setup-once dispatch via `Sandbox#run(:Entrypoint, *args, **kwargs)`. |
-| Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::RPC::Handle` proxy it can use as the target of follow-up RPC calls, with no way to dereference it. |
+| Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::Handle` proxy it can use as the target of follow-up RPC calls, with no way to dereference it. `Sandbox#run` also accepts non-wire-representable Ruby objects as args and auto-wraps them into Handles, so the guest can use any host object the script needs. |
 | Three-class error taxonomy | Every failure is exactly one of `TrapError`, `SandboxError`, or `ServiceError`, so you can route errors without inspecting messages. |
 | Per-invocation state reset | Handles issued during one invocation are invalidated before the next; Service bindings and preloaded snippets remain. |
 | Separated stdout / stderr capture | Guest writes to `$stdout` / `$stderr` are buffered per-channel (1 MiB default cap, configurable); overflow is clipped and reported by `#stdout_truncated?` / `#stderr_truncated?`. |
+| Per-invocation usage readout | `Sandbox#usage` returns the most recent invocation's `wall_time` (Float seconds spent inside the wasm guest) and `memory_peak` (high-water `memory.grow` delta in bytes), populated on every outcome including `TrapError`, for budget diagnostics. |
 | Curated mruby stdlib | Core extensions plus `mruby-onig-regexp` for full Onigmo `Regexp` support; no mrbgem with I/O, network, or syscall access is bundled. |
 
 ## Requirements
@@ -122,6 +123,19 @@ The timeout deadline is absolute wall-clock from invocation entry and is checked
 
 The 1 MiB default targets lightweight dynamic RPC workloads — short scripts that orchestrate Service calls, return small structured values, or replace a tool-calling layer in an AI Agent's Code Mode dispatch. Bump `memory_limit` when scripts compose multi-hundred-KiB strings, hold large composite return values, or run computations that allocate substantial intermediate state. Because the cap resets every invocation, multi-call patterns on one Sandbox do not need a budget that covers their cumulative footprint — only the largest single invocation's working set.
 
+To see how much of the cap an invocation actually consumed, read `Sandbox#usage` after the call. It returns a `Kobako::Usage` value object with `wall_time` (Float seconds the guest export call spent inside wasmtime, aligned with the `timeout` accounting) and `memory_peak` (Integer high-water `memory.grow` delta in bytes, aligned with the `memory_limit` accounting). The fields are populated on every outcome, including the `TrapError` branches, so you can read them after rescuing a trap to diagnose which budget the failing invocation chewed through.
+
+```ruby
+sandbox = Kobako::Sandbox.new(timeout: 1.0, memory_limit: 4 * 1024 * 1024)
+
+begin
+  sandbox.eval("'x' * 5_000_000")
+rescue Kobako::MemoryLimitError
+  sandbox.usage.memory_peak  # => the largest delta accepted before the trap
+  sandbox.usage.wall_time    # => seconds spent before the cap fired
+end
+```
+
 ## Capturing stdout and stderr
 
 Guest output is captured into per-invocation buffers and exposed independently from the return value. The buffers cover the full Ruby IO surface — `puts`, `print`, `printf`, `p`, `<<`, and writes through `$stdout` / `$stderr` — all routed through the host-captured WASI pipe.
@@ -183,7 +197,7 @@ end
 
 ## Capability Handles
 
-When a Service returns a stateful host object (anything beyond `nil` / Boolean / Integer / Float / String / Symbol / Array / Hash), the wire layer transparently allocates an opaque Handle. The guest receives a `Kobako::RPC::Handle` proxy it can use as the target of further RPC calls — but cannot dereference, forge from an integer, or smuggle across runs.
+When a Service returns a stateful host object (anything beyond `nil` / Boolean / Integer / Float / String / Symbol / Array / Hash), the wire layer transparently allocates an opaque Handle. The guest receives a `Kobako::Handle` proxy it can use as the target of further RPC calls — but cannot dereference, forge from an integer, or smuggle across runs.
 
 ```ruby
 class Greeter
@@ -194,10 +208,22 @@ end
 sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
 
 sandbox.eval(<<~RUBY)
-  g = Factory::Make.call("Bob")  # g is a Kobako::RPC::Handle proxy
+  g = Factory::Make.call("Bob")  # g is a Kobako::Handle proxy
   g.greet                         # second RPC, routed to the Greeter
 RUBY
 # => "hi, Bob"
+```
+
+`Sandbox#run` accepts non-wire-representable host objects as args / kwargs values too: the host walks the argument tree, wraps every non-wire leaf through the same Handle path, and the guest sees a `Kobako::Handle` proxy in its place. This lets you pass framework objects (a Rack `env` Hash containing an `IO`-like body, an active record, an enumerator) into the entrypoint without first marshalling them into primitives.
+
+```ruby
+require "stringio"
+
+sandbox = Kobako::Sandbox.new
+sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
+
+sandbox.run(:Echo, StringIO.new("hello world"))
+# => "HELLO WORLD"
 ```
 
 Handles are scoped to a single invocation — a Handle obtained in invocation N is invalid in invocation N+1, even on the same Sandbox.
@@ -327,9 +353,9 @@ The ~600 ms cold start dominates the first Sandbox in a process — wasmtime JIT
 
 | Allocation                                  | Cost                                                                       |
 |---------------------------------------------|----------------------------------------------------------------------------|
-| Process RSS after first `Sandbox.new`       | ~150-180 MB (one-time engine + module + first instance)                    |
+| Process RSS after first `Sandbox.new`       | ~165-195 MB (one-time engine + module + first instance)                    |
 | Per additional Sandbox                      | ~580 KB (Wasm instance + linear memory + WASI capture pipes)               |
-| 1 000 isolated tenants in one process       | ~750 MB total                                                              |
+| 1 000 isolated tenants in one process       | ~765 MB total                                                              |
 
 Use these as upper-bound budgets for capacity planning, not lower bounds — actual RSS shifts ~30% with host process load and macOS allocator state.
 
