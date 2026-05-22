@@ -36,12 +36,19 @@ module Kobako
       @next_id = next_id
     end
 
-    # Bind +object+ in the table and return its newly-allocated Handle ID.
-    # +object+ is any host-side Ruby object to bind. Returns a freshly-
-    # allocated Handle ID in +[1, Kobako::Handle::MAX_ID]+. Raises
-    # +Kobako::HandleTableExhausted+ if the next ID would exceed the cap.
-    # The cap is anchored on +Kobako::Handle+ — the wire codec and the
-    # allocator share the same invariant ({docs/behavior.md B-21}[link:../../docs/behavior.md]).
+    # Bind +object+ in the table and return a +Kobako::Handle+ token
+    # for it. +object+ is any host-side Ruby object to bind. Returns a
+    # freshly-allocated +Kobako::Handle+ whose +#id+ falls in
+    # +[Kobako::Handle::MIN_ID, Kobako::Handle::MAX_ID]+. Raises
+    # +Kobako::HandleTableExhausted+ if the next ID would exceed the
+    # cap. The cap is anchored on +Kobako::Handle+ — the wire codec
+    # and the allocator share the same invariant
+    # ({docs/behavior.md B-21}[link:../../docs/behavior.md]).
+    #
+    # Returning a Handle (rather than a bare Integer id) keeps the
+    # allocator's output a domain entity; +Kobako::Handle.from_wire+
+    # is reserved for the codec's wire-decode path, where the id is
+    # the only thing the bytes carry.
     def alloc(object)
       id = @next_id
       cap = Kobako::Handle::MAX_ID
@@ -49,7 +56,7 @@ module Kobako
 
       @entries[id] = object
       @next_id = id + 1
-      id
+      Kobako::Handle.from_wire(id)
     end
 
     # Resolve a Handle ID to its bound object. +id+ is a Handle ID previously

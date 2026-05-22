@@ -271,7 +271,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox.define(:Factory).bind(:Make, ->(_n) { Object.new })
 
     sandbox.eval('Factory::Make.call("alice")')
-    handle_id = sandbox.handle_table.alloc(:run_n_marker)
+    handle_id = sandbox.handle_table.alloc(:run_n_marker).id
     assert sandbox.handle_table.include?(handle_id), "B-18 setup: id present in run N"
 
     sandbox.eval("1 + 1")
@@ -619,7 +619,7 @@ class TestE2EJourneys < Minitest::Test
   # for use as a target on the next RPC.
   def disconnected_handle_setup_lambda(sandbox)
     lambda do
-      id = sandbox.handle_table.alloc(Object.new)
+      id = sandbox.handle_table.alloc(Object.new).id
       sandbox.handle_table.mark_disconnected(id)
       Kobako::Handle.from_wire(id)
     end

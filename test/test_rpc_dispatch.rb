@@ -212,7 +212,7 @@ class TestRPCDispatchUnit < Minitest::Test
       def initialize(name) = (@name = name)
       def greet = "hello,#{@name}"
     end.new("Alice")
-    handle_id = @handle_table.alloc(greeter)
+    handle_id = @handle_table.alloc(greeter).id
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id)], {})
 
@@ -225,7 +225,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_kwarg_is_resolved_to_bound_object_before_dispatch
     obj = Object.new
     def obj.greet = "kw_ok"
-    handle_id = @handle_table.alloc(obj)
+    handle_id = @handle_table.alloc(obj).id
     capture = []
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
     req = encode_request("K::Run", "run", [], { target: Kobako::Handle.from_wire(handle_id) })
@@ -255,7 +255,7 @@ class TestRPCDispatchUnit < Minitest::Test
     obj = Class.new do
       def find(id) = "row:#{id}"
     end.new
-    handle_id = @handle_table.alloc(obj)
+    handle_id = @handle_table.alloc(obj).id
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "find", [42], {})
 
     resp = decode_response(@registry.dispatch(req))
@@ -267,7 +267,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
-    parent_id = @handle_table.alloc(leaf_factory)
+    parent_id = @handle_table.alloc(leaf_factory).id
     req = encode_request_with_target(Kobako::Handle.from_wire(parent_id), "make", [], {})
 
     resp = decode_response(@registry.dispatch(req))
@@ -292,7 +292,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_invalid_after_table_reset
     obj = Object.new
     def obj.tag = "t"
-    handle_id = @handle_table.alloc(obj)
+    handle_id = @handle_table.alloc(obj).id
     @handle_table.reset!
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "tag", [], {})
@@ -314,7 +314,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_disconnected_handle_target_returns_disconnected_exception
     obj = Object.new
     def obj.any = "alive"
-    handle_id = @handle_table.alloc(obj)
+    handle_id = @handle_table.alloc(obj).id
     @handle_table.mark_disconnected(handle_id)
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "any", [], {})
@@ -337,7 +337,7 @@ class TestRPCDispatchUnit < Minitest::Test
     table_a = Kobako::HandleTable.new
     table_b = Kobako::HandleTable.new
     registry_b = Kobako::RPC::Server.new(handle_table: table_b)
-    handle_id_in_a = table_a.alloc(pinger)
+    handle_id_in_a = table_a.alloc(pinger).id
 
     # The integer id has meaning in A but must NOT cross over to B —
     # B's HandleTable does not contain that id.
@@ -357,7 +357,7 @@ class TestRPCDispatchUnit < Minitest::Test
     table_a = Kobako::HandleTable.new
     registry_b = Kobako::RPC::Server.new(handle_table: Kobako::HandleTable.new)
     registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
-    handle_id_in_a = table_a.alloc(Object.new)
+    handle_id_in_a = table_a.alloc(Object.new).id
 
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id_in_a)], {})
     resp = decode_response(registry_b.dispatch(req))

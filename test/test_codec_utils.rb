@@ -25,7 +25,7 @@ class TestCodecUtils < Minitest::Test
   end
 
   def test_recognises_existing_handle_as_wire_representable
-    handle = Kobako::Handle.from_wire(@table.alloc(:placeholder))
+    handle = @table.alloc(:placeholder)
 
     assert Utils.wire_representable?(handle)
   end
@@ -99,7 +99,7 @@ class TestCodecUtils < Minitest::Test
   end
 
   def test_existing_handle_is_not_re_wrapped
-    original = Kobako::Handle.from_wire(@table.alloc(:bound))
+    original = @table.alloc(:bound)
     pre_size = @table.size
 
     wrapped = Utils.deep_wrap(original, @table)

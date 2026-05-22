@@ -30,31 +30,24 @@ module Kobako
       b = Object.new
       c = Object.new
 
-      assert_equal 1, table.alloc(a)
-      assert_equal 2, table.alloc(b)
-      assert_equal 3, table.alloc(c)
+      assert_equal 1, table.alloc(a).id
+      assert_equal 2, table.alloc(b).id
+      assert_equal 3, table.alloc(c).id
     end
 
     def test_fetch_returns_the_same_object_that_was_bound
       table = Table.new
-      a = Object.new
-      b = Object.new
-      c = Object.new
+      objects = [Object.new, Object.new, Object.new]
+      ids = objects.map { |obj| table.alloc(obj).id }
 
-      id_a = table.alloc(a)
-      id_b = table.alloc(b)
-      id_c = table.alloc(c)
-
-      assert_same a, table.fetch(id_a)
-      assert_same b, table.fetch(id_b)
-      assert_same c, table.fetch(id_c)
+      ids.zip(objects).each { |id, obj| assert_same obj, table.fetch(id) }
     end
 
     # ---------- Unknown id: fetch raises ----------
 
     def test_fetch_unknown_id_raises
       table = Table.new
-      table.alloc(Object.new) # id 1
+      table.alloc(Object.new).id # id 1
 
       assert_raises(Kobako::HandleTableError) { table.fetch(999) }
       assert_raises(Kobako::HandleTableError) { table.fetch(0) }
@@ -65,13 +58,13 @@ module Kobako
     def test_release_removes_binding_and_does_not_reuse_id
       table = Table.new
       obj = Object.new
-      id = table.alloc(obj) # 1
+      id = table.alloc(obj).id # 1
 
       assert_same obj, table.release(id)
       assert_raises(Kobako::HandleTableError) { table.fetch(id) }
 
       # SPEC B-15: counter is monotonic within a #run; release does not roll back.
-      assert_equal 2, table.alloc(Object.new)
+      assert_equal 2, table.alloc(Object.new).id
     end
 
     def test_release_unknown_id_raises
@@ -83,7 +76,7 @@ module Kobako
 
     def test_reset_clears_entries_and_resets_counter_to_one
       table = Table.new
-      ids = 5.times.map { table.alloc(Object.new) }
+      ids = 5.times.map { table.alloc(Object.new).id }
       assert_equal [1, 2, 3, 4, 5], ids
 
       table.reset!
@@ -92,13 +85,13 @@ module Kobako
         assert_raises(Kobako::HandleTableError) { table.fetch(id) }
       end
       # First alloc after reset returns id 1 — distinct from #release semantics.
-      assert_equal 1, table.alloc(Object.new)
+      assert_equal 1, table.alloc(Object.new).id
     end
 
     def test_reset_on_empty_table_is_noop
       table = Table.new
       table.reset!
-      assert_equal 1, table.alloc(Object.new)
+      assert_equal 1, table.alloc(Object.new).id
     end
 
     # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
@@ -108,13 +101,13 @@ module Kobako
       # Test-only-visible; documented as internal.
       table = Table.new(next_id: Kobako::Handle::MAX_ID)
 
-      id = table.alloc(Object.new)
+      id = table.alloc(Object.new).id
       assert_equal Kobako::Handle::MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
       # SPEC "Error Classes": cap-exhaustion raises the canonical
       # HandleTableExhausted < HandleTableError < SandboxError chain.
-      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
+      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new).id }
       assert_kind_of Kobako::HandleTableError, err
       assert_kind_of Kobako::SandboxError, err
     end
@@ -135,12 +128,12 @@ module Kobako
       # not the original — i.e. the original Handle reference is invalidated.
       table = Table.new
       obj_a = Object.new
-      table.alloc(obj_a)
+      table.alloc(obj_a).id
       assert_same obj_a, table.fetch(1)
 
       table.reset!
       obj_b = Object.new
-      id_b = table.alloc(obj_b)
+      id_b = table.alloc(obj_b).id
 
       assert_equal 1, id_b # counter rolled back to 1 at the run boundary
       refute_same obj_a, table.fetch(id_b)
@@ -157,8 +150,8 @@ module Kobako
 
     def test_size_and_include_predicate_after_alloc
       table = Table.new
-      id1 = table.alloc(Object.new)
-      id2 = table.alloc(Object.new)
+      id1 = table.alloc(Object.new).id
+      id2 = table.alloc(Object.new).id
       assert_equal 2, table.size
       assert table.include?(id1)
       assert table.include?(id2)
@@ -167,8 +160,8 @@ module Kobako
 
     def test_size_and_include_predicate_after_release
       table = Table.new
-      id1 = table.alloc(Object.new)
-      id2 = table.alloc(Object.new)
+      id1 = table.alloc(Object.new).id
+      id2 = table.alloc(Object.new).id
 
       table.release(id1)
 
@@ -179,8 +172,8 @@ module Kobako
 
     def test_size_and_include_predicate_after_reset
       table = Table.new
-      table.alloc(Object.new)
-      stale_id = table.alloc(Object.new)
+      table.alloc(Object.new).id
+      stale_id = table.alloc(Object.new).id
 
       table.reset!
 
@@ -194,7 +187,7 @@ module Kobako
     def test_mark_disconnected_replaces_entry_with_disconnected_sentinel
       # Arrange
       table = Table.new
-      id = table.alloc(Object.new)
+      id = table.alloc(Object.new).id
 
       # Act
       result = table.mark_disconnected(id)
@@ -209,7 +202,7 @@ module Kobako
     def test_mark_disconnected_ignores_unknown_id
       # Arrange
       table = Table.new
-      table.alloc(Object.new) # id 1
+      table.alloc(Object.new).id # id 1
 
       # Act + Assert — silently ignored; no exception, no state change.
       # Returns self for chainability (matching reset! convention).
