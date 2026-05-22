@@ -30,6 +30,8 @@ module Kobako
 
     def stderr_truncated?: () -> bool
 
+    attr_reader usage: Kobako::Usage
+
     def define: (Symbol | String name) -> Kobako::RPC::Namespace
 
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
@@ -41,11 +43,15 @@ module Kobako
 
     private
 
-    def clear_captures!: () -> void
+    def reset_invocation_state!: () -> void
 
     def begin_invocation!: () -> void
 
     def read_captures!: () -> void
+
+    def read_usage!: () -> void
+
+    def trap_class_for: (Kobako::Wasm::Error err) -> singleton(Kobako::TrapError)
 
     def invoke!: (Symbol verb) { () -> void } -> untyped
   end

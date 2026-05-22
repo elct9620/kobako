@@ -1,0 +1,11 @@
+module Kobako
+  class Usage < Data
+    EMPTY: Usage
+
+    attr_reader wall_time: Float
+    attr_reader memory_peak: Integer
+
+    def self.new: (wall_time: Float, memory_peak: Integer) -> Usage
+                | (Float wall_time, Integer memory_peak) -> Usage
+  end
+end

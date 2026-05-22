@@ -11,6 +11,7 @@ require_relative "rpc/server"
 require_relative "rpc/envelope"
 require_relative "sandbox_options"
 require_relative "snippet"
+require_relative "usage"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
@@ -75,6 +76,17 @@ module Kobako
       @stderr_capture.truncated?
     end
 
+    # Returns the +Kobako::Usage+ value object for the most recent
+    # invocation ({docs/behavior.md B-35}[link:../../docs/behavior.md]).
+    # Carries +wall_time+ (Float seconds the guest export call spent
+    # inside wasmtime) and +memory_peak+ (Integer bytes, high-water of
+    # the per-invocation +memory.grow+ delta past the entry-time
+    # baseline). Returns +Kobako::Usage::EMPTY+ before any invocation;
+    # populated on every outcome — including +TrapError+ — so the Host
+    # App can read it after rescuing a trap to diagnose budget
+    # consumption.
+    attr_reader :usage
+
     # Build a fresh Sandbox.
     #
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
@@ -96,7 +108,7 @@ module Kobako
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
       @instance.server = @services
-      clear_captures!
+      reset_invocation_state!
     end
 
     # Declare or retrieve the Namespace named +name+ on this Sandbox
@@ -206,29 +218,58 @@ module Kobako
     def begin_invocation!
       @services.seal!
       @handle_table.reset!
-      clear_captures!
+      reset_invocation_state!
     end
 
-    # Reset both per-channel captures to the pre-invocation sentinel
-    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]). Shared by +#initialize+
-    # (first-time setup) and +#begin_invocation!+ (between-invocation
-    # reset) so both paths agree on what "empty capture" means.
-    def clear_captures!
+    # Reset all per-invocation observable state to its pre-invocation
+    # sentinels — both per-channel captures
+    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]) and the
+    # per-last-invocation usage record
+    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Shared by
+    # +#initialize+ (first-time setup) and +#begin_invocation!+
+    # (between-invocation reset) so both paths agree on what
+    # "pre-invocation state" means.
+    def reset_invocation_state!
       @stdout_capture = Capture::EMPTY
       @stderr_capture = Capture::EMPTY
+      @usage = Usage::EMPTY
     end
 
     # Read the per-channel capture pairs (+[bytes, truncated]+) from the
     # ext after an invocation completes and wrap each as a +Capture+ value
     # object. The ext clips +bytes+ to the configured cap and sets
     # +truncated+ when the guest produced strictly more than +cap+ bytes
-    # ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Mirror of {#clear_captures!}
-    # at the post-invocation boundary.
+    # ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Mirror of
+    # {#reset_invocation_state!} at the post-invocation boundary.
     def read_captures!
       out_bytes, out_truncated = @instance.stdout
       err_bytes, err_truncated = @instance.stderr
       @stdout_capture = Capture.from_ext(out_bytes, out_truncated)
       @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
+    end
+
+    # Read the per-last-invocation +wall_time+ and +memory_peak+ from
+    # the ext and wrap them as a +Kobako::Usage+ value object
+    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Runs in
+    # the +invoke!+ +ensure+ block so the usage record is populated on
+    # every outcome — value return, +Kobako::TrapError+ (including
+    # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
+    # and +Kobako::ServiceError+.
+    def read_usage!
+      @usage = Usage.new(wall_time: @instance.wall_time, memory_peak: @instance.memory_peak)
+    end
+
+    # Map a wasmtime trap class to the matching three-layer Ruby
+    # exception class. Cap-trap subclasses
+    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
+    # select their named +TrapError+ subclass; everything else
+    # collapses to the base +Kobako::TrapError+.
+    def trap_class_for(err)
+      case err
+      when Kobako::Wasm::TimeoutError     then TimeoutError
+      when Kobako::Wasm::MemoryLimitError then MemoryLimitError
+      else TrapError
+      end
     end
 
     # Shared prologue / epilogue + trap-class translator for both
@@ -246,12 +287,10 @@ module Kobako
       yield
       read_captures!
       Outcome.decode(@instance.outcome!)
-    rescue Kobako::Wasm::TimeoutError => e
-      raise TimeoutError, "Sandbox##{verb} failed: #{e.message}"
-    rescue Kobako::Wasm::MemoryLimitError => e
-      raise MemoryLimitError, "Sandbox##{verb} failed: #{e.message}"
     rescue Kobako::Wasm::Error => e
-      raise TrapError, "Sandbox##{verb} failed: #{e.message}"
+      raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
+    ensure
+      read_usage!
     end
   end
 end
