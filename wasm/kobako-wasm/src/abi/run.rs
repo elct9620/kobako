@@ -305,8 +305,8 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return;
     }
 
-    let wire_value = kobako.to_wire_outcome(result_val);
-    match encode_outcome(&Outcome::Value(wire_value)) {
+    let codec_value = kobako.to_codec_outcome(result_val);
+    match encode_outcome(&Outcome::Value(codec_value)) {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {
             origin: "sandbox".into(),

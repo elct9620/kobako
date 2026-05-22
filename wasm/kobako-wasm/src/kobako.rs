@@ -35,11 +35,11 @@
 pub(crate) mod bridges;
 pub(crate) mod bytecode;
 #[cfg(target_arch = "wasm32")]
+mod codec_convert;
+#[cfg(target_arch = "wasm32")]
 mod install;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod io;
-#[cfg(target_arch = "wasm32")]
-mod wire_convert;
 
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
