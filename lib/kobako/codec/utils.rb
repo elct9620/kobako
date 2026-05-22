@@ -1,24 +1,31 @@
 # frozen_string_literal: true
 
 require_relative "error"
+require_relative "../handle"
 
 module Kobako
   module Codec
     # Wire-codec helpers shared by the host-side encoders and decoders.
-    # The single concern today is UTF-8 assertion at the wire boundary
-    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § str/bin
-    # Encoding Rules and § Ext Types → ext 0x00). Two call sites lean on
-    # this:
+    # Three concerns live here today:
     #
-    #   - {Decoder} validates +str+ family payloads as it walks the
-    #     decoded value tree.
-    #   - {Factory} validates the +ext 0x00+ Symbol payload after
-    #     re-tagging the binary bytes as UTF-8.
+    #   - UTF-8 assertion at the wire boundary
+    #     ({docs/wire-codec.md}[link:../../../docs/wire-codec.md]
+    #     § str/bin Encoding Rules and § Ext Types → ext 0x00). Used by
+    #     {Decoder} when walking +str+ family payloads and by {Factory}
+    #     when validating the +ext 0x00+ Symbol payload.
+    #   - Wire-boundary +ArgumentError+ translation
+    #     ({wire_boundary}) so the public taxonomy stays
+    #     {Kobako::Codec::Error}.
+    #   - Wire-representability predicate ({wire_representable?}) and
+    #     the symmetric host→guest +#run+ argument walk
+    #     ({deep_wrap}) used by +Kobako::Invocation#encode+ to route
+    #     non-wire-representable leaves through the Sandbox's
+    #     +Kobako::HandleTable+
+    #     ({docs/behavior.md B-34}[link:../../../docs/behavior.md]).
     #
-    # Encoding setup (re-tagging binary as UTF-8 when needed) stays at
-    # the caller — only the assertion shape is shared. The helper does
-    # not mutate +string+; it only inspects +String#valid_encoding?+
-    # against +string+'s current encoding tag.
+    # All helpers are pure — they only inspect inputs, never mutate
+    # them — except {deep_wrap}, whose only side effect is allocating
+    # new Handle ids into the supplied table.
     module Utils
       module_function
 
@@ -50,6 +57,78 @@ module Kobako
         yield
       rescue ::ArgumentError => e
         raise InvalidType, e.message
+      end
+
+      # Signed-64 minimum (inclusive). The msgpack gem encodes integers
+      # in this domain as +int 64+ or narrower; values below this raise
+      # +RangeError+ at encode time. Anchored as a constant so
+      # {wire_representable?} stays a single dispatch line.
+      INT64_MIN = -(2**63)
+
+      # Unsigned-64 maximum (inclusive). Mirror of {INT64_MIN} for the
+      # positive end of the integer domain.
+      UINT64_MAX = (2**64) - 1
+
+      # Wire-type predicate
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
+      # Mapping). Returns +true+ when +value+ belongs to the closed
+      # 12-entry wire set — +nil+, +TrueClass+, +FalseClass+, +Integer+
+      # (in the +i64..u64+ value domain), +Float+, +String+, +Symbol+,
+      # +Kobako::Handle+, +Array+ whose every element is itself
+      # wire-representable, or +Hash+ whose every key and value are
+      # wire-representable. Integers outside the codec's signed-64 /
+      # unsigned-64 union are rejected so the predicate agrees with the
+      # msgpack gem's encode-time +RangeError+ behaviour the codec
+      # already surfaces as {UnsupportedType}.
+      def wire_representable?(value)
+        primitive_wire_type?(value) || container_wire_representable?(value)
+      end
+
+      # Deep-walk Array / Hash containers in +value+ and replace every
+      # leaf that fails {wire_representable?} with a +Kobako::Handle+
+      # allocated from +handle_table+
+      # ({docs/behavior.md B-34}[link:../../../docs/behavior.md]). The
+      # walk only descends through wire-representable container shapes
+      # (Array, Hash) one structural level at a time; a non-
+      # wire-representable leaf is wrapped as-is without inspecting its
+      # internal structure. An existing +Kobako::Handle+ is wire-
+      # representable and passes through unchanged — auto-wrap never
+      # re-wraps a Handle.
+      #
+      # +value+ may be any Ruby value; +handle_table+ must respond to
+      # +#alloc(object) -> Integer+ (a host-side
+      # +Kobako::HandleTable+). Returns a structurally equivalent value
+      # whose leaves are either wire-representable or +Kobako::Handle+
+      # tokens.
+      def deep_wrap(value, handle_table)
+        case value
+        when ::Array then value.map { |element| Utils.deep_wrap(element, handle_table) }
+        when ::Hash  then value.transform_values { |val| Utils.deep_wrap(val, handle_table) }
+        else
+          wire_representable?(value) ? value : Kobako::Handle.new(handle_table.alloc(value))
+        end
+      end
+
+      # Predicate split out of {wire_representable?} for cyclomatic
+      # budget — the closed-set non-container branch. Returns +true+ for
+      # the wire scalar leaves and an existing Handle.
+      def primitive_wire_type?(value)
+        case value
+        when ::NilClass, ::TrueClass, ::FalseClass, ::Float, ::String, ::Symbol, Kobako::Handle then true
+        when ::Integer then value.between?(INT64_MIN, UINT64_MAX)
+        else false
+        end
+      end
+
+      # Predicate split out of {wire_representable?} for cyclomatic
+      # budget — the container branch. Recurses into Array elements and
+      # Hash key+value pairs through the public {wire_representable?}.
+      def container_wire_representable?(value)
+        case value
+        when ::Array then value.all? { |element| Utils.wire_representable?(element) }
+        when ::Hash  then value.all? { |key, val| Utils.wire_representable?(key) && Utils.wire_representable?(val) }
+        else false
+        end
       end
     end
   end

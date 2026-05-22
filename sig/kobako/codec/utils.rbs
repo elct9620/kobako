@@ -1,9 +1,20 @@
 module Kobako
   module Codec
     module Utils
+      INT64_MIN: Integer
+      UINT64_MAX: Integer
+
       def self?.assert_utf8!: (String string, String label) -> void
 
       def self?.wire_boundary: [T] () { () -> T } -> T
+
+      def self?.wire_representable?: (untyped value) -> bool
+
+      def self?.deep_wrap: (untyped value, Kobako::HandleTable handle_table) -> untyped
+
+      def self?.primitive_wire_type?: (untyped value) -> bool
+
+      def self?.container_wire_representable?: (untyped value) -> bool
     end
   end
 end
