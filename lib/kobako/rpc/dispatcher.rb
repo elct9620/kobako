@@ -59,14 +59,15 @@ module Kobako
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
       # rescue. Returns a msgpack-encoded Response envelope (binary). Four
       # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
-      # +Kobako::Codec::Error+ → type="runtime" (wire decode failed);
+      # +Kobako::Codec::Error+ → type="runtime" (malformed RPC request);
       # +DisconnectedTargetError+ → type="disconnected" (E-14);
       # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
       # type="argument" (B-12 arity mismatch); everything else →
       # type="runtime".
       def encode_caught_error(error)
         case error
-        when Kobako::Codec::Error then encode_error("runtime", "wire decode failed: #{error.message}")
+        when Kobako::Codec::Error then encode_error("runtime",
+                                                    "Sandbox received a malformed RPC request: #{error.message}")
         when DisconnectedTargetError then encode_error("disconnected", error.message)
         when UndefinedTargetError    then encode_error("undefined", error.message)
         when ArgumentError           then encode_error("argument", error.message)

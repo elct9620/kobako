@@ -31,7 +31,7 @@ module Kobako
 
       # Raise {InvalidEncoding} unless +string+'s bytes are valid under
       # its current encoding tag. +label+ is the caller-supplied prefix
-      # for the error message (e.g. +"str payload"+, +"ext 0x00 payload"+).
+      # for the error message (e.g. +"str payload"+, +"Symbol payload"+).
       def assert_utf8!(string, label)
         return if string.valid_encoding?
 

@@ -128,7 +128,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/wire decode failed/, resp.payload.message)
+    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
   end
 
   # SPEC: non-Symbol keys (e.g. Integer) are a wire violation — the
@@ -142,7 +142,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/wire decode failed/, resp.payload.message)
+    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
   end
 
   # Mixed positional + kwargs: the dispatcher passes positional args
@@ -386,11 +386,12 @@ class TestRPCDispatchUnit < Minitest::Test
     resp = decode_response(@registry.dispatch(bad_request_bytes))
 
     assert resp.error?
-    # Kobako::Codec::Error rescues to type="runtime" with a "wire decode failed"
-    # prefix; the dispatcher's contract pins this taxonomy and the guest
+    # Kobako::Codec::Error rescues to type="runtime" with the
+    # "Sandbox received a malformed RPC request" prefix; the
+    # dispatcher's contract pins this taxonomy and the guest
     # observes a normal RPC error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
-    assert_match(/wire decode failed/, resp.payload.message)
+    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
     # The malformed int never made it into the HandleTable.
     assert_equal 0, @handle_table.size
   end
