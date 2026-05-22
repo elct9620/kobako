@@ -11,8 +11,8 @@ require "test_helper"
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestRPCDispatchUnit < Minitest::Test
   def setup
-    @registry = Kobako::RPC::Server.new
-    @handle_table = @registry.handle_table
+    @handle_table = Kobako::HandleTable.new
+    @registry = Kobako::RPC::Server.new(handle_table: @handle_table)
   end
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
@@ -334,34 +334,30 @@ class TestRPCDispatchUnit < Minitest::Test
   # two physically separate HandleTable instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
-    registry_a = Kobako::RPC::Server.new
-    registry_b = Kobako::RPC::Server.new
-    handle_id_in_a = registry_a.handle_table.alloc(pinger)
+    table_a = Kobako::HandleTable.new
+    table_b = Kobako::HandleTable.new
+    registry_b = Kobako::RPC::Server.new(handle_table: table_b)
+    handle_id_in_a = table_a.alloc(pinger)
 
-    # Sanity: the integer id has meaning in A.
-    assert_equal "pong", registry_a.handle_table.fetch(handle_id_in_a).ping
-
-    # The integer id presented as a Handle target against B's registry
-    # must NOT cross over: B's HandleTable does not contain that id.
+    # The integer id has meaning in A but must NOT cross over to B —
+    # B's HandleTable does not contain that id.
+    assert_equal "pong", table_a.fetch(handle_id_in_a).ping
     req = encode_request_with_target(Kobako::Handle.new(handle_id_in_a), "ping", [], {})
     resp = decode_response(registry_b.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
-    assert_equal 0, registry_b.handle_table.size
+    assert_equal 0, table_b.size
   end
 
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Server path resolves;
     # arg resolution fails when the id misses B's HandleTable.
-    registry_a = Kobako::RPC::Server.new
-    registry_b = Kobako::RPC::Server.new
+    table_a = Kobako::HandleTable.new
+    registry_b = Kobako::RPC::Server.new(handle_table: Kobako::HandleTable.new)
     registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
-    table_a = registry_a.handle_table
-
-    obj = Object.new
-    handle_id_in_a = table_a.alloc(obj)
+    handle_id_in_a = table_a.alloc(Object.new)
 
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.new(handle_id_in_a)], {})
     resp = decode_response(registry_b.dispatch(req))

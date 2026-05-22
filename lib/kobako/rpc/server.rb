@@ -127,15 +127,14 @@ module Kobako
       # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]). +request_bytes+ is a
       # msgpack-encoded Request envelope. Called by the Rust ext from inside
       # +__kobako_dispatch+. Always returns a binary +String+ — never raises.
-      # Delegates to +Dispatcher.dispatch+ which reifies any failure as a
-      # +Response.error+ envelope so the guest sees the failure as a normal RPC
-      # error rather than a wasm trap.
+      # Forwards both the Server (for namespace lookup) and the injected
+      # +HandleTable+ (for Handle resolution / return-value wrapping) to
+      # +Dispatcher.dispatch+. The Server holds the HandleTable as an
+      # injected reference, not an owned resource — the Sandbox owns it
+      # (B-19) — so the table is not exposed via accessors.
       def dispatch(request_bytes)
-        Dispatcher.dispatch(request_bytes, self)
+        Dispatcher.dispatch(request_bytes, self, @handle_table)
       end
-
-      # Expose the +HandleTable+ for tests and wire-layer Handle wrapping.
-      attr_reader :handle_table
 
       private
 

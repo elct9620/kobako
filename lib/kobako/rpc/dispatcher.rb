@@ -34,22 +34,23 @@ module Kobako
       # Dispatch a single RPC request and return the encoded response bytes.
       # Called by +Kobako::RPC::Server#dispatch+ which is invoked from the
       # Rust ext inside +__kobako_dispatch+. +request_bytes+ is the
-      # msgpack-encoded Request envelope. +server+ is the live Server for
-      # this run, used to resolve path-based targets via +#lookup+ and to
-      # access the +#handle_table+ for Handle-based targets and return-value
-      # wrapping. Always returns a binary String — never raises. Any failure
-      # during decode, lookup, or method invocation is reified as a
-      # Response.error envelope so the guest sees the failure as a normal RPC
-      # error rather than a wasm trap
+      # msgpack-encoded Request envelope. +server+ resolves path-based
+      # Member targets via +#lookup+. +handle_table+ is the Sandbox's
+      # HandleTable, injected separately so Dispatcher does not depend
+      # on Server publishing a Handle accessor — Handle is a
+      # Sandbox-level domain entity (B-19) and the dispatcher is its
+      # only consumer here. Always returns a binary String — never
+      # raises. Any failure during decode, lookup, or method invocation
+      # is reified as a Response.error envelope so the guest sees the
+      # failure as a normal RPC error rather than a wasm trap
       # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-      def dispatch(request_bytes, server)
+      def dispatch(request_bytes, server, handle_table)
         request = Kobako::RPC.decode_request(request_bytes)
-        handle_table = server.handle_table
         target = resolve_target(request.target, server, handle_table)
         args = request.args.map { |v| resolve_arg(v, handle_table) }
         kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
         value = invoke(target, request.method_name, args, kwargs)
-        encode_ok(value, server)
+        encode_ok(value, handle_table)
       rescue StandardError => e
         encode_caught_error(e)
       end
@@ -144,19 +145,19 @@ module Kobako
       # HandleTable via {#wrap_as_handle} and re-encodes with the Capability
       # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
-      def encode_ok(value, server)
+      def encode_ok(value, handle_table)
         response = Kobako::RPC::Response.ok(value)
         Kobako::RPC.encode_response(response)
       rescue Kobako::Codec::UnsupportedType
-        encode_ok(wrap_as_handle(value, server), server)
+        encode_ok(wrap_as_handle(value, handle_table), handle_table)
       end
 
-      # Allocate +value+ in the Server's HandleTable and return a +Handle+
+      # Allocate +value+ in the Sandbox's HandleTable and return a +Handle+
       # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.
-      def wrap_as_handle(value, server)
-        Kobako::Handle.new(server.handle_table.alloc(value))
+      def wrap_as_handle(value, handle_table)
+        Kobako::Handle.new(handle_table.alloc(value))
       end
 
       def encode_error(type, message)
