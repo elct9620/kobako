@@ -98,10 +98,18 @@ module Kobako
       # re-wraps a Handle.
       #
       # +value+ may be any Ruby value; +handle_table+ must respond to
-      # +#alloc(object) -> Integer+ (a host-side
+      # +#alloc(object) -> Kobako::Handle+ (a host-side
       # +Kobako::HandleTable+). Returns a structurally equivalent value
       # whose leaves are either wire-representable or +Kobako::Handle+
       # tokens.
+      #
+      # The block bodies spell +Utils.deep_wrap+ explicitly rather than
+      # the unqualified +deep_wrap+ because +module_function+ makes the
+      # instance copy of these helpers private; an implicit receiver
+      # inside a block would resolve against the enclosing +self+
+      # (still +Utils+ at definition time, but the qualified form keeps
+      # the dispatch readable when the recursive call sits inside a
+      # Proc captured from elsewhere).
       def deep_wrap(value, handle_table)
         case value
         when ::Array then value.map { |element| Utils.deep_wrap(element, handle_table) }
@@ -113,7 +121,8 @@ module Kobako
 
       # Predicate split out of {wire_representable?} for cyclomatic
       # budget — the closed-set non-container branch. Returns +true+ for
-      # the wire scalar leaves and an existing Handle.
+      # the wire scalar leaves and an existing Handle. Not part of the
+      # public surface; reach for {wire_representable?} instead.
       def primitive_wire_type?(value)
         case value
         when ::NilClass, ::TrueClass, ::FalseClass, ::Float, ::String, ::Symbol, Kobako::Handle then true
@@ -125,6 +134,8 @@ module Kobako
       # Predicate split out of {wire_representable?} for cyclomatic
       # budget — the container branch. Recurses into Array elements and
       # Hash key+value pairs through the public {wire_representable?}.
+      # Not part of the public surface; reach for {wire_representable?}
+      # instead.
       def container_wire_representable?(value)
         case value
         when ::Array then value.all? { |element| Utils.wire_representable?(element) }

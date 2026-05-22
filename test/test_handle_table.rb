@@ -47,7 +47,7 @@ module Kobako
 
     def test_fetch_unknown_id_raises
       table = Table.new
-      table.alloc(Object.new).id # id 1
+      table.alloc(Object.new) # populates id 1; the binding itself is irrelevant
 
       assert_raises(Kobako::HandleTableError) { table.fetch(999) }
       assert_raises(Kobako::HandleTableError) { table.fetch(0) }
@@ -107,7 +107,7 @@ module Kobako
 
       # SPEC "Error Classes": cap-exhaustion raises the canonical
       # HandleTableExhausted < HandleTableError < SandboxError chain.
-      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new).id }
+      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
       assert_kind_of Kobako::HandleTableError, err
       assert_kind_of Kobako::SandboxError, err
     end
@@ -128,7 +128,7 @@ module Kobako
       # not the original — i.e. the original Handle reference is invalidated.
       table = Table.new
       obj_a = Object.new
-      table.alloc(obj_a).id
+      table.alloc(obj_a) # binds obj_a at id 1 — the id is asserted below as a literal
       assert_same obj_a, table.fetch(1)
 
       table.reset!
@@ -172,7 +172,7 @@ module Kobako
 
     def test_size_and_include_predicate_after_reset
       table = Table.new
-      table.alloc(Object.new).id
+      table.alloc(Object.new) # one binding we never reach for again
       stale_id = table.alloc(Object.new).id
 
       table.reset!
@@ -202,7 +202,7 @@ module Kobako
     def test_mark_disconnected_ignores_unknown_id
       # Arrange
       table = Table.new
-      table.alloc(Object.new).id # id 1
+      table.alloc(Object.new) # populates id 1; the entry exists but is never read
 
       # Act + Assert — silently ignored; no exception, no state change.
       # Returns self for chainability (matching reset! convention).
