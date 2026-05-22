@@ -5,14 +5,12 @@ require_relative "../errors"
 require_relative "envelope"
 require_relative "namespace"
 require_relative "../handle_table"
-require_relative "dispatcher"
 
 module Kobako
   module RPC
-    # Kobako::RPC::Server — per-Sandbox host-side RPC coordinator. Maintains
-    # the Namespace / Member registry, owns the HandleTable, and routes
-    # incoming Requests to the resolved Service object
-    # ({docs/behavior.md B-07..B-21}[link:../../../docs/behavior.md]).
+    # Kobako::RPC::Server — per-Sandbox host-side namespace registry. Holds
+    # the Namespace / Member bindings and the preamble emitted on Frame 1
+    # ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
     #
     # Public API:
     #
@@ -20,15 +18,15 @@ module Kobako
     #   namespace = server.define(:MyService)    # => Kobako::RPC::Namespace
     #   namespace.bind(:KV, kv_object)           # => namespace (chainable)
     #   server.to_preamble                       # => array for Frame 1
-    #   server.dispatch(request_bytes)           # => msgpack bytes (delegated to Dispatcher)
     #
     # Namespaces live at +Kobako::RPC::Namespace+
-    # (lib/kobako/rpc/namespace.rb). The opaque Handle allocator lives at
-    # +Kobako::HandleTable+ (lib/kobako/handle_table.rb) and is owned by
-    # the Sandbox — the Server only holds an injected reference so RPC
-    # dispatch resolves against the same table the wire layer allocates
-    # into (docs/behavior.md B-19). Dispatch helpers live at
-    # +Kobako::RPC::Dispatcher+ (lib/kobako/rpc/dispatcher.rb).
+    # (lib/kobako/rpc/namespace.rb). Per-RPC dispatch is the
+    # +Kobako::RPC::Channel+'s responsibility (lib/kobako/rpc/channel.rb)
+    # — the Channel composes this Server with the wasm +Instance+ and the
+    # +HandleTable+ and owns the +#dispatch(bytes)+ entry the Wasm ext
+    # invokes. The Server holds an injected +HandleTable+ reference so
+    # the Channel and the Sandbox-owned allocator stay aligned
+    # (docs/behavior.md B-19).
     class Server
       # Build a fresh Server. +handle_table+ is an internal seam that
       # injects a pre-configured +HandleTable+; tests pass one whose +next_id+
@@ -116,19 +114,6 @@ module Kobako
       # Returns +true+ when {#seal!} has been called, +false+ otherwise.
       def sealed?
         @sealed
-      end
-
-      # Dispatch a single RPC request and return the encoded response bytes
-      # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]). +request_bytes+ is a
-      # msgpack-encoded Request envelope. Called by the Rust ext from inside
-      # +__kobako_dispatch+. Always returns a binary +String+ — never raises.
-      # Forwards both the Server (for namespace lookup) and the injected
-      # +HandleTable+ (for Handle resolution / return-value wrapping) to
-      # +Dispatcher.dispatch+. The Server holds the HandleTable as an
-      # injected reference, not an owned resource — the Sandbox owns it
-      # (B-19) — so the table is not exposed via accessors.
-      def dispatch(request_bytes)
-        Dispatcher.dispatch(request_bytes, self, @handle_table)
       end
 
       private

@@ -235,13 +235,13 @@ impl Instance {
         })
     }
 
-    /// Install the Ruby-side `Kobako::RPC::Server` into HostState. Bound to
-    /// Ruby as `Instance#server=`. From this point on, every
+    /// Install the Ruby-side `Kobako::RPC::Channel` into HostState.
+    /// Bound to Ruby as `Instance#channel=`. From this point on, every
     /// `__kobako_dispatch` import invocation routes through
-    /// `server.dispatch(req_bytes)`.
-    pub(crate) fn set_server(&self, server: Value) -> Result<(), MagnusError> {
+    /// `channel.dispatch(req_bytes)`.
+    pub(crate) fn set_channel(&self, channel: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.borrow_mut();
-        store_ref.data_mut().bind_server(Opaque::from(server));
+        store_ref.data_mut().bind_channel(Opaque::from(channel));
         Ok(())
     }
 

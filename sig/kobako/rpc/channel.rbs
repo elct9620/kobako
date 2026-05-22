@@ -1,0 +1,15 @@
+module Kobako
+  module RPC
+    class Channel
+      def initialize: (
+        server: Kobako::RPC::Server,
+        instance: untyped,
+        handle_table: Kobako::HandleTable
+      ) -> void
+
+      def dispatch: (String request_bytes) -> String
+
+      def yield_to_block: (String args_bytes) -> String
+    end
+  end
+end

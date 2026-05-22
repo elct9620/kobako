@@ -36,7 +36,7 @@ pub(super) struct HostState {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
-    server: Option<Opaque<Value>>,
+    channel: Option<Opaque<Value>>,
     deadline: Option<Instant>,
     limiter: KobakoLimiter,
     wall_entry: Option<Instant>,
@@ -53,7 +53,7 @@ impl HostState {
             wasi: None,
             stdout_pipe: None,
             stderr_pipe: None,
-            server: None,
+            channel: None,
             deadline: None,
             limiter: KobakoLimiter::new(memory_limit),
             wall_entry: None,
@@ -76,10 +76,11 @@ impl HostState {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Bind the Ruby-side `Kobako::RPC::Server` handle. From this point on,
-    /// every `__kobako_dispatch` host import invocation routes through it.
-    pub(super) fn bind_server(&mut self, server: Opaque<Value>) {
-        self.server = Some(server);
+    /// Bind the Ruby-side `Kobako::RPC::Channel` handle. From this
+    /// point on, every `__kobako_dispatch` host import invocation
+    /// routes through it.
+    pub(super) fn bind_channel(&mut self, channel: Opaque<Value>) {
+        self.channel = Some(channel);
     }
 
     /// Snapshot the bytes captured on guest fd 1 during the most recent
@@ -100,11 +101,12 @@ impl HostState {
             .unwrap_or_default()
     }
 
-    /// Return the bound Server handle. `Opaque<Value>` is `Copy`, so the
-    /// handle is returned by value rather than by reference. None means no
-    /// Server has been bound yet via [`HostState::bind_server`].
-    pub(super) fn server(&self) -> Option<Opaque<Value>> {
-        self.server
+    /// Return the bound Channel handle. `Opaque<Value>` is `Copy`, so
+    /// the handle is returned by value rather than by reference. None
+    /// means no Channel has been bound yet via
+    /// [`HostState::bind_channel`].
+    pub(super) fn channel(&self) -> Option<Opaque<Value>> {
+        self.channel
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has

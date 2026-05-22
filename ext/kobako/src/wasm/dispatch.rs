@@ -105,7 +105,7 @@ impl Drop for CallerGuard {
 /// The returned reference aliases the original `&mut Caller` borrow
 /// held on the Rust stack inside [`handle`]'s enclosing frame. The
 /// original borrow is logically inactive while Ruby code is running
-/// (it is parked on the stack between `invoke_server` and the eventual
+/// (it is parked on the stack between `invoke_channel` and the eventual
 /// `funcall` return), and the single-threaded wasm execution model
 /// guarantees no other Rust frame can observe it. Callers must not
 /// retain the returned `&mut` past the synchronous Ruby callback that
@@ -157,26 +157,26 @@ fn try_handle(
         "Sandbox runtime does not export linear memory, or RPC request slice falls outside it",
     )?;
 
-    // `Kobako::Sandbox` always installs an RPC server before invoking
-    // the runtime, so reaching this branch indicates a misuse rather
-    // than a normal control path.
-    let server = caller
+    // `Kobako::Sandbox` always installs the RPC Channel before
+    // invoking the runtime, so reaching this branch indicates a misuse
+    // rather than a normal control path.
+    let channel = caller
         .data()
-        .server()
+        .channel()
         .ok_or("RPC dispatched outside an active Sandbox#run — internal wiring bug")?;
 
-    let resp_bytes = invoke_server(server, &req_bytes).map_err(|_| {
-        "RPC server raised an exception instead of returning a fault — please report this as a kobako bug"
+    let resp_bytes = invoke_channel(channel, &req_bytes).map_err(|_| {
+        "RPC channel raised an exception instead of returning a fault — please report this as a kobako bug"
     })?;
 
     write_response(caller, &resp_bytes)
 }
 
-/// Call the Ruby Server's `#dispatch(request_bytes)` method and return
-/// the encoded Response bytes. Errors here mean the Server itself
+/// Call the Ruby Channel's `#dispatch(request_bytes)` method and return
+/// the encoded Response bytes. Errors here mean the Channel itself
 /// failed (it is contracted never to raise — see
-/// `Kobako::RPC::Server#dispatch`), which we treat as a wire-layer fault.
-fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
+/// `Kobako::RPC::Channel#dispatch`), which we treat as a wire-layer fault.
+fn invoke_channel(channel: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called the
     // active Sandbox invocation (#eval or #run) — the invariant SPEC
     // Implementation Standards Architecture pins for the host gem — so
@@ -184,9 +184,9 @@ fn invoke_server(server: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, Mag
     // localises the violation rather than letting a nonsense error
     // propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
-    let server_value: Value = ruby.get_inner(server);
+    let channel_value: Value = ruby.get_inner(channel);
     let req_str = ruby.str_from_slice(req_bytes);
-    let resp: RString = server_value.funcall("dispatch", (req_str,))?;
+    let resp: RString = channel_value.funcall("dispatch", (req_str,))?;
     Ok(super::rstring_to_vec(resp))
 }
 

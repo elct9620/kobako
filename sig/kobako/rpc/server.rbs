@@ -21,8 +21,6 @@ module Kobako
 
       def sealed?: () -> bool
 
-      def dispatch: (String request_bytes) -> String
-
       private
 
       def parse_target: (String target) -> [Kobako::RPC::Namespace?, String?, String?]

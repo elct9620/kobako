@@ -7,6 +7,7 @@ require_relative "errors"
 require_relative "handle_table"
 require_relative "invocation"
 require_relative "outcome"
+require_relative "rpc/channel"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
 require_relative "sandbox_options"
@@ -107,7 +108,7 @@ module Kobako
       @snippets = Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
-      @instance.server = @services
+      @channel = build_channel!
       reset_invocation_state!
     end
 
@@ -206,6 +207,17 @@ module Kobako
     end
 
     private
+
+    # Build the host↔guest +Kobako::RPC::Channel+ that composes the
+    # Server (namespace registry), the Instance (wasm transport), and
+    # the HandleTable (capability allocator), and hand it to the
+    # Instance so the Wasm ext callback routes incoming RPC through it
+    # ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
+    def build_channel!
+      channel = Kobako::RPC::Channel.new(server: @services, instance: @instance, handle_table: @handle_table)
+      @instance.channel = channel
+      channel
+    end
 
     # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet

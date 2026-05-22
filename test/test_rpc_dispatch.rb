@@ -13,13 +13,16 @@ class TestRPCDispatchUnit < Minitest::Test
   def setup
     @handle_table = Kobako::HandleTable.new
     @registry = Kobako::RPC::Server.new(handle_table: @handle_table)
+    # Instance is nil — none of these dispatch-only tests exercise the
+    # yield path. Channel.dispatch only touches Server + HandleTable.
+    @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handle_table: @handle_table)
   end
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
     @registry.define(:Logger).bind(:Echo, lambda(&:upcase))
     req = encode_request("Logger::Echo", "call", ["hi"], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "HI", resp.payload
@@ -30,7 +33,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Logger).bind(:Tag, kwarg_tag_recorder(capture))
     req = encode_request("Logger::Tag", "tag", ["x"], { key: "value" })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal [%w[x value]], capture
@@ -39,7 +42,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_unknown_target_returns_undefined_exception
     req = encode_request("Missing::Method", "call", ["x"], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -49,7 +52,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Boom).bind(:Bang, ->(_) { raise "boom" })
     req = encode_request("Boom::Bang", "call", ["x"], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
@@ -61,7 +64,7 @@ class TestRPCDispatchUnit < Minitest::Test
     # Missing argument — Ruby ArgumentError on dispatch.
     req = encode_request("Service::M", "call", [], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "argument", resp.payload.type
@@ -81,7 +84,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal 5, resp.payload
@@ -95,7 +98,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], { extra: 1 })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "argument", resp.payload.type
@@ -109,7 +112,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Hello).bind(:Greet, klass.new)
     req = encode_request("Hello::Greet", "greet", [], { name: "alice", bogus: "x" })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "argument", resp.payload.type
@@ -124,7 +127,7 @@ class TestRPCDispatchUnit < Minitest::Test
       ["Logger::Echo", "call", [], { "name" => "alice" }]
     )
 
-    resp = decode_response(@registry.dispatch(bad_request_bytes))
+    resp = decode_response(@channel.dispatch(bad_request_bytes))
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
@@ -138,7 +141,7 @@ class TestRPCDispatchUnit < Minitest::Test
       ["Logger::Echo", "call", [], { 42 => "v" }]
     )
 
-    resp = decode_response(@registry.dispatch(bad_request_bytes))
+    resp = decode_response(@channel.dispatch(bad_request_bytes))
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
@@ -154,7 +157,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:KV).bind(:Set, klass.new)
     req = encode_request("KV::Set", "set", ["k"], { value: "v" })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "k=v", resp.payload
@@ -167,7 +170,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:K).bind(:Cap, obj)
     req = encode_request("K::Cap", "capture", [], { a: 1, b: 2 })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "ok", resp.payload
@@ -183,7 +186,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
     req = encode_request("Factory::Make", "call", ["Alice"], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_kind_of Kobako::Handle, resp.payload
@@ -195,7 +198,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Logger).bind(:Echo, ->(arg) { arg })
     req = encode_request("Logger::Echo", "call", ["plain"], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "plain", resp.payload
@@ -216,7 +219,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id)], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "wrapped:hello,Alice", resp.payload
@@ -230,7 +233,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
     req = encode_request("K::Run", "run", [], { target: Kobako::Handle.from_wire(handle_id) })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "done", resp.payload
@@ -241,7 +244,7 @@ class TestRPCDispatchUnit < Minitest::Test
     req = encode_request("Logger::Echo", "call", [Kobako::Handle.from_wire(999)], {})
     @registry.define(:Logger).bind(:Echo, ->(x) { x })
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -258,7 +261,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id = @handle_table.alloc(obj).id
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "find", [42], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_equal "row:42", resp.payload
@@ -270,7 +273,7 @@ class TestRPCDispatchUnit < Minitest::Test
     parent_id = @handle_table.alloc(leaf_factory).id
     req = encode_request_with_target(Kobako::Handle.from_wire(parent_id), "make", [], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.ok?
     assert_kind_of Kobako::Handle, resp.payload
@@ -281,7 +284,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_unknown_handle_target_returns_undefined_exception
     req = encode_request_with_target(Kobako::Handle.from_wire(7), "any", [], {})
 
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -296,7 +299,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @handle_table.reset!
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "tag", [], {})
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -318,7 +321,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @handle_table.mark_disconnected(handle_id)
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "any", [], {})
-    resp = decode_response(@registry.dispatch(req))
+    resp = decode_response(@channel.dispatch(req))
 
     assert resp.error?
     assert_equal "disconnected", resp.payload.type
@@ -336,14 +339,14 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     table_a = Kobako::HandleTable.new
     table_b = Kobako::HandleTable.new
-    registry_b = Kobako::RPC::Server.new(handle_table: table_b)
+    _, channel_b = channel_for(table_b)
     handle_id_in_a = table_a.alloc(pinger).id
 
     # The integer id has meaning in A but must NOT cross over to B —
     # B's HandleTable does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id_in_a), "ping", [], {})
-    resp = decode_response(registry_b.dispatch(req))
+    resp = decode_response(channel_b.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -355,12 +358,12 @@ class TestRPCDispatchUnit < Minitest::Test
     # positional arg rather than the target. The Server path resolves;
     # arg resolution fails when the id misses B's HandleTable.
     table_a = Kobako::HandleTable.new
-    registry_b = Kobako::RPC::Server.new(handle_table: Kobako::HandleTable.new)
-    registry_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
+    server_b, channel_b = channel_for(Kobako::HandleTable.new)
+    server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new).id
 
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id_in_a)], {})
-    resp = decode_response(registry_b.dispatch(req))
+    resp = decode_response(channel_b.dispatch(req))
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
@@ -383,7 +386,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
     bad_request_bytes = Kobako::Codec::Encoder.encode([42, "call", ["x"], {}, false])
 
-    resp = decode_response(@registry.dispatch(bad_request_bytes))
+    resp = decode_response(@channel.dispatch(bad_request_bytes))
 
     assert resp.error?
     # Kobako::Codec::Error rescues to type="runtime" with the
@@ -411,11 +414,11 @@ class TestRPCDispatchUnit < Minitest::Test
     # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
     # HandleTable "Build a fresh, empty HandleTable" — the parameter is
     # explicitly intended for cap-exhaustion testing.
-    registry = registry_with_exhausted_handle_table
+    registry, channel = registry_with_exhausted_handle_table
     registry.define(:Factory).bind(:Make, object_factory)
     req = encode_request("Factory::Make", "make", [], {})
 
-    resp = decode_response(registry.dispatch(req))
+    resp = decode_response(channel.dispatch(req))
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
@@ -522,10 +525,21 @@ class TestRPCDispatchUnit < Minitest::Test
     Class.new { def make = Object.new }.new
   end
 
-  # Build a Server whose HandleTable counter is pinned at MAX_ID + 1
-  # so the next #alloc trips the B-21 cap.
+  # Build a [Server, Channel] pair whose HandleTable counter is pinned
+  # at MAX_ID + 1 so the next #alloc trips the B-21 cap. Returns both
+  # so the test can register a Service on the Server (via +#define+)
+  # and exercise dispatch on the Channel.
   def registry_with_exhausted_handle_table
     exhausted = Kobako::HandleTable.new(next_id: Kobako::Handle::MAX_ID + 1)
-    Kobako::RPC::Server.new(handle_table: exhausted)
+    channel_for(exhausted)
+  end
+
+  # Build a [Server, Channel] pair sharing +table+ as their HandleTable.
+  # Instance is nil — dispatch-only tests never reach the yield path,
+  # which is the only Channel surface that touches Instance.
+  def channel_for(table)
+    server = Kobako::RPC::Server.new(handle_table: table)
+    channel = Kobako::RPC::Channel.new(server: server, instance: nil, handle_table: table)
+    [server, channel]
   end
 end

@@ -23,7 +23,9 @@ module Kobako
         Integer? stderr_limit_bytes
       ) -> Instance
 
-      def server=: (Kobako::RPC::Server server) -> void
+      def channel=: (Kobako::RPC::Channel channel) -> void
+
+      def yield_to_block: (String args_bytes) -> String
 
       def eval: (String preamble, String source, String snippets) -> void
 

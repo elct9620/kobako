@@ -43,6 +43,8 @@ module Kobako
 
     private
 
+    def build_channel!: () -> Kobako::RPC::Channel
+
     def reset_invocation_state!: () -> void
 
     def begin_invocation!: () -> void
