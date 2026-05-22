@@ -80,16 +80,10 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             None => unsafe { kobako.raise_wire_error(c"RPC method symbol name is null") },
         };
 
-        let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
+        let (args, kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
 
-        kobako.dispatch_invoke(
-            target,
-            method_name,
-            &wire_args,
-            &wire_kwargs,
-            c"RPC wire error",
-        )
+        kobako.dispatch_invoke(target, method_name, &args, &kwargs, c"RPC envelope error")
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -145,15 +139,15 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             None => unsafe { kobako.raise_wire_error(c"Handle method symbol name is null") },
         };
 
-        let (wire_args, wire_kwargs) = kobako.unpack_args_kwargs(rest);
+        let (args, kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Handle(handle_id);
 
         kobako.dispatch_invoke(
             target,
             method_name,
-            &wire_args,
-            &wire_kwargs,
-            c"RPC wire error (Handle dispatch)",
+            &args,
+            &kwargs,
+            c"RPC envelope error (Handle dispatch)",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]

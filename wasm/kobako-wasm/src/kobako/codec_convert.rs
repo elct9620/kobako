@@ -47,9 +47,9 @@ impl Kobako {
     }
 
     /// Split a `rest` slice (from `mrb_get_args` `"n*"`) into positional
-    /// wire args and keyword wire kwargs. The last element is absorbed
-    /// into kwargs when it is a Hash; all other elements become
-    /// positional args.
+    /// args and keyword kwargs. The last element is absorbed into
+    /// kwargs when it is a Hash; all other elements become positional
+    /// args.
     ///
     /// `rest` is typed as `&[Value]` even though the underlying buffer
     /// came from mruby's variadic out-param; `Value` is
@@ -60,19 +60,19 @@ impl Kobako {
         &self,
         rest: &[Value],
     ) -> (Vec<crate::codec::Value>, Vec<(String, crate::codec::Value)>) {
-        let mut wire_args: Vec<crate::codec::Value> = Vec::new();
-        let mut wire_kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
+        let mut args: Vec<crate::codec::Value> = Vec::new();
+        let mut kwargs: Vec<(String, crate::codec::Value)> = Vec::new();
 
         for (idx, &mrb_val) in rest.iter().enumerate() {
             let is_hash = mrb_val.classname(self.mrb()) == "Hash" && idx == rest.len() - 1;
             if is_hash {
-                self.extract_hash_kwargs(mrb_val, &mut wire_kwargs);
+                self.extract_hash_kwargs(mrb_val, &mut kwargs);
             } else {
-                wire_args.push(self.to_codec_value(mrb_val));
+                args.push(self.to_codec_value(mrb_val));
             }
         }
 
-        (wire_args, wire_kwargs)
+        (args, kwargs)
     }
 
     /// Iterate an mruby Array and convert each element via `convert`,
