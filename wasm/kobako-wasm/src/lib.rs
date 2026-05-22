@@ -52,6 +52,7 @@ pub(crate) mod kobako;
 pub(crate) mod mruby;
 pub mod outcome;
 pub mod rpc;
+pub mod yield_response;
 
 // Re-export the `cstr!` macro at the crate root so the consumer-side
 // `use crate::cstr;` pattern continues to resolve after the macro
