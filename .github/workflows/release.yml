@@ -34,8 +34,12 @@ jobs:
           # arm-linux is 32-bit ARM; wasmtime's Cranelift backend does not
           # ship a 32-bit ARM target, so this platform cannot link.
           # aarch64-mingw-ucrt is not present in rb-sys-dock images yet.
+          # x64-mingw32 is the legacy Windows MinGW ABI for Ruby <= 3.0;
+          # rake-compiler-dock 1.12.0 has no rbconfig for Ruby 3.3/3.4/4.0
+          # on this target. Modern Windows Ruby uses x64-mingw-ucrt instead,
+          # and kobako requires Ruby >= 3.3.
           supported-ruby-platforms: |
-            exclude: [arm-linux, aarch64-mingw-ucrt]
+            exclude: [arm-linux, aarch64-mingw-ucrt, x64-mingw32]
 
   build-wasm:
     name: Build kobako.wasm (platform-agnostic)
@@ -116,12 +120,6 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           ruby-versions: ${{ env.RUBY_VERSIONS }}
-          # The cross-gem action does not forward step-level `env` into the
-          # rb-sys-dock container; `pre-script` is the only officially
-          # supported in-container configuration hook. Skip the :development
-          # group so the container's bundler never has to resolve dev tools
-          # whose Ruby constraints exceed the orchestration Ruby.
-          pre-script: bundle config set --local without development
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-gem-${{ matrix.platform }}
