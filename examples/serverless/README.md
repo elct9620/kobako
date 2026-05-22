@@ -1,8 +1,8 @@
 # Serverless Demo
 
-A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each request constructs a fresh `Kobako::Sandbox`, preloads the script as the `:App` entrypoint, and invokes it with a wire-friendly Rack env. The script returns a Rack response triplet `[status, headers, body]` directly.
+A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each request constructs a fresh `Kobako::Sandbox`, preloads the script as the `:App` entrypoint, and invokes it with a `Rack::Request` wrapping the Rack env. The script returns a Rack response triplet `[status, headers, body]` directly.
 
-This is the canonical demonstration of the `#preload` + `#run(:Entrypoint, ...)` pattern from kobako 0.3.0: a fixed protocol (the `App` constant), many user scripts behind it, and one fresh Wasm-isolated mruby interpreter per request.
+This is the canonical demonstration of the `#preload` + `#run(:Entrypoint, ...)` pattern combined with kobako 0.4.0's host→guest auto-wrap (SPEC B-34): the `Rack::Request` is not wire-representable, so kobako transparently allocates a `Kobako::Handle` for it and the guest interacts with the request through normal Rack API calls that round-trip back to the host as RPC. A fixed protocol (the `App` constant), many user scripts behind it, and one fresh Wasm-isolated mruby interpreter per request.
 
 ## Running
 
@@ -55,26 +55,27 @@ Unknown routes return `404`, and non-GET requests return `405 Method Not Allowed
 
 ## Adding your own script
 
-Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segment after `/`, and the value is an mruby source string that defines `App` as a callable accepting one Hash argument:
+Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segment after `/`, and the value is an mruby source string that defines `App` as a callable accepting one argument — a `Kobako::Handle` proxy of the host-side `Rack::Request`:
 
 ```ruby
 "greet" => <<~MRUBY
-  App = ->(env) {
-    who = env["query"]["who"] || "stranger"
+  App = ->(req) {
+    who = req.params["who"] || "stranger"
     [200, { "content-type" => "text/plain" }, ["howdy, #{who}\n"]]
   }
 MRUBY
 ```
 
-The env Hash the guest receives is intentionally minimal:
+The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real `Rack::Request` instance. That means the full Rack 3 request API is available, but each access costs ~140 µs of RPC dispatch (kobako benchmark `2a-empty-rpc`):
 
-| Key       | Type                  | Source                           |
-|-----------|-----------------------|----------------------------------|
-| `method`  | `String`              | `env["REQUEST_METHOD"]`          |
-| `path`    | `String`              | `env["PATH_INFO"]`               |
-| `query`   | `Hash[String,String]` | Parsed from `env["QUERY_STRING"]`|
+| Call in guest          | Runs on host                 | Returns                  |
+|------------------------|------------------------------|--------------------------|
+| `req.request_method`   | `Rack::Request#request_method` | `"GET"`                 |
+| `req.path`             | `Rack::Request#path`           | `"/hello"`              |
+| `req.params`           | `Rack::Request#params`         | `Hash[String,String]`   |
+| `req.get_header("…")` | `Rack::Request#get_header`     | `String` or `nil`       |
 
-Anything else in the Rack env — `rack.input`, `rack.errors`, middleware callables, host objects — is deliberately omitted because it does not survive the host↔guest wire codec. Add explicit keys here if your script needs them.
+The Handle is invalidated at the end of the invocation (SPEC B-18), so a script cannot stash `req` for the next request — the host owns the lifecycle. Anything the script does not call is never marshalled, so passing the full `Rack::Request` costs no extra wire bytes upfront; the cost lands at access time. For scripts that touch only one or two fields this is a wash against the older "build a small Hash up front" shape; for scripts that touch the request many times, cache the result of `req.params` (or any other method that returns a wire-representable Hash) in a local to avoid repeated round-trips.
 
 The script must return a Rack 3 triplet: an Integer status, a Hash of lowercase-keyed String headers, and an Array of String body parts. Anything else raises on the host side after the guest returns.
 
@@ -93,6 +94,8 @@ The same `Serverless::App` and the same wire path serve both — switching handl
 
 Each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. Concurrent requests therefore cannot share guest state through globals, instance variables, or class-level mutation — every request gets its own `mrb_state`. This is the strongest isolation kobako offers, and it is cheap: warm Sandbox construction is ~125 µs and the per-request setup adds ~160 µs of `#run` dispatch on top.
 
+Per-script `req.params` / `req.request_method` / `req.path` calls add ~140 µs each of RPC round-trip on top of the dispatch cost — the trade kobako 0.4.0's auto-wrap (SPEC B-34) makes in exchange for not having to marshal the Rack env into a wire-friendly Hash up front. Scripts that read the request once and cache locally pay that cost once; scripts that re-read repeatedly should hoist the result into a local variable.
+
 If your workload is the opposite shape — a stable set of entrypoints, many invocations per process — preload all snippets once at boot into a long-lived Sandbox and dispatch via `#run` per request. The dispatch cost stays at ~160 µs and the Sandbox construction lands off the hot path.
 
 ## Security caveats
@@ -101,18 +104,18 @@ This demo binds to `127.0.0.1` by default so the server is not reachable from th
 
 ## Appendix: Puma vs Falcon under this design
 
-Falcon is a Fiber-based reactor server and Puma is a Thread-pool server, so a natural question is whether the demo gains throughput by switching to Falcon. The short answer for *this* design is no — both servers plateau at the same number, because the bottleneck is not what either server is good at improving.
+Falcon is a Fiber-based reactor server and Puma is a Thread-pool server, so a natural question is whether the demo gains throughput by switching to Falcon. The short answer for *this* design is no — Puma is ~20-30% faster at every concurrency, because the bottleneck is not what either server is good at improving and the per-request RPC round-trips amplify Falcon's disadvantage.
 
-Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, both servers single-process:
+Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, both servers single-process, on the 0.4.0 / B-34 `Rack::Request`-as-Handle design (so each request also pays one in-script `req.params` RPC round-trip, ~140 µs):
 
 | Concurrency | Puma req/s | Puma p99 | Falcon req/s | Falcon p99 |
 |-------------|------------|----------|--------------|------------|
-| 1           | 2,119      | 2 ms     | 1,904        | 1 ms       |
-| 10          | 2,540      | 5 ms     | 2,248        | 6 ms       |
-| 50          | 2,501      | 23 ms    | 2,349        | 24 ms      |
-| 100         | 2,355      | 55 ms    | 2,306        | 47 ms      |
+| 1           | 1,882      | 2 ms     | 1,429        | 2 ms       |
+| 10          | 2,268      | 6 ms     | 1,696        | 8 ms       |
+| 50          | 2,213      | 27 ms    | 1,734        | 49 ms      |
+| 100         | 2,083      | 56 ms    | 1,748        | 81 ms      |
 
-Puma plateaus at ~2.5k req/s and Falcon at ~2.2k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~12-19% faster than Falcon at every concurrency tested; the gap does not close under load.
+Puma plateaus at ~2.2k req/s and Falcon at ~1.7k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~19-34% faster than Falcon at every concurrency tested; the gap narrows under load (the queue length dominates both sides) but does not close. Falcon's tail latency is the more notable difference: at `c=50` Falcon's p99 jumps to 49 ms while p98 is only 37 ms, and at `c=100` p99=81 ms vs p95=68 ms — Puma's tail stays tight (p99=56 ms vs p95=54 ms at the same load).
 
 Two properties of this design suppress Falcon's Fiber advantage:
 

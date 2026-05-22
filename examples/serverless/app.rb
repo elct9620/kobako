@@ -4,8 +4,14 @@
 # Minimal serverless demo: a Rack app that dispatches GET /:name to an
 # operator-provided mruby script. Each request constructs a fresh
 # Kobako::Sandbox, preloads the script body as the :App entrypoint, and
-# invokes it via #run(:App, env). The script returns a Rack response
-# triplet [status, headers, body] directly.
+# invokes it via #run(:App, Rack::Request.new(env)). The script returns
+# a Rack response triplet [status, headers, body] directly.
+#
+# The Rack::Request is a non-wire-representable host object, so kobako
+# 0.4.0's #run host→guest auto-wrap (SPEC B-34) allocates a Handle for
+# it; the guest receives a Kobako::Handle proxy whose method calls
+# (request_method, path, params) round-trip back through RPC. No
+# host-side marshalling step sits between the Rack env and the script.
 #
 # Usage:
 #   ruby examples/serverless/app.rb                # Puma (default)
@@ -37,15 +43,15 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.3.0"
+  gem "kobako", "~> 0.4.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
   gem options[:type]
 end
 
 require "kobako"
+require "rack"
 require "rackup"
-require "uri"
 
 # Example types are nested under Serverless so the script has a single
 # top-level constant — Rubocop's Style/OneClassPerFile is happy and the
@@ -54,31 +60,33 @@ module Serverless
   # Operator-managed script table — keys are the route segment after
   # `/`, values are mruby source that defines the `App` constant. The
   # script body is preloaded into a fresh +Kobako::Sandbox+ per request
-  # and invoked as +App.call(env)+ where +env+ is a wire-friendly Hash
-  # carrying request method, path, and query parameters.
+  # and invoked as +App.call(req)+ where +req+ is a +Kobako::Handle+
+  # proxy of a host-side +Rack::Request+: every +req.params+ /
+  # +req.request_method+ / +req.path+ call dispatches back to the host
+  # as one RPC round-trip.
   ROUTES = {
     "hello" => <<~'MRUBY',
-      App = ->(env) {
-        name = (env["query"]["name"] || "world")
+      App = ->(req) {
+        name = (req.params["name"] || "world")
         [200, { "content-type" => "text/plain" }, ["Hello, #{name}!\n"]]
       }
     MRUBY
     "echo" => <<~'MRUBY',
-      App = ->(env) {
-        body = "method: #{env["method"]}\npath: #{env["path"]}\nquery: #{env["query"].inspect}\n"
+      App = ->(req) {
+        body = "method: #{req.request_method}\npath: #{req.path}\nquery: #{req.params.inspect}\n"
         [200, { "content-type" => "text/plain" }, [body]]
       }
     MRUBY
     "sum" => <<~'MRUBY',
-      App = ->(env) {
-        a = env["query"]["a"].to_i
-        b = env["query"]["b"].to_i
+      App = ->(req) {
+        a = req.params["a"].to_i
+        b = req.params["b"].to_i
         [200, { "content-type" => "text/plain" }, ["#{a} + #{b} = #{a + b}\n"]]
       }
     MRUBY
     "shout" => <<~'MRUBY'
-      App = ->(env) {
-        msg = env["query"]["msg"] || ""
+      App = ->(req) {
+        msg = req.params["msg"] || ""
         [200, { "content-type" => "text/plain" }, ["#{msg.upcase}!\n"]]
       }
     MRUBY
@@ -129,35 +137,18 @@ module Serverless
     end
 
     # Build a fresh Sandbox per request, preload the script as :App, and
-    # invoke it with the wire-friendly env Hash. The mruby triplet
-    # +[status, headers, body]+ comes back through msgpack as plain
-    # mutable Integer / Hash / Array, which is exactly what Rack 3 wants
-    # — no host-side re-coercion needed.
+    # invoke it with a +Rack::Request+ wrapping the Rack env. The Request
+    # is not wire-representable, so kobako auto-wraps it into a Handle
+    # (SPEC B-34) and the guest sees a +Kobako::Handle+ proxy; method
+    # calls on +req+ inside the script dispatch back to the host as RPC,
+    # so query parsing and header access happen on the host's full Rack
+    # implementation. The returned +[status, headers, body]+ triplet
+    # comes back through msgpack as plain mutable Integer / Hash /
+    # Array, which is exactly what Rack 3 wants.
     def render(script, rack_env)
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: script, name: :App)
-      sandbox.run(:App, env(rack_env))
-    end
-
-    # Whitelist Rack env keys that survive the wire codec. The mruby
-    # guest only needs method / path / query — IO streams, middleware
-    # callables, and host objects in the full Rack env are deliberately
-    # excluded so the wire payload stays small and pure data.
-    def env(rack_env)
-      {
-        "method" => rack_env["REQUEST_METHOD"],
-        "path" => rack_env["PATH_INFO"],
-        "query" => parse_query(rack_env["QUERY_STRING"])
-      }
-    end
-
-    def parse_query(query_string)
-      return {} if query_string.empty?
-
-      query_string.split("&").to_h do |pair|
-        k, v = pair.split("=", 2)
-        [URI.decode_www_form_component(k), URI.decode_www_form_component(v.to_s)]
-      end
+      sandbox.run(:App, Rack::Request.new(rack_env))
     end
   end
 end
