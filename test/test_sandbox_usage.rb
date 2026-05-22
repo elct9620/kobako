@@ -8,10 +8,12 @@ require "test_helper"
 # Drives the real mruby Guest Binary (`data/kobako.wasm`) so the
 # `wall_time` and `memory_peak` readers exercise the same wasmtime path
 # the production caps in B-01 / E-19 / E-20 ride on. The contract under
-# test: `#usage` returns `Kobako::Usage::EMPTY` before any invocation,
-# is overwritten on every outcome (value return + every trap path), and
-# `memory_peak` never exceeds the configured `memory_limit` even on the
-# E-20 trap.
+# test: `#usage` returns `Kobako::Usage::EMPTY` before any invocation
+# and is overwritten on every one of the four outcome classes — value
+# return, `Kobako::TrapError` (including the cap subclasses), `Kobako::
+# SandboxError`, and `Kobako::ServiceError` — so a Host App can read
+# the record from any rescue branch. `memory_peak` never exceeds the
+# configured `memory_limit` even on the E-20 trap.
 class TestSandboxUsage < Minitest::Test
   REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
 
@@ -32,12 +34,13 @@ class TestSandboxUsage < Minitest::Test
     assert_equal 0,   sandbox.usage.memory_peak
   end
 
-  # B-35: a successful `#eval` populates both readers. `wall_time` must
-  # be positive because the guest export call always takes nonzero time
-  # to execute; `memory_peak` may legitimately be zero when the script
-  # fits inside the linear-memory size captured at invocation entry
-  # without triggering `memory.grow`.
-  def test_eval_success_populates_wall_time_and_memory_peak
+  # B-35: a successful `#eval` populates `wall_time` with a positive
+  # value because the guest export call always takes nonzero time to
+  # execute. `memory_peak` is intentionally not asserted here —
+  # `1 + 1` may or may not trigger `memory.grow`, and the meaningful
+  # bound (`>= 200_000` for an allocating script) is pinned by
+  # `test_second_invocation_overwrites_usage_from_first` below.
+  def test_eval_success_populates_wall_time
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     sandbox.eval("1 + 1")
@@ -45,19 +48,16 @@ class TestSandboxUsage < Minitest::Test
     assert_operator sandbox.usage.wall_time, :>, 0.0,
                     "wall_time must be positive after a successful invocation — " \
                     "the bracket covers the guest export call"
-    assert_operator sandbox.usage.memory_peak, :>=, 0,
-                    "memory_peak is a byte delta past the entry-time baseline, so it is never negative"
   end
 
   # B-35: `#run` shares the same usage path as `#eval`. Pin both verbs
   # so a regression that only wires one is caught.
-  def test_run_success_populates_wall_time_and_memory_peak
+  def test_run_success_populates_wall_time
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Entry = ->(*_args, **_kw) { 42 }", name: :Entry)
 
     assert_equal 42, sandbox.run(:Entry)
     assert_operator sandbox.usage.wall_time, :>, 0.0
-    assert_operator sandbox.usage.memory_peak, :>=, 0
   end
 
   # B-35: subsequent invocations overwrite `#usage` rather than
@@ -108,6 +108,39 @@ class TestSandboxUsage < Minitest::Test
     assert_operator sandbox.usage.memory_peak, :<=, memory_limit,
                     "memory_peak must never exceed memory_limit; " \
                     "rejected desired values are not promoted into the high-water"
+    assert_operator sandbox.usage.wall_time, :>, 0.0
+  end
+
+  # B-35: a guest-side raise propagates out as `Kobako::SandboxError`
+  # via the Panic envelope path (E-04). The usage record is still
+  # populated because `invoke!` reads it in an `ensure` block — without
+  # this guarantee, a Host App rescuing a runtime guest error would
+  # have no signal about how much of the budget the failing invocation
+  # consumed.
+  def test_sandbox_error_path_still_populates_usage
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    assert_raises(Kobako::SandboxError) { sandbox.eval('raise "boom"') }
+
+    refute_same Kobako::Usage::EMPTY, sandbox.usage,
+                "ensure block must overwrite EMPTY on the SandboxError outcome path too"
+    assert_operator sandbox.usage.wall_time, :>, 0.0
+  end
+
+  # B-35: an unrescued Service-call failure surfaces as
+  # `Kobako::ServiceError` (E-13). Same guarantee as the SandboxError
+  # path — pinning all four outcome classes (success, TrapError,
+  # SandboxError, ServiceError) prevents a future refactor that moves
+  # `read_usage!` out of `invoke!`'s ensure block from silently
+  # breaking subset of the contract.
+  def test_service_error_path_still_populates_usage
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+
+    assert_raises(Kobako::ServiceError) { sandbox.eval('Log::Sink.call("x")') }
+
+    refute_same Kobako::Usage::EMPTY, sandbox.usage,
+                "ensure block must overwrite EMPTY on the ServiceError outcome path too"
     assert_operator sandbox.usage.wall_time, :>, 0.0
   end
 end
