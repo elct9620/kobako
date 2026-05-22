@@ -91,7 +91,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
     assert_equal "Kobako::RPC::WireError", err.klass
-    assert_match(/guest produced an invalid result value/, err.message)
+    assert_match(/Sandbox produced an invalid result value/, err.message)
     refute_match(/envelope|decode failed/, err.message,
                  "internal codec vocabulary must not leak into the user-facing message")
     assert_kind_of String, err.details[:wire_error],

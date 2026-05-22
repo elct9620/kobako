@@ -270,7 +270,7 @@ impl std::fmt::Display for MemoryLimitTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "guest tried to grow linear memory beyond memory_limit: \
+            "linear memory growth exceeded memory_limit: \
              desired={} bytes, limit={} bytes",
             self.desired, self.limit
         )
@@ -287,7 +287,7 @@ pub(crate) struct TimeoutTrap;
 
 impl std::fmt::Display for TimeoutTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "guest exceeded the configured wall-clock timeout")
+        write!(f, "wall-clock deadline exceeded")
     }
 }
 

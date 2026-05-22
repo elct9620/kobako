@@ -22,8 +22,8 @@ class TestSandboxOutcomeDecoding < Minitest::Test
   def test_zero_length_outcome_bytes_raises_trap_error
     err = assert_raises(Kobako::TrapError) { decode("".b) }
 
-    assert_match(/without producing a result/, err.message,
-                 "len=0 outcome → TrapError attributed to the guest, not to the wire tag byte")
+    assert_match(/Sandbox exited without producing a result/, err.message,
+                 "len=0 outcome → TrapError attributed to the Sandbox, not to the wire tag byte")
   end
 
   # SPEC.md Error Scenarios: unknown outcome tag → TrapError (wire
@@ -36,7 +36,8 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     bytes << 0xff.chr(Encoding::ASCII_8BIT)
 
     err = assert_raises(Kobako::TrapError) { decode(bytes) }
-    assert_match(/guest runtime is corrupted/, err.message)
+    assert_match(/Sandbox produced an unrecognised result/, err.message)
+    assert_match(/runtime is corrupted/, err.message)
     refute_match(/0xff/i, err.message,
                  "raw tag byte must not leak into the user-facing message")
   end

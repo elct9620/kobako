@@ -404,16 +404,11 @@ impl Instance {
             .map_err(|_| wasm_err(ruby, GUEST_BINARY_MISSING_RUNTIME))?;
         let ptr = alloc
             .call(store_ref.as_context_mut(), bytes.len() as u32)
-            .map_err(|e| {
-                wasm_err(
-                    ruby,
-                    format!("guest failed to allocate input buffer: {}", e),
-                )
-            })?;
+            .map_err(|e| wasm_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
         if ptr == 0 {
             return Err(wasm_err(
                 ruby,
-                "guest could not allocate input buffer (out of memory)",
+                "could not allocate input buffer (out of memory)",
             ));
         }
 
@@ -475,7 +470,7 @@ impl Instance {
         let mut store_ref = self.store.borrow_mut();
         let packed = take
             .call(store_ref.as_context_mut(), ())
-            .map_err(|e| wasm_err(ruby, format!("failed to read guest result: {}", e)))?;
+            .map_err(|e| wasm_err(ruby, format!("failed to read invocation result: {}", e)))?;
         let (ptr, len) = unpack_outcome_packed(packed);
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
@@ -483,8 +478,9 @@ impl Instance {
             _ => return Err(wasm_err(ruby, GUEST_BINARY_NOT_KOBAKO)),
         };
         let data = mem.data(store_ref.as_context_mut());
-        let range = guest_buffer_range(ptr, len, data.len())
-            .map_err(|msg| wasm_err(ruby, format!("guest result is out of bounds: {}", msg)))?;
+        let range = guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
+            wasm_err(ruby, format!("invocation result is out of bounds: {}", msg))
+        })?;
         Ok(data[range].to_vec())
     }
 }
@@ -544,7 +540,7 @@ fn guest_buffer_range(
 ) -> Result<core::ops::Range<usize>, &'static str> {
     let end = ptr.checked_add(len).ok_or("ptr + len overflow")?;
     if end > mem_size {
-        return Err("range exceeds guest memory size");
+        return Err("range exceeds Sandbox memory size");
     }
     Ok(ptr..end)
 }

@@ -50,13 +50,13 @@ module Kobako
     # zero-length output and unrecognised first byte both walk the trap
     # path). The user-facing message stays in caller vocabulary — the
     # raw tag byte (or absence) belongs in +details+ for operators, not
-    # in the message a Host App sees.
+    # in the message a caller sees.
     def build_trap_error(tag)
       if tag.nil?
-        TrapError.new("guest exited without producing a result")
+        TrapError.new("Sandbox exited without producing a result")
       else
         TrapError.new(
-          "guest produced an unrecognised result; the guest runtime is corrupted, " \
+          "Sandbox produced an unrecognised result; the runtime is corrupted, " \
           "discard this Sandbox before another invocation"
         )
       end
@@ -74,14 +74,14 @@ module Kobako
     # Decode failure on the success tag is a SandboxError (E-09): the
     # framing was fine, but the carried value is unrepresentable. The
     # specific codec fault is stashed in +details[:wire_error]+ rather
-    # than spliced into the message — Host Apps cannot act on the inner
-    # "ext 0x.. payload must be …" wording, but operators triaging a
-    # corrupted guest binary still need it.
+    # than spliced into the message — callers cannot act on the inner
+    # "Symbol payload must be …" wording, but operators triaging a
+    # corrupted Sandbox runtime still need it.
     def decode_value(body)
       Kobako::Codec::Decoder.decode(body)
     rescue Kobako::Codec::Error => e
       raise build_wire_violation_error(
-        "guest produced an invalid result value",
+        "Sandbox produced an invalid result value",
         wire_error: e.message
       )
     end
@@ -94,7 +94,7 @@ module Kobako
       raise build_panic_error(parse_panic(body))
     rescue Kobako::Codec::Error => e
       raise build_wire_violation_error(
-        "guest produced an invalid panic record",
+        "Sandbox produced an invalid panic record",
         wire_error: e.message
       )
     end
