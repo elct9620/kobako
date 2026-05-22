@@ -56,7 +56,7 @@ module Kobako
     def self.decode_request(bytes)
       arr = Codec::Decoder.decode(bytes)
       unless arr.is_a?(Array) && arr.length == 4
-        raise Codec::InvalidType, "Request must be a 4-element array, got #{arr.inspect}"
+        raise Codec::InvalidType, "Request envelope is malformed (expected a 4-element array)"
       end
 
       target, method_name, args, kwargs = arr
@@ -87,10 +87,10 @@ module Kobako
 
       def initialize(status:, payload:)
         unless [STATUS_OK, STATUS_ERROR].include?(status)
-          raise ArgumentError, "Response status must be 0 or 1, got #{status.inspect}"
+          raise ArgumentError, "Response status must be 0 (ok) or 1 (error), got #{status.inspect}"
         end
         if status == STATUS_ERROR && !payload.is_a?(Kobako::RPC::Fault)
-          raise ArgumentError, "Response status=1 payload must be Kobako::RPC::Fault"
+          raise ArgumentError, "Response with error status must carry a Kobako::RPC::Fault payload"
         end
 
         super
@@ -108,7 +108,7 @@ module Kobako
     def self.decode_response(bytes)
       arr = Codec::Decoder.decode(bytes)
       unless arr.is_a?(Array) && arr.length == 2
-        raise Codec::InvalidType, "Response must be a 2-element array, got #{arr.inspect}"
+        raise Codec::InvalidType, "Response envelope is malformed (expected a 2-element array)"
       end
 
       status, payload = arr
