@@ -45,11 +45,77 @@
 //! the host process's stderr, but the kobako convention is "ext
 //! never logs" plus this single, named exception.
 
+use core::cell::Cell;
+use core::ptr::NonNull;
+
 use magnus::value::{Opaque, ReprValue};
 use magnus::{Error as MagnusError, RString, Ruby, Value};
 use wasmtime::{Caller, Extern};
 
 use super::host_state::HostState;
+
+// ============================================================
+// Thread-local active Caller pointer for yield re-entry (B-24).
+// ============================================================
+//
+// `__kobako_yield_to_block` (the magnus method `Instance#yield_to_block`)
+// runs synchronously inside a Ruby Service callback that itself was
+// invoked from inside this dispatcher — at that moment we are several
+// stack frames deep in `try_handle`, with the original
+// `&mut Caller<'_, HostState>` parked unused on the Rust stack while
+// Ruby code is running. The yield path needs the same Caller to call
+// the guest export, but the Rust borrow type is non-`'static` so it
+// cannot be stored in a normal thread-local.
+//
+// We erase the lifetime to `NonNull<()>` and document the recovery
+// invariant at the use site (see [`current_caller`]). The single-
+// threaded wasm execution per Sandbox (B-22) plus the LIFO re-entry
+// shape ensures no aliasing across threads. The pointer is set on
+// entry to [`handle`] and cleared on every exit through a drop guard.
+
+thread_local! {
+    static ACTIVE_CALLER: Cell<Option<NonNull<()>>> = const { Cell::new(None) };
+}
+
+/// RAII guard that clears [`ACTIVE_CALLER`] on drop, paired with the
+/// `set` at the top of [`handle`]. Created via [`CallerGuard::set`] so
+/// the set + clear bracket always lines up — every dispatch frame
+/// leaves the slot empty regardless of which `return` path it took.
+pub(crate) struct CallerGuard;
+
+impl CallerGuard {
+    fn set(ptr: NonNull<()>) -> Self {
+        ACTIVE_CALLER.with(|c| c.set(Some(ptr)));
+        Self
+    }
+}
+
+impl Drop for CallerGuard {
+    fn drop(&mut self) {
+        ACTIVE_CALLER.with(|c| c.set(None));
+    }
+}
+
+/// Recover the active `&mut Caller<'_, HostState>` set by the
+/// enclosing [`handle`] frame. Returns `None` when no dispatch frame is
+/// active on this thread.
+///
+/// # Safety
+///
+/// The returned reference aliases the original `&mut Caller` borrow
+/// held on the Rust stack inside [`handle`]'s enclosing frame. The
+/// original borrow is logically inactive while Ruby code is running
+/// (it is parked on the stack between `invoke_server` and the eventual
+/// `funcall` return), and the single-threaded wasm execution model
+/// guarantees no other Rust frame can observe it. Callers must not
+/// retain the returned `&mut` past the synchronous Ruby callback that
+/// requested it — i.e. only use it inside one short magnus method body
+/// and let the borrow end before the method returns.
+pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, HostState>> {
+    let raw: NonNull<()> = ACTIVE_CALLER.with(|c| c.get())?;
+    // SAFETY: see item doc.
+    Some(unsafe { &mut *raw.as_ptr().cast::<Caller<'a, HostState>>() })
+}
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
 /// from the wasmtime closure built in [`super::instance::Instance::build`].
@@ -63,6 +129,14 @@ use super::host_state::HostState;
 /// always a wiring bug or wire-layer fault rather than an expected
 /// path.
 pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
+    // SAFETY: lifetime erased to `NonNull<()>` per the module's
+    // thread-local doc. The pointer is cleared by `_caller_guard`
+    // before this function returns, and only `Instance#yield_to_block`
+    // (running inside a Ruby callback we are about to invoke) reads it
+    // through `current_caller`.
+    let ptr: NonNull<()> = NonNull::from(&mut *caller).cast();
+    let _caller_guard = CallerGuard::set(ptr);
+
     match try_handle(caller, req_ptr, req_len) {
         Ok(packed) => packed,
         Err(reason) => {

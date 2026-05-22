@@ -14,7 +14,7 @@
 //! land here so the wire shape is committed before the export
 //! (S4) and the host dispatcher integration (S5+) consume it.
 
-use crate::codec::{CodecError, Decoder, Encoder, Value};
+use crate::codec::{Decoder, Encoder, Value};
 use crate::rpc::envelope::EnvelopeError;
 
 /// First byte of a YieldResponse for the success branch — payload is
@@ -77,10 +77,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
     }
 
     let mut dec = Decoder::new(body);
-    let value = dec
-        .read_value()
-        .map_err(CodecError::from)
-        .map_err(EnvelopeError::from)?;
+    let value = dec.read_value().map_err(EnvelopeError::from)?;
     Ok(Response { tag, value })
 }
 

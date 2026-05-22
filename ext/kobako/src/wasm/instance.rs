@@ -245,6 +245,35 @@ impl Instance {
         Ok(())
     }
 
+    /// Synchronously re-enter the guest's `__kobako_yield_to_block`
+    /// export with `args_bytes` as the yield-arguments payload, and
+    /// return the YieldResponse bytes the guest produced (B-24).
+    ///
+    /// Bound to Ruby as `Instance#yield_to_block`. Invoked from the
+    /// host-side yield proxy that the dispatcher hands to Service
+    /// methods (S5a+); raises +Kobako::Wasm::Error+ when called
+    /// outside an active dispatch frame, or when any of the underlying
+    /// allocation / write / call / read steps fails. The S4 guest
+    /// stub always returns a `tag 0x04` error envelope; S5b replaces
+    /// the guest body with the real `mrb_yield_argv` path while keeping
+    /// this magnus method's contract unchanged.
+    pub(crate) fn yield_to_block(&self, args_bytes: RString) -> Result<RString, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let _ = self; // The Caller carries its own Store; `self` is only
+                      // a marker that the method belongs to an Instance.
+
+        let bytes = rstring_to_vec(args_bytes);
+        let Some(caller) = super::dispatch::current_caller() else {
+            return Err(wasm_err(
+                &ruby,
+                "yield_to_block called outside an active Sandbox dispatch frame",
+            ));
+        };
+
+        let resp_bytes = drive_yield(caller, &bytes).map_err(|msg| wasm_err(&ruby, msg))?;
+        Ok(ruby.str_from_slice(&resp_bytes))
+    }
+
     // -----------------------------------------------------------------
     // Run-path methods. Each method is best-effort — it raises a Ruby
     // `Kobako::Wasm::Error` when the corresponding export is missing or
@@ -598,6 +627,59 @@ fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
     let ptr = (packed >> 32) as u32 as usize;
     let len = packed as u32 as usize;
     (ptr, len)
+}
+
+/// Allocate `args.len()` bytes in guest memory via `__kobako_alloc`,
+/// copy the args payload in, call `__kobako_yield_to_block(ptr, len)`,
+/// then read the response slice the guest produced and return it.
+/// Mirrors `dispatch::write_response`'s allocator dance but in the
+/// opposite direction — the host is the *initiator* of this round-trip,
+/// not the responder.
+fn drive_yield(caller: &mut Caller<'_, HostState>, args: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let len_i32 = i32::try_from(args.len()).map_err(|_| "yield args exceed 2 GiB")?;
+
+    let alloc = match caller.get_export("__kobako_alloc") {
+        Some(Extern::Func(f)) => f
+            .typed::<i32, i32>(&*caller)
+            .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
+        _ => return Err("Sandbox runtime is missing the allocation hook"),
+    };
+    let req_ptr = alloc
+        .call(&mut *caller, len_i32)
+        .map_err(|_| "Sandbox allocation trapped while preparing yield args")?;
+    if req_ptr == 0 {
+        return Err("Sandbox is out of memory while preparing yield args");
+    }
+
+    let mem = match caller.get_export("memory") {
+        Some(Extern::Memory(m)) => m,
+        _ => return Err("Sandbox runtime does not export linear memory"),
+    };
+    mem.write(&mut *caller, req_ptr as usize, args)
+        .map_err(|_| "could not write yield args into Sandbox memory")?;
+
+    let yield_fn = match caller.get_export("__kobako_yield_to_block") {
+        Some(Extern::Func(f)) => f
+            .typed::<(i32, i32), u64>(&*caller)
+            .map_err(|_| "Sandbox runtime's yield hook has the wrong signature")?,
+        _ => return Err("Sandbox runtime is missing the yield hook"),
+    };
+    let packed = yield_fn
+        .call(&mut *caller, (req_ptr, len_i32))
+        .map_err(|_| "Sandbox trapped during yield_to_block")?;
+    let (resp_ptr, resp_len) = unpack_outcome_packed(packed);
+    if resp_len == 0 {
+        return Err("Sandbox returned an empty YieldResponse (wire violation)");
+    }
+
+    let mem = match caller.get_export("memory") {
+        Some(Extern::Memory(m)) => m,
+        _ => return Err("Sandbox runtime does not export linear memory"),
+    };
+    let data = mem.data(&caller);
+    let range = guest_buffer_range(resp_ptr, resp_len, data.len())
+        .map_err(|_| "YieldResponse buffer is out of bounds")?;
+    Ok(data[range].to_vec())
 }
 
 /// Translate a per-channel byte cap into the MemoryOutputPipe capacity:

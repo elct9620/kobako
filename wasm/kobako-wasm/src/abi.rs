@@ -6,11 +6,12 @@
 //! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge the
 //!   guest uses to dispatch a Service call to the host. Lives in the
 //!   `env` wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
-//! * **Exactly 4 guest exports**:
-//!   - `__kobako_eval()`               — reactor entry; runs one-shot user source
-//!   - `__kobako_run(env_ptr, env_len)` — reactor entry; entrypoint dispatch
-//!   - `__kobako_alloc(size)`          — bump/malloc allocator for buffers
-//!   - `__kobako_take_outcome()`       — returns packed (ptr, len) of OUTCOME_BUFFER
+//! * **Exactly 5 guest exports**:
+//!   - `__kobako_eval()`                          — reactor entry; runs one-shot user source
+//!   - `__kobako_run(env_ptr, env_len)`           — reactor entry; entrypoint dispatch
+//!   - `__kobako_alloc(size)`                     — bump/malloc allocator for buffers
+//!   - `__kobako_take_outcome()`                  — returns packed (ptr, len) of OUTCOME_BUFFER
+//!   - `__kobako_yield_to_block(req_ptr, req_len)` — host-initiated re-entry into a guest block (B-24)
 //!
 //! The import / export name set is enforced at link time: a guest
 //! import the host does not provide traps inside wasmtime, and a
@@ -66,10 +67,12 @@ mod frames;
 mod mrb_slot;
 mod outcome_buffer;
 mod run;
+mod yield_block;
 
 pub use eval::__kobako_eval;
 pub use outcome_buffer::{__kobako_alloc, __kobako_take_outcome};
 pub use run::__kobako_run;
+pub use yield_block::__kobako_yield_to_block;
 
 // ---------------------------------------------------------------------------
 // Host import declaration.
