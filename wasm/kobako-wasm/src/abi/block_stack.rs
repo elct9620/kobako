@@ -54,6 +54,19 @@ impl BlockStack {
             (*self.0.get()).pop();
         }
     }
+
+    /// Return the topmost block, or `None` when the stack is empty.
+    /// Consumed by `__kobako_yield_to_block` to identify the block
+    /// bound to the active dispatch frame (B-24). The returned `Value`
+    /// is a copy of the `mrb_value` stored on the stack — `Value` is
+    /// `Copy` and the underlying `mrb_value` slot keeps the mruby GC
+    /// rooting argument intact for the duration of the dispatch
+    /// frame, so reading the top is safe inside the same single-
+    /// threaded invocation that pushed it.
+    pub(crate) fn last(&self) -> Option<Value> {
+        // SAFETY: see type doc.
+        unsafe { (*self.0.get()).last().copied() }
+    }
 }
 
 // SAFETY: identical argument to [`super::mrb_slot::MrbSlot`] — wasm32

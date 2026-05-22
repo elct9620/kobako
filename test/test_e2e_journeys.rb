@@ -1177,20 +1177,49 @@ class TestE2EJourneys < Minitest::Test
                  "B-23: guest call without a block leaves &block nil"
   end
 
-  def test_b24_unimplemented_yield_stub_surfaces_as_service_error
+  def test_b24_single_yield_returns_block_value_to_service
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    # +yield+ inside a lambda body refers to the enclosing method's
-    # block, not the lambda's own +&block+ argument. Use the explicit
-    # +&blk+ binding so the proxy Dispatcher hands in is the one we
-    # actually exercise.
-    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+
+    result = sandbox.eval("Probe::OnceX.call(21) { |x| x * 2 }")
+
+    assert_equal 42, result,
+                 "B-24: a Service method's yield observes the block's " \
+                 "last-expression value as the +yield+ expression's value"
+  end
+
+  def test_b29_multi_yield_runs_block_once_per_iteration
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:MapEach, ->(items, &blk) { items.map(&blk) })
+
+    result = sandbox.eval("Probe::MapEach.call([1, 2, 3]) { |x| x * 10 }")
+
+    assert_equal [10, 20, 30], result,
+                 "B-29: each Service yield is an independent round-trip; " \
+                 "the block runs once per iteration and the value flows back"
+  end
+
+  def test_b24_block_raise_surfaces_to_service_yield_site
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:Boom, ->(&blk) { blk.call })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| x * 2 }")
+      sandbox.eval('Probe::Boom.call { raise "from guest block" }')
     end
 
-    assert_match(/NotImplementedError/, err.message,
-                 "S5a stub: guest export returns tag 0x04 NotImplementedError; " \
-                 "the host proxy must reify it as a Ruby exception at the yield site")
+    assert_match(/from guest block/, err.message,
+                 "B-24 Notes: an exception raised inside the guest block " \
+                 "propagates back to the Service method's yield site")
+  end
+
+  def test_b30_service_with_block_that_never_yields_runs_clean
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:Ignores, ->(*, &_blk) { :ok })
+
+    result = sandbox.eval("Probe::Ignores.call { raise 'never runs' }")
+
+    assert_equal :ok, result,
+                 "B-30: a Service that receives a block but never invokes " \
+                 "it must complete normally — the block body never executes"
   end
 end

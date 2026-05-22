@@ -7,16 +7,28 @@
 //! packed-u64 `(ptr<<32)|len` return — so the same alloc / write /
 //! read shape applies in the symmetric direction.
 //!
-//! ## S4 stub
+//! ## Body
 //!
-//! The body in this stage emits a fixed `YieldResponse` `tag 0x04`
-//! `error("not implemented")` envelope and returns it through the
-//! standard `__kobako_alloc` + copy + packed-u64 path. The point is to
-//! exercise the new ABI export against the host plumbing (thread-local
-//! `Caller` + magnus `Instance#yield_to_block`) before the real yield
-//! body (S5b) lands. The host magnus method observes the stub error
-//! and surfaces it as a controlled Ruby exception until the real
-//! mruby `mrb_yield_argv` path replaces this body.
+//! 1. Decode the yield arguments (msgpack array of positional args)
+//!    out of the request buffer.
+//! 2. Resolve the active `mrb_state` via the per-invocation `MRB`
+//!    slot and read the topmost block off `BLOCK_STACK`
+//!    ({docs/behavior.md B-23 / B-28}[link:../../../../docs/behavior.md]).
+//! 3. Convert codec args → `mrb_value` args via the standard runtime
+//!    converter, then invoke `mrb_yield_argv` inside
+//!    `mrb_protect_error` so any guest-side raise (or `break` /
+//!    Proc-`return` RBreak) lands as `Err(exc)` instead of
+//!    long-jumping past the Rust frame
+//!    ({BLOCK_RESEARCH F-A1}).
+//! 4. Encode the outcome as a `YieldResponse`:
+//!     * normal return → `tag 0x01` ok carrying the value through the
+//!       standard codec
+//!     * raised exception (including RBreak in S5b — the
+//!       `ci_break_index` discrimination that splits real `break`
+//!       from a Proc-`return` lands in S6a) → `tag 0x04` error with
+//!       `{class, message, backtrace}`
+//! 5. Allocate the response buffer via `__kobako_alloc`, copy the
+//!    bytes in, return the packed `(ptr<<32)|len`.
 
 #[cfg(target_arch = "wasm32")]
 use super::pack_u64;
@@ -27,9 +39,7 @@ use super::pack_u64;
 pub extern "C" fn __kobako_yield_to_block(req_ptr: i32, req_len: i32) -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = req_ptr;
-        let _ = req_len;
-        yield_to_block_body()
+        yield_to_block_body(req_ptr, req_len)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -41,35 +51,167 @@ pub extern "C" fn __kobako_yield_to_block(req_ptr: i32, req_len: i32) -> u64 {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn yield_to_block_body() -> u64 {
+fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
+    use super::block_stack::BLOCK_STACK;
+    use super::mrb_slot::MRB;
+    use crate::kobako::Kobako;
+    use crate::mruby::sys;
+
+    // Step 1: decode positional args off the request buffer.
+    let args_codec = match decode_yield_args(req_ptr, req_len) {
+        Ok(items) => items,
+        Err(msg) => return write_error_response("Kobako::RPC::WireError", msg, Vec::new()),
+    };
+
+    // Step 2: resolve the active VM + Kobako runtime + bound block.
+    let Some(mrb) = MRB.as_ref() else {
+        return write_error_response(
+            "RuntimeError",
+            "yield_to_block invoked without an active Sandbox invocation",
+            Vec::new(),
+        );
+    };
+    // SAFETY: MRB is `Some` only after `Kobako::install` ran for the
+    // current invocation; `resolve_raw`'s precondition is satisfied.
+    let kobako = unsafe { Kobako::resolve_raw(mrb.as_ptr()) };
+    let Some(block) = BLOCK_STACK.last() else {
+        return write_error_response(
+            "LocalJumpError",
+            "yield_to_block invoked without a block on the stack",
+            Vec::new(),
+        );
+    };
+
+    // Step 3: convert codec args → mrb_value args.
+    let mrb_args: Vec<sys::mrb_value> = args_codec
+        .into_iter()
+        .map(|v| kobako.to_mrb_value(v).as_raw())
+        .collect();
+
+    // Step 4: protected yield. `mrb_yield_argv` raises via `MRB_THROW`
+    // for break / return / raise; `mrb.protect` installs a local
+    // `c_jmp` that catches it and surfaces the exception value as
+    // `Err`.
+    let mrb_ptr = mrb.as_ptr();
+    let block_raw = block.as_raw();
+    let argc = mrb_args.len() as i32;
+    let argv_ptr = mrb_args.as_ptr();
+    let result = mrb.protect(|_inner| {
+        // SAFETY: `mrb_ptr` is live by the outer `&Mrb` borrow;
+        // `block_raw` was pushed onto BLOCK_STACK by the still-active
+        // bridge frame, which roots it via mruby's call frame argv;
+        // `argv_ptr` / `argc` point into the outer `mrb_args` Vec
+        // which outlives this closure.
+        let raw = unsafe { sys::mrb_yield_argv(mrb_ptr, block_raw, argc, argv_ptr) };
+        sys::Value::from_raw(raw)
+    });
+
+    // Step 5: encode the outcome. F-A1 — extract any exception fields
+    // immediately on the Err path before any other mruby allocation
+    // could sweep the exception object out of the GC arena.
+    let bytes = match result {
+        Ok(value) => encode_ok_response(&kobako, value),
+        Err(exc) => encode_error_response_from_exception(&kobako, mrb, exc),
+    };
+    write_yield_buffer(&bytes)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Value>, String> {
+    use crate::codec::{Decoder, Value};
+    // SAFETY: `req_ptr` / `req_len` were produced by the host's
+    // `Instance#yield_to_block`, which allocates the buffer via
+    // `__kobako_alloc` inside this same wasm instance and writes the
+    // encoded args bytes in. Reading `req_len` bytes from `req_ptr`
+    // is in-bounds for the current Instance's linear memory.
+    let bytes: &[u8] = if req_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(req_ptr as usize as *const u8, req_len as usize) }
+    };
+    let mut dec = Decoder::new(bytes);
+    let frame = dec
+        .read_value()
+        .map_err(|e| format!("failed to decode yield args: {e}"))?;
+    match frame {
+        Value::Array(items) => Ok(items),
+        _ => Err("yield args must be a msgpack array".to_string()),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::Value) -> Vec<u8> {
+    use crate::yield_response::{encode_response, Response, TAG_OK};
+    let codec_value = kobako.to_codec_value(value);
+    let resp = Response {
+        tag: TAG_OK,
+        value: codec_value,
+    };
+    match encode_response(&resp) {
+        Ok(bytes) => bytes,
+        Err(_) => encode_error_bytes(
+            "Kobako::RPC::WireError",
+            "failed to encode yield ok value",
+            Vec::new(),
+        ),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn encode_error_response_from_exception(
+    kobako: &crate::kobako::Kobako,
+    mrb: &crate::mruby::Mrb,
+    exc: crate::mruby::sys::Value,
+) -> Vec<u8> {
+    // Mirror `boot::take_pending_panic` field order: classname →
+    // message → backtrace. Each step uses `exc` while it is still
+    // GC-reachable in mruby's arena.
+    let class_name = {
+        let cn = exc.classname(mrb);
+        if cn.is_empty() {
+            "RuntimeError".to_string()
+        } else {
+            cn.to_string()
+        }
+    };
+    let message = {
+        let msg_val = exc.call(mrb, c"message", &[]);
+        let m = msg_val.to_string(mrb);
+        if m.is_empty() {
+            class_name.clone()
+        } else {
+            m
+        }
+    };
+    let backtrace = kobako.extract_backtrace(exc);
+    encode_error_bytes(&class_name, &message, backtrace)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     use crate::codec::Value;
     use crate::yield_response::{encode_response, Response, TAG_ERROR};
-
-    // Stub payload — the eventual S5b body classifies the real
-    // `mrb_yield_argv` outcome into tag 0x01 / 0x02 / 0x04. Tag 0x04
-    // with a {class, message, backtrace} map is the shape both sides
-    // already agreed on at S2b.
     let payload = Value::Map(vec![
+        (Value::Str("class".into()), Value::Str(class.into())),
+        (Value::Str("message".into()), Value::Str(message.into())),
         (
-            Value::Str("class".into()),
-            Value::Str("NotImplementedError".into()),
+            Value::Str("backtrace".into()),
+            Value::Array(backtrace.into_iter().map(Value::Str).collect()),
         ),
-        (
-            Value::Str("message".into()),
-            Value::Str("__kobako_yield_to_block is not yet implemented".into()),
-        ),
-        (Value::Str("backtrace".into()), Value::Array(Vec::new())),
     ]);
     let resp = Response {
         tag: TAG_ERROR,
         value: payload,
     };
-    let bytes = match encode_response(&resp) {
-        Ok(b) => b,
-        // Wire violation — host walks trap path on len == 0.
-        Err(_) => return 0,
-    };
+    encode_response(&resp).unwrap_or_default()
+}
 
+/// Write an error YieldResponse directly into a fresh guest buffer
+/// and return its packed `(ptr<<32)|len`. Used by the early-out paths
+/// that never reach the protect / classify steps.
+#[cfg(target_arch = "wasm32")]
+fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
+    let bytes = encode_error_bytes(class, &message.into(), backtrace);
     write_yield_buffer(&bytes)
 }
 
@@ -82,9 +224,6 @@ fn write_yield_buffer(bytes: &[u8]) -> u64 {
         Ok(n) => n,
         Err(_) => return 0,
     };
-    // SAFETY: `__kobako_alloc` is a guest export defined in
-    // `super::outcome_buffer`; calling it from within the same guest
-    // module is a direct Rust call — no FFI boundary, no UB risk.
     let ptr = super::outcome_buffer::__kobako_alloc(len_u32);
     if ptr == 0 || len_u32 == 0 {
         return 0;
