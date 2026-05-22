@@ -52,7 +52,10 @@ module Kobako
     def alloc(object)
       id = @next_id
       cap = Kobako::Handle::MAX_ID
-      raise HandleTableExhausted, "HandleTable exhausted: id #{id} exceeds MAX_ID #{cap}" if id > cap
+      if id > cap
+        raise HandleTableExhausted,
+              "Handle id space exhausted: allocation would assign id #{id}, exceeding the cap (#{cap})"
+      end
 
       @entries[id] = object
       @next_id = id + 1
