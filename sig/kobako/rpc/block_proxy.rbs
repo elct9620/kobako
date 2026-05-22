@@ -1,0 +1,9 @@
+module Kobako
+  module RPC
+    module BlockProxy
+      def self?.build: (Kobako::RPC::Channel channel, Symbol break_tag) -> [Proc, Proc]
+
+      def self?.yield_failure: (untyped payload, default: String) -> RuntimeError
+    end
+  end
+end

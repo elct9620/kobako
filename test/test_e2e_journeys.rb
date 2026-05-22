@@ -1235,22 +1235,15 @@ class TestE2EJourneys < Minitest::Test
   # +catch+/+throw+ path so the Service method actually returns the
   # break value as B-25 expects.
 
-  def test_b25_break_in_block_emits_break_tag_pending_s6b_unwind
+  def test_b25_break_in_block_unwinds_service_to_break_value
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
 
-    err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }")
-    end
+    result = sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }")
 
-    # S6a wire-level: the guest export classifies the RBreak with
-    # `ci_break_index == enter_idx` as `tag 0x02 break`; the S5b host
-    # proxy reifies that into a controlled +RuntimeError+ with the
-    # "break" label. S6b will replace the raise with `throw` so
-    # +Probe::Each+ actually returns :stop normally.
-    assert_match(/break/, err.message,
-                 "B-25 wire emission: tag 0x02 must reach the host proxy as " \
-                 "a break-labelled error pending S6b's catch/throw")
+    assert_equal :stop, result,
+                 "B-25: `break val` inside the guest block must terminate the " \
+                 "Service method with +val+ as its effective return value"
   end
 
   def test_b27_lambda_break_returns_value_silently
@@ -1286,5 +1279,56 @@ class TestE2EJourneys < Minitest::Test
     assert_match(/LocalJumpError/, err.message,
                  "E-21: Proc `return` aimed past the host yield boundary " \
                  "must surface as a LocalJumpError at the yield site")
+  end
+
+  # B-28: nested dispatch frames each carry their own block proxy. An
+  # inner +break+ terminates only the inner Service; the outer block
+  # resumes normally. The Channel's BLOCK_STACK pushes / pops in strict
+  # LIFO so each yield round-trip targets the correct frame.
+  B28_NESTED_SCRIPT = <<~RUBY
+    Probe::Outer.call([1, 2]) do |a|
+      inner = Probe::Inner.call([10, 20]) { |b| break :inner_stop if b == 20; b }
+      [a, inner]
+    end
+  RUBY
+
+  def test_b28_nested_dispatch_frames_each_carry_their_own_block
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:Outer, ->(items, &blk) { items.map(&blk) })
+    sandbox.define(:Probe).bind(:Inner, lambda { |items, &blk|
+      items.each { |x| blk.call(x) }
+      :inner_done
+    })
+
+    result = sandbox.eval(B28_NESTED_SCRIPT)
+
+    # Outer iterates [1, 2]; each iteration runs Inner which iterates
+    # [10, 20] and breaks on 20 with :inner_stop. Outer's block sees
+    # :inner_stop for each outer iteration, so the final result is
+    # the map [[1, :inner_stop], [2, :inner_stop]].
+    assert_equal [[1, :inner_stop], [2, :inner_stop]], result,
+                 "B-28: inner break terminates only the inner Service; the " \
+                 "outer block resumes normally for each outer iteration"
+  end
+
+  # E-23: when a Service method stashes its block and invokes it from a
+  # later dispatch (after the originating frame has returned), the host
+  # proxy raises +LocalJumpError+ — the +frame_active+ invalidator the
+  # Dispatcher's +ensure+ ran flipped the proxy off.
+  E23_ESCAPE_SCRIPT = "Probe::Stash.stash { :payload }; Probe::Stash.replay"
+
+  def test_e23_escaped_proxy_invocation_raises_local_jump_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    stash_service = Class.new do
+      def stash(&block) = (@blk = block)
+      def replay = @blk.call
+    end.new
+    sandbox.define(:Probe).bind(:Stash, stash_service)
+
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT) }
+
+    assert_match(/LocalJumpError/, err.message,
+                 "E-23: invoking the yield proxy after its dispatch frame " \
+                 "returned must raise LocalJumpError host-side")
   end
 end

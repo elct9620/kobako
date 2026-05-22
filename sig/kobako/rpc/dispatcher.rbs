@@ -7,13 +7,13 @@ module Kobako
       class DisconnectedTargetError < StandardError
       end
 
+      BREAK_THROW: Symbol
+
       def self?.dispatch: (String request_bytes, Server server, Kobako::HandleTable handle_table, Kobako::RPC::Channel channel) -> String
 
       def self?.resolve_call_args: (Kobako::RPC::Request request, Kobako::HandleTable handle_table) -> [Array[untyped], Hash[Symbol, untyped]]
 
-      def self?.build_block_proxy: (Kobako::RPC::Channel channel) -> Proc
-
-      def self?.yield_failure: (untyped payload, default: String) -> RuntimeError
+      def self?.build_block_proxy: (Kobako::RPC::Channel channel) -> [Proc, Proc]
 
       def self?.encode_caught_error: (StandardError error) -> String
 

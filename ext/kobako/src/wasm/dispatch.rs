@@ -77,22 +77,26 @@ thread_local! {
     static ACTIVE_CALLER: Cell<Option<NonNull<()>>> = const { Cell::new(None) };
 }
 
-/// RAII guard that clears [`ACTIVE_CALLER`] on drop, paired with the
-/// `set` at the top of [`handle`]. Created via [`CallerGuard::set`] so
-/// the set + clear bracket always lines up — every dispatch frame
-/// leaves the slot empty regardless of which `return` path it took.
-pub(crate) struct CallerGuard;
+/// RAII guard that saves the previous [`ACTIVE_CALLER`] value on
+/// installation and restores it on drop. Nested `__kobako_dispatch`
+/// frames stack — the inner frame's `set` swaps in its own pointer
+/// while remembering the outer's; drop restores the outer so the
+/// outer's continuation (e.g. iterating over another guest block) still
+/// finds a live caller (B-28).
+pub(crate) struct CallerGuard {
+    previous: Option<NonNull<()>>,
+}
 
 impl CallerGuard {
     fn set(ptr: NonNull<()>) -> Self {
-        ACTIVE_CALLER.with(|c| c.set(Some(ptr)));
-        Self
+        let previous = ACTIVE_CALLER.with(|c| c.replace(Some(ptr)));
+        Self { previous }
     }
 }
 
 impl Drop for CallerGuard {
     fn drop(&mut self) {
-        ACTIVE_CALLER.with(|c| c.set(None));
+        ACTIVE_CALLER.with(|c| c.set(self.previous));
     }
 }
 
