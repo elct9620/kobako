@@ -264,23 +264,6 @@ class TestE2EJourneys < Minitest::Test
                  "B-17: Handle target from first RPC routes second RPC to the stateful object"
   end
 
-  # SPEC.md B-18 + E-13: cross-run Handle invalidity. A Handle obtained in
-  # run N must not be reachable in run N+1 — the HandleTable is fully reset.
-  def test_cross_run_handle_invalidity_b18_e13
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Factory).bind(:Make, ->(_n) { Object.new })
-
-    sandbox.eval('Factory::Make.call("alice")')
-    handle_id = sandbox.handle_table.alloc(:run_n_marker).id
-    assert sandbox.handle_table.include?(handle_id), "B-18 setup: id present in run N"
-
-    sandbox.eval("1 + 1")
-
-    refute sandbox.handle_table.include?(handle_id),
-           "B-18: HandleTable must be fully reset at the start of run N+1 (SPEC.md L423)"
-    assert_raises(Kobako::HandleTableError) { sandbox.handle_table.fetch(handle_id) }
-  end
-
   # mruby's +puts+ on a capped channel may raise +IOError+ once the
   # WASI write is rejected. The rescue swallows that script-level
   # failure so these tests pin only the host-observable contract
@@ -580,49 +563,6 @@ class TestE2EJourneys < Minitest::Test
     refute_includes sandbox.stdout, "first",
                     "B-04: stdout must reset between runs (SPEC.md B-04 L264-270)"
     assert_includes sandbox.stdout, "second"
-  end
-
-  # SPEC.md E-14: a Handle whose entry has been replaced with the
-  # +:disconnected+ sentinel surfaces as a Service-origin error on the
-  # next dispatch through that handle. Full mruby round-trip: Service
-  # Setup returns a pre-allocated Kobako::Handle whose backing entry was
-  # immediately marked disconnected; the mruby method call against that
-  # handle dispatches against the disconnected sentinel and the host
-  # observes a +Kobako::ServiceError::Disconnected+ carrying the
-  # dispatcher's disconnected message.
-  #
-  # The guest's exception bridge (+wasm/kobako-wasm/src/boot.rs+) maps
-  # the Response.error +type="disconnected"+ field onto the
-  # +Kobako::ServiceError::Disconnected+ mruby class before +mrb_raise+,
-  # so the class name propagates into the Panic envelope's +class+ field
-  # and the host-side +Kobako::Outcome.panic_target_class+ selects the
-  # Disconnected subclass (pinned in unit form by
-  # +TestSandboxOutcomeDecoding#test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass+).
-  def test_e14_disconnected_handle_target_raises_disconnected_subclass
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Dc).bind(:Setup, disconnected_handle_setup_lambda(sandbox))
-
-    err = assert_raises(Kobako::ServiceError::Disconnected) do
-      sandbox.eval("handle = Dc::Setup.call\nhandle.any_method\n")
-    end
-
-    assert_kind_of Kobako::ServiceError, err,
-                   "Disconnected must remain a ServiceError subclass"
-    assert_equal "service", err.origin
-    assert_equal "Kobako::ServiceError::Disconnected", err.klass
-    assert_match(/disconnected/, err.message)
-  end
-
-  # E-14 setup helper: alloc a fresh Object in the live HandleTable,
-  # immediately replace the entry with the +:disconnected+ sentinel, and
-  # return the Kobako::Handle so the bound Service can hand it back to mruby
-  # for use as a target on the next RPC.
-  def disconnected_handle_setup_lambda(sandbox)
-    lambda do
-      id = sandbox.handle_table.alloc(Object.new).id
-      sandbox.handle_table.mark_disconnected(id)
-      Kobako::Handle.from_wire(id)
-    end
   end
 
   # ── Wire converter contract guards ─────────────────────────────────────

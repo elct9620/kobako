@@ -5,7 +5,6 @@ module Kobako
     attr_reader wasm_path: String
     attr_reader instance: Kobako::Wasm::Instance
     attr_reader options: Kobako::SandboxOptions
-    attr_reader handle_table: Kobako::HandleTable
     attr_reader services: Kobako::RPC::Server
     attr_reader snippets: Kobako::Snippet::Table
 

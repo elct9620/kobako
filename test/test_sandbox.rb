@@ -17,12 +17,11 @@ class TestSandbox < Minitest::Test
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
-  def test_default_construction_wires_wasm_pipeline_and_handle_table
+  def test_default_construction_wires_wasm_pipeline
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
     assert_instance_of Kobako::Wasm::Instance, sandbox.instance
-    assert_instance_of Kobako::HandleTable, sandbox.handle_table
   end
 
   def test_default_construction_exposes_default_output_limits
@@ -57,24 +56,6 @@ class TestSandbox < Minitest::Test
     assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
     end
-  end
-
-  def test_handle_tables_have_distinct_identity_per_sandbox
-    a = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    b = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    refute_same a.handle_table, b.handle_table
-  end
-
-  def test_handle_table_alloc_does_not_leak_across_sandboxes
-    a = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    b = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    a.handle_table.alloc(:x)
-    a.handle_table.alloc(:y)
-
-    assert_equal 2, a.handle_table.size
-    assert_equal 0, b.handle_table.size, "alloc on one Sandbox must not leak to another"
   end
 
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing

@@ -39,7 +39,6 @@ module Kobako
 
     attr_reader :wasm_path, :instance,
                 :options,
-                :handle_table,
                 :services, :snippets
 
     # Per-cap accessors forward to the immutable +SandboxOptions+ Value
@@ -200,7 +199,10 @@ module Kobako
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet
     # registries on first call (idempotent) and zeros the per-invocation
     # capability state — capture buffers, truncation predicates, and the
-    # HandleTable counter — before the guest runs.
+    # HandleTable counter — before the guest runs. The HandleTable
+    # itself is held as +@handle_table+ and never exposed beyond
+    # this class: SPEC.md Terminology pins it as "Not exposed to the
+    # Host App" (B-19 / B-20 / E-29).
     def begin_invocation!
       @services.seal!
       @handle_table.reset!
