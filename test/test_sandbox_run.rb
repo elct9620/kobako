@@ -40,10 +40,22 @@ class TestSandboxRun < Minitest::Test
     assert_match(/must match/, err.message)
   end
 
-  # E-29
+  # E-29 — host pre-flight rejects a forged Handle arriving in args.
+  # Legitimate Handles only surface through error fields; a Handle
+  # constructed by the caller can only be smuggled, so the wire layer
+  # never sees one in this position.
   def test_e29_args_must_not_contain_handle
     handle = Kobako::Handle.new(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, handle) }
+    assert_match(/Handle/, err.message)
+  end
+
+  # E-29 — kwargs branch of the same rule. A Handle reaching a kwargs
+  # value is rejected with the same message structure as the args
+  # branch (both go through Invocation#forged_handle_message).
+  def test_e29_kwargs_values_must_not_contain_handle
+    handle = Kobako::Handle.new(1)
+    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, env: handle) }
     assert_match(/Handle/, err.message)
   end
 

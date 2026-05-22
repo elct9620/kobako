@@ -159,7 +159,7 @@ module Kobako
     def run(target, *args, **kwargs)
       invocation = Invocation.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encode, invocation.encode)
+        @instance.run(@services.encoded_preamble, @snippets.encode, invocation.encode(@handle_table))
       end
     end
 
