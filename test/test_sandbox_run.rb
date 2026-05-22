@@ -42,7 +42,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-29
   def test_e29_args_must_not_contain_handle
-    handle = Kobako::RPC::Handle.new(1)
+    handle = Kobako::Handle.new(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, handle) }
     assert_match(/Handle/, err.message)
   end

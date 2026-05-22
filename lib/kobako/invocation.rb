@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "rpc/handle"
+require_relative "handle"
 require_relative "codec"
 
 module Kobako
@@ -80,14 +80,14 @@ module Kobako
       target_str.to_sym
     end
 
-    # E-29: +args+ must not contain a +Kobako::RPC::Handle+. Handles
+    # E-29: +args+ must not contain a +Kobako::Handle+. Handles
     # are per-invocation and cannot enter the next invocation through
     # a control-plane channel; a guest that needs to call into a
     # stateful host object must obtain a fresh Handle through a
     # Service RPC inside the dispatched entrypoint.
     def validate_args!(args)
       raise ArgumentError, "Invocation args must be Array" unless args.is_a?(Array)
-      raise ArgumentError, "Invocation args must not contain a Kobako::RPC::Handle" if args.any?(Kobako::RPC::Handle)
+      raise ArgumentError, "Invocation args must not contain a Kobako::Handle" if args.any?(Kobako::Handle)
 
       args
     end

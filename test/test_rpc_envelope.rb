@@ -12,7 +12,7 @@ require "kobako/rpc/envelope"
 module Kobako
   class RPCEnvelopeTest < Minitest::Test
     Envelope    = Kobako::RPC
-    Handle      = Kobako::RPC::Handle
+    Handle      = Kobako::Handle
     Exc         = Kobako::RPC::Fault
     Encoder     = Kobako::Codec::Encoder
     InvalidType = Kobako::Codec::InvalidType

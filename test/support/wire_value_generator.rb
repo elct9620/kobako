@@ -17,7 +17,7 @@ require "kobako/rpc/envelope"
 # it landed in; tests assert on the counter through the +coverage+
 # reader.
 class WireValueGenerator
-  Handle = Kobako::RPC::Handle
+  Handle = Kobako::Handle
   Exc    = Kobako::RPC::Fault
 
   MAX_DEPTH = 4

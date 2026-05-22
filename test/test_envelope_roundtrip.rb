@@ -28,7 +28,7 @@ require "kobako/rpc/envelope"
 
 class TestEnvelopeRoundtrip < Minitest::Test
   Envelope = Kobako::RPC
-  Handle   = Kobako::RPC::Handle
+  Handle   = Kobako::Handle
   Exc      = Kobako::RPC::Fault
 
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)

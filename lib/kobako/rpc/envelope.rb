@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "handle"
+require_relative "../handle"
 require_relative "fault"
 require_relative "../codec"
 
@@ -25,8 +25,8 @@ module Kobako
     Request = Data.define(:target, :method_name, :args, :kwargs) do
       # steep:ignore:start
       def initialize(target:, method:, args: [], kwargs: {})
-        unless target.is_a?(String) || target.is_a?(Kobako::RPC::Handle)
-          raise ArgumentError, "Request target must be String or Kobako::RPC::Handle, got #{target.class}"
+        unless target.is_a?(String) || target.is_a?(Kobako::Handle)
+          raise ArgumentError, "Request target must be String or Kobako::Handle, got #{target.class}"
         end
         raise ArgumentError, "Request method must be String" unless method.is_a?(String)
         raise ArgumentError, "Request args must be Array"    unless args.is_a?(Array)

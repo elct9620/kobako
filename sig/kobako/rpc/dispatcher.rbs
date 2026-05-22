@@ -15,17 +15,17 @@ module Kobako
 
       def self?.resolve_arg: (untyped value, HandleTable handle_table) -> untyped
 
-      def self?.resolve_target: (String | Kobako::RPC::Handle target, Server server, HandleTable handle_table) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Server server, HandleTable handle_table) -> untyped
 
       def self?.resolve_path: (String path, Server server) -> untyped
 
-      def self?.resolve_handle: (Kobako::RPC::Handle handle, HandleTable handle_table) -> untyped
+      def self?.resolve_handle: (Kobako::Handle handle, HandleTable handle_table) -> untyped
 
       def self?.require_live_object!: (Integer id, HandleTable handle_table) -> untyped
 
       def self?.encode_ok: (untyped value, Server server) -> String
 
-      def self?.wrap_as_handle: (untyped value, Server server) -> Kobako::RPC::Handle
+      def self?.wrap_as_handle: (untyped value, Server server) -> Kobako::Handle
 
       def self?.encode_error: (String type, String message) -> String
     end

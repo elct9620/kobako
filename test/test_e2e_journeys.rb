@@ -585,7 +585,7 @@ class TestE2EJourneys < Minitest::Test
   # SPEC.md E-14: a Handle whose entry has been replaced with the
   # +:disconnected+ sentinel surfaces as a Service-origin error on the
   # next dispatch through that handle. Full mruby round-trip: Service
-  # Setup returns a pre-allocated RPC::Handle whose backing entry was
+  # Setup returns a pre-allocated Kobako::Handle whose backing entry was
   # immediately marked disconnected; the mruby method call against that
   # handle dispatches against the disconnected sentinel and the host
   # observes a +Kobako::ServiceError::Disconnected+ carrying the
@@ -615,13 +615,13 @@ class TestE2EJourneys < Minitest::Test
 
   # E-14 setup helper: alloc a fresh Object in the live HandleTable,
   # immediately replace the entry with the +:disconnected+ sentinel, and
-  # return the RPC::Handle so the bound Service can hand it back to mruby
+  # return the Kobako::Handle so the bound Service can hand it back to mruby
   # for use as a target on the next RPC.
   def disconnected_handle_setup_lambda(sandbox)
     lambda do
       id = sandbox.services.handle_table.alloc(Object.new)
       sandbox.services.handle_table.mark_disconnected(id)
-      Kobako::RPC::Handle.new(id)
+      Kobako::Handle.new(id)
     end
   end
 

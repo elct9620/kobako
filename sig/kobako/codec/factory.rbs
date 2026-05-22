@@ -23,7 +23,7 @@ module Kobako
       def unpack_symbol: (String payload) -> Symbol
       def register_handle: () -> void
       def register_fault: () -> void
-      def unpack_handle: (String payload) -> Kobako::RPC::Handle
+      def unpack_handle: (String payload) -> Kobako::Handle
       def pack_fault: (Kobako::RPC::Fault fault) -> String
       def unpack_fault: (String payload) -> Kobako::RPC::Fault
     end
