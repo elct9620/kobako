@@ -38,8 +38,6 @@ module Kobako
       # buffer edge.
       rescue ::MessagePack::UnpackError, ::EOFError => e
         raise Truncated, e.message
-      rescue ::EncodingError => e
-        raise InvalidEncoding, e.message
       end
 
       # SPEC pins +str+ family payloads to UTF-8

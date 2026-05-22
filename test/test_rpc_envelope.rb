@@ -153,6 +153,14 @@ module Kobako
       assert_raises(InvalidType) { Envelope.decode_response(bytes) }
     end
 
+    def test_response_decode_rejects_wrong_arity
+      # 3-element array, not 2. Symmetric with
+      # +test_request_decode_rejects_wrong_arity+ above; covers the
+      # decode_response shape guard at lib/kobako/rpc/envelope.rb:111.
+      bytes = Encoder.encode([0, nil, "extra"])
+      assert_raises(InvalidType) { Envelope.decode_response(bytes) }
+    end
+
     def test_response_decode_error_requires_fault_payload
       # status=1 with a non-Fault value
       bytes = Encoder.encode([1, "stringy"])

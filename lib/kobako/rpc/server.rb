@@ -77,11 +77,6 @@ module Kobako
         !namespace.nil? && !member_name.nil? && !namespace[member_name].nil?
       end
 
-      # Returns all declared +Kobako::RPC::Namespace+ instances as an +Array+.
-      def namespaces
-        @namespaces.values
-      end
-
       # Returns the number of declared namespaces as an +Integer+.
       def size
         @namespaces.size
