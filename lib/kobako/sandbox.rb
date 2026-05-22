@@ -247,9 +247,9 @@ module Kobako
       read_captures!
       Outcome.decode(@instance.outcome!)
     rescue Kobako::Wasm::TimeoutError => e
-      raise TimeoutError, "guest exceeded timeout: #{e.message}"
+      raise TimeoutError, "Sandbox##{verb} failed: #{e.message}"
     rescue Kobako::Wasm::MemoryLimitError => e
-      raise MemoryLimitError, "guest exceeded memory_limit: #{e.message}"
+      raise MemoryLimitError, "Sandbox##{verb} failed: #{e.message}"
     rescue Kobako::Wasm::Error => e
       raise TrapError, "Sandbox##{verb} failed: #{e.message}"
     end

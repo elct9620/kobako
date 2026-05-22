@@ -647,12 +647,32 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
 /// Sandbox layer attaches the user-facing verb (`Sandbox#eval` /
 /// `Sandbox#run`) so the message reads in caller vocabulary rather
 /// than ABI vocabulary.
+///
+/// For the configured-cap paths ([`TrapClass::Timeout`] /
+/// [`TrapClass::MemoryLimit`]) the trap's own [`std::fmt::Display`]
+/// carries the user-facing reason (`"wall-clock deadline exceeded"`,
+/// `"linear memory growth exceeded memory_limit: ..."`). The wasmtime
+/// outer wrapper at `format!("{}", err)` would otherwise surface only
+/// the `"error while executing at wasm backtrace: ..."` framing, which
+/// is operator noise on a cap trap. For [`TrapClass::Other`] the
+/// wasmtime wrapper IS the diagnostic (real script trap) so it stays.
 fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    let msg = format!("{}", err);
     match classify_trap(&err) {
-        TrapClass::Timeout => timeout_err(ruby, msg),
-        TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
-        TrapClass::Other => wasm_err(ruby, msg),
+        TrapClass::Timeout => {
+            let msg = err
+                .downcast_ref::<TimeoutTrap>()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| format!("{}", err));
+            timeout_err(ruby, msg)
+        }
+        TrapClass::MemoryLimit => {
+            let msg = err
+                .downcast_ref::<MemoryLimitTrap>()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| format!("{}", err));
+            memory_limit_err(ruby, msg)
+        }
+        TrapClass::Other => wasm_err(ruby, format!("{}", err)),
     }
 }
 
