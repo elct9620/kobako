@@ -31,8 +31,11 @@ jobs:
       - uses: oxidize-rb/actions/fetch-ci-data@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
         id: fetch
         with:
+          # arm-linux is 32-bit ARM; wasmtime's Cranelift backend does not
+          # ship a 32-bit ARM target, so this platform cannot link.
+          # aarch64-mingw-ucrt is not present in rb-sys-dock images yet.
           supported-ruby-platforms: |
-            exclude: [arm-linux]
+            exclude: [arm-linux, aarch64-mingw-ucrt]
 
   build-wasm:
     name: Build kobako.wasm (platform-agnostic)
@@ -110,6 +113,11 @@ jobs:
           path: data/
       - uses: oxidize-rb/actions/cross-gem@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
         id: cross-gem
+        env:
+          # Skip dev-only gems (steep, rubocop, etc.) so bundler inside the
+          # rb-sys-dock build image (Ruby 3.1.3) does not try to resolve
+          # constraints they impose on newer Ruby.
+          BUNDLE_WITHOUT: development
         with:
           platform: ${{ matrix.platform }}
           ruby-versions: ${{ env.RUBY_VERSIONS }}
