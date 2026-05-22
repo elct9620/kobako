@@ -59,15 +59,17 @@ module Kobako
         raise InvalidType, e.message
       end
 
-      # Signed-64 minimum (inclusive). The msgpack gem encodes integers
-      # in this domain as +int 64+ or narrower; values below this raise
-      # +RangeError+ at encode time. Anchored as a constant so
-      # {wire_representable?} stays a single dispatch line.
-      INT64_MIN = -(2**63)
-
-      # Unsigned-64 maximum (inclusive). Mirror of {INT64_MIN} for the
-      # positive end of the integer domain.
-      UINT64_MAX = (2**64) - 1
+      # Inclusive Integer range the msgpack gem encodes without raising
+      # +RangeError+ at encode time — signed +int 64+ minimum through
+      # unsigned +uint 64+ maximum
+      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
+      # Mapping #3, the +fixint+ / +int 8..64+ / +uint 8..64+ union).
+      # Anchored as a +Range+ so {primitive_wire_type?} stays a single
+      # dispatch line. This is the codec's wire-encode domain — not to
+      # be confused with the Handle id range, which lives on
+      # +Kobako::Handle+ as +MIN_ID+ / +MAX_ID+ (1..2^31 − 1) and
+      # represents a different concept entirely.
+      MSGPACK_INT_RANGE = (-(2**63)..((2**64) - 1))
 
       # Wire-type predicate
       # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
@@ -115,7 +117,7 @@ module Kobako
       def primitive_wire_type?(value)
         case value
         when ::NilClass, ::TrueClass, ::FalseClass, ::Float, ::String, ::Symbol, Kobako::Handle then true
-        when ::Integer then value.between?(INT64_MIN, UINT64_MAX)
+        when ::Integer then MSGPACK_INT_RANGE.cover?(value)
         else false
         end
       end

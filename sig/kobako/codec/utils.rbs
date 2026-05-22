@@ -1,8 +1,7 @@
 module Kobako
   module Codec
     module Utils
-      INT64_MIN: Integer
-      UINT64_MAX: Integer
+      MSGPACK_INT_RANGE: Range[Integer]
 
       def self?.assert_utf8!: (String string, String label) -> void
 
