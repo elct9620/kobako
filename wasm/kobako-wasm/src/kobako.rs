@@ -410,15 +410,15 @@ impl Kobako {
     /// Invoke `invoke_rpc` and convert the result to a [`Value`]. On
     /// `Response.err`, raises a matching `Kobako::ServiceError`
     /// subclass; on any other envelope-layer fault, raises
-    /// `Kobako::RPC::WireError` with `envelope_err_msg`. Both raise
-    /// paths diverge — `mrb_raise` does not return.
+    /// `Kobako::RPC::WireError` with `err_msg`. Both raise paths
+    /// diverge — `mrb_raise` does not return.
     pub fn dispatch_invoke(
         &self,
         target: crate::rpc::envelope::Target,
         method_name: &str,
         args: &[crate::codec::Value],
         kwargs: &[(String, crate::codec::Value)],
-        envelope_err_msg: &core::ffi::CStr,
+        err_msg: &core::ffi::CStr,
     ) -> Value {
         use crate::rpc::client::invoke_rpc;
         match invoke_rpc(target, method_name, args, kwargs) {
@@ -430,7 +430,7 @@ impl Kobako {
             }
             Err(_) => {
                 // SAFETY: as above.
-                unsafe { self.raise_wire_error(envelope_err_msg) };
+                unsafe { self.raise_wire_error(err_msg) };
             }
         }
     }
