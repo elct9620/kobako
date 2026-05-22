@@ -26,6 +26,9 @@ GEMSPEC = Gem::Specification.load("kobako.gemspec")
 
 RbSys::ExtensionTask.new("kobako", GEMSPEC) do |ext|
   ext.lib_dir = "lib/kobako"
+  # Enable `rake gem:<platform>` tasks so oxidize-rb/actions/cross-gem can
+  # cross-compile precompiled native gems via rb-sys-dock.
+  ext.cross_compile = true
 end
 
 # Load tasks/*.rake (vendor toolchain, build pipeline). Each .rake file is
