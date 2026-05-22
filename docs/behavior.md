@@ -259,7 +259,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox is executing a mruby script. A Member is bound at `Name::MemberName`. |
 | **Operation** | Guest code executes `Name::MemberName.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
 | **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a yield proxy (a Ruby Proc) into the resolved Service method as its block argument. The Service method's `block_given?` returns `true`, `yield` invokes the proxy, and the proxy is also accessible as `&block` if the method declares one. The yield proxy is valid for the duration of this dispatch only. |
-| **Notes** | The block itself is not transmitted as a wire value; only a single bit (`has_block`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The yield proxy has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
+| **Notes** | The block itself is not transmitted as a wire value; only a single bit (`block_given`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The yield proxy has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
 
 ---
 

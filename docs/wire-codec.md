@@ -115,7 +115,7 @@ A 5-element msgpack array with fixed field positions:
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
 | 3 | `kwargs` | map (str keys; empty kwargs is encoded as empty map `0x80`, never absent) |
-| 4 | `has_block` | bool — `true` if the guest call site supplied a block (B-23); `false` otherwise |
+| 4 | `block_given` | bool — `true` if the guest call site supplied a block (B-23); `false` otherwise |
 
 The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
 

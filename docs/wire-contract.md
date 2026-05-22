@@ -25,7 +25,7 @@ Every host↔guest RPC call carries exactly five logical fields:
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ [`docs/wire-codec.md`](wire-codec.md) § Ext Types → ext 0x00); the host passes them to dispatch unchanged. An empty kwargs map is always present (never absent) to keep field positions stable. |
-| `has_block` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a yield proxy and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
+| `block_given` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a yield proxy and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
 
 The `target` string form uses Ruby constant-path syntax (`"Namespace::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
@@ -98,7 +98,7 @@ The host reads zero-length outcome bytes or an unrecognized envelope tag as a wi
 
 ## Yield Round-Trip
 
-When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `has_block=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response RPC: the host initiates, the guest responds.
+When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `block_given=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response RPC: the host initiates, the guest responds.
 
 - **Initiator**: the Host Gem (specifically, the yield proxy passed to the Service method) is the initiator of every yield round-trip.
 - **Responder**: the Guest Binary receives the yield arguments, executes the block body inside the current dispatch frame, and returns a YieldResponse to the host before the re-entry frame exits.
