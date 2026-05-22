@@ -61,12 +61,12 @@ class TestSandbox < Minitest::Test
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
     # The minimal.wasm fixture has none of the SPEC ABI exports, so the
     # eval step raises Kobako::Wasm::Error which `#eval` re-wraps as a
-    # TrapError. Source delivery is via WASI stdin frames now, so the first
-    # ext call is `__kobako_eval` (not alloc). Real fixture-based E2E coverage
-    # lives in test/test_e2e_journeys.rb.
+    # TrapError. The user-facing message attributes the failure to the
+    # public verb (`Sandbox#eval`) rather than the underlying ABI symbol.
+    # Real fixture-based E2E coverage lives in test/test_e2e_journeys.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.eval("nil") }
-    assert_match(/__kobako_eval/, err.message)
+    assert_match(/Sandbox#eval failed/, err.message)
   end
 
   def test_eval_rejects_non_string_code

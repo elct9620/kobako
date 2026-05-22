@@ -251,7 +251,7 @@ module Kobako
     rescue Kobako::Wasm::MemoryLimitError => e
       raise MemoryLimitError, "guest exceeded memory_limit: #{e.message}"
     rescue Kobako::Wasm::Error => e
-      raise TrapError, "guest __kobako_#{verb} trapped: #{e.message}"
+      raise TrapError, "Sandbox##{verb} failed: #{e.message}"
     end
   end
 end

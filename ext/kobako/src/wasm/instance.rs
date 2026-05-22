@@ -268,7 +268,7 @@ impl Instance {
             eval.call(store_ref.as_context_mut(), ())
         };
         self.disarm_caps();
-        result.map_err(|e| call_err(&ruby, "__kobako_eval", e))
+        result.map_err(|e| call_err(&ruby, e))
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`).
@@ -296,7 +296,7 @@ impl Instance {
             run.call(store_ref.as_context_mut(), (env_ptr, env_len))
         };
         self.disarm_caps();
-        result.map_err(|e| call_err(&ruby, "__kobako_run", e))
+        result.map_err(|e| call_err(&ruby, e))
     }
 
     /// Return the stdout capture from the most recent run as a Ruby
@@ -603,12 +603,13 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
 }
 
 /// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
-/// exception class. `__kobako_eval` / `__kobako_run` traps are routed
-/// through [`classify_trap`]; +export+ is the failing export name and
-/// appears in the trap message so the Sandbox layer can attribute the
-/// fault to the right verb.
-fn call_err(ruby: &Ruby, export: &str, err: wasmtime::Error) -> MagnusError {
-    let msg = format!("{}(): {}", export, err);
+/// exception class. The ABI export symbol (`__kobako_eval` /
+/// `__kobako_run`) is deliberately omitted from the message — the
+/// Sandbox layer attaches the user-facing verb (`Sandbox#eval` /
+/// `Sandbox#run`) so the message reads in caller vocabulary rather
+/// than ABI vocabulary.
+fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+    let msg = format!("{}", err);
     match classify_trap(&err) {
         TrapClass::Timeout => timeout_err(ruby, msg),
         TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
