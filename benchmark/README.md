@@ -4,7 +4,7 @@ Kobako maintains a regression benchmark suite covering the five performance dime
 
 ## Latest baseline
 
-Captured on **2026-05-20** at commit `19e51d9` — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
+Captured on **2026-05-22** at commit `1be572c` — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. Numbers below are typical; absolute values vary by hardware, but the relative shape (cold/warm ratio, RPC overhead, scaling curves) is consistent across machines.
 
 How the numbers are obtained:
 
@@ -53,10 +53,10 @@ Two costs dominate the very first `Kobako::Sandbox` in a process: wasmtime Engin
 
 | Scenario | Latency |
 |---|---|
-| First `Sandbox.new` in a fresh process | **613 ms** |
-| Second-through-tenth `Sandbox.new` (cache warm) | **~0.10 ms** each |
-| Steady-state `Sandbox.new` only | **132 µs** |
-| Steady-state `Sandbox.new` + first `#eval("nil")` | **274 µs** |
+| First `Sandbox.new` in a fresh process | **619 ms** |
+| Second-through-tenth `Sandbox.new` (cache warm) | **~0.11 ms** each |
+| Steady-state `Sandbox.new` only | **128 µs** |
+| Steady-state `Sandbox.new` + first `#eval("nil")` | **272 µs** (host `wall_time` = 135 µs) |
 
 The first-Sandbox cost is dominated by wasmtime JIT compiling the Module on macOS arm64. The Module is sizeable today because the guest binary embeds the mruby interpreter, the `mruby-onig-regexp` Onigmo engine, and the precompiled `mrblib/io.rb` + `mrblib/kernel.rb` IO preamble; each of those is a feature commitment the cold-start cost pays for once per process.
 
@@ -66,11 +66,13 @@ Practical implication: pre-warm by constructing one Sandbox at boot. After that,
 
 | Pattern | Cost per request | Source |
 |---|---|---|
-| Reuse the same Sandbox (`#eval("nil")` on a warm instance) | **135 µs** | `2a-empty-rpc` |
-| Fresh Sandbox every request (`Kobako::Sandbox.new.eval("nil")`) | **274 µs** | `1b-sandbox-new+eval-nil` |
-| Overhead of constructing a new Sandbox per request | **~139 µs** | difference |
+| Reuse the same Sandbox (`#eval("nil")` on a warm instance) | **136 µs** | `2a-empty-rpc` |
+| Fresh Sandbox every request (`Kobako::Sandbox.new.eval("nil")`) | **272 µs** | `1b-sandbox-new+eval-nil` |
+| Overhead of constructing a new Sandbox per request | **~136 µs** | difference |
 
 Per-request construction does NOT pay the multi-second Engine/Module cold cost again — that is amortized to the first Sandbox in the process regardless of pattern. The per-request overhead is the `Sandbox.new` work itself (Wasm instance creation, capture-buffer allocation, RPC Server init).
+
+B-35 `wall_time` makes the per-`#eval` overhead directly readable: `1b` records `wall_time = 135 µs` against a 272 µs total, so the host wrapper term (msgpack envelope encode, outcome decode, capture readout) lands at ~137 µs — within rounding of the `1b − 2a` difference above.
 
 Practical implication: choose per-request construction when guest scripts are mutually untrusted; choose reuse when a single Sandbox serves repeated requests from the same trust scope. At ~140 µs of extra overhead per request, per-request isolation is affordable for most web/job workloads.
 
@@ -78,15 +80,15 @@ Practical implication: choose per-request construction when guest scripts are mu
 
 Each row wraps the call inside one `#eval`, so the absolute number bundles `#eval` setup (~130 µs) with the RPC.
 
-| Scenario | Latency |
-|---|---|
-| One Service call returning `nil`, alone in `#eval` | **135 µs** |
-| One Service call with one Integer arg | **136 µs** |
-| One Service call with one Symbol-keyed keyword arg | 137 µs |
-| 1 000 sequential Service calls inside one `#eval` | 6.6 ms total → 6.6 µs per RPC |
-| Handle chain — one RPC returns object, second targets the Handle | 150 µs |
+| Scenario | Latency | `wall_time` (guest) |
+|---|---|---|
+| One Service call returning `nil`, alone in `#eval` | **136 µs** | 126 µs |
+| One Service call with one Integer arg | **137 µs** | 136 µs |
+| One Service call with one Symbol-keyed keyword arg | 140 µs | 130 µs |
+| 1 000 sequential Service calls inside one `#eval` | 6.66 ms total → 6.7 µs per RPC | 6.71 ms / 6.7 µs per RPC |
+| Handle chain — one RPC returns object, second targets the Handle | 152 µs | 142 µs |
 
-All five rows reproduce within ±1.5% across cycles. The per-RPC steady-state cost holds at ~6.6 µs once the per-`#eval` setup is amortized over many RPCs in one invocation. The Handle-chain row exercises [SPEC.md B-17](../SPEC.md): a Factory Service returns a host object → kobako allocates a Handle on the return path → the guest invokes a method against the Handle → kobako fetches the host object via the Handle. The cost above the empty-RPC baseline is the second RPC plus one `HandleTable#alloc` and one `HandleTable#fetch`.
+All five rows reproduce within ±2% across cycles. The per-RPC steady-state cost holds at ~6.7 µs once the per-`#eval` setup is amortized over many RPCs in one invocation; `wall_time` shows the same per-RPC cost holds inside the guest export bracket too, so the loop is dominated by guest-side dispatch and not Ruby-side scheduling. The Handle-chain row exercises [SPEC.md B-17](../SPEC.md): a Factory Service returns a host object → kobako allocates a Handle on the return path → the guest invokes a method against the Handle → kobako fetches the host object via the Handle. The cost above the empty-RPC baseline is the second RPC plus one `HandleTable#alloc` and one `HandleTable#fetch`.
 
 ### Wire codec — host side ([`codec.rb`](codec.rb))
 
@@ -94,55 +96,59 @@ Encoding and decoding through `Kobako::Codec` directly from Ruby. These numbers 
 
 | Payload | Encode | Decode |
 |---|---|---|
-| String, 64 B | 548 ns | 579 ns |
-| String, 1 KiB | 662 ns | 646 ns |
-| String, 64 KiB | 7.5 µs | 2.9 µs |
-| String, 1 MiB | 65.4 µs | 36.0 µs |
-| Array nested 1 deep (1 KiB leaf) | 655 ns | 767 ns |
-| Array nested 64 deep (1 KiB leaf) | 1.2 µs | 8.6 µs |
+| String, 64 B | 549 ns | 593 ns |
+| String, 1 KiB | 653 ns | 684 ns |
+| String, 64 KiB | 7.7 µs | 3.0 µs |
+| String, 1 MiB | 62.7 µs | 37.1 µs |
+| Array nested 1 deep (1 KiB leaf) | 643 ns | 760 ns |
+| Array nested 64 deep (1 KiB leaf) | 1.1 µs | 8.7 µs |
 
 Per-wire-type micro-bench at primitive sizes, one entry per SPEC.md Type Mapping row (12 entries):
 
 | Wire type | Encode | Decode |
 |---|---|---|
-| `nil` / Boolean / Integer / Float | 535-543 ns | 533-546 ns |
-| Short String / binary String | 545 ns | 557-580 ns |
-| 3-element Array / 1-entry Hash | 557-577 ns | 805-911 ns |
-| Symbol (ext 0x00) | 655 ns | 723 ns |
-| Handle (ext 0x01) | 654 ns | 1.1 µs |
-| Exception envelope (ext 0x02) | 1.3 µs | 2.8 µs |
+| `nil` / Boolean / Integer / Float | 526-538 ns | 535-553 ns |
+| Short String / binary String | 534-548 ns | 554-591 ns |
+| 3-element Array / 1-entry Hash | 551-559 ns | 808-971 ns |
+| Symbol (ext 0x00) | 642 ns | 729 ns |
+| Handle (ext 0x01) | 651 ns | 1.0 µs |
+| Exception envelope (ext 0x02) | 1.3 µs | 2.9 µs |
 
-All rows reproduce within ±2.5% across cycles except `3a-host-encode-64KiB` (±4.4% — sensitive to allocator state when the working set crosses a page boundary) and `3a-host-encode-1MiB` (±4.8% — large-payload allocation noise). The neighbouring 64B / 1KiB / 1MiB-decode rows hold the load-bearing String codec numbers.
+All rows reproduce within ±3% across cycles. The 64KiB / 1MiB decode rows hold the load-bearing String codec numbers; large-payload allocation noise occasionally widens the encode side past ±3% but the decode side stays tight.
 
 ### Wire codec — guest side ([`codec.rb`](codec.rb))
 
 The guest builds a value in mruby and returns it from `#eval`. The absolute numbers bundle guest encode + host decode + the constant `#eval` overhead; cross-row differences isolate the codec contribution.
 
-| Guest script returns | Latency |
-|---|---|
-| `"x" * 64` (64 B String) | 121.2 µs |
-| `"x" * 1024` (1 KiB String) | 122.3 µs |
-| `"x" * 65536` (64 KiB String) | 156.5 µs |
-| `"x" * 524288` (512 KiB String) | 408.9 µs |
-| Array nested 1 deep (1 KiB leaf) | 123.5 µs |
-| Array nested 64 deep (1 KiB leaf) | 160.8 µs |
+| Guest script returns | Latency | `wall_time` (guest) |
+|---|---|---|
+| `"x" * 64` (64 B String) | 127.3 µs | 115 µs |
+| `"x" * 1024` (1 KiB String) | 124.5 µs | 119 µs |
+| `"x" * 65536` (64 KiB String) | 157.1 µs | 144 µs |
+| `"x" * 524288` (512 KiB String) | 414.7 µs | 345 µs |
+| Array nested 1 deep (1 KiB leaf) | 127.6 µs | 116 µs |
+| Array nested 64 deep (1 KiB leaf) | 160.3 µs | 145 µs |
 
 Note: guest mruby caps a single String at 1 MiB ([SPEC Invariant](../SPEC.md)); the largest guest sample here is 512 KiB. Composite values (Arrays, Hashes) can still approach the 16 MiB wire payload limit.
+
+The `wall_time` column splits "guest export inside wasmtime" from the per-`#eval` host wrapper (msgpack envelope + outcome decode + capture readout). Cross-row: the host wrapper holds steady at ~12-15 µs regardless of guest payload size — most of the size-dependence lives inside `wall_time` (guest codec construct + return-value encode), which matches the codec-host-side scaling above.
 
 ### mruby VM, no RPC ([`mruby_eval.rb`](mruby_eval.rb))
 
 Pure interpreter work — every script is a self-contained mruby computation whose only host cost is the constant `Sandbox#eval` overhead. Useful for spotting regressions in `build_config/wasi.rb` flag changes.
 
-| Script | Latency |
-|---|---|
-| 100 000-iteration integer XOR loop | **43.0 ms** |
-| 1 000 single-character String appends | 581 µs |
-| 100 cycles of `raise` / `rescue` | 297 µs → 3.0 µs per cycle |
-| 1 000 Onigmo `Regexp =~` matches | 2.97 ms → 3.0 µs per match |
-| 1 000 `puts` of 64 B (below 1 MiB stdout cap) | 3.43 ms → 3.4 µs per write |
-| 2 048 `puts` of ~1 KiB against the 1 MiB stdout cap | 7.98 ms (first ~1 024 land, rest silently dropped) |
+| Script | Latency | `wall_time` (guest) |
+|---|---|---|
+| 100 000-iteration integer XOR loop | **43.89 ms** | 44.22 ms |
+| 1 000 single-character String appends | 591 µs | 571 µs |
+| 100 cycles of `raise` / `rescue` | 308 µs → 3.1 µs per cycle | 288 µs |
+| 1 000 Onigmo `Regexp =~` matches | 3.05 ms → 3.0 µs per match | 3.08 ms |
+| 1 000 `puts` of 64 B (below 1 MiB stdout cap) | 4.24 ms → 4.2 µs per write | 4.18 ms |
+| 2 048 `puts` of ~1 KiB against the 1 MiB stdout cap | 9.25 ms (first ~1 024 land, rest silently dropped) | 8.52 ms |
 
 The `4d` / `4e` / `4f` rows cover features that landed since `0.1.2`: Onigmo `Regexp` via `mruby-onig-regexp`, the full B-04 IO surface (`puts` / `print` / `printf` / `p` / `$stdout` / `$stderr` wired through to a host-captured WASI pipe), and the per-channel `stdout_limit` cap on that capture buffer. The cap is honored: guest `puts` does not raise on rejection, the pipe returns short, the loop runs to completion, and `sandbox.stdout_truncated?` is `true` after the run.
+
+The `wall_time` column rounds to ips-equivalent for everything except `4e` / `4f`, where the guest export bracket captures essentially the whole cost — the host wrapper is fixed per-`#eval` while the inside-VM stdout loop dominates. `4e` per-write cost rose from 3.4 µs to 4.2 µs (+24%) relative to the 2026-05-20 baseline; the cause is documented in [What changed vs previous baseline](#what-changed-vs-previous-baseline) and reflects a deliberate move of the `IO#write` byte loop out of a hand-written C shim into safe Rust via bindgen — `memory_peak = 0` on both rows confirms the path is wasi-libc-bound, not guest-linear-memory-bound.
 
 ### Handle table scaling ([`handle_table.rb`](handle_table.rb))
 
@@ -150,17 +156,19 @@ The `4d` / `4e` / `4f` rows cover features that landed since `0.1.2`: Onigmo `Re
 
 | Scenario | Latency |
 |---|---|
-| Allocate one Handle in an empty table | 257 ns |
-| Allocate 100 Handles from empty | 14.4 µs total |
-| Allocate 10 000 Handles from empty | 1.39 ms total |
-| Allocate 100 000 Handles from empty | 15.67 ms total |
-| 1 000 allocs against a 1 K-entry table | 0.099 ms |
-| 1 000 allocs against a 10 K-entry table | 0.093 ms |
-| 1 000 allocs against a 100 K-entry table | 0.100 ms |
-| 1 000 allocs against a 1 M-entry table | 0.123 ms |
-| Warm `Sandbox#eval("nil")` round-trip under sustained heap pressure | 120 µs |
+| Allocate one Handle in an empty table | 553 ns |
+| Allocate 100 Handles from empty | 42.5 µs total |
+| Allocate 10 000 Handles from empty | 4.32 ms total |
+| Allocate 100 000 Handles from empty | 47.90 ms total |
+| 1 000 allocs against a 1 K-entry table | 0.368 ms |
+| 1 000 allocs against a 10 K-entry table | 0.372 ms |
+| 1 000 allocs against a 100 K-entry table | 0.422 ms |
+| 1 000 allocs against a 1 M-entry table | 0.543 ms |
+| Warm `Sandbox#eval("nil")` round-trip under sustained heap pressure | 123 µs (`wall_time` = 120 µs) |
 
-The 1 K to 1 M waypoint rows confirm the dictionary stays effectively flat as the table grows — per-alloc cost holds around 93-123 ns across four orders of magnitude. ([SPEC.md B-21](../SPEC.md) caps the counter at `0x7fff_ffff` and rejects allocation past the cap; the cap guard itself is constant-time and not iterated here.)
+The 1 K to 1 M waypoint rows confirm the underlying dictionary still stays effectively flat as the table grows — per-alloc cost holds around 368-543 ns across four orders of magnitude, with the gentle climb attributable to allocator state rather than dictionary lookup curve. ([SPEC.md B-21](../SPEC.md) caps the counter at `0x7fff_ffff` and rejects allocation past the cap; the cap guard itself is constant-time and not iterated here.)
+
+All `5a` / `5b` rows are 3-4× the previous-baseline number — the absolute level shifted but the shape did not. The cause is documented in [What changed vs previous baseline](#what-changed-vs-previous-baseline) and reflects `HandleTable#alloc` now returning a `Kobako::Handle` object instead of a bare Integer id; the per-call Handle allocation is the regression's dominant term.
 
 The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different dimension than `1b-sandbox-new+eval-nil` from cold_start (~274 µs). It runs **after** the 5b loop has grown a 1 M-entry HandleTable that stays alive in the same Ruby process for the rest of the run, so every measured `#eval` allocates capture-buffer Strings under sustained GC pressure. 1b is the clean per-invocation cost; 5c is the regression signal for changes that make per-invocation work more GC-sensitive when the process is already holding a large HandleTable — a condition 1b cannot detect.
 
@@ -168,26 +176,26 @@ The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different d
 
 Coverage of the two verbs added after the SPEC #1..#5 suite was written. `#preload` and `#run` are independent features — `#preload(code: ..., name: ...)` registers snippets that replay against the fresh `mrb_state` on every subsequent invocation (whether `#eval` or `#run`); `#run(:Target)` dispatches into a preloaded entrypoint constant via the Invocation envelope. The rows below isolate each verb's contribution rather than comparing them against `#eval`.
 
-| Scenario | Latency |
-|---|---|
-| `Sandbox.new` + 1 `#preload(code:)` | 129 µs |
-| `Sandbox.new` + 8 `#preload(code:)` | 133 µs |
-| `Sandbox.new` + 64 `#preload(code:)` | 287 µs |
-| Warm `#run(:Noop)` (1 entrypoint preloaded) | 164 µs |
-| Warm `#run(:Echo, 42)` (positional arg) | 162 µs |
-| Warm `#run(:Greet, name: :alice)` (Symbol-keyed kwargs) | 163 µs |
-| Warm `#run(:Noop)` with 0 helper snippets preloaded | 147 µs |
-| Warm `#run(:Noop)` with 8 helper snippets preloaded | 204 µs |
-| Warm `#run(:Noop)` with 64 helper snippets preloaded | 713 µs |
-| Warm `#run(:Wrap, StringIO)` (B-34 host→guest auto-wrap) | _pending next baseline_ |
+| Scenario | Latency | `wall_time` (guest) |
+|---|---|---|
+| `Sandbox.new` + 1 `#preload(code:)` | 133 µs | — |
+| `Sandbox.new` + 8 `#preload(code:)` | 148 µs | — |
+| `Sandbox.new` + 64 `#preload(code:)` | 310 µs | — |
+| Warm `#run(:Noop)` (1 entrypoint preloaded) | 172 µs | 150 µs |
+| Warm `#run(:Echo, 42)` (positional arg) | 166 µs | 150 µs |
+| Warm `#run(:Greet, name: :alice)` (Symbol-keyed kwargs) | 167 µs | 152 µs |
+| Warm `#run(:Wrap, StringIO)` (B-34 host→guest auto-wrap) | 155 µs | 139 µs |
+| Warm `#run(:Noop)` with 0 helper snippets preloaded | 150 µs | 138 µs |
+| Warm `#run(:Noop)` with 8 helper snippets preloaded | 207 µs | 193 µs |
+| Warm `#run(:Noop)` with 64 helper snippets preloaded | 720 µs | 701 µs |
 
-8a's 1→8→64 sweep is dominated by the `Sandbox.new` term (~132 µs from `1a-sandbox-new`) at low N; the meaningful signal is the 1→64 delta — 287 − 129 = 158 µs spread across 63 extra `#preload` calls, which puts the per-snippet preload cost at ~2.5 µs. The `#preload(code:)` path trial-compiles each source against a fresh `mrb_state` to catch E-32 early; that compile dominates per-snippet cost.
+8a's 1→8→64 sweep is dominated by the `Sandbox.new` term (~128 µs from `1a-sandbox-new`) at low N; the meaningful signal is the 1→64 delta — 310 − 133 = 177 µs spread across 63 extra `#preload` calls, which puts the per-snippet preload cost at ~2.8 µs. The `#preload(code:)` path trial-compiles each source against a fresh `mrb_state` to catch E-32 early; that compile dominates per-snippet cost. 8a rows do not carry `wall_time` because the timer wraps `Sandbox.new + #preload` and neither call invokes the guest export — `sandbox.usage` is the `EMPTY` sentinel at that point.
 
-8b / 8c / 8d show that positional args and Symbol kwargs add essentially nothing on top of the empty `#run` baseline (162-163 µs vs 164 µs). The Invocation envelope's args / kwargs encoding is cheap compared to the per-invocation setup. The ext 0x00 path here is the host→guest direction; the structurally distinct guest→host kwargs path is covered by `rpc_roundtrip 2c` at ~137 µs.
+8b / 8c / 8d show that positional args and Symbol kwargs add essentially nothing on top of the empty `#run` baseline (166-167 µs vs 172 µs). The Invocation envelope's args / kwargs encoding is cheap compared to the per-invocation setup. The ext 0x00 path here is the host→guest direction; the structurally distinct guest→host kwargs path is covered by `rpc_roundtrip 2c` at ~140 µs.
 
-8f covers the [B-34](../docs/behavior.md) host→guest auto-wrap path that 8c / 8d miss. The arg (a `StringIO`) is not wire-representable, so `Kobako::Codec::Utils.deep_wrap` routes it through `HandleTable#alloc` and the guest sees a `Kobako::Handle` proxy in its place. The entrypoint discards the proxy without calling back, so the case isolates the host-side wrap cost — predicate + `alloc` + wire encode — without compounding with a guest→host RPC roundtrip. The delta against 8c (positional `Integer`) measures exactly that wrap branch. Numbers will populate with the next baseline refresh.
+8f covers the [B-34](../docs/behavior.md) host→guest auto-wrap path that 8c / 8d miss. The arg (a `StringIO`) is not wire-representable, so `Kobako::Codec::Utils.deep_wrap` routes it through `HandleTable#alloc` and the guest sees a `Kobako::Handle` proxy in its place. The entrypoint discards the proxy without calling back, so the case isolates the host-side wrap cost — predicate + `alloc` + wire encode — without compounding with a guest→host RPC roundtrip. At 155 µs the case lands ~11 µs *below* 8c's 166 µs positional `Integer` baseline, which means the wrap path itself is at worst comparable to a wire-fast Integer arg path under the current implementation. A regression that makes `deep_wrap` or `HandleTable#alloc` super-linear in arg count would show as 8f rising above 8c here.
 
-8e isolates per-invocation snippet replay cost: the 0→8 delta gives (204 − 147) / 8 ≈ 7.1 µs per snippet per invocation, and the 0→64 delta gives (713 − 147) / 64 ≈ 8.8 µs per snippet — linear in snippet count, which is what B-32's "replay every snippet against the fresh `mrb_state`" contract requires. A regression that adds super-linear work (e.g., O(N²) constant resolution) would show as a curved slope here, not the current near-linear one.
+8e isolates per-invocation snippet replay cost: the 0→8 delta gives (207 − 150) / 8 ≈ 7.1 µs per snippet per invocation, and the 0→64 delta gives (720 − 150) / 64 ≈ 8.9 µs per snippet — linear in snippet count, which is what B-32's "replay every snippet against the fresh `mrb_state`" contract requires. `wall_time` on `8e-replay-64` (701 µs) confirms the replay cost is paid inside the guest export, not in host-side dispatch.
 
 ### Multi-Thread behavior ([`concurrent/threads.rb`](concurrent/threads.rb)) — characterization only
 
@@ -195,14 +203,14 @@ Coverage of the two verbs added after the SPEC #1..#5 suite was written. `#prelo
 
 | Scenario | Result |
 |---|---|
-| 1 Thread, owning one Sandbox | 7.5k `#eval`/s |
-| 2 Threads, each owning one Sandbox | 8.0k `#eval`/s (essentially flat) |
-| 4 Threads, each owning one Sandbox | 8.0k `#eval`/s |
-| 8 Threads, each owning one Sandbox | 7.6k `#eval`/s |
-| Per-Sandbox `Sandbox.new` cost, single-Threaded | 0.202 ms |
-| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel | 0.172 ms each (1.376 ms total / 8) |
-| `#eval("nil")` baseline | 0.130 ms |
-| `#eval("nil")` while another Thread is in a long `#eval` | 0.275 ms (2.1× baseline) |
+| 1 Thread, owning one Sandbox | 7.7k `#eval`/s |
+| 2 Threads, each owning one Sandbox | 7.9k `#eval`/s (essentially flat) |
+| 4 Threads, each owning one Sandbox | 7.6k `#eval`/s |
+| 8 Threads, each owning one Sandbox | 7.2k `#eval`/s |
+| Per-Sandbox `Sandbox.new` cost, single-Threaded | 0.178 ms |
+| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel | 0.209 ms each (1.673 ms total / 8) |
+| `#eval("nil")` baseline | 0.131 ms |
+| `#eval("nil")` while another Thread is in a long `#eval` | 0.281 ms (2.1× baseline) |
 
 Practical implication for Sidekiq / Puma cluster shapes: a long-running script does NOT block other Threads' short `#eval` calls by hundreds of milliseconds. The contention overhead is bounded because any host-side synchronization (Queue push from a Service callback, mutex acquisition, IO) yields the GVL and lets the contending Thread interleave. The exact ratio varies run-to-run (1.5-3×) with scheduler quirks; the order of magnitude is the regression signal.
 
@@ -210,42 +218,49 @@ Practical implication for Sidekiq / Puma cluster shapes: a long-running script d
 
 External RSS sampling (`ps -o rss=`) — we only observe what the host process consumes, never look inside the Sandbox's mruby heap or Wasm linear memory. This is the right granularity for capacity planning (how many tenants fit in one process) without violating SPEC's Non-Goal of per-invocation instrumentation.
 
-| Scenario | Result |
-|---|---|
-| Process RSS at boot (no Sandbox) | 27.4 MB |
-| RSS after the first `Sandbox.new` + `#eval("nil")` | 179.3 MB (**+152 MB** — Engine init + Module JIT + 1 instance, one-time) |
-| RSS after 10 Sandboxes total | 184.2 MB (~500 KB per additional Sandbox) |
-| RSS after 100 Sandboxes total | 234.6 MB (~570 KB per additional Sandbox) |
-| RSS after 1 000 Sandboxes total | 756.4 MB (~**580 KB per additional Sandbox**) |
-| RSS drift after 10 000 consecutive `#eval("nil")` on one Sandbox | +0.8 MB over the whole run (~0.08 KB / invocation; consistent with allocator page retention, not a B-15 / B-19 violation) |
-| Peak RSS while holding a 512 KiB return value | +2.5 MB above baseline |
-| Retained RSS after GC of the same value | +2.5 MB (allocator does not eagerly return pages to the OS; the Ruby reference is dropped) |
-| Peak RSS while holding a 1 MiB capped stdout buffer | +0.8 MB above baseline (allocator-state-dependent — see note) |
-| Retained RSS after GC of the same capture | +0.0 MB |
+| Scenario | RSS | B-35 `memory_peak` |
+|---|---|---|
+| Process RSS at boot (no Sandbox) | 27.7 MB | — |
+| RSS after the first `Sandbox.new` + `#eval("nil")` | 191.3 MB (**+164 MB** — Engine init + Module JIT + 1 instance, one-time) | — |
+| RSS after 10 Sandboxes total | 196.2 MB (~500 KB per additional Sandbox) | — |
+| RSS after 100 Sandboxes total | 246.9 MB (~570 KB per additional Sandbox) | — |
+| RSS after 1 000 Sandboxes total | 764.3 MB (~**580 KB per additional Sandbox**) | — |
+| RSS drift after 10 000 consecutive `#eval("nil")` on one Sandbox | +1.4 MB over the whole run (~0.14 KB / invocation; allocator page retention) | **0 B** per invocation across all 1 K sample points |
+| Peak RSS while holding a 512 KiB return value | +2.5 MB above baseline | **2.5 MiB** (guest `memory.grow` delta for the 512 KiB String) |
+| Retained RSS after GC of the same value | +2.5 MB (allocator does not eagerly return pages to the OS; the Ruby reference is dropped) | — |
+| Peak RSS while holding a 1 MiB capped stdout buffer | +1.2 MB above baseline (allocator-state-dependent — see note) | **64 KiB** (stdout flows through the WASI pipe, not guest linear memory) |
+| Retained RSS after GC of the same capture | +0.4 MB | — |
 
-Practical implication for tenant isolation: budget ~150 MB up front per worker process (paid by the first Sandbox), plus ~580 KB per concurrent tenant. **1 000 tenants ≈ 760 MB** in one Ruby process — comfortably within a typical Sidekiq / Puma worker's RSS limit. The 580 KB number is dominated by each Sandbox's own Wasm Instance, its linear memory, and the per-channel WASI capture pipes (stdout/stderr); the Engine and the compiled Module are shared at process scope and not re-paid per Sandbox.
+Practical implication for tenant isolation: budget ~165 MB up front per worker process (paid by the first Sandbox), plus ~580 KB per concurrent tenant. **1 000 tenants ≈ 765 MB** in one Ruby process — comfortably within a typical Sidekiq / Puma worker's RSS limit. The 580 KB number is dominated by each Sandbox's own Wasm Instance, its linear memory, and the per-channel WASI capture pipes (stdout/stderr); the Engine and the compiled Module are shared at process scope and not re-paid per Sandbox.
+
+The B-35 `memory_peak` column makes the guest's contribution to each row directly attributable. `7b` `memory_peak = 0` per nil-returning eval confirms the per-invocation reset reaches the linear-memory layer (RSS drift here is purely allocator page retention, not guest-side leakage). `7c` `memory_peak = 2.5 MiB` matches the RSS jump within rounding, so the allocator slack here is essentially zero on top of the guest's own `memory.grow` for the 512 KiB String. `7d` `memory_peak = 64 KiB` says the 2 MiB-attempted stdout write barely touched guest linear memory at all — the bytes flow through the WASI pipe; the +1.2 MB RSS is the host-side capture buffer plus allocator slack.
 
 The `7d` peak / retained numbers fluctuate run-to-run depending on whether the allocator already holds pages large enough to fit the 1 MiB capture buffer. The cap itself is honored regardless: `stdout_truncated?` flips to `true` and the captured buffer ends at the 1 MiB boundary regardless of how much the guest tried to write. A persistent jump in this row across runs would indicate the capture buffer is growing without bound.
 
-The `7b` per-invocation drift remains bounded — 0.8 MB over 10 000 invocations, in line with allocator page retention. B-15 / B-19 per-invocation reset is still honored at the Ruby level.
+The `7b` per-invocation drift remains bounded — 1.4 MB over 10 000 invocations, in line with allocator page retention. B-15 / B-19 per-invocation reset is honored at both the Ruby level (HandleTable counter, capture buffers) and the linear-memory level (`memory_peak = 0` per call).
 
 ## What changed vs previous baseline
 
 This section is the diff against the *immediately previous* baseline — it is replaced (not appended) every time the Latest baseline above is refreshed. Pre-history lives in git (`benchmark/results/<date>-<sha>.json` files) and in release-tagged `benchmark/<semver>` annotated tags.
 
-**Previous baseline:** `8bfd888`, 2026-05-20. **This baseline:** `19e51d9`, 2026-05-20.
+**Previous baseline:** `19e51d9`, 2026-05-20. **This baseline:** `1be572c`, 2026-05-22.
 
-One semantic change shapes this diff:
+The JSON shape grew two B-35 fields and the suites picked up one new case; the absolute numbers shifted in three places, all traceable to specific commits.
 
-- **`memory_limit` is now per-invocation linear-memory delta.** Previously the cap compared `desired_total > memory_limit` directly, which folded the mruby image's initial allocation and every prior invocation's high-water mark into the budget — turning a SPEC-documented "per-invocation" cap into a Sandbox-global cumulative one. The `KobakoLimiter` now charges only `desired - baseline`, where `baseline` is the linear-memory size observed at invocation entry. The five gated suites all pass `memory_limit: nil` and are unaffected; the `#7` characterization suite previously tripped the (effectively shrinking) cap on 7c / 7d and now also runs with `memory_limit: nil` per [`chore(bench)`: align suites with per-invocation memory_limit semantics](https://github.com/elct9620/kobako/commit/19e51d9).
+**Schema changes (additive, every sandbox-driven row now carries them):**
 
-Gated cases are within ±5% of the prior baseline — `1a-sandbox-new` (124 → 132 µs), `5a-alloc-100_000-from-empty` (15.23 → 15.67 ms), `3a-host-encode-1MiB` (57.8 → 65.4 µs) are the largest movers, all consistent with allocator / page-cache noise on the host machine. Every `2x` RPC row, every `3c` per-wire-type row, every `4x` mruby-VM row, and the `5b` HandleTable waypoint curve are within their `±sd` bands.
+- `wall_time` (Float seconds) and `memory_peak` (Integer bytes) land on every ips row whose block drives a `Kobako::Sandbox`, and on `7b` / `7c` / `7d` memory rows. The Runner gained `case_with_usage(label, sandbox, &block)` and `annotate_usage!(sandbox)` helpers ([`feat(bench)`: surface B-35 wall_time / memory_peak in sandbox cases](https://github.com/elct9620/kobako/commit/5bdba32)); `format_baseline.rb` renders them as `wall=… mem=…` next to the existing meta. Pre-`5bdba32` baselines do not carry these fields — readers comparing further back than `1be572c` should pull `wall_time` from the new baseline only.
+- `8f-run-dispatch-autowrap` joins the `preload_dispatch` suite, covering the [B-34](../docs/behavior.md) host→guest auto-wrap path that 8c / 8d miss ([`feat(bench)`: add 8f covering B-34 host→guest auto-wrap path](https://github.com/elct9620/kobako/commit/7c8d3e2)).
 
-`#7` memory characterization now reports honest peak/retained numbers because no row trips the cap. 7c retained moves 3.5 → 2.5 MB; 7d retained moves 2.5 → 0.0 MB (the allocator returned the page once the capture buffer was freed). 7b drift dropped 2.2 → 0.8 MB over 10 000 invocations, well inside allocator page-retention noise.
+**Performance shifts (commit-attributable):**
 
-`6c-blocking-ratio` widened from 1.33× to 2.12× — wall-clock measurements remain sensitive to background process load on the measurement host; the documented "varies run-to-run (1.5-3×)" band still holds.
+- **`5a` / `5b` HandleTable allocation 3-4× slower across the board.** `5a-alloc-1` 257 ns → 553 ns, `5a-alloc-100_000` 15.67 ms → 47.90 ms, `5b-alloc-1000-at-size-1M` 0.123 → 0.543 ms. Cause: [`refactor(host)`: HandleTable#alloc returns a Handle, not a bare id](https://github.com/elct9620/kobako/commit/14b8754). Each `#alloc` now allocates a `Kobako::Handle` object alongside the Hash insertion and counter increment; the per-alloc surplus (~300-400 ns) is the dominant term. The trade-off is intentional: `Codec::Utils.deep_wrap` and `Dispatcher#wrap_as_handle` drop their downstream `Kobako::Handle.from_wire` wraps, so the cost moves from per-RPC-return to per-`#alloc`. Net effect on the user-facing surface is small — `2e-handle-chain` (the only `2x` row exercising a Handle alloc per invocation) moved from 149.6 → 152.2 µs, well inside noise.
+- **`4e` / `4f` stdout writes ~+20% slower.** `4e-stdout-puts-1000` 3.43 → 4.24 ms (+24%); `4f-stdout-cap-saturation` 7.98 → 9.25 ms (+16%). Cause: [`refactor(wasm)`: inline-wrap RSTRING_PTR / RSTRING_LEN macros in wrapper.h](https://github.com/elct9620/kobako/commit/dfd14db). The hand-written C `kobako_io_fwrite` shim was replaced by a safe Rust loop that reaches mruby string bytes via two bindgen-emitted extern symbols (`mrb_rstring_ptr__extern` / `mrb_rstring_len__extern`); the workspace's `opt-level = "z"` profile suppresses cross-crate inlining, so each `IO#write` pays two extra wasm function-call dispatches. Adds ~730 ns per puts. Confined to the IO write path: `4a` (arith), `4b` (string concat in mruby), `4c` (exception), `4d` (regexp), and every gated #1 / #2 / #3 / #5 row are unaffected. SPEC frames stdout/stderr as the guest log channel, not the data channel — workloads that return values rather than `puts` (J-05 / J-06 / Rack-style dispatch) pay zero cost.
+- **First-Sandbox RSS grew ~+12 MB.** `7a-rss-after-1-sandbox` 179.3 → 191.3 MB. Same `dfd14db` root cause — moving `IO#write` into Rust + bindgen extern symbols enlarges the compiled module by the trampoline surface and the safe-Rust wrappers around it. The +12 MB is paid once per process at first-Sandbox cost (still amortised across all subsequent Sandboxes via the process-wide Module cache); per-additional-Sandbox RSS holds at ~580 KB.
 
-For the previous (`c605109` → `8bfd888`) diff — verb rename + new `#8 preload_dispatch` suite — see git history.
+Everything else is within ±5% of the prior baseline and consistent with allocator / page-cache noise on the host machine. The release-gate +10% threshold trips on `4e` / `4f` and the `5a` / `5b` family this baseline; both are classified as intentional design trade-offs with the trade-off documented at the commit referenced above, not regressions to bisect further.
+
+For the previous (`8bfd888` → `19e51d9`) diff — `memory_limit` semantics fix — see git history.
 
 ## Running
 
@@ -278,13 +293,13 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
     "ruby_platform": "arm64-darwin24",
     "processors": 16,
     "yjit_enabled": false,
-    "git_sha": "19e51d9",
-    "captured_at": "2026-05-20T16:09:55Z"
+    "git_sha": "1be572c",
+    "captured_at": "2026-05-22T09:06:40Z"
   },
   "suites": {
-    "cold_start":     [ { "label": "1a-sandbox-new", "ips": 8080.0, "ips_sd": 112, "iterations": 24576, "cycles": 3 } ],
-    "rpc_roundtrip":  [ { "label": "2a-empty-rpc",   "ips": 7407.0, "ips_sd": 80,  "iterations": 18432, "cycles": 3,
-                          "wall_time": 0.0000045, "memory_peak": 0 } ],
+    "cold_start":     [ { "label": "1a-sandbox-new", "ips": 7798.4, "ips_sd": 257, "iterations": 18432, "cycles": 3 } ],
+    "rpc_roundtrip":  [ { "label": "2a-empty-rpc",   "ips": 7349.5, "ips_sd": 23,  "iterations": 18432, "cycles": 3,
+                          "wall_time": 0.0001262, "memory_peak": 0 } ],
     ...
   }
 }
