@@ -7,8 +7,7 @@
 //! `Kobako::Sandbox` constructions, the ext keeps a process-scope
 //! shared Engine and a per-path Module cache. Both are transparent to
 //! Ruby callers, who construct an `Instance` via
-//! `Kobako::Wasm::Instance.from_path(...)` and never see Engine or
-//! Module.
+//! `Kobako::Runtime.from_path(...)` and never see Engine or Module.
 //!
 //! Concurrency: under Ruby's GVL only one thread can execute Rust code
 //! at a time, so the Mutex is held briefly during HashMap insert/lookup

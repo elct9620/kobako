@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Wrapper-layer tests for the sole Ruby-visible wasmtime class,
-# +Kobako::Wasm::Instance+. The native ext keeps Engine, Module, and Store as
+# +Kobako::Runtime+. The native ext keeps Engine, Module, and Store as
 # internal Rust types — they are not reachable from Ruby (SPEC.md "Code
 # Organization": `ext/` "exposes no Wasm engine types to the Host App or
 # downstream gems").
@@ -12,22 +12,22 @@ require "test_helper"
 # real-guest export presence is covered transitively by the E2E journeys
 # (test_e2e_journeys.rb), which drive +Sandbox#eval+ end-to-end and would fail
 # fast if any SPEC Wire ABI export went missing.
-class TestWasmWrapper < Minitest::Test
+class TestRuntime < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
   end
 
   def test_default_path_resolves_under_project_data_dir
     expected = File.expand_path("../data/kobako.wasm", __dir__)
-    assert_equal expected, Kobako::Wasm.default_path
-    assert Kobako::Wasm.default_path.start_with?("/"), "default_path must be absolute"
+    assert_equal expected, Kobako::Runtime.default_path
+    assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
   end
 
   def test_from_path_raises_module_not_built_for_missing_path
     err = assert_raises(Kobako::ModuleNotBuiltError) do
-      Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm", nil, nil, nil, nil)
+      Kobako::Runtime.from_path("/nonexistent/kobako.wasm", nil, nil, nil, nil)
     end
     assert_match(/rake wasm:build/, err.message)
   end
@@ -40,15 +40,15 @@ class TestWasmWrapper < Minitest::Test
   def test_from_path_works_with_fixture_module
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
-    instance = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil, nil, nil)
-    assert_instance_of Kobako::Wasm::Instance, instance
+    runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
+    assert_instance_of Kobako::Runtime, runtime
   end
 
   def test_from_path_repeated_calls_return_independent_instances
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
-    a = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil, nil, nil)
-    b = Kobako::Wasm::Instance.from_path(FIXTURE_PATH, nil, nil, nil, nil)
-    refute_same a, b, "each call must return a fresh Instance with its own Store"
+    a = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
+    b = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
+    refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
 end

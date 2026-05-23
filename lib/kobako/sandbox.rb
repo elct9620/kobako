@@ -20,7 +20,7 @@ module Kobako
   # scripts inside a wasmtime-hosted Wasm module
   # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
   #
-  # The Sandbox owns the +Kobako::Wasm::Instance+, the per-Sandbox
+  # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
   # +Kobako::Catalog::Handler+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
   # the per-instance +Kobako::Catalog::Binding+ (which receives the
   # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
@@ -101,14 +101,14 @@ module Kobako
     def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
                    timeout: SandboxOptions::DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: SandboxOptions::DEFAULT_MEMORY_LIMIT)
-      @wasm_path = wasm_path || Kobako::Wasm.default_path
+      @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
       @handler = Catalog::Handler.new
       @services = Kobako::Catalog::Binding.new(handler: @handler)
       @snippets = Catalog::Snippet::Table.new
-      @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                                   @options.stdout_limit, @options.stderr_limit)
+      @instance = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
+                                            @options.stdout_limit, @options.stderr_limit)
       @channel = build_channel!
       reset_invocation_state!
     end

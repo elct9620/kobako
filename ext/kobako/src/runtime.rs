@@ -1,10 +1,10 @@
-// Host-side wasmtime wrapper.
+// Host-side wasmtime runtime wrapper.
 //
 // The only Ruby-visible class is
 //
-//   Kobako::Wasm::Instance — wraps wasmtime::Instance + cached TypedFuncs
+//   Kobako::Runtime — wraps wasmtime::Instance + cached TypedFuncs
 //
-// constructed via `Kobako::Wasm::Instance.from_path(path, timeout, memory_limit,
+// constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
 // stdout_limit, stderr_limit)`.
 // The underlying wasmtime Engine and compiled Module live in a process-scope
 // cache (see the `cache` submodule) and never surface to Ruby (SPEC.md "Code
@@ -18,13 +18,13 @@
 //   * `host_state`  — HostState (per-Store context), StoreCell wrapper, the
 //                     [`KobakoLimiter`] memory cap, and the trap marker
 //                     types ([`TimeoutTrap`] / [`MemoryLimitTrap`]).
-//   * `instance`    — Kobako::Wasm::Instance and its run-path methods.
+//   * `instance`    — `Kobako::Runtime` magnus class and its run-path methods.
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //
 // This file is the façade: it owns the Ruby error class lazy-resolvers,
 // the `trap_err` / `timeout_err` / `memory_limit_err` constructors shared
-// by every submodule, and the Ruby init() that registers
-// `Kobako::Wasm::Instance` and its methods.
+// by every submodule, and the Ruby init() that registers `Kobako::Runtime`
+// and its methods.
 
 mod cache;
 mod dispatch;
@@ -52,9 +52,9 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 // Error classes (lazy-resolved from Ruby once the top-level Kobako error
 // hierarchy is loaded by `lib/kobako/errors.rb`). The ext raises directly
-// into the three-class taxonomy — there is no `Kobako::Wasm::Error`
-// intermediate layer; the Sandbox layer adds the verb prefix and lets the
-// subclass identity flow through unchanged.
+// into the three-class taxonomy — no engine-specific intermediate layer;
+// the Sandbox layer adds the verb prefix and lets the subclass identity
+// flow through unchanged.
 // ---------------------------------------------------------------------------
 
 pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
@@ -103,25 +103,22 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 // ---------------------------------------------------------------------------
 
 pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
-    let wasm = kobako.define_module("Wasm")?;
-
     // Error hierarchy lives in `lib/kobako/errors.rb` (top-level
     // `Kobako::TrapError` / `TimeoutError` / `MemoryLimitError` /
     // `ModuleNotBuiltError`). The ext raises directly into those classes
     // through `trap_err` / `timeout_err` / `memory_limit_err` /
-    // `MODULE_NOT_BUILT_ERROR`; no `Kobako::Wasm::Error` intermediate
-    // hierarchy is registered.
+    // `MODULE_NOT_BUILT_ERROR`; no intermediate hierarchy is registered.
 
-    let instance = wasm.define_class("Instance", ruby.class_object())?;
-    instance.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
-    instance.define_method("channel=", method!(Instance::set_channel, 1))?;
-    instance.define_method("yield_to_block", method!(Instance::yield_to_block, 1))?;
-    instance.define_method("eval", method!(Instance::eval, 3))?;
-    instance.define_method("run", method!(Instance::run, 3))?;
-    instance.define_method("stdout", method!(Instance::stdout, 0))?;
-    instance.define_method("stderr", method!(Instance::stderr, 0))?;
-    instance.define_method("outcome!", method!(Instance::outcome, 0))?;
-    instance.define_method("usage", method!(Instance::usage, 0))?;
+    let runtime = kobako.define_class("Runtime", ruby.class_object())?;
+    runtime.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
+    runtime.define_method("channel=", method!(Instance::set_channel, 1))?;
+    runtime.define_method("yield_to_block", method!(Instance::yield_to_block, 1))?;
+    runtime.define_method("eval", method!(Instance::eval, 3))?;
+    runtime.define_method("run", method!(Instance::run, 3))?;
+    runtime.define_method("stdout", method!(Instance::stdout, 0))?;
+    runtime.define_method("stderr", method!(Instance::stderr, 0))?;
+    runtime.define_method("outcome!", method!(Instance::outcome, 0))?;
+    runtime.define_method("usage", method!(Instance::usage, 0))?;
 
     Ok(())
 }

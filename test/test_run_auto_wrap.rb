@@ -14,7 +14,7 @@ require "test_helper"
 # happy path against the real data/kobako.wasm.
 class TestRunAutoWrap < Minitest::Test
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
   end
 
   # A StringIO arrives as a positional argument. The host wraps it as

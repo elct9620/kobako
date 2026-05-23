@@ -11,7 +11,7 @@ module Kobako
   # for absent values and normalises (timeout to Float seconds,
   # memory_limit to positive Integer bytes) before delegating to Data's
   # +super+. Anything that survives +SandboxOptions.new+ is a wire-ready
-  # cap bundle the +Kobako::Wasm::Instance+ constructor consumes as-is.
+  # cap bundle the +Kobako::Runtime+ constructor consumes as-is.
   class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit)
     # Default wall-clock timeout for a single invocation: 60 seconds
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).

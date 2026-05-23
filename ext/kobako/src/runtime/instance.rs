@@ -1,4 +1,4 @@
-//! `Kobako::Wasm::Instance` — the only Ruby-visible wasmtime wrapper.
+//! `Kobako::Runtime` — the only Ruby-visible wasmtime wrapper.
 //!
 //! Constructed via [`Instance::from_path`]; the wasmtime [`Engine`] and
 //! compiled [`Module`] are owned by the [`super::cache`] singletons and
@@ -60,7 +60,7 @@ use super::dispatch;
 use super::host_state::{HostState, MemoryLimitTrap, StoreCell, TimeoutTrap};
 use super::{memory_limit_err, rstring_to_vec, timeout_err, trap_err};
 
-#[magnus::wrap(class = "Kobako::Wasm::Instance", free_immediately, size)]
+#[magnus::wrap(class = "Kobako::Runtime", free_immediately, size)]
 pub(crate) struct Instance {
     inner: WtInstance,
     store: StoreCell,
@@ -95,8 +95,8 @@ pub(crate) struct Instance {
 impl Instance {
     /// Construct an Instance from a wasm file path, using the process-wide
     /// shared Engine and per-path Module cache. The single Ruby-facing
-    /// constructor for `Kobako::Wasm::Instance` — Engine and Module are
-    /// never visible to Ruby.
+    /// constructor for `Kobako::Runtime` — Engine and Module are never
+    /// visible to Ruby.
     ///
     /// `timeout_seconds` is the docs/behavior.md B-01 wall-clock cap in seconds
     /// (`None` disables); `memory_limit` is the linear-memory cap in
@@ -752,9 +752,9 @@ enum TrapClass {
     Other,
 }
 
-/// Inspect a wasmtime error to decide which `Kobako::Wasm::*` class it
-/// should map to. Pure function — operates on the error's downcast
-/// chain only, no magnus / Ruby state required.
+/// Inspect a wasmtime error to decide which top-level `Kobako::*` trap
+/// class it should map to. Pure function — operates on the error's
+/// downcast chain only, no magnus / Ruby state required.
 fn classify_trap(err: &wasmtime::Error) -> TrapClass {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
         TrapClass::Timeout
@@ -765,7 +765,7 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
     }
 }
 
-/// Map a wasmtime call error to the right `Kobako::Wasm::*` Ruby
+/// Map a wasmtime call error to the right top-level `Kobako::*` Ruby
 /// exception class. The ABI export symbol (`__kobako_eval` /
 /// `__kobako_run`) is deliberately omitted from the message — the
 /// Sandbox layer attaches the user-facing verb (`Sandbox#eval` /
@@ -800,7 +800,7 @@ fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     }
 }
 
-/// Map an instantiation error to the right `Kobako::Wasm::*` Ruby
+/// Map an instantiation error to the right top-level `Kobako::*` Ruby
 /// exception. The memory cap is dormant during instantiation by design
 /// (see [`HostState::arm_memory_cap`] / [`HostState::disarm_memory_cap`]),
 /// but [`MemoryLimitTrap`] is still possible if a future Sandbox

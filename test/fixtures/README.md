@@ -4,7 +4,7 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs. Used by tests that only need a Wasm to satisfy `Kobako::Wasm::Instance.from_path`; never invoked end-to-end. Built once from `wasm/test-guest/` before that crate was removed in 2026-05-12. Regeneration is intentionally manual — the source crate is gone and bringing it back would violate the "no parallel fixture-driven wasm crates" convention.
+Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs. Used by tests that only need a Wasm to satisfy `Kobako::Runtime.from_path`; never invoked end-to-end. Built once from `wasm/test-guest/` before that crate was removed in 2026-05-12. Regeneration is intentionally manual — the source crate is gone and bringing it back would violate the "no parallel fixture-driven wasm crates" convention.
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 

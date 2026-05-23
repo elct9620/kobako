@@ -13,7 +13,7 @@ class TestSandbox < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
@@ -21,7 +21,7 @@ class TestSandbox < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
-    assert_instance_of Kobako::Wasm::Instance, sandbox.instance
+    assert_instance_of Kobako::Runtime, sandbox.instance
   end
 
   def test_default_construction_exposes_default_output_limits

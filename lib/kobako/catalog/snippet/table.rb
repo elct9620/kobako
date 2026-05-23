@@ -40,7 +40,7 @@ module Kobako
         # contributes a msgpack map shape; the collection rides as a single
         # msgpack array. An empty table serializes to an empty array, never
         # absent. The wire codec is an implementation detail — callers
-        # receive a binary +String+ that the +Kobako::Wasm+ layer ships
+        # receive a binary +String+ that the +Kobako::Runtime+ layer ships
         # through the invocation channel. Mirrors the
         # +Kobako::Transport.encode_request+ pattern: entry value objects stay
         # pure carriers, this method reads their attributes externally.

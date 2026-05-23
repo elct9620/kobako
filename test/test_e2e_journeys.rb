@@ -28,7 +28,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
     return if File.exist?(REAL_WASM)
 
     skip "data/kobako.wasm missing — run `bundle exec rake wasm:build` " \

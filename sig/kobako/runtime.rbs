@@ -1,0 +1,29 @@
+module Kobako
+  class Runtime
+    def self.default_path: () -> String
+
+    def self.from_path: (
+      String path,
+      (Float | Integer)? timeout_seconds,
+      Integer? memory_limit,
+      Integer? stdout_limit_bytes,
+      Integer? stderr_limit_bytes
+    ) -> Runtime
+
+    def channel=: (Kobako::Transport::Channel channel) -> void
+
+    def yield_to_block: (String args_bytes) -> String
+
+    def eval: (String preamble, String source, String snippets) -> void
+
+    def run: (String preamble, String snippets, String envelope) -> void
+
+    def stdout: () -> [String, bool]
+
+    def stderr: () -> [String, bool]
+
+    def outcome!: () -> String
+
+    def usage: () -> [Float, Integer]
+  end
+end

@@ -10,12 +10,12 @@ require "test_helper"
 # fixture-driven tests at the top of the class exercise those paths.
 # Guest-detected cases (E-27 / E-28) and the success/exception envelopes
 # (B-31 result / E-04 reuse) drive the real data/kobako.wasm and are
-# guarded by `defined?(Kobako::Wasm::Instance)`.
+# guarded by `defined?(Kobako::Runtime)`.
 class TestSandboxRun < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Wasm::Instance)
+    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
     @fixture_sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end

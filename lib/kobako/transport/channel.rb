@@ -12,7 +12,7 @@ module Kobako
     # Kobako::Transport::Channel — the host-side transport connection.
     #
     # Composes the namespace registry (+Kobako::Catalog::Binding+), the
-    # wasm runtime (+Kobako::Wasm::Instance+), and the capability
+    # wasm runtime (+Kobako::Runtime+), and the capability
     # allocator (+Kobako::Catalog::Handler+) into a single object that
     # mediates host↔guest traffic. The Server (namespace registry) and
     # the Instance (transport) are independent objects; the Channel is
