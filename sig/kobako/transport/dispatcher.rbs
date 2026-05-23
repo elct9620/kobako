@@ -1,5 +1,5 @@
 module Kobako
-  module RPC
+  module Transport
     module Dispatcher
       class UndefinedTargetError < StandardError
       end
@@ -9,11 +9,11 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      def self?.dispatch: (String request_bytes, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler, Kobako::RPC::Channel channel) -> String
+      def self?.dispatch: (String request_bytes, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler, Kobako::Transport::Channel channel) -> String
 
       def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handler handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
-      def self?.build_block_proxy: (Kobako::RPC::Channel channel) -> [Proc, Proc]
+      def self?.build_block_proxy: (Kobako::Transport::Channel channel) -> [Proc, Proc]
 
       def self?.encode_caught_error: (StandardError error) -> String
 

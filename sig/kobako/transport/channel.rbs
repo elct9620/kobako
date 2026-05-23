@@ -1,5 +1,5 @@
 module Kobako
-  module RPC
+  module Transport
     class Channel
       def initialize: (
         server: Kobako::Catalog::Binding,

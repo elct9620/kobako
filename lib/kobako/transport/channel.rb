@@ -1,23 +1,26 @@
 # frozen_string_literal: true
 
+require_relative "../transport"
 require_relative "dispatcher"
 require_relative "../catalog/binding"
 
 module Kobako
-  module RPC
-    # Kobako::RPC::Channel — the host-side RPC connection.
+  # See lib/kobako/transport.rb for the umbrella module doc; this file
+  # owns the host-side composition root that couples the namespace
+  # registry, wasm Instance, and capability allocator for one Sandbox.
+  module Transport
+    # Kobako::Transport::Channel — the host-side transport connection.
     #
-    # Composes the namespace registry (+Kobako::Catalog::Binding+), the wasm
-    # runtime (+Kobako::Wasm::Instance+), and the capability allocator
-    # (+Kobako::Catalog::Handler+) into a single object that mediates
-    # host↔guest traffic. Analogous to a socket connection in a
-    # traditional client/server RPC pair: the Server (namespace
-    # registry) and the Instance (transport) are independent objects;
-    # the Channel is what couples them at composition time.
+    # Composes the namespace registry (+Kobako::Catalog::Binding+), the
+    # wasm runtime (+Kobako::Wasm::Instance+), and the capability
+    # allocator (+Kobako::Catalog::Handler+) into a single object that
+    # mediates host↔guest traffic. The Server (namespace registry) and
+    # the Instance (transport) are independent objects; the Channel is
+    # what couples them at composition time.
     #
     # Two entry points span the two directions of the wire:
     #
-    #   * +#dispatch(bytes)+ — Guest → Host RPC. The Wasm ext invokes
+    #   * +#dispatch(bytes)+ — Guest → Host call. The Wasm ext invokes
     #     this from inside +__kobako_dispatch+
     #     ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
     #   * +#yield_to_block(bytes)+ — Host → Guest re-entry into a guest
@@ -28,7 +31,7 @@ module Kobako
     # The Channel is constructed by +Kobako::Sandbox+ after both the
     # Server and the Instance exist; the Sandbox then hands the Channel
     # to the Instance via +Instance#channel=+ so the Wasm ext callback
-    # routes incoming RPC through it.
+    # routes incoming traffic through it.
     class Channel
       def initialize(server:, instance:, handler:)
         @server = server

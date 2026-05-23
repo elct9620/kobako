@@ -1,17 +1,22 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "../transport/request"
-require_relative "../transport/response"
-require_relative "../transport/yield"
-require_relative "block_proxy"
+require_relative "../transport"
+require_relative "request"
+require_relative "response"
+require_relative "yield"
+require_relative "yield_proxy"
 
 module Kobako
-  module RPC
-    # Pure-function dispatcher for guest-initiated RPC calls. Decodes a
-    # msgpack-encoded Request envelope, resolves the target object through
-    # the Server (path lookup or Catalog::Handler lookup), invokes the method,
-    # and returns a msgpack-encoded Response envelope.
+  # See lib/kobako/transport.rb for the umbrella module doc; this file
+  # owns the pure-function dispatcher that decodes guest-initiated
+  # Requests and produces encoded Responses.
+  module Transport
+    # Pure-function dispatcher for guest-initiated transport calls.
+    # Decodes a msgpack-encoded Request envelope, resolves the target
+    # object through the Catalog::Binding (path lookup) or
+    # Catalog::Handler (Handle lookup), invokes the method, and returns
+    # a msgpack-encoded Response envelope.
     #
     # The module is stateless — all mutable state is threaded through the
     # +server+ argument so Dispatcher has no instance variables and no side
@@ -20,7 +25,7 @@ module Kobako
     #
     # Entry point:
     #
-    #   Kobako::RPC::Dispatcher.dispatch(request_bytes, server)
+    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, server, handler, channel)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
       # Throw tag for {#build_block_proxy}'s break unwind back to the
@@ -43,15 +48,15 @@ module Kobako
       # type="disconnected". Contained at the wire boundary.
       class DisconnectedTargetError < StandardError; end
 
-      # Dispatch a single RPC request and return the encoded Response
-      # bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-      # Called by +Kobako::RPC::Channel#dispatch+ from inside ext's
+      # Dispatch a single transport request and return the encoded
+      # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
+      # Called by +Kobako::Transport::Channel#dispatch+ from inside ext's
       # +__kobako_dispatch+ callback. +server+ + +handler+ +
       # +channel+ are injected by the Channel so the Dispatcher stays
       # stateless and Server doesn't need to publish accessors for the
       # Sandbox-owned Catalog::Handler or Instance. Always returns a binary
       # String — every failure path is reified as a Response.error
-      # envelope so the guest sees an RPC error rather than a wasm trap.
+      # envelope so the guest sees a transport error rather than a wasm trap.
       def dispatch(request_bytes, server, handler, channel)
         request = Kobako::Transport.decode_request(request_bytes)
         target = resolve_target(request.target, server, handler)
@@ -79,7 +84,7 @@ module Kobako
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
       # rescue. Returns a msgpack-encoded Response envelope (binary). Four
       # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
-      # +Kobako::Codec::Error+ → type="runtime" (malformed RPC request);
+      # +Kobako::Codec::Error+ → type="runtime" (malformed transport request);
       # +DisconnectedTargetError+ → type="disconnected" (E-14);
       # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
       # type="argument" (B-12 arity mismatch); everything else →
@@ -87,7 +92,7 @@ module Kobako
       def encode_caught_error(error)
         case error
         when Kobako::Codec::Error then encode_error("runtime",
-                                                    "Sandbox received a malformed RPC request: #{error.message}")
+                                                    "Sandbox received a malformed transport request: #{error.message}")
         when DisconnectedTargetError then encode_error("disconnected", error.message)
         when UndefinedTargetError    then encode_error("undefined", error.message)
         when ArgumentError           then encode_error("argument", error.message)
@@ -96,10 +101,10 @@ module Kobako
       end
 
       # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed
-      # (the +Envelope::Request+ invariant pins it). The empty-kwargs
-      # branch omits the +**+ splat so Ruby 3.x's strict kwargs
-      # separation does not reject calls to no-kwarg methods when the
-      # wire carries the uniform empty-map shape.
+      # (the +Request+ invariant pins it). The empty-kwargs branch omits
+      # the +**+ splat so Ruby 3.x's strict kwargs separation does not
+      # reject calls to no-kwarg methods when the wire carries the
+      # uniform empty-map shape.
       #
       # +block_proxy+ is the host-side yield proxy materialised when
       # the guest call site supplied a block ({docs/behavior.md
@@ -114,18 +119,18 @@ module Kobako
         end
       end
 
-      # Delegate to {Kobako::RPC::BlockProxy} so the yield-specific
+      # Delegate to {Kobako::Transport::YieldProxy} so the yield-specific
       # logic (frame_active escape detection, +YieldResponse+ tag
       # routing) lives in its own module. Returns the +[proxy,
       # invalidator]+ pair the Dispatcher hands to the Service method
       # via +&block+ and the +ensure+ block respectively.
       def build_block_proxy(channel)
-        BlockProxy.build(channel, BREAK_THROW)
+        YieldProxy.build(channel, BREAK_THROW)
       end
 
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
-      # RPC's Handle wrap (B-14). Resolve it back to the Ruby object before
+      # transport call's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+. A Handle whose entry is the
       # +:disconnected+ sentinel (E-14) raises DisconnectedTargetError so
       # the dispatcher emits a Response.error with type="disconnected".
@@ -142,7 +147,7 @@ module Kobako
       # Catalog::Handler) holds. String targets go through the Server;
       # Handle targets (ext 0x01) go through the Catalog::Handler.
       #
-      # Target type is already validated by +RPC.decode_request+
+      # Target type is already validated by +Transport.decode_request+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
       def resolve_target(target, server, handler)

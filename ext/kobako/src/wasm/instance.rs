@@ -174,7 +174,7 @@ impl Instance {
         // § ABI Signatures:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::RPC::Channel` (set per-run via `set_channel`),
+        // `Kobako::Transport::Channel` (set per-run via `set_channel`),
         // allocates a guest buffer through `__kobako_alloc`, writes
         // the Response bytes there, and returns the packed
         // `(ptr<<32)|len`. The dispatcher returns 0 on any wire-layer
@@ -235,7 +235,7 @@ impl Instance {
         })
     }
 
-    /// Install the Ruby-side `Kobako::RPC::Channel` into HostState.
+    /// Install the Ruby-side `Kobako::Transport::Channel` into HostState.
     /// Bound to Ruby as `Instance#channel=`. From this point on, every
     /// `__kobako_dispatch` import invocation routes through
     /// `channel.dispatch(req_bytes)`.

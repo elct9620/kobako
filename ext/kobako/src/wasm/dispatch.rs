@@ -179,7 +179,7 @@ fn try_handle(
 /// Call the Ruby Channel's `#dispatch(request_bytes)` method and return
 /// the encoded Response bytes. Errors here mean the Channel itself
 /// failed (it is contracted never to raise — see
-/// `Kobako::RPC::Channel#dispatch`), which we treat as a wire-layer fault.
+/// `Kobako::Transport::Channel#dispatch`), which we treat as a wire-layer fault.
 fn invoke_channel(channel: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called the
     // active Sandbox invocation (#eval or #run) — the invariant SPEC

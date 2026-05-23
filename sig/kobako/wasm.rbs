@@ -23,7 +23,7 @@ module Kobako
         Integer? stderr_limit_bytes
       ) -> Instance
 
-      def channel=: (Kobako::RPC::Channel channel) -> void
+      def channel=: (Kobako::Transport::Channel channel) -> void
 
       def yield_to_block: (String args_bytes) -> String
 

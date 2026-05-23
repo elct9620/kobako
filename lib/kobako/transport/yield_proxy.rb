@@ -1,16 +1,20 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "../transport/yield"
+require_relative "../transport"
+require_relative "yield"
 
 module Kobako
-  module RPC
+  # See lib/kobako/transport.rb for the umbrella module doc; this file
+  # owns the host-side Proc factory that materialises guest-supplied
+  # blocks as Ruby callables.
+  module Transport
     # Host-side yield Proc factory for guest-supplied blocks (B-23).
     #
     # Each guest call that carries +block_given: true+ gets a Proc that
     # the Dispatcher hands to the Service method as +&block+. The Proc
     # serialises positional yield args, re-enters the guest via the
-    # +Kobako::RPC::Channel+, and reifies the +YieldResponse+ into
+    # +Kobako::Transport::Channel+, and reifies the +YieldResponse+ into
     # Ruby control flow:
     #
     #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
@@ -25,13 +29,13 @@ module Kobako
     # any later call to a stashed proxy raises +LocalJumpError+ — the
     # observable shape of {docs/behavior.md E-23}[link:../../../docs/behavior.md]
     # (escaped yield proxy).
-    module BlockProxy
+    module YieldProxy
       module_function
 
       # Build a +[proxy, invalidator]+ pair. +channel+ is the
-      # +Kobako::RPC::Channel+ the proxy uses to re-enter the guest;
-      # +break_tag+ is the +catch+ throw tag the Dispatcher will match
-      # against to unwind the Service on +tag 0x02+.
+      # +Kobako::Transport::Channel+ the proxy uses to re-enter the
+      # guest; +break_tag+ is the +catch+ throw tag the Dispatcher will
+      # match against to unwind the Service on +tag 0x02+.
       def build(channel, break_tag)
         frame_active = true
         invalidator = -> { frame_active = false }

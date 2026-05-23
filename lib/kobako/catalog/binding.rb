@@ -20,7 +20,7 @@ module Kobako
     #   binding.to_preamble                     # => array for Frame 1
     #
     # Namespaces live at +Kobako::Catalog::Binding::Namespace+. Per-dispatch
-    # routing is the +Kobako::RPC::Channel+'s responsibility — the Channel
+    # routing is the +Kobako::Transport::Channel+'s responsibility — the Channel
     # composes this Binding with the wasm +Instance+ and the +Catalog::Handler+
     # and owns the +#dispatch(bytes)+ entry the Wasm ext invokes. The Binding
     # holds an injected +Catalog::Handler+ reference so the Channel and the

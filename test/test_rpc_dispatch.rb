@@ -15,7 +15,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @registry = Kobako::Catalog::Binding.new(handler: @handler)
     # Instance is nil — none of these dispatch-only tests exercise the
     # yield path. Channel.dispatch only touches Server + Catalog::Handler.
-    @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handler: @handler)
+    @channel = Kobako::Transport::Channel.new(server: @registry, instance: nil, handler: @handler)
   end
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
@@ -131,7 +131,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
   end
 
   # SPEC: non-Symbol keys (e.g. Integer) are a wire violation — the
@@ -145,7 +145,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
   end
 
   # Mixed positional + kwargs: the dispatcher passes positional args
@@ -390,11 +390,11 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     # Kobako::Codec::Error rescues to type="runtime" with the
-    # "Sandbox received a malformed RPC request" prefix; the
+    # "Sandbox received a malformed transport request" prefix; the
     # dispatcher's contract pins this taxonomy and the guest
     # observes a normal RPC error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
     # The malformed int never made it into the Catalog::Handler.
     assert_equal 0, @handler.size
   end
@@ -538,7 +538,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # which is the only Channel surface that touches Instance.
   def channel_for(table)
     server = Kobako::Catalog::Binding.new(handler: table)
-    channel = Kobako::RPC::Channel.new(server: server, instance: nil, handler: table)
+    channel = Kobako::Transport::Channel.new(server: server, instance: nil, handler: table)
     [server, channel]
   end
 end

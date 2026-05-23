@@ -76,7 +76,7 @@ impl HostState {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Bind the Ruby-side `Kobako::RPC::Channel` handle. From this
+    /// Bind the Ruby-side `Kobako::Transport::Channel` handle. From this
     /// point on, every `__kobako_dispatch` host import invocation
     /// routes through it.
     pub(super) fn bind_channel(&mut self, channel: Opaque<Value>) {
