@@ -1283,7 +1283,7 @@ class TestE2EJourneys < Minitest::Test
 
   # B-28: nested dispatch frames each carry their own block proxy. An
   # inner +break+ terminates only the inner Service; the outer block
-  # resumes normally. The Channel's BLOCK_STACK pushes / pops in strict
+  # resumes normally. The guest's BLOCK_STACK pushes / pops in strict
   # LIFO so each yield round-trip targets the correct frame.
   B28_NESTED_SCRIPT = <<~RUBY
     Probe::Outer.call([1, 2]) do |a|

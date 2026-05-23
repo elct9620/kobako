@@ -1,8 +1,9 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
-# houses the MessagePack codec, the RPC client, the ABI exports, and the
-# Ruby boot bytecode pipeline. The mruby C API FFI surface (hand-rolled
+# houses the MessagePack codec, the transport client (legacy `crate::rpc::`
+# module paths kept for now), the ABI exports, and the Ruby boot bytecode
+# pipeline. The mruby C API FFI surface (hand-rolled
 # `extern "C"` decls + the layout-safe C shims) lives in the sibling
 # `kobako-mruby-sys` crate; `kobako-wasm` consumes it as a path
 # dependency and re-exports it as `crate::mruby::sys`.
