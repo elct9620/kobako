@@ -7,7 +7,7 @@ require "test_helper"
 # B-32 / E-33 / E-34). Behavioural coverage at the Sandbox#preload
 # boundary lives in test/test_sandbox_preload.rb; this file pins the
 # table's own contract.
-class TestCatalogSnippetTable < Minitest::Test
+class TestCatalogSnippetTableRegistration < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippet::Table.new
   end
@@ -65,6 +65,31 @@ class TestCatalogSnippetTable < Minitest::Test
     assert_match(/must be a Symbol or String/, err.message)
   end
 
+  def test_register_rejects_non_string_code
+    err = assert_raises(ArgumentError) { @table.register(code: nil, name: :Helper) }
+    assert_match(/code must be a String/, err.message)
+  end
+
+  def test_register_rejects_non_string_binary
+    err = assert_raises(ArgumentError) { @table.register(binary: 42) }
+    assert_match(/binary must be a String/, err.message)
+  end
+
+  def test_register_rejects_no_keyword_call
+    err = assert_raises(ArgumentError) { @table.register }
+    assert_match(/missing keyword/, err.message)
+  end
+
+  def test_register_rejects_combining_binary_with_code
+    err = assert_raises(ArgumentError) { @table.register(code: "X = 1", binary: "RITE") }
+    assert_match(%r{cannot combine binary: with code: / name:}, err.message)
+  end
+
+  def test_register_rejects_combining_binary_with_name
+    err = assert_raises(ArgumentError) { @table.register(binary: "RITE", name: :Helper) }
+    assert_match(%r{cannot combine binary: with code: / name:}, err.message)
+  end
+
   # E-33
   def test_register_rejects_duplicate_name
     @table.register(code: "first body", name: :Worker)
@@ -89,13 +114,19 @@ class TestCatalogSnippetTable < Minitest::Test
     body = @table.each.to_a.first.body
     assert_equal "X = 1", body
   end
+end
 
-  # docs/wire-codec.md § Invocation channels: Frame 3 is a msgpack array of
-  # per-entry maps. Source entries carry "name" / "kind" = "source" /
-  # "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
-  # (bin) and no "name". The encoder lives on Table to keep wire
-  # knowledge in one place (mirroring Kobako::Transport.encode_request /
-  # encode_response on entry-tier carriers).
+# docs/wire-codec.md § Invocation channels: Frame 3 is a msgpack array of
+# per-entry maps. Source entries carry "name" / "kind" = "source" /
+# "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
+# (bin) and no "name". The encoder lives on Table to keep wire knowledge
+# in one place (mirroring Kobako::Transport.encode_request /
+# encode_response on entry-tier carriers).
+class TestCatalogSnippetTableEncoding < Minitest::Test
+  def setup
+    @table = Kobako::Catalog::Snippet::Table.new
+  end
+
   def test_encode_empty_table_serializes_to_empty_msgpack_array
     decoded = MessagePack.unpack(@table.encode)
 
