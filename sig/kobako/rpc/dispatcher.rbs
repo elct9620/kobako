@@ -11,7 +11,7 @@ module Kobako
 
       def self?.dispatch: (String request_bytes, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler, Kobako::RPC::Channel channel) -> String
 
-      def self?.resolve_call_args: (Kobako::RPC::Request request, Kobako::Catalog::Handler handler) -> [Array[untyped], Hash[Symbol, untyped]]
+      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handler handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
       def self?.build_block_proxy: (Kobako::RPC::Channel channel) -> [Proc, Proc]
 

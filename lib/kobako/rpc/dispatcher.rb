@@ -2,6 +2,8 @@
 
 require_relative "../codec"
 require_relative "../yield"
+require_relative "../transport/request"
+require_relative "../transport/response"
 require_relative "block_proxy"
 
 module Kobako
@@ -51,7 +53,7 @@ module Kobako
       # String — every failure path is reified as a Response.error
       # envelope so the guest sees an RPC error rather than a wasm trap.
       def dispatch(request_bytes, server, handler, channel)
-        request = Kobako::RPC.decode_request(request_bytes)
+        request = Kobako::Transport.decode_request(request_bytes)
         target = resolve_target(request.target, server, handler)
         args, kwargs = resolve_call_args(request, handler)
         block_proxy, invalidator = build_block_proxy(channel) if request.block_given
@@ -180,8 +182,8 @@ module Kobako
       # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
       def encode_ok(value, handler)
-        response = Kobako::RPC::Response.ok(value)
-        Kobako::RPC.encode_response(response)
+        response = Kobako::Transport::Response.ok(value)
+        Kobako::Transport.encode_response(response)
       rescue Kobako::Codec::UnsupportedType
         encode_ok(wrap_as_handle(value, handler), handler)
       end
@@ -195,9 +197,9 @@ module Kobako
       end
 
       def encode_error(type, message)
-        fault = Kobako::RPC::Fault.new(type: type, message: message)
-        response = Kobako::RPC::Response.error(fault)
-        Kobako::RPC.encode_response(response)
+        fault = Kobako::Transport::Fault.new(type: type, message: message)
+        response = Kobako::Transport::Response.error(fault)
+        Kobako::Transport.encode_response(response)
       end
     end
   end

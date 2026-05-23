@@ -24,12 +24,13 @@ require "minitest/autorun"
 require_relative "support/cargo_oracle"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/rpc/envelope"
+require "kobako/transport/request"
+require "kobako/transport/response"
 
 class TestEnvelopeRoundtrip < Minitest::Test
-  Envelope = Kobako::RPC
+  Envelope = Kobako::Transport
   Handle   = Kobako::Handle
-  Exc      = Kobako::RPC::Fault
+  Exc      = Kobako::Transport::Fault
 
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")

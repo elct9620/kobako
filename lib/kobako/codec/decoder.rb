@@ -45,7 +45,7 @@ module Kobako
       # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any
-      # str-typed leaf via {Utils.assert_utf8!}. {Kobako::RPC::Fault}
+      # str-typed leaf via {Utils.assert_utf8!}. {Kobako::Transport::Fault}
       # payloads are validated transitively: +Factory.unpack_fault+
       # feeds the inner ext-0x02 bytes back through this Decoder, so their
       # +str+ fields are already covered by the time control returns here.

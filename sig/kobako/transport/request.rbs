@@ -1,5 +1,5 @@
 module Kobako
-  module RPC
+  module Transport
     STATUS_OK: Integer
     STATUS_ERROR: Integer
 
@@ -22,31 +22,5 @@ module Kobako
     def self.encode_request: (Request request) -> String
 
     def self.decode_request: (String bytes) -> Request
-
-    class Response
-      attr_reader status: Integer
-      attr_reader payload: untyped
-
-      def self.ok: (untyped value) -> Response
-
-      def self.error: (Kobako::RPC::Fault fault) -> Response
-
-      def initialize: (Integer status, untyped payload) -> void
-                    | (status: Integer, payload: untyped) -> void
-
-      def with: (?status: Integer, ?payload: untyped) -> Response
-
-      def ok?: () -> bool
-
-      def error?: () -> bool
-
-      def ==: (untyped other) -> bool
-
-      def hash: () -> Integer
-    end
-
-    def self.encode_response: (Response response) -> String
-
-    def self.decode_response: (String bytes) -> Response
   end
 end

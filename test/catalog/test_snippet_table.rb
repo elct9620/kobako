@@ -94,7 +94,7 @@ class TestCatalogSnippetTable < Minitest::Test
   # per-entry maps. Source entries carry "name" / "kind" = "source" /
   # "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
   # (bin) and no "name". The encoder lives on Table to keep wire
-  # knowledge in one place (mirroring Kobako::RPC.encode_request /
+  # knowledge in one place (mirroring Kobako::Transport.encode_request /
   # encode_response on entry-tier carriers).
   def test_encode_empty_table_serializes_to_empty_msgpack_array
     decoded = MessagePack.unpack(@table.encode)

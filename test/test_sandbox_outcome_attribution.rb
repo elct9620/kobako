@@ -14,7 +14,8 @@ require_relative "support/outcome_bytes_helpers"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/sandbox"
-require "kobako/rpc/envelope"
+require "kobako/transport/request"
+require "kobako/transport/response"
 require "kobako/errors"
 
 class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test

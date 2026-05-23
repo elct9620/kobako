@@ -42,7 +42,7 @@ module Kobako
         # absent. The wire codec is an implementation detail — callers
         # receive a binary +String+ that the +Kobako::Wasm+ layer ships
         # through the invocation channel. Mirrors the
-        # +Kobako::RPC.encode_request+ pattern: entry value objects stay
+        # +Kobako::Transport.encode_request+ pattern: entry value objects stay
         # pure carriers, this method reads their attributes externally.
         def encode
           MessagePack.pack(@entries.map { |entry| entry_payload(entry) })

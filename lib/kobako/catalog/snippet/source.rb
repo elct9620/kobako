@@ -18,7 +18,7 @@ module Kobako
       # carries no mutation API. Callers (chiefly +Table+) construct
       # instances via keyword form +Source.new(name: ..., body: ...)+.
       # Wire-form construction is the +Table+'s responsibility, mirroring
-      # +Kobako::RPC.encode_request+'s pattern of reading attributes off a
+      # +Kobako::Transport.encode_request+'s pattern of reading attributes off a
       # carrier rather than asking the carrier to self-describe.
       class Source < Data.define(:name, :body)
         # The +kind+ field value carried by source snippets in their Frame

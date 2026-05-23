@@ -7,13 +7,14 @@
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/rpc/envelope"
+require "kobako/transport/request"
+require "kobako/transport/response"
 
 module Kobako
   class RPCEnvelopeTest < Minitest::Test
-    Envelope    = Kobako::RPC
+    Envelope    = Kobako::Transport
     Handle      = Kobako::Handle
-    Exc         = Kobako::RPC::Fault
+    Exc         = Kobako::Transport::Fault
     Encoder     = Kobako::Codec::Encoder
     InvalidType = Kobako::Codec::InvalidType
 
@@ -172,7 +173,7 @@ module Kobako
     def test_response_decode_rejects_wrong_arity
       # 3-element array, not 2. Symmetric with
       # +test_request_decode_rejects_wrong_arity+ above; covers the
-      # decode_response shape guard at lib/kobako/rpc/envelope.rb:111.
+      # decode_response shape guard at lib/kobako/transport/response.rb.
       bytes = Encoder.encode([0, nil, "extra"])
       assert_raises(InvalidType) { Envelope.decode_response(bytes) }
     end

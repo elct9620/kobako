@@ -3,7 +3,7 @@
 require "msgpack"
 require_relative "handler"
 require_relative "../errors"
-require_relative "../rpc/envelope"
+require_relative "../transport/request"
 require_relative "binding/namespace"
 
 module Kobako

@@ -42,7 +42,8 @@ require_relative "support/cargo_oracle"
 require_relative "support/wire_value_generator"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/rpc/envelope"
+require "kobako/transport/request"
+require "kobako/transport/response"
 
 class TestCodecRoundtripFuzz < Minitest::Test
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)

@@ -1,7 +1,12 @@
 # frozen_string_literal: true
 
+require_relative "../transport"
+
 module Kobako
-  module RPC
+  # See lib/kobako/transport.rb for the umbrella module doc; this file
+  # owns the +Fault+ value object that backs the ext 0x02 Exception
+  # envelope.
+  module Transport
     # Wire-level value object for an ext-0x02 Exception envelope.
     #
     # SPEC pins the payload
@@ -21,9 +26,9 @@ module Kobako
     Fault = Data.define(:type, :message, :details) do
       # +VALID_TYPES+ is attached to the Exception class below this block.
       # Reach it through +self.class::VALID_TYPES+ — Data.define's block
-      # scope resolves bare constants against the enclosing +Wire+ module,
-      # so a bare +VALID_TYPES+ would raise +NameError+. Same pattern as
-      # +Kobako::Handle+.
+      # scope resolves bare constants against the enclosing +Transport+
+      # module, so a bare +VALID_TYPES+ would raise +NameError+. Same
+      # pattern as +Kobako::Handle+.
       # steep:ignore:start
       def initialize(type:, message:, details: nil)
         valid_types = self.class::VALID_TYPES
