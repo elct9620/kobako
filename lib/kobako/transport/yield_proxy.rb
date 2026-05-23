@@ -15,8 +15,8 @@ module Kobako
     # the Dispatcher hands to the Service method as +&block+. The Proc
     # serialises positional yield args, re-enters the guest via the
     # injected +yield_to_guest+ lambda
-    # ({BRIDGE_REDESIGN §5.5.3}), and reifies the +YieldResponse+ into
-    # Ruby control flow:
+    # ({docs/behavior.md B-24}[link:../../../docs/behavior.md]), and
+    # reifies the +YieldResponse+ into Ruby control flow:
     #
     #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
     #   * +tag 0x02+ break — +throw break_tag, value+ so the

@@ -242,7 +242,7 @@ impl Instance {
     /// Bound to Ruby as +Kobako::Runtime#on_dispatch=+. From this point on,
     /// every +__kobako_dispatch+ host import invocation calls the Proc
     /// with the request bytes and writes the returned Response bytes back
-    /// into guest memory ({BRIDGE_REDESIGN §5.5.3}).
+    /// into guest memory (docs/behavior.md B-12).
     pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.borrow_mut();
         store_ref

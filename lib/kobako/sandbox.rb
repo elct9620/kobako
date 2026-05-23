@@ -26,10 +26,10 @@ module Kobako
   # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
   # auto-wrap share one allocator), and the dispatch +Proc+ /
   # +yield_to_guest+ lambda installed on the Runtime via
-  # +Runtime#on_dispatch=+ ({BRIDGE_REDESIGN §5.5.3}). The underlying
-  # wasmtime Engine and compiled Module are cached
-  # at process scope by the native ext and never surface to Ruby —
-  # constructing many Sandboxes amortises both costs automatically.
+  # +Runtime#on_dispatch=+ ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
+  # The underlying wasmtime Engine and compiled Module are cached at process
+  # scope by the native ext and never surface to Ruby — constructing many
+  # Sandboxes amortises both costs automatically.
   #
   # Output capture policy ({docs/behavior.md B-04}[link:../../docs/behavior.md]): the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
@@ -213,10 +213,10 @@ module Kobako
     private
 
     # Configure the +Runtime+'s host↔guest dispatch wiring
-    # ({docs/behavior.md B-12}[link:../../docs/behavior.md],
-    # {BRIDGE_REDESIGN §5.5.3}). Builds a lambda that re-enters the
-    # guest via +Runtime#yield_to_active_invocation+ (B-24) and a
-    # dispatch +Proc+ that routes guest→host calls through the stateless
+    # ({docs/behavior.md B-12}[link:../../docs/behavior.md]). Builds a
+    # lambda that re-enters the guest via
+    # +Runtime#yield_to_active_invocation+ (B-24) and a dispatch +Proc+
+    # that routes guest→host calls through the stateless
     # +Transport::Dispatcher+, capturing +@services+ / +@handler+ in the
     # closure. Both are registered on the +Runtime+ once at construction
     # time so the wasm ext callback can fire without further setup.
@@ -295,8 +295,8 @@ module Kobako
     # TrapError message so the failing export is identifiable.
     #
     # The yielded block must return a +Kobako::Snapshot+ — i.e. the
-    # value of +Runtime#eval+ / +#run+ ({BRIDGE_REDESIGN §5.5.1 /
-    # §5.5.2}). The success path unpacks every observable from the
+    # value of +Runtime#eval+ / +#run+ (SPEC.md Internal Concepts →
+    # Snapshot). The success path unpacks every observable from the
     # Snapshot in one go: +#stdout+ / +#stderr+ pack into +Capture+,
     # +#usage+ packs into +Usage+, +#return_bytes+ feeds +Outcome.decode+.
     # The rescue chain is the single trap-translation boundary —

@@ -23,7 +23,8 @@ module Kobako
     # routing is +Kobako::Transport::Dispatcher+'s responsibility — the
     # Dispatcher receives this Binding and the +Catalog::Handler+ as
     # arguments from the +Runtime#on_dispatch+ Proc that
-    # +Kobako::Sandbox#initialize+ installs ({BRIDGE_REDESIGN §5.5.3}). The
+    # +Kobako::Sandbox#initialize+ installs
+    # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]). The
     # Binding holds an injected +Catalog::Handler+ reference so dispatch
     # target resolution and host→guest auto-wrap share the same
     # Sandbox-owned allocator (docs/behavior.md B-19).
