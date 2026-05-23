@@ -3,9 +3,9 @@
 require "test_helper"
 
 # Item #20 — placeholder error rewiring assertions. The cycle 24 placeholder
-# `Kobako::HandleTableError < StandardError` and the cycle 14 placeholder
-# `Kobako::Sandbox::OutputLimitExceeded < StandardError` are gone; the
-# canonical SPEC hierarchy now anchors every kobako-raised error under
+# (an early-design intermediate handle-table error class) and the cycle 14
+# placeholder `Kobako::Sandbox::OutputLimitExceeded < StandardError` are gone;
+# the canonical SPEC hierarchy now anchors every kobako-raised error under
 # `Kobako::Error` with the three-class taxonomy.
 class TestErrorClassHierarchy < Minitest::Test
   def test_three_top_level_classes_descend_from_kobako_error
@@ -14,9 +14,8 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::ServiceError < Kobako::Error
   end
 
-  def test_handle_table_exhausted_chains_under_sandbox_error
-    assert Kobako::HandleTableExhausted < Kobako::HandleTableError
-    assert Kobako::HandleTableError < Kobako::SandboxError
+  def test_handler_exhausted_chains_under_sandbox_error
+    assert Kobako::HandlerExhaustedError < Kobako::SandboxError
   end
 
   def test_service_error_disconnected_chains_under_service_error

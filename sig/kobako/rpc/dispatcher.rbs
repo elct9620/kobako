@@ -9,9 +9,9 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      def self?.dispatch: (String request_bytes, Server server, Kobako::HandleTable handle_table, Kobako::RPC::Channel channel) -> String
+      def self?.dispatch: (String request_bytes, Server server, Kobako::Catalog::Handler handler, Kobako::RPC::Channel channel) -> String
 
-      def self?.resolve_call_args: (Kobako::RPC::Request request, Kobako::HandleTable handle_table) -> [Array[untyped], Hash[Symbol, untyped]]
+      def self?.resolve_call_args: (Kobako::RPC::Request request, Kobako::Catalog::Handler handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
       def self?.build_block_proxy: (Kobako::RPC::Channel channel) -> [Proc, Proc]
 
@@ -19,19 +19,19 @@ module Kobako
 
       def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Proc? block_proxy) -> untyped
 
-      def self?.resolve_arg: (untyped value, Kobako::HandleTable handle_table) -> untyped
+      def self?.resolve_arg: (untyped value, Kobako::Catalog::Handler handler) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Server server, Kobako::HandleTable handle_table) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Server server, Kobako::Catalog::Handler handler) -> untyped
 
       def self?.resolve_path: (String path, Server server) -> untyped
 
-      def self?.resolve_handle: (Kobako::Handle handle, Kobako::HandleTable handle_table) -> untyped
+      def self?.resolve_handle: (Kobako::Handle handle, Kobako::Catalog::Handler handler) -> untyped
 
-      def self?.require_live_object!: (Integer id, Kobako::HandleTable handle_table) -> untyped
+      def self?.require_live_object!: (Integer id, Kobako::Catalog::Handler handler) -> untyped
 
-      def self?.encode_ok: (untyped value, Kobako::HandleTable handle_table) -> String
+      def self?.encode_ok: (untyped value, Kobako::Catalog::Handler handler) -> String
 
-      def self?.wrap_as_handle: (untyped value, Kobako::HandleTable handle_table) -> Kobako::Handle
+      def self?.wrap_as_handle: (untyped value, Kobako::Catalog::Handler handler) -> Kobako::Handle
 
       def self?.encode_error: (String type, String message) -> String
     end

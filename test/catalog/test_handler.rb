@@ -1,26 +1,24 @@
 # frozen_string_literal: true
 
-# E2E + integration test for the pure-Ruby host HandleTable.
+# E2E + integration test for the pure-Ruby host Catalog::Handler.
 #
-# Intentionally does NOT require "test_helper" — HandleTable is pure Ruby and
-# must be exercisable without the native extension being compiled. We require
-# lib/kobako/registry.rb directly (HandleTable is an internal class of
-# Kobako::RPC::Server per SPEC.md Architecture).
+# Intentionally does NOT require "test_helper" — Catalog::Handler is pure
+# Ruby and must be exercisable without the native extension being compiled.
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
 #   - SPEC.md B-19 — Sandbox discard / cross-run Handle invalidity
-#   - SPEC.md B-21 — HandleTable exhaustion at 0x7fff_ffff
+#   - SPEC.md B-21 — Catalog::Handler exhaustion at 0x7fff_ffff
 #   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
 
 require "minitest/autorun"
 
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/rpc/server"
+$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
+require "kobako/catalog/handler"
 
 module Kobako
-  class HandleTableTest < Minitest::Test
-    Table = Kobako::HandleTable
+  class CatalogHandlerTest < Minitest::Test
+    Table = Kobako::Catalog::Handler
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 
@@ -49,8 +47,8 @@ module Kobako
       table = Table.new
       table.alloc(Object.new) # populates id 1; the binding itself is irrelevant
 
-      assert_raises(Kobako::HandleTableError) { table.fetch(999) }
-      assert_raises(Kobako::HandleTableError) { table.fetch(0) }
+      assert_raises(Kobako::SandboxError) { table.fetch(999) }
+      assert_raises(Kobako::SandboxError) { table.fetch(0) }
     end
 
     # ---------- Release: removes binding; counter does not roll back ----------
@@ -61,7 +59,7 @@ module Kobako
       id = table.alloc(obj).id # 1
 
       assert_same obj, table.release(id)
-      assert_raises(Kobako::HandleTableError) { table.fetch(id) }
+      assert_raises(Kobako::SandboxError) { table.fetch(id) }
 
       # SPEC B-15: counter is monotonic within a #run; release does not roll back.
       assert_equal 2, table.alloc(Object.new).id
@@ -69,7 +67,7 @@ module Kobako
 
     def test_release_unknown_id_raises
       table = Table.new
-      assert_raises(Kobako::HandleTableError) { table.release(42) }
+      assert_raises(Kobako::SandboxError) { table.release(42) }
     end
 
     # ---------- Reset: clears entries AND counter (per-#run boundary) ----------
@@ -82,7 +80,7 @@ module Kobako
       table.reset!
 
       ids.each do |id|
-        assert_raises(Kobako::HandleTableError) { table.fetch(id) }
+        assert_raises(Kobako::SandboxError) { table.fetch(id) }
       end
       # First alloc after reset returns id 1 — distinct from #release semantics.
       assert_equal 1, table.alloc(Object.new).id
@@ -106,9 +104,8 @@ module Kobako
       assert_equal 0x7fff_ffff, id
 
       # SPEC "Error Classes": cap-exhaustion raises the canonical
-      # HandleTableExhausted < HandleTableError < SandboxError chain.
-      err = assert_raises(Kobako::HandleTableExhausted) { table.alloc(Object.new) }
-      assert_kind_of Kobako::HandleTableError, err
+      # HandlerExhaustedError < SandboxError chain.
+      err = assert_raises(Kobako::HandlerExhaustedError) { table.alloc(Object.new) }
       assert_kind_of Kobako::SandboxError, err
     end
 
@@ -203,7 +200,6 @@ module Kobako
       # Arrange
       table = Table.new
       table.alloc(Object.new) # populates id 1; the entry exists but is never read
-
       # Act + Assert — silently ignored; no exception, no state change.
       # Returns self for chainability (matching reset! convention).
       assert_same table, table.mark_disconnected(999)

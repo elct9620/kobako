@@ -30,21 +30,21 @@ module Kobako
     # to the Instance via +Instance#channel=+ so the Wasm ext callback
     # routes incoming RPC through it.
     class Channel
-      def initialize(server:, instance:, handle_table:)
+      def initialize(server:, instance:, handler:)
         @server = server
         @instance = instance
-        @handle_table = handle_table
+        @handler = handler
       end
 
       # Guest → Host dispatch. Decodes the Request, resolves the target
-      # via the Server's namespace registry (or the HandleTable for
+      # via the Server's namespace registry (or the Catalog::Handler for
       # Capability Handles), invokes the method, and returns the
       # encoded Response bytes. Never raises — every failure path is
       # reified as a +Response.error+ envelope so the guest observes a
-      # normal RPC error rather than a wasm trap
+      # normal dispatch error rather than a wasm trap
       # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       def dispatch(request_bytes)
-        Dispatcher.dispatch(request_bytes, @server, @handle_table, self)
+        Dispatcher.dispatch(request_bytes, @server, @handler, self)
       end
 
       # Host → Guest re-entry. Serialises +args_bytes+ into the active

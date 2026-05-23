@@ -16,15 +16,16 @@ module Kobako
   #                       guest runtime).
   #   * {SandboxError}  — sandbox / wire layer (mruby script error,
   #                       wire-decode failure on an otherwise valid tag,
-  #                       HandleTable exhaustion, output buffer overrun).
-  #   * {ServiceError}  — service / capability layer (a Service RPC that
-  #                       failed and was not rescued inside the script).
+  #                       Catalog::Handler exhaustion, output buffer overrun).
+  #   * {ServiceError}  — service / capability layer (a Service capability
+  #                       call that failed and was not rescued inside the
+  #                       script).
   #
   # Subclasses pinned by docs/behavior.md Error Classes:
   #
-  #   * {HandleTableExhausted} < {SandboxError}    — id cap hit (B-21).
+  #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit (B-21).
   #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
-  #                       sentinel hit on the HandleTable (E-14).
+  #                       sentinel hit on the Catalog::Handler (E-14).
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
@@ -89,25 +90,17 @@ module Kobako
     end
 
     # docs/behavior.md Error Classes: ServiceError::Disconnected is raised
-    # when the RPC target Handle resolves to the `:disconnected` sentinel
-    # in the HandleTable (ABA protection rule — id exists but entry was
-    # invalidated). E-14.
+    # when the dispatch target Handle resolves to the `:disconnected`
+    # sentinel in the Catalog::Handler (ABA protection rule — id exists
+    # but entry was invalidated). E-14.
     class Disconnected < ServiceError; end
   end
 
-  # HandleTable lookup-failure error (unknown id passed to #fetch /
-  # #release). A SandboxError subclass: per the wire-layer rule, an
-  # unknown Handle id surfaces as a `type="undefined"` Response.error
-  # envelope inside RpcDispatcher and never reaches the Host App
-  # directly; outside that path (e.g. tests poking the HandleTable
-  # directly), it surfaces as a SandboxError.
-  class HandleTableError < SandboxError; end
-
-  # docs/behavior.md Error Classes: HandleTableExhausted is the canonical
-  # SandboxError subclass for the id-cap-hit path (B-21). Inherits from
-  # HandleTableError so a single `rescue Kobako::HandleTableError` covers
-  # both lookup-failure and cap-exhaustion paths.
-  class HandleTableExhausted < HandleTableError; end
+  # docs/behavior.md Error Classes: HandlerExhaustedError is the canonical
+  # SandboxError subclass for the id-cap-hit path (B-21). Raised when the
+  # per-invocation Handle ID counter in Catalog::Handler reaches
+  # +0x7fff_ffff+ (2³¹ − 1) and further allocation would exceed the cap.
+  class HandlerExhaustedError < SandboxError; end
 
   # docs/behavior.md Error Classes: BytecodeError is the SandboxError
   # subclass raised when a `#preload(binary:)` snippet fails structural

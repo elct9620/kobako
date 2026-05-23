@@ -44,19 +44,19 @@ module Kobako
       # Dispatch a single RPC request and return the encoded Response
       # bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       # Called by +Kobako::RPC::Channel#dispatch+ from inside ext's
-      # +__kobako_dispatch+ callback. +server+ + +handle_table+ +
+      # +__kobako_dispatch+ callback. +server+ + +handler+ +
       # +channel+ are injected by the Channel so the Dispatcher stays
       # stateless and Server doesn't need to publish accessors for the
       # Sandbox-owned HandleTable or Instance. Always returns a binary
       # String — every failure path is reified as a Response.error
       # envelope so the guest sees an RPC error rather than a wasm trap.
-      def dispatch(request_bytes, server, handle_table, channel)
+      def dispatch(request_bytes, server, handler, channel)
         request = Kobako::RPC.decode_request(request_bytes)
-        target = resolve_target(request.target, server, handle_table)
-        args, kwargs = resolve_call_args(request, handle_table)
+        target = resolve_target(request.target, server, handler)
+        args, kwargs = resolve_call_args(request, handler)
         block_proxy, invalidator = build_block_proxy(channel) if request.block_given
         value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, block_proxy) }
-        encode_ok(value, handle_table)
+        encode_ok(value, handler)
       rescue StandardError => e
         encode_caught_error(e)
       ensure
@@ -67,9 +67,9 @@ module Kobako
       # step. Both pass through {#resolve_arg} so Capability Handles
       # round-trip back to the host-side Ruby object before the call
       # reaches +public_send+.
-      def resolve_call_args(request, handle_table)
-        args = request.args.map { |v| resolve_arg(v, handle_table) }
-        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handle_table) }
+      def resolve_call_args(request, handler)
+        args = request.args.map { |v| resolve_arg(v, handler) }
+        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handler) }
         [args, kwargs]
       end
 
@@ -127,10 +127,10 @@ module Kobako
       # the dispatch reaches +public_send+. A Handle whose entry is the
       # +:disconnected+ sentinel (E-14) raises DisconnectedTargetError so
       # the dispatcher emits a Response.error with type="disconnected".
-      def resolve_arg(value, handle_table)
+      def resolve_arg(value, handler)
         case value
         when Kobako::Handle
-          require_live_object!(value.id, handle_table)
+          require_live_object!(value.id, handler)
         else
           value
         end
@@ -143,12 +143,12 @@ module Kobako
       # Target type is already validated by +RPC.decode_request+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
-      def resolve_target(target, server, handle_table)
+      def resolve_target(target, server, handler)
         case target
         when String
           resolve_path(target, server)
         when Kobako::Handle
-          resolve_handle(target, handle_table)
+          resolve_handle(target, handler)
         end
       end
 
@@ -158,18 +158,18 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      def resolve_handle(handle, handle_table)
-        require_live_object!(handle.id, handle_table)
+      def resolve_handle(handle, handler)
+        require_live_object!(handle.id, handler)
       end
 
       # Resolve +id+ through the HandleTable, distinguishing the
       # +:disconnected+ sentinel (E-14) from an unknown id (E-13).
-      def require_live_object!(id, handle_table)
-        object = handle_table.fetch(id)
+      def require_live_object!(id, handler)
+        object = handler.fetch(id)
         raise DisconnectedTargetError, "Handle id #{id} is disconnected" if object == :disconnected
 
         object
-      rescue Kobako::HandleTableError => e
+      rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
 
@@ -179,19 +179,19 @@ module Kobako
       # HandleTable via {#wrap_as_handle} and re-encodes with the Capability
       # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
-      def encode_ok(value, handle_table)
+      def encode_ok(value, handler)
         response = Kobako::RPC::Response.ok(value)
         Kobako::RPC.encode_response(response)
       rescue Kobako::Codec::UnsupportedType
-        encode_ok(wrap_as_handle(value, handle_table), handle_table)
+        encode_ok(wrap_as_handle(value, handler), handler)
       end
 
       # Allocate +value+ in the Sandbox's HandleTable and return a +Handle+
       # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.
-      def wrap_as_handle(value, handle_table)
-        handle_table.alloc(value)
+      def wrap_as_handle(value, handler)
+        handler.alloc(value)
       end
 
       def encode_error(type, message)

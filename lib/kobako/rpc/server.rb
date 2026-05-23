@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require "msgpack"
+require_relative "../catalog/handler"
 require_relative "../errors"
 require_relative "envelope"
 require_relative "namespace"
-require_relative "../handle_table"
 
 module Kobako
   module RPC
@@ -32,9 +32,9 @@ module Kobako
       # injects a pre-configured +HandleTable+; tests pass one whose +next_id+
       # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
-      def initialize(handle_table: HandleTable.new)
+      def initialize(handler: Catalog::Handler.new)
         @namespaces = {} # : Hash[String, Kobako::RPC::Namespace]
-        @handle_table = handle_table
+        @handler = handler
         @sealed = false
       end
 

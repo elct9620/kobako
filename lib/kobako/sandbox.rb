@@ -5,7 +5,7 @@ require "forwardable"
 require_relative "capture"
 require_relative "catalog/snippet"
 require_relative "errors"
-require_relative "handle_table"
+require_relative "catalog/handler"
 require_relative "invocation"
 require_relative "outcome"
 require_relative "rpc/channel"
@@ -103,8 +103,8 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Wasm.default_path
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
-      @handle_table = HandleTable.new
-      @services = Kobako::RPC::Server.new(handle_table: @handle_table)
+      @handler = Catalog::Handler.new
+      @services = Kobako::RPC::Server.new(handler: @handler)
       @snippets = Catalog::Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
@@ -171,7 +171,7 @@ module Kobako
     def run(target, *args, **kwargs)
       invocation = Invocation.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encode, invocation.encode(@handle_table))
+        @instance.run(@services.encoded_preamble, @snippets.encode, invocation.encode(@handler))
       end
     end
 
@@ -214,7 +214,7 @@ module Kobako
     # Instance so the Wasm ext callback routes incoming RPC through it
     # ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
     def build_channel!
-      channel = Kobako::RPC::Channel.new(server: @services, instance: @instance, handle_table: @handle_table)
+      channel = Kobako::RPC::Channel.new(server: @services, instance: @instance, handler: @handler)
       @instance.channel = channel
       channel
     end
@@ -224,12 +224,12 @@ module Kobako
     # registries on first call (idempotent) and zeros the per-invocation
     # capability state — capture buffers, truncation predicates, and the
     # HandleTable counter — before the guest runs. The HandleTable
-    # itself is held as +@handle_table+ and never exposed beyond
+    # itself is held as +@handler+ and never exposed beyond
     # this class: SPEC.md Terminology pins it as "Not exposed to the
     # Host App" (B-19 / B-20 / E-29).
     def begin_invocation!
       @services.seal!
-      @handle_table.reset!
+      @handler.reset!
       reset_invocation_state!
     end
 

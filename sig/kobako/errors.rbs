@@ -44,10 +44,7 @@ module Kobako
     end
   end
 
-  class HandleTableError < SandboxError
-  end
-
-  class HandleTableExhausted < HandleTableError
+  class HandlerExhaustedError < SandboxError
   end
 
   class BytecodeError < SandboxError

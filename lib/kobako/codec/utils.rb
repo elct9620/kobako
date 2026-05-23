@@ -88,7 +88,7 @@ module Kobako
 
       # Deep-walk Array / Hash containers in +value+ and replace every
       # leaf that fails {wire_representable?} with a +Kobako::Handle+
-      # allocated from +handle_table+
+      # allocated from +handler+
       # ({docs/behavior.md B-34}[link:../../../docs/behavior.md]). The
       # walk only descends through wire-representable container shapes
       # (Array, Hash) one structural level at a time; a non-
@@ -97,7 +97,7 @@ module Kobako
       # representable and passes through unchanged — auto-wrap never
       # re-wraps a Handle.
       #
-      # +value+ may be any Ruby value; +handle_table+ must respond to
+      # +value+ may be any Ruby value; +handler+ must respond to
       # +#alloc(object) -> Kobako::Handle+ (a host-side
       # +Kobako::HandleTable+). Returns a structurally equivalent value
       # whose leaves are either wire-representable or +Kobako::Handle+
@@ -110,12 +110,12 @@ module Kobako
       # (still +Utils+ at definition time, but the qualified form keeps
       # the dispatch readable when the recursive call sits inside a
       # Proc captured from elsewhere).
-      def deep_wrap(value, handle_table)
+      def deep_wrap(value, handler)
         case value
-        when ::Array then value.map { |element| Utils.deep_wrap(element, handle_table) }
-        when ::Hash  then value.transform_values { |val| Utils.deep_wrap(val, handle_table) }
+        when ::Array then value.map { |element| Utils.deep_wrap(element, handler) }
+        when ::Hash  then value.transform_values { |val| Utils.deep_wrap(val, handler) }
         else
-          wire_representable?(value) ? value : handle_table.alloc(value)
+          wire_representable?(value) ? value : handler.alloc(value)
         end
       end
 

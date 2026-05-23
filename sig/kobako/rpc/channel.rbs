@@ -4,7 +4,7 @@ module Kobako
       def initialize: (
         server: Kobako::RPC::Server,
         instance: untyped,
-        handle_table: Kobako::HandleTable
+        handler: Kobako::Catalog::Handler
       ) -> void
 
       def dispatch: (String request_bytes) -> String

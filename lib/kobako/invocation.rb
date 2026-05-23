@@ -55,21 +55,21 @@ module Kobako
     # +__kobako_run+ entry point consumes as its command-buffer payload
     # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]).
     # Walks +args+ / +kwargs+ through {Codec::Utils.deep_wrap} so any
-    # non-wire-representable leaf is allocated into +handle_table+ and
+    # non-wire-representable leaf is allocated into +handler+ and
     # replaced with a +Kobako::Handle+
     # ({docs/behavior.md B-34}[link:../../docs/behavior.md]); the
-    # +handle_table+ argument is the Sandbox's table, sharing the same
+    # +handler+ argument is the Sandbox's table, sharing the same
     # allocator the guest→host return path (B-14) uses.
     #
     # Layout: msgpack map with string keys +"entrypoint"+ (Symbol via
     # ext 0x00), +"args"+ (Array), +"kwargs"+ (Map with Symbol keys);
     # any wrapped leaf rides as ext 0x01 in its original position
     # (docs/wire-codec.md § ext 0x01 position rules).
-    def encode(handle_table)
+    def encode(handler)
       Codec::Encoder.encode(
         "entrypoint" => entrypoint,
-        "args" => Codec::Utils.deep_wrap(args, handle_table),
-        "kwargs" => Codec::Utils.deep_wrap(kwargs, handle_table)
+        "args" => Codec::Utils.deep_wrap(args, handler),
+        "kwargs" => Codec::Utils.deep_wrap(kwargs, handler)
       )
     end
 

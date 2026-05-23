@@ -1,7 +1,7 @@
 module Kobako
   module RPC
     class Server
-      def initialize: (?handle_table: Kobako::HandleTable) -> void
+      def initialize: (?handler: Kobako::Catalog::Handler) -> void
 
       def define: (Symbol | String name) -> Kobako::RPC::Namespace
 

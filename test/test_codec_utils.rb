@@ -13,7 +13,7 @@ class TestCodecUtils < Minitest::Test
   Utils = Kobako::Codec::Utils
 
   def setup
-    @table = Kobako::HandleTable.new
+    @table = Kobako::Catalog::Handler.new
   end
 
   # ---------- wire_representable? — scalar branch ----------
@@ -66,7 +66,7 @@ class TestCodecUtils < Minitest::Test
     assert_equal 0, @table.size, "no Handle should be allocated for wire-representable input"
   end
 
-  def test_non_wire_leaf_is_wrapped_via_handle_table
+  def test_non_wire_leaf_is_wrapped_via_handler
     body = StringIO.new("hello")
 
     wrapped = Utils.deep_wrap(body, @table)

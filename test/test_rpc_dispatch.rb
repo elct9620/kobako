@@ -11,11 +11,11 @@ require "test_helper"
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestRPCDispatchUnit < Minitest::Test
   def setup
-    @handle_table = Kobako::HandleTable.new
-    @registry = Kobako::RPC::Server.new(handle_table: @handle_table)
+    @handler = Kobako::Catalog::Handler.new
+    @registry = Kobako::RPC::Server.new(handler: @handler)
     # Instance is nil — none of these dispatch-only tests exercise the
     # yield path. Channel.dispatch only touches Server + HandleTable.
-    @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handle_table: @handle_table)
+    @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handler: @handler)
   end
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
@@ -190,7 +190,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.ok?
     assert_kind_of Kobako::Handle, resp.payload
-    bound = @handle_table.fetch(resp.payload.id)
+    bound = @handler.fetch(resp.payload.id)
     assert_equal "hi,Alice", bound.greet
   end
 
@@ -202,7 +202,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.ok?
     assert_equal "plain", resp.payload
-    assert_equal 0, @handle_table.size
+    assert_equal 0, @handler.size
   end
 
   # ---------- B-16 — guest passes Handle as argument ----------
@@ -215,7 +215,7 @@ class TestRPCDispatchUnit < Minitest::Test
       def initialize(name) = (@name = name)
       def greet = "hello,#{@name}"
     end.new("Alice")
-    handle_id = @handle_table.alloc(greeter).id
+    handle_id = @handler.alloc(greeter).id
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id)], {})
 
@@ -228,7 +228,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_kwarg_is_resolved_to_bound_object_before_dispatch
     obj = Object.new
     def obj.greet = "kw_ok"
-    handle_id = @handle_table.alloc(obj).id
+    handle_id = @handler.alloc(obj).id
     capture = []
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
     req = encode_request("K::Run", "run", [], { target: Kobako::Handle.from_wire(handle_id) })
@@ -258,7 +258,7 @@ class TestRPCDispatchUnit < Minitest::Test
     obj = Class.new do
       def find(id) = "row:#{id}"
     end.new
-    handle_id = @handle_table.alloc(obj).id
+    handle_id = @handler.alloc(obj).id
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "find", [42], {})
 
     resp = decode_response(@channel.dispatch(req))
@@ -270,7 +270,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
-    parent_id = @handle_table.alloc(leaf_factory).id
+    parent_id = @handler.alloc(leaf_factory).id
     req = encode_request_with_target(Kobako::Handle.from_wire(parent_id), "make", [], {})
 
     resp = decode_response(@channel.dispatch(req))
@@ -278,7 +278,7 @@ class TestRPCDispatchUnit < Minitest::Test
     assert resp.ok?
     assert_kind_of Kobako::Handle, resp.payload
     refute_equal parent_id, resp.payload.id
-    assert_equal "leaf", @handle_table.fetch(resp.payload.id).kind
+    assert_equal "leaf", @handler.fetch(resp.payload.id).kind
   end
 
   def test_unknown_handle_target_returns_undefined_exception
@@ -295,8 +295,8 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_invalid_after_table_reset
     obj = Object.new
     def obj.tag = "t"
-    handle_id = @handle_table.alloc(obj).id
-    @handle_table.reset!
+    handle_id = @handler.alloc(obj).id
+    @handler.reset!
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "tag", [], {})
     resp = decode_response(@channel.dispatch(req))
@@ -317,8 +317,8 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_disconnected_handle_target_returns_disconnected_exception
     obj = Object.new
     def obj.any = "alive"
-    handle_id = @handle_table.alloc(obj).id
-    @handle_table.mark_disconnected(handle_id)
+    handle_id = @handler.alloc(obj).id
+    @handler.mark_disconnected(handle_id)
 
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "any", [], {})
     resp = decode_response(@channel.dispatch(req))
@@ -337,8 +337,8 @@ class TestRPCDispatchUnit < Minitest::Test
   # two physically separate HandleTable instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
-    table_a = Kobako::HandleTable.new
-    table_b = Kobako::HandleTable.new
+    table_a = Kobako::Catalog::Handler.new
+    table_b = Kobako::Catalog::Handler.new
     _, channel_b = channel_for(table_b)
     handle_id_in_a = table_a.alloc(pinger).id
 
@@ -357,8 +357,8 @@ class TestRPCDispatchUnit < Minitest::Test
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Server path resolves;
     # arg resolution fails when the id misses B's HandleTable.
-    table_a = Kobako::HandleTable.new
-    server_b, channel_b = channel_for(Kobako::HandleTable.new)
+    table_a = Kobako::Catalog::Handler.new
+    server_b, channel_b = channel_for(Kobako::Catalog::Handler.new)
     server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new).id
 
@@ -396,7 +396,7 @@ class TestRPCDispatchUnit < Minitest::Test
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
     # The malformed int never made it into the HandleTable.
-    assert_equal 0, @handle_table.size
+    assert_equal 0, @handler.size
   end
 
   # ---------- HandleTable exhaustion (SPEC B-21 / E-07) ----------
@@ -407,14 +407,14 @@ class TestRPCDispatchUnit < Minitest::Test
   # dispatcher's wrap_return path is the call site that triggers this
   # during normal RPC: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
-  # @handle_table.alloc, and the cap raise surfaces via the dispatcher's
+  # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain as a Response.error the guest observes.
-  def test_handle_table_exhaustion_during_wrap_return_is_response_err
-    # Test seam: HandleTable.new(next_id:) lets us pin the counter at
-    # MAX_ID + 1 without 2^31 allocations. SPEC documents this seam at
-    # HandleTable "Build a fresh, empty HandleTable" — the parameter is
-    # explicitly intended for cap-exhaustion testing.
-    registry, channel = registry_with_exhausted_handle_table
+  def test_handler_exhaustion_during_wrap_return_is_response_err
+    # Test seam: Catalog::Handler.new(next_id:) lets us pin the counter
+    # at MAX_ID + 1 without 2^31 allocations. SPEC documents this seam
+    # at Catalog::Handler "Build a fresh, empty Handler" — the parameter
+    # is explicitly intended for cap-exhaustion testing.
+    registry, channel = registry_with_exhausted_handler
     registry.define(:Factory).bind(:Make, object_factory)
     req = encode_request("Factory::Make", "make", [], {})
 
@@ -422,26 +422,25 @@ class TestRPCDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Kobako::HandleTableExhausted/, resp.payload.message)
+    assert_match(/Kobako::HandlerExhaustedError/, resp.payload.message)
   end
 
-  def test_handle_table_exhaustion_propagates_as_sandbox_error_class
-    # Pin the class hierarchy: HandleTableExhausted < HandleTableError <
-    # SandboxError (per Kobako::errors). This matters because
-    # Sandbox-invocation-level callers rescuing SandboxError must catch the
-    # exhaustion path; the dispatcher's rescue StandardError branch
-    # turns the raise into a Response.error so the guest can observe it,
-    # but the underlying class identity is what SPEC B-21 pins.
-    assert_operator Kobako::HandleTableExhausted, :<, Kobako::HandleTableError
-    assert_operator Kobako::HandleTableError, :<, Kobako::SandboxError
+  def test_handler_exhaustion_propagates_as_sandbox_error_class
+    # Pin the class hierarchy: HandlerExhaustedError < SandboxError
+    # (per Kobako::errors). This matters because Sandbox-invocation-
+    # level callers rescuing SandboxError must catch the exhaustion path;
+    # the dispatcher's rescue StandardError branch turns the raise into
+    # a Response.error so the guest can observe it, but the underlying
+    # class identity is what SPEC B-21 pins.
+    assert_operator Kobako::HandlerExhaustedError, :<, Kobako::SandboxError
 
-    table = Kobako::HandleTable.new(
+    table = Kobako::Catalog::Handler.new(
       next_id: Kobako::Handle::MAX_ID + 1
     )
     error = assert_raises(Kobako::SandboxError) do
       table.alloc(Object.new)
     end
-    assert_kind_of Kobako::HandleTableExhausted, error
+    assert_kind_of Kobako::HandlerExhaustedError, error
   end
 
   private
@@ -529,8 +528,8 @@ class TestRPCDispatchUnit < Minitest::Test
   # at MAX_ID + 1 so the next #alloc trips the B-21 cap. Returns both
   # so the test can register a Service on the Server (via +#define+)
   # and exercise dispatch on the Channel.
-  def registry_with_exhausted_handle_table
-    exhausted = Kobako::HandleTable.new(next_id: Kobako::Handle::MAX_ID + 1)
+  def registry_with_exhausted_handler
+    exhausted = Kobako::Catalog::Handler.new(next_id: Kobako::Handle::MAX_ID + 1)
     channel_for(exhausted)
   end
 
@@ -538,8 +537,8 @@ class TestRPCDispatchUnit < Minitest::Test
   # Instance is nil — dispatch-only tests never reach the yield path,
   # which is the only Channel surface that touches Instance.
   def channel_for(table)
-    server = Kobako::RPC::Server.new(handle_table: table)
-    channel = Kobako::RPC::Channel.new(server: server, instance: nil, handle_table: table)
+    server = Kobako::RPC::Server.new(handler: table)
+    channel = Kobako::RPC::Channel.new(server: server, instance: nil, handler: table)
     [server, channel]
   end
 end
