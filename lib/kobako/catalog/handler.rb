@@ -98,14 +98,13 @@ module Kobako
         self
       end
 
-      # Returns the number of currently-bound entries.
+      # Number of currently-bound entries. Used by tests of the Dispatcher
+      # and Codec::Utils#deep_wrap to observe whether each path allocates
+      # exactly the Handle entries it should — the +Handler+ itself never
+      # consults its own size, but the surrounding code's allocation
+      # contract is part of the observable boundary.
       def size
         @entries.size
-      end
-
-      # Returns +true+ when +id+ is currently bound, +false+ otherwise.
-      def include?(id)
-        @entries.key?(id)
       end
 
       private

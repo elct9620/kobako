@@ -137,48 +137,6 @@ module Kobako
       assert_same obj_b, table.fetch(id_b)
     end
 
-    # ---------- Utility predicates ----------
-
-    def test_size_and_include_predicate_on_empty_table
-      table = Table.new
-      assert_equal 0, table.size
-      refute table.include?(1)
-    end
-
-    def test_size_and_include_predicate_after_alloc
-      table = Table.new
-      id1 = table.alloc(Object.new).id
-      id2 = table.alloc(Object.new).id
-      assert_equal 2, table.size
-      assert table.include?(id1)
-      assert table.include?(id2)
-      refute table.include?(99)
-    end
-
-    def test_size_and_include_predicate_after_release
-      table = Table.new
-      id1 = table.alloc(Object.new).id
-      id2 = table.alloc(Object.new).id
-
-      table.release(id1)
-
-      assert_equal 1, table.size
-      refute table.include?(id1)
-      assert table.include?(id2)
-    end
-
-    def test_size_and_include_predicate_after_reset
-      table = Table.new
-      table.alloc(Object.new) # one binding we never reach for again
-      stale_id = table.alloc(Object.new).id
-
-      table.reset!
-
-      assert_equal 0, table.size
-      refute table.include?(stale_id),
-             "ids issued before reset must not resolve afterward (B-19)"
-    end
-
     # ---------- mark_disconnected: ABA protection sentinel ----------
 
     def test_mark_disconnected_replaces_entry_with_disconnected_sentinel
@@ -199,11 +157,13 @@ module Kobako
     def test_mark_disconnected_ignores_unknown_id
       # Arrange
       table = Table.new
-      table.alloc(Object.new) # populates id 1; the entry exists but is never read
+      original = Object.new
+      table.alloc(original) # populates id 1
       # Act + Assert — silently ignored; no exception, no state change.
       # Returns self for chainability (matching reset! convention).
       assert_same table, table.mark_disconnected(999)
-      assert_equal 1, table.size
+      assert_same original, table.fetch(1),
+                  "mark_disconnected on unknown id must not touch existing entries"
     end
   end
 end

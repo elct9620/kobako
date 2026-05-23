@@ -15,8 +15,6 @@ module Kobako
 
       def size: () -> Integer
 
-      def include?: (Integer id) -> bool
-
       private
 
       def require_bound!: (Integer id) -> void
