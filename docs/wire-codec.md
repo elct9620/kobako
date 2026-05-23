@@ -29,7 +29,7 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 | 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
 | 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
-| 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::RPC::Fault` (deserialized per error type, → `SPEC.md` § Error Classes) | `Errenv` struct |
+| 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::Transport::Fault` (deserialized per error type, → `SPEC.md` § Error Classes) | `Errenv` struct |
 
 ---
 
@@ -83,7 +83,7 @@ Position rules for ext 0x00:
 | 1 | `0x01` — kobako ext type code |
 | 2–5 | Handle ID as big-endian u32 |
 
-The Handle ID field carries the opaque identifier allocated by the HandleTable (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
+The Handle ID field carries the opaque identifier allocated by `Catalog::Handler` (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
 
 ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior.md`](behavior.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
 
@@ -228,7 +228,7 @@ The following function names and byte-level signatures are fixed cross-implement
 
 The Guest Binary calls `__kobako_dispatch` after writing a Request payload into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the Request, dispatches it, serializes the Response, allocates a response buffer via `__kobako_alloc`, writes the Response bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Response error-variant path), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
 
-Single RPC payload size limit: 16 MiB in either direction. Payloads exceeding this limit are a wire violation; the Host Gem walks the trap path.
+Single dispatch payload size limit: 16 MiB in either direction. Payloads exceeding this limit are a wire violation; the Host Gem walks the trap path.
 
 ### Guest-provided exports
 
@@ -244,7 +244,7 @@ The ABI is a closed enumerated set: exactly five guest exports are permitted, li
 
 `__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior.md` § Error Scenarios).
 
-The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its yield proxy (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-RPC 16 MiB payload size limit applies in both directions.
+The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its yield proxy (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-dispatch 16 MiB payload size limit applies in both directions.
 
 ### Invocation channels
 

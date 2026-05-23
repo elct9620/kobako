@@ -8,16 +8,16 @@ The governing summary of this contract lives in `SPEC.md` § Wire Contract; this
 
 ## Transport Role
 
-- **Initiator**: the Guest Binary (Guest RPC client) is the sole initiator of all host↔guest communication. The Host Gem never pushes messages to the guest unprompted.
+- **Initiator**: the Guest Binary (`Kobako::Transport::Proxy`) is the sole initiator of all host↔guest communication. The Host Gem never pushes messages to the guest unprompted.
 - **Responder**: the Host Gem handles each request synchronously within the same Wasm import function call frame, then returns the response to the guest before that frame exits.
-- **Synchronicity**: every RPC round-trip is fully synchronous. From the guest mruby script's perspective, a Service method call is an ordinary synchronous function call that completes before the next line executes. There are no callbacks, promises, or yield-resume mechanisms.
+- **Synchronicity**: every Transport round-trip is fully synchronous. From the guest mruby script's perspective, a Service method call is an ordinary synchronous function call that completes before the next line executes. There are no callbacks, promises, or yield-resume mechanisms.
 - **Medium**: Wasm linear memory. The guest writes the serialized Request into linear memory and calls a Wasm import function; the host reads and writes through a memory view provided by the Wasm engine. This is an implementation note; the wire contract specifies message shape, not transport mechanics.
 
 ---
 
 ## Request Shape
 
-Every host↔guest RPC call carries exactly five logical fields:
+Every host↔guest Transport request carries exactly five logical fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -48,10 +48,10 @@ A Response always matches exactly one variant. There is no partial success or st
 
 A **Capability Handle** is an opaque token used on either side of the wire to reference a stateful Ruby object that is not directly wire-representable (e.g., a session, connection, `StringIO`, custom Env / Context class). The abstract contract is:
 
-- **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request, or invoking methods on it which dispatch as RPC calls.
+- **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request, or invoking methods on it which dispatch as Transport requests.
 - **Host-allocated**: the wire layer on the host side allocates a Handle automatically in two symmetric situations — whenever a Service method returns a stateful object (host→guest return path, → [`docs/behavior.md`](behavior.md) § B-14), and whenever `#run` is invoked with arguments containing non-wire-representable objects (host→guest argument path, → [`docs/behavior.md`](behavior.md) § B-34). The Host App has no API to create or inspect Handles directly.
-- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The HandleTable is fully reset at the start of every invocation (`#eval` or `#run`); the reset is uniform regardless of allocation source.
-- **Not constructible by guest or Host App**: neither the guest mruby API nor the Host App API exposes a public constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the HandleTable; a `Kobako::Handle` instance fabricated through any non-public path on the host side is rejected at `#run` host pre-flight. Handle allocation is exclusively internal to the Host Gem's wire layer.
+- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The Catalog::Handler is fully reset at the start of every invocation (`#eval` or `#run`); the reset is uniform regardless of allocation source.
+- **Not constructible by guest or Host App**: neither the guest mruby API nor the Host App API exposes a public constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the Catalog::Handler; a `Kobako::Handle` instance fabricated through any non-public path on the host side is rejected at `#run` host pre-flight. Handle allocation is exclusively internal to the Host Gem's wire layer.
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound).
 
 Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
@@ -60,7 +60,7 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ## Fault Envelope
 
-The fault envelope appears inside a Response `status=1` variant and describes a Service-layer failure. Maps to the Ruby value object `Kobako::RPC::Fault`. It carries three fields:
+The fault envelope appears inside a Response `status=1` variant and describes a Service-layer failure. Maps to the Ruby value object `Kobako::Transport::Fault`. It carries three fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -74,8 +74,8 @@ The four reserved `type` values are:
 |---|---|
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
-| `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the HandleTable (ABA protection rule — the ID exists but the entry is invalidated) |
-| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's HandleTable |
+| `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the Catalog::Handler (ABA protection rule — the ID exists but the entry is invalidated) |
+| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's Catalog::Handler |
 
 These four names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 
@@ -83,7 +83,7 @@ These four names are stable and reserved across kobako releases. Adding a new `t
 
 ## Outcome Envelope
 
-The outcome envelope carries the final result of an entire invocation (`#eval` source's last expression or `#run` entrypoint's `#call` return value, or a top-level execution failure). It is distinct from the per-RPC Response: it is written by the guest at the end of the invocation export (`__kobako_eval` or `__kobako_run`) and retrieved by the host via `__kobako_take_outcome` after that export returns.
+The outcome envelope carries the final result of an entire invocation (`#eval` source's last expression or `#run` entrypoint's `#call` return value, or a top-level execution failure). It is distinct from the per-dispatch Response: it is written by the guest at the end of the invocation export (`__kobako_eval` or `__kobako_run`) and retrieved by the host via `__kobako_take_outcome` after that export returns.
 
 The outcome envelope has two variants:
 
@@ -98,7 +98,7 @@ The host reads zero-length outcome bytes or an unrecognized envelope tag as a wi
 
 ## Yield Round-Trip
 
-When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `block_given=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response RPC: the host initiates, the guest responds.
+When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `block_given=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response dispatch: the host initiates, the guest responds.
 
 - **Initiator**: the Host Gem (specifically, the yield proxy passed to the Service method) is the initiator of every yield round-trip.
 - **Responder**: the Guest Binary receives the yield arguments, executes the block body inside the current dispatch frame, and returns a YieldResponse to the host before the re-entry frame exits.
@@ -110,7 +110,7 @@ When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy 
 
 ## YieldResponse Envelope
 
-The YieldResponse envelope carries the outcome of a single yield round-trip from the Guest Binary back to the host yield site. It is distinct from both Response (per-RPC reply) and Outcome (per-invocation result): it appears only mid-dispatch, inside the host-initiated yield re-entry.
+The YieldResponse envelope carries the outcome of a single yield round-trip from the Guest Binary back to the host yield site. It is distinct from both Response (per-dispatch reply) and Outcome (per-invocation result): it appears only mid-dispatch, inside the host-initiated yield re-entry.
 
 The envelope is a tag-prefixed binary structure: a single byte tag followed by an optional MessagePack payload.
 
