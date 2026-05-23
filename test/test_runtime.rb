@@ -51,4 +51,26 @@ class TestRuntime < Minitest::Test
     b = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
     refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
+
+  # SPEC error taxonomy contract: a present-but-unparseable wasm artifact
+  # passing through +from_path+ raises +Kobako::TrapError+, not
+  # +ModuleNotBuiltError+. ModuleNotBuiltError is reserved for "file
+  # absent" (the pre-+rake compile+ state operators are most likely to
+  # hit); every other engine-side construction failure — wasmtime
+  # rejecting the bytes, missing required exports, instantiation traps —
+  # collapses to +TrapError+ so the Host App's "discard the Sandbox and
+  # rebuild" recovery path covers them all under one rescue.
+  def test_from_path_raises_trap_error_for_corrupt_wasm_payload
+    # Any present file whose bytes are not a valid wasm module reaches
+    # the WtModule::new compile path and trips +trap_err+. Pick a small
+    # fixture that ships in the repo so the test is deterministic and
+    # the failure mode is "bytes are not wasm" rather than I/O.
+    non_wasm = File.expand_path("fixtures/snippet_answers.rb", __dir__)
+    skip "snippet_answers.rb fixture missing" unless File.exist?(non_wasm)
+
+    err = assert_raises(Kobako::TrapError) do
+      Kobako::Runtime.from_path(non_wasm, nil, nil, nil, nil)
+    end
+    assert_match(/failed to compile Sandbox runtime/, err.message)
+  end
 end
