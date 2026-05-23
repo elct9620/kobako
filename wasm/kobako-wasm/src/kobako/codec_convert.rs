@@ -8,7 +8,7 @@
 //!
 //! Three concerns live here:
 //!
-//! 1. **RPC-arg conversion** (`to_codec_value`) — unknown types fall
+//! 1. **Transport-arg conversion** (`to_codec_value`) — unknown types fall
 //!    back to `Object#to_s`, the interchange representation.
 //! 2. **Outcome conversion** (`to_codec_outcome`) — unknown types fall
 //!    back to `Object#inspect`, the display representation. The
@@ -128,7 +128,7 @@ impl Kobako {
     }
 
     /// Convert a [`Value`] to a kobako [`crate::codec::Value`] for use
-    /// as an RPC argument or keyword value. Symbol values map to
+    /// as a transport argument or keyword value. Symbol values map to
     /// [`crate::codec::Value::Sym`] (ext 0x00, docs/wire-codec.md
     /// § Ext Types). Array / Hash values map to
     /// [`crate::codec::Value::Array`] / [`crate::codec::Value::Map`]
@@ -137,7 +137,7 @@ impl Kobako {
     ///
     /// ## Why two converters
     ///
-    /// This is the **RPC-path** converter. Hash arguments are still
+    /// This is the **transport-path** converter. Hash arguments are still
     /// decoded into kwargs separately via [`Kobako::extract_hash_kwargs`]
     /// when they trail the positional list; a Hash that arrives here is
     /// either nested inside an Array argument or sitting in a non-final
@@ -146,7 +146,7 @@ impl Kobako {
     /// [`Kobako::to_codec_outcome`] handles the **outcome-path** (the
     /// script's last-expression value) and uses `inspect` for its
     /// unknown-type fallback instead. Do not unify the two: the outcome
-    /// path is read as a display representation, while RPC arguments
+    /// path is read as a display representation, while transport arguments
     /// are interchange values that reach a Service's `public_send`.
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {

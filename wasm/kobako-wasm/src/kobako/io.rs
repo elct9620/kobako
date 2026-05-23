@@ -4,8 +4,9 @@
 //!
 //! ## Why a separate file
 //!
-//! The IO surface is a separate concern from the Kobako module / RPC
-//! handles housed in [`super::Kobako`]: there is no instance state to
+//! The IO surface is a separate concern from the Kobako module /
+//! transport handles housed in [`super::Kobako`]: there is no instance
+//! state to
 //! cache beyond the fd ivar, and the write path talks directly to
 //! the wasi-libc `write(2)` syscall instead of re-entering the
 //! Kobako token machinery.

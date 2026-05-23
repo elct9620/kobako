@@ -4,8 +4,8 @@
 //! result (`Result` branch — the user script's last expression) or
 //! top-level uncaught exception (`Panic` branch). This module mirrors the
 //! host's `lib/kobako/outcome.rb` + `lib/kobako/outcome/panic.rb`: per-run
-//! shape lives here at the crate top level, distinct from the per-RPC
-//! envelope in `rpc/envelope.rs`.
+//! shape lives here at the crate top level, distinct from the
+//! per-transport-call envelope in `rpc/envelope.rs`.
 //!
 //! The error type [`EnvelopeError`] is shared with `rpc::envelope` — both
 //! layers raise codec-level shape faults the same way; deduplicating it

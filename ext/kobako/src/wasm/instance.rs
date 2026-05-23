@@ -190,7 +190,7 @@ impl Instance {
             .map_err(|e| {
                 wasm_err(
                     &ruby,
-                    format!("failed to register host RPC dispatch import: {}", e),
+                    format!("failed to register host transport dispatch import: {}", e),
                 )
             })?;
 

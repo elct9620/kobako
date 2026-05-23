@@ -158,19 +158,19 @@ fn try_handle(
     req_len: i32,
 ) -> Result<i64, &'static str> {
     let req_bytes = read_caller_memory(caller, req_ptr, req_len).ok_or(
-        "Sandbox runtime does not export linear memory, or RPC request slice falls outside it",
+        "Sandbox runtime does not export linear memory, or transport request slice falls outside it",
     )?;
 
-    // `Kobako::Sandbox` always installs the RPC Channel before
+    // `Kobako::Sandbox` always installs the Transport Channel before
     // invoking the runtime, so reaching this branch indicates a misuse
     // rather than a normal control path.
     let channel = caller
         .data()
         .channel()
-        .ok_or("RPC dispatched outside an active Sandbox#run — internal wiring bug")?;
+        .ok_or("transport dispatch fired outside an active Sandbox#run — internal wiring bug")?;
 
     let resp_bytes = invoke_channel(channel, &req_bytes).map_err(|_| {
-        "RPC channel raised an exception instead of returning a fault — please report this as a kobako bug"
+        "transport channel raised an exception instead of returning a fault — please report this as a kobako bug"
     })?;
 
     write_response(caller, &resp_bytes)
@@ -205,20 +205,21 @@ fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<i6
             .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
         _ => return Err("Sandbox runtime is missing the allocation hook"),
     };
-    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "RPC response exceeds 2 GiB")?;
+    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "transport response exceeds 2 GiB")?;
     let ptr = alloc
         .call(&mut *caller, len_i32)
-        .map_err(|_| "Sandbox allocation trapped while preparing the RPC response")?;
+        .map_err(|_| "Sandbox allocation trapped while preparing the transport response")?;
     if ptr == 0 {
-        return Err("Sandbox is out of memory while preparing the RPC response");
+        return Err("Sandbox is out of memory while preparing the transport response");
     }
 
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
         _ => return Err("Sandbox runtime does not export linear memory"),
     };
-    mem.write(&mut *caller, ptr as usize, bytes)
-        .map_err(|_| "could not write the RPC response into Sandbox memory (range invalid)")?;
+    mem.write(&mut *caller, ptr as usize, bytes).map_err(|_| {
+        "could not write the transport response into Sandbox memory (range invalid)"
+    })?;
 
     let ptr_u32 = ptr as u32;
     let len_u32 = bytes.len() as u32;

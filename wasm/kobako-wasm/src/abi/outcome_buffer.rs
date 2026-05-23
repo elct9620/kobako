@@ -94,10 +94,11 @@ pub(super) fn write_panic(panic: Panic) {
 ///
 /// Delegates to wasi-libc's `malloc`. The allocated buffer is
 /// intentionally not freed — its lifetime is bounded by the wasm
-/// instance lifetime (one Sandbox invocation). The host writes the RPC
-/// response into this buffer inside the `__kobako_dispatch` callback,
-/// then consumes the response synchronously before the RPC call
-/// returns, so the buffer does not need to outlive the call frame.
+/// instance lifetime (one Sandbox invocation). The host writes the
+/// transport response into this buffer inside the `__kobako_dispatch`
+/// callback, then consumes the response synchronously before the
+/// transport call returns, so the buffer does not need to outlive the
+/// call frame.
 /// Instance drop frees all linear memory.
 #[no_mangle]
 pub extern "C" fn __kobako_alloc(size: u32) -> u32 {

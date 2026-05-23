@@ -3,7 +3,7 @@
 module Kobako
   # Host-side wasmtime wrapper, surfaced as Ruby classes by the native ext
   # (see ext/kobako/src/wasm.rs). This module is the foundational binding
-  # layer for Sandbox (#14), the run path (#16) and RPC dispatch (#18).
+  # layer for Sandbox (#14), the run path (#16) and Transport dispatch (#18).
   #
   # The classes themselves (Instance) and the error hierarchy (Error /
   # ModuleNotBuiltError) are defined from Rust at ext load time; this file

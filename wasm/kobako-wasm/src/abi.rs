@@ -3,7 +3,7 @@
 //! This module is the façade for the wasm import/export contract pinned
 //! by docs/wire-codec.md § ABI Signatures. The contract is:
 //!
-//! * **Exactly 1 host import**: `__kobako_dispatch` — the RPC bridge the
+//! * **Exactly 1 host import**: `__kobako_dispatch` — the transport bridge the
 //!   guest uses to dispatch a Service call to the host. Lives in the
 //!   `env` wasm namespace (`(import "env" "__kobako_dispatch" ...)`).
 //! * **Exactly 5 guest exports**:
@@ -86,7 +86,7 @@ pub use yield_block::__kobako_yield_to_block;
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
-    /// Host-provided RPC bridge. Guest writes a Request payload at
+    /// Host-provided transport bridge. Guest writes a Request payload at
     /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a
     /// packed u64 holding (response_ptr, response_len) of a buffer the
     /// host allocated via `__kobako_alloc` inside the same call frame.
@@ -132,7 +132,7 @@ pub extern "C" fn _initialize() {
 
 /// Pack `(ptr, len)` into a single u64: high 32 bits = ptr,
 /// low 32 = len. Crate-internal — only the outcome buffer writer in
-/// `super::outcome_buffer` and the RPC client in `crate::rpc::client`
+/// `super::outcome_buffer` and the transport client in `crate::rpc::client`
 /// share this layout with the host. The host callers live behind
 /// `#[cfg(target_arch = "wasm32")]`, so on the host target the
 /// function exists only for the inline cargo tests below; the lint

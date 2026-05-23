@@ -1,4 +1,4 @@
-//! Guest RPC Client — Rust+mruby bridge.
+//! Guest transport client — Rust+mruby bridge.
 //!
 //! This module is the glue between the in-VM mruby proxy installed
 //! by `crate::kobako::Kobako::install` (mruby C API registrations) and
@@ -18,7 +18,7 @@
 //!    the host via `__kobako_dispatch` on `wasm32`, then decodes the
 //!    response. On the host target (`#[cfg(not(target_arch = "wasm32"))]`)
 //!    a thread-local **loopback** hook stands in for the host so that
-//!    integration-style tests can drive the full RPC path without a
+//!    integration-style tests can drive the full transport path without a
 //!    real wasm runtime.
 //!
 //! ## Why the loopback indirection on host
@@ -32,7 +32,7 @@
 //!
 //! ## Where the mruby C-side bridge lives
 //!
-//! User-script RPC calls land in C via the `Kobako::Transport::Proxy` singleton-class
+//! User-script transport calls land in C via the `Kobako::Transport::Proxy` singleton-class
 //! `method_missing` shim (and `Kobako::Handle#method_missing` for the
 //! Handle chaining path, docs/behavior.md B-17). Both shims live in
 //! `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
@@ -108,7 +108,7 @@ impl std::fmt::Display for InvokeError {
             InvokeError::Service(ex) => {
                 write!(f, "service raised {}: {}", ex.kind, ex.message)
             }
-            InvokeError::Envelope(e) => write!(f, "RPC envelope fault: {e}"),
+            InvokeError::Envelope(e) => write!(f, "transport envelope fault: {e}"),
         }
     }
 }
@@ -126,8 +126,8 @@ impl std::error::Error for InvokeError {
 // Pure Request builder — decoupled from the host import for testing.
 // ---------------------------------------------------------------------
 
-/// Build the bytes of a Request envelope from the five-tuple every RPC
-/// site provides (target, method, args, kwargs, block_given). Pure
+/// Build the bytes of a Request envelope from the five-tuple every
+/// transport site provides (target, method, args, kwargs, block_given). Pure
 /// function; does not touch wasm linear memory or the host import.
 /// Crate-internal — only [`invoke_rpc`] and its host-target tests call
 /// this.
@@ -152,7 +152,7 @@ pub(crate) fn build_request_bytes(
 }
 
 // ---------------------------------------------------------------------
-// Full RPC round-trip with loopback hook for host-target tests.
+// Full transport round-trip with loopback hook for host-target tests.
 // ---------------------------------------------------------------------
 
 /// Function signature for the host-target loopback. Receives the

@@ -94,7 +94,7 @@ pub use value::Value;
 // --------------------------------------------------------------------
 //
 // On the host target the FFI block is absent. Tests that target the
-// pure-Rust unit suite (codec / outcome / RPC envelope) still need
+// pure-Rust unit suite (codec / outcome / transport envelope) still need
 // `mrb_value` / `mrb_state` / `RClass` etc. to resolve as types — the
 // stub aliases below cover that.
 //

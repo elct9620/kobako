@@ -29,8 +29,8 @@
 // On every other target this script is a near no-op: the early-return
 // below skips bindgen, the cc::Build run, and the link directives,
 // because host targets do not have `libmruby.a` and the host-target
-// rlib is only used for `cargo test` against the codec / outcome / RPC
-// envelope unit tests in the consumer crate.
+// rlib is only used for `cargo test` against the codec / outcome /
+// transport envelope unit tests in the consumer crate.
 //
 // Contract with the Rake driver
 // -----------------------------

@@ -405,7 +405,7 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // RPC dispatch.
+    // Transport dispatch.
     // ----------------------------------------------------------------
 
     /// Invoke `invoke_rpc` and convert the result to a [`Value`]. On

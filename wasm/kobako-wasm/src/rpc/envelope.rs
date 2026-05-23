@@ -1,8 +1,8 @@
-//! Per-call RPC envelope encoders/decoders.
+//! Per-call transport envelope encoders/decoders.
 //!
 //! docs/wire-contract.md pins the logical shape of every host↔guest
 //! Request / Response; docs/wire-codec.md § Envelope Encoding
-//! pins the binary framing. This module assembles the per-RPC Request
+//! pins the binary framing. This module assembles the per-call Request
 //! and Response envelopes on top of the lower-level [`Encoder`] /
 //! [`Decoder`] primitives in `codec/`. The per-`#run` Outcome envelope
 //! (Result / Panic) lives next door at `crate::outcome` — mirroring the

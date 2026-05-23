@@ -14,7 +14,7 @@ module Kobako
   # body decoding), and the +Panic+ wire record lives at
   # +Kobako::Outcome::Panic+. The byte-level msgpack codec at
   # +Kobako::Codec+ is invoked for the body itself; otherwise
-  # nothing in +RPC+ participates.
+  # nothing in +Transport+ participates.
   #
   #   * tag 0x01, decode OK                 → return decoded value
   #   * tag 0x01, decode fails              → SandboxError (E-09)
