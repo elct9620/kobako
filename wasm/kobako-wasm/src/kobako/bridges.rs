@@ -13,9 +13,9 @@
 //!        │
 //!        │ (no instance method named `get`; class-level dispatch falls
 //!        │  through to singleton-class `method_missing`, inherited
-//!        │  from `Kobako::RPC::Client.singleton_class`)
+//!        │  from `Kobako::Transport::Proxy.singleton_class`)
 //!        ▼
-//!   rpc_method_missing(mrb, self=KV.class)
+//!   transport_proxy_method_missing(mrb, self=KV.class)
 //!        │
 //!        │ (extract method symbol + args; build kwargs hash from
 //!        │  trailing Hash if present; resolve target string via
@@ -29,7 +29,9 @@
 //!
 //! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md B-17)
 //! follows the same shape: `handle_method_missing` builds a Handle
-//! target and calls `dispatch_invoke` directly.
+//! target and calls `dispatch_invoke` directly. Both bridges share the
+//! same Rust helper (`Kobako::dispatch_invoke`) — only the `Target`
+//! variant they construct differs.
 //!
 //! ## Safety
 //!
@@ -42,8 +44,9 @@
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
-/// `Kobako::RPC.method_missing(name, *args)` C bridge — singleton-class
-/// level, so `self` is the class object (e.g. `MyService::KV`).
+/// `Kobako::Transport::Proxy.method_missing(name, *args)` C bridge —
+/// singleton-class level, so `self` is the class object (e.g.
+/// `MyService::KV`).
 ///
 /// Extracts:
 ///   - `target` = full class name via `mrb_class_name(mrb_class_ptr(self))`
@@ -52,7 +55,7 @@ use crate::mruby::sys::Value;
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
 /// Forwards to [`super::Kobako::dispatch_invoke`].
-pub(crate) unsafe extern "C" fn rpc_method_missing(
+pub(crate) unsafe extern "C" fn transport_proxy_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
@@ -79,13 +82,13 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             Some(name) => name,
             None => unsafe {
                 // SAFETY: bridge frame.
-                kobako.raise_wire_error(c"RPC target class name is null")
+                kobako.raise_wire_error(c"transport target class name is null")
             },
         };
 
         let method_name = match kobako.mrb().sym_name(method_sym) {
             Some(name) => name,
-            None => unsafe { kobako.raise_wire_error(c"RPC method symbol name is null") },
+            None => unsafe { kobako.raise_wire_error(c"transport method symbol name is null") },
         };
 
         let (args, kwargs) = kobako.unpack_args_kwargs(rest);
@@ -97,7 +100,7 @@ pub(crate) unsafe extern "C" fn rpc_method_missing(
             &args,
             &kwargs,
             block_given,
-            c"RPC envelope error",
+            c"transport envelope error",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -124,7 +127,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host stub — see `rpc_method_missing` for the shape rationale.
+        // Host stub — see `transport_proxy_method_missing` for the shape rationale.
         let _ = mrb;
         let _ = self_;
     }
@@ -135,6 +138,13 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
 /// method call on a Handle instance to the host via
 /// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
 /// (docs/behavior.md B-17 — Handle chaining).
+///
+/// TODO: Phase 2 originally intended to absorb this bridge into
+/// `transport_proxy_method_missing` so Handle becomes a pure value
+/// type with no `method_missing`. Keeping both bridges for now —
+/// they already share `Kobako::dispatch_invoke`, only the +Target+
+/// variant differs — to limit Phase 2 blast radius. Revisit once
+/// Phase 3's Runtime / Invocation slot work lands.
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
@@ -148,8 +158,9 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
         let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
 
-        // See `rpc_method_missing` for the BLOCK_STACK / block_given
-        // rationale; same shape applies to Handle dispatch (B-17).
+        // See `transport_proxy_method_missing` for the BLOCK_STACK /
+        // block_given rationale; same shape applies to Handle dispatch
+        // (B-17).
         let block_given = !block.is_nil();
         let _block_frame = BlockFrame::push_if_block(block);
 
@@ -169,7 +180,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
             &args,
             &kwargs,
             block_given,
-            c"RPC envelope error (Handle dispatch)",
+            c"transport envelope error (Handle dispatch)",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -183,11 +194,12 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     }
 }
 
-/// `Kobako::RPC.respond_to_missing?(name, include_private)` C bridge.
-/// Always returns `true` — every method call on a Member class
-/// is dispatched through `method_missing` to the host, so probing via
-/// `respond_to?` must succeed.
-pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
+/// `Kobako::Transport::Proxy.respond_to_missing?(name, include_private)`
+/// C bridge. Always returns `true` — every method call on a Member
+/// class is dispatched through `method_missing` to the host, so probing
+/// via `respond_to?` must succeed. Also registered on `Kobako::Handle`
+/// for the same reason (B-17 Handle chaining).
+pub(crate) unsafe extern "C" fn transport_proxy_respond_to_missing(
     mrb: *mut sys::mrb_state,
     _self_: Value,
 ) -> Value {
@@ -201,7 +213,7 @@ pub(crate) unsafe extern "C" fn rpc_respond_to_missing(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host stub — see `rpc_method_missing` for the shape rationale.
+        // Host stub — see `transport_proxy_method_missing` for the shape rationale.
         let _ = mrb;
         Value::zeroed()
     }
@@ -217,8 +229,8 @@ mod tests {
         // compile if the bridge functions drift from `mrb_func_t`. This
         // is the host-target replacement for an mruby-link-level
         // signature check.
-        let _f1: sys::mrb_func_t = rpc_method_missing;
-        let _f2: sys::mrb_func_t = rpc_respond_to_missing;
+        let _f1: sys::mrb_func_t = transport_proxy_method_missing;
+        let _f2: sys::mrb_func_t = transport_proxy_respond_to_missing;
         let _f3: sys::mrb_func_t = handle_initialize;
         let _f4: sys::mrb_func_t = handle_method_missing;
     }

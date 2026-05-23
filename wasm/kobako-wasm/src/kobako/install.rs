@@ -30,15 +30,15 @@ use super::io;
 /// [`super::Kobako`].
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
-    pub(super) client_class: sys::Class,
+    pub(super) proxy_class: sys::Class,
     pub(super) handle_class: sys::Class,
     pub(super) service_error_class: sys::Class,
     pub(super) disconnected_class: sys::Class,
     pub(super) wire_error_class: sys::Class,
 }
 
-/// Register the Kobako module, the `Kobako::RPC` namespace, the
-/// `Kobako::RPC::Client` class plus the top-level `Kobako::Handle`
+/// Register the Kobako module, the `Kobako::Transport` namespace, the
+/// `Kobako::Transport::Proxy` class plus the top-level `Kobako::Handle`
 /// value object, and the `Kobako::ServiceError` / `Disconnected` /
 /// `Kobako::Transport::WireError` exception hierarchy. Returns the
 /// five class handles the [`super::Kobako`] token needs to keep around.
@@ -54,47 +54,52 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // Kobako module.
     let kobako_mod = mrb.define_module(c"Kobako");
 
-    // Kobako::RPC module — protocol namespace shared with the
-    // host gem's lib/kobako/rpc.rb. Houses the Client base class
-    // (renamed to Kobako::Transport::Proxy in Phase 2 Step 7). The
-    // Handle value object lives at top level (Kobako::Handle) — it
-    // is a Sandbox-level domain entity used in both directions
-    // across the host↔guest boundary (B-14 service return, B-34
-    // host-side argument auto-wrap) and is not owned by the RPC
-    // namespace.
-    let rpc_mod = kobako_mod.define_module_under(mrb, c"RPC");
-
-    // Kobako::Transport module — Phase 2 successor to Kobako::RPC.
-    // Currently houses WireError; the Client base class joins as
-    // Kobako::Transport::Proxy in Step 7.
+    // Kobako::Transport module — host↔guest message namespace shared
+    // with the host gem's lib/kobako/transport.rb. Houses the Proxy
+    // base class (parent of every Member proxy installed via
+    // `Kobako::install_groups`) and the WireError fault. The Handle
+    // value object lives at top level (Kobako::Handle) — it is a
+    // Sandbox-level domain entity used in both directions across the
+    // host↔guest boundary (B-14 service return, B-34 host-side
+    // argument auto-wrap) and is not owned by the Transport namespace.
     let transport_mod = kobako_mod.define_module_under(mrb, c"Transport");
 
-    // Kobako::RPC::Client base class — parent of every Member
-    // installed via `Kobako::install_groups`. Spell the super
-    // class as `mrb.object_class()` to match the mrbgems/mruby-io
-    // convention; passing NULL would log "no super class for ...,
-    // Object assumed" via mrb_warn on every install.
-    let client_class = rpc_mod.define_class_under(mrb, c"Client", object_class);
+    // Kobako::Transport::Proxy base class — parent of every Member
+    // installed via `Kobako::install_groups`. Spell the super class as
+    // `mrb.object_class()` to match the mrbgems/mruby-io convention;
+    // passing NULL would log "no super class for ..., Object assumed"
+    // via mrb_warn on every install.
+    let proxy_class = transport_mod.define_class_under(mrb, c"Proxy", object_class);
 
     // Singleton-class `method_missing` / `respond_to_missing?` on
-    // `Kobako::RPC::Client`. Subclasses inherit through the
+    // `Kobako::Transport::Proxy`. Subclasses inherit through the
     // metaclass-chain dispatch.
-    client_class.define_singleton_method(
+    proxy_class.define_singleton_method(
         mrb,
         c"method_missing",
-        bridges::rpc_method_missing,
+        bridges::transport_proxy_method_missing,
         sys::MRB_ARGS_ANY,
     );
-    client_class.define_singleton_method(
+    proxy_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
-        bridges::rpc_respond_to_missing,
+        bridges::transport_proxy_respond_to_missing,
         sys::MRB_ARGS_ANY,
     );
 
-    // `Kobako::Handle` instance class — top-level Sandbox-level
-    // value object, not nested under RPC. Same explicit
-    // `mrb.object_class()` super as the Client class above.
+    // `Kobako::Handle` instance class — top-level Sandbox-level value
+    // object, not nested under Transport. Same explicit
+    // `mrb.object_class()` super as the Proxy class above.
+    //
+    // TODO: Phase 2 originally planned to absorb +Handle#method_missing+
+    // into +Transport::Proxy+ so the Handle class becomes a pure value
+    // type. The current arrangement keeps Handle's own
+    // +method_missing+ / +respond_to_missing?+ bridges that route to
+    // the shared +dispatch_invoke+ helper inside +Kobako+ —
+    // mechanically equivalent to the Proxy bridges, just registered on
+    // a different class. Revisit once the Runtime / Invocation slot
+    // work in Phase 3 settles, at which point a single bridge
+    // dispatched from both class shapes becomes cleaner.
     let handle_class = kobako_mod.define_class_under(mrb, c"Handle", object_class);
     handle_class.define_method(
         mrb,
@@ -111,7 +116,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
-        bridges::rpc_respond_to_missing,
+        bridges::transport_proxy_respond_to_missing,
         sys::MRB_ARGS_ANY,
     );
 
@@ -135,7 +140,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     kobako_mod.define_class_under(mrb, c"BytecodeError", runtime_error_class);
 
     KobakoClasses {
-        client_class,
+        proxy_class,
         handle_class,
         service_error_class,
         disconnected_class,

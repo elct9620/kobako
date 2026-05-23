@@ -21,7 +21,7 @@
 //!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
 //!   § ABI Signatures).
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
-//!   installs the `Kobako` module / `Kobako::RPC` / `Kobako::Handle` /
+//!   installs the `Kobako` module / `Kobako::Transport` / `Kobako::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
 //!   its `bridges` submodule. No Ruby boot text.
 //! * `mruby` — thin façade re-exporting the mruby C-API binding from

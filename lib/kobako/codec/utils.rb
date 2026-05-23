@@ -48,7 +48,7 @@ module Kobako
       #
       # Wrap any block that constructs a wire Value Object from decoded
       # bytes with this helper to keep the five decode sites uniform —
-      # Request / Response in +Kobako::RPC+, Panic map in
+      # Request / Response in +Kobako::Transport+, Panic map in
       # +Kobako::Outcome+, and the Handle / Fault ext-type unpackers in
       # {Factory}. Do not use it for general-purpose validation outside
       # the wire boundary — host-layer +ArgumentError+ values should

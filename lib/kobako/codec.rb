@@ -6,9 +6,9 @@ module Kobako
   # Host-side MessagePack codec for the kobako wire contract — the
   # byte-level layer ({docs/wire-codec.md}[link:../../docs/wire-codec.md]).
   # Two consumers sit on top:
-  # +Kobako::RPC+ pins the RPC framing (Request / Response)
-  # and +Kobako::Outcome+ owns the per-+#run+ outcome envelope (Result
-  # body / Panic map).
+  # +Kobako::Transport+ pins the host↔guest framing (Request / Response /
+  # Fault / Run / Yield) and +Kobako::Outcome+ owns the per-+#run+
+  # outcome envelope (Result body / Panic map).
   #
   # Backed by the official +msgpack+ gem via {Factory}; {Encoder} and
   # {Decoder} are thin wrappers that register the three kobako-specific
