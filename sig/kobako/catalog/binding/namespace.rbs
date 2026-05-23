@@ -5,13 +5,10 @@ module Kobako
         NAME_PATTERN: Regexp
 
         attr_reader name: String
-        attr_reader members: Hash[String, untyped]
 
         def initialize: (String name) -> void
 
         def bind: (Symbol | String member, untyped object) -> self
-
-        def []: (Symbol | String member) -> untyped
 
         def fetch: (Symbol | String member) -> untyped
 

@@ -7,23 +7,11 @@ module Kobako
 
       def lookup: (String target) -> untyped
 
-      def bound?: (String target) -> bool
-
-      def size: () -> Integer
-
-      def empty?: () -> bool
-
-      def to_preamble: () -> Array[[String, Array[String]]]
-
       def encoded_preamble: () -> String
 
       def seal!: () -> self
 
       def sealed?: () -> bool
-
-      private
-
-      def parse_target: (String target) -> [Kobako::Catalog::Binding::Namespace?, String?, String?]
     end
   end
 end

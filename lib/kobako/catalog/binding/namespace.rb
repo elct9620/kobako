@@ -12,14 +12,14 @@ module Kobako
         # ({docs/behavior.md B-07/B-08 Notes}[link:../../../../docs/behavior.md]).
         NAME_PATTERN = /\A[A-Z]\w*\z/
 
-        attr_reader :name, :members
+        attr_reader :name
 
         # Build a new Namespace. +name+ is an already-validated Namespace
         # name (must satisfy {NAME_PATTERN}; validation is the caller's
         # responsibility).
         def initialize(name)
           @name = name
-          @members = {}
+          @members = {} # : Hash[String, untyped]
         end
 
         # Bind +object+ under +member+ inside this Namespace. +member+ is a
@@ -36,13 +36,8 @@ module Kobako
           self
         end
 
-        # Member lookup. Returns the bound object or +nil+ when missing.
-        def [](member)
-          @members[member.to_s]
-        end
-
-        # Strict variant of {#[]}; raises +KeyError+ when no Member is
-        # registered under +member+.
+        # Member lookup; raises +KeyError+ when no Member is registered
+        # under +member+.
         def fetch(member)
           member_str = member.to_s
           unless @members.key?(member_str)

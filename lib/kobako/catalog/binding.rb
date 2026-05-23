@@ -63,37 +63,12 @@ module Kobako
       # separator. Returns the bound Host object. Raises +KeyError+ when the
       # namespace or the member is not bound.
       def lookup(target)
-        namespace, member_name, namespace_name = parse_target(target)
+        namespace_name, member_name = target.to_s.split("::", 2)
+        namespace = @namespaces[namespace_name]
         raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
         raise KeyError, "no member #{target.inspect} bound on binding" unless member_name
 
         namespace.fetch(member_name)
-      end
-
-      # Returns +true+ when +target+ (a +"Namespace::Member"+ path) resolves
-      # to a bound member, +false+ otherwise.
-      def bound?(target)
-        namespace, member_name, = parse_target(target)
-        !namespace.nil? && !member_name.nil? && !namespace[member_name].nil?
-      end
-
-      # Returns the number of declared namespaces as an +Integer+.
-      def size
-        @namespaces.size
-      end
-
-      # Returns +true+ when no namespaces have been declared, +false+ otherwise.
-      def empty?
-        @namespaces.empty?
-      end
-
-      # Structured Frame 1 description. Called by +Sandbox#eval+ when
-      # assembling stdin Frame 1
-      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Returns an
-      # unencoded preamble array — an +Array+ of two-element +[name, members]+
-      # arrays, one per declared namespace.
-      def to_preamble
-        @namespaces.values.map(&:to_preamble)
       end
 
       # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
@@ -103,7 +78,7 @@ module Kobako
       # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
       # +String+ of msgpack bytes.
       def encoded_preamble
-        MessagePack.pack(to_preamble)
+        MessagePack.pack(@namespaces.values.map(&:to_preamble))
       end
 
       # Mark the Binding as sealed. Called by +Sandbox+ on the first
@@ -116,17 +91,6 @@ module Kobako
       # Returns +true+ when {#seal!} has been called, +false+ otherwise.
       def sealed?
         @sealed
-      end
-
-      private
-
-      # Split +target+ on the +::+ separator and resolve the namespace half.
-      # Returns +[namespace_or_nil, member_str_or_nil, namespace_name_str]+ so
-      # each public method ({#lookup} / {#bound?}) only owns its boundary
-      # semantics (raise vs predicate).
-      def parse_target(target)
-        namespace_name, member_name = target.to_s.split("::", 2)
-        [@namespaces[namespace_name], member_name, namespace_name]
       end
     end
   end
