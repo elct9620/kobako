@@ -3,7 +3,7 @@
 //! Constructed via [`Instance::from_path`]; the wasmtime [`Engine`] and
 //! compiled [`Module`] are owned by the [`super::cache`] singletons and
 //! never surface to Ruby. The instance wraps a [`StoreCell`] (interior-
-//! mutability around `wasmtime::Store<HostState>`) plus three cached
+//! mutability around `wasmtime::Store<Invocation>`) plus three cached
 //! [`TypedFunc`] handles for the docs/wire-codec.md ABI exports used by
 //! the host-driven run path.
 //!
@@ -13,10 +13,11 @@
 //! two for `#run`: preamble + snippets), packed-u64 outcome encoding,
 //! and the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //! `__kobako_take_outcome` exports are all wrapped inside
-//! [`Instance::eval`], [`Instance::run`], and [`Instance::outcome`];
-//! Ruby callers see only `#eval(preamble, source, snippets)`,
-//! `#run(preamble, snippets, envelope)`, `#stdout`, `#stderr`,
-//! `#outcome!`, and `#server=`.
+//! [`Instance::eval`] and [`Instance::run`]; Ruby callers see only
+//! `#eval(preamble, source, snippets)`, `#run(preamble, snippets,
+//! envelope)`, `#usage`, `#on_dispatch=`, and `#yield_to_active_invocation`
+//! — every per-invocation observable arrives bundled in the
+//! [`Snapshot`] returned by `#eval` / `#run`.
 //!
 //! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1
 //! bindings route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`]
@@ -24,10 +25,10 @@
 //! [`Instance::run`]. The per-channel cap is enforced directly on the
 //! pipe — the pipe is sized at `cap + 1` so a guest that writes exactly
 //! `cap` bytes is distinguishable from one that exceeded the cap, and
-//! `#stdout` / `#stderr` slice the captured bytes back to `cap` before
-//! returning them paired with a truncation flag. Uncapped channels
-//! (`None`) build the pipe at `usize::MAX`; `memory_limit` provides
-//! the real upper bound in that case.
+//! [`Instance::build_snapshot`] slices the captured bytes back to `cap`
+//! before packing them into the returned [`Snapshot`]. Uncapped
+//! channels (`None`) build the pipe at `usize::MAX`; `memory_limit`
+//! provides the real upper bound in that case.
 //!
 //! Per-run cap enforcement (docs/behavior.md B-01, E-19, E-20): every
 //! Store installs an epoch-deadline callback for wall-clock timeout and
@@ -59,7 +60,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use super::cache::{cached_module, shared_engine};
 use super::dispatch;
-use super::host_state::{HostState, MemoryLimitTrap, StoreCell, TimeoutTrap};
+use super::invocation::{Invocation, MemoryLimitTrap, StoreCell, TimeoutTrap};
 use super::{memory_limit_err, rstring_to_vec, timeout_err, trap_err};
 
 #[magnus::wrap(class = "Kobako::Runtime", free_immediately, size)]
@@ -78,7 +79,7 @@ pub(crate) struct Instance {
     take_outcome: Option<TypedFunc<(), u64>>,
     // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
     // the cap. Translated into an `Instant`-based deadline stamped into
-    // [`HostState`] at the top of every `Instance::eval`.
+    // [`Invocation`] at the top of every `Instance::eval`.
     timeout: Option<Duration>,
     // Per-channel byte caps for guest stdout / stderr capture
     // (docs/behavior.md B-01 / B-04). `None` disables the cap on that
@@ -87,7 +88,7 @@ pub(crate) struct Instance {
     // [`Instance::stdout`] / [`Instance::stderr`] to compute the
     // truncation flag. See the module-level note above for the `cap + 1`
     // sizing rationale. Unlike `memory_limit` (which lives on
-    // [`HostState`] because the wasmtime [`ResourceLimiter`] callback
+    // [`Invocation`] because the wasmtime [`ResourceLimiter`] callback
     // consumes it from within the wasm engine), these caps are read only
     // by Instance methods, so they live on Instance itself.
     stdout_limit_bytes: Option<usize>,
@@ -129,8 +130,8 @@ impl Instance {
         let engine = shared_engine()?;
         let module = cached_module(Path::new(&path))?;
 
-        let mut store = WtStore::new(engine, HostState::new(memory_limit));
-        store.limiter(|state: &mut HostState| -> &mut dyn ResourceLimiter { state.limiter_mut() });
+        let mut store = WtStore::new(engine, Invocation::new(memory_limit));
+        store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(epoch_deadline_callback);
 
         let store_cell = StoreCell::new(store);
@@ -156,14 +157,14 @@ impl Instance {
         stderr_limit_bytes: Option<usize>,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let mut linker: Linker<HostState> = Linker::new(engine);
+        let mut linker: Linker<Invocation> = Linker::new(engine);
 
         // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
         // to the MemoryOutputPipes set up before each run via
         // `Instance::eval`. The closure pulls a `&mut WasiP1Ctx` out of
-        // HostState; the panic semantics live inside `HostState::wasi_mut`
+        // Invocation; the panic semantics live inside `Invocation::wasi_mut`
         // so the wiring stays honest about its precondition.
-        p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut()).map_err(
+        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut()).map_err(
             |e| {
                 trap_err(
                     &ruby,
@@ -185,7 +186,7 @@ impl Instance {
             .func_wrap(
                 "env",
                 "__kobako_dispatch",
-                |mut caller: Caller<'_, HostState>, req_ptr: i32, req_len: i32| -> i64 {
+                |mut caller: Caller<'_, Invocation>, req_ptr: i32, req_len: i32| -> i64 {
                     dispatch::handle(&mut caller, req_ptr, req_len)
                 },
             )
@@ -237,7 +238,7 @@ impl Instance {
         })
     }
 
-    /// Register the Ruby-side dispatch +Proc+ on the active HostState.
+    /// Register the Ruby-side dispatch +Proc+ on the active Invocation.
     /// Bound to Ruby as +Kobako::Runtime#on_dispatch=+. From this point on,
     /// every +__kobako_dispatch+ host import invocation calls the Proc
     /// with the request bytes and writes the returned Response bytes back
@@ -255,10 +256,15 @@ impl Instance {
     /// return the YieldResponse bytes the guest produced (B-24).
     ///
     /// Bound to Ruby as +Kobako::Runtime#yield_to_active_invocation+.
-    /// Invoked from the host-side yield proxy that the dispatcher hands
-    /// to Service methods (B-23 / B-24); raises +Kobako::TrapError+ when
-    /// called outside an active dispatch frame, or when any of the
-    /// underlying allocation / write / call / read steps fails.
+    /// Recovers the dispatcher's `&mut Caller` from the per-thread
+    /// Invocation slot (SPEC.md Single-Invocation Slot) — the host is
+    /// already inside a `__kobako_dispatch` callback, so the Caller
+    /// parked on the Rust stack is the same one the Sandbox-level
+    /// `#eval` / `#run` is driving. Invoked from the host-side yield
+    /// proxy that the dispatcher hands to Service methods (B-23 / B-24);
+    /// raises +Kobako::TrapError+ when called outside an active dispatch
+    /// frame, or when any of the underlying allocation / write / call /
+    /// read steps fails.
     pub(crate) fn yield_to_active_invocation(
         &self,
         args_bytes: RString,
@@ -294,7 +300,7 @@ impl Instance {
     /// +snippets+ — docs/wire-codec.md § Invocation channels), then
     /// invokes `__kobako_eval`. Per-invocation caps (docs/behavior.md
     /// B-01) are primed here: the wall-clock deadline is stamped into
-    /// [`HostState`] and the epoch deadline is set to fire at the next
+    /// [`Invocation`] and the epoch deadline is set to fire at the next
     /// ticker tick; the memory-cap limiter is already wired.
     ///
     /// On a wasmtime trap the configured-cap path raises
@@ -359,7 +365,7 @@ impl Instance {
     /// Called from the run-path methods after the guest export returns
     /// successfully: drains OUTCOME_BUFFER via `__kobako_take_outcome`,
     /// snapshots the per-channel stdout / stderr pipes (clipped to their
-    /// caps), and reads B-35 `wall_time` / `memory_peak` from HostState.
+    /// caps), and reads B-35 `wall_time` / `memory_peak` from Invocation.
     fn build_snapshot(&self, ruby: &Ruby) -> Result<Snapshot, MagnusError> {
         let return_bytes = self.fetch_outcome_bytes(ruby)?;
         let (stdout_raw, stderr_raw, wall_time, memory_peak) = {
@@ -424,7 +430,7 @@ impl Instance {
     // Private helpers.
     // -----------------------------------------------------------------
 
-    /// Stamp the per-invocation wall-clock deadline into [`HostState`]
+    /// Stamp the per-invocation wall-clock deadline into [`Invocation`]
     /// and prime the wasmtime epoch deadline so the next ticker tick
     /// wakes the epoch-deadline callback. When `timeout` is disabled,
     /// the deadline is set far enough in the future that the callback
@@ -648,7 +654,7 @@ fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
 /// Mirrors `dispatch::write_response`'s allocator dance but in the
 /// opposite direction — the host is the *initiator* of this round-trip,
 /// not the responder.
-fn drive_yield(caller: &mut Caller<'_, HostState>, args: &[u8]) -> Result<Vec<u8>, &'static str> {
+fn drive_yield(caller: &mut Caller<'_, Invocation>, args: &[u8]) -> Result<Vec<u8>, &'static str> {
     let len_i32 = i32::try_from(args.len()).map_err(|_| "yield args exceed 2 GiB")?;
 
     let alloc = match caller.get_export("__kobako_alloc") {
@@ -720,7 +726,7 @@ fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
 }
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from [`HostState`] (docs/behavior.md B-01) and trap with
+/// wall-clock deadline from [`Invocation`] (docs/behavior.md B-01) and trap with
 /// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
@@ -728,7 +734,7 @@ fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
 /// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
 /// keeps the callback inert as a defence in depth.
 fn epoch_deadline_callback(
-    ctx: StoreContextMut<'_, HostState>,
+    ctx: StoreContextMut<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
     match ctx.data().deadline() {
         Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
@@ -803,7 +809,7 @@ fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
 
 /// Map an instantiation error to the right top-level `Kobako::*` Ruby
 /// exception. The memory cap is dormant during instantiation by design
-/// (see [`HostState::arm_memory_cap`] / [`HostState::disarm_memory_cap`]),
+/// (see [`Invocation::arm_memory_cap`] / [`Invocation::disarm_memory_cap`]),
 /// but [`MemoryLimitTrap`] is still possible if a future Sandbox
 /// configuration enables it during instantiation — keep the mapping
 /// symmetric with [`call_err`]. [`TrapClass::Timeout`] is unreachable on

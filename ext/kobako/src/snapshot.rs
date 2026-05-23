@@ -8,7 +8,7 @@
 //!
 //! Ruby callers see the seven raw readers registered below; the helper
 //! methods that pack them into `Kobako::Capture` / `Kobako::Usage`
-//! ([`Kobako::Snapshot#stdout`] / `#stderr` / `#usage`) live in
+//! (`Kobako::Snapshot#stdout` / `#stderr` / `#usage`) live in
 //! `lib/kobako/snapshot.rb`. The split keeps the ext side a pure value
 //! carrier and lets Ruby own the convenience surface.
 

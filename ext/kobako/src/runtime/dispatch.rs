@@ -52,26 +52,32 @@ use magnus::value::{Opaque, ReprValue};
 use magnus::{Error as MagnusError, RString, Ruby, Value};
 use wasmtime::{Caller, Extern};
 
-use super::host_state::HostState;
+use super::invocation::Invocation;
 
 // ============================================================
-// Thread-local active Caller pointer for yield re-entry (B-24).
+// Active-caller pointer for the per-thread Invocation slot (B-24, B-28,
+// SPEC.md Single-Invocation Slot).
 // ============================================================
 //
-// `__kobako_yield_to_block` (the magnus method `Instance#yield_to_block`)
-// runs synchronously inside a Ruby Service callback that itself was
-// invoked from inside this dispatcher — at that moment we are several
-// stack frames deep in `try_handle`, with the original
-// `&mut Caller<'_, HostState>` parked unused on the Rust stack while
-// Ruby code is running. The yield path needs the same Caller to call
-// the guest export, but the Rust borrow type is non-`'static` so it
-// cannot be stored in a normal thread-local.
+// `Runtime#yield_to_active_invocation` (whose body is the
+// `__kobako_yield_to_block` guest export) runs synchronously inside a
+// Ruby Service callback that itself was invoked from inside this
+// dispatcher — at that moment we are several stack frames deep in
+// `try_handle`, with the original `&mut Caller<'_, Invocation>` parked
+// unused on the Rust stack while Ruby code is running. The yield path
+// needs the same Caller to call the guest export, but the Rust borrow
+// type is non-`'static` so it cannot be stored on the `Invocation`
+// struct directly (the `&mut Caller` outlives no struct field — its
+// lifetime ends when `handle` returns to wasmtime).
 //
-// We erase the lifetime to `NonNull<()>` and document the recovery
-// invariant at the use site (see [`current_caller`]). The single-
-// threaded wasm execution per Sandbox (B-22) plus the LIFO re-entry
-// shape ensures no aliasing across threads. The pointer is set on
-// entry to [`handle`] and cleared on every exit through a drop guard.
+// The pointer is therefore erased to `NonNull<()>` and parked in a
+// per-thread slot — the materialised form of the SPEC.md
+// "Single-Invocation Slot" invariant. The single-threaded wasm
+// execution per Sandbox (B-22) plus the LIFO re-entry shape of nested
+// dispatch frames (B-28) ensures no aliasing across threads or across
+// frames; the recovery invariant lives at [`current_caller`]. The
+// pointer is set on entry to [`handle`] and restored to the outer
+// frame's value on every exit through a drop guard.
 
 thread_local! {
     static ACTIVE_CALLER: Cell<Option<NonNull<()>>> = const { Cell::new(None) };
@@ -79,10 +85,10 @@ thread_local! {
 
 /// RAII guard that saves the previous [`ACTIVE_CALLER`] value on
 /// installation and restores it on drop. Nested `__kobako_dispatch`
-/// frames stack — the inner frame's `set` swaps in its own pointer
-/// while remembering the outer's; drop restores the outer so the
-/// outer's continuation (e.g. iterating over another guest block) still
-/// finds a live caller (B-28).
+/// frames stack within one Invocation (B-28) — the inner frame's `set`
+/// swaps in its own pointer while remembering the outer's; drop
+/// restores the outer so its continuation (e.g. iterating over another
+/// guest block) still finds a live caller.
 pub(crate) struct CallerGuard {
     previous: Option<NonNull<()>>,
 }
@@ -100,7 +106,7 @@ impl Drop for CallerGuard {
     }
 }
 
-/// Recover the active `&mut Caller<'_, HostState>` set by the
+/// Recover the active `&mut Caller<'_, Invocation>` set by the
 /// enclosing [`handle`] frame. Returns `None` when no dispatch frame is
 /// active on this thread.
 ///
@@ -109,16 +115,17 @@ impl Drop for CallerGuard {
 /// The returned reference aliases the original `&mut Caller` borrow
 /// held on the Rust stack inside [`handle`]'s enclosing frame. The
 /// original borrow is logically inactive while Ruby code is running
-/// (it is parked on the stack between `invoke_channel` and the eventual
-/// `funcall` return), and the single-threaded wasm execution model
-/// guarantees no other Rust frame can observe it. Callers must not
-/// retain the returned `&mut` past the synchronous Ruby callback that
-/// requested it — i.e. only use it inside one short magnus method body
-/// and let the borrow end before the method returns.
-pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, HostState>> {
+/// (it is parked on the stack between `invoke_on_dispatch` and the
+/// eventual `funcall` return), and the SPEC.md Single-Invocation Slot
+/// invariant (one Invocation per OS thread for the duration of any
+/// invocation) guarantees no other Rust frame can observe it. Callers
+/// must not retain the returned `&mut` past the synchronous Ruby
+/// callback that requested it — i.e. only use it inside one short
+/// magnus method body and let the borrow end before the method returns.
+pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
     let raw: NonNull<()> = ACTIVE_CALLER.with(|c| c.get())?;
     // SAFETY: see item doc.
-    Some(unsafe { &mut *raw.as_ptr().cast::<Caller<'a, HostState>>() })
+    Some(unsafe { &mut *raw.as_ptr().cast::<Caller<'a, Invocation>>() })
 }
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
@@ -132,12 +139,12 @@ pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, HostState>> {
 /// into Response.err envelopes), so reaching the failure path is
 /// always a wiring bug or wire-layer fault rather than an expected
 /// path.
-pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: i32) -> i64 {
+pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
     // SAFETY: lifetime erased to `NonNull<()>` per the module's
-    // thread-local doc. The pointer is cleared by `_caller_guard`
-    // before this function returns, and only `Instance#yield_to_block`
-    // (running inside a Ruby callback we are about to invoke) reads it
-    // through `current_caller`.
+    // Invocation-slot doc. The pointer is restored by `_caller_guard`
+    // before this function returns, and only
+    // `Runtime#yield_to_active_invocation` (running inside a Ruby
+    // callback we are about to invoke) reads it through `current_caller`.
     let ptr: NonNull<()> = NonNull::from(&mut *caller).cast();
     let _caller_guard = CallerGuard::set(ptr);
 
@@ -153,7 +160,7 @@ pub(crate) fn handle(caller: &mut Caller<'_, HostState>, req_ptr: i32, req_len: 
 /// Result-returning core of [`handle`]. Pulled out so each early
 /// failure path carries a diagnostic string instead of an opaque 0.
 fn try_handle(
-    caller: &mut Caller<'_, HostState>,
+    caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
@@ -202,7 +209,7 @@ fn invoke_on_dispatch(
 /// response bytes into it. Returns the packed `(ptr<<32)|len` u64.
 /// Each failure path carries a `&'static str` reason so the dispatcher
 /// wrapper can surface a useful diagnostic rather than a silent 0.
-fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<i64, &'static str> {
+fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
     let alloc = match caller.get_export("__kobako_alloc") {
         Some(Extern::Func(f)) => f
             .typed::<i32, i32>(&*caller)
@@ -233,7 +240,7 @@ fn write_response(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<i6
 /// Copy `[ptr, ptr+len)` out of the guest's linear memory as seen from
 /// `caller`. Returns `None` when `memory` is not exported or the slice
 /// falls outside the live memory range.
-fn read_caller_memory(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> Option<Vec<u8>> {
+fn read_caller_memory(caller: &mut Caller<'_, Invocation>, ptr: i32, len: i32) -> Option<Vec<u8>> {
     let mem = match caller.get_export("memory") {
         Some(Extern::Memory(m)) => m,
         _ => return None,

@@ -15,7 +15,7 @@
 //
 //   * `cache`       — process-wide Engine + per-path Module cache and the
 //                     process-singleton epoch ticker thread.
-//   * `host_state`  — HostState (per-Store context), StoreCell wrapper, the
+//   * `invocation`  — Invocation (per-Store context), StoreCell wrapper, the
 //                     [`KobakoLimiter`] memory cap, and the trap marker
 //                     types ([`TimeoutTrap`] / [`MemoryLimitTrap`]).
 //   * `instance`    — `Kobako::Runtime` magnus class and its run-path methods.
@@ -28,8 +28,8 @@
 
 mod cache;
 mod dispatch;
-mod host_state;
 mod instance;
+mod invocation;
 
 use magnus::value::Lazy;
 use magnus::{

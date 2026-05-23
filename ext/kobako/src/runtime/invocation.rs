@@ -1,20 +1,26 @@
-//! Per-Store host state shared with every wasmtime callback.
+//! Per-invocation host state — the materialised
+//! [SPEC.md Single-Invocation Slot] (one [`Invocation`] per OS thread
+//! for the lifetime of one [`Instance::eval`] / [`Instance::run`] call).
 //!
 //! Owned by [`StoreCell`] (a `RefCell` shim wrapping `wasmtime::Store`)
 //! and threaded through every host import — the `__kobako_dispatch`
-//! dispatcher reads the server handle, while the run-path methods on
-//! [`crate::wasm::Instance`] install fresh WASI context + pipes before
-//! every `#run` (docs/behavior.md B-03 / B-04).
+//! dispatcher reads the bound dispatch Proc, while the run-path methods
+//! on [`crate::runtime::Instance`] install fresh WASI context + pipes
+//! before every invocation (docs/behavior.md B-03 / B-04).
 //!
-//! The state also carries the per-invocation wall-clock deadline
+//! The slot also carries the per-invocation wall-clock deadline
 //! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
 //! delta cap [`KobakoLimiter`] (docs/behavior.md B-01, E-20). Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
-//! callbacks installed in [`crate::wasm::Instance::from_path`]. The
+//! callbacks installed in [`crate::runtime::Instance::from_path`]. The
 //! memory cap measures only the `memory.grow` delta past the linear-
 //! memory size captured at invocation entry — the mruby image's
 //! initial allocation and prior invocations' watermark are outside the
 //! budget.
+//!
+//! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
+//! [`Instance::eval`]: crate::runtime::instance::Instance::eval
+//! [`Instance::run`]: crate::runtime::instance::Instance::run
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};
@@ -24,15 +30,17 @@ use wasmtime::{ResourceLimiter, Store as WtStore};
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
-/// Per-Store host state threaded through every host import callback.
+/// Per-invocation host state — the data half of the Single-Invocation
+/// Slot. Threaded through every host import callback.
 ///
-/// All field access is mediated by methods on this type — the WASI ctx is
-/// rebuilt fresh before each `#run` via [`HostState::install_wasi`], the
-/// Ruby Server handle is set once via [`HostState::bind_server`], and
-/// captured stdout/stderr bytes are read after the run via
-/// [`HostState::stdout_bytes`] / [`HostState::stderr_bytes`]. The fields
-/// are private so the mutation surface stays narrow.
-pub(super) struct HostState {
+/// All field access is mediated by methods on this type — the WASI ctx
+/// is rebuilt fresh before each invocation via
+/// [`Invocation::install_wasi`], the Ruby dispatch Proc is set once via
+/// [`Invocation::bind_on_dispatch`], and captured stdout/stderr bytes
+/// are read after the invocation via [`Invocation::stdout_bytes`] /
+/// [`Invocation::stderr_bytes`]. The fields are private so the mutation
+/// surface stays narrow.
+pub(super) struct Invocation {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
@@ -43,7 +51,7 @@ pub(super) struct HostState {
     wall_time: Duration,
 }
 
-impl HostState {
+impl Invocation {
     /// Build a fresh per-Store host state. `memory_limit` carries the
     /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
     /// it is read from the wasmtime [`ResourceLimiter`] callback every
@@ -104,14 +112,14 @@ impl HostState {
     /// Return the bound dispatch Proc handle. `Opaque<Value>` is `Copy`,
     /// so the handle is returned by value rather than by reference. None
     /// means no Proc has been bound yet via
-    /// [`HostState::bind_on_dispatch`].
+    /// [`Invocation::bind_on_dispatch`].
     pub(super) fn on_dispatch(&self) -> Option<Opaque<Value>> {
         self.on_dispatch
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has
     /// been installed yet — every call site is downstream of
-    /// [`HostState::install_wasi`] running at the top of
+    /// [`Invocation::install_wasi`] running at the top of
     /// `Instance::eval` / `Instance::run`, so reaching this branch with
     /// `None` signals a host-side wiring bug.
     pub(super) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
@@ -138,8 +146,8 @@ impl HostState {
     /// [`crate::wasm::Instance::from_path`]
     /// (`store.limiter(|state| state.limiter_mut())`); kept private to
     /// the wasm submodule so the only public surface for arming the
-    /// cap goes through [`HostState::arm_memory_cap`] /
-    /// [`HostState::disarm_memory_cap`].
+    /// cap goes through [`Invocation::arm_memory_cap`] /
+    /// [`Invocation::disarm_memory_cap`].
     pub(super) fn limiter_mut(&mut self) -> &mut KobakoLimiter {
         &mut self.limiter
     }
@@ -149,7 +157,7 @@ impl HostState {
     /// charges only the `memory.grow` delta past `baseline` against
     /// the cap, so the mruby image's initial allocation and the
     /// high-water mark left by prior invocations do not consume the
-    /// budget. Paired with [`HostState::disarm_memory_cap`] around the
+    /// budget. Paired with [`Invocation::disarm_memory_cap`] around the
     /// call to the corresponding `__kobako_*` export so post-run host
     /// bookkeeping (e.g. fetching the OUTCOME_BUFFER) is not
     /// attributed to the user script.
@@ -158,7 +166,7 @@ impl HostState {
     }
 
     /// Disarm the docs/behavior.md E-20 memory cap. See
-    /// [`HostState::arm_memory_cap`].
+    /// [`Invocation::arm_memory_cap`].
     pub(super) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }
@@ -174,7 +182,7 @@ impl HostState {
     }
 
     /// Close the docs/behavior.md B-35 `wall_time` measurement
-    /// started by [`HostState::start_wall_clock`]. Idempotent — a
+    /// started by [`Invocation::start_wall_clock`]. Idempotent — a
     /// stop with no matching start (e.g. if the guest export call
     /// never executed because of a host-side allocation failure)
     /// leaves the previously-recorded value untouched.
@@ -240,7 +248,7 @@ impl KobakoLimiter {
 
     /// Arm the cap so subsequent `memory.grow` calls are charged
     /// against `max_memory` starting from `baseline` bytes. Called via
-    /// [`HostState::arm_memory_cap`] at the top of every invocation;
+    /// [`Invocation::arm_memory_cap`] at the top of every invocation;
     /// the cap is dormant by default — the module's declared initial
     /// memory is allocated during `Linker::instantiate` and the
     /// per-invocation budget excludes anything that existed before
@@ -356,20 +364,20 @@ impl std::fmt::Display for TimeoutTrap {
 
 impl std::error::Error for TimeoutTrap {}
 
-/// Interior-mutability wrapper around `wasmtime::Store<HostState>`.
+/// Interior-mutability wrapper around `wasmtime::Store<Invocation>`.
 ///
 /// Magnus requires `Send + Sync` for wrapped types. `wasmtime::Store` is not
 /// `Sync`, so we wrap it in a `RefCell`. `RefCell` alone is sufficient
 /// because magnus enforces single-threaded GVL access from Ruby; `Send` and
 /// `Sync` are asserted via the unsafe impls below.
 pub(super) struct StoreCell {
-    inner: RefCell<WtStore<HostState>>,
+    inner: RefCell<WtStore<Invocation>>,
 }
 
 impl StoreCell {
-    /// Wrap a freshly-built `wasmtime::Store<HostState>` so it can be owned
+    /// Wrap a freshly-built `wasmtime::Store<Invocation>` so it can be owned
     /// by the magnus-wrapped `Instance`.
-    pub(super) fn new(store: WtStore<HostState>) -> Self {
+    pub(super) fn new(store: WtStore<Invocation>) -> Self {
         Self {
             inner: RefCell::new(store),
         }
@@ -377,13 +385,13 @@ impl StoreCell {
 
     /// Immutable borrow of the wrapped Store. Panics if a `borrow_mut()`
     /// is currently live — matches `RefCell::borrow` semantics.
-    pub(super) fn borrow(&self) -> Ref<'_, WtStore<HostState>> {
+    pub(super) fn borrow(&self) -> Ref<'_, WtStore<Invocation>> {
         self.inner.borrow()
     }
 
     /// Mutable borrow of the wrapped Store. Panics if any other borrow is
     /// currently live — matches `RefCell::borrow_mut` semantics.
-    pub(super) fn borrow_mut(&self) -> RefMut<'_, WtStore<HostState>> {
+    pub(super) fn borrow_mut(&self) -> RefMut<'_, WtStore<Invocation>> {
         self.inner.borrow_mut()
     }
 }
@@ -391,10 +399,10 @@ impl StoreCell {
 // SAFETY: magnus requires `Send + Sync` on `#[magnus::wrap]` types. Both
 // claims hold under the GVL invariant:
 //
-//   * Send — `wasmtime::Store<HostState>` is itself `Send` (verified
+//   * Send — `wasmtime::Store<Invocation>` is itself `Send` (verified
 //     upstream by wasmtime; see `wasmtime::Store`'s trait impls).
 //     `RefCell<T>: Send` whenever `T: Send`. The remaining stored state
-//     (`HostState`) holds `Opaque<Value>` for the Ruby Server handle —
+//     (`Invocation`) holds `Opaque<Value>` for the Ruby Server handle —
 //     `Opaque<Value>` is documented as `Send` by magnus precisely so
 //     wrapped objects can satisfy this bound.
 //
