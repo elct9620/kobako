@@ -82,7 +82,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   end
 
   def encode_request(target, method, args, kwargs)
-    Envelope.encode_request(Envelope::Request.new(target: target, method: method, args: args, kwargs: kwargs))
+    Envelope.encode_request(Envelope::Request.new(target: target, method_name: method, args: args, kwargs: kwargs))
   end
 
   # ---------- Response ----------

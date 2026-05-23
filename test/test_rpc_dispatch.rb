@@ -447,7 +447,7 @@ class TestRPCDispatchUnit < Minitest::Test
 
   def encode_request_with_target(target, method, args, kwargs)
     Kobako::Transport.encode_request(
-      Kobako::Transport::Request.new(target: target, method: method, args: args, kwargs: kwargs)
+      Kobako::Transport::Request.new(target: target, method_name: method, args: args, kwargs: kwargs)
     )
   end
 

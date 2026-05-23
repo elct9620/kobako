@@ -15,8 +15,11 @@ module Kobako
     # 2-element msgpack array: +[status, value-or-fault]+. +status+ is 0
     # (success) or 1 (fault). For success the second element is the return
     # value; for fault it is a {Fault} (ext 0x02 envelope).
-    Response = Data.define(:status, :payload) do
-      # steep:ignore:start
+    #
+    # Built on the +class X < Data.define(...)+ subclass form so the
+    # class body is fully Steep-visible; see +lib/kobako/outcome/panic.rb+
+    # for the rationale.
+    class Response < Data.define(:status, :payload)
       def self.ok(value)
         new(status: STATUS_OK, payload: value)
       end
@@ -42,7 +45,6 @@ module Kobako
 
       def ok?    = status == STATUS_OK
       def error? = status == STATUS_ERROR
-      # steep:ignore:end
     end
 
     def self.encode_response(response)

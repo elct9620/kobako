@@ -1,6 +1,6 @@
 module Kobako
   module Transport
-    class Response
+    class Response < Data
       attr_reader status: Integer
       attr_reader payload: untyped
 
@@ -8,8 +8,9 @@ module Kobako
 
       def self.error: (Kobako::Transport::Fault fault) -> Response
 
-      def initialize: (Integer status, untyped payload) -> void
-                    | (status: Integer, payload: untyped) -> void
+      def self.new: (status: Integer, payload: untyped) -> Response
+
+      def initialize: (status: Integer, payload: untyped) -> void
 
       def with: (?status: Integer, ?payload: untyped) -> Response
 

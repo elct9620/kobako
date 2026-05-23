@@ -3,20 +3,26 @@ module Kobako
     STATUS_OK: Integer
     STATUS_ERROR: Integer
 
-    class Request
+    class Request < Data
       attr_reader target: String | Kobako::Handle
       attr_reader method_name: String
       attr_reader args: Array[untyped]
       attr_reader kwargs: Hash[Symbol, untyped]
       attr_reader block_given: bool
 
-      def initialize: (target: String | Kobako::Handle, method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> void
+      def self.new: (target: String | Kobako::Handle, method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
 
-      def with: (?target: String | Kobako::Handle, ?method: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
+      def initialize: (target: String | Kobako::Handle, method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> void
+
+      def with: (?target: String | Kobako::Handle, ?method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
 
       def ==: (untyped other) -> bool
 
       def hash: () -> Integer
+
+      private
+
+      def validate_kwargs!: (Hash[untyped, untyped] kwargs) -> void
     end
 
     def self.encode_request: (Request request) -> String

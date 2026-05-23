@@ -27,23 +27,23 @@ module Kobako
     # ============================================================
 
     def test_request_construction_validates_field_types
-      base = { target: "G::M", method: "x" }
+      base = { target: "G::M", method_name: "x" }
       overrides = [
-        { target: 123 }, { method: :sym }, { args: "no" },
+        { target: 123 }, { method_name: :sym }, { args: "no" },
         { kwargs: [] }, { block_given: "true" }
       ]
       overrides.each { |o| assert_raises(ArgumentError) { Envelope::Request.new(**base, **o) } }
     end
 
     def test_request_block_given_defaults_to_false
-      req = Envelope::Request.new(target: "G::M", method: "ping")
+      req = Envelope::Request.new(target: "G::M", method_name: "ping")
       refute req.block_given
     end
 
     def test_request_round_trip_with_block_given_true
       req = Envelope::Request.new(
         target: "Each::Iter",
-        method: "run",
+        method_name: "run",
         args: [[1, 2, 3]],
         kwargs: {},
         block_given: true
@@ -56,7 +56,7 @@ module Kobako
     def test_request_round_trip_with_string_target
       req = Envelope::Request.new(
         target: "Store::Users",
-        method: "find",
+        method_name: "find",
         args: [42, "alice"],
         kwargs: { active: true }
       )
@@ -68,7 +68,7 @@ module Kobako
     def test_request_round_trip_with_handle_target
       req = Envelope::Request.new(
         target: Handle.from_wire(7),
-        method: "save",
+        method_name: "save",
         args: [],
         kwargs: {}
       )
@@ -83,7 +83,7 @@ module Kobako
       h2 = Handle.from_wire(2)
       req = Envelope::Request.new(
         target: "G::M",
-        method: "link",
+        method_name: "link",
         args: [h1, h2, "tag"],
         kwargs: { k: h1 }
       )
@@ -97,7 +97,7 @@ module Kobako
       # construction; the wire-level InvalidType guarantee is preserved
       # via the decode_request boundary translator.
       assert_raises(ArgumentError) do
-        Envelope::Request.new(target: "G::M", method: "x", args: [], kwargs: { "active" => true })
+        Envelope::Request.new(target: "G::M", method_name: "x", args: [], kwargs: { "active" => true })
       end
     end
 
@@ -123,7 +123,7 @@ module Kobako
       # fixarray 5 (0x95) | fixstr 4 "G::M" (0xa4 47 3a 3a 4d) |
       # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) |
       # fixmap 0 (0x80) | false (0xc2)
-      bytes = Envelope.encode_request(Envelope::Request.new(target: "G::M", method: "ping"))
+      bytes = Envelope.encode_request(Envelope::Request.new(target: "G::M", method_name: "ping"))
       assert_equal "95a4473a3a4da470696e679080c2", hex(bytes)
     end
 
@@ -203,7 +203,7 @@ module Kobako
       h_arg    = Handle.from_wire(11)
       h_value  = Handle.from_wire(12)
 
-      req = Envelope::Request.new(target: h_target, method: "save",
+      req = Envelope::Request.new(target: h_target, method_name: "save",
                                   args: [h_arg], kwargs: {})
       decoded_req = Envelope.decode_request(Envelope.encode_request(req))
       assert_equal req, decoded_req

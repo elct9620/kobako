@@ -1,14 +1,15 @@
 module Kobako
   module Transport
-    class Fault
+    class Fault < Data
       VALID_TYPES: Array[String]
 
       attr_reader type: String
       attr_reader message: String
       attr_reader details: untyped
 
-      def initialize: (String type, String message, untyped details) -> void
-                    | (type: String, message: String, ?details: untyped) -> void
+      def self.new: (type: String, message: String, ?details: untyped) -> Fault
+
+      def initialize: (type: String, message: String, ?details: untyped) -> void
 
       def with: (?type: String, ?message: String, ?details: untyped) -> Fault
 

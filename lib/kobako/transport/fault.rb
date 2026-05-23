@@ -20,27 +20,20 @@ module Kobako
     # exception class (RuntimeError, ArgumentError, Kobako::ServiceError, ...)
     # is the responsibility of the dispatch layer, not the codec.
     #
-    # Built on +Data.define+ so equality, hash, and immutability are
-    # inherited from the value-object machinery; only the field invariants
-    # ride on top.
-    Fault = Data.define(:type, :message, :details) do
-      # +VALID_TYPES+ is attached to the Exception class below this block.
-      # Reach it through +self.class::VALID_TYPES+ — Data.define's block
-      # scope resolves bare constants against the enclosing +Transport+
-      # module, so a bare +VALID_TYPES+ would raise +NameError+. Same
-      # pattern as +Kobako::Handle+.
-      # steep:ignore:start
+    # Built on the +class X < Data.define(...)+ subclass form so the
+    # class body is fully Steep-visible; ruby/rbs upstream documents
+    # this as the Steep-friendly shape and the +Style/DataInheritance+
+    # cop is disabled on that basis (see +.rubocop.yml+).
+    class Fault < Data.define(:type, :message, :details)
+      VALID_TYPES = %w[runtime argument disconnected undefined].freeze
+
       def initialize(type:, message:, details: nil)
-        valid_types = self.class::VALID_TYPES
         raise ArgumentError, "type must be String"    unless type.is_a?(String)
         raise ArgumentError, "message must be String" unless message.is_a?(String)
-        raise ArgumentError, "type=#{type.inspect} not one of #{valid_types.inspect}" unless valid_types.include?(type)
+        raise ArgumentError, "type=#{type.inspect} not one of #{VALID_TYPES.inspect}" unless VALID_TYPES.include?(type)
 
         super
       end
-      # steep:ignore:end
     end
-
-    Fault::VALID_TYPES = %w[runtime argument disconnected undefined].freeze
   end
 end
