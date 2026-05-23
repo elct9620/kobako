@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "outcome/panic"
-require_relative "rpc/wire_error"
+require_relative "transport/wire_error"
 
 module Kobako
   # Host-facing boundary for the OUTCOME_BUFFER produced by
@@ -151,7 +151,7 @@ module Kobako
     end
 
     # Lift the wire-violation fallback to the real
-    # +Kobako::RPC::WireError+ class so callers can +rescue+ it
+    # +Kobako::Transport::WireError+ class so callers can +rescue+ it
     # specifically instead of pattern-matching on +error.klass+. The
     # +klass+ field is still populated so existing operator-side
     # tooling that greps on the string continues to work.
@@ -159,10 +159,10 @@ module Kobako
     # operator diagnosis without polluting the user-facing
     # +#message+.
     def build_wire_violation_error(message, wire_error: nil)
-      Kobako::RPC::WireError.new(
+      Kobako::Transport::WireError.new(
         message,
         origin: Panic::ORIGIN_SANDBOX,
-        klass: "Kobako::RPC::WireError",
+        klass: "Kobako::Transport::WireError",
         details: wire_error.nil? ? nil : { wire_error: wire_error }
       )
     end

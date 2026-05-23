@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 require_relative "../errors"
+require_relative "../transport"
 
 module Kobako
-  module RPC
+  module Transport
     # +Kobako::SandboxError+ subclass raised when the host detects a
     # structural violation of the wire contract while decoding bytes
     # produced by the guest (a malformed Outcome envelope, a result body
@@ -17,7 +18,7 @@ module Kobako
     # Inherits from +Kobako::SandboxError+ so a single
     # +rescue Kobako::SandboxError+ still catches it; callers that want
     # to distinguish wire-violation paths from script failures can
-    # +rescue Kobako::RPC::WireError+ directly.
+    # +rescue Kobako::Transport::WireError+ directly.
     class WireError < Kobako::SandboxError; end
   end
 end

@@ -62,7 +62,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   #
   # decode_panic calls Envelope.decode_panic, which raises Kobako::Codec::InvalidType
   # when a required key is absent.  The Sandbox rescue chain wraps that as
-  # SandboxError with klass="Kobako::RPC::WireError".
+  # SandboxError with klass="Kobako::Transport::WireError".
   def test_panic_with_missing_class_field_raises_sandbox_error
     # Hand-roll a panic map that omits "class" — cannot use Panic.new because
     # it requires the field; build the raw bytes directly.
@@ -71,10 +71,10 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     )
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
 
-    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
+    err = assert_raises(Kobako::Transport::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::RPC::WireError", err.klass
+    assert_equal "Kobako::Transport::WireError", err.klass
   end
 
   # --- Result envelope with empty bytes body raises WireError (SPEC E-09) ---
@@ -87,10 +87,10 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   def test_result_envelope_with_empty_body_raises_sandbox_error
     bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)
 
-    err = assert_raises(Kobako::RPC::WireError) { decode(bytes) }
+    err = assert_raises(Kobako::Transport::WireError) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::RPC::WireError", err.klass
+    assert_equal "Kobako::Transport::WireError", err.klass
     assert_match(/Sandbox produced an invalid result value/, err.message)
     refute_match(/envelope|decode failed/, err.message,
                  "internal codec vocabulary must not leak into the user-facing message")

@@ -46,7 +46,7 @@ pub(super) struct Invocation {
 /// Reasons the invocation envelope failed to decode. Each variant
 /// carries the host-visible Panic message verbatim; the wrapper at
 /// [`__kobako_run`] folds the variant back into a
-/// `Kobako::RPC::WireError` Panic.
+/// `Kobako::Transport::WireError` Panic.
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, PartialEq)]
 pub(super) enum InvocationError {
@@ -184,7 +184,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
             Err(_) => {
                 return write_panic(Panic {
                     origin: "sandbox".into(),
-                    class: "Kobako::RPC::WireError".into(),
+                    class: "Kobako::Transport::WireError".into(),
                     message: "failed to decode invocation envelope".into(),
                     backtrace: Vec::new(),
                     details: None,
@@ -197,7 +197,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         Err(err) => {
             return write_panic(Panic {
                 origin: "sandbox".into(),
-                class: "Kobako::RPC::WireError".into(),
+                class: "Kobako::Transport::WireError".into(),
                 message: err.message().into(),
                 backtrace: Vec::new(),
                 details: None,
@@ -280,7 +280,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         // is reasserted here for the compiler.
         return write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::RPC::WireError".into(),
+            class: "Kobako::Transport::WireError".into(),
             message: "invocation envelope args must be an array".into(),
             backtrace: Vec::new(),
             details: None,
@@ -289,7 +289,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
     let Value::Map(kwargs_pairs) = invocation.kwargs else {
         return write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::RPC::WireError".into(),
+            class: "Kobako::Transport::WireError".into(),
             message: "invocation envelope kwargs must be a map".into(),
             backtrace: Vec::new(),
             details: None,
@@ -316,7 +316,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::RPC::WireError".into(),
+            class: "Kobako::Transport::WireError".into(),
             message: "result envelope encode failed".into(),
             backtrace: Vec::new(),
             details: None,

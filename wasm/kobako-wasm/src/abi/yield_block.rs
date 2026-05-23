@@ -60,7 +60,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
     // Step 1: decode positional args off the request buffer.
     let args_codec = match decode_yield_args(req_ptr, req_len) {
         Ok(items) => items,
-        Err(msg) => return write_error_response("Kobako::RPC::WireError", msg, Vec::new()),
+        Err(msg) => return write_error_response("Kobako::Transport::WireError", msg, Vec::new()),
     };
 
     // Step 2: resolve the active VM + Kobako runtime + bound block.
@@ -177,7 +177,7 @@ fn encode_break_response(
     match encode_response(&resp) {
         Ok(bytes) => bytes,
         Err(_) => encode_error_bytes(
-            "Kobako::RPC::WireError",
+            "Kobako::Transport::WireError",
             "failed to encode break value",
             Vec::new(),
         ),
@@ -218,7 +218,7 @@ fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::
     match encode_response(&resp) {
         Ok(bytes) => bytes,
         Err(_) => encode_error_bytes(
-            "Kobako::RPC::WireError",
+            "Kobako::Transport::WireError",
             "failed to encode yield ok value",
             Vec::new(),
         ),

@@ -40,8 +40,8 @@ pub(super) struct KobakoClasses {
 /// Register the Kobako module, the `Kobako::RPC` namespace, the
 /// `Kobako::RPC::Client` class plus the top-level `Kobako::Handle`
 /// value object, and the `Kobako::ServiceError` / `Disconnected` /
-/// `Kobako::RPC::WireError` exception hierarchy. Returns the five
-/// class handles the [`super::Kobako`] token needs to keep around.
+/// `Kobako::Transport::WireError` exception hierarchy. Returns the
+/// five class handles the [`super::Kobako`] token needs to keep around.
 ///
 /// Function pointers come from [`bridges`], the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by
@@ -56,12 +56,18 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
 
     // Kobako::RPC module — protocol namespace shared with the
     // host gem's lib/kobako/rpc.rb. Houses the Client base class
-    // and the WireError fault. The Handle value object lives at
-    // top level (Kobako::Handle) — it is a Sandbox-level domain
-    // entity used in both directions across the host↔guest boundary
-    // (B-14 service return, B-34 host-side argument auto-wrap) and
-    // is not owned by the RPC namespace.
+    // (renamed to Kobako::Transport::Proxy in Phase 2 Step 7). The
+    // Handle value object lives at top level (Kobako::Handle) — it
+    // is a Sandbox-level domain entity used in both directions
+    // across the host↔guest boundary (B-14 service return, B-34
+    // host-side argument auto-wrap) and is not owned by the RPC
+    // namespace.
     let rpc_mod = kobako_mod.define_module_under(mrb, c"RPC");
+
+    // Kobako::Transport module — Phase 2 successor to Kobako::RPC.
+    // Currently houses WireError; the Client base class joins as
+    // Kobako::Transport::Proxy in Step 7.
+    let transport_mod = kobako_mod.define_module_under(mrb, c"Transport");
 
     // Kobako::RPC::Client base class — parent of every Member
     // installed via `Kobako::install_groups`. Spell the super
@@ -110,16 +116,16 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     );
 
     // `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
-    // / `Kobako::RPC::WireError` / `Kobako::BytecodeError` — all
+    // / `Kobako::Transport::WireError` / `Kobako::BytecodeError` — all
     // subclass `RuntimeError`. ServiceError and BytecodeError stay
     // at the Kobako top level (public API); WireError lives under
-    // RPC since it is an RPC-layer fault.
+    // Transport since it is a transport-layer fault.
     let runtime_error_class = mrb.class_get(c"RuntimeError");
     let service_error_class =
         kobako_mod.define_class_under(mrb, c"ServiceError", runtime_error_class);
     let disconnected_class =
         service_error_class.define_class_under(mrb, c"Disconnected", service_error_class);
-    let wire_error_class = rpc_mod.define_class_under(mrb, c"WireError", runtime_error_class);
+    let wire_error_class = transport_mod.define_class_under(mrb, c"WireError", runtime_error_class);
     // `Kobako::BytecodeError` is registered here so guest code can
     // raise it by name; the class handle is not cached on
     // `KobakoClasses` because no compile-time-known call site reads

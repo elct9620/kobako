@@ -1,5 +1,5 @@
 module Kobako
-  module RPC
+  module Transport
     class WireError < Kobako::SandboxError
     end
   end

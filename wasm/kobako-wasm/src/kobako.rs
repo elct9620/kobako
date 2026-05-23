@@ -7,7 +7,7 @@
 //! an mruby state and nothing about kobako's own object surface. The
 //! kobako-specific registrations (`Kobako` module, `Kobako::RPC` base
 //! class, `Kobako::Handle`, `Kobako::ServiceError` /
-//! `Kobako::RPC::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
+//! `Kobako::Transport::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
 //! different concern and live behind this domain boundary.
 //!
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
@@ -197,11 +197,12 @@ impl Kobako {
         let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
         let kobako_mod = mrb_ref.define_module(c"Kobako");
         let rpc_mod = kobako_mod.define_module_under(mrb_ref, c"RPC");
+        let transport_mod = kobako_mod.define_module_under(mrb_ref, c"Transport");
         let client_class = rpc_mod.class_get_under(mrb_ref, c"Client");
         let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
         let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
         let disconnected_class = service_error_class.class_get_under(mrb_ref, c"Disconnected");
-        let wire_error_class = rpc_mod.class_get_under(mrb_ref, c"WireError");
+        let wire_error_class = transport_mod.class_get_under(mrb_ref, c"WireError");
         Self {
             mrb,
             client_class,
@@ -234,7 +235,7 @@ impl Kobako {
         Ok(())
     }
 
-    /// Raise `Kobako::RPC::WireError` with `msg`. Diverges — `mrb_raise` does
+    /// Raise `Kobako::Transport::WireError` with `msg`. Diverges — `mrb_raise` does
     /// not return.
     ///
     /// # Safety
@@ -410,7 +411,7 @@ impl Kobako {
     /// Invoke `invoke_rpc` and convert the result to a [`Value`]. On
     /// `Response.err`, raises a matching `Kobako::ServiceError`
     /// subclass; on any other envelope-layer fault, raises
-    /// `Kobako::RPC::WireError` with `err_msg`. Both raise paths
+    /// `Kobako::Transport::WireError` with `err_msg`. Both raise paths
     /// diverge — `mrb_raise` does not return.
     pub fn dispatch_invoke(
         &self,
