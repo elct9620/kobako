@@ -18,14 +18,12 @@ use std::time::Duration;
 use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
 /// Per-invocation snapshot value. Magnus wraps it so a single ext call
-/// returns the whole bundle, replacing the four-method readback chain
-/// (`#stdout` / `#stderr` / `#outcome!` / `#usage`) the Sandbox used
-/// before this type existed.
-///
-/// All fields are private; the seven public methods registered in
-/// [`init`] read them out one by one. The wall-clock duration is held
-/// as a `Cell<Duration>` only because magnus' `#[magnus::wrap]` macro
-/// requires interior mutability — every field is set once at
+/// from `Instance::eval` / `Instance::run` returns the whole bundle —
+/// the Sandbox layer can decompose it without round-tripping into ext
+/// again. All fields are private; the seven public methods registered
+/// in [`init`] read them out one by one. The wall-clock duration is
+/// held as a `Cell<Duration>` only because magnus' `#[magnus::wrap]`
+/// macro requires interior mutability — every field is set once at
 /// construction time and never mutated again.
 #[magnus::wrap(class = "Kobako::Snapshot", free_immediately, size)]
 pub(crate) struct Snapshot {

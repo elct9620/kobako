@@ -6,18 +6,19 @@
 //! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
-//!   2. Hands them to the Ruby-side `Kobako::Catalog::Binding` and recovers
-//!      Response bytes.
+//!   2. Invokes the Ruby-side dispatch Proc bound via
+//!      `Runtime#on_dispatch=` and recovers Response bytes.
 //!   3. Allocates a guest buffer via `__kobako_alloc(len)` invoked
 //!      through `Caller::get_export`.
 //!   4. Writes the Response bytes into the guest buffer.
 //!   5. Returns packed `(ptr<<32)|len` for the guest to decode.
 //!
-//! Returns 0 on any step failure. `Kobako::Sandbox` always installs a
-//! Server before invoking the guest, so reaching the dispatcher with
-//! no Server bound is itself a wire-layer fault; the guest maps a 0
-//! return to a trap. Failures during normal dispatch surface as
-//! Response.err envelopes from the Server itself — they never reach
+//! Returns 0 on any step failure. `Kobako::Sandbox#initialize` always
+//! installs the dispatch Proc before any invocation, so reaching the
+//! dispatcher with no Proc bound is itself a wire-layer fault; the
+//! guest maps a 0 return to a trap. Failures during normal dispatch
+//! surface as Response.err envelopes from
+//! `Kobako::Transport::Dispatcher.dispatch` itself — they never reach
 //! this 0-return path.
 //!
 //! ## Why this module writes to `stderr`
@@ -28,22 +29,21 @@
 //! is the exception — it must return a packed `i64` to the guest
 //! and cannot raise, so a 0 return is the only signal the wasm side
 //! receives. The guest collapses every 0 into the same trap, so the
-//! Ruby host has no way to attribute the failure to a specific
-//! step (missing `memory` export vs. no Server bound vs. Server
+//! Ruby host has no way to attribute the failure to a specific step
+//! (missing `memory` export vs. no dispatch Proc bound vs. the Proc
 //! raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
 //! rejected).
 //!
 //! [`handle`] writes a single `[kobako-dispatch] <reason>` line to
 //! `stderr` on each failure path so operators have a breadcrumb to
 //! correlate the trap with the actual cause. The line is emitted in
-//! both debug and release builds on purpose: dispatcher failures
-//! are wire-layer faults rather than expected error paths
-//! (`Kobako::Sandbox` always installs a Server, the Server is
-//! contracted never to raise, etc.), so the "release-build noise"
-//! cost is bounded — under normal operation the line is never
-//! written. Operators that need to silence the channel can redirect
-//! the host process's stderr, but the kobako convention is "ext
-//! never logs" plus this single, named exception.
+//! both debug and release builds on purpose: dispatcher failures are
+//! wire-layer faults rather than expected error paths (`Kobako::Sandbox`
+//! always installs the Proc, the Proc is contracted never to raise,
+//! etc.), so the "release-build noise" cost is bounded — under normal
+//! operation the line is never written. Operators that need to silence
+//! the stream can redirect the host process's stderr, but the kobako
+//! convention is "ext never logs" plus this single, named exception.
 
 use core::cell::Cell;
 use core::ptr::NonNull;
@@ -134,11 +134,10 @@ pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
 /// Returns the packed `(ptr<<32)|len` u64 on success, 0 on any
 /// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to
 /// `stderr` so operators have a breadcrumb when the guest sees a 0
-/// return and traps; before this every failure was silent. The Server
-/// itself is contracted never to raise (it folds Service exceptions
-/// into Response.err envelopes), so reaching the failure path is
-/// always a wiring bug or wire-layer fault rather than an expected
-/// path.
+/// return and traps. The bound dispatch Proc is contracted never to
+/// raise (it folds Service exceptions into Response.err envelopes),
+/// so reaching the failure path is always a wiring bug or wire-layer
+/// fault rather than an expected path.
 pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
     // SAFETY: lifetime erased to `NonNull<()>` per the module's
     // Invocation-slot doc. The pointer is restored by `_caller_guard`

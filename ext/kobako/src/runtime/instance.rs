@@ -177,11 +177,11 @@ impl Instance {
         // § ABI Signatures:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::Transport::Channel` (set per-run via `set_channel`),
+        // dispatch Proc (bound per-Sandbox through `Runtime#on_dispatch=`),
         // allocates a guest buffer through `__kobako_alloc`, writes
         // the Response bytes there, and returns the packed
         // `(ptr<<32)|len`. The dispatcher returns 0 on any wire-layer
-        // fault (including a missing Channel); see `dispatch::handle`.
+        // fault (including no Proc bound); see `dispatch::handle`.
         linker
             .func_wrap(
                 "env",
@@ -596,13 +596,13 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear
      this is not a Kobako-compatible Wasm module";
 
 /// Return the cached +TypedFunc+ for an ABI export, or raise
-/// +Kobako::TrapError+ when the option is +None+. The run-path
-/// methods (+#eval+, +#run+, +#outcome!+) all share the same
-/// "missing export → Ruby error" boilerplate; this helper collapses
-/// the three sites onto one safe entry. The +_name+ argument is
-/// retained for future operator-side logging but is deliberately not
-/// spliced into the user-facing message (see
-/// [`SANDBOX_RUNTIME_MISSING_HOOKS`]).
+/// +Kobako::TrapError+ when the option is +None+. Both run-path
+/// methods (+#eval+, +#run+) plus the +build_snapshot+ readout that
+/// drains +OUTCOME_BUFFER+ share the same "missing export → Ruby
+/// error" boilerplate; this helper collapses those sites onto one
+/// safe entry. The +_name+ argument is retained for future
+/// operator-side logging but is deliberately not spliced into the
+/// user-facing message (see [`SANDBOX_RUNTIME_MISSING_HOOKS`]).
 fn require_export<'a, Params, Results>(
     ruby: &Ruby,
     export: Option<&'a TypedFunc<Params, Results>>,

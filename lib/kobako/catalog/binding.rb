@@ -20,11 +20,13 @@ module Kobako
     #   binding.to_preamble                     # => array for Frame 1
     #
     # Namespaces live at +Kobako::Catalog::Binding::Namespace+. Per-dispatch
-    # routing is the +Kobako::Transport::Channel+'s responsibility — the Channel
-    # composes this Binding with the wasm +Instance+ and the +Catalog::Handler+
-    # and owns the +#dispatch(bytes)+ entry the Wasm ext invokes. The Binding
-    # holds an injected +Catalog::Handler+ reference so the Channel and the
-    # Sandbox-owned allocator stay aligned (docs/behavior.md B-19).
+    # routing is +Kobako::Transport::Dispatcher+'s responsibility — the
+    # Dispatcher receives this Binding and the +Catalog::Handler+ as
+    # arguments from the +Runtime#on_dispatch+ Proc that
+    # +Kobako::Sandbox#initialize+ installs ({BRIDGE_REDESIGN §5.5.3}). The
+    # Binding holds an injected +Catalog::Handler+ reference so dispatch
+    # target resolution and host→guest auto-wrap share the same
+    # Sandbox-owned allocator (docs/behavior.md B-19).
     class Binding
       # Build a fresh Binding. +handler+ is an internal seam that injects
       # a pre-configured +Catalog::Handler+; tests pass one whose +next_id+
