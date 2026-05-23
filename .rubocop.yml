@@ -18,10 +18,10 @@ Metrics/ClassLength:
   Exclude:
     - "test/test_e2e_journeys.rb"
     - "test/catalog/test_handler.rb"
-    - "test/test_rpc_dispatch.rb"
+    - "test/transport/test_dispatcher.rb"
     - "test/test_namespace_binding.rb"
     - "test/test_codec.rb"
-    - "test/test_rpc_envelope.rb"
+    - "test/transport/test_envelope.rb"
     # WireValueGenerator owns ten generation concerns (ints / floats /
     # strings / binary / arrays / maps / symbols / handles / exceptions /
     # scalar dispatch) sharing @rng and @coverage; splitting them into
@@ -34,7 +34,7 @@ Metrics/ClassLength:
 Metrics/AbcSize:
   Exclude:
     - "test/test_e2e_journeys.rb"
-    - "test/test_rpc_dispatch.rb"
+    - "test/transport/test_dispatcher.rb"
 
 # MessagePack format names embed bit-width suffixes (int_8, fixarray_16, map_32)
 # matching the SPEC wire-format vocabulary; renaming them to "int8" would lose

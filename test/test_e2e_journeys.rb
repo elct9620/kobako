@@ -11,7 +11,7 @@ require "test_helper"
 # mandates exercising the production Guest Binary so guest scripts are real
 # Ruby; the host-side decoder / dispatcher branches that do not need a live
 # Sandbox stay covered by the unit tests in `test_sandbox_errors.rb` and
-# `test_rpc_dispatch.rb`.
+# `test/transport/test_dispatcher.rb`.
 #
 # Build prerequisite: `bundle exec rake wasm:build` produces `data/kobako.wasm`
 # from `wasm/kobako-wasm/` + `vendor/mruby/`. When the artifact is missing,
