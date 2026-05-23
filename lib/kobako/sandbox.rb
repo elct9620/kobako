@@ -20,11 +20,11 @@ module Kobako
   # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
   #
   # The Sandbox owns the +Kobako::Wasm::Instance+, the per-Sandbox
-  # +Kobako::HandleTable+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
-  # the per-instance RPC Server (which receives the HandleTable by
-  # injection so guest→host dispatch and host→guest auto-wrap share one
-  # allocator), and the per-channel byte caches for guest stdout / stderr
-  # capture. The underlying wasmtime Engine and compiled Module are cached
+  # +Kobako::Catalog::Handler+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
+  # the per-instance +Kobako::Catalog::Binding+ (which receives the
+  # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
+  # auto-wrap share one allocator), and the per-channel byte caches for
+  # guest stdout / stderr capture. The underlying wasmtime Engine and compiled Module are cached
   # at process scope by the native ext and never surface to Ruby —
   # constructing many Sandboxes amortises both costs automatically.
   #
@@ -114,7 +114,8 @@ module Kobako
 
     # Declare or retrieve the Namespace named +name+ on this Sandbox
     # ({docs/behavior.md B-07, B-09, B-10}[link:../../docs/behavior.md]). +name+ must be a
-    # Symbol or String in constant form. Returns the +Kobako::RPC::Namespace+.
+    # Symbol or String in constant form. Returns the
+    # +Kobako::Catalog::Binding::Namespace+.
     #
     # Raises +ArgumentError+ when called after the first invocation, or
     # when +name+ does not match the constant-name pattern.
@@ -209,9 +210,10 @@ module Kobako
     private
 
     # Build the host↔guest +Kobako::RPC::Channel+ that composes the
-    # Server (namespace registry), the Instance (wasm transport), and
-    # the HandleTable (capability allocator), and hand it to the
-    # Instance so the Wasm ext callback routes incoming RPC through it
+    # +Catalog::Binding+ (namespace registry), the Instance (wasm
+    # transport), and the +Catalog::Handler+ (capability allocator),
+    # and hand it to the Instance so the Wasm ext callback routes
+    # incoming dispatch through it
     # ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
     def build_channel!
       channel = Kobako::RPC::Channel.new(server: @services, instance: @instance, handler: @handler)
@@ -223,8 +225,8 @@ module Kobako
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet
     # registries on first call (idempotent) and zeros the per-invocation
     # capability state — capture buffers, truncation predicates, and the
-    # HandleTable counter — before the guest runs. The HandleTable
-    # itself is held as +@handler+ and never exposed beyond
+    # +Catalog::Handler+ counter — before the guest runs. The
+    # +Catalog::Handler+ itself is held as +@handler+ and never exposed beyond
     # this class: SPEC.md Terminology pins it as "Not exposed to the
     # Host App" (B-19 / B-20 / E-29).
     def begin_invocation!

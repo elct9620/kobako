@@ -18,7 +18,7 @@ module Kobako
   # Invocation sits at top level, not under +Kobako::RPC+: RPC in SPEC
   # is the guest→host capability channel (Server / Client / Request /
   # Response); Invocation is the opposite direction (host→guest
-  # entrypoint dispatch). +#encode+ takes the Sandbox's HandleTable
+  # entrypoint dispatch). +#encode+ takes the Sandbox's Catalog::Handler
   # and routes any non-wire-representable +args+ / +kwargs+ leaf
   # through it as a +Kobako::Handle+
   # ({docs/behavior.md B-34}[link:../../docs/behavior.md]) — the
@@ -36,7 +36,7 @@ module Kobako
   class Invocation < Data.define(:entrypoint, :args, :kwargs)
     # Ruby constant-name pattern enforced on the +entrypoint+ Symbol
     # ({docs/behavior.md E-25}[link:../../docs/behavior.md]). Parallel to
-    # +Kobako::Snippet::Table::NAME_PATTERN+; the two constants name the
+    # +Kobako::Catalog::Snippet::Table::NAME_PATTERN+; the two constants name the
     # same regex but cover distinct surfaces (snippet identity vs.
     # entrypoint resolution) so a future divergence stays local.
     NAME_PATTERN = /\A[A-Z]\w*\z/

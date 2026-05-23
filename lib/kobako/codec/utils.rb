@@ -20,7 +20,7 @@ module Kobako
     #     the symmetric host→guest +#run+ argument walk
     #     ({deep_wrap}) used by +Kobako::Invocation#encode+ to route
     #     non-wire-representable leaves through the Sandbox's
-    #     +Kobako::HandleTable+
+    #     +Kobako::Catalog::Handler+
     #     ({docs/behavior.md B-34}[link:../../../docs/behavior.md]).
     #
     # All helpers are pure — they only inspect inputs, never mutate
@@ -99,7 +99,7 @@ module Kobako
       #
       # +value+ may be any Ruby value; +handler+ must respond to
       # +#alloc(object) -> Kobako::Handle+ (a host-side
-      # +Kobako::HandleTable+). Returns a structurally equivalent value
+      # +Kobako::Catalog::Handler+). Returns a structurally equivalent value
       # whose leaves are either wire-representable or +Kobako::Handle+
       # tokens.
       #

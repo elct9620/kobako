@@ -174,11 +174,11 @@ impl Instance {
         // § ABI Signatures:
         //   (req_ptr: i32, req_len: i32) -> i64
         // Decodes the Request bytes, dispatches via the Ruby-side
-        // `Kobako::RPC::Server` (set per-run via `set_server`), allocates a
-        // guest buffer through `__kobako_alloc`, writes the Response bytes
-        // there, and returns the packed `(ptr<<32)|len`. The dispatcher
-        // returns 0 on any wire-layer fault (including a missing
-        // Server); see `dispatch::handle`.
+        // `Kobako::RPC::Channel` (set per-run via `set_channel`),
+        // allocates a guest buffer through `__kobako_alloc`, writes
+        // the Response bytes there, and returns the packed
+        // `(ptr<<32)|len`. The dispatcher returns 0 on any wire-layer
+        // fault (including a missing Channel); see `dispatch::handle`.
         linker
             .func_wrap(
                 "env",

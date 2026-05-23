@@ -5,7 +5,7 @@ require "test_helper"
 # Item #14: Kobako::Sandbox.new + stdout/stderr capture with limits.
 #
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
-# Instance) against the test fixture wasm, owns a per-instance HandleTable,
+# Instance) against the test fixture wasm, owns a per-instance Catalog::Handler,
 # and holds the per-channel byte caches that back `#stdout` / `#stderr` /
 # `#stdout_truncated?` / `#stderr_truncated?` (SPEC.md B-04). The per-
 # channel cap itself is enforced inside the ext-owned WASI pipe.

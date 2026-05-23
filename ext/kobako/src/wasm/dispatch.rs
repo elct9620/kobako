@@ -6,7 +6,7 @@
 //! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
-//!   2. Hands them to the Ruby-side `Kobako::RPC::Server` and recovers
+//!   2. Hands them to the Ruby-side `Kobako::Catalog::Binding` and recovers
 //!      Response bytes.
 //!   3. Allocates a guest buffer via `__kobako_alloc(len)` invoked
 //!      through `Caller::get_export`.

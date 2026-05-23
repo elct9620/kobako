@@ -8,12 +8,12 @@ module Kobako
   module RPC
     # Pure-function dispatcher for guest-initiated RPC calls. Decodes a
     # msgpack-encoded Request envelope, resolves the target object through
-    # the Server (path lookup or HandleTable lookup), invokes the method,
+    # the Server (path lookup or Catalog::Handler lookup), invokes the method,
     # and returns a msgpack-encoded Response envelope.
     #
     # The module is stateless — all mutable state is threaded through the
     # +server+ argument so Dispatcher has no instance variables and no side
-    # effects beyond mutating the HandleTable via +alloc+ when a non-wire-
+    # effects beyond mutating the Catalog::Handler via +alloc+ when a non-wire-
     # representable return value must be wrapped ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
     #
     # Entry point:
@@ -36,7 +36,7 @@ module Kobako
       class UndefinedTargetError < StandardError; end
 
       # Internal sentinel raised when a Handle target resolves to the
-      # +:disconnected+ sentinel in the HandleTable (ABA protection,
+      # +:disconnected+ sentinel in the Catalog::Handler (ABA protection,
       # {docs/behavior.md E-14}[link:../../../docs/behavior.md]). Mapped to Response.error with
       # type="disconnected". Contained at the wire boundary.
       class DisconnectedTargetError < StandardError; end
@@ -47,7 +47,7 @@ module Kobako
       # +__kobako_dispatch+ callback. +server+ + +handler+ +
       # +channel+ are injected by the Channel so the Dispatcher stays
       # stateless and Server doesn't need to publish accessors for the
-      # Sandbox-owned HandleTable or Instance. Always returns a binary
+      # Sandbox-owned Catalog::Handler or Instance. Always returns a binary
       # String — every failure path is reified as a Response.error
       # envelope so the guest sees an RPC error rather than a wasm trap.
       def dispatch(request_bytes, server, handler, channel)
@@ -137,8 +137,8 @@ module Kobako
       end
 
       # Resolve a Request target to the Ruby object the Server (or
-      # HandleTable) holds. String targets go through the Server;
-      # Handle targets (ext 0x01) go through the HandleTable.
+      # Catalog::Handler) holds. String targets go through the Server;
+      # Handle targets (ext 0x01) go through the Catalog::Handler.
       #
       # Target type is already validated by +RPC.decode_request+
       # before this method is reached, so no else-branch is needed here —
@@ -162,7 +162,7 @@ module Kobako
         require_live_object!(handle.id, handler)
       end
 
-      # Resolve +id+ through the HandleTable, distinguishing the
+      # Resolve +id+ through the Catalog::Handler, distinguishing the
       # +:disconnected+ sentinel (E-14) from an unknown id (E-13).
       def require_live_object!(id, handler)
         object = handler.fetch(id)
@@ -176,7 +176,7 @@ module Kobako
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
       # wire-representable per {docs/behavior.md B-13}[link:../../../docs/behavior.md]'s type
       # mapping, the +UnsupportedType+ rescue routes it through the
-      # HandleTable via {#wrap_as_handle} and re-encodes with the Capability
+      # Catalog::Handler via {#wrap_as_handle} and re-encodes with the Capability
       # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
       def encode_ok(value, handler)
@@ -186,7 +186,7 @@ module Kobako
         encode_ok(wrap_as_handle(value, handler), handler)
       end
 
-      # Allocate +value+ in the Sandbox's HandleTable and return a +Handle+
+      # Allocate +value+ in the Sandbox's Catalog::Handler and return a +Handle+
       # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.

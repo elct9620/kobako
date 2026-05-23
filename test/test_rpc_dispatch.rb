@@ -6,7 +6,7 @@ require "test_helper"
 # exercises the RPC::Dispatcher / Wire integration directly without a live
 # Sandbox. Path-target dispatch, kwargs symbolization, Handle target /
 # argument resolution, disconnected sentinel, cross-Sandbox invalidity,
-# and HandleTable exhaustion are all observable through this seam.
+# and Catalog::Handler exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestRPCDispatchUnit < Minitest::Test
@@ -14,7 +14,7 @@ class TestRPCDispatchUnit < Minitest::Test
     @handler = Kobako::Catalog::Handler.new
     @registry = Kobako::Catalog::Binding.new(handler: @handler)
     # Instance is nil — none of these dispatch-only tests exercise the
-    # yield path. Channel.dispatch only touches Server + HandleTable.
+    # yield path. Channel.dispatch only touches Server + Catalog::Handler.
     @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handler: @handler)
   end
 
@@ -180,7 +180,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # ---------- B-14 — host wraps stateful return values as Handles ----------
 
   # SPEC B-14: a Service method whose return value falls outside the wire
-  # type set (B-13) is automatically allocated a HandleTable entry, and
+  # type set (B-13) is automatically allocated a Catalog::Handler entry, and
   # the guest sees a Kobako::Handle in the Response.ok payload.
   def test_non_wire_return_value_is_wrapped_as_handle
     @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
@@ -208,7 +208,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # ---------- B-16 — guest passes Handle as argument ----------
 
   # SPEC B-16: a Kobako::Handle arriving as an argument is resolved against
-  # the HandleTable before dispatch, and the bound Service method receives
+  # the Catalog::Handler before dispatch, and the bound Service method receives
   # the live Ruby object.
   def test_handle_arg_is_resolved_to_bound_object_before_dispatch
     greeter = Class.new do
@@ -290,7 +290,7 @@ class TestRPCDispatchUnit < Minitest::Test
     assert_equal "undefined", resp.payload.type
   end
 
-  # ---------- Cross-run invalidity (B-19 via HandleTable#reset!) ----------
+  # ---------- Cross-run invalidity (B-19 via Catalog::Handler#reset!) ----------
 
   def test_handle_invalid_after_table_reset
     obj = Object.new
@@ -310,7 +310,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # SPEC E-14: a Handle whose entry has been replaced with the
   # +:disconnected+ sentinel (B-19 ABA protection) resolves to
   # Response.error(type="disconnected") at dispatch time, even though the id
-  # still occupies the HandleTable. This is distinct from E-13 (unknown id
+  # still occupies the Catalog::Handler. This is distinct from E-13 (unknown id
   # → "undefined"); the dispatcher must differentiate so the host can
   # surface +Kobako::ServiceError::Disconnected+ rather than a generic
   # ServiceError.
@@ -329,12 +329,12 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
 
-  # SPEC B-19: HandleTable ownership is per-Sandbox. A Handle ID issued
-  # by Sandbox A's HandleTable has no meaning in Sandbox B's HandleTable;
+  # SPEC B-19: Catalog::Handler ownership is per-Sandbox. A Handle ID issued
+  # by Sandbox A's Catalog::Handler has no meaning in Sandbox B's Catalog::Handler;
   # presenting it there resolves to "ID not found" and surfaces as a
   # Response.error with type="undefined". This is distinct from B-18
   # (cross-#run within the same Sandbox via #reset!): here we exercise
-  # two physically separate HandleTable instances backing two separate
+  # two physically separate Catalog::Handler instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     table_a = Kobako::Catalog::Handler.new
@@ -343,7 +343,7 @@ class TestRPCDispatchUnit < Minitest::Test
     handle_id_in_a = table_a.alloc(pinger).id
 
     # The integer id has meaning in A but must NOT cross over to B —
-    # B's HandleTable does not contain that id.
+    # B's Catalog::Handler does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id_in_a), "ping", [], {})
     resp = decode_response(channel_b.dispatch(req))
@@ -356,7 +356,7 @@ class TestRPCDispatchUnit < Minitest::Test
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Server path resolves;
-    # arg resolution fails when the id misses B's HandleTable.
+    # arg resolution fails when the id misses B's Catalog::Handler.
     table_a = Kobako::Catalog::Handler.new
     server_b, channel_b = channel_for(Kobako::Catalog::Handler.new)
     server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
@@ -373,11 +373,11 @@ class TestRPCDispatchUnit < Minitest::Test
 
   # SPEC B-20: a guest cannot forge a Capability Handle from a bare
   # integer. The host-side wire decoder rejects the malformed encoding
-  # before the value reaches the HandleTable. Operationally, a Request
+  # before the value reaches the Catalog::Handler. Operationally, a Request
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
   # fails Envelope.decode_request's type validation and the dispatcher
   # surfaces it as a Response.error. The integer never reaches resolve_target
-  # or HandleTable#fetch — see the assertion on table size below.
+  # or Catalog::Handler#fetch — see the assertion on table size below.
   #
   # The test seam: we cannot construct such a Request via Request.new
   # (its constructor rejects non-String/Handle target types). We hand-roll
@@ -395,15 +395,15 @@ class TestRPCDispatchUnit < Minitest::Test
     # observes a normal RPC error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed RPC request/, resp.payload.message)
-    # The malformed int never made it into the HandleTable.
+    # The malformed int never made it into the Catalog::Handler.
     assert_equal 0, @handler.size
   end
 
-  # ---------- HandleTable exhaustion (SPEC B-21 / E-07) ----------
+  # ---------- Catalog::Handler exhaustion (SPEC B-21 / E-07) ----------
 
-  # SPEC B-21 / E-07: when the per-#run HandleTable counter reaches
+  # SPEC B-21 / E-07: when the per-#run Catalog::Handler counter reaches
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
-  # Kobako::HandleTableExhausted (a SandboxError subclass). The
+  # Kobako::Catalog::HandlerExhausted (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
   # during normal RPC: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
@@ -524,7 +524,7 @@ class TestRPCDispatchUnit < Minitest::Test
     Class.new { def make = Object.new }.new
   end
 
-  # Build a [Server, Channel] pair whose HandleTable counter is pinned
+  # Build a [Server, Channel] pair whose Catalog::Handler counter is pinned
   # at MAX_ID + 1 so the next #alloc trips the B-21 cap. Returns both
   # so the test can register a Service on the Server (via +#define+)
   # and exercise dispatch on the Channel.
@@ -533,7 +533,7 @@ class TestRPCDispatchUnit < Minitest::Test
     channel_for(exhausted)
   end
 
-  # Build a [Server, Channel] pair sharing +table+ as their HandleTable.
+  # Build a [Server, Channel] pair sharing +table+ as their Catalog::Handler.
   # Instance is nil — dispatch-only tests never reach the yield path,
   # which is the only Channel surface that touches Instance.
   def channel_for(table)
