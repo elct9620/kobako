@@ -60,6 +60,14 @@ module Kobako
   # point; discard and recreate before another execution.
   class MemoryLimitError < TrapError; end
 
+  # Setup-time error raised by +Kobako::Sandbox.new+ /
+  # +Kobako::Runtime.from_path+ when +data/kobako.wasm+ is missing —
+  # the common pre-build state on a fresh clone before
+  # +bundle exec rake compile+. Not a runtime trap (the wasm engine
+  # never started), so it sits directly under +Kobako::Error+ rather
+  # than under +TrapError+.
+  class ModuleNotBuiltError < Error; end
+
   # Sandbox / wire layer. Raised when the guest ran to completion but
   # execution failed due to a mruby script error, a protocol fault, or a
   # host-side wire decode failure on an otherwise valid outcome tag.

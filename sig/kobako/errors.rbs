@@ -11,6 +11,9 @@ module Kobako
   class MemoryLimitError < TrapError
   end
 
+  class ModuleNotBuiltError < Error
+  end
+
   class SandboxError < Error
     attr_reader origin: String?
     attr_reader klass: String?

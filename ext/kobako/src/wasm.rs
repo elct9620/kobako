@@ -22,7 +22,7 @@
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //
 // This file is the façade: it owns the Ruby error class lazy-resolvers,
-// the `wasm_err` / `timeout_err` / `memory_limit_err` constructors shared
+// the `trap_err` / `timeout_err` / `memory_limit_err` constructors shared
 // by every submodule, and the Ruby init() that registers
 // `Kobako::Wasm::Instance` and its methods.
 
@@ -50,49 +50,52 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Error classes (lazy-resolved from Ruby once Kobako::Wasm is defined).
+// Error classes (lazy-resolved from Ruby once the top-level Kobako error
+// hierarchy is loaded by `lib/kobako/errors.rb`). The ext raises directly
+// into the three-class taxonomy — there is no `Kobako::Wasm::Error`
+// intermediate layer; the Sandbox layer adds the verb prefix and lets the
+// subclass identity flow through unchanged.
 // ---------------------------------------------------------------------------
 
 pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    let wasm: RModule = kobako.const_get("Wasm").unwrap();
-    wasm.const_get("ModuleNotBuiltError").unwrap()
+    kobako.const_get("ModuleNotBuiltError").unwrap()
 });
 
-pub(crate) static WASM_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
+pub(crate) static TRAP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    let wasm: RModule = kobako.const_get("Wasm").unwrap();
-    wasm.const_get("Error").unwrap()
+    kobako.const_get("TrapError").unwrap()
 });
 
-pub(crate) static WASM_TIMEOUT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
+pub(crate) static TIMEOUT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    let wasm: RModule = kobako.const_get("Wasm").unwrap();
-    wasm.const_get("TimeoutError").unwrap()
+    kobako.const_get("TimeoutError").unwrap()
 });
 
-pub(crate) static WASM_MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
+pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    let wasm: RModule = kobako.const_get("Wasm").unwrap();
-    wasm.const_get("MemoryLimitError").unwrap()
+    kobako.const_get("MemoryLimitError").unwrap()
 });
 
-pub(crate) fn wasm_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&WASM_ERROR), msg.into())
+/// Construct a `Kobako::TrapError` magnus error. Used for every wasmtime
+/// engine failure that is not a configured-cap trap — missing exports,
+/// allocation faults, instantiation errors, memory write/read failures.
+pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+    MagnusError::new(ruby.get_inner(&TRAP_ERROR), msg.into())
 }
 
-/// Construct a `Kobako::Wasm::TimeoutError` magnus error. Surfaces the
-/// docs/behavior.md E-19 wall-clock cap path so the Sandbox layer can rewrap it
-/// as `Kobako::TimeoutError`.
+/// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
+/// docs/behavior.md E-19 wall-clock cap path with the verb prefix added
+/// by `Kobako::Sandbox#invoke!`.
 pub(crate) fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&WASM_TIMEOUT_ERROR), msg.into())
+    MagnusError::new(ruby.get_inner(&TIMEOUT_ERROR), msg.into())
 }
 
-/// Construct a `Kobako::Wasm::MemoryLimitError` magnus error. Surfaces
-/// the docs/behavior.md E-20 linear-memory cap path so the Sandbox layer can
-/// rewrap it as `Kobako::MemoryLimitError`.
+/// Construct a `Kobako::MemoryLimitError` magnus error. Surfaces the
+/// docs/behavior.md E-20 linear-memory cap path with the verb prefix
+/// added by `Kobako::Sandbox#invoke!`.
 pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&WASM_MEMORY_LIMIT_ERROR), msg.into())
+    MagnusError::new(ruby.get_inner(&MEMORY_LIMIT_ERROR), msg.into())
 }
 
 // ---------------------------------------------------------------------------
@@ -102,15 +105,12 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let wasm = kobako.define_module("Wasm")?;
 
-    // Error hierarchy. ModuleNotBuiltError is the headline error for the
-    // common pre-build state where `data/kobako.wasm` has not yet been
-    // produced (e.g. fresh clone before `rake compile`). TimeoutError and
-    // MemoryLimitError carry the docs/behavior.md B-01 per-run cap paths up to the
-    // Sandbox layer.
-    let base_err = wasm.define_error("Error", ruby.exception_standard_error())?;
-    wasm.define_error("ModuleNotBuiltError", base_err)?;
-    wasm.define_error("TimeoutError", base_err)?;
-    wasm.define_error("MemoryLimitError", base_err)?;
+    // Error hierarchy lives in `lib/kobako/errors.rb` (top-level
+    // `Kobako::TrapError` / `TimeoutError` / `MemoryLimitError` /
+    // `ModuleNotBuiltError`). The ext raises directly into those classes
+    // through `trap_err` / `timeout_err` / `memory_limit_err` /
+    // `MODULE_NOT_BUILT_ERROR`; no `Kobako::Wasm::Error` intermediate
+    // hierarchy is registered.
 
     let instance = wasm.define_class("Instance", ruby.class_object())?;
     instance.define_singleton_method("from_path", function!(Instance::from_path, 5))?;

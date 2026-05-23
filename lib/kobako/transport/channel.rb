@@ -53,7 +53,7 @@ module Kobako
       # Host → Guest re-entry. Serialises +args_bytes+ into the active
       # wasm Instance, invokes +__kobako_yield_to_block+, and returns
       # the YieldResponse bytes the guest produced. Raises
-      # +Kobako::Wasm::Error+ when called outside an active dispatch
+      # +Kobako::TrapError+ when called outside an active dispatch
       # frame (no ACTIVE_CALLER set on this thread).
       def yield_to_block(args_bytes)
         @instance.yield_to_block(args_bytes)

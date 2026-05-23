@@ -53,17 +53,18 @@ class TestSandbox < Minitest::Test
   end
 
   def test_missing_wasm_raises_module_not_built_error
-    assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
+    assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
     end
   end
 
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
     # The minimal.wasm fixture has none of the SPEC ABI exports, so the
-    # eval step raises Kobako::Wasm::Error which `#eval` re-wraps as a
-    # TrapError. The user-facing message attributes the failure to the
-    # public verb (`Sandbox#eval`) rather than the underlying ABI symbol.
-    # Real fixture-based E2E coverage lives in test/test_e2e_journeys.rb.
+    # eval step raises Kobako::TrapError directly from the ext; `#eval`
+    # only adds the verb prefix. The user-facing message attributes the
+    # failure to the public verb (`Sandbox#eval`) rather than the
+    # underlying ABI symbol. Real fixture-based E2E coverage lives in
+    # test/test_e2e_journeys.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.eval("nil") }
     assert_match(/Sandbox#eval failed/, err.message)

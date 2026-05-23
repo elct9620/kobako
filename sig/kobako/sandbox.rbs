@@ -53,7 +53,7 @@ module Kobako
 
     def read_usage!: () -> void
 
-    def trap_class_for: (Kobako::Wasm::Error err) -> singleton(Kobako::TrapError)
+    def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
 
     def invoke!: (Symbol verb) { () -> void } -> untyped
   end

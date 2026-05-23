@@ -5,9 +5,11 @@ module Kobako
   # (see ext/kobako/src/wasm.rs). This module is the foundational binding
   # layer for Sandbox (#14), the run path (#16) and Transport dispatch (#18).
   #
-  # The classes themselves (Instance) and the error hierarchy (Error /
-  # ModuleNotBuiltError) are defined from Rust at ext load time; this file
-  # only adds the pure-Ruby helpers that have no reason to live in Rust.
+  # The +Instance+ class is defined from Rust at ext load time; the
+  # canonical error hierarchy (+Kobako::TrapError+ /
+  # +Kobako::ModuleNotBuiltError+ / ...) lives at top level
+  # ({lib/kobako/errors.rb}[link:errors.rb]). This file only adds the
+  # pure-Ruby helpers that have no reason to live in Rust.
   module Wasm
     # Absolute path to the gem-bundled `data/kobako.wasm` artifact. Computed
     # from this file's location so it works for both `bundle exec` (running
@@ -15,10 +17,10 @@ module Kobako
     #
     # Returns a String regardless of whether the file currently exists —
     # call sites that need the file to be present should pass this through
-    # +Kobako::Wasm::Instance.from_path+, which raises +ModuleNotBuiltError+
-    # with a clear remediation message.
+    # +Kobako::Wasm::Instance.from_path+, which raises
+    # +Kobako::ModuleNotBuiltError+ with a clear remediation message.
     def self.default_path
-      dir = __dir__ or raise Error, "Kobako::Wasm.default_path requires __dir__"
+      dir = __dir__ or raise Kobako::Error, "Kobako::Wasm.default_path requires __dir__"
       File.expand_path("../../data/kobako.wasm", dir)
     end
   end

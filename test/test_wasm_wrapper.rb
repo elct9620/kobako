@@ -26,15 +26,15 @@ class TestWasmWrapper < Minitest::Test
   end
 
   def test_from_path_raises_module_not_built_for_missing_path
-    err = assert_raises(Kobako::Wasm::ModuleNotBuiltError) do
+    err = assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Wasm::Instance.from_path("/nonexistent/kobako.wasm", nil, nil, nil, nil)
     end
     assert_match(/rake wasm:build/, err.message)
   end
 
   def test_module_not_built_error_is_standard_error
-    assert_operator Kobako::Wasm::ModuleNotBuiltError, :<, StandardError
-    assert_operator Kobako::Wasm::ModuleNotBuiltError, :<, Kobako::Wasm::Error
+    assert_operator Kobako::ModuleNotBuiltError, :<, StandardError
+    assert_operator Kobako::ModuleNotBuiltError, :<, Kobako::Error
   end
 
   def test_from_path_works_with_fixture_module

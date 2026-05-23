@@ -281,15 +281,18 @@ module Kobako
       @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
     end
 
-    # Map a wasmtime trap class to the matching three-layer Ruby
-    # exception class. Cap-trap subclasses
+    # Pick the +TrapError+ subclass to re-raise based on +err+'s actual
+    # class. Cap-trap subclasses
     # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
-    # select their named +TrapError+ subclass; everything else
-    # collapses to the base +Kobako::TrapError+.
+    # preserve their named identity; everything else collapses to the
+    # base +Kobako::TrapError+. The ext already raises the right subclass
+    # directly, so this is a pure re-attribution that lets +#invoke!+
+    # add the verb prefix without erasing +TimeoutError+ /
+    # +MemoryLimitError+.
     def trap_class_for(err)
       case err
-      when Kobako::Wasm::TimeoutError     then TimeoutError
-      when Kobako::Wasm::MemoryLimitError then MemoryLimitError
+      when TimeoutError     then TimeoutError
+      when MemoryLimitError then MemoryLimitError
       else TrapError
       end
     end
@@ -309,7 +312,7 @@ module Kobako
       yield
       read_captures!
       Outcome.decode(@instance.outcome!)
-    rescue Kobako::Wasm::Error => e
+    rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure
       read_usage!

@@ -33,9 +33,9 @@
 //! Store installs an epoch-deadline callback for wall-clock timeout and
 //! a [`ResourceLimiter`] for the linear-memory cap. Wasmtime turns
 //! limiter / callback errors into traps; the run-path methods downcast
-//! the trap source to surface as `Kobako::Wasm::TimeoutError` or
-//! `Kobako::Wasm::MemoryLimitError` so the `Sandbox` layer can map them
-//! to the named `Kobako::TrapError` subclasses.
+//! the trap source and raise `Kobako::TimeoutError` /
+//! `Kobako::MemoryLimitError` directly, so the `Sandbox` layer only
+//! needs to add the verb prefix without re-deciding the subclass.
 //!
 //! [`Engine`]: wasmtime::Engine
 //! [`Module`]: wasmtime::Module
@@ -58,7 +58,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 use super::cache::{cached_module, shared_engine};
 use super::dispatch;
 use super::host_state::{HostState, MemoryLimitTrap, StoreCell, TimeoutTrap};
-use super::{memory_limit_err, rstring_to_vec, timeout_err, wasm_err};
+use super::{memory_limit_err, rstring_to_vec, timeout_err, trap_err};
 
 #[magnus::wrap(class = "Kobako::Wasm::Instance", free_immediately, size)]
 pub(crate) struct Instance {
@@ -67,7 +67,7 @@ pub(crate) struct Instance {
     // Cached TypedFunc handles for the two host-driven ABI exports.
     // Optional because test fixtures (a minimal "ping" module) need not
     // provide them; real kobako.wasm always does, and the run-path methods
-    // raise a Ruby `Kobako::Wasm::Error` when an export is missing.
+    // raise a Ruby `Kobako::TrapError` when an export is missing.
     //
     // `__kobako_alloc` is NOT cached here — only `dispatch.rs` calls it,
     // and it does so through `Caller::get_export` on the wasmtime side.
@@ -117,7 +117,7 @@ impl Instance {
             None => None,
             Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
             Some(secs) => {
-                return Err(wasm_err(
+                return Err(trap_err(
                     &ruby,
                     format!("timeout must be > 0 and finite, got {secs} seconds"),
                 ));
@@ -163,7 +163,7 @@ impl Instance {
         // so the wiring stays honest about its precondition.
         p1::add_to_linker_sync(&mut linker, |state: &mut HostState| state.wasi_mut()).map_err(
             |e| {
-                wasm_err(
+                trap_err(
                     &ruby,
                     format!("failed to wire WASI runtime into Sandbox: {}", e),
                 )
@@ -188,7 +188,7 @@ impl Instance {
                 },
             )
             .map_err(|e| {
-                wasm_err(
+                trap_err(
                     &ruby,
                     format!("failed to register host transport dispatch import: {}", e),
                 )
@@ -203,7 +203,7 @@ impl Instance {
 
         // Best-effort export lookup. Missing exports are not an error here
         // (test fixture is a bare module); the host enforces presence at
-        // invocation time by raising a Ruby `Kobako::Wasm::Error` when the
+        // invocation time by raising a Ruby `Kobako::TrapError` when the
         // cached Option is None. Only the SPEC ABI `() -> ()` shape is
         // accepted for `__kobako_eval`; `__kobako_run` takes
         // `(env_ptr, env_len) -> ()` per docs/wire-codec.md § ABI
@@ -251,7 +251,7 @@ impl Instance {
     ///
     /// Bound to Ruby as `Instance#yield_to_block`. Invoked from the
     /// host-side yield proxy that the dispatcher hands to Service
-    /// methods (S5a+); raises +Kobako::Wasm::Error+ when called
+    /// methods (S5a+); raises +Kobako::TrapError+ when called
     /// outside an active dispatch frame, or when any of the underlying
     /// allocation / write / call / read steps fails. The S4 guest
     /// stub always returns a `tag 0x04` error envelope; S5b replaces
@@ -264,19 +264,19 @@ impl Instance {
 
         let bytes = rstring_to_vec(args_bytes);
         let Some(caller) = super::dispatch::current_caller() else {
-            return Err(wasm_err(
+            return Err(trap_err(
                 &ruby,
                 "yield_to_block called outside an active Sandbox dispatch frame",
             ));
         };
 
-        let resp_bytes = drive_yield(caller, &bytes).map_err(|msg| wasm_err(&ruby, msg))?;
+        let resp_bytes = drive_yield(caller, &bytes).map_err(|msg| trap_err(&ruby, msg))?;
         Ok(ruby.str_from_slice(&resp_bytes))
     }
 
     // -----------------------------------------------------------------
     // Run-path methods. Each method is best-effort — it raises a Ruby
-    // `Kobako::Wasm::Error` when the corresponding export is missing or
+    // `Kobako::TrapError` when the corresponding export is missing or
     // fails so the Sandbox layer can map errors to the three-class
     // taxonomy.
     // -----------------------------------------------------------------
@@ -319,7 +319,7 @@ impl Instance {
     /// § Invocation channels), copies +envelope+ bytes into guest linear
     /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
     /// env_len)`. Per-invocation cap semantics match [`Instance::eval`].
-    /// Returns +Kobako::Wasm::Error+ ("alloc returned 0") when guest
+    /// Returns +Kobako::TrapError+ ("alloc returned 0") when guest
     /// allocation fails (docs/behavior.md E-31).
     pub(crate) fn run(
         &self,
@@ -367,7 +367,7 @@ impl Instance {
     /// — the buffer pointer is invalidated after this call, so a second
     /// invocation within the same run is undefined — and that any failure
     /// (missing export, length overflow, OOB read) raises
-    /// `Kobako::Wasm::Error`.
+    /// `Kobako::TrapError`.
     pub(crate) fn outcome(&self) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let bytes = self.fetch_outcome_bytes(&ruby)?;
@@ -465,22 +465,22 @@ impl Instance {
     /// Allocate a +len+-byte buffer in guest linear memory via
     /// `__kobako_alloc`, copy +envelope+ into it, and return +(ptr, len)+
     /// as +i32+ values matching the `__kobako_run(env_ptr, env_len)` ABI.
-    /// Raises +Kobako::Wasm::Error+ when the guest export is missing or
+    /// Raises +Kobako::TrapError+ when the guest export is missing or
     /// allocation fails (docs/behavior.md E-31).
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
         let bytes = rstring_to_vec(envelope);
-        let len_i32 = envelope_len_to_i32(bytes.len()).map_err(|msg| wasm_err(ruby, msg))?;
+        let len_i32 = envelope_len_to_i32(bytes.len()).map_err(|msg| trap_err(ruby, msg))?;
 
         let mut store_ref = self.store.borrow_mut();
         let alloc: TypedFunc<u32, u32> = self
             .inner
             .get_typed_func(store_ref.as_context_mut(), "__kobako_alloc")
-            .map_err(|_| wasm_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))?;
+            .map_err(|_| trap_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))?;
         let ptr = alloc
             .call(store_ref.as_context_mut(), bytes.len() as u32)
-            .map_err(|e| wasm_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
+            .map_err(|e| trap_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
         if ptr == 0 {
-            return Err(wasm_err(
+            return Err(trap_err(
                 ruby,
                 "could not allocate input buffer (out of memory)",
             ));
@@ -488,11 +488,11 @@ impl Instance {
 
         let memory: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,
-            _ => return Err(wasm_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
+            _ => return Err(trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
         };
         let data = memory.data_mut(store_ref.as_context_mut());
         let range = guest_buffer_range(ptr as usize, bytes.len(), data.len())
-            .map_err(|msg| wasm_err(ruby, msg))?;
+            .map_err(|msg| trap_err(ruby, msg))?;
         data[range].copy_from_slice(&bytes);
 
         Ok((ptr as i32, len_i32))
@@ -535,7 +535,7 @@ impl Instance {
 
     /// Invoke `__kobako_take_outcome`, decode the packed +(ptr<<32)|len+
     /// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Raises
-    /// `Kobako::Wasm::Error` when the export is missing, the +ptr+/+len+
+    /// `Kobako::TrapError` when the export is missing, the +ptr+/+len+
     /// arithmetic overflows, the slice falls outside live memory, or the
     /// `memory` export itself is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
@@ -544,16 +544,16 @@ impl Instance {
         let mut store_ref = self.store.borrow_mut();
         let packed = take
             .call(store_ref.as_context_mut(), ())
-            .map_err(|e| wasm_err(ruby, format!("failed to read invocation result: {}", e)))?;
+            .map_err(|e| trap_err(ruby, format!("failed to read invocation result: {}", e)))?;
         let (ptr, len) = unpack_outcome_packed(packed);
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,
-            _ => return Err(wasm_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
+            _ => return Err(trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
         };
         let data = mem.data(store_ref.as_context_mut());
         let range = guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
-            wasm_err(ruby, format!("invocation result is out of bounds: {}", msg))
+            trap_err(ruby, format!("invocation result is out of bounds: {}", msg))
         })?;
         Ok(data[range].to_vec())
     }
@@ -577,7 +577,7 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear
      this is not a Kobako-compatible Wasm module";
 
 /// Return the cached +TypedFunc+ for an ABI export, or raise
-/// +Kobako::Wasm::Error+ when the option is +None+. The run-path
+/// +Kobako::TrapError+ when the option is +None+. The run-path
 /// methods (+#eval+, +#run+, +#outcome!+) all share the same
 /// "missing export → Ruby error" boilerplate; this helper collapses
 /// the three sites onto one safe entry. The +_name+ argument is
@@ -593,7 +593,7 @@ where
     Params: wasmtime::WasmParams,
     Results: wasmtime::WasmResults,
 {
-    export.ok_or_else(|| wasm_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))
+    export.ok_or_else(|| trap_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))
 }
 
 /// Validate the invocation envelope length and return it as +i32+ — the
@@ -738,8 +738,8 @@ fn epoch_deadline_callback(
 
 /// Configured-cap path classification for a wasmtime error. The
 /// downcast logic stays in a pure helper so the
-/// `Kobako::Wasm::TimeoutError` / `MemoryLimitError` /
-/// `Kobako::Wasm::Error` mapping can be exercised from `cargo test`
+/// `Kobako::TimeoutError` / `MemoryLimitError` /
+/// `Kobako::TrapError` mapping can be exercised from `cargo test`
 /// without the magnus surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrapClass {
@@ -748,7 +748,7 @@ enum TrapClass {
     /// docs/behavior.md E-20 linear-memory cap path.
     MemoryLimit,
     /// Any other wasmtime error — surfaces as the base
-    /// `Kobako::Wasm::Error`.
+    /// `Kobako::TrapError`.
     Other,
 }
 
@@ -796,7 +796,7 @@ fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
                 .unwrap_or_else(|| format!("{}", err));
             memory_limit_err(ruby, msg)
         }
-        TrapClass::Other => wasm_err(ruby, format!("{}", err)),
+        TrapClass::Other => trap_err(ruby, format!("{}", err)),
     }
 }
 
@@ -812,7 +812,7 @@ fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     let msg = format!("instantiate: {}", err);
     match classify_trap(&err) {
         TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
-        TrapClass::Timeout | TrapClass::Other => wasm_err(ruby, msg),
+        TrapClass::Timeout | TrapClass::Other => trap_err(ruby, msg),
     }
 }
 

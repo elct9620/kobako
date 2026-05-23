@@ -28,7 +28,7 @@ use std::time::Duration;
 use magnus::{Error as MagnusError, Ruby};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
-use super::{wasm_err, MODULE_NOT_BUILT_ERROR};
+use super::{trap_err, MODULE_NOT_BUILT_ERROR};
 
 static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
@@ -66,7 +66,7 @@ pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
     config.epoch_interruption(true);
     let engine = WtEngine::new(&config).map_err(|e| {
         let ruby = Ruby::get().expect("Ruby thread");
-        wasm_err(&ruby, format!("engine init: {}", e))
+        trap_err(&ruby, format!("engine init: {}", e))
     })?;
     let engine = SHARED_ENGINE.get_or_init(|| engine);
     spawn_epoch_ticker(engine.clone());
@@ -92,7 +92,7 @@ fn spawn_epoch_ticker(engine: WtEngine) {
 }
 
 /// Look up `path` in the per-path Module cache, compiling and inserting
-/// the artifact on a miss. Raises `Kobako::Wasm::ModuleNotBuiltError`
+/// the artifact on a miss. Raises `Kobako::ModuleNotBuiltError`
 /// when the file is missing — the headline error for the common
 /// pre-build state on a fresh clone before `rake compile`.
 pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
@@ -119,7 +119,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
     }
 
     let bytes = fs::read(path).map_err(|e| {
-        wasm_err(
+        trap_err(
             &ruby,
             format!(
                 "failed to read Sandbox runtime at {}: {}",
@@ -129,7 +129,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
         )
     })?;
     let module = WtModule::new(shared_engine()?, &bytes)
-        .map_err(|e| wasm_err(&ruby, format!("failed to compile Sandbox runtime: {}", e)))?;
+        .map_err(|e| trap_err(&ruby, format!("failed to compile Sandbox runtime: {}", e)))?;
     cache
         .lock()
         .expect("module cache mutex poisoned")
