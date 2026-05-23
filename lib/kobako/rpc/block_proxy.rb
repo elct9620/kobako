@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "../yield"
+require_relative "../transport/yield"
 
 module Kobako
   module RPC
@@ -38,7 +38,7 @@ module Kobako
         proxy = proc do |*args|
           raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless frame_active
 
-          response = Kobako::Yield.decode_response(channel.yield_to_block(Kobako::Codec::Encoder.encode(args)))
+          response = Kobako::Transport.decode_yield(channel.yield_to_block(Kobako::Codec::Encoder.encode(args)))
           next response.value if response.ok?
 
           throw break_tag, response.value if response.break?
@@ -51,7 +51,7 @@ module Kobako
       # Reify a +YieldResponse+ tag 0x04 payload into a +RuntimeError+
       # the Service method observes at its +yield+ site. The
       # +{class, message, backtrace}+ shape mirrors the
-      # +Kobako::Yield::Response+ tag 0x04 payload; +default+ provides
+      # +Kobako::Transport::Yield+ tag 0x04 payload; +default+ provides
       # a fallback when the payload is not a Hash.
       def yield_failure(payload, default:)
         return RuntimeError.new(default) unless payload.is_a?(Hash)

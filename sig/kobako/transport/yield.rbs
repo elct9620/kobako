@@ -1,0 +1,34 @@
+module Kobako
+  module Transport
+    TAG_OK: Integer
+    TAG_BREAK: Integer
+    TAG_RESERVED: Integer
+    TAG_ERROR: Integer
+    LIVE_TAGS: Array[Integer]
+
+    class Yield
+      attr_reader tag: Integer
+      attr_reader value: untyped
+
+      def initialize: (tag: Integer, value: untyped) -> void
+
+      def with: (?tag: Integer, ?value: untyped) -> Yield
+
+      def ok?: () -> bool
+
+      def break?: () -> bool
+
+      def error?: () -> bool
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+    end
+
+    def self.encode_yield: (Yield response) -> String
+
+    def self.decode_yield: (String bytes) -> Yield
+
+    def self.reject_dead_yield_tag!: (Integer tag) -> void
+  end
+end

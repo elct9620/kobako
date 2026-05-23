@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "../yield"
 require_relative "../transport/request"
 require_relative "../transport/response"
+require_relative "../transport/yield"
 require_relative "block_proxy"
 
 module Kobako
