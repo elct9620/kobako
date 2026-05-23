@@ -3,10 +3,7 @@ module Kobako
     extend Forwardable
 
     attr_reader wasm_path: String
-    attr_reader instance: Kobako::Runtime
     attr_reader options: Kobako::SandboxOptions
-    attr_reader services: Kobako::Catalog::Binding
-    attr_reader snippets: Kobako::Catalog::Snippet::Table
 
     # Forwarded to @options via Forwardable#def_delegators.
     def timeout: () -> Float?

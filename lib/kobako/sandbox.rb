@@ -42,9 +42,7 @@ module Kobako
   class Sandbox
     extend Forwardable
 
-    attr_reader :wasm_path, :instance,
-                :options,
-                :services, :snippets
+    attr_reader :wasm_path, :options
 
     # Per-cap accessors forward to the immutable +SandboxOptions+ Value
     # Object so the Host App still reads them off Sandbox directly.
