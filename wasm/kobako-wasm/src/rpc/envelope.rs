@@ -6,7 +6,8 @@
 //! and Response envelopes on top of the lower-level [`Encoder`] /
 //! [`Decoder`] primitives in `codec/`. The per-`#run` Outcome envelope
 //! (Result / Panic) lives next door at `crate::outcome` — mirroring the
-//! host's `lib/kobako/rpc/envelope.rb` vs `lib/kobako/outcome.rb` split.
+//! host's `lib/kobako/transport/{request,response}.rb` vs
+//! `lib/kobako/outcome.rb` split.
 //!
 //! No `unsafe`. No third-party dependencies. Like the underlying codec,
 //! this module is an independent re-implementation of SPEC; the Ruby

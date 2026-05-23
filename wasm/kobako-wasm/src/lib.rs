@@ -5,11 +5,14 @@
 //!
 //! * `codec` — MessagePack codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (docs/wire-codec.md).
-//! * `rpc` — Per-call RPC layer mirroring the host's `lib/kobako/rpc/`.
-//!   Holds `rpc::envelope` (Request / Response value objects and their
-//!   encoders/decoders on top of `codec` — docs/wire-contract.md) and
-//!   `rpc::client` (the round-trip pipeline used by the guest-side
-//!   mruby bridge to dispatch a call through `__kobako_dispatch`).
+//! * `rpc` — Per-call transport layer mirroring the host's
+//!   `lib/kobako/transport/`. Holds `rpc::envelope` (Request / Response
+//!   value objects and their encoders/decoders on top of `codec` —
+//!   docs/wire-contract.md) and `rpc::client` (the round-trip pipeline
+//!   used by the guest-side mruby bridge to dispatch a call through
+//!   `__kobako_dispatch`). The crate-internal module name keeps the
+//!   shorter `rpc` form for now; renaming the Rust submodule is a
+//!   later cleanup.
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
 //!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
 //!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
