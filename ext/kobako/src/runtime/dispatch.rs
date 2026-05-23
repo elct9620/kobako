@@ -161,26 +161,30 @@ fn try_handle(
         "Sandbox runtime does not export linear memory, or transport request slice falls outside it",
     )?;
 
-    // `Kobako::Sandbox` always installs the Transport Channel before
+    // `Kobako::Sandbox` always installs the dispatch Proc before
     // invoking the runtime, so reaching this branch indicates a misuse
     // rather than a normal control path.
-    let channel = caller
+    let on_dispatch = caller
         .data()
-        .channel()
+        .on_dispatch()
         .ok_or("transport dispatch fired outside an active Sandbox#run — internal wiring bug")?;
 
-    let resp_bytes = invoke_channel(channel, &req_bytes).map_err(|_| {
-        "transport channel raised an exception instead of returning a fault — please report this as a kobako bug"
+    let resp_bytes = invoke_on_dispatch(on_dispatch, &req_bytes).map_err(|_| {
+        "transport dispatch Proc raised an exception instead of returning a fault — please report this as a kobako bug"
     })?;
 
     write_response(caller, &resp_bytes)
 }
 
-/// Call the Ruby Channel's `#dispatch(request_bytes)` method and return
-/// the encoded Response bytes. Errors here mean the Channel itself
-/// failed (it is contracted never to raise — see
-/// `Kobako::Transport::Channel#dispatch`), which we treat as a wire-layer fault.
-fn invoke_channel(channel: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, MagnusError> {
+/// Invoke the Ruby-side dispatch +Proc+ with the request bytes and return
+/// the encoded Response bytes. The Proc is contracted to fold every
+/// dispatch failure into a +Response.err+ envelope (see
+/// `Kobako::Transport::Dispatcher.dispatch`), so reaching the error
+/// branch is itself a wire-layer fault rather than a normal control path.
+fn invoke_on_dispatch(
+    on_dispatch: Opaque<Value>,
+    req_bytes: &[u8],
+) -> Result<Vec<u8>, MagnusError> {
     // The wasmtime callback runs on the same Ruby thread that called the
     // active Sandbox invocation (#eval or #run) — the invariant SPEC
     // Implementation Standards Architecture pins for the host gem — so
@@ -188,9 +192,9 @@ fn invoke_channel(channel: Opaque<Value>, req_bytes: &[u8]) -> Result<Vec<u8>, M
     // localises the violation rather than letting a nonsense error
     // propagate.
     let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
-    let channel_value: Value = ruby.get_inner(channel);
+    let proc_value: Value = ruby.get_inner(on_dispatch);
     let req_str = ruby.str_from_slice(req_bytes);
-    let resp: RString = channel_value.funcall("dispatch", (req_str,))?;
+    let resp: RString = proc_value.funcall("call", (req_str,))?;
     Ok(super::rstring_to_vec(resp))
 }
 

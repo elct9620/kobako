@@ -237,13 +237,16 @@ impl Instance {
         })
     }
 
-    /// Install the Ruby-side `Kobako::Transport::Channel` into HostState.
-    /// Bound to Ruby as `Instance#channel=`. From this point on, every
-    /// `__kobako_dispatch` import invocation routes through
-    /// `channel.dispatch(req_bytes)`.
-    pub(crate) fn set_channel(&self, channel: Value) -> Result<(), MagnusError> {
+    /// Register the Ruby-side dispatch +Proc+ on the active HostState.
+    /// Bound to Ruby as +Kobako::Runtime#on_dispatch=+. From this point on,
+    /// every +__kobako_dispatch+ host import invocation calls the Proc
+    /// with the request bytes and writes the returned Response bytes back
+    /// into guest memory ({BRIDGE_REDESIGN §5.5.3}).
+    pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         let mut store_ref = self.store.borrow_mut();
-        store_ref.data_mut().bind_channel(Opaque::from(channel));
+        store_ref
+            .data_mut()
+            .bind_on_dispatch(Opaque::from(proc_value));
         Ok(())
     }
 
@@ -251,15 +254,15 @@ impl Instance {
     /// export with `args_bytes` as the yield-arguments payload, and
     /// return the YieldResponse bytes the guest produced (B-24).
     ///
-    /// Bound to Ruby as `Instance#yield_to_block`. Invoked from the
-    /// host-side yield proxy that the dispatcher hands to Service
-    /// methods (S5a+); raises +Kobako::TrapError+ when called
-    /// outside an active dispatch frame, or when any of the underlying
-    /// allocation / write / call / read steps fails. The S4 guest
-    /// stub always returns a `tag 0x04` error envelope; S5b replaces
-    /// the guest body with the real `mrb_yield_argv` path while keeping
-    /// this magnus method's contract unchanged.
-    pub(crate) fn yield_to_block(&self, args_bytes: RString) -> Result<RString, MagnusError> {
+    /// Bound to Ruby as +Kobako::Runtime#yield_to_active_invocation+.
+    /// Invoked from the host-side yield proxy that the dispatcher hands
+    /// to Service methods (B-23 / B-24); raises +Kobako::TrapError+ when
+    /// called outside an active dispatch frame, or when any of the
+    /// underlying allocation / write / call / read steps fails.
+    pub(crate) fn yield_to_active_invocation(
+        &self,
+        args_bytes: RString,
+    ) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let _ = self; // The Caller carries its own Store; `self` is only
                       // a marker that the method belongs to an Instance.
@@ -268,7 +271,7 @@ impl Instance {
         let Some(caller) = super::dispatch::current_caller() else {
             return Err(trap_err(
                 &ruby,
-                "yield_to_block called outside an active Sandbox dispatch frame",
+                "yield_to_active_invocation called outside an active Sandbox dispatch frame",
             ));
         };
 

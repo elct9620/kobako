@@ -111,8 +111,11 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
-    runtime.define_method("channel=", method!(Instance::set_channel, 1))?;
-    runtime.define_method("yield_to_block", method!(Instance::yield_to_block, 1))?;
+    runtime.define_method("on_dispatch=", method!(Instance::set_on_dispatch, 1))?;
+    runtime.define_method(
+        "yield_to_active_invocation",
+        method!(Instance::yield_to_active_invocation, 1),
+    )?;
     runtime.define_method("eval", method!(Instance::eval, 3))?;
     runtime.define_method("run", method!(Instance::run, 3))?;
     runtime.define_method("usage", method!(Instance::usage, 0))?;

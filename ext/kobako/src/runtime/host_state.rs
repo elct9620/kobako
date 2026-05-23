@@ -36,7 +36,7 @@ pub(super) struct HostState {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
-    channel: Option<Opaque<Value>>,
+    on_dispatch: Option<Opaque<Value>>,
     deadline: Option<Instant>,
     limiter: KobakoLimiter,
     wall_entry: Option<Instant>,
@@ -53,7 +53,7 @@ impl HostState {
             wasi: None,
             stdout_pipe: None,
             stderr_pipe: None,
-            channel: None,
+            on_dispatch: None,
             deadline: None,
             limiter: KobakoLimiter::new(memory_limit),
             wall_entry: None,
@@ -76,11 +76,11 @@ impl HostState {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Bind the Ruby-side `Kobako::Transport::Channel` handle. From this
-    /// point on, every `__kobako_dispatch` host import invocation
-    /// routes through it.
-    pub(super) fn bind_channel(&mut self, channel: Opaque<Value>) {
-        self.channel = Some(channel);
+    /// Register the Ruby-side dispatch +Proc+. From this point on, every
+    /// `__kobako_dispatch` host import invocation calls the Proc with the
+    /// request bytes and expects encoded Response bytes back.
+    pub(super) fn bind_on_dispatch(&mut self, proc_value: Opaque<Value>) {
+        self.on_dispatch = Some(proc_value);
     }
 
     /// Snapshot the bytes captured on guest fd 1 during the most recent
@@ -101,12 +101,12 @@ impl HostState {
             .unwrap_or_default()
     }
 
-    /// Return the bound Channel handle. `Opaque<Value>` is `Copy`, so
-    /// the handle is returned by value rather than by reference. None
-    /// means no Channel has been bound yet via
-    /// [`HostState::bind_channel`].
-    pub(super) fn channel(&self) -> Option<Opaque<Value>> {
-        self.channel
+    /// Return the bound dispatch Proc handle. `Opaque<Value>` is `Copy`,
+    /// so the handle is returned by value rather than by reference. None
+    /// means no Proc has been bound yet via
+    /// [`HostState::bind_on_dispatch`].
+    pub(super) fn on_dispatch(&self) -> Option<Opaque<Value>> {
+        self.on_dispatch
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has

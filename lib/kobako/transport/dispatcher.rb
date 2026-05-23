@@ -18,14 +18,15 @@ module Kobako
     # Catalog::Handler (Handle lookup), invokes the method, and returns
     # a msgpack-encoded Response envelope.
     #
-    # The module is stateless — all mutable state is threaded through the
-    # +server+ argument so Dispatcher has no instance variables and no side
-    # effects beyond mutating the Catalog::Handler via +alloc+ when a non-wire-
-    # representable return value must be wrapped ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
+    # The module is stateless — all mutable state is threaded through
+    # arguments so Dispatcher has no instance variables and no side
+    # effects beyond mutating the Catalog::Handler via +alloc+ when a
+    # non-wire-representable return value must be wrapped
+    # ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
     #
     # Entry point:
     #
-    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, server, handler, channel)
+    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, server, handler, yield_to_guest)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
       # Throw tag for {#build_block_proxy}'s break unwind back to the
@@ -50,18 +51,22 @@ module Kobako
 
       # Dispatch a single transport request and return the encoded
       # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-      # Called by +Kobako::Transport::Channel#dispatch+ from inside ext's
-      # +__kobako_dispatch+ callback. +server+ + +handler+ +
-      # +channel+ are injected by the Channel so the Dispatcher stays
-      # stateless and Server doesn't need to publish accessors for the
-      # Sandbox-owned Catalog::Handler or Instance. Always returns a binary
-      # String — every failure path is reified as a Response.error
-      # envelope so the guest sees a transport error rather than a wasm trap.
-      def dispatch(request_bytes, server, handler, channel)
+      # Invoked from the +Runtime#on_dispatch+ Proc that
+      # +Kobako::Sandbox#initialize+ installs on the ext side; +server+,
+      # +handler+, and +yield_to_guest+ are captured in that Proc's
+      # closure so the Dispatcher stays stateless and Server doesn't
+      # need to publish accessors for the Sandbox-owned +Catalog::Handler+
+      # or +Runtime+. +yield_to_guest+ is a +String → String+ callable
+      # (typically +Runtime#yield_to_active_invocation+ bound as a lambda)
+      # used only when the Request carries +block_given: true+. Always
+      # returns a binary String — every failure path is reified as a
+      # Response.error envelope so the guest sees a transport error rather
+      # than a wasm trap.
+      def dispatch(request_bytes, server, handler, yield_to_guest)
         request = Kobako::Transport.decode_request(request_bytes)
         target = resolve_target(request.target, server, handler)
         args, kwargs = resolve_call_args(request, handler)
-        block_proxy, invalidator = build_block_proxy(channel) if request.block_given
+        block_proxy, invalidator = build_block_proxy(yield_to_guest) if request.block_given
         value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, block_proxy) }
         encode_ok(value, handler)
       rescue StandardError => e
@@ -124,8 +129,8 @@ module Kobako
       # routing) lives in its own module. Returns the +[proxy,
       # invalidator]+ pair the Dispatcher hands to the Service method
       # via +&block+ and the +ensure+ block respectively.
-      def build_block_proxy(channel)
-        YieldProxy.build(channel, BREAK_THROW)
+      def build_block_proxy(yield_to_guest)
+        YieldProxy.build(yield_to_guest, BREAK_THROW)
       end
 
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword

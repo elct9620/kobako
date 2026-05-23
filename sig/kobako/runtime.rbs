@@ -10,9 +10,9 @@ module Kobako
       Integer? stderr_limit_bytes
     ) -> Runtime
 
-    def channel=: (Kobako::Transport::Channel channel) -> void
+    def on_dispatch=: (^(String) -> String dispatch_proc) -> void
 
-    def yield_to_block: (String args_bytes) -> String
+    def yield_to_active_invocation: (String args_bytes) -> String
 
     def eval: (String preamble, String source, String snippets) -> Kobako::Snapshot
 

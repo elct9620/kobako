@@ -9,7 +9,7 @@ require_relative "catalog/handler"
 require_relative "transport/run"
 require_relative "outcome"
 require_relative "catalog/binding"
-require_relative "transport/channel"
+require_relative "transport/dispatcher"
 require_relative "transport/request"
 require_relative "transport/response"
 require_relative "sandbox_options"
@@ -24,8 +24,10 @@ module Kobako
   # +Kobako::Catalog::Handler+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
   # the per-instance +Kobako::Catalog::Binding+ (which receives the
   # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
-  # auto-wrap share one allocator), and the per-channel byte caches for
-  # guest stdout / stderr capture. The underlying wasmtime Engine and compiled Module are cached
+  # auto-wrap share one allocator), and the dispatch +Proc+ /
+  # +yield_to_guest+ lambda installed on the Runtime via
+  # +Runtime#on_dispatch=+ ({BRIDGE_REDESIGN §5.5.3}). The underlying
+  # wasmtime Engine and compiled Module are cached
   # at process scope by the native ext and never surface to Ruby —
   # constructing many Sandboxes amortises both costs automatically.
   #
@@ -109,7 +111,7 @@ module Kobako
       @snippets = Catalog::Snippet::Table.new
       @instance = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                             @options.stdout_limit, @options.stderr_limit)
-      @channel = build_channel!
+      install_dispatch_proc!
       reset_invocation_state!
     end
 
@@ -210,16 +212,19 @@ module Kobako
 
     private
 
-    # Build the host↔guest +Kobako::Transport::Channel+ that composes
-    # the +Catalog::Binding+ (namespace registry), the Instance (wasm
-    # transport), and the +Catalog::Handler+ (capability allocator),
-    # and hand it to the Instance so the Wasm ext callback routes
-    # incoming dispatch through it
-    # ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
-    def build_channel!
-      channel = Kobako::Transport::Channel.new(server: @services, instance: @instance, handler: @handler)
-      @instance.channel = channel
-      channel
+    # Configure the +Runtime+'s host↔guest dispatch wiring
+    # ({docs/behavior.md B-12}[link:../../docs/behavior.md],
+    # {BRIDGE_REDESIGN §5.5.3}). Builds a lambda that re-enters the
+    # guest via +Runtime#yield_to_active_invocation+ (B-24) and a
+    # dispatch +Proc+ that routes guest→host calls through the stateless
+    # +Transport::Dispatcher+, capturing +@services+ / +@handler+ in the
+    # closure. Both are registered on the +Runtime+ once at construction
+    # time so the wasm ext callback can fire without further setup.
+    def install_dispatch_proc!
+      yield_to_guest = ->(args_bytes) { @instance.yield_to_active_invocation(args_bytes) }
+      @instance.on_dispatch = lambda do |request_bytes|
+        Transport::Dispatcher.dispatch(request_bytes, @services, @handler, yield_to_guest)
+      end
     end
 
     # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /

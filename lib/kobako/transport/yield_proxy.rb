@@ -14,7 +14,8 @@ module Kobako
     # Each guest call that carries +block_given: true+ gets a Proc that
     # the Dispatcher hands to the Service method as +&block+. The Proc
     # serialises positional yield args, re-enters the guest via the
-    # +Kobako::Transport::Channel+, and reifies the +YieldResponse+ into
+    # injected +yield_to_guest+ lambda
+    # ({BRIDGE_REDESIGN §5.5.3}), and reifies the +YieldResponse+ into
     # Ruby control flow:
     #
     #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
@@ -32,17 +33,18 @@ module Kobako
     module YieldProxy
       module_function
 
-      # Build a +[proxy, invalidator]+ pair. +channel+ is the
-      # +Kobako::Transport::Channel+ the proxy uses to re-enter the
+      # Build a +[proxy, invalidator]+ pair. +yield_to_guest+ is a
+      # +String → String+ callable (typically +Runtime#yield_to_active_invocation+
+      # bound through a lambda) that the proxy invokes to re-enter the
       # guest; +break_tag+ is the +catch+ throw tag the Dispatcher will
       # match against to unwind the Service on +tag 0x02+.
-      def build(channel, break_tag)
+      def build(yield_to_guest, break_tag)
         frame_active = true
         invalidator = -> { frame_active = false }
         proxy = proc do |*args|
           raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless frame_active
 
-          response = Kobako::Transport.decode_yield(channel.yield_to_block(Kobako::Codec::Encoder.encode(args)))
+          response = Kobako::Transport.decode_yield(yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
           next response.value if response.ok?
 
           throw break_tag, response.value if response.break?

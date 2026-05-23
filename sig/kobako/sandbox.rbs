@@ -43,7 +43,7 @@ module Kobako
 
     private
 
-    def build_channel!: () -> Kobako::Transport::Channel
+    def install_dispatch_proc!: () -> void
 
     def reset_invocation_state!: () -> void
 
