@@ -6,7 +6,7 @@ require_relative "capture"
 require_relative "catalog/snippet"
 require_relative "errors"
 require_relative "catalog/handler"
-require_relative "invocation"
+require_relative "transport/run"
 require_relative "outcome"
 require_relative "catalog/binding"
 require_relative "rpc/channel"
@@ -164,16 +164,16 @@ module Kobako
     # Dispatch into a preloaded entrypoint constant
     # ({docs/behavior.md B-31}[link:../../docs/behavior.md]). Delegates host
     # pre-flight (E-24 / E-25 / E-29 / E-30) and wire encoding to
-    # +Kobako::Invocation+ / +Kobako::Invocation#encode+; the guest
+    # +Kobako::Transport::Run+ / +Kobako::Transport::Run#encode+; the guest
     # resolves +target+ as a top-level constant, calls +#call+ on it
     # with +args+ / +kwargs+, and returns the deserialized result. The
     # first invocation seals the Service registry and snippet table
     # (B-07 / B-33). Runtime errors follow the same three-class taxonomy
     # as +#eval+.
     def run(target, *args, **kwargs)
-      invocation = Invocation.new(entrypoint: target, args: args, kwargs: kwargs)
+      run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encode, invocation.encode(@handler))
+        @instance.run(@services.encoded_preamble, @snippets.encode, run_envelope.encode(@handler))
       end
     end
 

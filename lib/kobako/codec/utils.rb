@@ -18,7 +18,7 @@ module Kobako
     #     {Kobako::Codec::Error}.
     #   - Wire-representability predicate ({wire_representable?}) and
     #     the symmetric host→guest +#run+ argument walk
-    #     ({deep_wrap}) used by +Kobako::Invocation#encode+ to route
+    #     ({deep_wrap}) used by +Kobako::Transport::Run#encode+ to route
     #     non-wire-representable leaves through the Sandbox's
     #     +Kobako::Catalog::Handler+
     #     ({docs/behavior.md B-34}[link:../../../docs/behavior.md]).

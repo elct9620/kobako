@@ -52,7 +52,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-29 — kwargs branch of the same rule. A Handle reaching a kwargs
   # value is rejected with the same message structure as the args
-  # branch (both go through Invocation#forged_handle_message).
+  # branch (both go through Transport::Run#forged_handle_message).
   def test_e29_kwargs_values_must_not_contain_handle
     handle = Kobako::Handle.from_wire(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, env: handle) }
