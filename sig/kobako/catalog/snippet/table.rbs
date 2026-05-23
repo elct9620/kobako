@@ -12,15 +12,6 @@ module Kobako
 
         def encode: () -> String
 
-        def each: () { (entry) -> void } -> Array[entry]
-                | () -> Enumerator[entry, Array[entry]]
-
-        def names: () -> Array[Symbol]
-
-        def size: () -> Integer
-
-        def empty?: () -> bool
-
         private
 
         def register_source!: (String? code, (Symbol | String)? name) -> Symbol

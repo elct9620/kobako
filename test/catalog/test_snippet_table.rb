@@ -7,49 +7,30 @@ require "test_helper"
 # B-32 / E-33 / E-34). Behavioural coverage at the Sandbox#preload
 # boundary lives in test/test_sandbox_preload.rb; this file pins the
 # table's own contract.
+#
+# The table exposes only #register (mutation) and #encode (wire shape)
+# to the outside world — every observable contract is therefore stated
+# against the msgpack-decoded #encode output rather than internal
+# enumeration helpers.
 class TestCatalogSnippetTableRegistration < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippet::Table.new
   end
 
-  def test_new_table_is_empty
-    assert @table.empty?
-    assert_equal 0, @table.size
-    assert_equal [], @table.names
+  def test_new_table_encodes_to_empty_msgpack_array
+    assert_equal [], decoded
   end
 
-  def test_register_stores_under_symbol_name
-    name = @table.register(code: "X = 1", name: :Helper)
+  def test_register_returns_symbol_name_for_source_form
+    assert_equal :Helper, @table.register(code: "X = 1", name: :Helper)
+  end
 
-    assert_equal :Helper, name
-    assert_equal 1, @table.size
-    assert_includes @table.names, :Helper
+  def test_register_returns_nil_for_binary_form
+    assert_nil @table.register(binary: "RITE")
   end
 
   def test_register_accepts_string_name_and_normalizes_to_symbol
-    @table.register(code: "Y = 2", name: "Worker")
-
-    assert_equal [:Worker], @table.names
-  end
-
-  def test_register_preserves_insertion_order
-    @table.register(code: "A", name: :Alpha)
-    @table.register(code: "B", name: :Beta)
-    @table.register(code: "C", name: :Gamma)
-
-    assert_equal %i[Alpha Beta Gamma], @table.names
-  end
-
-  def test_each_yields_source_entries_in_insertion_order
-    @table.register(code: "A", name: :Alpha)
-    @table.register(code: "B", name: :Beta)
-
-    entries = @table.each.to_a
-
-    assert_equal :Alpha, entries.first.name
-    assert_equal "A", entries.first.body
-    assert_equal :Beta, entries.last.name
-    assert_equal "B", entries.last.body
+    assert_equal :Worker, @table.register(code: "Y = 2", name: "Worker")
   end
 
   # E-34
@@ -100,8 +81,8 @@ class TestCatalogSnippetTableRegistration < Minitest::Test
   def test_register_re_encodes_body_as_utf8
     bytes = String.new("X = 1", encoding: Encoding::ASCII_8BIT)
     @table.register(code: bytes, name: :Helper)
-    body = @table.each.to_a.first.body
 
+    body = decoded.first["body"]
     assert_equal Encoding::UTF_8, body.encoding
     assert_equal "X = 1", body
   end
@@ -111,8 +92,13 @@ class TestCatalogSnippetTableRegistration < Minitest::Test
     @table.register(code: original, name: :Helper)
     original << " # mutated"
 
-    body = @table.each.to_a.first.body
-    assert_equal "X = 1", body
+    assert_equal "X = 1", decoded.first["body"]
+  end
+
+  private
+
+  def decoded
+    MessagePack.unpack(@table.encode)
   end
 end
 
@@ -125,12 +111,6 @@ end
 class TestCatalogSnippetTableEncoding < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippet::Table.new
-  end
-
-  def test_encode_empty_table_serializes_to_empty_msgpack_array
-    decoded = MessagePack.unpack(@table.encode)
-
-    assert_equal [], decoded
   end
 
   def test_encode_source_entry_wire_shape
@@ -151,6 +131,16 @@ class TestCatalogSnippetTableEncoding < Minitest::Test
     assert_equal({ "kind" => "bytecode", "body" => "RITE\x00bytes".b }, decoded.first)
     refute_includes decoded.first.keys, "name",
                     "binary entry's canonical name lives in bytecode debug_info, not on the wire"
+  end
+
+  def test_encode_preserves_insertion_order_across_source_entries
+    @table.register(code: "A", name: :Alpha)
+    @table.register(code: "B", name: :Beta)
+    @table.register(code: "C", name: :Gamma)
+
+    decoded = MessagePack.unpack(@table.encode)
+
+    assert_equal(%w[Alpha Beta Gamma], decoded.map { |e| e["name"] })
   end
 
   def test_encode_preserves_insertion_order_across_mixed_entry_kinds

@@ -79,32 +79,6 @@ module Kobako
           end
         end
 
-        # Iterate over registered entries in insertion order. Yields each
-        # entry (a +Kobako::Catalog::Snippet::Source+ or
-        # +Kobako::Catalog::Snippet::Binary+). Returns an Enumerator when
-        # no block is given.
-        def each(&)
-          @entries.each(&)
-        end
-
-        # Canonical names of every registered +Source+ entry, in insertion
-        # order. +Binary+ entries are skipped — their names live in
-        # bytecode +debug_info+ on the guest side and are not extracted by
-        # the host.
-        def names
-          @entries.filter_map { |entry| entry.name if entry.is_a?(Source) }
-        end
-
-        # Number of registered snippets.
-        def size
-          @entries.size
-        end
-
-        # Whether no snippets are registered.
-        def empty?
-          @entries.empty?
-        end
-
         private
 
         # Source-form register path. Delegates argument-shape checks to
@@ -114,7 +88,9 @@ module Kobako
         def register_source!(code, name)
           code, name = ensure_source_args!(code, name)
           name_sym = normalize_name(name)
-          raise ArgumentError, "snippet #{name_sym.inspect} already preloaded" if names.include?(name_sym)
+          if @entries.any? { |e| e.is_a?(Source) && e.name == name_sym }
+            raise ArgumentError, "snippet #{name_sym.inspect} already preloaded"
+          end
 
           @entries << Source.new(name: name_sym, body: code.dup.force_encoding(Encoding::UTF_8))
           name_sym
