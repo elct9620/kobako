@@ -2,14 +2,14 @@
 
 require "test_helper"
 
-# Unit-level coverage of RPC::Dispatcher.dispatch — fast and deterministic,
-# exercises the RPC::Dispatcher / Wire integration directly without a live
+# Unit-level coverage of Transport::Dispatcher.dispatch — fast and deterministic,
+# exercises the Transport::Dispatcher / Wire integration directly without a live
 # Sandbox. Path-target dispatch, kwargs symbolization, Handle target /
 # argument resolution, disconnected sentinel, cross-Sandbox invalidity,
 # and Catalog::Handler exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
 # +test/test_e2e_journeys.rb+ via real mruby.
-class TestRPCDispatchUnit < Minitest::Test
+class TestTransportDispatchUnit < Minitest::Test
   def setup
     @handler = Kobako::Catalog::Handler.new
     @registry = Kobako::Catalog::Binding.new(handler: @handler)
@@ -392,7 +392,7 @@ class TestRPCDispatchUnit < Minitest::Test
     # Kobako::Codec::Error rescues to type="runtime" with the
     # "Sandbox received a malformed transport request" prefix; the
     # dispatcher's contract pins this taxonomy and the guest
-    # observes a normal RPC error rather than a wasm trap.
+    # observes a normal transport error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
     # The malformed int never made it into the Catalog::Handler.
@@ -405,7 +405,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
   # Kobako::Catalog::HandlerExhausted (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
-  # during normal RPC: a Service method returns a non-wire-representable
+  # during a normal transport call: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain as a Response.error the guest observes.

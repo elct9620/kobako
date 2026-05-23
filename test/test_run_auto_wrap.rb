@@ -7,8 +7,8 @@ require "test_helper"
 # Coverage for Kobako::Sandbox#run host→guest argument auto-wrap
 # (docs/behavior.md B-34) — non-wire-representable args / kwargs values
 # are routed through the Sandbox's Catalog::Handler and arrive in the guest
-# as Kobako::Handle proxies whose method calls dispatch back as RPC
-# (B-17). The forged-Handle reject path (E-29) lives in
+# as Kobako::Handle proxies whose method calls dispatch back as
+# transport calls (B-17). The forged-Handle reject path (E-29) lives in
 # test/test_sandbox_run.rb alongside the rest of the #run pre-flight
 # error coverage; this file is the e2e elevation of the auto-wrap
 # happy path against the real data/kobako.wasm.

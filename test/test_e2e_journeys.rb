@@ -250,7 +250,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md B-17: Service A returns stateful object → guest uses Handle as
-  # next RPC target → chain works.
+  # next transport target → chain works.
   def test_handle_chain_b17_service_returns_handle_used_as_target
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
@@ -261,7 +261,7 @@ class TestE2EJourneys < Minitest::Test
     RUBY
 
     assert_equal "hi,Bob", result,
-                 "B-17: Handle target from first RPC routes second RPC to the stateful object"
+                 "B-17: Handle target from first transport call routes second call to the stateful object"
   end
 
   # mruby's +puts+ on a capped channel may raise +IOError+ once the
@@ -568,7 +568,7 @@ class TestE2EJourneys < Minitest::Test
   # ── Wire converter contract guards ─────────────────────────────────────
   #
   # +Kobako::mrb_value_to_wire_outcome+ (outcome path, +inspect+ fallback)
-  # and +Kobako::mrb_value_to_wire_value+ (RPC path, +to_s+ fallback)
+  # and +Kobako::mrb_value_to_wire_value+ (transport path, +to_s+ fallback)
   # intentionally diverge; see the cross-referenced doc-comments on both
   # methods in +wasm/kobako-wasm/src/kobako.rs+. The two tests below pin
   # the divergence — one per direction — so a future "DRY cleanup" that
@@ -644,14 +644,14 @@ class TestE2EJourneys < Minitest::Test
                  "see Kobako::mrb_value_to_wire_outcome doc"
   end
 
-  # RPC path: the unknown-type fallback arm uses +Object#to_s+, NOT
+  # transport path: the unknown-type fallback arm uses +Object#to_s+, NOT
   # +Object#inspect+. A user-defined mruby class is not in
   # +mrb_value_to_wire_value+'s named arms (NilClass / Bool / Integer /
   # Float / String / Symbol), so it falls through the +to_s+ fallback,
   # arrives at the Service as a plain String, and is echoed back. If
   # the converter switched to +inspect+, this assertion would surface
   # +"<rpc-probe-inspect>"+ instead of +"<rpc-probe-to-s>"+.
-  RPC_PROBE_SCRIPT = <<~RUBY
+  TRANSPORT_PROBE_SCRIPT = <<~RUBY
     class RpcProbe
       def inspect; "<rpc-probe-inspect>"; end
       def to_s;    "<rpc-probe-to-s>";    end
@@ -663,14 +663,14 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Sym).bind(:Echo, ->(arg) { arg })
 
-    result = sandbox.eval(RPC_PROBE_SCRIPT)
+    result = sandbox.eval(TRANSPORT_PROBE_SCRIPT)
 
     assert_equal "<rpc-probe-to-s>", result,
-                 "RPC path: unknown-type fallback must call Object#to_s — " \
+                 "transport path: unknown-type fallback must call Object#to_s — " \
                  "see Kobako::mrb_value_to_wire_value doc"
   end
 
-  # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol RPC argument
+  # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol transport argument
   # travels on the wire as an ext 0x00 frame and arrives at the Service
   # as a Ruby Symbol (not as the +to_s+ string form).
   def test_rpc_arg_symbol_arrives_as_symbol
@@ -680,7 +680,7 @@ class TestE2EJourneys < Minitest::Test
     result = sandbox.eval("Sym::Echo.call(:user_42)")
 
     assert_equal "sym:user_42", result,
-                 "RPC path: Symbol arg must arrive at the Service as a Ruby Symbol " \
+                 "transport path: Symbol arg must arrive at the Service as a Ruby Symbol " \
                  "(ext 0x00), not as a String via Object#to_s"
   end
 
@@ -742,7 +742,7 @@ class TestE2EJourneys < Minitest::Test
                  "outcome path: empty Hash must arrive as `{}`, not the legacy `\"{}\"` sentinel")
   end
 
-  # RPC path: a Service returning an Array must reach the guest as an
+  # transport path: a Service returning an Array must reach the guest as an
   # mruby Array (callable methods like +#length+, +#first+), not as
   # +nil+. Reproduces the +examples/codemode+ failure where
   # +KV::Store.keys+ — an +Array+ of +String+ — was deserialized to
@@ -754,11 +754,11 @@ class TestE2EJourneys < Minitest::Test
     result = sandbox.eval("KV::Keys.call.length")
 
     assert_equal 3, result,
-                 "RPC path: Service-returned Array must materialize as an mruby Array " \
+                 "transport path: Service-returned Array must materialize as an mruby Array " \
                  "in the guest (currently regressed to nil — see codemode failure)"
   end
 
-  # RPC path: a Service returning a Hash must reach the guest as an
+  # transport path: a Service returning a Hash must reach the guest as an
   # mruby Hash with usable subscript access; Symbol keys returned by
   # the host arrive as Symbols on the guest side.
   def test_rpc_service_returning_hash_arrives_as_hash_in_guest
@@ -768,11 +768,11 @@ class TestE2EJourneys < Minitest::Test
     result = sandbox.eval("KV::Snapshot.call[:a]")
 
     assert_equal 1, result,
-                 "RPC path: Service-returned Hash must materialize as an mruby Hash " \
+                 "transport path: Service-returned Hash must materialize as an mruby Hash " \
                  "with Symbol keys preserved (SPEC.md Type Mapping #8)"
   end
 
-  # RPC path: nested Array of Hash passes from guest → host → guest with
+  # transport path: nested Array of Hash passes from guest → host → guest with
   # element-level fidelity. The Service captures into +seen+ before
   # echoing so the assertion can prove both the host-side arrival shape
   # and the guest-side round-trip shape match the original structure.
@@ -785,8 +785,8 @@ class TestE2EJourneys < Minitest::Test
 
     result = sandbox.eval("Echo::Identity.call([{x: 1}, {y: 2}])")
 
-    assert_equal NESTED_AOH, seen.first, "RPC arg: nested Array-of-Hash must arrive natively"
-    assert_equal NESTED_AOH, result, "RPC return: nested Array-of-Hash must round-trip losslessly"
+    assert_equal NESTED_AOH, seen.first, "transport arg: nested Array-of-Hash must arrive natively"
+    assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
 
   # ── Regexp — mruby-onig-regexp brings Onigmo-backed Regexp into the

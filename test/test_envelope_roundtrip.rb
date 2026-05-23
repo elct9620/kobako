@@ -3,7 +3,7 @@
 # Cross-side envelope round-trip E2E (SPEC item #8).
 #
 # Drives the Rust `envelope_oracle` subprocess from the host: each test
-# Ruby-encodes one RPC envelope variant (Request, Response), prefixes a
+# Ruby-encodes one transport envelope variant (Request, Response), prefixes a
 # single-byte kind tag, and asks the oracle to decode + re-encode it.
 # The Ruby side then asserts byte-identical round-trip — proving the
 # host and guest envelope modules agree on the SPEC framing (field

@@ -11,7 +11,7 @@ require "kobako/transport/request"
 require "kobako/transport/response"
 
 module Kobako
-  class RPCEnvelopeTest < Minitest::Test
+  class TransportEnvelopeTest < Minitest::Test
     Envelope    = Kobako::Transport
     Handle      = Kobako::Handle
     Exc         = Kobako::Transport::Fault
@@ -197,7 +197,7 @@ module Kobako
     # ============================================================
 
     def test_request_carrying_handle_and_response_carrying_handle
-      # An RPC where the guest sends a Handle as both target and arg,
+      # A transport call where the guest sends a Handle as both target and arg,
       # and the host responds with another Handle as the value.
       h_target = Handle.from_wire(10)
       h_arg    = Handle.from_wire(11)
