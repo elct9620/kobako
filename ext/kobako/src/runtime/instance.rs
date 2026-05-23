@@ -47,6 +47,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use magnus::{value::Opaque, Error as MagnusError, RArray, RString, Ruby, Value};
+
+use crate::snapshot::Snapshot;
 use wasmtime::{
     AsContextMut, Caller, Extern, Instance as WtInstance, Linker, Memory, Module as WtModule,
     ResourceLimiter, Store as WtStore, StoreContextMut, TypedFunc, UpdateDeadline,
@@ -281,7 +283,8 @@ impl Instance {
     // taxonomy.
     // -----------------------------------------------------------------
 
-    /// Execute one guest invocation (`__kobako_eval` — one-shot source).
+    /// Execute one guest invocation (`__kobako_eval` — one-shot source)
+    /// and return a [`Snapshot`] bundling every per-invocation observable.
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the three-frame stdin protocol carries +preamble+, +source+, then
@@ -290,12 +293,18 @@ impl Instance {
     /// B-01) are primed here: the wall-clock deadline is stamped into
     /// [`HostState`] and the epoch deadline is set to fire at the next
     /// ticker tick; the memory-cap limiter is already wired.
+    ///
+    /// On a wasmtime trap the configured-cap path raises
+    /// `Kobako::TimeoutError` / `Kobako::MemoryLimitError`; everything
+    /// else raises `Kobako::TrapError`. On success the Snapshot carries
+    /// the OUTCOME_BUFFER bytes, the per-channel stdout / stderr captures
+    /// with their truncation flags, and the B-35 usage figures.
     pub(crate) fn eval(
         &self,
         preamble: RString,
         source: RString,
         snippets: RString,
-    ) -> Result<(), MagnusError> {
+    ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let eval = require_export(&ruby, self.eval.as_ref(), "__kobako_eval")?;
         self.refresh_wasi(&[
@@ -309,24 +318,26 @@ impl Instance {
             eval.call(store_ref.as_context_mut(), ())
         };
         self.disarm_caps();
-        result.map_err(|e| call_err(&ruby, e))
+        result.map_err(|e| call_err(&ruby, e))?;
+        self.build_snapshot(&ruby)
     }
 
-    /// Execute one entrypoint dispatch (`__kobako_run`).
+    /// Execute one entrypoint dispatch (`__kobako_run`) and return a
+    /// [`Snapshot`] bundling every per-invocation observable.
     ///
     /// Rebuilds the WASI context with the two-frame stdin protocol
     /// (preamble + snippets; no user source frame — docs/wire-codec.md
     /// § Invocation channels), copies +envelope+ bytes into guest linear
     /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
     /// env_len)`. Per-invocation cap semantics match [`Instance::eval`].
-    /// Returns +Kobako::TrapError+ ("alloc returned 0") when guest
+    /// Raises +Kobako::TrapError+ ("alloc returned 0") when guest
     /// allocation fails (docs/behavior.md E-31).
     pub(crate) fn run(
         &self,
         preamble: RString,
         snippets: RString,
         envelope: RString,
-    ) -> Result<(), MagnusError> {
+    ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let run = require_export(&ruby, self.run.as_ref(), "__kobako_run")?;
         self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
@@ -337,41 +348,40 @@ impl Instance {
             run.call(store_ref.as_context_mut(), (env_ptr, env_len))
         };
         self.disarm_caps();
-        result.map_err(|e| call_err(&ruby, e))
+        result.map_err(|e| call_err(&ruby, e))?;
+        self.build_snapshot(&ruby)
     }
 
-    /// Return the stdout capture from the most recent run as a Ruby
-    /// `[bytes, truncated]` Array — `bytes` is a binary String containing
-    /// the captured prefix (clipped to `stdout_limit_bytes` when set),
-    /// and `truncated` is a boolean that is `true` only when the guest
-    /// wrote strictly more than the cap. The pair is recomputed from the
-    /// underlying pipe contents on every call; the pipe itself is not
-    /// drained until the next `#run` rebuilds it.
-    pub(crate) fn stdout(&self) -> Result<RArray, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let raw = self.store.borrow().data().stdout_bytes();
-        capture_pair(&ruby, &raw, self.stdout_limit_bytes)
-    }
-
-    /// Return the stderr capture from the most recent run. Same shape
-    /// and semantics as [`Instance::stdout`].
-    pub(crate) fn stderr(&self) -> Result<RArray, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let raw = self.store.borrow().data().stderr_bytes();
-        capture_pair(&ruby, &raw, self.stderr_limit_bytes)
-    }
-
-    /// Read OUTCOME_BUFFER bytes captured during the most recent run.
-    /// Bound to Ruby as `Instance#outcome!`. The bang signals that the
-    /// underlying `__kobako_take_outcome` export is guest-side destructive
-    /// — the buffer pointer is invalidated after this call, so a second
-    /// invocation within the same run is undefined — and that any failure
-    /// (missing export, length overflow, OOB read) raises
-    /// `Kobako::TrapError`.
-    pub(crate) fn outcome(&self) -> Result<RString, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let bytes = self.fetch_outcome_bytes(&ruby)?;
-        Ok(ruby.str_from_slice(&bytes))
+    /// Collect every per-invocation observable into a fresh [`Snapshot`].
+    /// Called from the run-path methods after the guest export returns
+    /// successfully: drains OUTCOME_BUFFER via `__kobako_take_outcome`,
+    /// snapshots the per-channel stdout / stderr pipes (clipped to their
+    /// caps), and reads B-35 `wall_time` / `memory_peak` from HostState.
+    fn build_snapshot(&self, ruby: &Ruby) -> Result<Snapshot, MagnusError> {
+        let return_bytes = self.fetch_outcome_bytes(ruby)?;
+        let (stdout_raw, stderr_raw, wall_time, memory_peak) = {
+            let state = self.store.borrow();
+            let data = state.data();
+            (
+                data.stdout_bytes(),
+                data.stderr_bytes(),
+                data.wall_time(),
+                data.memory_peak(),
+            )
+        };
+        let (stdout_visible, stdout_truncated) = clip_capture(&stdout_raw, self.stdout_limit_bytes);
+        let stdout_bytes = stdout_visible.to_vec();
+        let (stderr_visible, stderr_truncated) = clip_capture(&stderr_raw, self.stderr_limit_bytes);
+        let stderr_bytes = stderr_visible.to_vec();
+        Ok(Snapshot::new(
+            return_bytes,
+            stdout_bytes,
+            stdout_truncated,
+            stderr_bytes,
+            stderr_truncated,
+            wall_time,
+            memory_peak,
+        ))
     }
 
     /// Return the docs/behavior.md B-35 per-last-invocation usage as a
@@ -704,18 +714,6 @@ fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
         Some(c) if raw.len() > c => (&raw[..c], true),
         _ => (raw, false),
     }
-}
-
-/// Build the `[bytes, truncated]` Ruby Array surfaced by
-/// [`Instance::stdout`] / [`Instance::stderr`]. Delegates the slicing
-/// to [`clip_capture`] so the channel-agnostic logic stays unit-
-/// testable from `cargo test`.
-fn capture_pair(ruby: &Ruby, raw: &[u8], cap: Option<usize>) -> Result<RArray, MagnusError> {
-    let (visible, truncated) = clip_capture(raw, cap);
-    let arr = ruby.ary_new_capa(2);
-    arr.push(ruby.str_from_slice(visible))?;
-    arr.push(truncated)?;
-    Ok(arr)
 }
 
 /// Epoch-deadline callback installed on every Store. Read the per-run

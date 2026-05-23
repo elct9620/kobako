@@ -14,15 +14,9 @@ module Kobako
 
     def yield_to_block: (String args_bytes) -> String
 
-    def eval: (String preamble, String source, String snippets) -> void
+    def eval: (String preamble, String source, String snippets) -> Kobako::Snapshot
 
-    def run: (String preamble, String snippets, String envelope) -> void
-
-    def stdout: () -> [String, bool]
-
-    def stderr: () -> [String, bool]
-
-    def outcome!: () -> String
+    def run: (String preamble, String snippets, String envelope) -> Kobako::Snapshot
 
     def usage: () -> [Float, Integer]
   end

@@ -1,0 +1,15 @@
+module Kobako
+  class Snapshot
+    def return_bytes: () -> String
+    def stdout_bytes: () -> String
+    def stdout_truncated: () -> bool
+    def stderr_bytes: () -> String
+    def stderr_truncated: () -> bool
+    def wall_time: () -> Float
+    def memory_peak: () -> Integer
+
+    def stdout: () -> Kobako::Capture
+    def stderr: () -> Kobako::Capture
+    def usage: () -> Kobako::Usage
+  end
+end

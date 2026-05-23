@@ -115,9 +115,6 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("yield_to_block", method!(Instance::yield_to_block, 1))?;
     runtime.define_method("eval", method!(Instance::eval, 3))?;
     runtime.define_method("run", method!(Instance::run, 3))?;
-    runtime.define_method("stdout", method!(Instance::stdout, 0))?;
-    runtime.define_method("stderr", method!(Instance::stderr, 0))?;
-    runtime.define_method("outcome!", method!(Instance::outcome, 0))?;
     runtime.define_method("usage", method!(Instance::usage, 0))?;
 
     Ok(())

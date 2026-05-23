@@ -250,32 +250,20 @@ module Kobako
       @usage = Usage::EMPTY
     end
 
-    # Read the per-channel capture pairs (+[bytes, truncated]+) from the
-    # ext after an invocation completes and wrap each as a +Capture+ value
-    # object. The ext clips +bytes+ to the configured cap and sets
-    # +truncated+ when the guest produced strictly more than +cap+ bytes
-    # ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Mirror of
-    # {#reset_invocation_state!} at the post-invocation boundary.
-    def read_captures!
-      out_bytes, out_truncated = @instance.stdout
-      err_bytes, err_truncated = @instance.stderr
-      @stdout_capture = Capture.from_ext(out_bytes, out_truncated)
-      @stderr_capture = Capture.from_ext(err_bytes, err_truncated)
-    end
-
     # Read the per-last-invocation +wall_time+ and +memory_peak+ from
     # the ext and wrap them as a +Kobako::Usage+ value object
     # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Runs in
     # the +invoke!+ +ensure+ block so the usage record is populated on
     # every outcome — value return, +Kobako::TrapError+ (including
     # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
-    # and +Kobako::ServiceError+.
+    # and +Kobako::ServiceError+. On the success path the same figures
+    # already arrive via +Snapshot#usage+; on the trap path the Snapshot
+    # never reaches Ruby so the ext readout here is the only source.
     #
     # The ext returns a positional 2-tuple +[wall_time, memory_peak]+
     # whose order matches the +Kobako::Usage+ field order; the
     # destructure-then-kwargs handoff below is the explicit
-    # positional→keyword conversion point, mirroring
-    # +#read_captures!+'s +Capture.from_ext(bytes, truncated)+ shape.
+    # positional→keyword conversion point.
     def read_usage!
       wall_time, memory_peak = @instance.usage
       @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
@@ -299,19 +287,24 @@ module Kobako
 
     # Shared prologue / epilogue + trap-class translator for both
     # invocation verbs. +verb+ is +:eval+ or +:run+; it tags the
-    # TrapError message so the failing export is identifiable. The
-    # rescue chain is the single trap-translation boundary — wasmtime /
-    # wire failures from the guest call and from the subsequent
-    # +Instance#outcome!+ read both flow through here, so an
-    # OUTCOME_BUFFER read failure attributes to the same export name as
-    # the guest call itself. Configured-cap paths
-    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md]) surface as
-    # named TrapError subclasses.
+    # TrapError message so the failing export is identifiable.
+    #
+    # The yielded block must return a +Kobako::Snapshot+ — i.e. the
+    # value of +Runtime#eval+ / +#run+ ({BRIDGE_REDESIGN §5.5.1 /
+    # §5.5.2}). The success path unpacks every observable from the
+    # Snapshot in one go: +#stdout+ / +#stderr+ pack into +Capture+,
+    # +#usage+ packs into +Usage+, +#return_bytes+ feeds +Outcome.decode+.
+    # The rescue chain is the single trap-translation boundary —
+    # configured-cap paths
+    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
+    # surface as named TrapError subclasses; everything else surfaces as
+    # the base +TrapError+.
     def invoke!(verb)
       begin_invocation!
-      yield
-      read_captures!
-      Outcome.decode(@instance.outcome!)
+      snapshot = yield
+      @stdout_capture = snapshot.stdout
+      @stderr_capture = snapshot.stderr
+      Outcome.decode(snapshot.return_bytes)
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure
