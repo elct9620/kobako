@@ -1,0 +1,38 @@
+module Kobako
+  module Catalog
+    module Snippet
+      class Table
+        NAME_PATTERN: Regexp
+
+        type entry = Kobako::Catalog::Snippet::Source | Kobako::Catalog::Snippet::Binary
+
+        def initialize: () -> void
+
+        def register: (?code: String?, ?name: (Symbol | String)?, ?binary: String?) -> (Symbol | nil)
+
+        def encode: () -> String
+
+        def each: () { (entry) -> void } -> Array[entry]
+                | () -> Enumerator[entry, Array[entry]]
+
+        def names: () -> Array[Symbol]
+
+        def size: () -> Integer
+
+        def empty?: () -> bool
+
+        private
+
+        def register_source!: (String? code, (Symbol | String)? name) -> Symbol
+
+        def ensure_source_args!: (String? code, (Symbol | String)? name) -> [String, Symbol | String]
+
+        def register_binary!: (String bytes) -> nil
+
+        def entry_payload: (entry) -> Hash[String, untyped]
+
+        def normalize_name: (Symbol | String name) -> Symbol
+      end
+    end
+  end
+end

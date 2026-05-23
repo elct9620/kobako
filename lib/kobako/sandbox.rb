@@ -3,6 +3,7 @@
 require "forwardable"
 
 require_relative "capture"
+require_relative "catalog/snippet"
 require_relative "errors"
 require_relative "handle_table"
 require_relative "invocation"
@@ -11,7 +12,6 @@ require_relative "rpc/channel"
 require_relative "rpc/server"
 require_relative "rpc/envelope"
 require_relative "sandbox_options"
-require_relative "snippet"
 require_relative "usage"
 
 module Kobako
@@ -105,7 +105,7 @@ module Kobako
                                     stderr_limit: stderr_limit)
       @handle_table = HandleTable.new
       @services = Kobako::RPC::Server.new(handle_table: @handle_table)
-      @snippets = Snippet::Table.new
+      @snippets = Catalog::Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)
       @channel = build_channel!

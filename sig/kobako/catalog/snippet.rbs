@@ -1,0 +1,6 @@
+module Kobako
+  module Catalog
+    module Snippet
+    end
+  end
+end

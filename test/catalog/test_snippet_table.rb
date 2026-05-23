@@ -2,13 +2,14 @@
 
 require "test_helper"
 
-# Unit tests for Kobako::Snippet::Table — the per-Sandbox insertion-
-# ordered registry of preloaded snippets (docs/behavior.md B-32 / E-33 /
-# E-34). Behavioural coverage at the Sandbox#preload boundary lives in
-# test/test_sandbox_preload.rb; this file pins the table's own contract.
-class TestSnippetTable < Minitest::Test
+# Unit tests for Kobako::Catalog::Snippet::Table — the per-Sandbox
+# insertion-ordered registry of preloaded snippets (docs/behavior.md
+# B-32 / E-33 / E-34). Behavioural coverage at the Sandbox#preload
+# boundary lives in test/test_sandbox_preload.rb; this file pins the
+# table's own contract.
+class TestCatalogSnippetTable < Minitest::Test
   def setup
-    @table = Kobako::Snippet::Table.new
+    @table = Kobako::Catalog::Snippet::Table.new
   end
 
   def test_new_table_is_empty
