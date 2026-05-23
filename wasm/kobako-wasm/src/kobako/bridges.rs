@@ -21,17 +21,19 @@
 //!        │  trailing Hash if present; resolve target string via
 //!        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
 //!        ▼
+//!   forward_to_dispatch(Target::Path(target_str), ...)
+//!        ▼
 //!   super::Kobako::dispatch_invoke(target, method, args, kwargs)
-//!        │
 //!        ▼
 //!   crate::rpc::client::invoke_rpc(...)
 //! ```
 //!
-//! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md B-17)
-//! follows the same shape: `handle_method_missing` builds a Handle
-//! target and calls `dispatch_invoke` directly. Both bridges share the
-//! same Rust helper (`Kobako::dispatch_invoke`) — only the `Target`
-//! variant they construct differs.
+//! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md
+//! B-17) takes the same path with `Target::Handle(handle_id)` — the
+//! two bridges differ only in how they derive the `Target` from
+//! `self_`; the BlockFrame push, method-symbol extraction, args/kwargs
+//! unpacking, and `dispatch_invoke` call all live in
+//! [`forward_to_dispatch`].
 //!
 //! ## Safety
 //!
@@ -44,6 +46,52 @@
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
+/// Shared body for the two `method_missing` bridges. The caller
+/// supplies the `Target` it derived from its `self_` receiver (a class
+/// name for the Proxy singleton-class shim, a Handle id for the Handle
+/// instance shim) plus the error label that flows into a wire-error
+/// raise on a failed dispatch. Everything else — BlockFrame push,
+/// method-symbol extraction, args/kwargs unpacking, the
+/// [`super::Kobako::dispatch_invoke`] call — is identical for both
+/// bridges and lives here.
+///
+/// The helper runs `kobako.mrb().get_args::<NRestBlock>()` itself, so
+/// callers must not have already consumed the arglist.
+#[cfg(target_arch = "wasm32")]
+fn forward_to_dispatch(
+    kobako: super::Kobako,
+    target: crate::rpc::envelope::Target,
+    sym_err_msg: &core::ffi::CStr,
+    envelope_err_msg: &core::ffi::CStr,
+) -> Value {
+    use crate::abi::block_stack::BlockFrame;
+
+    let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
+
+    // Push the block onto BLOCK_STACK for the duration of this bridge
+    // frame; drops + pops automatically on return / mruby raise. The
+    // wire-level `block_given` bit (B-23) is the observable shadow of
+    // the same fact.
+    let block_given = !block.is_nil();
+    let _block_frame = BlockFrame::push_if_block(block);
+
+    let method_name = match kobako.mrb().sym_name(method_sym) {
+        Some(name) => name,
+        None => unsafe { kobako.raise_wire_error(sym_err_msg) },
+    };
+
+    let (args, kwargs) = kobako.unpack_args_kwargs(rest);
+
+    kobako.dispatch_invoke(
+        target,
+        method_name,
+        &args,
+        &kwargs,
+        block_given,
+        envelope_err_msg,
+    )
+}
+
 /// `Kobako::Transport::Proxy.method_missing(name, *args)` C bridge —
 /// singleton-class level, so `self` is the class object (e.g.
 /// `MyService::KV`).
@@ -54,26 +102,17 @@ use crate::mruby::sys::Value;
 ///   - `args`   = rest args (positional), last arg absorbed into kwargs if Hash
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
-/// Forwards to [`super::Kobako::dispatch_invoke`].
+/// Forwards to [`forward_to_dispatch`] with `Target::Path`.
 pub(crate) unsafe extern "C" fn transport_proxy_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::abi::block_stack::BlockFrame;
         use crate::rpc::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
-
-        // Push the block onto BLOCK_STACK for the duration of this
-        // bridge frame; drops + pops automatically on return / mruby
-        // raise. The wire-level `block_given` bit (B-23) is the
-        // observable shadow of the same fact.
-        let block_given = !block.is_nil();
-        let _block_frame = BlockFrame::push_if_block(block);
 
         // SAFETY: `self_` is the class receiver of a singleton-class
         // `method_missing` shim — class-tagged by mruby itself.
@@ -85,21 +124,12 @@ pub(crate) unsafe extern "C" fn transport_proxy_method_missing(
                 kobako.raise_wire_error(c"transport target class name is null")
             },
         };
-
-        let method_name = match kobako.mrb().sym_name(method_sym) {
-            Some(name) => name,
-            None => unsafe { kobako.raise_wire_error(c"transport method symbol name is null") },
-        };
-
-        let (args, kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Path(target_str.to_string());
 
-        kobako.dispatch_invoke(
+        forward_to_dispatch(
+            kobako,
             target,
-            method_name,
-            &args,
-            &kwargs,
-            block_given,
+            c"transport method symbol name is null",
             c"transport envelope error",
         )
     }
@@ -134,52 +164,37 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     Value::zeroed()
 }
 
-/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards every
-/// method call on a Handle instance to the host via
-/// [`super::Kobako::dispatch_invoke`] with the Handle id as the target
-/// (docs/behavior.md B-17 — Handle chaining).
+/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards
+/// every method call on a Handle instance to the host via
+/// [`forward_to_dispatch`] with `Target::Handle(handle_id)` — the
+/// Handle chaining path (docs/behavior.md B-17).
 ///
-/// TODO: Phase 2 originally intended to absorb this bridge into
-/// `transport_proxy_method_missing` so Handle becomes a pure value
-/// type with no `method_missing`. Keeping both bridges for now —
-/// they already share `Kobako::dispatch_invoke`, only the +Target+
-/// variant differs — to limit Phase 2 blast radius. Revisit once
-/// Phase 3's Runtime / Invocation slot work lands.
+/// TODO: the long-term plan is to drop this instance-level bridge
+/// entirely so `Kobako::Handle` is a pure value type, routing Handle
+/// dispatch through `Kobako::Transport::Proxy` directly. That move
+/// requires reorganising the mruby class registration (singleton-class
+/// vs instance-class dispatch), which is deferred until Phase 3's
+/// Runtime / Invocation work settles. The shared
+/// [`forward_to_dispatch`] helper already consolidates the bridge body
+/// so the remaining difference between the two bridges is just the
+/// `Target` derivation.
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::abi::block_stack::BlockFrame;
         use crate::rpc::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
-
-        // See `transport_proxy_method_missing` for the BLOCK_STACK /
-        // block_given rationale; same shape applies to Handle dispatch
-        // (B-17).
-        let block_given = !block.is_nil();
-        let _block_frame = BlockFrame::push_if_block(block);
-
         let handle_id = kobako.extract_handle_id(self_);
-
-        let method_name = match kobako.mrb().sym_name(method_sym) {
-            Some(name) => name,
-            None => unsafe { kobako.raise_wire_error(c"Handle method symbol name is null") },
-        };
-
-        let (args, kwargs) = kobako.unpack_args_kwargs(rest);
         let target = Target::Handle(handle_id);
 
-        kobako.dispatch_invoke(
+        forward_to_dispatch(
+            kobako,
             target,
-            method_name,
-            &args,
-            &kwargs,
-            block_given,
+            c"Handle method symbol name is null",
             c"transport envelope error (Handle dispatch)",
         )
     }

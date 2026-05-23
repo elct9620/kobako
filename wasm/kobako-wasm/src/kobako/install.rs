@@ -91,15 +91,10 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // object, not nested under Transport. Same explicit
     // `mrb.object_class()` super as the Proxy class above.
     //
-    // TODO: Phase 2 originally planned to absorb +Handle#method_missing+
-    // into +Transport::Proxy+ so the Handle class becomes a pure value
-    // type. The current arrangement keeps Handle's own
-    // +method_missing+ / +respond_to_missing?+ bridges that route to
-    // the shared +dispatch_invoke+ helper inside +Kobako+ —
-    // mechanically equivalent to the Proxy bridges, just registered on
-    // a different class. Revisit once the Runtime / Invocation slot
-    // work in Phase 3 settles, at which point a single bridge
-    // dispatched from both class shapes becomes cleaner.
+    // The Handle bridges share +forward_to_dispatch+ with the Proxy
+    // bridge above (see bridges.rs); collapsing the two bridges into a
+    // single class-shape-aware shim is deferred until Phase 3 — the
+    // TODO lives next to +handle_method_missing+.
     let handle_class = kobako_mod.define_class_under(mrb, c"Handle", object_class);
     handle_class.define_method(
         mrb,
