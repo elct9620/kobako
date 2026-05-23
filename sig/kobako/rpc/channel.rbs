@@ -2,7 +2,7 @@ module Kobako
   module RPC
     class Channel
       def initialize: (
-        server: Kobako::RPC::Server,
+        server: Kobako::Catalog::Binding,
         instance: untyped,
         handler: Kobako::Catalog::Handler
       ) -> void

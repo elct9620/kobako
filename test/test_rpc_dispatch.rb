@@ -12,7 +12,7 @@ require "test_helper"
 class TestRPCDispatchUnit < Minitest::Test
   def setup
     @handler = Kobako::Catalog::Handler.new
-    @registry = Kobako::RPC::Server.new(handler: @handler)
+    @registry = Kobako::Catalog::Binding.new(handler: @handler)
     # Instance is nil — none of these dispatch-only tests exercise the
     # yield path. Channel.dispatch only touches Server + HandleTable.
     @channel = Kobako::RPC::Channel.new(server: @registry, instance: nil, handler: @handler)
@@ -537,7 +537,7 @@ class TestRPCDispatchUnit < Minitest::Test
   # Instance is nil — dispatch-only tests never reach the yield path,
   # which is the only Channel surface that touches Instance.
   def channel_for(table)
-    server = Kobako::RPC::Server.new(handler: table)
+    server = Kobako::Catalog::Binding.new(handler: table)
     channel = Kobako::RPC::Channel.new(server: server, instance: nil, handler: table)
     [server, channel]
   end

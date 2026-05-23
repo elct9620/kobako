@@ -77,10 +77,10 @@ class TestSandbox < Minitest::Test
 
   def test_services_attribute_is_real_registry
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    assert_instance_of Kobako::RPC::Server, sandbox.services
+    assert_instance_of Kobako::Catalog::Binding, sandbox.services
     assert sandbox.services.empty?
     group = sandbox.services.define(:Foo)
-    assert_instance_of Kobako::RPC::Namespace, group
+    assert_instance_of Kobako::Catalog::Binding::Namespace, group
   end
 
   # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`

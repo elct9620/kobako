@@ -1,49 +1,48 @@
 # frozen_string_literal: true
 
 require "msgpack"
-require_relative "../catalog/handler"
+require_relative "handler"
 require_relative "../errors"
-require_relative "envelope"
-require_relative "namespace"
+require_relative "../rpc/envelope"
+require_relative "binding/namespace"
 
 module Kobako
-  module RPC
-    # Kobako::RPC::Server — per-Sandbox host-side namespace registry. Holds
-    # the Namespace / Member bindings and the preamble emitted on Frame 1
-    # ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
+  module Catalog
+    # Kobako::Catalog::Binding — per-Sandbox host-side namespace registry.
+    # Holds the Namespace / Member bindings and the preamble emitted on
+    # Frame 1 ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
     #
     # Public API:
     #
-    #   server = Kobako::RPC::Server.new
-    #   namespace = server.define(:MyService)    # => Kobako::RPC::Namespace
-    #   namespace.bind(:KV, kv_object)           # => namespace (chainable)
-    #   server.to_preamble                       # => array for Frame 1
+    #   binding = Kobako::Catalog::Binding.new
+    #   namespace = binding.define(:MyService)  # => Kobako::Catalog::Binding::Namespace
+    #   namespace.bind(:KV, kv_object)          # => namespace (chainable)
+    #   binding.to_preamble                     # => array for Frame 1
     #
-    # Namespaces live at +Kobako::RPC::Namespace+
-    # (lib/kobako/rpc/namespace.rb). Per-RPC dispatch is the
-    # +Kobako::RPC::Channel+'s responsibility (lib/kobako/rpc/channel.rb)
-    # — the Channel composes this Server with the wasm +Instance+ and the
-    # +HandleTable+ and owns the +#dispatch(bytes)+ entry the Wasm ext
-    # invokes. The Server holds an injected +HandleTable+ reference so
-    # the Channel and the Sandbox-owned allocator stay aligned
-    # (docs/behavior.md B-19).
-    class Server
-      # Build a fresh Server. +handle_table+ is an internal seam that
-      # injects a pre-configured +HandleTable+; tests pass one whose +next_id+
+    # Namespaces live at +Kobako::Catalog::Binding::Namespace+. Per-dispatch
+    # routing is the +Kobako::RPC::Channel+'s responsibility — the Channel
+    # composes this Binding with the wasm +Instance+ and the +Catalog::Handler+
+    # and owns the +#dispatch(bytes)+ entry the Wasm ext invokes. The Binding
+    # holds an injected +Catalog::Handler+ reference so the Channel and the
+    # Sandbox-owned allocator stay aligned (docs/behavior.md B-19).
+    class Binding
+      # Build a fresh Binding. +handler+ is an internal seam that injects
+      # a pre-configured +Catalog::Handler+; tests pass one whose +next_id+
       # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
       def initialize(handler: Catalog::Handler.new)
-        @namespaces = {} # : Hash[String, Kobako::RPC::Namespace]
+        @namespaces = {} # : Hash[String, Kobako::Catalog::Binding::Namespace]
         @handler = handler
         @sealed = false
       end
 
       # Declare or retrieve the Namespace named +name+ (idempotent — docs/behavior.md B-10).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
-      # +Namespace::NAME_PATTERN+). Returns the +Kobako::RPC::Namespace+ for
-      # that name, creating it if it does not exist. Raises +ArgumentError+
-      # when +name+ is malformed, or when called after the owning Sandbox has
-      # been sealed by its first invocation ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
+      # +Namespace::NAME_PATTERN+). Returns the
+      # +Kobako::Catalog::Binding::Namespace+ for that name, creating it if it
+      # does not exist. Raises +ArgumentError+ when +name+ is malformed, or
+      # when called after the owning Sandbox has been sealed by its first
+      # invocation ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
       def define(name)
         raise ArgumentError, "cannot define after first Sandbox invocation" if @sealed
 
@@ -63,7 +62,7 @@ module Kobako
       def lookup(target)
         namespace, member_name, namespace_name = parse_target(target)
         raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
-        raise KeyError, "no member #{target.inspect} bound on server" unless member_name
+        raise KeyError, "no member #{target.inspect} bound on binding" unless member_name
 
         namespace.fetch(member_name)
       end
@@ -104,7 +103,7 @@ module Kobako
         MessagePack.pack(to_preamble)
       end
 
-      # Mark the Server as sealed. Called by +Sandbox+ on the first
+      # Mark the Binding as sealed. Called by +Sandbox+ on the first
       # invocation. After sealing, #define raises ArgumentError. Idempotent.
       def seal!
         @sealed = true

@@ -8,8 +8,8 @@ require_relative "errors"
 require_relative "catalog/handler"
 require_relative "invocation"
 require_relative "outcome"
+require_relative "catalog/binding"
 require_relative "rpc/channel"
-require_relative "rpc/server"
 require_relative "rpc/envelope"
 require_relative "sandbox_options"
 require_relative "usage"
@@ -104,7 +104,7 @@ module Kobako
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
       @handler = Catalog::Handler.new
-      @services = Kobako::RPC::Server.new(handler: @handler)
+      @services = Kobako::Catalog::Binding.new(handler: @handler)
       @snippets = Catalog::Snippet::Table.new
       @instance = Kobako::Wasm::Instance.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                                    @options.stdout_limit, @options.stderr_limit)

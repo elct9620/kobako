@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Kobako::RPC::Server + Kobako::RPC::Namespace + bind/define API.
+# Kobako::Catalog::Binding + Kobako::Catalog::Binding::Namespace + bind/define API.
 #
 # This is an integration-flavored Minitest covering SPEC B-07..B-11 on the
 # Sandbox surface. The native ext is required only because Sandbox itself
@@ -17,14 +17,14 @@ class TestNamespaceBinding < Minitest::Test
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
-  # B-07: define returns a Kobako::RPC::Namespace; bind happy path resolves
+  # B-07: define returns a Kobako::Catalog::Binding::Namespace; bind happy path resolves
   # via the two-level path on the Sandbox-owned Server.
   def test_b07_define_returns_namespace_and_bind_resolves_member
     logger = Object.new
     def logger.info(msg) = "logged:#{msg}"
 
     group = @sandbox.define(:Logger)
-    assert_instance_of Kobako::RPC::Namespace, group
+    assert_instance_of Kobako::Catalog::Binding::Namespace, group
 
     chain_target = group.bind(:Info, logger)
     assert_same group, chain_target, "bind must return self for chaining (B-08)"
@@ -171,7 +171,7 @@ class TestNamespaceBinding < Minitest::Test
 
   # Sandbox#services replacement check — no longer the placeholder.
   def test_services_is_no_longer_placeholder
-    assert_instance_of Kobako::RPC::Server, @sandbox.services
+    assert_instance_of Kobako::Catalog::Binding, @sandbox.services
     refute @sandbox.services.class.name.include?("Placeholder"),
            "ServicesPlaceholder must be gone after item #15"
   end

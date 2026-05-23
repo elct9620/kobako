@@ -9,7 +9,7 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      def self?.dispatch: (String request_bytes, Server server, Kobako::Catalog::Handler handler, Kobako::RPC::Channel channel) -> String
+      def self?.dispatch: (String request_bytes, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler, Kobako::RPC::Channel channel) -> String
 
       def self?.resolve_call_args: (Kobako::RPC::Request request, Kobako::Catalog::Handler handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
@@ -21,9 +21,9 @@ module Kobako
 
       def self?.resolve_arg: (untyped value, Kobako::Catalog::Handler handler) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Server server, Kobako::Catalog::Handler handler) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler) -> untyped
 
-      def self?.resolve_path: (String path, Server server) -> untyped
+      def self?.resolve_path: (String path, Kobako::Catalog::Binding server) -> untyped
 
       def self?.resolve_handle: (Kobako::Handle handle, Kobako::Catalog::Handler handler) -> untyped
 

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "dispatcher"
-require_relative "server"
+require_relative "../catalog/binding"
 
 module Kobako
   module RPC

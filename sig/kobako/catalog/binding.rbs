@@ -1,9 +1,9 @@
 module Kobako
-  module RPC
-    class Server
+  module Catalog
+    class Binding
       def initialize: (?handler: Kobako::Catalog::Handler) -> void
 
-      def define: (Symbol | String name) -> Kobako::RPC::Namespace
+      def define: (Symbol | String name) -> Kobako::Catalog::Binding::Namespace
 
       def lookup: (String target) -> untyped
 
@@ -23,7 +23,7 @@ module Kobako
 
       private
 
-      def parse_target: (String target) -> [Kobako::RPC::Namespace?, String?, String?]
+      def parse_target: (String target) -> [Kobako::Catalog::Binding::Namespace?, String?, String?]
     end
   end
 end

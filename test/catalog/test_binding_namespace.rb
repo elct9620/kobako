@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for Kobako::RPC::Namespace edge cases.
+# Layer 3 unit tests for Kobako::Catalog::Binding::Namespace edge cases.
 #
 # Does NOT require the native extension: Namespace is pure Ruby.
 #
@@ -12,12 +12,12 @@
 
 require "minitest/autorun"
 
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/rpc/server"
+$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
+require "kobako/catalog/binding"
 
 module Kobako
-  class RPCNamespaceEdgeCasesTest < Minitest::Test
-    Klass = Kobako::RPC::Namespace
+  class CatalogBindingNamespaceEdgeCasesTest < Minitest::Test
+    Klass = Kobako::Catalog::Binding::Namespace
 
     # --- bind: non-symbol/non-string member name ---
 
@@ -57,7 +57,7 @@ module Kobako
 
     # SPEC B-07 Notes: an empty Namespace (no Members) is legal and its
     # to_preamble form is [name, []].  Verifies that encoded_preamble does not
-    # blow up on a Server that contains only empty Namespaces.
+    # blow up on a Binding that contains only empty Namespaces.
     def test_empty_namespace_to_preamble_returns_empty_members_list
       namespace = Klass.new("Empty")
       assert_equal ["Empty", []], namespace.to_preamble
@@ -65,7 +65,7 @@ module Kobako
 
     def test_registry_with_only_empty_namespace_produces_valid_preamble
       require "msgpack"
-      registry = Kobako::RPC::Server.new
+      registry = Kobako::Catalog::Binding.new
       registry.define(:Empty)
 
       bytes = registry.encoded_preamble
