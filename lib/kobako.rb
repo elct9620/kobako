@@ -3,6 +3,7 @@
 require_relative "kobako/version"
 require "kobako/kobako"
 require_relative "kobako/errors"
+require_relative "kobako/transport"
 require_relative "kobako/rpc"
 require_relative "kobako/rpc/wire_error"
 require_relative "kobako/catalog/binding"
