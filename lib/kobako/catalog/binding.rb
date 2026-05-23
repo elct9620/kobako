@@ -17,7 +17,8 @@ module Kobako
     #   binding = Kobako::Catalog::Binding.new
     #   namespace = binding.define(:MyService)  # => Kobako::Catalog::Binding::Namespace
     #   namespace.bind(:KV, kv_object)          # => namespace (chainable)
-    #   binding.to_preamble                     # => array for Frame 1
+    #   binding.encoded_preamble                # => msgpack bytes for Frame 1
+    #   binding.lookup("MyService::KV")         # => kv_object
     #
     # Namespaces live at +Kobako::Catalog::Binding::Namespace+. Per-dispatch
     # routing is +Kobako::Transport::Dispatcher+'s responsibility — the
