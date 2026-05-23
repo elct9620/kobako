@@ -17,11 +17,10 @@ class TestSandbox < Minitest::Test
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
-  def test_default_construction_wires_wasm_pipeline
+  def test_default_construction_exposes_wasm_path
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
-    assert_instance_of Kobako::Runtime, sandbox.instance
   end
 
   def test_default_construction_exposes_default_output_limits
@@ -76,12 +75,16 @@ class TestSandbox < Minitest::Test
     assert_match(/must be a String/, err.message)
   end
 
-  def test_services_attribute_is_real_registry
+  # Sandbox#define returns a Namespace usable for the bind chain — the
+  # Sandbox-tier proof that #define delegates to Catalog::Binding rather
+  # than dropping the call on the floor. Catalog::Binding's own contract
+  # is pinned in test/catalog/test_binding_namespace.rb.
+  def test_define_returns_namespace_usable_for_binding
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    assert_instance_of Kobako::Catalog::Binding, sandbox.services
-    assert sandbox.services.empty?
-    group = sandbox.services.define(:Foo)
-    assert_instance_of Kobako::Catalog::Binding::Namespace, group
+    namespace = sandbox.define(:Foo)
+
+    assert_instance_of Kobako::Catalog::Binding::Namespace, namespace
+    assert_same namespace, namespace.bind(:Bar, :member)
   end
 
   # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`
