@@ -151,14 +151,22 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
-        // SAFETY in this method: `unbox_integer` / `unbox_float` are
-        // gated by their respective classname arms.
+        // Direct-unbox primitives dispatch on mruby's own type tag
+        // (`mrb_type`, via `is_integer` / `is_float`) so the `unsafe`
+        // unbox precondition is established by the guard itself rather
+        // than inferred from a classname-string match.
+        if val.is_integer() {
+            // SAFETY: `is_integer` confirmed MRB_TT_INTEGER tagging.
+            return CodecValue::Int(unsafe { val.unbox_integer() } as i64);
+        }
+        if val.is_float() {
+            // SAFETY: `is_float` confirmed MRB_TT_FLOAT tagging.
+            return CodecValue::Float(unsafe { val.unbox_float() });
+        }
         match val.classname(self.mrb()) {
             "NilClass" => CodecValue::Nil,
             "TrueClass" => CodecValue::Bool(true),
             "FalseClass" => CodecValue::Bool(false),
-            "Integer" => CodecValue::Int(unsafe { val.unbox_integer() } as i64),
-            "Float" => CodecValue::Float(unsafe { val.unbox_float() }),
             "String" => CodecValue::Str(val.to_string(self.mrb())),
             "Symbol" => CodecValue::Sym(val.to_string(self.mrb())),
             "Array" => CodecValue::Array(self.array_to_codec(val, Self::to_codec_value)),
@@ -188,13 +196,20 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_outcome(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
-        // SAFETY in this method: as `to_codec_value`.
+        // Tag-predicate gate for the direct-unbox primitives, as in
+        // `to_codec_value`.
+        if val.is_integer() {
+            // SAFETY: `is_integer` confirmed MRB_TT_INTEGER tagging.
+            return CodecValue::Int(unsafe { val.unbox_integer() } as i64);
+        }
+        if val.is_float() {
+            // SAFETY: `is_float` confirmed MRB_TT_FLOAT tagging.
+            return CodecValue::Float(unsafe { val.unbox_float() });
+        }
         match val.classname(self.mrb()) {
             "NilClass" => CodecValue::Nil,
             "TrueClass" => CodecValue::Bool(true),
             "FalseClass" => CodecValue::Bool(false),
-            "Integer" => CodecValue::Int(unsafe { val.unbox_integer() } as i64),
-            "Float" => CodecValue::Float(unsafe { val.unbox_float() }),
             "String" => CodecValue::Str(val.to_string(self.mrb())),
             "Symbol" => CodecValue::Sym(val.to_string(self.mrb())),
             "Array" => CodecValue::Array(self.array_to_codec(val, Self::to_codec_outcome)),
