@@ -24,8 +24,9 @@ class TestTransportDispatchUnit < Minitest::Test
 
   # Drive the Dispatcher directly with the configured registry / handler
   # and the +NO_YIELD+ stub. Mirrors the closure +Sandbox#initialize+
-  # installs on the Runtime ({BRIDGE_REDESIGN §5.5.3}) so this unit test
-  # exercises the same entry point as the live ext callback.
+  # installs on the Runtime via +Runtime#on_dispatch=+ (docs/behavior.md
+  # B-12) so this unit test exercises the same entry point as the live
+  # ext callback.
   def dispatch(bytes, server: @registry, handler: @handler)
     Kobako::Transport::Dispatcher.dispatch(bytes, server, handler, NO_YIELD)
   end
