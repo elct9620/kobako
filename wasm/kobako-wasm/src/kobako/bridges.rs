@@ -28,9 +28,13 @@
 //!   crate::transport::proxy::invoke(...)
 //! ```
 //!
-//! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md
-//! B-17) takes the same path with `Target::Handle(handle_id)` — the
-//! two bridges differ only in how they derive the `Target` from
+//! Two `method_missing` bridges anchor on `Kobako::Transport::Proxy`:
+//! the singleton-class shim above (Member *classes*, `Target::Path`) and
+//! the instance-class shim [`transport_proxy_instance_method_missing`]
+//! (Proxy *instances*, `Target::Handle`). `Kobako::Handle < Proxy`
+//! inherits the instance shim and carries only its id ivar — a pure
+//! value type with no dispatch code of its own (docs/behavior.md B-17).
+//! The two bridges differ only in how they derive the `Target` from
 //! `self_`; the BlockFrame push, method-symbol extraction, args/kwargs
 //! unpacking, and `dispatch_invoke` call all live in
 //! [`forward_to_dispatch`].
@@ -48,7 +52,7 @@ use crate::mruby::sys::Value;
 
 /// Shared body for the two `method_missing` bridges. The caller
 /// supplies the `Target` it derived from its `self_` receiver (a class
-/// name for the Proxy singleton-class shim, a Handle id for the Handle
+/// name for the Proxy singleton-class shim, a Handle id for the Proxy
 /// instance shim) plus the error label that flows into a wire-error
 /// raise on a failed dispatch. Everything else — BlockFrame push,
 /// method-symbol extraction, args/kwargs unpacking, the
@@ -164,21 +168,17 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
     Value::zeroed()
 }
 
-/// `Kobako::Handle#method_missing(name, *args)` C bridge. Forwards
-/// every method call on a Handle instance to the host via
-/// [`forward_to_dispatch`] with `Target::Handle(handle_id)` — the
-/// Handle chaining path (docs/behavior.md B-17).
+/// `Kobako::Transport::Proxy#method_missing(name, *args)` C bridge —
+/// instance level, so `self` is a Proxy instance. The only Proxy
+/// instances are `Kobako::Handle` objects (every Member is a Proxy
+/// *subclass*, dispatched through the singleton-class shim instead), so
+/// this derives `Target::Handle(handle_id)` from the receiver's
+/// `@__kobako_id__` ivar — the Handle chaining path (docs/behavior.md
+/// B-17). `Kobako::Handle` inherits this method and adds no dispatch
+/// code of its own, staying a pure value carrier of the id.
 ///
-/// TODO: the long-term plan is to drop this instance-level bridge
-/// entirely so `Kobako::Handle` is a pure value type, routing Handle
-/// dispatch through `Kobako::Transport::Proxy` directly. That move
-/// requires reorganising the mruby class registration (singleton-class
-/// vs instance-class dispatch), which is deferred until Phase 3's
-/// Runtime / Invocation work settles. The shared
-/// [`forward_to_dispatch`] helper already consolidates the bridge body
-/// so the remaining difference between the two bridges is just the
-/// `Target` derivation.
-pub(crate) unsafe extern "C" fn handle_method_missing(
+/// Forwards to [`forward_to_dispatch`] with `Target::Handle`.
+pub(crate) unsafe extern "C" fn transport_proxy_instance_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
@@ -212,8 +212,9 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// `Kobako::Transport::Proxy.respond_to_missing?(name, include_private)`
 /// C bridge. Always returns `true` — every method call on a Member
 /// class is dispatched through `method_missing` to the host, so probing
-/// via `respond_to?` must succeed. Also registered on `Kobako::Handle`
-/// for the same reason (B-17 Handle chaining).
+/// via `respond_to?` must succeed. Registered both singleton-class
+/// (Member classes) and instance-class (Proxy instances, inherited by
+/// `Kobako::Handle`) for the same reason (B-17 Handle chaining).
 pub(crate) unsafe extern "C" fn transport_proxy_respond_to_missing(
     mrb: *mut sys::mrb_state,
     _self_: Value,
@@ -247,6 +248,6 @@ mod tests {
         let _f1: sys::mrb_func_t = transport_proxy_method_missing;
         let _f2: sys::mrb_func_t = transport_proxy_respond_to_missing;
         let _f3: sys::mrb_func_t = handle_initialize;
-        let _f4: sys::mrb_func_t = handle_method_missing;
+        let _f4: sys::mrb_func_t = transport_proxy_instance_method_missing;
     }
 }
