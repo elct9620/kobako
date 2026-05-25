@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 # SPEC.md "Regression benchmarks" #5 — Handle allocation and release
-# throughput. SPEC: "Catalog::Handler internal dictionary and counter
+# throughput. SPEC: "Catalog::Handles internal dictionary and counter
 # performance."
 #
 #   5a — Cumulative cost of allocating N entries from an empty
-#        Catalog::Handler. Each iteration builds a fresh table and runs
+#        Catalog::Handles. Each iteration builds a fresh table and runs
 #        N #alloc calls, so the ips number divided by N approximates
 #        the average per-alloc cost up to size N. This is bulk
 #        throughput, not marginal cost at size N — for the latter
@@ -18,14 +18,14 @@
 #        reframed as "does the dictionary degrade." The cap guard
 #        itself is constant-time and not iterated.
 #   5c — Warm Sandbox#eval("nil") round-trip cost measured WHILE the
-#        1 M-entry Catalog::Handler grown by 5b is still alive in the same
+#        1 M-entry Catalog::Handles grown by 5b is still alive in the same
 #        Ruby process. The clean per-invocation roundtrip number lives
 #        at cold_start.rb 1b (~275 µs); 5c is positioned as the
 #        GC-pressure regression guard — every measured invocation
 #        allocates capture-buffer Strings under heavy heap pressure
 #        from the retained 1 M-entry table, so a regression specific
 #        to "invocation becomes more GC-sensitive when the process
-#        already holds a large Catalog::Handler" is detectable here even
+#        already holds a large Catalog::Handles" is detectable here even
 #        though 1b would miss it. The B-15 / B-19 per-invocation
 #        reset itself is constant-time and not what this case
 #        isolates.
@@ -36,17 +36,17 @@ $LOAD_PATH.unshift File.expand_path("support", __dir__)
 require "kobako"
 require "runner"
 
-runner = Kobako::Bench::Runner.new("catalog_handler")
+runner = Kobako::Bench::Runner.new("catalog_handles")
 
 { "0" => 0, "100" => 100, "10_000" => 10_000, "100_000" => 100_000 }.each do |label, prefill|
   runner.case("5a-alloc-#{label}-from-empty") do
-    table = Kobako::Catalog::Handler.new
+    table = Kobako::Catalog::Handles.new
     prefill.times { table.alloc(Object.new) }
     table.alloc(Object.new)
   end
 end
 
-batch_table = Kobako::Catalog::Handler.new
+batch_table = Kobako::Catalog::Handles.new
 batch_obj = Object.new
 [1_000, 10_000, 100_000, 1_000_000].each do |target|
   (target - batch_table.size - 1000).times { batch_table.alloc(batch_obj) }

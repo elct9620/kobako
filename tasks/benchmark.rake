@@ -7,7 +7,7 @@
 # Variants:
 #
 #   bench             — #1..#5 (cold_start, transport_roundtrip, codec,
-#                       mruby_eval, catalog_handler). Cap: 1 MiB on
+#                       mruby_eval, catalog_handles). Cap: 1 MiB on
 #                       codec size sweep.
 #   bench:smoke       — alias of bench (no fast/slow split yet; the
 #                       1 MiB cap is already CI-friendly).

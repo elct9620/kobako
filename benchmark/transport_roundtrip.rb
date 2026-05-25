@@ -2,7 +2,7 @@
 
 # SPEC.md "Regression benchmarks" #2 — Transport round-trip latency.
 # Detects regressions in the combined Wire codec, import function
-# dispatch, and Catalog::Handler lookup paths.
+# dispatch, and Catalog::Handles lookup paths.
 #
 #   2a — Empty call: Service callable returns nil, guest invokes once
 #   2b — Primitive arg: Integer arg returned verbatim
@@ -11,8 +11,8 @@
 #        dominates over per-invocation setup/teardown)
 #   2e — Handle chain (SPEC.md B-17): one Service returns a stateful
 #        host object → guest holds it as a Handle → second call uses
-#        the Handle as target. Exercises Catalog::Handler#alloc on the
-#        return path and Catalog::Handler#fetch on the call path within
+#        the Handle as target. Exercises Catalog::Handles#alloc on the
+#        return path and Catalog::Handles#fetch on the call path within
 #        a single invocation.
 #
 # Every case wraps one #eval per iteration; the absolute number

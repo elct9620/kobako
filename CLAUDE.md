@@ -12,7 +12,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 1. **SPEC.md is the source of truth.** Behavior contracts live in `SPEC.md` or in the `docs/<topic>.md` it indexes. Cite anchors as `{SPEC.md B-04}[link:../../SPEC.md]` from `lib/kobako/*.rb`; switch to `{docs/<topic>.md B-04}[link:../../docs/<topic>.md]` once the anchor moves. B-xx / E-xx numbers are append-only across the corpus; existing anchors are never renumbered. When SPEC is silent, extend it (or the relevant `docs/<topic>.md`) first, then cite the new anchor.
 
-2. **One thing per file; keep files small.** When a module grows, split it into a façade plus per-responsibility files in a sibling directory — `Kobako::Transport` and `Kobako::Catalog::Snippet` are the worked examples. Prefer adding a new file over expanding an existing one.
+2. **One thing per file; keep files small.** When a module grows, split it into a façade plus per-responsibility files in a sibling directory — `Kobako::Transport` and `Kobako::Snippet` are the worked examples. Prefer adding a new file over expanding an existing one.
 
    **Types nest under a Module, not a Class.** A stateful Class is per-instance and should not double as the namespace for sibling types. Place new types at the top level (`Kobako::Capture`, `Kobako::Snapshot`) or under a Module (`Kobako::Transport::Request`, `Kobako::Outcome::Panic`). Do not introduce Classes nested under a Class for type-grouping purposes.
 
@@ -20,13 +20,13 @@ Apply these in order — earlier principles override later ones on conflict.
 
 4. **Follow language community conventions via tooling.** Ruby: Rubocop + Steep. Rust: `cargo fmt` + `cargo clippy -D warnings` (clippy also under `--target wasm32-wasip1`). All four run on every Edit/Write via PostToolUse hooks; failures block the edit. When a cop or lint fires, **shrink the code to fit the tool** — don't widen `.rubocop.yml` exclusions or add `#[allow]` / `# steep:ignore`. Existing exclusions are anchored to specific SPEC-to-code mappings; add new ones only with an inline comment naming the mapping.
 
-   **Tool-vs-tool conflicts are the one justified widening.** When Rubocop and Steep / RBS upstream disagree on the same code shape, prefer the type-system guidance and disable the cop at the `.rubocop.yml` level with a comment citing the upstream source. `Style/DataInheritance` is disabled on that basis (ruby/rbs [`docs/data_and_struct.md`](https://github.com/ruby/rbs/blob/master/docs/data_and_struct.md) documents the `class X < Data.define(...)` subclass form as the Steep-friendly pattern). `Kobako::Outcome::Panic`, `Kobako::Transport::Run`, `Kobako::SandboxOptions`, and `Kobako::Catalog::Snippet::{Source,Binary}` are worked examples. Every `Data.define` type in `lib/` now uses the subclass form; keep new types on it and never reintroduce the assignment form.
+   **Tool-vs-tool conflicts are the one justified widening.** When Rubocop and Steep / RBS upstream disagree on the same code shape, prefer the type-system guidance and disable the cop at the `.rubocop.yml` level with a comment citing the upstream source. `Style/DataInheritance` is disabled on that basis (ruby/rbs [`docs/data_and_struct.md`](https://github.com/ruby/rbs/blob/master/docs/data_and_struct.md) documents the `class X < Data.define(...)` subclass form as the Steep-friendly pattern). `Kobako::Outcome::Panic`, `Kobako::Transport::Run`, `Kobako::SandboxOptions`, and `Kobako::Snippet::{Source,Binary}` are worked examples. Every `Data.define` type in `lib/` now uses the subclass form; keep new types on it and never reintroduce the assignment form.
 
 5. **Document Ruby in RDoc prose.** No tool enforces this — match the existing style. Wrap identifiers in `+code+`. Cite SPEC as `{SPEC.md B-XX}[link:<relative path>]` in plain text. Do not use YARD tags (`@param` / `@return` / `@raise`); migrate them when touching nearby code.
 
    ```ruby
    # Host-side mapping from opaque integer Handle IDs to Ruby objects.
-   # One table is owned per Sandbox and injected into Kobako::Catalog::Binding.
+   # One table is owned per Sandbox and injected into Kobako::Catalog::Namespaces.
    # See {SPEC.md B-15}[link:../../../SPEC.md].
    #
    #   - {SPEC.md B-15}[link:../../../SPEC.md] — IDs are monotonically
@@ -83,7 +83,7 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 
 ## Where to Look
 
-Entry points only — siblings (`outcome/panic.rb`, `catalog/snippet/{source,binary}.rb`, `transport/request.rb`, etc.) are reachable from there. The Notes column carries only what reading the entry-point file won't tell you.
+Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`, `transport/request.rb`, etc.) are reachable from there. The Notes column carries only what reading the entry-point file won't tell you.
 
 | Topic | Entry points | Notes |
 |-------|--------------|-------|
@@ -92,8 +92,8 @@ Entry points only — siblings (`outcome/panic.rb`, `catalog/snippet/{source,bin
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `ext/kobako/src/wasm.rs`; guest `wasm/kobako-wasm/src/abi.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-wasm/src/kobako/io.rs`, `wasm/kobako-wasm/mrblib/{io,kernel}.rb` | mrblib is precompiled to RITE bytecode by `build.rs` and embedded via `src/kobako/bytecode.rs`. SPEC B-04. |
 | Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-wasm/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
-| Catalog::Handler / capability handles | `lib/kobako/catalog/handler.rb` | B-13..B-21 in `docs/behavior.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Binding` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job — Binding holds the reference but never calls `#reset!`. |
-| Service registration | `lib/kobako/catalog/binding.rb`, `lib/kobako/catalog/binding/namespace.rb` | Per-Sandbox Binding owns the Namespace registry; bound objects live one level deep at `"Namespace::Member"`. Catalog::Handler is injected by the owning Sandbox, not owned by Binding. |
+| Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-13..B-21 in `docs/behavior.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Namespaces` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job — the registry holds the reference but never calls `#reset!`. |
+| Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live one level deep at `"Namespace::Member"`. Catalog::Handles is injected by the owning Sandbox, not owned by the registry. |
 | ABI surface (host ↔ guest exports) | `wasm/kobako-wasm/src/abi.rs` ↔ `ext/kobako/src/wasm.rs` | — |
 | E2E coverage | `test/test_e2e_journeys.rb` (`#eval`), `test/test_sandbox_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/test_wasm_wrapper.rb`) covers only `from_path` and deliberately does not duplicate ABI-export checks. |
 | mruby C API FFI | `wasm/kobako-mruby-sys/` (`wrapper.h`, `build.rs`, `src/{state,value,class,ccontext,array,hash}.rs`) | bindgen scoped to this crate (libclang stays sys-only); `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. Consumed by `kobako-wasm` via the `crate::mruby` façade. |

@@ -54,7 +54,7 @@
 #   8f — #run dispatch with a non-wire-representable positional
 #        arg (B-34 host→guest auto-wrap). The args walker routes
 #        the StringIO through Codec::Utils.deep_wrap, which routes
-#        non-wire-representable leaves through Catalog::Handler#alloc;
+#        non-wire-representable leaves through Catalog::Handles#alloc;
 #        the guest receives a +Kobako::Handle+ proxy. The entrypoint
 #        ignores the proxy, so this case isolates the host-side
 #        auto-wrap cost (predicate + alloc + wire encode) without
@@ -100,7 +100,7 @@ RUBY
 
 # 8f auto-wrap target. The entrypoint discards the Handle proxy so
 # the case measures only the host-side wrap path (predicate +
-# Catalog::Handler#alloc + wire encode) — calling #read on the proxy
+# Catalog::Handles#alloc + wire encode) — calling #read on the proxy
 # would add a guest→host Transport roundtrip that confounds the signal.
 WRAP_SNIPPET_CODE = <<~RUBY
   module Wrap
@@ -190,9 +190,9 @@ end
 # 8f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
 # already sealed by 8b's warm-up #run; subsequent #preload would
 # raise E-35. The same +autowrap_arg+ is reused across iterations,
-# but B-15 / B-19 reset the Catalog::Handler at the start of every
+# but B-15 / B-19 reset the Catalog::Handles at the start of every
 # invocation, so each measured #run still pays for one fresh
-# Catalog::Handler#alloc.
+# Catalog::Handles#alloc.
 autowrap_sandbox = Kobako::Sandbox.new(memory_limit: nil)
 autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
 autowrap_arg = StringIO.new("payload")

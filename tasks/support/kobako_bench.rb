@@ -14,6 +14,6 @@ module KobakoBench
     benchmark/transport_roundtrip.rb
     benchmark/codec.rb
     benchmark/mruby_eval.rb
-    benchmark/catalog_handler.rb
+    benchmark/catalog_handles.rb
   ].freeze
 end
