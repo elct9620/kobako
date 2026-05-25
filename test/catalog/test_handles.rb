@@ -17,7 +17,7 @@ $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
 require "kobako/catalog/handles"
 
 module Kobako
-  class CatalogHandlerTest < Minitest::Test
+  class CatalogHandlesTest < Minitest::Test
     Table = Kobako::Catalog::Handles
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------

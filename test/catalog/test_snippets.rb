@@ -12,7 +12,7 @@ require "test_helper"
 # to the outside world — every observable contract is therefore stated
 # against the msgpack-decoded #encode output rather than internal
 # enumeration helpers.
-class TestCatalogSnippetTableRegistration < Minitest::Test
+class TestCatalogSnippetsRegistration < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippets.new
   end
@@ -108,7 +108,7 @@ end
 # (bin) and no "name". The encoder lives on Table to keep wire knowledge
 # in one place (mirroring Kobako::Transport.encode_request /
 # encode_response on entry-tier carriers).
-class TestCatalogSnippetTableEncoding < Minitest::Test
+class TestCatalogSnippetsEncoding < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippets.new
   end

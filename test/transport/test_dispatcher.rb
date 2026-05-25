@@ -395,7 +395,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
   # SPEC B-21 / E-07: when the per-#run Catalog::Handles counter reaches
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
-  # Kobako::Catalog::HandlerExhausted (a SandboxError subclass). The
+  # Kobako::HandlerExhaustedError (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
   # during a normal transport call: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to

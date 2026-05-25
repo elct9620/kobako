@@ -78,7 +78,7 @@ class TestSandbox < Minitest::Test
   # Sandbox#define returns a Namespace usable for the bind chain — the
   # Sandbox-tier proof that #define delegates to Catalog::Namespaces rather
   # than dropping the call on the floor. Catalog::Namespaces's own contract
-  # is pinned in test/catalog/test_binding_namespace.rb.
+  # is pinned in test/catalog/test_namespaces.rb.
   def test_define_returns_namespace_usable_for_binding
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     namespace = sandbox.define(:Foo)
