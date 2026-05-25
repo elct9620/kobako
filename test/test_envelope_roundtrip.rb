@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Cross-side envelope round-trip E2E (SPEC item #8).
+# Cross-side envelope round-trip E2E (F-05 / F-09).
 #
 # Drives the Rust `envelope_oracle` subprocess from the host: each test
 # Ruby-encodes one transport envelope variant (Request, Response), prefixes a
@@ -17,8 +17,9 @@
 # +Kobako::Outcome.decode+ unit tests against hand-rolled bytes.
 #
 # This test does NOT need fuzz scale: a handful of representative
-# envelopes per variant is enough; the codec fuzz from item #7 already
-# covers byte-level wire shapes underneath.
+# envelopes per variant is enough; the codec fuzz in
+# test_codec_roundtrip_fuzz.rb already covers byte-level wire shapes
+# underneath.
 
 require "minitest/autorun"
 require_relative "support/cargo_oracle"

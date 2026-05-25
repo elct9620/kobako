@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# E2E + integration test for the pure-Ruby host wire codec (SPEC item #5).
+# E2E + integration test for the pure-Ruby host wire codec (F-09).
 #
 # Intentionally does NOT require "test_helper" — like the other clean-checkout
 # tests in this suite, the codec must be exercisable without the native
@@ -346,7 +346,7 @@ class TestCodec < Minitest::Test
 
   def test_golden_vector_symbol_short_uses_narrowest_ext
     # :hello -> ext 8 len=5 type=0x00 followed by "hello" bytes.
-    assert_bytes "c705006865 6c6c6f".tr(" ", ""), :hello
+    assert_bytes "c7050068656c6c6f", :hello
   end
 
   def test_invalid_utf8_in_symbol_rejected

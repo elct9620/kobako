@@ -15,8 +15,8 @@ require "test_helper"
 #
 # Build prerequisite: `bundle exec rake wasm:build` produces `data/kobako.wasm`
 # from `wasm/kobako-wasm/` + `vendor/mruby/`. When the artifact is missing,
-# every test in this file `skip`s with a clear message — see follow-up
-# item #29 for re-enablement once the vendor toolchain build succeeds.
+# every test in this file `skip`s with a clear message pointing at the build
+# step, so a clean checkout without the vendor toolchain still loads green.
 class TestE2EJourneys < Minitest::Test
   REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
 
@@ -32,8 +32,7 @@ class TestE2EJourneys < Minitest::Test
     return if File.exist?(REAL_WASM)
 
     skip "data/kobako.wasm missing — run `bundle exec rake wasm:build` " \
-         "(requires `rake vendor:setup` + `rake mruby:build` first; " \
-         "tracked as follow-up #29)"
+         "(requires `rake vendor:setup` + `rake mruby:build` first)"
   end
 
   # ── J-01 — LLM agent author runs model-generated code with curated capabilities ──

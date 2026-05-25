@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # Unit + integration tests for the host-side envelope encoders/decoders
-# (SPEC item #8). Builds on top of the byte-level wire codec covered by
-# test/test_wire_codec.rb. No native extension dependency.
+# (F-05 / F-09). Builds on top of the byte-level wire codec covered by
+# test/test_codec.rb. No native extension dependency.
 
 require "minitest/autorun"
 

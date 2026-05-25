@@ -5,7 +5,7 @@ require "test_helper"
 # Sandbox#preload surface tests. Catalog::Snippets validation
 # (E-33 / E-34 / non-String code / non-String binary / no-keyword /
 # combining binary: with code:|name:) is pinned at the table tier in
-# test/catalog/test_snippet_table.rb; Sandbox#preload is a thin
+# test/catalog/test_snippets.rb; Sandbox#preload is a thin
 # delegation. This file holds only the Sandbox-specific contracts:
 # chain-returns-self and post-seal rejection (E-35).
 #

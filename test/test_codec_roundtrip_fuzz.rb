@@ -1,15 +1,16 @@
 # frozen_string_literal: true
 
-# E2E round-trip fuzz harness for the kobako wire codec (SPEC item #7).
+# E2E round-trip fuzz harness for the kobako wire codec (F-09).
 #
 # This is THE proof that the two independent codec implementations (the
 # pure-Ruby `Kobako::Codec` under lib/kobako/codec and the hand-written
 # Rust codec under wasm/kobako-wasm/src/codec) agree on the wire. SPEC.md
 # pins round-trip fuzz as the *sole* consistency mechanism between the two
 # implementations — there is no shared codec source — so a passing fuzz run
-# is the release gate per SPEC's "Release Blockers" table (item #1).
+# is the release gate per SPEC.md Testing Style Layer 1 (any failure blocks
+# release unconditionally).
 #
-# Architecture (per cycle 7 handoff):
+# Architecture:
 #
 #   1. Build the Rust oracle binary `roundtrip_oracle` once at test start
 #      (cargo build --release).

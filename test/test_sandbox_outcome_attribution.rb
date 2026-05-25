@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
 # Layer 3 unit tests for Kobako::Outcome edge cases that
-# don't need a live wasmtime pipeline. Uses Sandbox.allocate + send to
-# bypass instance construction.
+# don't need a live wasmtime pipeline. The attribution logic is a
+# stateless module method, so each test decodes raw outcome bytes
+# through Kobako::Outcome.decode directly (see #decode) — no Sandbox.
 #
 # Cross-references:
 #   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError

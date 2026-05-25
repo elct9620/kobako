@@ -5,7 +5,7 @@ require "kobako/handle"
 require "kobako/transport/fault"
 
 # Seeded random generator for kobako wire-encodable values, used by the
-# round-trip fuzz harness (SPEC item #7).
+# round-trip fuzz harness (F-09; SPEC.md Testing Style Layer 1).
 #
 # Produces values across all 12 wire types plus the three ext types, with
 # explicit length bands so every msgpack format boundary
