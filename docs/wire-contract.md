@@ -50,8 +50,8 @@ A **Capability Handle** is an opaque token used on either side of the wire to re
 
 - **Opaque**: the guest receives a Handle token and cannot extract the underlying Ruby object from it; the only permitted operation is passing the token back as a `target` or `args` element in a subsequent Request, or invoking methods on it which dispatch as Transport requests.
 - **Host-allocated**: the wire layer on the host side allocates a Handle automatically in two symmetric situations — whenever a Service method returns a stateful object (host→guest return path, → [`docs/behavior.md`](behavior.md) § B-14), and whenever `#run` is invoked with arguments containing non-wire-representable objects (host→guest argument path, → [`docs/behavior.md`](behavior.md) § B-34). The Host App has no API to create or inspect Handles directly.
-- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The Catalog::Handler is fully reset at the start of every invocation (`#eval` or `#run`); the reset is uniform regardless of allocation source.
-- **Not constructible by guest or Host App**: neither the guest mruby API nor the Host App API exposes a public constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the Catalog::Handler; a `Kobako::Handle` instance fabricated through any non-public path on the host side is rejected at `#run` host pre-flight. Handle allocation is exclusively internal to the Host Gem's wire layer.
+- **Scoped to a single invocation**: a Handle token issued during invocation N is invalid in invocation N+1. The Catalog::Handles is fully reset at the start of every invocation (`#eval` or `#run`); the reset is uniform regardless of allocation source.
+- **Not constructible by guest or Host App**: neither the guest mruby API nor the Host App API exposes a public constructor that converts a bare integer to a Handle. A raw integer presented as a Handle on the wire is rejected before it reaches the Catalog::Handles; a `Kobako::Handle` instance fabricated through any non-public path on the host side is rejected at `#run` host pre-flight. Handle allocation is exclusively internal to the Host Gem's wire layer.
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::SandboxError` immediately (fail-fast; no silent wraparound).
 
 Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
@@ -74,7 +74,7 @@ The three reserved `type` values are:
 |---|---|
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
-| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's Catalog::Handler |
+| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's Catalog::Handles |
 
 These three names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 

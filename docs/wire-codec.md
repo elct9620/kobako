@@ -83,7 +83,7 @@ Position rules for ext 0x00:
 | 1 | `0x01` — kobako ext type code |
 | 2–5 | Handle ID as big-endian u32 |
 
-The Handle ID field carries the opaque identifier allocated by `Catalog::Handler` (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
+The Handle ID field carries the opaque identifier allocated by `Catalog::Handles` (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
 
 ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior.md`](behavior.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
 
