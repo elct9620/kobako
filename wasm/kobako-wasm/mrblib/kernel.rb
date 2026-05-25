@@ -10,7 +10,7 @@
 # +$stderr+ for symmetry with the +$stdout+ delegators above. Guest
 # scripts can rebind either channel (e.g. +$stdout = $stderr+) and the
 # host capture pipe observes the redirection. Loaded after STDOUT /
-# STDERR / $stdout / $stderr are wired in install_raw.
+# STDERR / $stdout / $stderr are wired in Kobako::install.
 module Kernel
   private
 

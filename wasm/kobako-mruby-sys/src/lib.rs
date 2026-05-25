@@ -166,7 +166,7 @@ const _: () = assert!(
 /// accessor for code paths that hold a raw pointer rather than an
 /// [`Mrb`] borrow — currently the `install_*` helpers in
 /// `kobako-wasm/src/kobako/install.rs` which are themselves called
-/// with a raw `*mut mrb_state` from `Kobako::install_raw`.
+/// with a raw `*mut mrb_state` from `Kobako::install`.
 ///
 /// Prefer [`Mrb::object_class`] when an `Mrb` borrow is in scope.
 ///

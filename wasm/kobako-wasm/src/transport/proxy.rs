@@ -249,15 +249,15 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
 
 #[cfg(target_arch = "wasm32")]
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
-    // On wasm32, write the request into linear memory at a stable
-    // address and call the host import. The host writes the response
-    // into a buffer it allocated via `__kobako_alloc` and returns the
-    // packed (ptr, len) tuple.
+    // On wasm32, pass the request by its current linear-memory address
+    // and call the host import. The host reads `[req_ptr, req_ptr+len)`
+    // out of our memory, writes the response into a buffer it allocated
+    // via `__kobako_alloc`, and returns the packed (ptr, len) tuple.
     //
-    // Item #11 (allocator) and #12 (host linker) finish wiring this
-    // path. For now we hold the request in a Box leaking the bytes for
-    // the duration of the call; once the allocator is real this becomes
-    // a `__kobako_alloc(req.len())` round trip.
+    // The request bytes stay live for the synchronous `__kobako_dispatch`
+    // call because `req_bytes` is borrowed by this frame, which is parked
+    // on the wasm stack until the host returns — no copy into a guest
+    // buffer is needed on the request side.
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
     let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };

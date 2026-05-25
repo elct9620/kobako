@@ -9,18 +9,18 @@
 #
 # Members
 # -------
-#   * `kobako-mruby-sys` — Hand-rolled mruby C API FFI surface plus the
-#     four layout-safe C shims that bridge macro-only mruby APIs. The
-#     consumer of `MRUBY_LIB_DIR` and `WASI_SDK_PATH`. Future home for a
-#     bindgen-driven binding.
+#   * `kobako-mruby-sys` — bindgen-driven mruby C API FFI surface plus
+#     the `wrapper.h` static-inline shims that bridge macro-only mruby
+#     APIs (emitted as a single `wrap_static_fns` trampoline). The
+#     consumer of `MRUBY_LIB_DIR` and `WASI_SDK_PATH`.
 #   * `kobako-wasm` — Guest Binary crate producing `kobako.wasm`. Owns
-#     the codec, the transport client (legacy `crate::rpc::` module
-#     paths kept for now), ABI exports, and the Ruby boot bytecode
-#     pipeline (`mrblib/*.rb` precompiled to RITE via host `mrbc`).
+#     the codec, the transport client (`crate::transport`), ABI exports,
+#     and the Ruby boot bytecode pipeline (`mrblib/*.rb` precompiled to
+#     RITE via host `mrbc`).
 #
 # The split keeps "talk to libmruby.a" (sys) separate from "what to do
-# with mruby" (kobako-wasm) so future bindgen migration and external
-# mruby customization can touch one crate at a time.
+# with mruby" (kobako-wasm) so the bindgen surface and external mruby
+# customization can each evolve one crate at a time.
 
 [workspace]
 members = ["kobako-mruby-sys", "kobako-wasm"]

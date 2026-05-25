@@ -2,7 +2,7 @@
 //!
 //! Every function here matches the [`crate::mruby::sys::mrb_func_t`]
 //! signature so mruby can invoke it as a method body. The registrations
-//! happen in [`super::Kobako::install_raw`]; the bridges themselves
+//! happen in [`super::Kobako::install`]; the bridges themselves
 //! re-enter the boundary by resolving a `Kobako` token via
 //! [`super::Kobako::resolve_raw`] and then call safe methods.
 //!
