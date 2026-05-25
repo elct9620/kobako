@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
+require "kobako/handle"
 require "kobako/transport/fault"
 
 # Seeded random generator for kobako wire-encodable values, used by the
