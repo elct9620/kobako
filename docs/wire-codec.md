@@ -93,7 +93,7 @@ ext 0x01 may appear in: Request `target` field (Handle reference form), Request 
 
 | Map key | Value type | Meaning |
 |---------|-----------|---------|
-| `"type"` | str | One of the four reserved error type names: `"runtime"`, `"argument"`, `"disconnected"`, `"undefined"` (→ `SPEC.md` § Wire Contract → Fault Envelope) |
+| `"type"` | str | One of the three reserved error type names: `"runtime"`, `"argument"`, `"undefined"` (→ `SPEC.md` § Wire Contract → Fault Envelope) |
 | `"message"` | str | Human-readable description |
 | `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
 

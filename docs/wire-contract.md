@@ -64,20 +64,19 @@ The fault envelope appears inside a Response `status=1` variant and describes a 
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `type` | string | One of the four reserved error type names (see table below). Identifies the failure category. |
+| `type` | string | One of the three reserved error type names (see table below). Identifies the failure category. |
 | `message` | string | Human-readable description of the failure. |
 | `details` | any (optional) | Structured supplementary information. Omitted or null when not present. |
 
-The four reserved `type` values are:
+The three reserved `type` values are:
 
 | `type` value | Failure it represents |
 |---|---|
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
-| `"disconnected"` | The `target` Handle ID resolves to the `:disconnected` sentinel in the Catalog::Handler (ABA protection rule — the ID exists but the entry is invalidated) |
 | `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's Catalog::Handler |
 
-These four names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
+These three names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 
 ---
 

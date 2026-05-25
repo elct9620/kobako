@@ -191,7 +191,6 @@ end
 |----------------------------------------|--------------------|------------------------------------------------------------------------------------------|
 | `Kobako::TimeoutError`                 | `TrapError`        | Per-invocation `timeout` exhausted                                                       |
 | `Kobako::MemoryLimitError`             | `TrapError`        | Per-invocation `memory_limit` exhausted                                                  |
-| `Kobako::ServiceError::Disconnected`   | `ServiceError`     | RPC target Handle has been invalidated                                                   |
 | `Kobako::HandleTableExhausted`         | `SandboxError`     | Per-invocation Handle counter reached its 2³¹ − 1 cap                                    |
 | `Kobako::BytecodeError`                | `SandboxError`     | `#preload(binary:)` payload failed RITE structural validation at first invocation replay |
 
