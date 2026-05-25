@@ -4,7 +4,7 @@
 //! `mrb_state` via `Mrb::open()`. Previously the value lived as a stack
 //! local in `eval_body` / `run_body` and dropped automatically at
 //! function return. The block / yield mechanism (docs/behavior.md B-23
-//! → B-30, BLOCK_RESEARCH C-05) needs the *same* `mrb_state` to be
+//! → B-30) needs the *same* `mrb_state` to be
 //! reachable from `__kobako_yield_to_block` while the original dispatch
 //! frame is still on the wasm call stack, so the slot is lifted from
 //! stack-let into a module-level static here.

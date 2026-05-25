@@ -31,7 +31,7 @@ module Kobako
     module Dispatcher
       # Throw tag for {#build_block_proxy}'s break unwind back to the
       # dispatcher's +catch+ frame (B-25). +private_constant+ is a
-      # convention boundary — not a defence (BLOCK_RESEARCH F-06).
+      # convention boundary — not a defence.
       BREAK_THROW = :__kobako_break__
       private_constant :BREAK_THROW
 
@@ -40,7 +40,7 @@ module Kobako
       # Internal sentinel raised when target resolution fails. Mapped to
       # Response.error with type="undefined". Contained at the wire boundary —
       # not part of the public Kobako error taxonomy
-      # ({docs/behavior.md E-xx}[link:../../../docs/behavior.md]).
+      # ({docs/behavior.md E-12}[link:../../../docs/behavior.md]).
       class UndefinedTargetError < StandardError; end
 
       # Internal sentinel raised when a Handle target resolves to the

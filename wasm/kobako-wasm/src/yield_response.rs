@@ -22,8 +22,8 @@ use crate::rpc::envelope::EnvelopeError;
 pub const TAG_OK: u8 = 0x01;
 /// First byte for `break val` — payload is the break value.
 pub const TAG_BREAK: u8 = 0x02;
-/// Reserved for future `return val` support; both sides currently
-/// reject this tag as a wire violation (BLOCK_RESEARCH (d)).
+/// Reserved for future `return val` support; both sides reject this
+/// tag as a wire violation (YieldResponse envelope contract).
 pub const TAG_RESERVED: u8 = 0x03;
 /// First byte for an error / fault outcome — payload is a
 /// `{"class", "message", "backtrace"}` Hash.

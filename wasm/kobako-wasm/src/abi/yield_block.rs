@@ -19,7 +19,7 @@
 //!    `mrb_protect_error` so any guest-side raise (or `break` /
 //!    Proc-`return` RBreak) lands as `Err(exc)` instead of
 //!    long-jumping past the Rust frame
-//!    ({BLOCK_RESEARCH F-A1}).
+//!    ({docs/behavior.md E-21}[link:../../../../docs/behavior.md]).
 //! 4. Encode the outcome as a `YieldResponse`:
 //!     * normal return → `tag 0x01` ok carrying the value through the
 //!       standard codec
@@ -111,11 +111,10 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
         sys::Value::from_raw(raw)
     });
 
-    // Step 5: encode the outcome. F-A1 — extract any exception fields
+    // Step 5: encode the outcome. Extract any exception fields
     // immediately on the Err path before any other mruby allocation
     // could sweep the exception object out of the GC arena. RBreak
-    // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21
-    // (BLOCK_RESEARCH R-02).
+    // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21.
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
         Err(exc) => classify_protected_error(&kobako, mrb, exc, enter_idx),
