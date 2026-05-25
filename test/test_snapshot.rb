@@ -106,7 +106,7 @@ class TestSnapshot < Minitest::Test
   # the simple eval sources used by these tests), and returns the raw
   # Snapshot the ext produces.
   def drive_eval(code)
-    handler = Kobako::Catalog::Handler.new
+    handler = Kobako::Catalog::Handles.new
     services = Kobako::Catalog::Namespaces.new(handler: handler)
     snippets = Kobako::Catalog::Snippets.new
 

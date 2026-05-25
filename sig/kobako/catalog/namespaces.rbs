@@ -1,7 +1,7 @@
 module Kobako
   module Catalog
     class Namespaces
-      def initialize: (?handler: Kobako::Catalog::Handler) -> void
+      def initialize: (?handler: Kobako::Catalog::Handles) -> void
 
       def define: (Symbol | String name) -> Kobako::Namespace
 

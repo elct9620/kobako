@@ -50,7 +50,7 @@ module Kobako
     #
     # Two collaborators call this: the codec when an ext 0x01 frame is
     # decoded off the wire, and the allocator paths when a host-side
-    # Ruby object is registered into the Sandbox's +Catalog::Handler+. Both
+    # Ruby object is registered into the Sandbox's +Catalog::Handles+. Both
     # paths live inside +lib/kobako/+ and treat this method as a
     # package-private constructor.
     def self.from_wire(id)

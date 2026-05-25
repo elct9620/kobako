@@ -15,12 +15,12 @@ module Kobako
     # Pure-function dispatcher for guest-initiated transport calls.
     # Decodes a msgpack-encoded Request envelope, resolves the target
     # object through the Catalog::Namespaces (path lookup) or
-    # Catalog::Handler (Handle lookup), invokes the method, and returns
+    # Catalog::Handles (Handle lookup), invokes the method, and returns
     # a msgpack-encoded Response envelope.
     #
     # The module is stateless — all mutable state is threaded through
     # arguments so Dispatcher has no instance variables and no side
-    # effects beyond mutating the Catalog::Handler via +alloc+ when a
+    # effects beyond mutating the Catalog::Handles via +alloc+ when a
     # non-wire-representable return value must be wrapped
     # ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
     #
@@ -49,7 +49,7 @@ module Kobako
       # +Kobako::Sandbox#initialize+ installs on the ext side; +server+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
       # closure so the Dispatcher stays stateless and Server doesn't
-      # need to publish accessors for the Sandbox-owned +Catalog::Handler+
+      # need to publish accessors for the Sandbox-owned +Catalog::Handles+
       # or +Runtime+. +yield_to_guest+ is a +String → String+ callable
       # (typically +Runtime#yield_to_active_invocation+ bound as a lambda)
       # used only when the Request carries +block_given: true+. Always
@@ -139,8 +139,8 @@ module Kobako
       end
 
       # Resolve a Request target to the Ruby object the Server (or
-      # Catalog::Handler) holds. String targets go through the Server;
-      # Handle targets (ext 0x01) go through the Catalog::Handler.
+      # Catalog::Handles) holds. String targets go through the Server;
+      # Handle targets (ext 0x01) go through the Catalog::Handles.
       #
       # Target type is already validated by +Transport.decode_request+
       # before this method is reached, so no else-branch is needed here —
@@ -164,7 +164,7 @@ module Kobako
         require_live_object!(handle.id, handler)
       end
 
-      # Resolve +id+ through the Catalog::Handler. An unknown id (E-13)
+      # Resolve +id+ through the Catalog::Handles. An unknown id (E-13)
       # surfaces as UndefinedTargetError.
       def require_live_object!(id, handler)
         handler.fetch(id)
@@ -175,7 +175,7 @@ module Kobako
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
       # wire-representable per {docs/behavior.md B-13}[link:../../../docs/behavior.md]'s type
       # mapping, the +UnsupportedType+ rescue routes it through the
-      # Catalog::Handler via {#wrap_as_handle} and re-encodes with the Capability
+      # Catalog::Handles via {#wrap_as_handle} and re-encodes with the Capability
       # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
       # path encodes exactly once.
       def encode_ok(value, handler)
@@ -185,7 +185,7 @@ module Kobako
         encode_ok(wrap_as_handle(value, handler), handler)
       end
 
-      # Allocate +value+ in the Sandbox's Catalog::Handler and return a +Handle+
+      # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
       # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
       # Used as the fallback path of {#encode_ok} when +value+ has no wire
       # representation.

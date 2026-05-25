@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "msgpack"
-require_relative "handler"
+require_relative "handles"
 require_relative "../errors"
 require_relative "../transport/request"
 require_relative "../namespace"
@@ -23,18 +23,18 @@ module Kobako
     #
     # Namespaces live at +Kobako::Namespace+. Per-dispatch routing is
     # +Kobako::Transport::Dispatcher+'s responsibility — the Dispatcher
-    # receives this registry and the +Catalog::Handler+ as arguments from
+    # receives this registry and the +Catalog::Handles+ as arguments from
     # the +Runtime#on_dispatch+ Proc that +Kobako::Sandbox#initialize+
     # installs ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-    # The registry holds an injected +Catalog::Handler+ reference so
+    # The registry holds an injected +Catalog::Handles+ reference so
     # dispatch target resolution and host→guest auto-wrap share the same
     # Sandbox-owned allocator (docs/behavior.md B-19).
     class Namespaces
       # Build a fresh registry. +handler+ is an internal seam that injects
-      # a pre-configured +Catalog::Handler+; tests pass one whose +next_id+
+      # a pre-configured +Catalog::Handles+; tests pass one whose +next_id+
       # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
-      def initialize(handler: Catalog::Handler.new)
+      def initialize(handler: Catalog::Handles.new)
         @namespaces = {} # : Hash[String, Kobako::Namespace]
         @handler = handler
         @sealed = false

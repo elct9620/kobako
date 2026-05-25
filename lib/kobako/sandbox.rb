@@ -5,7 +5,7 @@ require "forwardable"
 require_relative "capture"
 require_relative "catalog/snippets"
 require_relative "errors"
-require_relative "catalog/handler"
+require_relative "catalog/handles"
 require_relative "transport/run"
 require_relative "outcome"
 require_relative "catalog/namespaces"
@@ -21,9 +21,9 @@ module Kobako
   # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
   #
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
-  # +Kobako::Catalog::Handler+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
+  # +Kobako::Catalog::Handles+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
   # the per-instance +Kobako::Catalog::Namespaces+ (which receives the
-  # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
+  # +Catalog::Handles+ by injection so guest→host dispatch and host→guest
   # auto-wrap share one allocator), and the dispatch +Proc+ /
   # +yield_to_guest+ lambda installed on the Runtime via
   # +Runtime#on_dispatch=+ ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
@@ -104,7 +104,7 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
-      @handler = Catalog::Handler.new
+      @handler = Catalog::Handles.new
       @services = Kobako::Catalog::Namespaces.new(handler: @handler)
       @snippets = Catalog::Snippets.new
       @runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
@@ -229,8 +229,8 @@ module Kobako
     # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet
     # registries on first call (idempotent) and zeros the per-invocation
     # capability state — capture buffers, truncation predicates, and the
-    # +Catalog::Handler+ counter — before the guest runs. The
-    # +Catalog::Handler+ itself is held as +@handler+ and never exposed beyond
+    # +Catalog::Handles+ counter — before the guest runs. The
+    # +Catalog::Handles+ itself is held as +@handler+ and never exposed beyond
     # this class: SPEC.md Terminology pins it as "Not exposed to the
     # Host App" (B-19 / B-20 / E-29).
     def begin_invocation!

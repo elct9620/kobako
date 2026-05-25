@@ -1,6 +1,6 @@
 module Kobako
   module Catalog
-    class Handler
+    class Handles
       def initialize: (?next_id: Integer) -> void
 
       def alloc: (untyped object) -> Kobako::Handle

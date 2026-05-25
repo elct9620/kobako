@@ -16,7 +16,7 @@ module Kobako
   #                       guest runtime).
   #   * {SandboxError}  — sandbox / wire layer (mruby script error,
   #                       wire-decode failure on an otherwise valid tag,
-  #                       Catalog::Handler exhaustion, output buffer overrun).
+  #                       Catalog::Handles exhaustion, output buffer overrun).
   #   * {ServiceError}  — service / capability layer (a Service capability
   #                       call that failed and was not rescued inside the
   #                       script).
@@ -122,7 +122,7 @@ module Kobako
 
   # docs/behavior.md Error Classes: HandlerExhaustedError is the canonical
   # SandboxError subclass for the id-cap-hit path (B-21). Raised when the
-  # per-invocation Handle ID counter in Catalog::Handler reaches
+  # per-invocation Handle ID counter in Catalog::Handles reaches
   # +0x7fff_ffff+ (2³¹ − 1) and further allocation would exceed the cap.
   class HandlerExhaustedError < SandboxError; end
 

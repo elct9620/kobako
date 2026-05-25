@@ -23,7 +23,7 @@ module Kobako
     # Run is the host→guest entrypoint dispatch envelope (the +#run+
     # request shape), the symmetric counterpart to the guest→host
     # +Request+ envelope. +#encode+ takes the Sandbox's
-    # +Catalog::Handler+ and routes any non-wire-representable +args+ /
+    # +Catalog::Handles+ and routes any non-wire-representable +args+ /
     # +kwargs+ leaf through it as a +Kobako::Handle+
     # ({docs/behavior.md B-34}[link:../../../docs/behavior.md]) — the
     # symmetric counterpart of the guest→host wrap path in the

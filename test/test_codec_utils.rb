@@ -13,7 +13,7 @@ class TestCodecUtils < Minitest::Test
   Utils = Kobako::Codec::Utils
 
   def setup
-    @table = Kobako::Catalog::Handler.new
+    @table = Kobako::Catalog::Handles.new
   end
 
   # ---------- wire_representable? — scalar branch ----------

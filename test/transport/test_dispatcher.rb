@@ -6,7 +6,7 @@ require "test_helper"
 # exercises the Transport::Dispatcher / Wire integration directly without a live
 # Sandbox. Path-target dispatch, kwargs symbolization, Handle target /
 # argument resolution, cross-Sandbox invalidity,
-# and Catalog::Handler exhaustion are all observable through this seam.
+# and Catalog::Handles exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestTransportDispatchUnit < Minitest::Test
@@ -18,7 +18,7 @@ class TestTransportDispatchUnit < Minitest::Test
   NO_YIELD = ->(_) { raise "unexpected yield in dispatch-only test" }
 
   def setup
-    @handler = Kobako::Catalog::Handler.new
+    @handler = Kobako::Catalog::Handles.new
     @registry = Kobako::Catalog::Namespaces.new(handler: @handler)
   end
 
@@ -193,7 +193,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # ---------- B-14 — host wraps stateful return values as Handles ----------
 
   # SPEC B-14: a Service method whose return value falls outside the wire
-  # type set (B-13) is automatically allocated a Catalog::Handler entry, and
+  # type set (B-13) is automatically allocated a Catalog::Handles entry, and
   # the guest sees a Kobako::Handle in the Response.ok payload.
   def test_non_wire_return_value_is_wrapped_as_handle
     @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
@@ -221,7 +221,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # ---------- B-16 — guest passes Handle as argument ----------
 
   # SPEC B-16: a Kobako::Handle arriving as an argument is resolved against
-  # the Catalog::Handler before dispatch, and the bound Service method receives
+  # the Catalog::Handles before dispatch, and the bound Service method receives
   # the live Ruby object.
   def test_handle_arg_is_resolved_to_bound_object_before_dispatch
     greeter = Class.new do
@@ -303,7 +303,7 @@ class TestTransportDispatchUnit < Minitest::Test
     assert_equal "undefined", resp.payload.type
   end
 
-  # ---------- Cross-run invalidity (B-19 via Catalog::Handler#reset!) ----------
+  # ---------- Cross-run invalidity (B-19 via Catalog::Handles#reset!) ----------
 
   def test_handle_invalid_after_table_reset
     obj = Object.new
@@ -320,21 +320,21 @@ class TestTransportDispatchUnit < Minitest::Test
 
   # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
 
-  # SPEC B-19: Catalog::Handler ownership is per-Sandbox. A Handle ID issued
-  # by Sandbox A's Catalog::Handler has no meaning in Sandbox B's Catalog::Handler;
+  # SPEC B-19: Catalog::Handles ownership is per-Sandbox. A Handle ID issued
+  # by Sandbox A's Catalog::Handles has no meaning in Sandbox B's Catalog::Handles;
   # presenting it there resolves to "ID not found" and surfaces as a
   # Response.error with type="undefined". This is distinct from B-18
   # (cross-#run within the same Sandbox via #reset!): here we exercise
-  # two physically separate Catalog::Handler instances backing two separate
+  # two physically separate Catalog::Handles instances backing two separate
   # dispatchers, mirroring two live Sandbox instances.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
-    table_a = Kobako::Catalog::Handler.new
-    table_b = Kobako::Catalog::Handler.new
+    table_a = Kobako::Catalog::Handles.new
+    table_b = Kobako::Catalog::Handles.new
     server_b = Kobako::Catalog::Namespaces.new(handler: table_b)
     handle_id_in_a = table_a.alloc(pinger).id
 
     # The integer id has meaning in A but must NOT cross over to B —
-    # B's Catalog::Handler does not contain that id.
+    # B's Catalog::Handles does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
     req = encode_request_with_target(Kobako::Handle.from_wire(handle_id_in_a), "ping", [], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))
@@ -347,9 +347,9 @@ class TestTransportDispatchUnit < Minitest::Test
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
     # Same B-19 boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Server path resolves;
-    # arg resolution fails when the id misses B's Catalog::Handler.
-    table_a = Kobako::Catalog::Handler.new
-    table_b = Kobako::Catalog::Handler.new
+    # arg resolution fails when the id misses B's Catalog::Handles.
+    table_a = Kobako::Catalog::Handles.new
+    table_b = Kobako::Catalog::Handles.new
     server_b = Kobako::Catalog::Namespaces.new(handler: table_b)
     server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new).id
@@ -365,11 +365,11 @@ class TestTransportDispatchUnit < Minitest::Test
 
   # SPEC B-20: a guest cannot forge a Capability Handle from a bare
   # integer. The host-side wire decoder rejects the malformed encoding
-  # before the value reaches the Catalog::Handler. Operationally, a Request
+  # before the value reaches the Catalog::Handles. Operationally, a Request
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
   # fails Envelope.decode_request's type validation and the dispatcher
   # surfaces it as a Response.error. The integer never reaches resolve_target
-  # or Catalog::Handler#fetch — see the assertion on table size below.
+  # or Catalog::Handles#fetch — see the assertion on table size below.
   #
   # The test seam: we cannot construct such a Request via Request.new
   # (its constructor rejects non-String/Handle target types). We hand-roll
@@ -387,13 +387,13 @@ class TestTransportDispatchUnit < Minitest::Test
     # observes a normal transport error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
-    # The malformed int never made it into the Catalog::Handler.
+    # The malformed int never made it into the Catalog::Handles.
     assert_equal 0, @handler.size
   end
 
-  # ---------- Catalog::Handler exhaustion (SPEC B-21 / E-07) ----------
+  # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------
 
-  # SPEC B-21 / E-07: when the per-#run Catalog::Handler counter reaches
+  # SPEC B-21 / E-07: when the per-#run Catalog::Handles counter reaches
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
   # Kobako::Catalog::HandlerExhausted (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
@@ -402,11 +402,11 @@ class TestTransportDispatchUnit < Minitest::Test
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain as a Response.error the guest observes.
   def test_handler_exhaustion_during_wrap_return_is_response_err
-    # Test seam: Catalog::Handler.new(next_id:) lets us pin the counter
+    # Test seam: Catalog::Handles.new(next_id:) lets us pin the counter
     # at MAX_ID + 1 without 2^31 allocations. SPEC documents this seam
-    # at Catalog::Handler "Build a fresh, empty Handler" — the parameter
+    # at Catalog::Handles "Build a fresh, empty Handler" — the parameter
     # is explicitly intended for cap-exhaustion testing.
-    exhausted = Kobako::Catalog::Handler.new(next_id: Kobako::Handle::MAX_ID + 1)
+    exhausted = Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
     registry = Kobako::Catalog::Namespaces.new(handler: exhausted)
     registry.define(:Factory).bind(:Make, object_factory)
     req = encode_request("Factory::Make", "make", [], {})
@@ -427,7 +427,7 @@ class TestTransportDispatchUnit < Minitest::Test
     # class identity is what SPEC B-21 pins.
     assert_operator Kobako::HandlerExhaustedError, :<, Kobako::SandboxError
 
-    table = Kobako::Catalog::Handler.new(
+    table = Kobako::Catalog::Handles.new(
       next_id: Kobako::Handle::MAX_ID + 1
     )
     error = assert_raises(Kobako::SandboxError) do

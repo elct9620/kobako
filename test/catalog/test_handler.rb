@@ -1,24 +1,24 @@
 # frozen_string_literal: true
 
-# E2E + integration test for the pure-Ruby host Catalog::Handler.
+# E2E + integration test for the pure-Ruby host Catalog::Handles.
 #
-# Intentionally does NOT require "test_helper" — Catalog::Handler is pure
+# Intentionally does NOT require "test_helper" — Catalog::Handles is pure
 # Ruby and must be exercisable without the native extension being compiled.
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
 #   - SPEC.md B-19 — Sandbox discard / cross-run Handle invalidity
-#   - SPEC.md B-21 — Catalog::Handler exhaustion at 0x7fff_ffff
+#   - SPEC.md B-21 — Catalog::Handles exhaustion at 0x7fff_ffff
 #   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
 
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "kobako/catalog/handler"
+require "kobako/catalog/handles"
 
 module Kobako
   class CatalogHandlerTest < Minitest::Test
-    Table = Kobako::Catalog::Handler
+    Table = Kobako::Catalog::Handles
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 

@@ -9,7 +9,7 @@ module Kobako
 
       def self?.wire_representable?: (untyped value) -> bool
 
-      def self?.deep_wrap: (untyped value, Kobako::Catalog::Handler handler) -> untyped
+      def self?.deep_wrap: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
       def self?.primitive_wire_type?: (untyped value) -> bool
 

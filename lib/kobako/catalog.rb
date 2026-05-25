@@ -5,7 +5,7 @@ module Kobako
   # allocation tables. Houses the three host-side registries the Sandbox
   # owns: +Catalog::Namespaces+ (Namespace / Member registry),
   # +Catalog::Snippets+ (preloaded source / bytecode entries), and
-  # +Catalog::Handler+ (per-invocation Handle ID allocator).
+  # +Catalog::Handles+ (per-invocation Handle ID allocator).
   #
   # See {SPEC.md Refinement → Internal Concepts}[link:../../SPEC.md] for
   # how Catalog fits alongside Transport and Runtime.
