@@ -44,15 +44,12 @@ module Kobako
       # entrypoint resolution) so a future divergence stays local.
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
-      # steep:ignore:start
       def initialize(entrypoint:, args: [], kwargs: {})
-        super(
-          entrypoint: normalize_entrypoint(entrypoint),
-          args: validate_args!(args),
-          kwargs: validate_kwargs!(kwargs)
-        )
+        entrypoint = normalize_entrypoint(entrypoint)
+        args = validate_args!(args)
+        kwargs = validate_kwargs!(kwargs)
+        super
       end
-      # steep:ignore:end
 
       # Encode this Run to the msgpack bytes the guest's +__kobako_run+
       # entry point consumes as its command-buffer payload
@@ -78,7 +75,6 @@ module Kobako
 
       private
 
-      # steep:ignore:start
       # E-24: target must be a Symbol or String (TypeError, not
       # ArgumentError — the wrong-type case is a Host App programming
       # error before the run reaches the guest). E-25: after +.to_s+
@@ -141,7 +137,6 @@ module Kobako
         "Run #{slot} must not contain a Kobako::Handle — " \
           "Kobako::Handle instances are internal wire tokens, not caller-constructible"
       end
-      # steep:ignore:end
     end
   end
 end

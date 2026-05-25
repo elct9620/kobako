@@ -34,14 +34,12 @@ module Kobako
     # on either side of the wire without re-encoding.
     MAX_ID = 0x7fff_ffff
 
-    # steep:ignore:start
     def initialize(id:)
       raise ArgumentError, "Handle id must be Integer" unless id.is_a?(Integer)
       raise ArgumentError, "Handle id #{id} out of range [#{MIN_ID}, #{MAX_ID}]" unless id.between?(MIN_ID, MAX_ID)
 
       super
     end
-    # steep:ignore:end
 
     private_class_method :new
 

@@ -27,17 +27,15 @@ module Kobako
     # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
-    # steep:ignore:start
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: DEFAULT_MEMORY_LIMIT,
                    stdout_limit: nil,
                    stderr_limit: nil)
-      super(
-        timeout: normalize_timeout(timeout),
-        memory_limit: normalize_memory_limit(memory_limit),
-        stdout_limit: stdout_limit || DEFAULT_OUTPUT_LIMIT,
-        stderr_limit: stderr_limit || DEFAULT_OUTPUT_LIMIT
-      )
+      timeout = normalize_timeout(timeout)
+      memory_limit = normalize_memory_limit(memory_limit)
+      stdout_limit ||= DEFAULT_OUTPUT_LIMIT
+      stderr_limit ||= DEFAULT_OUTPUT_LIMIT
+      super
     end
 
     private
@@ -68,6 +66,5 @@ module Kobako
 
       memory_limit
     end
-    # steep:ignore:end
   end
 end
