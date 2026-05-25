@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# E2E + integration test for the pure-Ruby host wire codec (F-09).
+# E2E + integration test for the pure-Ruby host wire codec (SPEC.md F-09).
 #
 # Intentionally does NOT require "test_helper" — like the other clean-checkout
 # tests in this suite, the codec must be exercisable without the native

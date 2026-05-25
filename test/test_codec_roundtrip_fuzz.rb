@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# E2E round-trip fuzz harness for the kobako wire codec (F-09).
+# E2E round-trip fuzz harness for the kobako wire codec (SPEC.md F-09).
 #
 # This is THE proof that the two independent codec implementations (the
 # pure-Ruby `Kobako::Codec` under lib/kobako/codec and the hand-written

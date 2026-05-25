@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# F-01 / F-08: Kobako::Sandbox.new + stdout/stderr capture with limits.
+# SPEC.md F-01 / F-08: Kobako::Sandbox.new + stdout/stderr capture with limits.
 #
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
 # Instance) against the test fixture wasm, owns a per-instance Catalog::Handles,

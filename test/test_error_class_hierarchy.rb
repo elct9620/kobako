@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Error class hierarchy assertions (F-07). Earlier-design placeholder error
+# Error class hierarchy assertions (SPEC.md F-07). Earlier-design placeholder error
 # classes (an intermediate handle-table error class; `Kobako::Sandbox::
 # OutputLimitExceeded < StandardError`) are gone; the canonical SPEC hierarchy
 # now anchors every kobako-raised error under `Kobako::Error`: the three
