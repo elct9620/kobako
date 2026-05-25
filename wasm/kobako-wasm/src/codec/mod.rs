@@ -12,7 +12,7 @@
 //!
 //! This module is intentionally a thin shim: the public surface — `Value`,
 //! `Encoder`, `Decoder`, `CodecError` — is the same one downstream callers
-//! (`envelope.rs`, `rpc_client.rs`, the round-trip oracle binary) used
+//! (`envelope.rs`, `transport/proxy.rs`, the round-trip oracle binary) used
 //! against the previous hand-rolled implementation, but the byte-level
 //! work is now delegated to `rmp::encode` / `rmp::decode`.
 

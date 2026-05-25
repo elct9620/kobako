@@ -373,7 +373,7 @@ mod tests {
             block_given: false,
         };
         let bytes = encode_request(&req).unwrap();
-        // Same hex as the Ruby golden test in test_rpc_envelope.rb.
+        // Same hex as the Ruby golden test in test/transport/test_envelope.rb.
         assert_eq!(
             bytes,
             vec![

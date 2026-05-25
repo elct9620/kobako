@@ -1,4 +1,4 @@
-//! Guest transport client — Rust+mruby bridge.
+//! Guest transport proxy — Rust+mruby bridge.
 //!
 //! This module is the glue between the in-VM mruby proxy installed
 //! by `crate::kobako::Kobako::install` (mruby C API registrations) and
@@ -10,11 +10,11 @@
 //!
 //! 1. [`build_request_bytes`] — pure encoder. Given a [`Target`],
 //!    method, args, and kwargs, produces a Request envelope per
-//!    [`crate::rpc::envelope::encode_request`]. Trivially testable on the
+//!    [`crate::transport::envelope::encode_request`]. Trivially testable on the
 //!    host target; cross-checked against the envelope-layer golden
 //!    vectors so that any drift surfaces in `cargo test`.
 //!
-//! 2. [`invoke_rpc`] — full round-trip. Builds the Request bytes, calls
+//! 2. [`invoke`] — full round-trip. Builds the Request bytes, calls
 //!    the host via `__kobako_dispatch` on `wasm32`, then decodes the
 //!    response. On the host target (`#[cfg(not(target_arch = "wasm32"))]`)
 //!    a thread-local **loopback** hook stands in for the host so that
@@ -36,7 +36,7 @@
 //! `method_missing` shim (and `Kobako::Handle#method_missing` for the
 //! Handle chaining path, docs/behavior.md B-17). Both shims live in
 //! `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
-//! which in turn calls [`invoke_rpc`] here. This module's role is the
+//! which in turn calls [`invoke`] here. This module's role is the
 //! Rust-level encode/transport/decode pipeline that the C bridges
 //! delegate to.
 
@@ -45,7 +45,7 @@ use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{CodecError, Decoder, Value};
-use crate::rpc::envelope::{encode_request, EnvelopeError, Request, Response, Target};
+use crate::transport::envelope::{encode_request, EnvelopeError, Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -72,7 +72,7 @@ pub struct ExceptionPayload {
     pub raw: Vec<u8>,
 }
 
-/// Error variants returned by [`invoke_rpc`].
+/// Error variants returned by [`invoke`].
 ///
 /// `Service` carries the SPEC-mandated Response.err path payload;
 /// `Envelope` covers everything that fails *before* the response can be
@@ -129,7 +129,7 @@ impl std::error::Error for InvokeError {
 /// Build the bytes of a Request envelope from the five-tuple every
 /// transport site provides (target, method, args, kwargs, block_given). Pure
 /// function; does not touch wasm linear memory or the host import.
-/// Crate-internal — only [`invoke_rpc`] and its host-target tests call
+/// Crate-internal — only [`invoke`] and its host-target tests call
 /// this.
 ///
 /// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
@@ -179,7 +179,7 @@ pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 /// host targets). On success, returns the value out of `Response::Ok`;
 /// on a Response.err path returns [`InvokeError::Service`]; on an
 /// envelope fault returns [`InvokeError::Envelope`].
-pub fn invoke_rpc(
+pub fn invoke(
     target: Target,
     method: &str,
     args: &[Value],
@@ -188,11 +188,11 @@ pub fn invoke_rpc(
 ) -> Result<Value, InvokeError> {
     let req_bytes = build_request_bytes(target, method, args, kwargs, block_given)?;
     let resp_bytes = host_call(&req_bytes)?;
-    let resp = crate::rpc::envelope::decode_response(&resp_bytes)?;
+    let resp = crate::transport::envelope::decode_response(&resp_bytes)?;
     classify_response(resp)
 }
 
-/// Demux a decoded Response into the [`invoke_rpc`] return type.
+/// Demux a decoded Response into the [`invoke`] return type.
 fn classify_response(resp: Response) -> Result<Value, InvokeError> {
     match resp {
         Response::Ok(v) => Ok(v),
@@ -279,7 +279,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
         Some(hook) => Ok(hook(req_bytes)),
         None => Err(InvokeError::Envelope(EnvelopeError::Shape(
             "no loopback hook installed; install one with set_loopback() \
-             when calling invoke_rpc on the host target",
+             when calling invoke on the host target",
         ))),
     })
 }
@@ -301,7 +301,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 mod tests {
     use super::*;
     use crate::codec::Encoder;
-    use crate::rpc::envelope::{encode_request, encode_response, Response};
+    use crate::transport::envelope::{encode_request, encode_response, Response};
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
@@ -377,15 +377,15 @@ mod tests {
         );
     }
 
-    // ---- invoke_rpc demux ----
+    // ---- invoke demux ----
 
     #[test]
-    fn invoke_rpc_returns_value_on_response_ok() {
+    fn invoke_returns_value_on_response_ok() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let response = encode_response(&Response::Ok(Value::Int(42))).unwrap();
         install_canned(captured.clone(), response);
 
-        let out = invoke_rpc(
+        let out = invoke(
             Target::Path("MyService::Counter".into()),
             "value",
             &[],
@@ -410,12 +410,12 @@ mod tests {
     }
 
     #[test]
-    fn invoke_rpc_handle_target_round_trip() {
+    fn invoke_handle_target_round_trip() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let response = encode_response(&Response::Ok(Value::Str("ok".into()))).unwrap();
         install_canned(captured.clone(), response);
 
-        let out = invoke_rpc(
+        let out = invoke(
             Target::Handle(7),
             "commit",
             &[Value::Bool(true)],
@@ -434,12 +434,12 @@ mod tests {
     }
 
     #[test]
-    fn invoke_rpc_returns_service_err_on_response_err() {
+    fn invoke_returns_service_err_on_response_err() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let response = encode_response(&Response::Err(errenv_payload("runtime", "boom"))).unwrap();
         install_canned(captured, response);
 
-        let out = invoke_rpc(
+        let out = invoke(
             Target::Path("MyService::KV".into()),
             "get",
             &[Value::Str("missing".into())],
@@ -459,12 +459,12 @@ mod tests {
     }
 
     #[test]
-    fn invoke_rpc_propagates_envelope_error_on_garbage_response() {
+    fn invoke_propagates_envelope_error_on_garbage_response() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         // Garbage: a single 0xc1 byte (reserved msgpack family).
         install_canned(captured, vec![0xc1]);
 
-        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[], false);
+        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
         clear_loopback();
 
         match out {
@@ -474,11 +474,11 @@ mod tests {
     }
 
     #[test]
-    fn invoke_rpc_without_loopback_returns_envelope_error() {
+    fn invoke_without_loopback_returns_envelope_error() {
         // Defensive: if a test forgets to install a loopback, the
         // function must fail loudly rather than block or panic.
         clear_loopback();
-        let out = invoke_rpc(Target::Path("G::M".into()), "x", &[], &[], false);
+        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
         match out {
             Err(InvokeError::Envelope(EnvelopeError::Shape(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");

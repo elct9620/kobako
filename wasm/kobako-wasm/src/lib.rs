@@ -5,20 +5,18 @@
 //!
 //! * `codec` — MessagePack codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (docs/wire-codec.md).
-//! * `rpc` — Per-call transport layer mirroring the host's
-//!   `lib/kobako/transport/`. Holds `rpc::envelope` (Request / Response
-//!   value objects and their encoders/decoders on top of `codec` —
-//!   docs/wire-contract.md) and `rpc::client` (the round-trip pipeline
-//!   used by the guest-side mruby bridge to dispatch a call through
-//!   `__kobako_dispatch`). The crate-internal module name keeps the
-//!   shorter `rpc` form for now; renaming the Rust submodule is a
-//!   later cleanup.
+//! * `transport` — Per-call transport layer mirroring the host's
+//!   `lib/kobako/transport/`. Holds `transport::envelope` (Request /
+//!   Response value objects and their encoders/decoders on top of
+//!   `codec` — docs/wire-contract.md) and `transport::proxy` (the
+//!   round-trip pipeline used by the guest-side mruby bridge to
+//!   dispatch a call through `__kobako_dispatch`).
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
 //!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
 //!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
 //!   `decode_panic` / `encode_result` / `decode_result` helpers
 //!   (docs/wire-contract.md § Outcome Envelope). Shares
-//!   [`rpc::envelope::EnvelopeError`] for codec-shape faults.
+//!   [`transport::envelope::EnvelopeError`] for codec-shape faults.
 //! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
@@ -54,7 +52,7 @@ pub(crate) mod kobako;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod mruby;
 pub mod outcome;
-pub mod rpc;
+pub mod transport;
 pub mod yield_response;
 
 // Re-export the `cstr!` macro at the crate root so the consumer-side

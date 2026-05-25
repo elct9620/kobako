@@ -15,7 +15,7 @@
 //! (S4) and the host dispatcher integration (S5+) consume it.
 
 use crate::codec::{Decoder, Encoder, Value};
-use crate::rpc::envelope::EnvelopeError;
+use crate::transport::envelope::EnvelopeError;
 
 /// First byte of a YieldResponse for the success branch — payload is
 /// the block's return value encoded as a single msgpack value.

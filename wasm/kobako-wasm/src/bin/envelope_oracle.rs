@@ -31,7 +31,7 @@ use std::io::{self, Read, Write};
 use kobako_wasm::outcome::{
     decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
 };
-use kobako_wasm::rpc::envelope::{
+use kobako_wasm::transport::envelope::{
     decode_request, decode_response, encode_request, encode_response, EnvelopeError,
 };
 use kobako_wasm::FRAME_LEN_SIZE;

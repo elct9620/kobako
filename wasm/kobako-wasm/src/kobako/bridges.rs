@@ -25,7 +25,7 @@
 //!        ▼
 //!   super::Kobako::dispatch_invoke(target, method, args, kwargs)
 //!        ▼
-//!   crate::rpc::client::invoke_rpc(...)
+//!   crate::transport::proxy::invoke(...)
 //! ```
 //!
 //! Handle dispatch (`Kobako::Handle#method_missing`, docs/behavior.md
@@ -60,7 +60,7 @@ use crate::mruby::sys::Value;
 #[cfg(target_arch = "wasm32")]
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: crate::rpc::envelope::Target,
+    target: crate::transport::envelope::Target,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
@@ -109,7 +109,7 @@ pub(crate) unsafe extern "C" fn transport_proxy_method_missing(
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::rpc::envelope::Target;
+        use crate::transport::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
@@ -184,7 +184,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 ) -> Value {
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::rpc::envelope::Target;
+        use crate::transport::envelope::Target;
 
         // SAFETY: bridge contract.
         let kobako = unsafe { super::Kobako::resolve_raw(mrb) };

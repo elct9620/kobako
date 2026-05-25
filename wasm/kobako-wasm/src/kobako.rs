@@ -48,7 +48,7 @@ use crate::mruby::sys::Value;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
-use crate::rpc::client::ExceptionPayload;
+use crate::transport::proxy::ExceptionPayload;
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
 /// stores the Handle id under. Read back through [`Kobako::extract_handle_id`]
@@ -408,24 +408,24 @@ impl Kobako {
     // Transport dispatch.
     // ----------------------------------------------------------------
 
-    /// Invoke `invoke_rpc` and convert the result to a [`Value`]. On
+    /// Invoke `invoke` and convert the result to a [`Value`]. On
     /// `Response.err`, raises a matching `Kobako::ServiceError`
     /// subclass; on any other envelope-layer fault, raises
     /// `Kobako::Transport::WireError` with `err_msg`. Both raise paths
     /// diverge — `mrb_raise` does not return.
     pub fn dispatch_invoke(
         &self,
-        target: crate::rpc::envelope::Target,
+        target: crate::transport::envelope::Target,
         method_name: &str,
         args: &[crate::codec::Value],
         kwargs: &[(String, crate::codec::Value)],
         block_given: bool,
         err_msg: &core::ffi::CStr,
     ) -> Value {
-        use crate::rpc::client::invoke_rpc;
-        match invoke_rpc(target, method_name, args, kwargs, block_given) {
+        use crate::transport::proxy::invoke;
+        match invoke(target, method_name, args, kwargs, block_given) {
             Ok(value) => self.to_mrb_value(value),
-            Err(crate::rpc::client::InvokeError::Service(ex)) => {
+            Err(crate::transport::proxy::InvokeError::Service(ex)) => {
                 // SAFETY: bridge frame — mruby will unwind through
                 // `mrb_raise`.
                 unsafe { self.raise_service_error(&ex) };

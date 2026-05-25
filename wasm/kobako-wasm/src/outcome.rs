@@ -5,9 +5,9 @@
 //! top-level uncaught exception (`Panic` branch). This module mirrors the
 //! host's `lib/kobako/outcome.rb` + `lib/kobako/outcome/panic.rb`: per-run
 //! shape lives here at the crate top level, distinct from the
-//! per-transport-call envelope in `rpc/envelope.rs`.
+//! per-transport-call envelope in `transport/envelope.rs`.
 //!
-//! The error type [`EnvelopeError`] is shared with `rpc::envelope` — both
+//! The error type [`EnvelopeError`] is shared with `transport::envelope` — both
 //! layers raise codec-level shape faults the same way; deduplicating it
 //! avoids a parallel hierarchy.
 //!
@@ -17,7 +17,7 @@
 //! SPEC, not because one was copied from the other.
 
 use crate::codec::{Decoder, Encoder, Value};
-use crate::rpc::envelope::EnvelopeError;
+use crate::transport::envelope::EnvelopeError;
 
 /// Outcome envelope tag for a Result envelope (docs/wire-contract.md § Outcome
 /// Envelope). Module-private — `Outcome::Value` is the public surface

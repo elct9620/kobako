@@ -132,7 +132,7 @@ pub extern "C" fn _initialize() {
 
 /// Pack `(ptr, len)` into a single u64: high 32 bits = ptr,
 /// low 32 = len. Crate-internal — only the outcome buffer writer in
-/// `super::outcome_buffer` and the transport client in `crate::rpc::client`
+/// `super::outcome_buffer` and the transport client in `crate::transport::proxy`
 /// share this layout with the host. The host callers live behind
 /// `#[cfg(target_arch = "wasm32")]`, so on the host target the
 /// function exists only for the inline cargo tests below; the lint
