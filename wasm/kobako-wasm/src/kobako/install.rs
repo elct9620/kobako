@@ -87,7 +87,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
-        bridges::transport_proxy_respond_to_missing,
+        bridges::proxy_respond_to_missing,
         sys::MRB_ARGS_ANY,
     );
 
@@ -112,7 +112,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
-        bridges::transport_proxy_respond_to_missing,
+        bridges::proxy_respond_to_missing,
         sys::MRB_ARGS_ANY,
     );
 

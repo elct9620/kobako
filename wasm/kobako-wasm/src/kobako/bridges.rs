@@ -136,8 +136,8 @@ pub(crate) unsafe extern "C" fn member_method_missing(
         forward_to_dispatch(
             kobako,
             target,
-            c"transport method symbol name is null",
-            c"transport envelope error",
+            c"Member method symbol name is null",
+            c"transport envelope error (Member dispatch)",
         )
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -213,25 +213,23 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// `respond_to_missing?(name, include_private)` C bridge, shared by
 /// `Kobako::Member` and `Kobako::Handle`. Always returns `true` — every
 /// method call is dispatched through `method_missing` to the host, so
-/// probing via `respond_to?` must succeed. Registered singleton-class
-/// on `Kobako::Member` (Member classes) and instance-class on
-/// `Kobako::Handle` for the same reason (B-17 Handle chaining).
-pub(crate) unsafe extern "C" fn transport_proxy_respond_to_missing(
+/// probing via `respond_to?` must succeed (docs/behavior.md B-36).
+/// Registered singleton-class on `Kobako::Member` (Member classes) and
+/// instance-class on `Kobako::Handle`.
+pub(crate) unsafe extern "C" fn proxy_respond_to_missing(
     mrb: *mut sys::mrb_state,
     _self_: Value,
 ) -> Value {
+    // No VM access needed: `Value::true_()` reads the sys-side immediates
+    // cache, populated at install before any probe runs, so `mrb` goes
+    // unused (the host stub returns the zeroed placeholder).
+    let _ = mrb;
     #[cfg(target_arch = "wasm32")]
     {
-        // SAFETY: bridge contract — resolve_raw needed only to assert
-        // the install precondition; the immediate `true` is sourced
-        // from the sys-side cache directly.
-        let _kobako = unsafe { super::Kobako::resolve_raw(mrb) };
         Value::true_()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host stub — see `member_method_missing` for the shape rationale.
-        let _ = mrb;
         Value::zeroed()
     }
 }
@@ -247,7 +245,7 @@ mod tests {
         // is the host-target replacement for an mruby-link-level
         // signature check.
         let _f1: sys::mrb_func_t = member_method_missing;
-        let _f2: sys::mrb_func_t = transport_proxy_respond_to_missing;
+        let _f2: sys::mrb_func_t = proxy_respond_to_missing;
         let _f3: sys::mrb_func_t = handle_initialize;
         let _f4: sys::mrb_func_t = handle_method_missing;
     }
