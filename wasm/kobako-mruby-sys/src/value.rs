@@ -145,12 +145,11 @@ impl Immediates {
 /// `Value` itself, [`Value::from_raw`] / [`Value::as_raw`] /
 /// [`Value::into_raw`] / [`Value::zeroed`], and the
 /// [`sys::mrb_func_t`] typedef are available on every target so the
-/// host-target signature-match tests
-/// (`c_bridges_have_mrb_func_t_signature` in the consumer crate) keep
-/// compiling. Methods that talk to mruby (`classname` / `call` /
-/// numeric factories / predicates) live behind
-/// `#[cfg(target_arch = "wasm32")]` because they would link against
-/// unresolved mruby symbols on the host.
+/// host-target `mrb_func_t_is_a_valid_extern_c_fn_pointer` signature
+/// check (in this crate's `tests` module) keeps compiling. Methods
+/// that talk to mruby (`classname` / `call` / numeric factories /
+/// predicates) live behind `#[cfg(target_arch = "wasm32")]` because
+/// they would link against unresolved mruby symbols on the host.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct Value(pub(crate) sys::mrb_value);

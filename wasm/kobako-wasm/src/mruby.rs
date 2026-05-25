@@ -17,6 +17,7 @@
 //! `pub use kobako_mruby_sys;` line. Left in place for now so this
 //! commit stays a pure clean-up of stale references.
 
+#[cfg(target_arch = "wasm32")]
 pub use kobako_mruby_sys as sys;
 
 #[cfg(target_arch = "wasm32")]

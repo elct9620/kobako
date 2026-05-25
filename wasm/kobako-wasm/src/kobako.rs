@@ -32,14 +32,14 @@
 //! the bridge entry — use [`Kobako::resolve_raw`] to obtain the same
 //! handle without repeating registration.
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 pub(crate) mod bridges;
 pub(crate) mod bytecode;
 #[cfg(target_arch = "wasm32")]
 mod codec_convert;
 #[cfg(target_arch = "wasm32")]
 mod install;
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 pub(crate) mod io;
 
 #[cfg(target_arch = "wasm32")]

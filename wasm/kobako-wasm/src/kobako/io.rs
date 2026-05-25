@@ -35,8 +35,6 @@ use crate::mruby::sys::Value;
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
 /// against an already-installed state just re-defines the methods,
 /// which is harmless given mruby's last-write-wins semantics).
-/// wasm32-only — host callers do not run the IO install path.
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn install(mrb: &crate::mruby::Mrb) {
     // Spell `Object` as the super class via the canonical
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
@@ -66,36 +64,27 @@ pub(crate) fn install(mrb: &crate::mruby::Mrb) {
 ///     implemented (mruby-io's read-path is intentionally out of
 ///     scope, see `mrblib/io.rb` class doc).
 pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-        let (fd, mode_val) = mrb_ref.get_args::<sys::format::Io>();
+    // SAFETY: bridge frame — mruby invoked us with a live state.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+    let (fd, mode_val) = mrb_ref.get_args::<sys::format::Io>();
 
-        if fd != 1 && fd != 2 {
-            unsafe {
-                raise_argument_error(
-                    mrb_ref,
-                    c"kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
-                );
-            }
+    if fd != 1 && fd != 2 {
+        unsafe {
+            raise_argument_error(
+                mrb_ref,
+                c"kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
+            );
         }
-
-        let mode = mode_val.to_string(mrb_ref);
-        if mode != "w" {
-            unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
-        }
-
-        let fd_val = Value::from_int(mrb_ref, fd);
-        let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
-        self_.iv_set(mrb_ref, sym, fd_val);
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — see `io_write` for the shape rationale.
-        let _ = mrb;
-        let _ = self_;
+
+    let mode = mode_val.to_string(mrb_ref);
+    if mode != "w" {
+        unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
     }
+
+    let fd_val = Value::from_int(mrb_ref, fd);
+    let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
+    self_.iv_set(mrb_ref, sym, fd_val);
     Value::zeroed()
 }
 
@@ -109,50 +98,37 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
 /// total reflects only the accepted bytes. No Ruby-level error is
 /// raised.
 pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-        let fd = read_fd(mrb_ref, self_);
-        let argv = mrb_ref.get_args::<sys::format::Rest>();
+    // SAFETY: bridge frame — mruby invoked us with a live state.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+    let fd = read_fd(mrb_ref, self_);
+    let argv = mrb_ref.get_args::<sys::format::Rest>();
 
-        let mut total: i32 = 0;
-        for val in argv {
-            // `obj_as_string` may raise TypeError; bridge frame
-            // tolerates the longjmp.
-            let s = val.obj_as_string(mrb_ref);
-            // SAFETY: `obj_as_string` returns a String-tagged Value;
-            // the slice is consumed before the next mruby call.
-            let bytes = unsafe { s.as_bytes(mrb_ref) };
-            if !bytes.is_empty() {
-                // SAFETY: ptr / len describe a live mruby-owned
-                // buffer; `write(2)` reads it without retaining.
-                let n = unsafe {
-                    write(
-                        fd as core::ffi::c_int,
-                        bytes.as_ptr() as *const core::ffi::c_void,
-                        bytes.len(),
-                    )
-                };
-                if n > 0 {
-                    total = total.saturating_add(n as i32);
-                }
+    let mut total: i32 = 0;
+    for val in argv {
+        // `obj_as_string` may raise TypeError; bridge frame
+        // tolerates the longjmp.
+        let s = val.obj_as_string(mrb_ref);
+        // SAFETY: `obj_as_string` returns a String-tagged Value;
+        // the slice is consumed before the next mruby call.
+        let bytes = unsafe { s.as_bytes(mrb_ref) };
+        if !bytes.is_empty() {
+            // SAFETY: ptr / len describe a live mruby-owned
+            // buffer; `write(2)` reads it without retaining.
+            let n = unsafe {
+                write(
+                    fd as core::ffi::c_int,
+                    bytes.as_ptr() as *const core::ffi::c_void,
+                    bytes.len(),
+                )
+            };
+            if n > 0 {
+                total = total.saturating_add(n as i32);
             }
         }
-        Value::from_int(mrb_ref, total)
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — mrb_func_t shape must keep the params even when
-        // the body is wasm32-only; consume the bindings locally so the
-        // `unused_variables` lint is satisfied without an `#[allow]`.
-        let _ = mrb;
-        let _ = self_;
-        Value::zeroed()
-    }
+    Value::from_int(mrb_ref, total)
 }
 
-#[cfg(target_arch = "wasm32")]
 unsafe extern "C" {
     /// wasi-libc `write(2)` syscall. Declared locally because this
     /// is a libc concern, not a mruby concern — keeping it out of
@@ -166,22 +142,10 @@ unsafe extern "C" {
 /// `IO#to_i` alias in `mrblib/io.rb` and by introspecting callers
 /// (e.g. `$stdout.fileno == 1`).
 pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // SAFETY: bridge frame — mruby invoked us with a live state.
-        let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-        let fd = read_fd(mrb_ref, self_);
-        Value::from_int(mrb_ref, fd)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — mrb_func_t shape must keep the params even when
-        // the body is wasm32-only; consume the bindings locally so the
-        // `unused_variables` lint is satisfied without an `#[allow]`.
-        let _ = mrb;
-        let _ = self_;
-        Value::zeroed()
-    }
+    // SAFETY: bridge frame — mruby invoked us with a live state.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+    let fd = read_fd(mrb_ref, self_);
+    Value::from_int(mrb_ref, fd)
 }
 
 /// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the
@@ -192,7 +156,6 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// target fd 0, where the short-write guard (`if n > 0`) absorbs the
 /// result rather than trapping. The direct unbox skips the previous
 /// `.to_s.parse` round-trip.
-#[cfg(target_arch = "wasm32")]
 fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
     let val = self_.iv_get(mrb, sym);
@@ -209,23 +172,8 @@ fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
 /// # Safety
 ///
 /// Only callable from contexts that mruby may unwind from (C bridges).
-#[cfg(target_arch = "wasm32")]
 unsafe fn raise_argument_error(mrb: &crate::mruby::Mrb, msg: &core::ffi::CStr) -> ! {
     let cls = mrb.class_get(c"ArgumentError");
     // SAFETY: bridge frame — caller upholds the unwind contract.
     unsafe { cls.raise(mrb, msg) };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn c_bridges_have_mrb_func_t_signature() {
-        // Compile-time signature check — mirrors the equivalent test
-        // in `crate::kobako::bridges::tests`.
-        let _f1: sys::mrb_func_t = io_initialize;
-        let _f2: sys::mrb_func_t = io_write;
-        let _f3: sys::mrb_func_t = io_fileno;
-    }
 }

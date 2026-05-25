@@ -50,10 +50,10 @@ use crate::Value;
 /// back to the raw pointer via [`Class::as_raw`] when calling raw
 /// mruby APIs (`mrb_define_method`, `mrb_define_class_under`, …).
 ///
-/// Available on both targets so the consumer-side
-/// [`crate::mrb_func_t`] signature-match tests keep compiling on
-/// host. Methods that talk to mruby live behind
-/// `#[cfg(target_arch = "wasm32")]`.
+/// Available on both targets to mirror [`Value`]'s cross-target shape:
+/// the newtype is `#[repr(transparent)]` and carries no mruby linkage,
+/// so its constructors compile for free on host. Methods that talk to
+/// mruby live behind `#[cfg(target_arch = "wasm32")]`.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct Class(pub(crate) *mut crate::RClass);

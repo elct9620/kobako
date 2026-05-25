@@ -64,7 +64,6 @@ use crate::mruby::sys::Value;
 ///
 /// The helper runs `kobako.mrb().get_args::<NRestBlock>()` itself, so
 /// callers must not have already consumed the arglist.
-#[cfg(target_arch = "wasm32")]
 fn forward_to_dispatch(
     kobako: super::Kobako,
     target: crate::transport::envelope::Target,
@@ -114,60 +113,39 @@ pub(crate) unsafe extern "C" fn member_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::transport::envelope::Target;
+    use crate::transport::envelope::Target;
 
-        // SAFETY: bridge contract.
-        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    // SAFETY: bridge contract.
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-        // SAFETY: `self_` is the class receiver of a singleton-class
-        // `method_missing` shim — class-tagged by mruby itself.
-        let class = sys::Class::from_raw(unsafe { self_.as_class_ptr() });
-        let target_str = match class.name(kobako.mrb()) {
-            Some(name) => name,
-            None => unsafe {
-                // SAFETY: bridge frame.
-                kobako.raise_wire_error(c"transport target class name is null")
-            },
-        };
-        let target = Target::Path(target_str.to_string());
+    // SAFETY: `self_` is the class receiver of a singleton-class
+    // `method_missing` shim — class-tagged by mruby itself.
+    let class = sys::Class::from_raw(unsafe { self_.as_class_ptr() });
+    let target_str = match class.name(kobako.mrb()) {
+        Some(name) => name,
+        None => unsafe {
+            // SAFETY: bridge frame.
+            kobako.raise_wire_error(c"transport target class name is null")
+        },
+    };
+    let target = Target::Path(target_str.to_string());
 
-        forward_to_dispatch(
-            kobako,
-            target,
-            c"Member method symbol name is null",
-            c"transport envelope error (Member dispatch)",
-        )
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — mrb_func_t shape must keep the params even when
-        // the body is wasm32-only; consume the bindings locally so the
-        // `unused_variables` lint is satisfied without an `#[allow]`.
-        let _ = mrb;
-        let _ = self_;
-        Value::zeroed()
-    }
+    forward_to_dispatch(
+        kobako,
+        target,
+        c"Member method symbol name is null",
+        c"transport envelope error (Member dispatch)",
+    )
 }
 
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// [`super::Kobako::set_handle_id`].
 pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // SAFETY: bridge contract.
-        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let id_val = kobako.mrb().get_args::<sys::format::O>();
-        kobako.set_handle_id(self_, id_val);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — see `member_method_missing` for the shape rationale.
-        let _ = mrb;
-        let _ = self_;
-    }
+    // SAFETY: bridge contract.
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    let id_val = kobako.mrb().get_args::<sys::format::O>();
+    kobako.set_handle_id(self_, id_val);
     Value::zeroed()
 }
 
@@ -183,31 +161,19 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use crate::transport::envelope::Target;
+    use crate::transport::envelope::Target;
 
-        // SAFETY: bridge contract.
-        let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-        let handle_id = kobako.extract_handle_id(self_);
-        let target = Target::Handle(handle_id);
+    // SAFETY: bridge contract.
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    let handle_id = kobako.extract_handle_id(self_);
+    let target = Target::Handle(handle_id);
 
-        forward_to_dispatch(
-            kobako,
-            target,
-            c"Handle method symbol name is null",
-            c"transport envelope error (Handle dispatch)",
-        )
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — mrb_func_t shape must keep the params even when
-        // the body is wasm32-only; consume the bindings locally so the
-        // `unused_variables` lint is satisfied without an `#[allow]`.
-        let _ = mrb;
-        let _ = self_;
-        Value::zeroed()
-    }
+    forward_to_dispatch(
+        kobako,
+        target,
+        c"Handle method symbol name is null",
+        c"transport envelope error (Handle dispatch)",
+    )
 }
 
 /// `respond_to_missing?(name, include_private)` C bridge, shared by
@@ -217,36 +183,11 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// Registered singleton-class on `Kobako::Member` (Member classes) and
 /// instance-class on `Kobako::Handle`.
 pub(crate) unsafe extern "C" fn proxy_respond_to_missing(
-    mrb: *mut sys::mrb_state,
+    _mrb: *mut sys::mrb_state,
     _self_: Value,
 ) -> Value {
     // No VM access needed: `Value::true_()` reads the sys-side immediates
-    // cache, populated at install before any probe runs, so `mrb` goes
-    // unused (the host stub returns the zeroed placeholder).
-    let _ = mrb;
-    #[cfg(target_arch = "wasm32")]
-    {
-        Value::true_()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        Value::zeroed()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn c_bridges_have_mrb_func_t_signature() {
-        // Compile-time signature check — these `let` bindings fail to
-        // compile if the bridge functions drift from `mrb_func_t`. This
-        // is the host-target replacement for an mruby-link-level
-        // signature check.
-        let _f1: sys::mrb_func_t = member_method_missing;
-        let _f2: sys::mrb_func_t = proxy_respond_to_missing;
-        let _f3: sys::mrb_func_t = handle_initialize;
-        let _f4: sys::mrb_func_t = handle_method_missing;
-    }
+    // cache, populated at install before any probe runs, so the raw
+    // `mrb` pointer goes unused.
+    Value::true_()
 }
