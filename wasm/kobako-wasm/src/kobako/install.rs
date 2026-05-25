@@ -30,17 +30,18 @@ use super::io;
 /// [`super::Kobako`].
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
-    pub(super) proxy_class: sys::Class,
+    pub(super) member_class: sys::Class,
     pub(super) handle_class: sys::Class,
     pub(super) service_error_class: sys::Class,
     pub(super) wire_error_class: sys::Class,
 }
 
 /// Register the Kobako module, the `Kobako::Transport` namespace, the
-/// `Kobako::Transport::Proxy` class plus the top-level `Kobako::Handle`
-/// value object, and the `Kobako::ServiceError` /
-/// `Kobako::Transport::WireError` exception hierarchy. Returns the
-/// four class handles the [`super::Kobako`] token needs to keep around.
+/// `Kobako::Transport::Proxy` abstract base plus its two top-level
+/// subclasses `Kobako::Member` and `Kobako::Handle`, and the
+/// `Kobako::ServiceError` / `Kobako::Transport::WireError` exception
+/// hierarchy. Returns the class handles the [`super::Kobako`] token
+/// needs to keep around.
 ///
 /// Function pointers come from [`bridges`], the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by
@@ -55,67 +56,64 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
 
     // Kobako::Transport module — host↔guest message namespace shared
     // with the host gem's lib/kobako/transport.rb. Houses the Proxy
-    // base class (parent of every Member proxy installed via
-    // `Kobako::install_groups`) and the WireError fault. The Handle
-    // value object lives at top level (Kobako::Handle) — it is a
-    // Sandbox-level domain entity used in both directions across the
-    // host↔guest boundary (B-14 service return, B-34 host-side
-    // argument auto-wrap) and is not owned by the Transport namespace.
+    // abstract base and the WireError fault. The two proxy subclasses
+    // `Kobako::Member` and `Kobako::Handle` live at the Kobako top level
+    // — they are Sandbox-level domain entities (Member: bound-service
+    // dispatch; Handle: B-14 service return / B-34 host-side argument
+    // auto-wrap) and are not owned by the Transport namespace.
     let transport_mod = kobako_mod.define_module_under(mrb, c"Transport");
 
-    // Kobako::Transport::Proxy base class — parent of every Member
-    // installed via `Kobako::install_groups`. Spell the super class as
-    // `mrb.object_class()` to match the mrbgems/mruby-io convention;
-    // passing NULL would log "no super class for ..., Object assumed"
-    // via mrb_warn on every install.
+    // Kobako::Transport::Proxy — abstract base of `Kobako::Member` and
+    // `Kobako::Handle`. It holds no dispatch methods itself; each
+    // subclass registers its own `method_missing` for its receiver shape.
+    // Spell the super class as `mrb.object_class()` to match the
+    // mrbgems/mruby-io convention; passing NULL would log "no super class
+    // for ..., Object assumed" via mrb_warn on every install.
     let proxy_class = transport_mod.define_class_under(mrb, c"Proxy", object_class);
 
-    // Singleton-class `method_missing` / `respond_to_missing?` on
-    // `Kobako::Transport::Proxy` — Member *classes* dispatch here
-    // (`Target::Path`). Subclasses inherit through the metaclass chain.
-    proxy_class.define_singleton_method(
+    // `Kobako::Member` — base of every bound-Member proxy installed via
+    // `Kobako::install_groups`. Member calls arrive class-level (the
+    // constant `MyService::KV` is a Member subclass), so `method_missing`
+    // / `respond_to_missing?` are singleton-class methods routing to a
+    // `Target::Path` derived from the class name. Subclasses inherit them
+    // through the metaclass chain.
+    let member_class = kobako_mod.define_class_under(mrb, c"Member", proxy_class);
+    member_class.define_singleton_method(
         mrb,
         c"method_missing",
-        bridges::transport_proxy_method_missing,
+        bridges::member_method_missing,
         sys::MRB_ARGS_ANY,
     );
-    proxy_class.define_singleton_method(
+    member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
         bridges::transport_proxy_respond_to_missing,
         sys::MRB_ARGS_ANY,
     );
 
-    // Instance-level `method_missing` / `respond_to_missing?` on the same
-    // class — Proxy *instances* dispatch here (`Target::Handle`). The
-    // only Proxy instances are `Kobako::Handle` objects; making Handle a
-    // Proxy subclass lets it inherit these shims and stay a pure value
-    // carrier (SPEC.md § Transport::Proxy: the base class "absorbs
-    // `Kobako::Handle`'s guest-side `method_missing` proxy logic so
-    // `Kobako::Handle` remains a pure value type").
-    proxy_class.define_method(
-        mrb,
-        c"method_missing",
-        bridges::transport_proxy_instance_method_missing,
-        sys::MRB_ARGS_ANY,
-    );
-    proxy_class.define_method(
-        mrb,
-        c"respond_to_missing?",
-        bridges::transport_proxy_respond_to_missing,
-        sys::MRB_ARGS_ANY,
-    );
-
-    // `Kobako::Handle` instance class — top-level Sandbox-level value
-    // object, not nested under Transport. Subclasses `Proxy` so it
-    // inherits the instance-level dispatch shims above; the class itself
-    // adds only `initialize`, which stores the id ivar.
+    // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
+    // instance-level (a Handle is an instance carrying its id ivar), so
+    // `method_missing` / `respond_to_missing?` are instance methods
+    // routing to a `Target::Handle` derived from the id, and `initialize`
+    // stores that id.
     let handle_class = kobako_mod.define_class_under(mrb, c"Handle", proxy_class);
     handle_class.define_method(
         mrb,
         c"initialize",
         bridges::handle_initialize,
         sys::mrb_args_req(1),
+    );
+    handle_class.define_method(
+        mrb,
+        c"method_missing",
+        bridges::handle_method_missing,
+        sys::MRB_ARGS_ANY,
+    );
+    handle_class.define_method(
+        mrb,
+        c"respond_to_missing?",
+        bridges::transport_proxy_respond_to_missing,
+        sys::MRB_ARGS_ANY,
     );
 
     // `Kobako::ServiceError` / `Kobako::Transport::WireError` /
@@ -136,7 +134,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     kobako_mod.define_class_under(mrb, c"BytecodeError", runtime_error_class);
 
     KobakoClasses {
-        proxy_class,
+        member_class,
         handle_class,
         service_error_class,
         wire_error_class,

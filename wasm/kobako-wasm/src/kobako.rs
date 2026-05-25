@@ -6,7 +6,8 @@
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
 //! kobako-specific registrations (`Kobako` module, `Kobako::Transport`
-//! namespace + `Proxy` base class, `Kobako::Handle`, `Kobako::ServiceError` /
+//! namespace + `Proxy` abstract base, the `Kobako::Member` / `Kobako::Handle`
+//! proxy subclasses, `Kobako::ServiceError` /
 //! `Kobako::Transport::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
 //! different concern and live behind this domain boundary.
 //!
@@ -113,9 +114,9 @@ impl std::error::Error for InstallGroupsError {}
 #[cfg(target_arch = "wasm32")]
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
-    /// `Kobako::Transport::Proxy` base class — parent of every Member
+    /// `Kobako::Member` base class — parent of every bound Member proxy
     /// installed via [`Kobako::install_groups`].
-    proxy_class: sys::Class,
+    member_class: sys::Class,
     handle_class: sys::Class,
     service_error_class: sys::Class,
     wire_error_class: sys::Class,
@@ -142,7 +143,7 @@ impl Kobako {
 
         Self {
             mrb: mrb.as_ptr(),
-            proxy_class: classes.proxy_class,
+            member_class: classes.member_class,
             handle_class: classes.handle_class,
             service_error_class: classes.service_error_class,
             wire_error_class: classes.wire_error_class,
@@ -171,13 +172,13 @@ impl Kobako {
         let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
         let kobako_mod = mrb_ref.define_module(c"Kobako");
         let transport_mod = kobako_mod.define_module_under(mrb_ref, c"Transport");
-        let proxy_class = transport_mod.class_get_under(mrb_ref, c"Proxy");
+        let member_class = kobako_mod.class_get_under(mrb_ref, c"Member");
         let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
         let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
         let wire_error_class = transport_mod.class_get_under(mrb_ref, c"WireError");
         Self {
             mrb,
-            proxy_class,
+            member_class,
             handle_class,
             service_error_class,
             wire_error_class,
@@ -186,9 +187,8 @@ impl Kobako {
 
     /// Install Namespace / Member proxy classes from a Frame 1
     /// preamble. Each Group becomes a top-level Ruby module; each Member
-    /// becomes a subclass of `Kobako::Transport::Proxy` under its
-    /// Namespace so the singleton-class `method_missing` shim is
-    /// inherited.
+    /// becomes a subclass of `Kobako::Member` under its Namespace so the
+    /// singleton-class `method_missing` shim is inherited.
     pub fn install_groups(
         &self,
         preamble: &[(String, Vec<String>)],
@@ -201,7 +201,7 @@ impl Kobako {
             for member_name in members {
                 let member_cstr = std::ffi::CString::new(member_name.as_str())
                     .map_err(|_| InstallGroupsError::NulInMemberName)?;
-                group_mod.define_class_under(mrb, &member_cstr, self.proxy_class);
+                group_mod.define_class_under(mrb, &member_cstr, self.member_class);
             }
         }
         Ok(())
