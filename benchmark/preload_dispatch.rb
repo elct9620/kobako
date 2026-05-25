@@ -39,7 +39,7 @@
 #        name: :alice)` puts a Symbol key through the Invocation
 #        envelope's kwargs Map. The ext 0x00 codec path here is the
 #        host→guest direction — structurally distinct from the
-#        guest→host RPC kwargs path measured by rpc_roundtrip 2c,
+#        guest→host Transport kwargs path measured by transport_roundtrip 2c,
 #        even though both rely on the same Symbol wire ext.
 #
 #   8e — Per-invocation snippet replay overhead. Same #run(:Noop)
@@ -54,11 +54,11 @@
 #   8f — #run dispatch with a non-wire-representable positional
 #        arg (B-34 host→guest auto-wrap). The args walker routes
 #        the StringIO through Codec::Utils.deep_wrap, which routes
-#        non-wire-representable leaves through HandleTable#alloc;
+#        non-wire-representable leaves through Catalog::Handler#alloc;
 #        the guest receives a +Kobako::Handle+ proxy. The entrypoint
 #        ignores the proxy, so this case isolates the host-side
 #        auto-wrap cost (predicate + alloc + wire encode) without
-#        also incurring a guest→host RPC roundtrip — 8c / 8d only
+#        also incurring a guest→host Transport roundtrip — 8c / 8d only
 #        cover the wire-fast path and miss any regression in the
 #        auto-wrap branch.
 #
@@ -100,8 +100,8 @@ RUBY
 
 # 8f auto-wrap target. The entrypoint discards the Handle proxy so
 # the case measures only the host-side wrap path (predicate +
-# HandleTable#alloc + wire encode) — calling #read on the proxy
-# would add a guest→host RPC roundtrip that confounds the signal.
+# Catalog::Handler#alloc + wire encode) — calling #read on the proxy
+# would add a guest→host Transport roundtrip that confounds the signal.
 WRAP_SNIPPET_CODE = <<~RUBY
   module Wrap
     def self.call(_handle)
@@ -143,7 +143,7 @@ HELPER_NAMES = Array.new(HELPER_MAX) { |i| helper_snippet_name(i) }.freeze
 
 # Process-wide warm-up so 8a's first iteration does not pay the
 # first-Sandbox cold cost (Engine init + Module JIT compile).
-# Mirrors the warm-up pattern in rpc_roundtrip / codec / mruby_eval.
+# Mirrors the warm-up pattern in transport_roundtrip / codec / mruby_eval.
 Kobako::Sandbox.new.eval("nil")
 
 # 8a — preload registration cost. Each iteration constructs a fresh
@@ -190,9 +190,9 @@ end
 # 8f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
 # already sealed by 8b's warm-up #run; subsequent #preload would
 # raise E-35. The same +autowrap_arg+ is reused across iterations,
-# but B-15 / B-19 reset the HandleTable at the start of every
+# but B-15 / B-19 reset the Catalog::Handler at the start of every
 # invocation, so each measured #run still pays for one fresh
-# HandleTable#alloc.
+# Catalog::Handler#alloc.
 autowrap_sandbox = Kobako::Sandbox.new(memory_limit: nil)
 autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
 autowrap_arg = StringIO.new("payload")

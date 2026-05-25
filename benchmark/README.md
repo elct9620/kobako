@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the five performance dimensions [SPEC.md](../SPEC.md) names as release quality gates (startup, RPC round-trip, codec, mruby VM, HandleTable) plus three characterization suites (multi-thread behaviour, per-Sandbox RSS, `#preload` + `#run` dispatch). Baselines for every release live under `benchmark/results/` so subsequent runs can diff against a known point; a +10% regression on any of the five gated benchmarks requires explicit review before release.
+Kobako maintains a regression benchmark suite covering the five performance dimensions [SPEC.md](../SPEC.md) names as release quality gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handler) plus three characterization suites (multi-thread behaviour, per-Sandbox RSS, `#preload` + `#run` dispatch). Baselines for every release live under `benchmark/results/` so subsequent runs can diff against a known point; a +10% regression on any of the five gated benchmarks requires explicit review before release.
 
 ## Latest baseline
 
@@ -76,7 +76,7 @@ B-35 `wall_time` makes the per-`#eval` overhead directly readable: `1b` records 
 
 Practical implication: choose per-request construction when guest scripts are mutually untrusted; choose reuse when a single Sandbox serves repeated requests from the same trust scope. At ~140 µs of extra overhead per request, per-request isolation is affordable for most web/job workloads.
 
-### Per-request RPC latency ([`rpc_roundtrip.rb`](rpc_roundtrip.rb))
+### Per-request Transport latency ([`transport_roundtrip.rb`](transport_roundtrip.rb))
 
 Each row wraps the call inside one `#eval`, so the absolute number bundles `#eval` setup (~130 µs) with the RPC.
 
@@ -150,9 +150,9 @@ The `4d` / `4e` / `4f` rows cover features that landed since `0.1.2`: Onigmo `Re
 
 The `wall_time` column rounds to ips-equivalent for everything except `4e` / `4f`, where the guest export bracket captures essentially the whole cost — the host wrapper is fixed per-`#eval` while the inside-VM stdout loop dominates. `4e` per-write cost rose from 3.4 µs to 4.2 µs (+24%) relative to the 2026-05-20 baseline; the cause is documented in [What changed vs previous baseline](#what-changed-vs-previous-baseline) and reflects a deliberate move of the `IO#write` byte loop out of a hand-written C shim into safe Rust via bindgen — `memory_peak = 0` on both rows confirms the path is wasi-libc-bound, not guest-linear-memory-bound.
 
-### Handle table scaling ([`handle_table.rb`](handle_table.rb))
+### Handle table scaling ([`catalog_handler.rb`](catalog_handler.rb))
 
-`HandleTable` is the host-side mapping from opaque integer IDs to Ruby objects, reset at the start of every invocation (`#eval` or `#run`). These numbers verify the underlying Hash stays O(1) as it grows.
+`Catalog::Handler` is the host-side mapping from opaque integer IDs to Ruby objects, reset at the start of every invocation (`#eval` or `#run`). These numbers verify the underlying Hash stays O(1) as it grows.
 
 | Scenario | Latency |
 |---|---|
@@ -275,7 +275,7 @@ bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#8)
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; you can also invoke a single script directly for fast iteration:
 
 ```bash
-bundle exec ruby benchmark/rpc_roundtrip.rb
+bundle exec ruby benchmark/transport_roundtrip.rb
 ```
 
 Total wall time for `bundle exec rake bench` is roughly 5-8 minutes on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 minute.
@@ -315,7 +315,7 @@ Release baselines are additionally marked with annotated git tags following `ben
 
 ## Release gate
 
-A regression greater than **+10 %** on any of the five gated benchmarks (startup, RPC, codec, mruby VM, HandleTable) versus the previous release baseline requires explicit review and approval before release proceeds.
+A regression greater than **+10 %** on any of the five gated benchmarks (startup, Transport, codec, mruby VM, Catalog::Handler) versus the previous release baseline requires explicit review and approval before release proceeds.
 
 The three characterization suites (`#6` multi-Thread, `#7` memory, `#8` `#preload` + `#run` dispatch) are informational and not part of the gate, but baselines are recorded so before/after comparison is possible when changes touch the GVL boundary (e.g. introducing `rb_thread_call_without_gvl` in `ext/`), the per-Sandbox memory model, or the snippet preload / dispatch path.
 

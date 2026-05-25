@@ -11,9 +11,9 @@
 module KobakoBench
   RELEASE_BENCHES = %w[
     benchmark/cold_start.rb
-    benchmark/rpc_roundtrip.rb
+    benchmark/transport_roundtrip.rb
     benchmark/codec.rb
     benchmark/mruby_eval.rb
-    benchmark/handle_table.rb
+    benchmark/catalog_handler.rb
   ].freeze
 end

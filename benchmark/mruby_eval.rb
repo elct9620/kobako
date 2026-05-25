@@ -2,7 +2,7 @@
 
 # SPEC.md "Regression benchmarks" #4 — mruby script evaluation
 # time. SPEC: "Impact of build_config/wasi.rb flag changes on VM
-# execution speed." No RPC: every case is a self-contained mruby
+# execution speed." No Transport calls: every case is a self-contained mruby
 # computation whose only host cost is the constant Sandbox#eval
 # per-invocation overhead.
 #
