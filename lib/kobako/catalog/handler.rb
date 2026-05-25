@@ -73,14 +73,6 @@ module Kobako
         @entries[id]
       end
 
-      # Remove and return the binding for +id+. +id+ is the Handle ID to
-      # release. Returns the previously-bound object. Raises
-      # +Kobako::SandboxError+ if +id+ is not currently bound.
-      def release(id)
-        require_bound!(id)
-        @entries.delete(id)
-      end
-
       # Clear all entries AND reset the counter to 1. Called at the per-invocation
       # boundary by +Kobako::Sandbox+ — see
       # {docs/behavior.md B-19}[link:../../../docs/behavior.md]. Returns +self+.
@@ -109,9 +101,9 @@ module Kobako
 
       private
 
-      # Single source of truth for the "unknown Handle id" raise shared by
-      # {#fetch} and {#release}. Returns +nil+ on success; raises
-      # +Kobako::SandboxError+ when +id+ is not currently bound.
+      # Single source of truth for the "unknown Handle id" raise used by
+      # {#fetch}. Returns +nil+ on success; raises +Kobako::SandboxError+
+      # when +id+ is not currently bound.
       def require_bound!(id)
         return if @entries.key?(id)
 

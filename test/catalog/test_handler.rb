@@ -51,25 +51,6 @@ module Kobako
       assert_raises(Kobako::SandboxError) { table.fetch(0) }
     end
 
-    # ---------- Release: removes binding; counter does not roll back ----------
-
-    def test_release_removes_binding_and_does_not_reuse_id
-      table = Table.new
-      obj = Object.new
-      id = table.alloc(obj).id # 1
-
-      assert_same obj, table.release(id)
-      assert_raises(Kobako::SandboxError) { table.fetch(id) }
-
-      # SPEC B-15: counter is monotonic within a #run; release does not roll back.
-      assert_equal 2, table.alloc(Object.new).id
-    end
-
-    def test_release_unknown_id_raises
-      table = Table.new
-      assert_raises(Kobako::SandboxError) { table.release(42) }
-    end
-
     # ---------- Reset: clears entries AND counter (per-#run boundary) ----------
 
     def test_reset_clears_entries_and_resets_counter_to_one
@@ -82,7 +63,7 @@ module Kobako
       ids.each do |id|
         assert_raises(Kobako::SandboxError) { table.fetch(id) }
       end
-      # First alloc after reset returns id 1 — distinct from #release semantics.
+      # First alloc after reset returns id 1 — the counter rolls back to the start.
       assert_equal 1, table.alloc(Object.new).id
     end
 
