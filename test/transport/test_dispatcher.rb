@@ -5,7 +5,7 @@ require "test_helper"
 # Unit-level coverage of Transport::Dispatcher.dispatch — fast and deterministic,
 # exercises the Transport::Dispatcher / Wire integration directly without a live
 # Sandbox. Path-target dispatch, kwargs symbolization, Handle target /
-# argument resolution, disconnected sentinel, cross-Sandbox invalidity,
+# argument resolution, cross-Sandbox invalidity,
 # and Catalog::Handler exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
 # +test/test_e2e_journeys.rb+ via real mruby.
@@ -316,28 +316,6 @@ class TestTransportDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "undefined", resp.payload.type
-  end
-
-  # ---------- Disconnected sentinel (SPEC E-14) ----------
-
-  # SPEC E-14: a Handle whose entry has been replaced with the
-  # +:disconnected+ sentinel (B-19 ABA protection) resolves to
-  # Response.error(type="disconnected") at dispatch time, even though the id
-  # still occupies the Catalog::Handler. This is distinct from E-13 (unknown id
-  # → "undefined"); the dispatcher must differentiate so the host can
-  # surface +Kobako::ServiceError::Disconnected+ rather than a generic
-  # ServiceError.
-  def test_disconnected_handle_target_returns_disconnected_exception
-    obj = Object.new
-    def obj.any = "alive"
-    handle_id = @handler.alloc(obj).id
-    @handler.mark_disconnected(handle_id)
-
-    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "any", [], {})
-    resp = decode_response(dispatch(req))
-
-    assert resp.error?
-    assert_equal "disconnected", resp.payload.type
   end
 
   # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------

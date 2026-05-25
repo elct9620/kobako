@@ -4,9 +4,6 @@ module Kobako
       class UndefinedTargetError < StandardError
       end
 
-      class DisconnectedTargetError < StandardError
-      end
-
       BREAK_THROW: Symbol
 
       def self?.dispatch: (String request_bytes, Kobako::Catalog::Binding server, Kobako::Catalog::Handler handler, ^(String) -> String yield_to_guest) -> String

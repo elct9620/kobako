@@ -43,12 +43,6 @@ module Kobako
       # ({docs/behavior.md E-12}[link:../../../docs/behavior.md]).
       class UndefinedTargetError < StandardError; end
 
-      # Internal sentinel raised when a Handle target resolves to the
-      # +:disconnected+ sentinel in the Catalog::Handler (ABA protection,
-      # {docs/behavior.md E-14}[link:../../../docs/behavior.md]). Mapped to Response.error with
-      # type="disconnected". Contained at the wire boundary.
-      class DisconnectedTargetError < StandardError; end
-
       # Dispatch a single transport request and return the encoded
       # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       # Invoked from the +Runtime#on_dispatch+ Proc that
@@ -87,10 +81,9 @@ module Kobako
 
       # Map an error caught at the dispatch boundary to a +Response.error+
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
-      # rescue. Returns a msgpack-encoded Response envelope (binary). Four
+      # rescue. Returns a msgpack-encoded Response envelope (binary). Three
       # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
       # +Kobako::Codec::Error+ → type="runtime" (malformed transport request);
-      # +DisconnectedTargetError+ → type="disconnected" (E-14);
       # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
       # type="argument" (B-12 arity mismatch); everything else →
       # type="runtime".
@@ -98,10 +91,9 @@ module Kobako
         case error
         when Kobako::Codec::Error then encode_error("runtime",
                                                     "Sandbox received a malformed transport request: #{error.message}")
-        when DisconnectedTargetError then encode_error("disconnected", error.message)
-        when UndefinedTargetError    then encode_error("undefined", error.message)
-        when ArgumentError           then encode_error("argument", error.message)
-        else                              encode_error("runtime", "#{error.class}: #{error.message}")
+        when UndefinedTargetError then encode_error("undefined", error.message)
+        when ArgumentError        then encode_error("argument", error.message)
+        else                           encode_error("runtime", "#{error.class}: #{error.message}")
         end
       end
 
@@ -136,9 +128,7 @@ module Kobako
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # transport call's Handle wrap (B-14). Resolve it back to the Ruby object before
-      # the dispatch reaches +public_send+. A Handle whose entry is the
-      # +:disconnected+ sentinel (E-14) raises DisconnectedTargetError so
-      # the dispatcher emits a Response.error with type="disconnected".
+      # the dispatch reaches +public_send+.
       def resolve_arg(value, handler)
         case value
         when Kobako::Handle
@@ -174,13 +164,10 @@ module Kobako
         require_live_object!(handle.id, handler)
       end
 
-      # Resolve +id+ through the Catalog::Handler, distinguishing the
-      # +:disconnected+ sentinel (E-14) from an unknown id (E-13).
+      # Resolve +id+ through the Catalog::Handler. An unknown id (E-13)
+      # surfaces as UndefinedTargetError.
       def require_live_object!(id, handler)
-        object = handler.fetch(id)
-        raise DisconnectedTargetError, "Handle id #{id} is disconnected" if object == :disconnected
-
-        object
+        handler.fetch(id)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end

@@ -35,8 +35,6 @@ module Kobako
   #   * {ModuleNotBuiltError} < {SetupError} — Guest Binary artifact absent
   #                       at +wasm_path+ (E-40).
   #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit (B-21).
-  #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
-  #                       sentinel hit on the Catalog::Handler (E-14).
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
@@ -120,12 +118,6 @@ module Kobako
       @backtrace_lines = backtrace_lines
       @details = details
     end
-
-    # docs/behavior.md Error Classes: ServiceError::Disconnected is raised
-    # when the dispatch target Handle resolves to the `:disconnected`
-    # sentinel in the Catalog::Handler (ABA protection rule — id exists
-    # but entry was invalidated). E-14.
-    class Disconnected < ServiceError; end
   end
 
   # docs/behavior.md Error Classes: HandlerExhaustedError is the canonical

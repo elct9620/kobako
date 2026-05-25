@@ -9,8 +9,6 @@ module Kobako
 
       def reset!: () -> self
 
-      def mark_disconnected: (Integer id) -> self
-
       def size: () -> Integer
 
       private

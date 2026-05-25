@@ -12,7 +12,7 @@ module Kobako
     # SPEC pins the payload
     # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
     # → ext 0x02) to a msgpack map with exactly three keys:
-    #   * "type"    — one of "runtime", "argument", "disconnected", "undefined"
+    #   * "type"    — one of "runtime", "argument", "undefined"
     #   * "message" — human-readable string
     #   * "details" — any wire-legal value, or nil when absent
     #
@@ -25,7 +25,7 @@ module Kobako
     # this as the Steep-friendly shape and the +Style/DataInheritance+
     # cop is disabled on that basis (see +.rubocop.yml+).
     class Fault < Data.define(:type, :message, :details)
-      VALID_TYPES = %w[runtime argument disconnected undefined].freeze
+      VALID_TYPES = %w[runtime argument undefined].freeze
 
       def initialize(type:, message:, details: nil)
         raise ArgumentError, "type must be String"    unless type.is_a?(String)

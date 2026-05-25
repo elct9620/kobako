@@ -30,10 +30,6 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::HandlerExhaustedError < Kobako::SandboxError
   end
 
-  def test_service_error_disconnected_chains_under_service_error
-    assert Kobako::ServiceError::Disconnected < Kobako::ServiceError
-  end
-
   # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named
   # TrapError subclasses for the configured per-run caps from B-01.
   def test_timeout_error_chains_under_trap_error

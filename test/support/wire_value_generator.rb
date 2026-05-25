@@ -88,7 +88,7 @@ class WireValueGenerator
   # smallest str bands too.
   MULTIBYTE_SAMPLES = ["蒼", "時", "弦", "也", "🌸", "λ", "Ω", "α"].freeze
 
-  EXC_TYPES = %w[runtime argument disconnected undefined].freeze
+  EXC_TYPES = %w[runtime argument undefined].freeze
 
   # Vocabulary of coverage keys the generator may bump as a side effect.
   # Tests assert that every key in this set was visited at least once

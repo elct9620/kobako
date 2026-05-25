@@ -5,7 +5,7 @@ require "test_helper"
 # Outcome-attribution unit coverage for the branches that don't need a
 # live Sandbox: zero-length / unknown-tag wire violations, malformed
 # envelope payloads, and Panic envelope class-to-Ruby-class mapping
-# (including the +ServiceError::Disconnected+ subclass selection). The
+# (including the +BytecodeError+ subclass selection). The
 # decode logic lives on +Kobako::Outcome+ as a stateless module of pure
 # functions, so we call it directly without instantiating Sandbox.
 class TestSandboxOutcomeDecoding < Minitest::Test
@@ -79,24 +79,6 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     err = assert_raises(Kobako::ServiceError) { decode(bytes) }
     assert_equal "boom", err.message
     assert_equal "service", err.origin
-  end
-
-  # SPEC.md E-14 + "Error Classes": a Service-origin Panic whose
-  # +class+ field names +Kobako::ServiceError::Disconnected+ resolves to
-  # the Disconnected subclass, letting Host Apps rescue the disconnected
-  # path specifically. Pins +Outcome.panic_target_class+ — the
-  # only branch that selects the subclass over the +ServiceError+ parent.
-  def test_panic_envelope_with_disconnected_klass_dispatches_disconnected_subclass
-    bytes = panic_outcome_bytes(
-      origin: "service", klass: "Kobako::ServiceError::Disconnected",
-      message: "handle id 7 is disconnected", backtrace: ["x:1"]
-    )
-
-    err = assert_raises(Kobako::ServiceError::Disconnected) { decode(bytes) }
-    assert_kind_of Kobako::ServiceError, err,
-                   "Disconnected must remain a ServiceError subclass"
-    assert_equal "service", err.origin
-    assert_equal "Kobako::ServiceError::Disconnected", err.klass
   end
 
   def test_result_envelope_returns_value

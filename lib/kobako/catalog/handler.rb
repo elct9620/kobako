@@ -82,14 +82,6 @@ module Kobako
         self
       end
 
-      # Mark the entry at +id+ as disconnected (ABA protection). +id+ is the
-      # Handle ID to poison; silently ignored if +id+ is not currently bound.
-      # Returns +self+ for chainability, matching the convention of +#reset!+.
-      def mark_disconnected(id)
-        @entries[id] = :disconnected if @entries.key?(id)
-        self
-      end
-
       # Number of currently-bound entries. Used by tests of the Dispatcher
       # and Codec::Utils#deep_wrap to observe whether each path allocates
       # exactly the Handle entries it should — the +Handler+ itself never

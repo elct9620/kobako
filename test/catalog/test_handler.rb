@@ -117,34 +117,5 @@ module Kobako
       refute_same obj_a, table.fetch(id_b)
       assert_same obj_b, table.fetch(id_b)
     end
-
-    # ---------- mark_disconnected: ABA protection sentinel ----------
-
-    def test_mark_disconnected_replaces_entry_with_disconnected_sentinel
-      # Arrange
-      table = Table.new
-      id = table.alloc(Object.new).id
-
-      # Act
-      result = table.mark_disconnected(id)
-
-      # Assert — SPEC E-14: entry becomes the :disconnected sentinel so that
-      # any subsequent fetch returns the sentinel rather than the original object.
-      assert_equal :disconnected, table.fetch(id)
-      # Returns self for chainability, matching the reset! convention.
-      assert_same table, result
-    end
-
-    def test_mark_disconnected_ignores_unknown_id
-      # Arrange
-      table = Table.new
-      original = Object.new
-      table.alloc(original) # populates id 1
-      # Act + Assert — silently ignored; no exception, no state change.
-      # Returns self for chainability (matching reset! convention).
-      assert_same table, table.mark_disconnected(999)
-      assert_same original, table.fetch(1),
-                  "mark_disconnected on unknown id must not touch existing entries"
-    end
   end
 end

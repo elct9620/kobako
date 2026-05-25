@@ -45,9 +45,6 @@ module Kobako
       ?backtrace_lines: Array[String]?,
       ?details: untyped
     ) -> void
-
-    class Disconnected < ServiceError
-    end
   end
 
   class HandlerExhaustedError < SandboxError
