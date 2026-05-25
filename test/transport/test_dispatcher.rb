@@ -19,7 +19,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
   def setup
     @handler = Kobako::Catalog::Handler.new
-    @registry = Kobako::Catalog::Binding.new(handler: @handler)
+    @registry = Kobako::Catalog::Namespaces.new(handler: @handler)
   end
 
   # Drive the Dispatcher directly with the configured registry / handler
@@ -330,7 +330,7 @@ class TestTransportDispatchUnit < Minitest::Test
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     table_a = Kobako::Catalog::Handler.new
     table_b = Kobako::Catalog::Handler.new
-    server_b = Kobako::Catalog::Binding.new(handler: table_b)
+    server_b = Kobako::Catalog::Namespaces.new(handler: table_b)
     handle_id_in_a = table_a.alloc(pinger).id
 
     # The integer id has meaning in A but must NOT cross over to B —
@@ -350,7 +350,7 @@ class TestTransportDispatchUnit < Minitest::Test
     # arg resolution fails when the id misses B's Catalog::Handler.
     table_a = Kobako::Catalog::Handler.new
     table_b = Kobako::Catalog::Handler.new
-    server_b = Kobako::Catalog::Binding.new(handler: table_b)
+    server_b = Kobako::Catalog::Namespaces.new(handler: table_b)
     server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new).id
 
@@ -407,7 +407,7 @@ class TestTransportDispatchUnit < Minitest::Test
     # at Catalog::Handler "Build a fresh, empty Handler" — the parameter
     # is explicitly intended for cap-exhaustion testing.
     exhausted = Kobako::Catalog::Handler.new(next_id: Kobako::Handle::MAX_ID + 1)
-    registry = Kobako::Catalog::Binding.new(handler: exhausted)
+    registry = Kobako::Catalog::Namespaces.new(handler: exhausted)
     registry.define(:Factory).bind(:Make, object_factory)
     req = encode_request("Factory::Make", "make", [], {})
 

@@ -14,7 +14,7 @@ module Kobako
   module Transport
     # Pure-function dispatcher for guest-initiated transport calls.
     # Decodes a msgpack-encoded Request envelope, resolves the target
-    # object through the Catalog::Binding (path lookup) or
+    # object through the Catalog::Namespaces (path lookup) or
     # Catalog::Handler (Handle lookup), invokes the method, and returns
     # a msgpack-encoded Response envelope.
     #

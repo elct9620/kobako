@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for Kobako::Catalog::Binding and its Namespace
+# Layer 3 unit tests for Kobako::Catalog::Namespaces and its Namespace
 # child. Pure Ruby — does NOT require the native extension. Behavioural
 # coverage that needs a real Sandbox wiring (seal! triggered by the
 # first invocation) lives in test/test_sandbox_preload.rb; this file
@@ -20,14 +20,14 @@ require "minitest/autorun"
 require "msgpack"
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "kobako/catalog/binding"
+require "kobako/catalog/namespaces"
 
 module Kobako
   class CatalogBindingTest < Minitest::Test
     Namespace = Kobako::Namespace
 
     def setup
-      @binding = Kobako::Catalog::Binding.new
+      @binding = Kobako::Catalog::Namespaces.new
     end
 
     # ---------- B-07 / B-10: define returns Namespace; idempotent ----------

@@ -8,29 +8,29 @@ require_relative "../namespace"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Binding — per-Sandbox host-side namespace registry.
-    # Holds the Namespace / Member bindings and the preamble emitted on
-    # Frame 1 ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
+    # Kobako::Catalog::Namespaces — per-Sandbox registry of
+    # +Kobako::Namespace+ entities. Holds the Namespace / Member bindings
+    # and the preamble emitted on Frame 1
+    # ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
     #
     # Public API:
     #
-    #   binding = Kobako::Catalog::Binding.new
-    #   namespace = binding.define(:MyService)  # => Kobako::Namespace
-    #   namespace.bind(:KV, kv_object)          # => namespace (chainable)
-    #   binding.encoded_preamble                # => msgpack bytes for Frame 1
-    #   binding.lookup("MyService::KV")         # => kv_object
+    #   namespaces = Kobako::Catalog::Namespaces.new
+    #   namespace = namespaces.define(:MyService)  # => Kobako::Namespace
+    #   namespace.bind(:KV, kv_object)             # => namespace (chainable)
+    #   namespaces.encoded_preamble                # => msgpack bytes for Frame 1
+    #   namespaces.lookup("MyService::KV")         # => kv_object
     #
-    # Namespaces live at +Kobako::Namespace+. Per-dispatch
-    # routing is +Kobako::Transport::Dispatcher+'s responsibility — the
-    # Dispatcher receives this Binding and the +Catalog::Handler+ as
-    # arguments from the +Runtime#on_dispatch+ Proc that
-    # +Kobako::Sandbox#initialize+ installs
-    # ({docs/behavior.md B-12}[link:../../../docs/behavior.md]). The
-    # Binding holds an injected +Catalog::Handler+ reference so dispatch
-    # target resolution and host→guest auto-wrap share the same
+    # Namespaces live at +Kobako::Namespace+. Per-dispatch routing is
+    # +Kobako::Transport::Dispatcher+'s responsibility — the Dispatcher
+    # receives this registry and the +Catalog::Handler+ as arguments from
+    # the +Runtime#on_dispatch+ Proc that +Kobako::Sandbox#initialize+
+    # installs ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
+    # The registry holds an injected +Catalog::Handler+ reference so
+    # dispatch target resolution and host→guest auto-wrap share the same
     # Sandbox-owned allocator (docs/behavior.md B-19).
-    class Binding
-      # Build a fresh Binding. +handler+ is an internal seam that injects
+    class Namespaces
+      # Build a fresh registry. +handler+ is an internal seam that injects
       # a pre-configured +Catalog::Handler+; tests pass one whose +next_id+
       # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
@@ -42,11 +42,11 @@ module Kobako
 
       # Declare or retrieve the Namespace named +name+ (idempotent — docs/behavior.md B-10).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
-      # +Namespace::NAME_PATTERN+). Returns the
-      # +Kobako::Namespace+ for that name, creating it if it
-      # does not exist. Raises +ArgumentError+ when +name+ is malformed, or
-      # when called after the owning Sandbox has been sealed by its first
-      # invocation ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
+      # +Namespace::NAME_PATTERN+). Returns the +Kobako::Namespace+ for that
+      # name, creating it if it does not exist. Raises +ArgumentError+ when
+      # +name+ is malformed, or when called after the owning Sandbox has been
+      # sealed by its first invocation
+      # ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
       def define(name)
         raise ArgumentError, "cannot define after first Sandbox invocation" if @sealed
 
@@ -82,7 +82,7 @@ module Kobako
         MessagePack.pack(@namespaces.values.map(&:to_preamble))
       end
 
-      # Mark the Binding as sealed. Called by +Sandbox+ on the first
+      # Mark the registry as sealed. Called by +Sandbox+ on the first
       # invocation. After sealing, #define raises ArgumentError. Idempotent.
       def seal!
         @sealed = true

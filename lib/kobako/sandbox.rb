@@ -8,7 +8,7 @@ require_relative "errors"
 require_relative "catalog/handler"
 require_relative "transport/run"
 require_relative "outcome"
-require_relative "catalog/binding"
+require_relative "catalog/namespaces"
 require_relative "transport/dispatcher"
 require_relative "transport/request"
 require_relative "transport/response"
@@ -22,7 +22,7 @@ module Kobako
   #
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
   # +Kobako::Catalog::Handler+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
-  # the per-instance +Kobako::Catalog::Binding+ (which receives the
+  # the per-instance +Kobako::Catalog::Namespaces+ (which receives the
   # +Catalog::Handler+ by injection so guest→host dispatch and host→guest
   # auto-wrap share one allocator), and the dispatch +Proc+ /
   # +yield_to_guest+ lambda installed on the Runtime via
@@ -105,7 +105,7 @@ module Kobako
       @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
                                     stderr_limit: stderr_limit)
       @handler = Catalog::Handler.new
-      @services = Kobako::Catalog::Binding.new(handler: @handler)
+      @services = Kobako::Catalog::Namespaces.new(handler: @handler)
       @snippets = Catalog::Snippets.new
       @runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                            @options.stdout_limit, @options.stderr_limit)
