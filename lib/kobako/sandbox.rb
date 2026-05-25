@@ -107,8 +107,8 @@ module Kobako
       @handler = Catalog::Handler.new
       @services = Kobako::Catalog::Binding.new(handler: @handler)
       @snippets = Catalog::Snippet::Table.new
-      @instance = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                            @options.stdout_limit, @options.stderr_limit)
+      @runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
+                                           @options.stdout_limit, @options.stderr_limit)
       install_dispatch_proc!
       reset_invocation_state!
     end
@@ -173,7 +173,7 @@ module Kobako
     def run(target, *args, **kwargs)
       run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @instance.run(@services.encoded_preamble, @snippets.encode, run_envelope.encode(@handler))
+        @runtime.run(@services.encoded_preamble, @snippets.encode, run_envelope.encode(@handler))
       end
     end
 
@@ -204,7 +204,7 @@ module Kobako
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       invoke!(:eval) do
-        @instance.eval(@services.encoded_preamble, code.b, @snippets.encode)
+        @runtime.eval(@services.encoded_preamble, code.b, @snippets.encode)
       end
     end
 
@@ -219,8 +219,8 @@ module Kobako
     # closure. Both are registered on the +Runtime+ once at construction
     # time so the wasm ext callback can fire without further setup.
     def install_dispatch_proc!
-      yield_to_guest = ->(args_bytes) { @instance.yield_to_active_invocation(args_bytes) }
-      @instance.on_dispatch = lambda do |request_bytes|
+      yield_to_guest = ->(args_bytes) { @runtime.yield_to_active_invocation(args_bytes) }
+      @runtime.on_dispatch = lambda do |request_bytes|
         Transport::Dispatcher.dispatch(request_bytes, @services, @handler, yield_to_guest)
       end
     end
@@ -268,7 +268,7 @@ module Kobako
     # destructure-then-kwargs handoff below is the explicit
     # positional→keyword conversion point.
     def read_usage!
-      wall_time, memory_peak = @instance.usage
+      wall_time, memory_peak = @runtime.usage
       @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
     end
 
