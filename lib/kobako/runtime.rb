@@ -19,8 +19,11 @@ module Kobako
     # call sites that need the file to be present should pass this through
     # +Kobako::Runtime.from_path+, which raises
     # +Kobako::ModuleNotBuiltError+ with a clear remediation message.
+    # Raises +Kobako::SetupError+ if +__dir__+ is unavailable so that
+    # +rescue Kobako::SetupError+ around +Kobako::Sandbox.new+ catches every
+    # construction-layer failure uniformly, including this path-resolution one.
     def self.default_path
-      dir = __dir__ or raise Kobako::Error, "Kobako::Runtime.default_path requires __dir__"
+      dir = __dir__ or raise Kobako::SetupError, "Kobako::Runtime.default_path requires __dir__"
       File.expand_path("../../data/kobako.wasm", dir)
     end
   end
