@@ -369,37 +369,4 @@ impl Kobako {
             id as u32
         }
     }
-
-    // ----------------------------------------------------------------
-    // Transport dispatch.
-    // ----------------------------------------------------------------
-
-    /// Invoke `invoke` and convert the result to a [`Value`]. On
-    /// `Response.err`, raises a matching `Kobako::ServiceError`
-    /// subclass; on any other envelope-layer fault, raises
-    /// `Kobako::Transport::WireError` with `err_msg`. Both raise paths
-    /// diverge — `mrb_raise` does not return.
-    pub fn dispatch_invoke(
-        &self,
-        target: crate::transport::envelope::Target,
-        method_name: &str,
-        args: &[crate::codec::Value],
-        kwargs: &[(String, crate::codec::Value)],
-        block_given: bool,
-        err_msg: &core::ffi::CStr,
-    ) -> Value {
-        use crate::transport::proxy::invoke;
-        match invoke(target, method_name, args, kwargs, block_given) {
-            Ok(value) => self.to_mrb_value(value),
-            Err(crate::transport::proxy::InvokeError::Service(ex)) => {
-                // SAFETY: bridge frame — mruby will unwind through
-                // `mrb_raise`.
-                unsafe { self.raise_service_error(&ex) };
-            }
-            Err(_) => {
-                // SAFETY: as above.
-                unsafe { self.raise_wire_error(err_msg) };
-            }
-        }
-    }
 }

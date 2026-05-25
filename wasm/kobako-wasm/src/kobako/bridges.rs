@@ -23,8 +23,6 @@
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
-//!   super::Kobako::dispatch_invoke(target, method, args, kwargs)
-//!        ▼
 //!   crate::transport::proxy::invoke(...)
 //! ```
 //!
@@ -34,8 +32,9 @@
 //! [`handle_method_missing`] is the instance shim on `Kobako::Handle`
 //! (Handle *instances*, `Target::Handle`, docs/behavior.md B-17). The
 //! two differ only in how they derive the `Target` from `self_`; the
-//! BlockFrame push, method-symbol extraction, args/kwargs unpacking, and
-//! `dispatch_invoke` call all live in [`forward_to_dispatch`].
+//! BlockFrame push, method-symbol extraction, args/kwargs unpacking,
+//! host round-trip, and result conversion all live in
+//! [`forward_to_dispatch`].
 //!
 //! ## Safety
 //!
@@ -48,15 +47,20 @@
 use crate::mruby::sys;
 use crate::mruby::sys::Value;
 
-/// Shared body for the two `method_missing` bridges. The caller
-/// supplies the `Target` it derived from its `self_` receiver (a class
-/// name for the `Kobako::Member` singleton-class shim, a Handle id for
-/// the `Kobako::Handle` instance shim) plus the error label that flows
-/// into a wire-error
-/// raise on a failed dispatch. Everything else — BlockFrame push,
-/// method-symbol extraction, args/kwargs unpacking, the
-/// [`super::Kobako::dispatch_invoke`] call — is identical for both
-/// bridges and lives here.
+/// Full guest→host dispatch from the active mruby call frame — the
+/// shared body of the two `method_missing` bridges. The caller supplies
+/// the `Target` it derived from its `self_` receiver (a class name for
+/// the `Kobako::Member` singleton-class shim, a Handle id for the
+/// `Kobako::Handle` instance shim) plus two error labels: `sym_err_msg`
+/// for a null method symbol, `envelope_err_msg` for a transport envelope
+/// fault. Extracts the method symbol, args/kwargs, and block; rounds the
+/// request through the host via [`crate::transport::proxy::invoke`]; and
+/// converts the result back to an mruby value — raising
+/// `Kobako::ServiceError` on a Response.err and
+/// `Kobako::Transport::WireError` on an envelope fault (both raise paths
+/// diverge). The `Kobako` token supplies only the VM-level primitives
+/// (arg/result conversion, error raising); the dispatch orchestration
+/// lives here, not on the token.
 ///
 /// The helper runs `kobako.mrb().get_args::<NRestBlock>()` itself, so
 /// callers must not have already consumed the arglist.
@@ -68,6 +72,7 @@ fn forward_to_dispatch(
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
     use crate::abi::block_stack::BlockFrame;
+    use crate::transport::proxy::{invoke, InvokeError};
 
     let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
 
@@ -85,14 +90,13 @@ fn forward_to_dispatch(
 
     let (args, kwargs) = kobako.unpack_args_kwargs(rest);
 
-    kobako.dispatch_invoke(
-        target,
-        method_name,
-        &args,
-        &kwargs,
-        block_given,
-        envelope_err_msg,
-    )
+    match invoke(target, method_name, &args, &kwargs, block_given) {
+        Ok(value) => kobako.to_mrb_value(value),
+        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+        Err(InvokeError::Service(ex)) => unsafe { kobako.raise_service_error(&ex) },
+        // SAFETY: as above.
+        Err(_) => unsafe { kobako.raise_wire_error(envelope_err_msg) },
+    }
 }
 
 /// `Kobako::Member.method_missing(name, *args)` C bridge —
