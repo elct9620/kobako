@@ -6,12 +6,24 @@ require "test_helper"
 # (an early-design intermediate handle-table error class) and the cycle 14
 # placeholder `Kobako::Sandbox::OutputLimitExceeded < StandardError` are gone;
 # the canonical SPEC hierarchy now anchors every kobako-raised error under
-# `Kobako::Error` with the three-class taxonomy.
+# `Kobako::Error`: the three invocation-outcome classes plus the
+# construction-layer `SetupError` branch.
 class TestErrorClassHierarchy < Minitest::Test
   def test_three_top_level_classes_descend_from_kobako_error
     assert Kobako::TrapError < Kobako::Error
     assert Kobako::SandboxError < Kobako::Error
     assert Kobako::ServiceError < Kobako::Error
+  end
+
+  # docs/behavior.md E-40 / E-41: SetupError is the construction-layer branch,
+  # a sibling of the invocation-outcome classes under Kobako::Error — not a
+  # TrapError, because no invocation runs when Sandbox.new fails to build the
+  # runtime. ModuleNotBuiltError is its named absent-artifact subclass.
+  def test_setup_error_is_a_construction_branch_under_kobako_error
+    assert Kobako::SetupError < Kobako::Error
+    assert Kobako::ModuleNotBuiltError < Kobako::SetupError
+    refute Kobako::SetupError < Kobako::TrapError,
+           "construction failures are not invocation traps"
   end
 
   def test_handler_exhausted_chains_under_sandbox_error

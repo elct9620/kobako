@@ -61,7 +61,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 use super::cache::{cached_module, shared_engine};
 use super::dispatch;
 use super::invocation::{Invocation, MemoryLimitTrap, StoreCell, TimeoutTrap};
-use super::{memory_limit_err, rstring_to_vec, timeout_err, trap_err};
+use super::{memory_limit_err, rstring_to_vec, setup_err, timeout_err, trap_err};
 
 #[magnus::wrap(class = "Kobako::Runtime", free_immediately, size)]
 pub(crate) struct Instance {
@@ -120,8 +120,13 @@ impl Instance {
             None => None,
             Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
             Some(secs) => {
-                return Err(trap_err(
-                    &ruby,
+                // docs/behavior.md E-39: an invalid cap argument is a Host App
+                // programming error and raises `ArgumentError`, outside the
+                // construction-failure `SetupError` branch. `SandboxOptions`
+                // is the primary guard (it never lets a bad timeout reach
+                // here); this is defence-in-depth for direct `from_path` calls.
+                return Err(MagnusError::new(
+                    ruby.exception_arg_error(),
                     format!("timeout must be > 0 and finite, got {secs} seconds"),
                 ));
             }
@@ -166,7 +171,7 @@ impl Instance {
         // so the wiring stays honest about its precondition.
         p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut()).map_err(
             |e| {
-                trap_err(
+                setup_err(
                     &ruby,
                     format!("failed to wire WASI runtime into Sandbox: {}", e),
                 )
@@ -191,7 +196,7 @@ impl Instance {
                 },
             )
             .map_err(|e| {
-                trap_err(
+                setup_err(
                     &ruby,
                     format!("failed to register host transport dispatch import: {}", e),
                 )
@@ -807,20 +812,15 @@ fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     }
 }
 
-/// Map an instantiation error to the right top-level `Kobako::*` Ruby
-/// exception. The memory cap is dormant during instantiation by design
-/// (see [`Invocation::arm_memory_cap`] / [`Invocation::disarm_memory_cap`]),
-/// but [`MemoryLimitTrap`] is still possible if a future Sandbox
-/// configuration enables it during instantiation — keep the mapping
-/// symmetric with [`call_err`]. [`TrapClass::Timeout`] is unreachable on
-/// the instantiation path (the epoch deadline is not armed yet) but
-/// folding it into the same `match` keeps the two paths visually paired.
+/// Map an instantiation error to `Kobako::SetupError`. Instantiation runs
+/// during `from_path` construction, before any invocation — docs/behavior.md
+/// E-41 classifies every such failure as a construction setup fault, not a
+/// per-invocation cap outcome. The memory cap is dormant during
+/// instantiation (see [`Invocation::arm_memory_cap`] /
+/// [`Invocation::disarm_memory_cap`]) and the epoch deadline is not yet
+/// armed, so the [`call_err`] trap-class split does not apply here.
 fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    let msg = format!("instantiate: {}", err);
-    match classify_trap(&err) {
-        TrapClass::MemoryLimit => memory_limit_err(ruby, msg),
-        TrapClass::Timeout | TrapClass::Other => trap_err(ruby, msg),
-    }
+    setup_err(ruby, format!("instantiate: {}", err))
 }
 
 #[cfg(test)]

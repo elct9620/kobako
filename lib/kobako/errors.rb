@@ -2,14 +2,14 @@
 
 # Top-level Kobako namespace.
 module Kobako
-  # Three-class error taxonomy (docs/behavior.md § Error Scenarios).
+  # Error taxonomy (docs/behavior.md § Error Scenarios).
   #
   # Every `Kobako::Sandbox` invocation (`#eval` or `#run`) either returns a value or raises
-  # exactly one of these three classes. Attribution is decided after the
+  # exactly one of three invocation-outcome classes. Attribution is decided after the
   # guest binary returns control to the host (docs/behavior.md
   # "Step 1 — Wasm trap" then "Step 2 — Outcome envelope tag").
   #
-  # Three top-level branches:
+  # Three invocation-outcome branches:
   #
   #   * {TrapError}     — Wasm engine layer (trap, OOM, unreachable, or a
   #                       wire-violation fallback signalling a corrupted
@@ -21,8 +21,19 @@ module Kobako
   #                       call that failed and was not rescued inside the
   #                       script).
   #
+  # A fourth branch sits outside the invocation taxonomy:
+  #
+  #   * {SetupError}    — construction layer. Raised by `Kobako::Sandbox.new`
+  #                       when the wasm runtime cannot be built from the
+  #                       configured +wasm_path+ before any invocation runs
+  #                       (docs/behavior.md E-40 / E-41). Not an invocation
+  #                       outcome, so it never passes through the two-step
+  #                       attribution decision.
+  #
   # Subclasses pinned by docs/behavior.md Error Classes:
   #
+  #   * {ModuleNotBuiltError} < {SetupError} — Guest Binary artifact absent
+  #                       at +wasm_path+ (E-40).
   #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit (B-21).
   #   * {ServiceError::Disconnected} < {ServiceError} — `:disconnected`
   #                       sentinel hit on the Catalog::Handler (E-14).
@@ -60,13 +71,26 @@ module Kobako
   # point; discard and recreate before another execution.
   class MemoryLimitError < TrapError; end
 
-  # Setup-time error raised by +Kobako::Sandbox.new+ /
-  # +Kobako::Runtime.from_path+ when +data/kobako.wasm+ is missing —
-  # the common pre-build state on a fresh clone before
-  # +bundle exec rake compile+. Not a runtime trap (the wasm engine
-  # never started), so it sits directly under +Kobako::Error+ rather
-  # than under +TrapError+.
-  class ModuleNotBuiltError < Error; end
+  # Construction-layer error raised by +Kobako::Sandbox.new+ /
+  # +Kobako::Runtime.from_path+ when the wasm runtime cannot be built
+  # from the configured +wasm_path+ before any invocation runs —
+  # an unreadable artifact, bytes that are not a valid Wasm module, or
+  # engine / linker / instantiation setup failure
+  # ({docs/behavior.md E-41}[link:../../docs/behavior.md]). Construction
+  # is not an invocation, so +SetupError+ sits beside the invocation
+  # taxonomy under +Kobako::Error+ rather than under +TrapError+: no
+  # Sandbox is produced, so the +TrapError+ "discard and recreate"
+  # recovery contract does not apply.
+  class SetupError < Error; end
+
+  # The named +SetupError+ subclass for the common, actionable case:
+  # the Guest Binary artifact is absent at +wasm_path+ — the pre-build
+  # state on a fresh clone before +bundle exec rake compile+
+  # ({docs/behavior.md E-40}[link:../../docs/behavior.md]). Host Apps
+  # that only need "the Sandbox could not be set up" rescue +SetupError+;
+  # those wanting to special-case the unbuilt-artifact state rescue
+  # +ModuleNotBuiltError+ first.
+  class ModuleNotBuiltError < SetupError; end
 
   # Sandbox / wire layer. Raised when the guest ran to completion but
   # execution failed due to a mruby script error, a protocol fault, or a

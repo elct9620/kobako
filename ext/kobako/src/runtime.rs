@@ -52,10 +52,17 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 // Error classes (lazy-resolved from Ruby once the top-level Kobako error
 // hierarchy is loaded by `lib/kobako/errors.rb`). The ext raises directly
-// into the three-class taxonomy — no engine-specific intermediate layer;
-// the Sandbox layer adds the verb prefix and lets the subclass identity
-// flow through unchanged.
+// into the invocation-outcome taxonomy (`TrapError` and its subclasses)
+// for run-path failures and into the construction-layer `SetupError`
+// (and its `ModuleNotBuiltError` subclass) for `from_path` setup failures
+// — no engine-specific intermediate layer; the Sandbox layer adds the
+// verb prefix and lets the subclass identity flow through unchanged.
 // ---------------------------------------------------------------------------
+
+pub(crate) static SETUP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
+    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
+    kobako.const_get("SetupError").unwrap()
+});
 
 pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
@@ -77,11 +84,22 @@ pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
     kobako.const_get("MemoryLimitError").unwrap()
 });
 
-/// Construct a `Kobako::TrapError` magnus error. Used for every wasmtime
-/// engine failure that is not a configured-cap trap — missing exports,
-/// allocation faults, instantiation errors, memory write/read failures.
+/// Construct a `Kobako::TrapError` magnus error. Used for every
+/// invocation-time wasmtime engine failure that is not a configured-cap
+/// trap — missing exports, allocation faults, memory write/read failures.
+/// Construction-time setup failures use `setup_err`, not this.
 pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(&TRAP_ERROR), msg.into())
+}
+
+/// Construct a `Kobako::SetupError` magnus error. Used for every
+/// construction-time failure on the `Runtime.from_path` path before any
+/// invocation runs — unreadable artifact, bytes that are not a valid Wasm
+/// module, or engine / linker / instantiation setup failure (docs/behavior.md
+/// E-41). The `ModuleNotBuiltError` subclass (artifact absent, E-40) is
+/// raised through `MODULE_NOT_BUILT_ERROR` directly.
+pub(crate) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+    MagnusError::new(ruby.get_inner(&SETUP_ERROR), msg.into())
 }
 
 /// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
@@ -105,9 +123,10 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // Error hierarchy lives in `lib/kobako/errors.rb` (top-level
     // `Kobako::TrapError` / `TimeoutError` / `MemoryLimitError` /
-    // `ModuleNotBuiltError`). The ext raises directly into those classes
-    // through `trap_err` / `timeout_err` / `memory_limit_err` /
-    // `MODULE_NOT_BUILT_ERROR`; no intermediate hierarchy is registered.
+    // `SetupError` / `ModuleNotBuiltError`). The ext raises directly into
+    // those classes through `trap_err` / `timeout_err` / `memory_limit_err`
+    // / `setup_err` / `MODULE_NOT_BUILT_ERROR`; no intermediate hierarchy is
+    // registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Instance::from_path, 5))?;

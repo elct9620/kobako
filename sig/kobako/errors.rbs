@@ -11,7 +11,10 @@ module Kobako
   class MemoryLimitError < TrapError
   end
 
-  class ModuleNotBuiltError < Error
+  class SetupError < Error
+  end
+
+  class ModuleNotBuiltError < SetupError
   end
 
   class SandboxError < Error

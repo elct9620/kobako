@@ -32,11 +32,6 @@ class TestRuntime < Minitest::Test
     assert_match(/rake wasm:build/, err.message)
   end
 
-  def test_module_not_built_error_is_standard_error
-    assert_operator Kobako::ModuleNotBuiltError, :<, StandardError
-    assert_operator Kobako::ModuleNotBuiltError, :<, Kobako::Error
-  end
-
   def test_from_path_works_with_fixture_module
     skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
 
@@ -52,25 +47,41 @@ class TestRuntime < Minitest::Test
     refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
 
-  # SPEC error taxonomy contract: a present-but-unparseable wasm artifact
-  # passing through +from_path+ raises +Kobako::TrapError+, not
-  # +ModuleNotBuiltError+. ModuleNotBuiltError is reserved for "file
-  # absent" (the pre-+rake compile+ state operators are most likely to
-  # hit); every other engine-side construction failure — wasmtime
-  # rejecting the bytes, missing required exports, instantiation traps —
-  # collapses to +TrapError+ so the Host App's "discard the Sandbox and
-  # rebuild" recovery path covers them all under one rescue.
-  def test_from_path_raises_trap_error_for_corrupt_wasm_payload
+  # SPEC error taxonomy contract (docs/behavior.md E-40 / E-41): a
+  # present-but-unparseable wasm artifact passing through +from_path+ raises
+  # +Kobako::SetupError+, not the absent-artifact subclass
+  # +ModuleNotBuiltError+ (reserved for "file absent", E-40) and not the
+  # invocation-outcome +TrapError+. Construction fails before any guest
+  # invocation runs, so it sits outside the invocation attribution pipeline;
+  # a single +rescue Kobako::SetupError+ covers every unconstructable-runtime
+  # cause — unreadable bytes, an invalid module, or instantiation failure.
+  def test_from_path_raises_setup_error_for_corrupt_wasm_payload
     # Any present file whose bytes are not a valid wasm module reaches
-    # the WtModule::new compile path and trips +trap_err+. Pick a small
+    # the WtModule::new compile path and trips +setup_err+. Pick a small
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
     non_wasm = File.expand_path("fixtures/snippet_answers.rb", __dir__)
     skip "snippet_answers.rb fixture missing" unless File.exist?(non_wasm)
 
-    err = assert_raises(Kobako::TrapError) do
+    err = assert_raises(Kobako::SetupError) do
       Kobako::Runtime.from_path(non_wasm, nil, nil, nil, nil)
     end
+    refute_kind_of Kobako::ModuleNotBuiltError, err,
+                   "a present-but-corrupt artifact is a SetupError, not the absent-artifact subclass"
+    refute_kind_of Kobako::TrapError, err,
+                   "a construction failure must not be attributed as an invocation TrapError"
     assert_match(/failed to compile Sandbox runtime/, err.message)
+  end
+
+  # docs/behavior.md E-39: an invalid timeout argument is a Host App
+  # programming error, raised as +ArgumentError+ before any engine work —
+  # distinct from the construction-failure +SetupError+ branch. The
+  # +Kobako::Sandbox+ path validates via +SandboxOptions+; this exercises the
+  # ext's defence-in-depth guard on a direct +from_path+ call.
+  def test_from_path_raises_argument_error_for_invalid_timeout
+    err = assert_raises(ArgumentError) do
+      Kobako::Runtime.from_path(Kobako::Runtime.default_path, -1.0, nil, nil, nil)
+    end
+    assert_match(/timeout must be > 0/, err.message)
   end
 end
