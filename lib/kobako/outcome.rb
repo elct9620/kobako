@@ -121,7 +121,7 @@ module Kobako
     # Ruby exception. +origin == "service"+ → ServiceError (with the
     # +::Disconnected+ subclass selected when the panic carries the
     # disconnected sentinel —
-    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]); everything else
+    # {docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]); everything else
     # → SandboxError.
     def build_panic_error(panic)
       panic_target_class(panic).new(
@@ -133,7 +133,7 @@ module Kobako
       )
     end
 
-    # {docs/behavior.md Error Classes}[link:../../docs/behavior.md]: map
+    # {docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]: map
     # the panic +class+ field to the matching Ruby exception subclass so
     # callers can rescue specific failure paths. +origin="service"+ plus
     # +class="Kobako::ServiceError::Disconnected"+ selects the
