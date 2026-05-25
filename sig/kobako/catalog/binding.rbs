@@ -3,7 +3,7 @@ module Kobako
     class Binding
       def initialize: (?handler: Kobako::Catalog::Handler) -> void
 
-      def define: (Symbol | String name) -> Kobako::Catalog::Binding::Namespace
+      def define: (Symbol | String name) -> Kobako::Namespace
 
       def lookup: (String target) -> untyped
 

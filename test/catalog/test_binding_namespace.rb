@@ -24,7 +24,7 @@ require "kobako/catalog/binding"
 
 module Kobako
   class CatalogBindingTest < Minitest::Test
-    Namespace = Kobako::Catalog::Binding::Namespace
+    Namespace = Kobako::Namespace
 
     def setup
       @binding = Kobako::Catalog::Binding.new
@@ -150,7 +150,7 @@ module Kobako
   end
 
   class CatalogBindingNamespaceEdgeCasesTest < Minitest::Test
-    Klass = Kobako::Catalog::Binding::Namespace
+    Klass = Kobako::Namespace
 
     # ---------- bind: non-symbol/non-string member name (E-17) ----------
 

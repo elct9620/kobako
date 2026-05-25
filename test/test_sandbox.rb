@@ -83,7 +83,7 @@ class TestSandbox < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     namespace = sandbox.define(:Foo)
 
-    assert_instance_of Kobako::Catalog::Binding::Namespace, namespace
+    assert_instance_of Kobako::Namespace, namespace
     assert_same namespace, namespace.bind(:Bar, :member)
   end
 

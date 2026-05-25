@@ -4,7 +4,7 @@ require "msgpack"
 require_relative "handler"
 require_relative "../errors"
 require_relative "../transport/request"
-require_relative "binding/namespace"
+require_relative "../namespace"
 
 module Kobako
   module Catalog
@@ -15,12 +15,12 @@ module Kobako
     # Public API:
     #
     #   binding = Kobako::Catalog::Binding.new
-    #   namespace = binding.define(:MyService)  # => Kobako::Catalog::Binding::Namespace
+    #   namespace = binding.define(:MyService)  # => Kobako::Namespace
     #   namespace.bind(:KV, kv_object)          # => namespace (chainable)
     #   binding.encoded_preamble                # => msgpack bytes for Frame 1
     #   binding.lookup("MyService::KV")         # => kv_object
     #
-    # Namespaces live at +Kobako::Catalog::Binding::Namespace+. Per-dispatch
+    # Namespaces live at +Kobako::Namespace+. Per-dispatch
     # routing is +Kobako::Transport::Dispatcher+'s responsibility — the
     # Dispatcher receives this Binding and the +Catalog::Handler+ as
     # arguments from the +Runtime#on_dispatch+ Proc that
@@ -35,7 +35,7 @@ module Kobako
       # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
       def initialize(handler: Catalog::Handler.new)
-        @namespaces = {} # : Hash[String, Kobako::Catalog::Binding::Namespace]
+        @namespaces = {} # : Hash[String, Kobako::Namespace]
         @handler = handler
         @sealed = false
       end
@@ -43,7 +43,7 @@ module Kobako
       # Declare or retrieve the Namespace named +name+ (idempotent — docs/behavior.md B-10).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
       # +Namespace::NAME_PATTERN+). Returns the
-      # +Kobako::Catalog::Binding::Namespace+ for that name, creating it if it
+      # +Kobako::Namespace+ for that name, creating it if it
       # does not exist. Raises +ArgumentError+ when +name+ is malformed, or
       # when called after the owning Sandbox has been sealed by its first
       # invocation ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).

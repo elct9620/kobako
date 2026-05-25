@@ -116,7 +116,7 @@ module Kobako
     # Declare or retrieve the Namespace named +name+ on this Sandbox
     # ({docs/behavior.md B-07, B-09, B-10}[link:../../docs/behavior.md]). +name+ must be a
     # Symbol or String in constant form. Returns the
-    # +Kobako::Catalog::Binding::Namespace+.
+    # +Kobako::Namespace+.
     #
     # Raises +ArgumentError+ when called after the first invocation, or
     # when +name+ does not match the constant-name pattern.
