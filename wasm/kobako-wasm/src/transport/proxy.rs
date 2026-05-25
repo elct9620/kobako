@@ -36,9 +36,9 @@
 //! shims, one per `Kobako::Transport::Proxy` subclass: the singleton-class
 //! shim on `Kobako::Member` (Member classes) and the instance shim on
 //! `Kobako::Handle` for the Handle chaining path (docs/behavior.md B-17).
-//! Both shims live in `crate::kobako::bridges` and call into `Kobako::dispatch_invoke`,
-//! which in turn calls [`invoke`] here. This module's role is the
-//! Rust-level encode/transport/decode pipeline that the C bridges
+//! Both shims live in `crate::kobako::bridges`; their shared
+//! `forward_to_dispatch` body calls [`invoke`] here. This module's role
+//! is the Rust-level encode/transport/decode pipeline that the C bridges
 //! delegate to.
 
 #[cfg(target_arch = "wasm32")]
@@ -292,7 +292,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 // The C-side dispatch entries are the `Kobako::Member` singleton-class
 // `method_missing` shim and the `Kobako::Handle` instance `method_missing`
 // shim. Both live in `crate::kobako::bridges` and reach this module
-// through `Kobako::dispatch_invoke`.
+// through their shared `forward_to_dispatch` body.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).
