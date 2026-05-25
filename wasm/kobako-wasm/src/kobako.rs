@@ -58,30 +58,6 @@ use crate::transport::proxy::ExceptionPayload;
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
-/// SPEC § Error Classes mapping from a Response.err `type` field to a
-/// guest-side mruby class. Routed through
-/// [`service_error_class_for_kind`] so the decision can be exercised
-/// from host-target `cargo test`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ServiceErrorClass {
-    /// `Kobako::ServiceError::Disconnected`. Mapped from `type =
-    /// "disconnected"` — the only named subclass today.
-    Disconnected,
-    /// `Kobako::ServiceError`. Any other reserved or future `type`
-    /// value lands on the parent class.
-    Base,
-}
-
-/// Pure mapping from the Response.err `type` field to the
-/// [`ServiceErrorClass`] used by [`Kobako::raise_service_error`].
-pub(crate) fn service_error_class_for_kind(kind: &str) -> ServiceErrorClass {
-    if kind == "disconnected" {
-        ServiceErrorClass::Disconnected
-    } else {
-        ServiceErrorClass::Base
-    }
-}
-
 /// Failures returned by [`Kobako::install_groups`] when a preamble entry
 /// carries a name that cannot be passed through the mruby C API (which
 /// expects NUL-terminated strings). wasm32-only because the preamble
@@ -142,7 +118,6 @@ pub struct Kobako {
     proxy_class: sys::Class,
     handle_class: sys::Class,
     service_error_class: sys::Class,
-    disconnected_class: sys::Class,
     wire_error_class: sys::Class,
 }
 
@@ -170,7 +145,6 @@ impl Kobako {
             proxy_class: classes.proxy_class,
             handle_class: classes.handle_class,
             service_error_class: classes.service_error_class,
-            disconnected_class: classes.disconnected_class,
             wire_error_class: classes.wire_error_class,
         }
     }
@@ -200,14 +174,12 @@ impl Kobako {
         let proxy_class = transport_mod.class_get_under(mrb_ref, c"Proxy");
         let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
         let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
-        let disconnected_class = service_error_class.class_get_under(mrb_ref, c"Disconnected");
         let wire_error_class = transport_mod.class_get_under(mrb_ref, c"WireError");
         Self {
             mrb,
             proxy_class,
             handle_class,
             service_error_class,
-            disconnected_class,
             wire_error_class,
         }
     }
@@ -249,26 +221,20 @@ impl Kobako {
         unsafe { self.wire_error_class.raise(self.mrb(), msg) };
     }
 
-    /// Raise the matching `Kobako::ServiceError` subclass for `ex`.
-    /// Diverges — `mrb_raise` does not return.
+    /// Raise `Kobako::ServiceError` for `ex`. Diverges — `mrb_raise`
+    /// does not return.
     ///
     /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
-    /// § Fault Envelope pin the mapping from the Response.err `type`
-    /// field to a guest-side mruby class. The mapping itself lives in
-    /// the pure helper [`service_error_class_for_kind`] so the routing
-    /// can be exercised from `cargo test` without the FFI surface.
+    /// § Fault Envelope pin every Response.err `type` value to the
+    /// single guest-side `Kobako::ServiceError` class.
     ///
     /// # Safety
     ///
     /// As [`Kobako::raise_wire_error`].
     pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
-        let target_cls = match service_error_class_for_kind(&ex.kind) {
-            ServiceErrorClass::Disconnected => self.disconnected_class,
-            ServiceErrorClass::Base => self.service_error_class,
-        };
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { target_cls.raise(self.mrb(), &msg) };
+        unsafe { self.service_error_class.raise(self.mrb(), &msg) };
     }
 
     // ----------------------------------------------------------------
@@ -435,41 +401,5 @@ impl Kobako {
                 unsafe { self.raise_wire_error(err_msg) };
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn service_error_class_routes_disconnected_to_subclass() {
-        assert_eq!(
-            service_error_class_for_kind("disconnected"),
-            ServiceErrorClass::Disconnected
-        );
-    }
-
-    #[test]
-    fn service_error_class_routes_unmapped_kinds_to_base() {
-        // SPEC reserves "runtime", "argument", "undefined", "type" plus
-        // any future value; all must land on the base class until a
-        // dedicated guest-side subclass is registered for them.
-        for kind in ["runtime", "argument", "undefined", "type", "future_type"] {
-            assert_eq!(
-                service_error_class_for_kind(kind),
-                ServiceErrorClass::Base,
-                "unmapped kind {kind:?} must fall back to ServiceError base"
-            );
-        }
-    }
-
-    #[test]
-    fn service_error_class_treats_empty_kind_as_base() {
-        // A Response.err with an empty `type` is a wire violation, but
-        // the routing must still land on a real class rather than
-        // panic; SPEC pins "any unmapped value → base" with no
-        // empty-string carve-out.
-        assert_eq!(service_error_class_for_kind(""), ServiceErrorClass::Base);
     }
 }

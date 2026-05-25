@@ -33,15 +33,14 @@ pub(super) struct KobakoClasses {
     pub(super) proxy_class: sys::Class,
     pub(super) handle_class: sys::Class,
     pub(super) service_error_class: sys::Class,
-    pub(super) disconnected_class: sys::Class,
     pub(super) wire_error_class: sys::Class,
 }
 
 /// Register the Kobako module, the `Kobako::Transport` namespace, the
 /// `Kobako::Transport::Proxy` class plus the top-level `Kobako::Handle`
-/// value object, and the `Kobako::ServiceError` / `Disconnected` /
+/// value object, and the `Kobako::ServiceError` /
 /// `Kobako::Transport::WireError` exception hierarchy. Returns the
-/// five class handles the [`super::Kobako`] token needs to keep around.
+/// four class handles the [`super::Kobako`] token needs to keep around.
 ///
 /// Function pointers come from [`bridges`], the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by
@@ -115,16 +114,14 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         sys::MRB_ARGS_ANY,
     );
 
-    // `Kobako::ServiceError` / `Kobako::ServiceError::Disconnected`
-    // / `Kobako::Transport::WireError` / `Kobako::BytecodeError` — all
-    // subclass `RuntimeError`. ServiceError and BytecodeError stay
-    // at the Kobako top level (public API); WireError lives under
-    // Transport since it is a transport-layer fault.
+    // `Kobako::ServiceError` / `Kobako::Transport::WireError` /
+    // `Kobako::BytecodeError` — all subclass `RuntimeError`.
+    // ServiceError and BytecodeError stay at the Kobako top level
+    // (public API); WireError lives under Transport since it is a
+    // transport-layer fault.
     let runtime_error_class = mrb.class_get(c"RuntimeError");
     let service_error_class =
         kobako_mod.define_class_under(mrb, c"ServiceError", runtime_error_class);
-    let disconnected_class =
-        service_error_class.define_class_under(mrb, c"Disconnected", service_error_class);
     let wire_error_class = transport_mod.define_class_under(mrb, c"WireError", runtime_error_class);
     // `Kobako::BytecodeError` is registered here so guest code can
     // raise it by name; the class handle is not cached on
@@ -138,7 +135,6 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         proxy_class,
         handle_class,
         service_error_class,
-        disconnected_class,
         wire_error_class,
     }
 }

@@ -261,10 +261,6 @@ mod tests {
     #[test]
     fn origin_for_class_routes_service_errors_to_service() {
         assert_eq!(origin_for_class("Kobako::ServiceError"), "service");
-        assert_eq!(
-            origin_for_class("Kobako::ServiceError::Disconnected"),
-            "service"
-        );
     }
 
     #[test]
