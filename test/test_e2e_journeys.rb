@@ -264,6 +264,26 @@ class TestE2EJourneys < Minitest::Test
                  "B-17: Handle target from first transport call routes second call to the stateful object"
   end
 
+  # SPEC.md B-36: a guest may probe a Member constant or a Handle instance
+  # with respond_to? before dispatching; both answer true because every
+  # method forwards to the host. KV::Lookup exercises the Member
+  # (class-level) registration; the Greeter Handle exercises the Handle
+  # (instance-level) registration — one assertion pins both paths.
+  def test_b36_respond_to_probe_succeeds_on_member_and_handle
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:KV).bind(:Lookup, ->(key) { "value:#{key}" })
+    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+
+    result = sandbox.eval(<<~RUBY)
+      handle = Factory::Make.call("Bob")
+      [KV::Lookup.respond_to?(:lookup_anything), handle.respond_to?(:greet)]
+    RUBY
+
+    assert_equal [true, true], result,
+                 "B-36: respond_to? on a Member constant and on a Handle instance must both " \
+                 "report true so guest-side capability probing succeeds before dispatch"
+  end
+
   # mruby's +puts+ on a capped channel may raise +IOError+ once the
   # WASI write is rejected. The rescue swallows that script-level
   # failure so these tests pin only the host-observable contract
