@@ -39,7 +39,7 @@ module Kobako
     class Run < Data.define(:entrypoint, :args, :kwargs)
       # Ruby constant-name pattern enforced on the +entrypoint+ Symbol
       # ({docs/behavior.md E-25}[link:../../../docs/behavior.md]). Parallel to
-      # +Kobako::Catalog::Snippet::Table::NAME_PATTERN+; the two constants name the
+      # +Kobako::Catalog::Snippets::NAME_PATTERN+; the two constants name the
       # same regex but cover distinct surfaces (snippet identity vs.
       # entrypoint resolution) so a future divergence stays local.
       NAME_PATTERN = /\A[A-Z]\w*\z/

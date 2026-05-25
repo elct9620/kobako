@@ -3,7 +3,7 @@
 require "forwardable"
 
 require_relative "capture"
-require_relative "catalog/snippet"
+require_relative "catalog/snippets"
 require_relative "errors"
 require_relative "catalog/handler"
 require_relative "transport/run"
@@ -106,7 +106,7 @@ module Kobako
                                     stderr_limit: stderr_limit)
       @handler = Catalog::Handler.new
       @services = Kobako::Catalog::Binding.new(handler: @handler)
-      @snippets = Catalog::Snippet::Table.new
+      @snippets = Catalog::Snippets.new
       @runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                            @options.stdout_limit, @options.stderr_limit)
       install_dispatch_proc!

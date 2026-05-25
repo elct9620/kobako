@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Unit tests for Kobako::Catalog::Snippet::Table — the per-Sandbox
+# Unit tests for Kobako::Catalog::Snippets — the per-Sandbox
 # insertion-ordered registry of preloaded snippets (docs/behavior.md
 # B-32 / E-33 / E-34). Behavioural coverage at the Sandbox#preload
 # boundary lives in test/test_sandbox_preload.rb; this file pins the
@@ -14,7 +14,7 @@ require "test_helper"
 # enumeration helpers.
 class TestCatalogSnippetTableRegistration < Minitest::Test
   def setup
-    @table = Kobako::Catalog::Snippet::Table.new
+    @table = Kobako::Catalog::Snippets.new
   end
 
   def test_new_table_encodes_to_empty_msgpack_array
@@ -110,7 +110,7 @@ end
 # encode_response on entry-tier carriers).
 class TestCatalogSnippetTableEncoding < Minitest::Test
   def setup
-    @table = Kobako::Catalog::Snippet::Table.new
+    @table = Kobako::Catalog::Snippets.new
   end
 
   def test_encode_source_entry_wire_shape

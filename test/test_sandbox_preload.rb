@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Sandbox#preload surface tests. Catalog::Snippet::Table validation
+# Sandbox#preload surface tests. Catalog::Snippets validation
 # (E-33 / E-34 / non-String code / non-String binary / no-keyword /
 # combining binary: with code:|name:) is pinned at the table tier in
 # test/catalog/test_snippet_table.rb; Sandbox#preload is a thin
@@ -21,7 +21,7 @@ class TestSandboxPreload < Minitest::Test
   end
 
   # Sandbox#preload returns self for chaining — distinct from
-  # Catalog::Snippet::Table#register, which returns the registered
+  # Catalog::Snippets#register, which returns the registered
   # Symbol name (or nil for binary:). This is the only Sandbox-tier
   # contract over Table#register.
   def test_preload_returns_self_for_chaining

@@ -108,7 +108,7 @@ class TestSnapshot < Minitest::Test
   def drive_eval(code)
     handler = Kobako::Catalog::Handler.new
     services = Kobako::Catalog::Binding.new(handler: handler)
-    snippets = Kobako::Catalog::Snippet::Table.new
+    snippets = Kobako::Catalog::Snippets.new
 
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil)
     runtime.on_dispatch = ->(_) { raise "unexpected dispatch in eval-only snapshot test" }
