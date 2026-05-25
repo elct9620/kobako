@@ -523,7 +523,7 @@ Each task in `tasks/*.rake` must be idempotent: the presence of target files (e.
 | 2 | Development guide (`docs/`) | Complete design specification (this document) |
 | 3 | Wire Spec | Normative host↔guest codec contract; the binding reference for the Host Gem and Guest Binary implementations shipped in this release |
 | 4 | Build guide | Rake task reference, vendor version table, common build error troubleshooting |
-| 5 | `CHANGELOG.md` | Keep a Changelog format; each release includes Added / Changed / Fixed / Breaking Changes sections (empty sections may be omitted) |
+| 5 | `CHANGELOG.md` | Keep a Changelog format, generated and maintained by release-please from Conventional Commit messages — never hand-authored. release-please opens a release PR that writes the file and derives its Added / Changed / Fixed / Breaking Changes sections from the `feat` / `fix` / `feat!` / `BREAKING CHANGE:` commit types since the last release; the file first appears with that release PR. |
 | 6 | `LICENSE` | License file |
 
-Wire-affecting changes that break round-trip compatibility are recorded in `CHANGELOG.md` under the Breaking Changes section. MSRV changes are treated as breaking changes and must appear in `CHANGELOG.md`.
+Wire-affecting changes that break round-trip compatibility are recorded by marking their commit as a breaking change (`feat!` / `fix!` or a `BREAKING CHANGE:` footer); release-please rolls these into the CHANGELOG's Breaking Changes section automatically. MSRV changes are treated as breaking changes and marked the same way. The contributor's obligation is the commit-message convention, not editing `CHANGELOG.md` directly.
