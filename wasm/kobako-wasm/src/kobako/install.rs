@@ -152,8 +152,8 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
     // Top-level `::IO` class. Registers the constructor + `#write` /
     // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
     // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
-    // `#<<`, etc.) in pure Ruby. The bridges talk to wasi-libc's
-    // `stdout` / `stderr` via the `kobako_io_fwrite` C shim
+    // `#<<`, etc.) in pure Ruby. The `#write` bridge calls wasi-libc's
+    // `write(2)` directly on the stored fd (1 = stdout, 2 = stderr)
     // (docs/behavior.md B-04).
     io::install(mrb);
 

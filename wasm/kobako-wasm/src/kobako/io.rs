@@ -187,10 +187,11 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the
 /// ivar is missing or not Fixnum-tagged — neither case should arise in
 /// practice because `io_initialize` is the only writer and stores the
-/// fd as a boxed Integer. The downstream `kobako_io_fwrite` treats
-/// `fd != 2` as "route to stdout", so a degenerate `0` lands on stdout
-/// rather than trapping. The direct unbox skips the previous
-/// `.to_s.parse` round-trip — see L-4 in the review for the rationale.
+/// fd as a boxed Integer (constrained to 1 / 2). The fd flows straight
+/// into the `write(2)` call in [`io_write`]; a degenerate `0` would
+/// target fd 0, where the short-write guard (`if n > 0`) absorbs the
+/// result rather than trapping. The direct unbox skips the previous
+/// `.to_s.parse` round-trip.
 #[cfg(target_arch = "wasm32")]
 fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
