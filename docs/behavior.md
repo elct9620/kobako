@@ -395,6 +395,17 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
+## B-36 — Guest probes a Member or Handle with `respond_to?`
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `Name::MemberName` (B-08) or a `Kobako::Handle` instance obtained from a prior dispatch (B-14) or `#run` auto-wrap (B-34). |
+| **Operation** | Guest code calls `Name::MemberName.respond_to?(:any_name)` on the Member constant, or `handle.respond_to?(:any_name)` on the Handle instance, for a name the proxy does not define locally. |
+| **Result / Final State** | `respond_to?` returns `true` for every such probe, on both the Member constant and the Handle instance. The probe is answered entirely inside the guest — no Transport Request is sent. A following method call dispatches normally (B-12 for a Member, B-17 for a Handle). |
+| **Notes** | Every method call on a Member or Handle is forwarded to the host, so `respond_to?` answers `true` to stay consistent: a method the guest can dispatch must not be reported as unsupported. The answer is optimistic, not authoritative — it does not consult the host and does not confirm the bound object implements the method. When the resolved host object does not implement the method, the host-side `public_send` raises `NoMethodError`, which surfaces to the guest as a `ServiceError` with `type="runtime"` (E-11); this is distinct from `type="undefined"`, which is reserved for a target that itself cannot be resolved (E-12 unregistered Member path, E-13 stale Handle). Names the proxy defines locally resolve through their own methods and never reach this path. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
