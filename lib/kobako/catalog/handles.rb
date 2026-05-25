@@ -30,7 +30,7 @@ module Kobako
     #     +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap raises
     #     immediately — no silent truncation, no wrap, no ID reuse.
     class Handles
-      # Build a fresh, empty Handles. +next_id+ is an internal seam that
+      # Build a fresh, empty table. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1 per
       # B-15); tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
       # the cap-exhaustion path without 2³¹ allocations.
@@ -84,7 +84,7 @@ module Kobako
 
       # Number of currently-bound entries. Used by tests of the Dispatcher
       # and Codec::Utils#deep_wrap to observe whether each path allocates
-      # exactly the Handle entries it should — the +Handles+ itself never
+      # exactly the Handle entries it should — the +Handles+ table itself never
       # consults its own size, but the surrounding code's allocation
       # contract is part of the observable boundary.
       def size

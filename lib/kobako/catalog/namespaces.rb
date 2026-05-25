@@ -67,7 +67,7 @@ module Kobako
         namespace_name, member_name = target.to_s.split("::", 2)
         namespace = @namespaces[namespace_name]
         raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
-        raise KeyError, "no member #{target.inspect} bound on binding" unless member_name
+        raise KeyError, "no member in target #{target.inspect}" unless member_name
 
         namespace.fetch(member_name)
       end

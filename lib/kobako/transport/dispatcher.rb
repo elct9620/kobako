@@ -26,7 +26,7 @@ module Kobako
     #
     # Entry point:
     #
-    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, server, handler, yield_to_guest)
+    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, namespaces, handler, yield_to_guest)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
       # Throw tag for {#build_block_proxy}'s break unwind back to the
@@ -46,9 +46,9 @@ module Kobako
       # Dispatch a single transport request and return the encoded
       # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       # Invoked from the +Runtime#on_dispatch+ Proc that
-      # +Kobako::Sandbox#initialize+ installs on the ext side; +server+,
+      # +Kobako::Sandbox#initialize+ installs on the ext side; +namespaces+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
-      # closure so the Dispatcher stays stateless and Server doesn't
+      # closure so the Dispatcher stays stateless and the registry doesn't
       # need to publish accessors for the Sandbox-owned +Catalog::Handles+
       # or +Runtime+. +yield_to_guest+ is a +String → String+ callable
       # (typically +Runtime#yield_to_active_invocation+ bound as a lambda)
@@ -56,9 +56,9 @@ module Kobako
       # returns a binary String — every failure path is reified as a
       # Response.error envelope so the guest sees a transport error rather
       # than a wasm trap.
-      def dispatch(request_bytes, server, handler, yield_to_guest)
+      def dispatch(request_bytes, namespaces, handler, yield_to_guest)
         request = Kobako::Transport.decode_request(request_bytes)
-        target = resolve_target(request.target, server, handler)
+        target = resolve_target(request.target, namespaces, handler)
         args, kwargs = resolve_call_args(request, handler)
         block_proxy, invalidator = build_block_proxy(yield_to_guest) if request.block_given
         value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, block_proxy) }
@@ -138,24 +138,24 @@ module Kobako
         end
       end
 
-      # Resolve a Request target to the Ruby object the Server (or
-      # Catalog::Handles) holds. String targets go through the Server;
+      # Resolve a Request target to the Ruby object the registry (or
+      # Catalog::Handles) holds. String targets go through the registry;
       # Handle targets (ext 0x01) go through the Catalog::Handles.
       #
       # Target type is already validated by +Transport.decode_request+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
-      def resolve_target(target, server, handler)
+      def resolve_target(target, namespaces, handler)
         case target
         when String
-          resolve_path(target, server)
+          resolve_path(target, namespaces)
         when Kobako::Handle
           resolve_handle(target, handler)
         end
       end
 
-      def resolve_path(path, server)
-        server.lookup(path)
+      def resolve_path(path, namespaces)
+        namespaces.lookup(path)
       rescue KeyError => e
         raise UndefinedTargetError, e.message
       end

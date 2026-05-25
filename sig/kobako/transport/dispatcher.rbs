@@ -6,7 +6,7 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      def self?.dispatch: (String request_bytes, Kobako::Catalog::Namespaces server, Kobako::Catalog::Handles handler, ^(String) -> String yield_to_guest) -> String
+      def self?.dispatch: (String request_bytes, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler, ^(String) -> String yield_to_guest) -> String
 
       def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handles handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
@@ -18,9 +18,9 @@ module Kobako
 
       def self?.resolve_arg: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Catalog::Namespaces server, Kobako::Catalog::Handles handler) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler) -> untyped
 
-      def self?.resolve_path: (String path, Kobako::Catalog::Namespaces server) -> untyped
+      def self?.resolve_path: (String path, Kobako::Catalog::Namespaces namespaces) -> untyped
 
       def self?.resolve_handle: (Kobako::Handle handle, Kobako::Catalog::Handles handler) -> untyped
 
