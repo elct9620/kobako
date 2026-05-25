@@ -45,8 +45,8 @@ pub(crate) fn install(mrb: &crate::mruby::Mrb) {
     let io_class = mrb.define_class(c"IO", mrb.object_class());
 
     io_class.define_method(mrb, c"initialize", io_initialize, sys::mrb_args_req(2));
-    io_class.define_method(mrb, c"write", io_write, sys::MRB_ARGS_ANY);
-    io_class.define_method(mrb, c"fileno", io_fileno, sys::MRB_ARGS_NONE);
+    io_class.define_method(mrb, c"write", io_write, sys::mrb_args_any());
+    io_class.define_method(mrb, c"fileno", io_fileno, sys::mrb_args_none());
 
     // Load the Ruby-level instance methods (#print / #puts / #printf
     // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,

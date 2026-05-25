@@ -222,21 +222,24 @@ pub mod format {
     }
 
     /// `mrb_get_args(mrb, "io", &n, &val)` — read an integer followed
-    /// by an object.
+    /// by an object. The `"i"` specifier writes an `mrb_int`, so the
+    /// out-param is typed `sys::mrb_int` (not `c_int`) to match mruby's
+    /// own width contract rather than coincide with it on the wasm32
+    /// `MRB_INT32` build.
     pub struct Io;
     impl Format for Io {
-        type Output<'a> = (core::ffi::c_int, Value);
+        type Output<'a> = (sys::mrb_int, Value);
         const FMT: &'static core::ffi::CStr = c"io";
 
-        fn read(mrb: &Mrb) -> (core::ffi::c_int, Value) {
-            let mut n: core::ffi::c_int = 0;
+        fn read(mrb: &Mrb) -> (sys::mrb_int, Value) {
+            let mut n: sys::mrb_int = 0;
             let mut raw = sys::mrb_value::zeroed();
             // SAFETY: as `O::read`.
             unsafe {
                 sys::mrb_get_args(
                     mrb.as_ptr(),
                     Self::FMT.as_ptr(),
-                    &mut n as *mut core::ffi::c_int,
+                    &mut n as *mut sys::mrb_int,
                     &mut raw as *mut sys::mrb_value,
                 );
             }

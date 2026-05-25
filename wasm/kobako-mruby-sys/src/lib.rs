@@ -243,40 +243,45 @@ impl mrb_value {
 pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: Value) -> Value;
 
 // --------------------------------------------------------------------
-// Macro-form aspec helpers.
+// Argument-spec encoders.
 // --------------------------------------------------------------------
 //
-// bindgen does not expand function-like macros, so we mirror the bit
-// packing from `vendor/mruby/include/mruby.h` directly. The unit test
-// at the bottom of this file pins the encoding to the documented
-// layout.
+// mruby spells these as the function-like macros MRB_ARGS_NONE() /
+// MRB_ARGS_ANY() / MRB_ARGS_REQ(n); bindgen cannot expand macros, so the
+// `mrb_args_*_func` static-inline shims in `wrapper.h` emit the bit
+// packing from mruby's own header (reached through bindgen's
+// `wrap_static_fns` trampolines). These safe wrappers forward to the
+// trampolines so method-registration sites keep a const-like call shape
+// without an `unsafe` block, and the encoding can never desync from a
+// mruby vendor bump the way a Rust-side bit-packing mirror could.
 
 /// `MRB_ARGS_NONE()` — no arguments.
-pub const MRB_ARGS_NONE: mrb_aspec = 0;
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub fn mrb_args_none() -> mrb_aspec {
+    // SAFETY: pure value computation; touches no mrb_state.
+    unsafe { mrb_args_none_func() }
+}
 
-/// `MRB_ARGS_ANY()` — accept any number of arguments. Matches mruby's
-/// `MRB_ARGS_REST()` shape: 0 required, 0 optional, rest=1.
-pub const MRB_ARGS_ANY: mrb_aspec = 1 << 12;
+/// `MRB_ARGS_ANY()` — accept any number of arguments.
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub fn mrb_args_any() -> mrb_aspec {
+    // SAFETY: as `mrb_args_none`.
+    unsafe { mrb_args_any_func() }
+}
 
 /// `MRB_ARGS_REQ(n)` — `n` required positional arguments.
+#[cfg(target_arch = "wasm32")]
 #[inline]
-pub const fn mrb_args_req(n: u32) -> mrb_aspec {
-    (n & 0x1f) << 18
+pub fn mrb_args_req(n: u32) -> mrb_aspec {
+    // SAFETY: as `mrb_args_none`.
+    unsafe { mrb_args_req_func(n) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn mrb_args_constants_match_mruby_layout() {
-        // `MRB_ARGS_REQ(n)` packs `n` into bits 18..23 of the aspec
-        // word. mruby header: `((mrb_aspec)((n)&0x1f) << 18)`.
-        assert_eq!(mrb_args_req(4), 4 << 18);
-        assert_eq!(mrb_args_req(0), 0);
-        assert_eq!(MRB_ARGS_ANY, 1 << 12);
-        assert_eq!(MRB_ARGS_NONE, 0);
-    }
 
     #[test]
     fn mrb_value_size_covers_known_layouts() {

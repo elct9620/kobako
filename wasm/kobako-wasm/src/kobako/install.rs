@@ -82,13 +82,13 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         mrb,
         c"method_missing",
         bridges::member_method_missing,
-        sys::MRB_ARGS_ANY,
+        sys::mrb_args_any(),
     );
     member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
         bridges::proxy_respond_to_missing,
-        sys::MRB_ARGS_ANY,
+        sys::mrb_args_any(),
     );
 
     // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
@@ -107,13 +107,13 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         mrb,
         c"method_missing",
         bridges::handle_method_missing,
-        sys::MRB_ARGS_ANY,
+        sys::mrb_args_any(),
     );
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
         bridges::proxy_respond_to_missing,
-        sys::MRB_ARGS_ANY,
+        sys::mrb_args_any(),
     );
 
     // `Kobako::ServiceError` / `Kobako::Transport::WireError` /

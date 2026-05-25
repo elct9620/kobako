@@ -160,3 +160,26 @@ mrb_current_ci_index_func(mrb_state *mrb)
 {
   return (uintptr_t)(mrb->c->ci - mrb->c->cibase);
 }
+
+/* Argument-spec encoders. mruby spells MRB_ARGS_NONE() / MRB_ARGS_ANY()
+ * / MRB_ARGS_REQ(n) as function-like macros in <mruby.h>; bindgen does
+ * not expand macros, so wrap them here and let the C compiler emit the
+ * `mrb_aspec` bit packing from mruby's own header rather than mirroring
+ * it in Rust. Pure value computation — no mrb_state touched. */
+static inline mrb_aspec
+mrb_args_none_func(void)
+{
+  return MRB_ARGS_NONE();
+}
+
+static inline mrb_aspec
+mrb_args_any_func(void)
+{
+  return MRB_ARGS_ANY();
+}
+
+static inline mrb_aspec
+mrb_args_req_func(uint32_t n)
+{
+  return MRB_ARGS_REQ(n);
+}
