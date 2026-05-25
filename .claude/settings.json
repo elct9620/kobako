@@ -26,6 +26,12 @@
           {
             "type": "command",
             "command": "cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; if rustc --target wasm32-wasip1 --print sysroot >/dev/null 2>&1; then cargo clippy --target wasm32-wasip1 --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace -q -- -D warnings >&2 || exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bundle exec rake >&2 || exit 2",
+            "timeout": 1800,
+            "statusMessage": "Running bundle exec rake (compile + test + rubocop + steep)"
           }
         ]
       }
