@@ -244,7 +244,7 @@ The ABI is a closed enumerated set: exactly five guest exports are permitted, li
 
 `__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior.md` § Error Scenarios).
 
-The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its yield proxy (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-dispatch 16 MiB payload size limit applies in both directions.
+The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its Yielder (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-dispatch 16 MiB payload size limit applies in both directions.
 
 ### Invocation channels
 

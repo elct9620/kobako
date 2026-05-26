@@ -25,7 +25,7 @@ Every host↔guest Transport request carries exactly five logical fields:
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ [`docs/wire-codec.md`](wire-codec.md) § Ext Types → ext 0x00); the host passes them to dispatch unchanged. An empty kwargs map is always present (never absent) to keep field positions stable. |
-| `block_given` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a yield proxy and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
+| `block_given` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a Yielder and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
 
 The `target` string form uses Ruby constant-path syntax (`"Namespace::Member"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
@@ -97,13 +97,13 @@ The host reads zero-length outcome bytes or an unrecognized envelope tag as a wi
 
 ## Yield Round-Trip
 
-When a Service method invokes `yield` or `block.call` (B-24) on the yield proxy materialised from a Request with `block_given=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response dispatch: the host initiates, the guest responds.
+When a Service method invokes `yield` or `block.call` (B-24) on the Yielder materialised from a Request with `block_given=true`, the Host Gem re-enters the Guest Binary synchronously to execute the block body. This is the symmetric counterpart of a Request/Response dispatch: the host initiates, the guest responds.
 
-- **Initiator**: the Host Gem (specifically, the yield proxy passed to the Service method) is the initiator of every yield round-trip.
+- **Initiator**: the Host Gem (specifically, the Yielder passed to the Service method) is the initiator of every yield round-trip.
 - **Responder**: the Guest Binary receives the yield arguments, executes the block body inside the current dispatch frame, and returns a YieldResponse to the host before the re-entry frame exits.
-- **Synchronicity**: every yield round-trip is fully synchronous and nests strictly within the dispatch frame that produced the proxy. From the Service method's perspective, `yield` is an ordinary synchronous method call.
-- **Scope**: a yield proxy is valid only for the duration of the dispatch frame that produced it. Invoking it after that frame returns raises (E-23).
-- **Nesting**: dispatch frames stack in LIFO order; each frame holds at most one yield proxy, and nested frames have independent proxies (B-28). The wasm stack budget bounds nesting depth.
+- **Synchronicity**: every yield round-trip is fully synchronous and nests strictly within the dispatch frame that produced the Yielder. From the Service method's perspective, `yield` is an ordinary synchronous method call.
+- **Scope**: a Yielder is valid only for the duration of the dispatch frame that produced it. Invoking it after that frame returns raises (E-23).
+- **Nesting**: dispatch frames stack in LIFO order; each frame holds at most one Yielder, and nested frames have independent Yielders (B-28). The wasm stack budget bounds nesting depth.
 
 ---
 
@@ -118,7 +118,7 @@ The envelope is a tag-prefixed binary structure: a single byte tag followed by a
 | `0x01` | **ok** | wire-legal value | The block body completed normally. `payload` is the block's last expression value (or the value supplied to `next val`). The host yield expression returns this value to the Service method. |
 | `0x02` | **break** | wire-legal value | The block executed `break val` from a non-lambda, non-orphan context. The host yield site terminates the Service method's invocation with `payload` as the effective return value (B-25). |
 | `0x03` | RESERVED | — | Reserved tag value. Receivers reject this tag as a wire violation. |
-| `0x04` | **error** | map `{class, message, backtrace}` | The block raised an exception, returned a value with no wire representation (E-22), used `return` from a non-lambda block (E-21), or invoked an escaped yield proxy (E-23). The host yield site re-raises a Ruby exception with the named class and message. |
+| `0x04` | **error** | map `{class, message, backtrace}` | The block raised an exception, returned a value with no wire representation (E-22), used `return` from a non-lambda block (E-21), or invoked an escaped Yielder (E-23). The host yield site re-raises a Ruby exception with the named class and message. |
 
 The `0x01` ok payload follows the same wire type mapping as any Response success value (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping). Capability Handle references (ext 0x01) are legal in the payload position.
 

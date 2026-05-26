@@ -258,8 +258,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Sandbox is executing a mruby script. A Member is bound at `Name::MemberName`. |
 | **Operation** | Guest code executes `Name::MemberName.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
-| **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a yield proxy (a Ruby Proc) into the resolved Service method as its block argument. The Service method's `block_given?` returns `true`, `yield` invokes the proxy, and the proxy is also accessible as `&block` if the method declares one. The yield proxy is valid for the duration of this dispatch only. |
-| **Notes** | The block itself is not transmitted as a wire value; only a single bit (`block_given`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The yield proxy has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
+| **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a Yielder into the resolved Service method as its block argument. The Service method observes it as a Ruby Proc: `block_given?` returns `true`, `yield` invokes the Yielder, and it is also accessible as `&block` if the method declares one. The Yielder is valid for the duration of this dispatch only. |
+| **Notes** | The block itself is not transmitted as a wire value; only a single bit (`block_given`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The Yielder has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
 
 ---
 
@@ -268,7 +268,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | Field | Value |
 |-------|-------|
 | **Initial State** | A Service method, invoked from a guest call that supplied a block (B-23), executes on the host. `block_given?` is `true`. |
-| **Operation** | The Service method invokes the yield proxy via `yield val` or `block.call(val)` — once or many times. |
+| **Operation** | The Service method invokes the Yielder via `yield val` or `block.call(val)` — once or many times. |
 | **Result / Final State** | Each invocation is a synchronous round-trip into the guest: the guest executes the block body with the supplied arguments, and the block's last expression value is returned to the Service method as the value of the `yield` expression. The Service method continues executing after each yield until it returns, raises, or is terminated by a `break` from the block (B-25). |
 | **Notes** | The round-trip uses the same wasmtime synchronous re-entry model as B-12 dispatches in the other direction. The wall-clock `timeout` and `memory_limit` (B-01) apply to the combined host + guest execution; time spent inside the block counts against the deadline. An exception raised inside the block body that the Service method does not rescue propagates back to the dispatch boundary and reaches the guest as a Service-layer fault (E-11). |
 
@@ -313,7 +313,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A guest block (from a Service call `Outer.run { |a| ... }`) is mid-execution, and inside its body it calls another Service with its own block (`Inner.run { |b| ... }`). |
 | **Operation** | The inner Service method yields, the inner block runs, then the outer block continues. |
-| **Result / Final State** | The two yield proxies are independent. The inner Service method yields to the inner block; the outer block remains untouched. A `break` from the inner block terminates only `Inner.run` (B-25); the outer block's execution resumes normally. Nesting depth is bounded only by the wasm stack budget. |
+| **Result / Final State** | The two Yielders are independent. The inner Service method yields to the inner block; the outer block remains untouched. A `break` from the inner block terminates only `Inner.run` (B-25); the outer block's execution resumes normally. Nesting depth is bounded only by the wasm stack budget. |
 | **Notes** | Each guest dispatch frame holds at most one block reference; nested frames stack in LIFO order, matching the synchronous re-entry call structure. The Host Gem does not assign opaque identifiers to blocks — the dispatch frame itself identifies which block any given `yield` targets. |
 
 ---
@@ -464,7 +464,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire-codec.md`](wire-codec.md) § Type Mapping | B-24 — yield round-trip |
-| E-23 | Host Service method invokes its yield proxy after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — yield-proxy scope |
+| E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
 
 `sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
