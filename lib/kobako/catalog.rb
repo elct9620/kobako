@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require_relative "catalog/handles"
+require_relative "catalog/namespaces"
+require_relative "catalog/snippets"
+
 module Kobako
   # Kobako::Catalog — Sandbox-level configuration and per-invocation
   # allocation tables. Houses the three host-side registries the Sandbox
