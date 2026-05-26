@@ -83,6 +83,36 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 
 ## Layering
 
+### Three modules across the wasm boundary
+
+kobako is three source trees that meet at the wasm sandbox boundary. The host and guest are deliberately **wire-symmetric**; `ext/` is the driver that connects them.
+
+```
+HOST (process)                                  │  GUEST (wasm32, one Sandbox)
+────────────────────────────────────────────── │ ──────────────────────────────────────
+lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — Rust guest
+  Sandbox · Catalog · Transport · Outcome        │    abi · kobako(domain) · transport
+  · Codec · Root        (tier stack below)       │    · outcome · codec · root  (mirrors lib/)
+       ▲  owns the wire codec                    │       ▲  owns the wire codec
+       │  (#encode / .decode, duck-typed)        │       │  (codec::{Encode,Decode} trait)
+       │                                         │  wasm/kobako-mruby-sys  — Rust mruby FFI
+       │                                         │    Value · Class · Array · Hash
+       │                                         │    · convert (IntoValue/FromValue) · state
+       │                                         │    → libmruby.a (mruby C API)
+       ▼                                         │       ▲  kobako-wasm calls sys
+ext/  — Rust native ext (magnus + wasmtime)      │       │
+  Runtime (Exports, Config) · Invocation ·       │       │
+  dispatch · guest_mem · cache · Snapshot        │       │
+       └─────────── drives the ABI ─── wasm ─────┼───────┘
+                    (alloc / eval / run / take_outcome / dispatch / yield)
+```
+
+- **`lib/` ↔ `wasm/kobako-wasm` are wire-symmetric peers.** Each independently implements the same SPEC wire — MessagePack `Codec` plus the `Transport` / `Outcome` envelopes — so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Every wire value object self-encodes: Ruby via duck-typed `#encode` / `.decode`, the guest via the `codec::{Encode, Decode}` trait (lives at the **codec tier** because per-call `Transport` *and* per-run `Outcome`/`Panic` implement it). The asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models, correct on each side.
+- **`ext/` is the host's wasmtime driver, not a wire endpoint.** It instantiates the guest, drives the ABI exports, and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — it never decodes envelopes itself. Its internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec. The Rust struct is `Runtime` (matching the `Kobako::Runtime` magnus class); `Exports` caches the per-instance export handles, `Config` holds the caps, `cache` is the process-wide Engine/Module cache.
+- **`wasm/kobako-mruby-sys` is the typed mruby C-API wrapper**, consumed only by `kobako-wasm`. `convert.rs` (`IntoValue` / `FromValue`) is the safe typed seam over the raw boxing/tag primitives in `value.rs`; a future `mruby` (typed) / `mruby-sys` (FFI) split moves the seam, not the primitives.
+
+### `lib/` tier stack
+
 Dependencies point downward — a tier may use the tiers below it, never above. The non-obvious tier is the **root** of dependency-free value objects / entities: they live at `Kobako::*`, *not* under the layer that consumes them, so a lower layer can use them without an upward dependency.
 
 ```
@@ -90,7 +120,7 @@ Orchestration   Kobako::Sandbox, Kobako::Runtime (+ ext), Kobako::Snapshot
       │
 Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
       │
-Transport ──┐   Kobako::Transport::{Request, Response, Run, Yield, Dispatcher, YieldProxy}
+Transport ──┐   Kobako::Transport::{Request, Response, Run, Yield, Dispatcher, Yielder}
 Outcome ────┤   Kobako::Outcome (decode + Panic)
       │     │
 Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, Factory, Utils}   (byte-level wire)
