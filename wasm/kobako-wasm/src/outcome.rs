@@ -111,7 +111,7 @@ pub fn decode_panic(bytes: &[u8]) -> Result<Panic, codec::Error> {
     let frame = dec.read_value()?;
     let pairs = match frame {
         Value::Map(p) => p,
-        _ => return Err(codec::Error::Malformed("Panic envelope must be a map")),
+        _ => return Err(codec::Error::Malformed("Panic must be a map")),
     };
     let mut origin = None;
     let mut class = None;

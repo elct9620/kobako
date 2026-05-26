@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn invoke_returns_value_on_response_ok() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::encode(&Response::Ok(Value::Int(42))).unwrap();
+        let response = Response::Ok(Value::Int(42)).encode().unwrap();
         install_canned(captured.clone(), response);
 
         let out = invoke(
@@ -324,13 +324,14 @@ mod tests {
 
         // Cross-check: captured bytes are exactly what the envelope
         // encoder would have produced for this Request.
-        let expected = Request::encode(&Request {
+        let expected = Request {
             target: Target::Path("MyService::Counter".into()),
             method: "value".into(),
             args: vec![],
             kwargs: vec![],
             block_given: false,
-        })
+        }
+        .encode()
         .unwrap();
         assert_eq!(*captured.lock().unwrap(), expected);
     }
@@ -338,7 +339,7 @@ mod tests {
     #[test]
     fn invoke_handle_target_round_trip() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::encode(&Response::Ok(Value::Str("ok".into()))).unwrap();
+        let response = Response::Ok(Value::Str("ok".into())).encode().unwrap();
         install_canned(captured.clone(), response);
 
         let out = invoke(
@@ -362,7 +363,9 @@ mod tests {
     #[test]
     fn invoke_returns_service_err_on_response_err() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::encode(&Response::Err(errenv_payload("runtime", "boom"))).unwrap();
+        let response = Response::Err(errenv_payload("runtime", "boom"))
+            .encode()
+            .unwrap();
         install_canned(captured, response);
 
         let out = invoke(
