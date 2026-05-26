@@ -38,21 +38,20 @@ module Kobako
         raise InvalidEncoding, "#{label} is not valid UTF-8"
       end
 
-      # Run +block+ at the wire boundary: every wire Value Object
-      # (Handle / Fault / Request / Response / Panic) raises
-      # +ArgumentError+ when an invariant is violated at construction,
-      # and the wire boundary surfaces those violations to callers as
-      # {InvalidType} so the public taxonomy stays
-      # {Kobako::Codec::Error} and never leaks +ArgumentError+ from the
-      # Ruby standard library.
+      # Run +block+ at the wire boundary: a wire Value Object raises
+      # +ArgumentError+ when an invariant is violated at construction, and
+      # this helper surfaces that as {InvalidType} so the public taxonomy
+      # stays {Kobako::Codec::Error} and never leaks +ArgumentError+ from
+      # the Ruby standard library.
       #
-      # Wrap any block that constructs a wire Value Object from decoded
-      # bytes with this helper to keep the five decode sites uniform —
-      # Request / Response in +Kobako::Transport+, Panic map in
-      # +Kobako::Outcome+, and the Handle / Fault ext-type unpackers in
-      # {Factory}. Do not use it for general-purpose validation outside
-      # the wire boundary — host-layer +ArgumentError+ values should
-      # propagate unchanged.
+      # Most construction sites no longer reach for this directly: a value
+      # object built inside a {Decoder.decode} block has its
+      # +ArgumentError+ mapped to {InvalidType} by the decoder's own
+      # rescue. The lone remaining caller is {Factory#unpack_handle}, which
+      # builds +Handle.from_wire+ from a raw 4-byte fixext payload without a
+      # {Decoder.decode} call. Do not use it for general-purpose validation
+      # outside the wire boundary — host-layer +ArgumentError+ values
+      # should propagate unchanged.
       def wire_boundary
         yield
       rescue ::ArgumentError => e

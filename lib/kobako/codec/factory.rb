@@ -136,9 +136,10 @@ module Kobako
         Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
       end
 
-      # Peel the embedded msgpack map and hand it to +Transport::Fault.new+;
-      # translate the value-object's +ArgumentError+ into +InvalidType+
-      # at the wire boundary. Inner decode goes through {Decoder} (not
+      # Peel the embedded msgpack map and hand it to +Transport::Fault.new+
+      # inside {Decoder.decode}'s block form, so the value-object's
+      # +ArgumentError+ invariants surface as +InvalidType+ through the
+      # decoder boundary. Inner decode goes through {Decoder} (not
       # +factory.load+) so the embedded +str+ payloads flow through the
       # same UTF-8 validation as a top-level decode.
       #
@@ -150,10 +151,9 @@ module Kobako
       # +factory.load+ to "simplify": that path bypasses UTF-8 validation
       # and re-opens the Decoder's special case for Fault (removed in M5).
       def unpack_fault(payload)
-        map = Decoder.decode(payload)
-        raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
+        Decoder.decode(payload) do |map|
+          raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
 
-        Codec::Utils.wire_boundary do
           Transport::Fault.new(type: map["type"], message: map["message"], details: map["details"])
         end
       end

@@ -91,7 +91,7 @@ module Kobako
     # layer exception via +build_panic_error+ and raised; on wire-decode
     # failure the rescue path raises the wire-violation +SandboxError+.
     def decode_panic(body)
-      raise build_panic_error(parse_panic(body))
+      raise build_panic_error(build_panic_record(body))
     rescue Kobako::Codec::Error => e
       raise build_wire_violation_error(
         "Sandbox produced an invalid panic record",
@@ -100,16 +100,17 @@ module Kobako
     end
 
     # Build a +Panic+ value object from the msgpack-decoded body. Raises
-    # +Kobako::Codec::InvalidType+ when the body is not a map or
-    # when required keys are missing — both routed by +decode_panic+ to
-    # +build_wire_violation_error+. The +InvalidType+ message itself is
-    # never user-facing; it lands in +details[:wire_error]+ via the
-    # rescue chain above.
-    def parse_panic(body)
-      map = Kobako::Codec::Decoder.decode(body)
-      raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
+    # +Kobako::Codec::InvalidType+ when the body is not a map or when
+    # required keys are missing — both routed by +decode_panic+ to
+    # +build_wire_violation_error+. The decode runs in block form so
+    # +Panic.new+'s +ArgumentError+ invariants surface as +InvalidType+
+    # through the decoder boundary; the message itself is never user-
+    # facing — it lands in +details[:wire_error]+ via the rescue chain
+    # above.
+    def build_panic_record(body)
+      Kobako::Codec::Decoder.decode(body) do |map|
+        raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-      Kobako::Codec::Utils.wire_boundary do
         Panic.new(
           origin: map["origin"], klass: map["class"], message: map["message"],
           backtrace: map["backtrace"] || [], details: map["details"]

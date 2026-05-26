@@ -13,7 +13,7 @@ module Kobako
 
     def self?.decode_panic: (String body) -> void
 
-    def self?.parse_panic: (String body) -> Panic
+    def self?.build_panic_record: (String body) -> Panic
 
     def self?.build_panic_error: (Panic panic) -> (SandboxError | ServiceError)
 
