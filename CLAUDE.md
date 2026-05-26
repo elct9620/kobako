@@ -134,6 +134,54 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 
 **Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. The ext-type leaves `Kobako::Handle` (0x01) and `Kobako::Fault` (0x02) are consumed almost entirely by Transport, yet they sit at the root because `Codec` — below Transport — must register them; nesting them under `Transport` would force `Codec` to depend upward. When unsure where a value object belongs, put it at the **lowest tier that needs it**.
 
+### `ext/` tier stack (Rust native ext, host)
+
+The wasmtime driver. Same downward-dependency rule; `runtime.rs` (module root) owns the `Kobako::Runtime` magnus class and drives the tiers below it.
+
+```
+Runtime          runtime.rs — Kobako::Runtime class (#from_path / #eval / #run / #usage)
+      │
+Run mechanics    runtime/{dispatch, guest_mem, trap, capture}
+      │            dispatch (__kobako_dispatch) · guest_mem (Caller alloc/write/read)
+      │            · trap (error→Kobako::*) · capture (stdout/stderr clip)
+      │
+Per-Store state  runtime/{invocation, exports, config}
+      │            Invocation + StoreCell + KobakoLimiter · Exports (cached handles) · Config (caps)
+      │
+Process cache    runtime/cache — shared Engine + per-path Module + epoch ticker
+```
+
+`Kobako::Snapshot` (`src/snapshot.rs`) is the ext's **root** value object — a pure per-invocation carrier (`return_bytes` + capture + usage), depended on by `runtime` but depending on nothing. `dispatch`/`guest_mem`/`trap` all reach down to `Invocation`; `cache` sits at the floor (only the error constructors in `runtime.rs` above it).
+
+### `wasm/kobako-wasm` tier stack (guest)
+
+Mirrors `lib/` tier-for-tier — the wire-symmetric peer.
+
+```
+ABI entry       abi + abi/{boot, eval, run, yield_block, frames, outcome_buffer, …}
+      │           __kobako_{eval,run,alloc,take_outcome,dispatch}
+Domain          kobako + kobako/{install, bridges, io, codec_convert}
+      │           installs the Kobako module / classes on an mrb_state
+Transport ──┐   transport::{Request, Response, Yield, proxy}
+Outcome ────┤   outcome::{Outcome, Panic}
+      │     │
+Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
+      │
+(FFI)           wasm/kobako-mruby-sys
+```
+
+### `wasm/kobako-mruby-sys` tier stack (mruby FFI)
+
+```
+Typed wrappers  Value · Class · Module · Array · Hash · convert::{IntoValue, FromValue}
+      │
+State / RAII    Mrb · Ccontext · state::{args, define, factory, load, protect, symbol}
+      │
+FFI surface     bindgen bindings (libmruby.a) + wrapper.h static-inline macro shims
+```
+
+`convert` (the typed Rust↔Value seam) sits at the **top** of the typed layer, on the raw tag/box primitives on `Value`; a future `mruby` / `mruby-sys` split cleaves between the typed wrappers and the FFI surface.
+
 ## Where to Look
 
 Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`, `transport/request.rb`, etc.) are reachable from there. The Notes column carries only what reading the entry-point file won't tell you.
