@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
-$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
+# Loaded via test_helper, which has already put lib/ on the load path and
+# loaded kobako. The aliases below resolve Kobako::Handle / Kobako::Fault at
+# class-body time, so require them explicitly to declare that dependency.
 require "kobako/handle"
 require "kobako/fault"
 
