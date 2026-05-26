@@ -167,13 +167,14 @@ fn encode_break_response(
     kobako: &crate::kobako::Kobako,
     value: crate::mruby::sys::Value,
 ) -> Vec<u8> {
-    use crate::yield_response::{encode_response, Response, TAG_BREAK};
+    use crate::transport::Encode;
+    use crate::yield_response::{Yield, TAG_BREAK};
     let codec_value = kobako.to_codec_value(value);
-    let resp = Response {
+    let resp = Yield {
         tag: TAG_BREAK,
         value: codec_value,
     };
-    match encode_response(&resp) {
+    match resp.encode() {
         Ok(bytes) => bytes,
         Err(_) => encode_error_bytes(
             "Kobako::Transport::Error",
@@ -208,13 +209,14 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
 
 #[cfg(target_arch = "wasm32")]
 fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::Value) -> Vec<u8> {
-    use crate::yield_response::{encode_response, Response, TAG_OK};
+    use crate::transport::Encode;
+    use crate::yield_response::{Yield, TAG_OK};
     let codec_value = kobako.to_codec_value(value);
-    let resp = Response {
+    let resp = Yield {
         tag: TAG_OK,
         value: codec_value,
     };
-    match encode_response(&resp) {
+    match resp.encode() {
         Ok(bytes) => bytes,
         Err(_) => encode_error_bytes(
             "Kobako::Transport::Error",
@@ -257,7 +259,8 @@ fn encode_error_response_from_exception(
 #[cfg(target_arch = "wasm32")]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     use crate::codec::Value;
-    use crate::yield_response::{encode_response, Response, TAG_ERROR};
+    use crate::transport::Encode;
+    use crate::yield_response::{Yield, TAG_ERROR};
     let payload = Value::Map(vec![
         (Value::Str("class".into()), Value::Str(class.into())),
         (Value::Str("message".into()), Value::Str(message.into())),
@@ -266,11 +269,11 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
             Value::Array(backtrace.into_iter().map(Value::Str).collect()),
         ),
     ]);
-    let resp = Response {
+    let resp = Yield {
         tag: TAG_ERROR,
         value: payload,
     };
-    encode_response(&resp).unwrap_or_default()
+    resp.encode().unwrap_or_default()
 }
 
 /// Write an error YieldResponse directly into a fresh guest buffer

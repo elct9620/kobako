@@ -71,128 +71,136 @@ pub enum Response {
 
 // ---------------- Request ----------------
 
-/// Encode a [`Request`] to its 5-field msgpack array bytes. Per SPEC
-/// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
-/// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
-/// slot.
-pub fn encode_request(req: &Request) -> Result<Vec<u8>, codec::Error> {
-    let target_value = match &req.target {
-        Target::Path(s) => Value::Str(s.clone()),
-        Target::Handle(id) => Value::Handle(*id),
-    };
-    let kwargs_pairs: Vec<(Value, Value)> = req
-        .kwargs
-        .iter()
-        .map(|(k, v)| (Value::Sym(k.clone()), v.clone()))
-        .collect();
-    let frame = Value::Array(vec![
-        target_value,
-        Value::Str(req.method.clone()),
-        Value::Array(req.args.clone()),
-        Value::Map(kwargs_pairs),
-        Value::Bool(req.block_given),
-    ]);
-    let mut enc = Encoder::new();
-    enc.write_value(&frame)?;
-    Ok(enc.into_bytes())
+impl super::Encode for Request {
+    /// Encode a [`Request`] to its 5-field msgpack array bytes. Per SPEC
+    /// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
+    /// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
+    /// slot.
+    fn encode(&self) -> Result<Vec<u8>, codec::Error> {
+        let target_value = match &self.target {
+            Target::Path(s) => Value::Str(s.clone()),
+            Target::Handle(id) => Value::Handle(*id),
+        };
+        let kwargs_pairs: Vec<(Value, Value)> = self
+            .kwargs
+            .iter()
+            .map(|(k, v)| (Value::Sym(k.clone()), v.clone()))
+            .collect();
+        let frame = Value::Array(vec![
+            target_value,
+            Value::Str(self.method.clone()),
+            Value::Array(self.args.clone()),
+            Value::Map(kwargs_pairs),
+            Value::Bool(self.block_given),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame)?;
+        Ok(enc.into_bytes())
+    }
 }
 
-/// Decode bytes to a [`Request`].
-pub fn decode_request(bytes: &[u8]) -> Result<Request, codec::Error> {
-    let mut dec = Decoder::new(bytes);
-    let frame = dec.read_value()?;
-    // `try_into` on a Vec succeeds iff length matches; the preceding guard
-    // makes that condition true, so the unwrap is unreachable in practice.
-    let [target_v, method_v, args_v, kwargs_v, block_given_v]: [Value; 5] = match frame {
-        Value::Array(items) if items.len() == 5 => items.try_into().unwrap(),
-        _ => return Err(codec::Error::Malformed("Request must be a 5-element array")),
-    };
+impl super::Decode for Request {
+    /// Decode bytes to a [`Request`].
+    fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
+        let mut dec = Decoder::new(bytes);
+        let frame = dec.read_value()?;
+        // `try_into` on a Vec succeeds iff length matches; the preceding
+        // guard makes that condition true, so the unwrap is unreachable.
+        let [target_v, method_v, args_v, kwargs_v, block_given_v]: [Value; 5] = match frame {
+            Value::Array(items) if items.len() == 5 => items.try_into().unwrap(),
+            _ => return Err(codec::Error::Malformed("Request must be a 5-element array")),
+        };
 
-    let target = match target_v {
-        Value::Str(s) => Target::Path(s),
-        Value::Handle(id) => Target::Handle(id),
-        _ => {
-            return Err(codec::Error::Malformed(
-                "Request target must be str or Handle",
-            ))
-        }
-    };
-    let method = match method_v {
-        Value::Str(s) => s,
-        _ => return Err(codec::Error::Malformed("Request method must be str")),
-    };
-    let args = match args_v {
-        Value::Array(items) => items,
-        _ => return Err(codec::Error::Malformed("Request args must be array")),
-    };
-    let kwargs = match kwargs_v {
-        Value::Map(pairs) => {
-            let mut out = Vec::with_capacity(pairs.len());
-            for (k, v) in pairs {
-                let key = match k {
-                    Value::Sym(s) => s,
-                    _ => {
-                        return Err(codec::Error::Malformed(
-                            "Request kwargs keys must be Symbol (ext 0x00)",
-                        ))
-                    }
-                };
-                out.push((key, v));
+        let target = match target_v {
+            Value::Str(s) => Target::Path(s),
+            Value::Handle(id) => Target::Handle(id),
+            _ => {
+                return Err(codec::Error::Malformed(
+                    "Request target must be str or Handle",
+                ))
             }
-            out
-        }
-        _ => return Err(codec::Error::Malformed("Request kwargs must be map")),
-    };
-    let block_given = match block_given_v {
-        Value::Bool(b) => b,
-        _ => return Err(codec::Error::Malformed("Request block_given must be bool")),
-    };
-    Ok(Request {
-        target,
-        method,
-        args,
-        kwargs,
-        block_given,
-    })
+        };
+        let method = match method_v {
+            Value::Str(s) => s,
+            _ => return Err(codec::Error::Malformed("Request method must be str")),
+        };
+        let args = match args_v {
+            Value::Array(items) => items,
+            _ => return Err(codec::Error::Malformed("Request args must be array")),
+        };
+        let kwargs = match kwargs_v {
+            Value::Map(pairs) => {
+                let mut out = Vec::with_capacity(pairs.len());
+                for (k, v) in pairs {
+                    let key = match k {
+                        Value::Sym(s) => s,
+                        _ => {
+                            return Err(codec::Error::Malformed(
+                                "Request kwargs keys must be Symbol (ext 0x00)",
+                            ))
+                        }
+                    };
+                    out.push((key, v));
+                }
+                out
+            }
+            _ => return Err(codec::Error::Malformed("Request kwargs must be map")),
+        };
+        let block_given = match block_given_v {
+            Value::Bool(b) => b,
+            _ => return Err(codec::Error::Malformed("Request block_given must be bool")),
+        };
+        Ok(Request {
+            target,
+            method,
+            args,
+            kwargs,
+            block_given,
+        })
+    }
 }
 
 // ---------------- Response ----------------
 
-pub fn encode_response(resp: &Response) -> Result<Vec<u8>, codec::Error> {
-    let (status, payload) = match resp {
-        Response::Ok(v) => (STATUS_OK, v.clone()),
-        Response::Err(payload_bytes) => (STATUS_ERROR, Value::ErrEnv(payload_bytes.clone())),
-    };
-    let frame = Value::Array(vec![Value::Int(status), payload]);
-    let mut enc = Encoder::new();
-    enc.write_value(&frame)?;
-    Ok(enc.into_bytes())
+impl super::Encode for Response {
+    fn encode(&self) -> Result<Vec<u8>, codec::Error> {
+        let (status, payload) = match self {
+            Response::Ok(v) => (STATUS_OK, v.clone()),
+            Response::Err(payload_bytes) => (STATUS_ERROR, Value::ErrEnv(payload_bytes.clone())),
+        };
+        let frame = Value::Array(vec![Value::Int(status), payload]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame)?;
+        Ok(enc.into_bytes())
+    }
 }
 
-pub fn decode_response(bytes: &[u8]) -> Result<Response, codec::Error> {
-    let mut dec = Decoder::new(bytes);
-    let frame = dec.read_value()?;
-    let [status, payload]: [Value; 2] = match frame {
-        Value::Array(items) if items.len() == 2 => items.try_into().unwrap(),
-        _ => {
-            return Err(codec::Error::Malformed(
-                "Response must be a 2-element array",
-            ))
+impl super::Decode for Response {
+    fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
+        let mut dec = Decoder::new(bytes);
+        let frame = dec.read_value()?;
+        let [status, payload]: [Value; 2] = match frame {
+            Value::Array(items) if items.len() == 2 => items.try_into().unwrap(),
+            _ => {
+                return Err(codec::Error::Malformed(
+                    "Response must be a 2-element array",
+                ))
+            }
+        };
+        let status = match status {
+            Value::Int(n) => n,
+            _ => return Err(codec::Error::Malformed("Response status must be int")),
+        };
+        match status {
+            STATUS_OK => Ok(Response::Ok(payload)),
+            STATUS_ERROR => match payload {
+                Value::ErrEnv(bytes) => Ok(Response::Err(bytes)),
+                _ => Err(codec::Error::Malformed(
+                    "Response status=1 payload must be ext 0x02 Fault",
+                )),
+            },
+            _ => Err(codec::Error::Malformed("Response status must be 0 or 1")),
         }
-    };
-    let status = match status {
-        Value::Int(n) => n,
-        _ => return Err(codec::Error::Malformed("Response status must be int")),
-    };
-    match status {
-        STATUS_OK => Ok(Response::Ok(payload)),
-        STATUS_ERROR => match payload {
-            Value::ErrEnv(bytes) => Ok(Response::Err(bytes)),
-            _ => Err(codec::Error::Malformed(
-                "Response status=1 payload must be ext 0x02 Fault",
-            )),
-        },
-        _ => Err(codec::Error::Malformed("Response status must be 0 or 1")),
     }
 }
 
@@ -203,6 +211,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, codec::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transport::{Decode, Encode};
 
     fn errenv_payload(typ: &str, message: &str) -> Vec<u8> {
         // Build a minimal valid ext 0x02 inner map: {type, message, details=nil}.
@@ -227,8 +236,8 @@ mod tests {
             kwargs: vec![("active".into(), Value::Bool(true))],
             block_given: false,
         };
-        let bytes = encode_request(&req).unwrap();
-        let out = decode_request(&bytes).unwrap();
+        let bytes = Request::encode(&req).unwrap();
+        let out = Request::decode(&bytes).unwrap();
         assert_eq!(req, out);
     }
 
@@ -241,8 +250,8 @@ mod tests {
             kwargs: vec![],
             block_given: false,
         };
-        let bytes = encode_request(&req).unwrap();
-        let out = decode_request(&bytes).unwrap();
+        let bytes = Request::encode(&req).unwrap();
+        let out = Request::decode(&bytes).unwrap();
         assert_eq!(req, out);
     }
 
@@ -255,8 +264,8 @@ mod tests {
             kwargs: vec![("k".into(), Value::Handle(1))],
             block_given: false,
         };
-        let bytes = encode_request(&req).unwrap();
-        assert_eq!(decode_request(&bytes).unwrap(), req);
+        let bytes = Request::encode(&req).unwrap();
+        assert_eq!(Request::decode(&bytes).unwrap(), req);
     }
 
     #[test]
@@ -268,8 +277,8 @@ mod tests {
             kwargs: vec![],
             block_given: true,
         };
-        let bytes = encode_request(&req).unwrap();
-        let out = decode_request(&bytes).unwrap();
+        let bytes = Request::encode(&req).unwrap();
+        let out = Request::decode(&bytes).unwrap();
         assert_eq!(req, out);
         assert!(out.block_given);
     }
@@ -287,7 +296,7 @@ mod tests {
         ]))
         .unwrap();
         assert!(matches!(
-            decode_request(&enc.into_bytes()),
+            Request::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(_))
         ));
     }
@@ -304,7 +313,7 @@ mod tests {
         ]))
         .unwrap();
         assert!(matches!(
-            decode_request(&enc.into_bytes()),
+            Request::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(_))
         ));
     }
@@ -318,7 +327,7 @@ mod tests {
             kwargs: vec![],
             block_given: false,
         };
-        let bytes = encode_request(&req).unwrap();
+        let bytes = Request::encode(&req).unwrap();
         // Same hex as the Ruby golden test in test/transport/test_envelope.rb.
         assert_eq!(
             bytes,
@@ -338,14 +347,14 @@ mod tests {
     #[test]
     fn response_ok_round_trip_with_primitive() {
         let resp = Response::Ok(Value::Int(42));
-        let out = decode_response(&encode_response(&resp).unwrap()).unwrap();
+        let out = Response::decode(&Response::encode(&resp).unwrap()).unwrap();
         assert_eq!(resp, out);
     }
 
     #[test]
     fn response_ok_round_trip_with_handle() {
         let resp = Response::Ok(Value::Handle(99));
-        let out = decode_response(&encode_response(&resp).unwrap()).unwrap();
+        let out = Response::decode(&Response::encode(&resp).unwrap()).unwrap();
         assert_eq!(resp, out);
     }
 
@@ -353,7 +362,7 @@ mod tests {
     fn response_err_round_trip() {
         let payload = errenv_payload("runtime", "boom");
         let resp = Response::Err(payload);
-        let out = decode_response(&encode_response(&resp).unwrap()).unwrap();
+        let out = Response::decode(&Response::encode(&resp).unwrap()).unwrap();
         assert_eq!(resp, out);
     }
 
@@ -363,7 +372,7 @@ mod tests {
         enc.write_value(&Value::Array(vec![Value::Int(2), Value::Nil]))
             .unwrap();
         assert!(matches!(
-            decode_response(&enc.into_bytes()),
+            Response::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(_))
         ));
     }
@@ -377,14 +386,14 @@ mod tests {
         ]))
         .unwrap();
         assert!(matches!(
-            decode_response(&enc.into_bytes()),
+            Response::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(_))
         ));
     }
 
     #[test]
     fn response_ok_golden_for_42() {
-        let bytes = encode_response(&Response::Ok(Value::Int(42))).unwrap();
+        let bytes = Response::encode(&Response::Ok(Value::Int(42))).unwrap();
         assert_eq!(bytes, vec![0x92, 0x00, 0x2a]);
     }
 }

@@ -8,18 +8,14 @@
 //!
 //! ## Layered responsibilities
 //!
-//! 1. [`build_request_bytes`] — pure encoder. Given a [`Target`],
-//!    method, args, and kwargs, produces a Request envelope per
-//!    [`crate::transport::envelope::encode_request`]. Trivially testable on the
-//!    host target; cross-checked against the envelope-layer golden
-//!    vectors so that any drift surfaces in `cargo test`.
-//!
-//! 2. [`invoke`] — full round-trip. Builds the Request bytes, calls
-//!    the host via `__kobako_dispatch` on `wasm32`, then decodes the
-//!    response. On the host target (`#[cfg(not(target_arch = "wasm32"))]`)
-//!    a thread-local **loopback** hook stands in for the host so that
-//!    integration-style tests can drive the full transport path without a
-//!    real wasm runtime.
+//! [`invoke`] — full round-trip. Builds a [`Request`], encodes it via
+//! its [`crate::transport::Encode`] impl, calls the host via
+//! `__kobako_dispatch` on `wasm32`, then decodes the [`Response`]. On the
+//! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
+//! **loopback** hook stands in for the host so that integration-style
+//! tests can drive the full transport path without a real wasm runtime.
+//! The envelope codec itself is exhaustively tested at the envelope layer
+//! (`envelope.rs` golden vectors); this module only adds the demux logic.
 //!
 //! ## Why the loopback indirection on host
 //!
@@ -46,7 +42,8 @@ use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{self, Decoder, Value};
-use crate::transport::envelope::{encode_request, Request, Response, Target};
+use crate::transport::envelope::{Request, Response, Target};
+use crate::transport::{Decode, Encode};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -118,35 +115,6 @@ impl std::error::Error for InvokeError {
 }
 
 // ---------------------------------------------------------------------
-// Pure Request builder — decoupled from the host import for testing.
-// ---------------------------------------------------------------------
-
-/// Build the bytes of a Request envelope from the five-tuple every
-/// transport site provides (target, method, args, kwargs, block_given). Pure
-/// function; does not touch wasm linear memory or the host import.
-/// Crate-internal — only [`invoke`] and its host-target tests call
-/// this.
-///
-/// SPEC reference: docs/wire-codec.md § Envelope Encoding → Request
-/// (5-element array, encoded narrowest).
-pub(crate) fn build_request_bytes(
-    target: Target,
-    method: &str,
-    args: &[Value],
-    kwargs: &[(String, Value)],
-    block_given: bool,
-) -> Result<Vec<u8>, codec::Error> {
-    let req = Request {
-        target,
-        method: method.to_string(),
-        args: args.to_vec(),
-        kwargs: kwargs.to_vec(),
-        block_given,
-    };
-    encode_request(&req)
-}
-
-// ---------------------------------------------------------------------
 // Full transport round-trip with loopback hook for host-target tests.
 // ---------------------------------------------------------------------
 
@@ -181,9 +149,16 @@ pub fn invoke(
     kwargs: &[(String, Value)],
     block_given: bool,
 ) -> Result<Value, InvokeError> {
-    let req_bytes = build_request_bytes(target, method, args, kwargs, block_given)?;
+    let req = Request {
+        target,
+        method: method.to_string(),
+        args: args.to_vec(),
+        kwargs: kwargs.to_vec(),
+        block_given,
+    };
+    let req_bytes = req.encode()?;
     let resp_bytes = host_call(&req_bytes)?;
-    let resp = crate::transport::envelope::decode_response(&resp_bytes)?;
+    let resp = Response::decode(&resp_bytes)?;
     classify_response(resp)
 }
 
@@ -296,7 +271,6 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 mod tests {
     use super::*;
     use crate::codec::Encoder;
-    use crate::transport::envelope::{encode_request, encode_response, Response};
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
@@ -327,57 +301,12 @@ mod tests {
         enc.into_bytes()
     }
 
-    // ---- build_request_bytes ----
-
-    #[test]
-    fn build_request_bytes_matches_envelope_encoder() {
-        // SPEC cross-check: build_request_bytes must produce byte-
-        // identical output to encode_request for the same logical
-        // Request. This is the contract that lets envelope-layer golden
-        // vectors transitively cover this module.
-        let target = Target::Path("MyService::Logger".into());
-        let method = "info";
-        let args = vec![Value::Str("hello".into())];
-        let kwargs: Vec<(String, Value)> = vec![];
-
-        let direct = build_request_bytes(target.clone(), method, &args, &kwargs, false).unwrap();
-        let viaenv = encode_request(&Request {
-            target,
-            method: method.into(),
-            args,
-            kwargs,
-            block_given: false,
-        })
-        .unwrap();
-        assert_eq!(direct, viaenv);
-    }
-
-    #[test]
-    fn build_request_bytes_empty_args_and_kwargs_golden() {
-        // Golden vector — same hex as the envelope-layer
-        // `request_golden_empty_args_and_kwargs` test; if either layer
-        // drifts, both tests fail simultaneously and the discrepancy is
-        // immediately localised.
-        let bytes =
-            build_request_bytes(Target::Path("G::M".into()), "ping", &[], &[], false).unwrap();
-        assert_eq!(
-            bytes,
-            vec![
-                0x95, // fixarray 5
-                0xa4, b'G', b':', b':', b'M', 0xa4, b'p', b'i', b'n', b'g',
-                0x90, // fixarray 0
-                0x80, // fixmap 0
-                0xc2, // false
-            ]
-        );
-    }
-
     // ---- invoke demux ----
 
     #[test]
     fn invoke_returns_value_on_response_ok() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = encode_response(&Response::Ok(Value::Int(42))).unwrap();
+        let response = Response::encode(&Response::Ok(Value::Int(42))).unwrap();
         install_canned(captured.clone(), response);
 
         let out = invoke(
@@ -393,7 +322,7 @@ mod tests {
 
         // Cross-check: captured bytes are exactly what the envelope
         // encoder would have produced for this Request.
-        let expected = encode_request(&Request {
+        let expected = Request::encode(&Request {
             target: Target::Path("MyService::Counter".into()),
             method: "value".into(),
             args: vec![],
@@ -407,7 +336,7 @@ mod tests {
     #[test]
     fn invoke_handle_target_round_trip() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = encode_response(&Response::Ok(Value::Str("ok".into()))).unwrap();
+        let response = Response::encode(&Response::Ok(Value::Str("ok".into()))).unwrap();
         install_canned(captured.clone(), response);
 
         let out = invoke(
@@ -431,7 +360,7 @@ mod tests {
     #[test]
     fn invoke_returns_service_err_on_response_err() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = encode_response(&Response::Err(errenv_payload("runtime", "boom"))).unwrap();
+        let response = Response::encode(&Response::Err(errenv_payload("runtime", "boom"))).unwrap();
         install_canned(captured, response);
 
         let out = invoke(

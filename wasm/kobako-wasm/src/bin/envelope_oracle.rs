@@ -32,9 +32,8 @@ use kobako_wasm::codec;
 use kobako_wasm::outcome::{
     decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
 };
-use kobako_wasm::transport::envelope::{
-    decode_request, decode_response, encode_request, encode_response,
-};
+use kobako_wasm::transport::envelope::{Request, Response};
+use kobako_wasm::transport::{Decode, Encode};
 use kobako_wasm::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
@@ -91,12 +90,12 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
     match kind {
         b'Q' => {
-            let req = decode_request(body).map_err(stringify)?;
-            encode_request(&req).map_err(stringify)
+            let req = Request::decode(body).map_err(stringify)?;
+            req.encode().map_err(stringify)
         }
         b'P' => {
-            let resp = decode_response(body).map_err(stringify)?;
-            encode_response(&resp).map_err(stringify)
+            let resp = Response::decode(body).map_err(stringify)?;
+            resp.encode().map_err(stringify)
         }
         b'R' => {
             let v = decode_result(body).map_err(stringify)?;

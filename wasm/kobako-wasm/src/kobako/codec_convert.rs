@@ -27,8 +27,8 @@ use crate::mruby::sys::Value;
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; [`crate::transport::envelope::encode_request`] re-emits each
-    /// name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
+    /// key's name; `Request`'s [`crate::transport::Encode`] impl re-emits
+    /// each name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
     /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. Values go through
     /// [`Kobako::to_codec_value`].
