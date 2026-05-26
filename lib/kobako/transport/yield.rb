@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "../transport"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file

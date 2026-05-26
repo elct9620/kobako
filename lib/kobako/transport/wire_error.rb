@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../errors"
-require_relative "../transport"
 
 module Kobako
   module Transport
