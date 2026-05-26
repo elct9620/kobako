@@ -30,6 +30,7 @@ mod cache;
 mod config;
 mod dispatch;
 mod exports;
+mod guest_mem;
 mod instance;
 mod invocation;
 

@@ -62,6 +62,7 @@ use super::cache::{cached_module, shared_engine};
 use super::config::Config;
 use super::dispatch;
 use super::exports::Exports;
+use super::guest_mem;
 use super::invocation::{Invocation, MemoryLimitTrap, StoreCell, TimeoutTrap};
 use super::{memory_limit_err, rstring_to_vec, setup_err, timeout_err, trap_err};
 
@@ -632,26 +633,7 @@ fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
 /// not the responder.
 fn drive_yield(caller: &mut Caller<'_, Invocation>, args: &[u8]) -> Result<Vec<u8>, &'static str> {
     let len_i32 = i32::try_from(args.len()).map_err(|_| "yield args exceed 2 GiB")?;
-
-    let alloc = match caller.get_export("__kobako_alloc") {
-        Some(Extern::Func(f)) => f
-            .typed::<i32, i32>(&*caller)
-            .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
-        _ => return Err("Sandbox runtime is missing the allocation hook"),
-    };
-    let req_ptr = alloc
-        .call(&mut *caller, len_i32)
-        .map_err(|_| "Sandbox allocation trapped while preparing yield args")?;
-    if req_ptr == 0 {
-        return Err("Sandbox is out of memory while preparing yield args");
-    }
-
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return Err("Sandbox runtime does not export linear memory"),
-    };
-    mem.write(&mut *caller, req_ptr as usize, args)
-        .map_err(|_| "could not write yield args into Sandbox memory")?;
+    let req_ptr = guest_mem::alloc_and_write(caller, args)? as i32;
 
     let yield_fn = match caller.get_export("__kobako_yield_to_block") {
         Some(Extern::Func(f)) => f

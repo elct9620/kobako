@@ -50,7 +50,7 @@ use core::ptr::NonNull;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{Error as MagnusError, RString, Ruby, Value};
-use wasmtime::{Caller, Extern};
+use wasmtime::Caller;
 
 use super::invocation::Invocation;
 
@@ -163,7 +163,7 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = read_caller_memory(caller, req_ptr, req_len).ok_or(
+    let req_bytes = super::guest_mem::read(caller, req_ptr, req_len).ok_or(
         "Sandbox runtime does not export linear memory, or transport request slice falls outside it",
     )?;
 
@@ -204,48 +204,10 @@ fn invoke_on_dispatch(
     Ok(super::rstring_to_vec(resp))
 }
 
-/// Allocate a guest-side buffer through `__kobako_alloc` and copy the
-/// response bytes into it. Returns the packed `(ptr<<32)|len` u64.
-/// Each failure path carries a `&'static str` reason so the dispatcher
-/// wrapper can surface a useful diagnostic rather than a silent 0.
+/// Allocate a guest-side buffer and copy the response bytes into it via
+/// [`super::guest_mem::alloc_and_write`], returning the packed
+/// `(ptr<<32)|len` u64 the guest's `__kobako_dispatch` import expects.
 fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
-    let alloc = match caller.get_export("__kobako_alloc") {
-        Some(Extern::Func(f)) => f
-            .typed::<i32, i32>(&*caller)
-            .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
-        _ => return Err("Sandbox runtime is missing the allocation hook"),
-    };
-    let len_i32 = i32::try_from(bytes.len()).map_err(|_| "transport response exceeds 2 GiB")?;
-    let ptr = alloc
-        .call(&mut *caller, len_i32)
-        .map_err(|_| "Sandbox allocation trapped while preparing the transport response")?;
-    if ptr == 0 {
-        return Err("Sandbox is out of memory while preparing the transport response");
-    }
-
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return Err("Sandbox runtime does not export linear memory"),
-    };
-    mem.write(&mut *caller, ptr as usize, bytes).map_err(|_| {
-        "could not write the transport response into Sandbox memory (range invalid)"
-    })?;
-
-    let ptr_u32 = ptr as u32;
-    let len_u32 = bytes.len() as u32;
-    Ok(((ptr_u32 as i64) << 32) | (len_u32 as i64))
-}
-
-/// Copy `[ptr, ptr+len)` out of the guest's linear memory as seen from
-/// `caller`. Returns `None` when `memory` is not exported or the slice
-/// falls outside the live memory range.
-fn read_caller_memory(caller: &mut Caller<'_, Invocation>, ptr: i32, len: i32) -> Option<Vec<u8>> {
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return None,
-    };
-    let data = mem.data(&caller);
-    let start = ptr as usize;
-    let end = start.checked_add(len as usize)?;
-    data.get(start..end).map(|s| s.to_vec())
+    let ptr = super::guest_mem::alloc_and_write(caller, bytes)?;
+    Ok(((ptr as i64) << 32) | (bytes.len() as i64))
 }
