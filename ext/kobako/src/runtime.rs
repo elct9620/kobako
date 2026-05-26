@@ -27,7 +27,9 @@
 // and its methods.
 
 mod cache;
+mod config;
 mod dispatch;
+mod exports;
 mod instance;
 mod invocation;
 

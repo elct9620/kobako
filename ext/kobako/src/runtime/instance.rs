@@ -59,7 +59,9 @@ use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use super::cache::{cached_module, shared_engine};
+use super::config::Config;
 use super::dispatch;
+use super::exports::Exports;
 use super::invocation::{Invocation, MemoryLimitTrap, StoreCell, TimeoutTrap};
 use super::{memory_limit_err, rstring_to_vec, setup_err, timeout_err, trap_err};
 
@@ -67,32 +69,15 @@ use super::{memory_limit_err, rstring_to_vec, setup_err, timeout_err, trap_err};
 pub(crate) struct Runtime {
     inner: WtInstance,
     store: StoreCell,
-    // Cached TypedFunc handles for the two host-driven ABI exports.
-    // Optional because test fixtures (a minimal "ping" module) need not
-    // provide them; real kobako.wasm always does, and the run-path methods
-    // raise a Ruby `Kobako::TrapError` when an export is missing.
-    //
-    // `__kobako_alloc` is NOT cached here — only `dispatch.rs` calls it,
-    // and it does so through `Caller::get_export` on the wasmtime side.
-    eval: Option<TypedFunc<(), ()>>,
-    run: Option<TypedFunc<(i32, i32), ()>>,
-    take_outcome: Option<TypedFunc<(), u64>>,
-    // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
-    // the cap. Translated into an `Instant`-based deadline stamped into
-    // [`Invocation`] at the top of every `Runtime::eval`.
-    timeout: Option<Duration>,
-    // Per-channel byte caps for guest stdout / stderr capture
-    // (docs/behavior.md B-01 / B-04). `None` disables the cap on that
-    // channel. Read by
-    // [`Runtime::refresh_wasi`] to size the MemoryOutputPipe and by
-    // [`Runtime::stdout`] / [`Runtime::stderr`] to compute the
-    // truncation flag. See the module-level note above for the `cap + 1`
-    // sizing rationale. Unlike `memory_limit` (which lives on
-    // [`Invocation`] because the wasmtime [`ResourceLimiter`] callback
-    // consumes it from within the wasm engine), these caps are read only
-    // by Runtime methods, so they live on Runtime itself.
-    stdout_limit_bytes: Option<usize>,
-    stderr_limit_bytes: Option<usize>,
+    // Cached host-driven ABI export handles (`__kobako_eval` / `_run` /
+    // `_take_outcome`); see [`Exports`]. `__kobako_alloc` is not among them
+    // — only `dispatch.rs` calls it, via `Caller::get_export`.
+    exports: Exports,
+    // Wall-clock + per-channel capture caps forwarded from the Sandbox;
+    // see [`Config`]. Distinct from the per-invocation `memory_limit`,
+    // which lives on [`Invocation`] because the wasmtime [`ResourceLimiter`]
+    // callback consumes it from inside the wasm engine.
+    config: Config,
 }
 
 impl Runtime {
@@ -209,37 +194,17 @@ impl Runtime {
                 .map_err(|e| instantiate_err(&ruby, e))?
         };
 
-        // Best-effort export lookup. Missing exports are not an error here
-        // (test fixture is a bare module); the host enforces presence at
-        // invocation time by raising a Ruby `Kobako::TrapError` when the
-        // cached Option is None. Only the SPEC ABI `() -> ()` shape is
-        // accepted for `__kobako_eval`; `__kobako_run` takes
-        // `(env_ptr, env_len) -> ()` per docs/wire-codec.md § ABI
-        // Signatures.
-        let (eval, run, take_outcome) = {
-            let mut store_ref = store_cell.borrow_mut();
-            let mut ctx = store_ref.as_context_mut();
-            let eval = instance
-                .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")
-                .ok();
-            let run = instance
-                .get_typed_func::<(i32, i32), ()>(&mut ctx, "__kobako_run")
-                .ok();
-            let take_outcome = instance
-                .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
-                .ok();
-            (eval, run, take_outcome)
-        };
+        let exports = Exports::resolve(&instance, &store_cell);
 
         Ok(Self {
             inner: instance,
             store: store_cell,
-            eval,
-            run,
-            take_outcome,
-            timeout,
-            stdout_limit_bytes,
-            stderr_limit_bytes,
+            exports,
+            config: Config {
+                timeout,
+                stdout_limit_bytes,
+                stderr_limit_bytes,
+            },
         })
     }
 
@@ -320,7 +285,7 @@ impl Runtime {
         snippets: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let eval = require_export(&ruby, self.eval.as_ref(), "__kobako_eval")?;
+        let eval = require_export(&ruby, self.exports.eval.as_ref(), "__kobako_eval")?;
         self.refresh_wasi(&[
             rstring_to_vec(preamble),
             rstring_to_vec(source),
@@ -353,7 +318,7 @@ impl Runtime {
         envelope: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let run = require_export(&ruby, self.run.as_ref(), "__kobako_run")?;
+        let run = require_export(&ruby, self.exports.run.as_ref(), "__kobako_run")?;
         self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.prime_caps();
@@ -383,9 +348,11 @@ impl Runtime {
                 data.memory_peak(),
             )
         };
-        let (stdout_visible, stdout_truncated) = clip_capture(&stdout_raw, self.stdout_limit_bytes);
+        let (stdout_visible, stdout_truncated) =
+            clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
         let stdout_bytes = stdout_visible.to_vec();
-        let (stderr_visible, stderr_truncated) = clip_capture(&stderr_raw, self.stderr_limit_bytes);
+        let (stderr_visible, stderr_truncated) =
+            clip_capture(&stderr_raw, self.config.stderr_limit_bytes);
         let stderr_bytes = stderr_visible.to_vec();
         Ok(Snapshot::new(
             return_bytes,
@@ -455,7 +422,7 @@ impl Runtime {
     /// decoding and stdout / stderr capture readout.
     fn prime_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
-        match self.timeout {
+        match self.config.timeout {
             Some(timeout) => {
                 let deadline = Instant::now() + timeout;
                 store_ref.data_mut().set_deadline(Some(deadline));
@@ -542,8 +509,8 @@ impl Runtime {
         }
 
         let stdin_pipe = MemoryInputPipe::new(stdin_content);
-        let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.stdout_limit_bytes));
-        let stderr_pipe = MemoryOutputPipe::new(pipe_capacity(self.stderr_limit_bytes));
+        let stdout_pipe = MemoryOutputPipe::new(pipe_capacity(self.config.stdout_limit_bytes));
+        let stderr_pipe = MemoryOutputPipe::new(pipe_capacity(self.config.stderr_limit_bytes));
 
         let mut builder = WasiCtxBuilder::new();
         builder.stdin(stdin_pipe);
@@ -563,7 +530,11 @@ impl Runtime {
     /// arithmetic overflows, the slice falls outside live memory, or the
     /// `memory` export itself is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
-        let take = require_export(ruby, self.take_outcome.as_ref(), "__kobako_take_outcome")?;
+        let take = require_export(
+            ruby,
+            self.exports.take_outcome.as_ref(),
+            "__kobako_take_outcome",
+        )?;
 
         let mut store_ref = self.store.borrow_mut();
         let packed = take
