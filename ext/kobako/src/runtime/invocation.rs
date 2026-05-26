@@ -19,8 +19,8 @@
 //! budget.
 //!
 //! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
-//! [`Runtime::eval`]: crate::runtime::instance::Runtime::eval
-//! [`Runtime::run`]: crate::runtime::instance::Runtime::run
+//! [`Runtime::eval`]: crate::runtime::Runtime::eval
+//! [`Runtime::run`]: crate::runtime::Runtime::run
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};

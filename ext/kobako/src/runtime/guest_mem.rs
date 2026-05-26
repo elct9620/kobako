@@ -3,7 +3,7 @@
 //! Both directions of a host↔guest buffer handoff that run *inside* a wasm
 //! callback frame go through here: writing the transport Response back
 //! (`super::dispatch`) and shipping block-yield args into the guest
-//! (`super::instance::drive_yield`) performed the same `__kobako_alloc` +
+//! ([`drive_yield`], below) performed the same `__kobako_alloc` +
 //! bounds-check + `memory.write` dance with only the diagnostic strings
 //! differing. The Store-based write path (`Runtime::write_envelope`) is a
 //! separate beast — it holds the cached `Store`, not a `Caller` — and stays

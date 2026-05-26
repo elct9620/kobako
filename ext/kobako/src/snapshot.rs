@@ -18,7 +18,7 @@ use std::time::Duration;
 use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
 /// Per-invocation snapshot value. Magnus wraps it so a single ext call
-/// from `Instance::eval` / `Instance::run` returns the whole bundle —
+/// from `Runtime::eval` / `Runtime::run` returns the whole bundle —
 /// the Sandbox layer can decompose it without round-tripping into ext
 /// again. All fields are private; the seven public methods registered
 /// in [`init`] read them out one by one. The wall-clock duration is
@@ -39,7 +39,7 @@ pub(crate) struct Snapshot {
 impl Snapshot {
     /// Construct a fresh Snapshot from the per-invocation data the
     /// Runtime has just collected. Called from
-    /// [`crate::runtime::instance::Instance::build_snapshot`] once the
+    /// [`crate::runtime::Runtime::build_snapshot`] once the
     /// guest export has returned, the OUTCOME_BUFFER has been drained,
     /// and the capture pipes have been clipped to their caps.
     pub(crate) fn new(
