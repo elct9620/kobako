@@ -11,7 +11,7 @@ require "test_helper"
 # +test/test_e2e_journeys.rb+ via real mruby.
 class TestTransportDispatchUnit < Minitest::Test
   # Stub +yield_to_guest+ lambda for tests that never trip a guest
-  # block. Dispatch only builds the YieldProxy when +block_given+ is
+  # block. Dispatch only builds the Yielder when +block_given+ is
   # true on the wire, so this lambda is never invoked by the paths
   # exercised below; raising on call surfaces an accidental yield-path
   # regression instead of silently returning an empty response.

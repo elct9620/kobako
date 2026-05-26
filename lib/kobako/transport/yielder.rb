@@ -1,0 +1,89 @@
+# frozen_string_literal: true
+
+require_relative "../codec"
+require_relative "yield"
+
+module Kobako
+  # See lib/kobako/transport.rb for the umbrella module doc; this file
+  # owns the host-side object that materialises a guest-supplied block as
+  # a Ruby callable the Service method can yield into.
+  module Transport
+    # Host-side stand-in for a guest-supplied block (B-23).
+    #
+    # Each guest call that carries +block_given: true+ gets a Yielder
+    # that the Dispatcher hands to the Service method as +&block+. The
+    # Service method observes it as an ordinary Ruby Proc through
+    # {#to_proc}; +yield val+ / +block.call(val)+ invokes {#yield}, which
+    # serialises the positional args, re-enters the guest via the injected
+    # +yield_to_guest+ lambda
+    # ({docs/behavior.md B-24}[link:../../../docs/behavior.md]), and
+    # reifies the +YieldResponse+ into Ruby control flow:
+    #
+    #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
+    #   * +tag 0x02+ break — +throw break_tag, value+ so the Dispatcher's
+    #     +catch+ frame unwinds the Service method
+    #     ({docs/behavior.md B-25}[link:../../../docs/behavior.md])
+    #   * +tag 0x04+ error — raise the +{class, message}+ payload at the
+    #     Service's yield site
+    #
+    # The Dispatcher calls {#invalidate!} from its +ensure+ block once
+    # dispatch completes; any later call to a stashed Yielder then raises
+    # +LocalJumpError+ — the observable shape of
+    # {docs/behavior.md E-23}[link:../../../docs/behavior.md] (escaped
+    # Yielder).
+    class Yielder
+      # +yield_to_guest+ is a +String → String+ callable (typically
+      # +Runtime#yield_to_active_invocation+ bound through a lambda) that
+      # {#yield} invokes to re-enter the guest; +break_tag+ is the +catch+
+      # throw tag the Dispatcher matches against to unwind the Service on
+      # +tag 0x02+.
+      def initialize(yield_to_guest, break_tag)
+        @yield_to_guest = yield_to_guest
+        @break_tag = break_tag
+        @active = true
+      end
+
+      # Re-enter the guest with +args+ and reify the YieldResponse into
+      # Ruby control flow. Raises +LocalJumpError+ if called after
+      # {#invalidate!} (E-23).
+      def yield(*args)
+        raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
+
+        response = Kobako::Transport::Yield.decode(@yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
+        return response.value if response.ok?
+
+        throw @break_tag, response.value if response.break?
+
+        raise yield_failure(response.value, default: "yield error")
+      end
+
+      # The Proc the Dispatcher passes as +&block+, binding {#yield} so a
+      # Service method's +yield+ / +block.call+ drives the round-trip.
+      def to_proc
+        method(:yield).to_proc
+      end
+
+      # Mark this Yielder dead. Called by the Dispatcher's +ensure+ block
+      # when the originating dispatch frame returns; any later {#yield}
+      # call then raises +LocalJumpError+ (E-23).
+      def invalidate!
+        @active = false
+      end
+
+      private
+
+      # Reify a +YieldResponse+ tag 0x04 payload into a +RuntimeError+ the
+      # Service method observes at its +yield+ site. The +{class, message,
+      # backtrace}+ shape mirrors the +Kobako::Transport::Yield+ tag 0x04
+      # payload; +default+ provides a fallback when the payload is not a
+      # Hash.
+      def yield_failure(payload, default:)
+        return RuntimeError.new(default) unless payload.is_a?(Hash)
+
+        klass = payload["class"] || "RuntimeError"
+        message = payload["message"] || default
+        RuntimeError.new("#{klass}: #{message}")
+      end
+    end
+  end
+end

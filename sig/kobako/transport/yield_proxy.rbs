@@ -1,9 +1,0 @@
-module Kobako
-  module Transport
-    module YieldProxy
-      def self?.build: (^(String) -> String yield_to_guest, Symbol break_tag) -> [Proc, Proc]
-
-      def self?.yield_failure: (untyped payload, default: String) -> RuntimeError
-    end
-  end
-end

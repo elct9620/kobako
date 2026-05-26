@@ -4,7 +4,7 @@ require_relative "../codec"
 require_relative "request"
 require_relative "response"
 require_relative "yield"
-require_relative "yield_proxy"
+require_relative "yielder"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
@@ -28,7 +28,7 @@ module Kobako
     #   Kobako::Transport::Dispatcher.dispatch(request_bytes, namespaces, handler, yield_to_guest)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
-      # Throw tag for {#build_block_proxy}'s break unwind back to the
+      # Throw tag for the {Yielder}'s break unwind back to the
       # dispatcher's +catch+ frame (B-25). +private_constant+ is a
       # convention boundary — not a defence.
       BREAK_THROW = :__kobako_break__
@@ -59,13 +59,13 @@ module Kobako
         request = Kobako::Transport::Request.decode(request_bytes)
         target = resolve_target(request.target, namespaces, handler)
         args, kwargs = resolve_call_args(request, handler)
-        block_proxy, invalidator = build_block_proxy(yield_to_guest) if request.block_given
-        value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, block_proxy) }
+        yielder = Yielder.new(yield_to_guest, BREAK_THROW) if request.block_given
+        value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }
         encode_ok(value, handler)
       rescue StandardError => e
         encode_caught_error(e)
       ensure
-        invalidator&.call
+        yielder&.invalidate!
       end
 
       # Resolve positional and keyword arguments off +request+ in one
@@ -102,26 +102,19 @@ module Kobako
       # reject calls to no-kwarg methods when the wire carries the
       # uniform empty-map shape.
       #
-      # +block_proxy+ is the host-side yield proxy materialised when
-      # the guest call site supplied a block ({docs/behavior.md
-      # B-23}[link:../../../docs/behavior.md]). +&nil+ is a no-op block
-      # argument in Ruby, so the same call site handles both cases
-      # without an explicit conditional.
-      def invoke(target, method, args, kwargs, block_proxy = nil)
+      # +yielder+ is the host-side {Yielder} materialised when the guest
+      # call site supplied a block ({docs/behavior.md
+      # B-23}[link:../../../docs/behavior.md]); its {Yielder#to_proc}
+      # rides the +&block+ slot. +&nil+ is a no-op block argument in Ruby,
+      # so the same call site handles both cases without an explicit
+      # conditional.
+      def invoke(target, method, args, kwargs, yielder = nil)
+        block = yielder&.to_proc
         if kwargs.empty?
-          target.public_send(method.to_sym, *args, &block_proxy)
+          target.public_send(method.to_sym, *args, &block)
         else
-          target.public_send(method.to_sym, *args, **kwargs, &block_proxy)
+          target.public_send(method.to_sym, *args, **kwargs, &block)
         end
-      end
-
-      # Delegate to {Kobako::Transport::YieldProxy} so the yield-specific
-      # logic (frame_active escape detection, +YieldResponse+ tag
-      # routing) lives in its own module. Returns the +[proxy,
-      # invalidator]+ pair the Dispatcher hands to the Service method
-      # via +&block+ and the +ensure+ block respectively.
-      def build_block_proxy(yield_to_guest)
-        YieldProxy.build(yield_to_guest, BREAK_THROW)
       end
 
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword
