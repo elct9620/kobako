@@ -16,7 +16,7 @@ module Kobako
   # privatised so Host App code cannot fabricate a Handle from a bare
   # integer; legitimate Handle instances enter Host App code only as
   # fields on raised error objects. The Host Gem itself constructs
-  # Handles through {.from_wire}, which exists at exactly two call
+  # Handles through {.restore}, which exists at exactly two call
   # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
   # +Kobako::Codec::Utils.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
   # (allocator paths). Both live inside +lib/kobako/+ and are not part
@@ -53,7 +53,7 @@ module Kobako
     # Ruby object is registered into the Sandbox's +Catalog::Handles+. Both
     # paths live inside +lib/kobako/+ and treat this method as a
     # package-private constructor.
-    def self.from_wire(id)
+    def self.restore(id)
       allocate.tap { |handle| handle.send(:initialize, id: id) }
     end
   end

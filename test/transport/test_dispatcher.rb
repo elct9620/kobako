@@ -230,7 +230,7 @@ class TestTransportDispatchUnit < Minitest::Test
     end.new("Alice")
     handle_id = @handler.alloc(greeter).id
     @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id)], {})
 
     resp = decode_response(dispatch(req))
 
@@ -244,7 +244,7 @@ class TestTransportDispatchUnit < Minitest::Test
     handle_id = @handler.alloc(obj).id
     capture = []
     @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
-    req = encode_request("K::Run", "run", [], { target: Kobako::Handle.from_wire(handle_id) })
+    req = encode_request("K::Run", "run", [], { target: Kobako::Handle.restore(handle_id) })
 
     resp = decode_response(dispatch(req))
 
@@ -254,7 +254,7 @@ class TestTransportDispatchUnit < Minitest::Test
   end
 
   def test_unknown_handle_arg_returns_undefined_exception
-    req = encode_request("Logger::Echo", "call", [Kobako::Handle.from_wire(999)], {})
+    req = encode_request("Logger::Echo", "call", [Kobako::Handle.restore(999)], {})
     @registry.define(:Logger).bind(:Echo, ->(x) { x })
 
     resp = decode_response(dispatch(req))
@@ -272,7 +272,7 @@ class TestTransportDispatchUnit < Minitest::Test
       def find(id) = "row:#{id}"
     end.new
     handle_id = @handler.alloc(obj).id
-    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "find", [42], {})
+    req = encode_request_with_target(Kobako::Handle.restore(handle_id), "find", [42], {})
 
     resp = decode_response(dispatch(req))
 
@@ -284,7 +284,7 @@ class TestTransportDispatchUnit < Minitest::Test
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle in the response.
     parent_id = @handler.alloc(leaf_factory).id
-    req = encode_request_with_target(Kobako::Handle.from_wire(parent_id), "make", [], {})
+    req = encode_request_with_target(Kobako::Handle.restore(parent_id), "make", [], {})
 
     resp = decode_response(dispatch(req))
 
@@ -295,7 +295,7 @@ class TestTransportDispatchUnit < Minitest::Test
   end
 
   def test_unknown_handle_target_returns_undefined_exception
-    req = encode_request_with_target(Kobako::Handle.from_wire(7), "any", [], {})
+    req = encode_request_with_target(Kobako::Handle.restore(7), "any", [], {})
 
     resp = decode_response(dispatch(req))
 
@@ -311,7 +311,7 @@ class TestTransportDispatchUnit < Minitest::Test
     handle_id = @handler.alloc(obj).id
     @handler.reset!
 
-    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id), "tag", [], {})
+    req = encode_request_with_target(Kobako::Handle.restore(handle_id), "tag", [], {})
     resp = decode_response(dispatch(req))
 
     assert resp.error?
@@ -336,7 +336,7 @@ class TestTransportDispatchUnit < Minitest::Test
     # The integer id has meaning in A but must NOT cross over to B —
     # B's Catalog::Handles does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
-    req = encode_request_with_target(Kobako::Handle.from_wire(handle_id_in_a), "ping", [], {})
+    req = encode_request_with_target(Kobako::Handle.restore(handle_id_in_a), "ping", [], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))
 
     assert resp.error?
@@ -354,7 +354,7 @@ class TestTransportDispatchUnit < Minitest::Test
     server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
     handle_id_in_a = table_a.alloc(Object.new).id
 
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.from_wire(handle_id_in_a)], {})
+    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))
 
     assert resp.error?

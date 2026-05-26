@@ -7,7 +7,7 @@ module Kobako
 
     def initialize: (id: Integer) -> void
 
-    def self.from_wire: (Integer id) -> Handle
+    def self.restore: (Integer id) -> Handle
 
     def with: (?id: Integer) -> Handle
 

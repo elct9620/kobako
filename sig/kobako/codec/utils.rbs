@@ -5,15 +5,15 @@ module Kobako
 
       def self?.assert_utf8!: (String string, String label) -> void
 
-      def self?.wire_boundary: [T] () { () -> T } -> T
+      def self?.with_boundary: [T] () { () -> T } -> T
 
-      def self?.wire_representable?: (untyped value) -> bool
+      def self?.representable?: (untyped value) -> bool
 
       def self?.deep_wrap: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
-      def self?.primitive_wire_type?: (untyped value) -> bool
+      def self?.primitive_type?: (untyped value) -> bool
 
-      def self?.container_wire_representable?: (untyped value) -> bool
+      def self?.container_representable?: (untyped value) -> bool
     end
   end
 end

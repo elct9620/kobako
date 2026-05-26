@@ -262,7 +262,7 @@ class WireValueGenerator
 
   def generate_handle
     @coverage[:handle] += 1
-    Handle.from_wire(@rng.rand(Handle::MIN_ID..Handle::MAX_ID))
+    Handle.restore(@rng.rand(Handle::MIN_ID..Handle::MAX_ID))
   end
 
   def generate_exception

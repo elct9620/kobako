@@ -4,7 +4,7 @@ require "test_helper"
 
 # Coverage for the Codec::Utils predicate and deep-wrap helpers
 # introduced for SPEC B-34 — host→guest auto-wrap. The legacy
-# +assert_utf8!+ / +wire_boundary+ helpers are exercised transitively
+# +assert_utf8!+ / +with_boundary+ helpers are exercised transitively
 # by the Codec / Decoder / Factory tests; this file pins the new
 # allocator-aware surface.
 class TestCodecUtils < Minitest::Test
@@ -14,43 +14,43 @@ class TestCodecUtils < Minitest::Test
     @table = Kobako::Catalog::Handles.new
   end
 
-  # ---------- wire_representable? — scalar branch ----------
+  # ---------- representable? — scalar branch ----------
 
   def test_recognises_scalar_wire_types
     [nil, true, false, 0, 1, -1, 1.5, "x", "x".b, :sym].each do |value|
-      assert Utils.wire_representable?(value), "expected #{value.inspect} wire-representable"
+      assert Utils.representable?(value), "expected #{value.inspect} wire-representable"
     end
   end
 
   def test_recognises_existing_handle_as_wire_representable
     handle = @table.alloc(:placeholder)
 
-    assert Utils.wire_representable?(handle)
+    assert Utils.representable?(handle)
   end
 
   def test_rejects_out_of_range_integers
-    refute Utils.wire_representable?(2**64),
+    refute Utils.representable?(2**64),
            "u64 overflow must be rejected so the codec's RangeError path stays consistent"
-    refute Utils.wire_representable?(-(2**63) - 1),
+    refute Utils.representable?(-(2**63) - 1),
            "below i64 minimum must be rejected"
   end
 
   def test_rejects_non_wire_scalars
-    refute Utils.wire_representable?(StringIO.new("x"))
-    refute Utils.wire_representable?(Object.new)
+    refute Utils.representable?(StringIO.new("x"))
+    refute Utils.representable?(Object.new)
   end
 
-  # ---------- wire_representable? — container branch ----------
+  # ---------- representable? — container branch ----------
 
   def test_array_is_representable_iff_all_elements_are
-    assert Utils.wire_representable?([1, :sym, [true, "x"]])
-    refute Utils.wire_representable?([1, StringIO.new("x")])
+    assert Utils.representable?([1, :sym, [true, "x"]])
+    refute Utils.representable?([1, StringIO.new("x")])
   end
 
   def test_hash_is_representable_iff_keys_and_values_are
-    assert Utils.wire_representable?({ key: "value", nested: [1, 2] })
-    refute Utils.wire_representable?({ key: StringIO.new("x") })
-    refute Utils.wire_representable?({ StringIO.new("k") => 1 })
+    assert Utils.representable?({ key: "value", nested: [1, 2] })
+    refute Utils.representable?({ key: StringIO.new("x") })
+    refute Utils.representable?({ StringIO.new("k") => 1 })
   end
 
   # ---------- deep_wrap — single-level walk ----------

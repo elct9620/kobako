@@ -115,9 +115,9 @@ module Kobako
       end
 
       # Peel off the fixext-4 frame, hand the bytes to the
-      # Host-Gem-internal +Kobako::Handle.from_wire+ factory, and
+      # Host-Gem-internal +Kobako::Handle.restore+ factory, and
       # translate the +ArgumentError+ raised by Handle's invariants
-      # into a wire-layer +InvalidType+ via {Codec::Utils.wire_boundary}.
+      # into a wire-layer +InvalidType+ via {Codec::Utils.with_boundary}.
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape.
       def unpack_handle(payload)
@@ -125,7 +125,7 @@ module Kobako
         raise InvalidType, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
-        Codec::Utils.wire_boundary { Kobako::Handle.from_wire(id) }
+        Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
       end
 
       # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so

@@ -63,7 +63,7 @@ module Kobako
 
     def test_request_round_trip_with_handle_target
       req = Envelope::Request.new(
-        target: Handle.from_wire(7),
+        target: Handle.restore(7),
         method_name: "save",
         args: [],
         kwargs: {}
@@ -75,8 +75,8 @@ module Kobako
     end
 
     def test_request_handles_in_args
-      h1 = Handle.from_wire(1)
-      h2 = Handle.from_wire(2)
+      h1 = Handle.restore(1)
+      h2 = Handle.restore(2)
       req = Envelope::Request.new(
         target: "G::M",
         method_name: "link",
@@ -135,7 +135,7 @@ module Kobako
     end
 
     def test_response_ok_round_trip_with_handle
-      resp = Envelope::Response.ok(Handle.from_wire(99))
+      resp = Envelope::Response.ok(Handle.restore(99))
       decoded = Envelope::Response.decode(resp.encode)
       assert decoded.ok?
       assert_instance_of Handle, decoded.payload
@@ -195,9 +195,9 @@ module Kobako
     def test_request_carrying_handle_and_response_carrying_handle
       # A transport call where the guest sends a Handle as both target and arg,
       # and the host responds with another Handle as the value.
-      h_target = Handle.from_wire(10)
-      h_arg    = Handle.from_wire(11)
-      h_value  = Handle.from_wire(12)
+      h_target = Handle.restore(10)
+      h_arg    = Handle.restore(11)
+      h_value  = Handle.restore(12)
 
       req = Envelope::Request.new(target: h_target, method_name: "save",
                                   args: [h_arg], kwargs: {})

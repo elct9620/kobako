@@ -205,23 +205,23 @@ class TestCodec < Minitest::Test
   # ---------- ext 0x01 Handle ----------
 
   def test_handle_roundtrip_min
-    h = Handle.from_wire(1)
+    h = Handle.restore(1)
     _, decoded = roundtrip(h)
     assert_equal h, decoded
   end
 
   def test_handle_roundtrip_max
-    h = Handle.from_wire(Handle::MAX_ID)
+    h = Handle.restore(Handle::MAX_ID)
     _, decoded = roundtrip(h)
     assert_equal h, decoded
   end
 
   def test_handle_zero_id_rejected_at_construction
-    assert_raises(ArgumentError) { Handle.from_wire(0) }
+    assert_raises(ArgumentError) { Handle.restore(0) }
   end
 
   def test_handle_over_cap_rejected_at_construction
-    assert_raises(ArgumentError) { Handle.from_wire(Handle::MAX_ID + 1) }
+    assert_raises(ArgumentError) { Handle.restore(Handle::MAX_ID + 1) }
   end
 
   def test_handle_zero_id_on_wire_rejected
@@ -265,7 +265,7 @@ class TestCodec < Minitest::Test
   # ---------- deep nesting ----------
 
   def test_deeply_nested_mixed
-    h = Handle.from_wire(7)
+    h = Handle.restore(7)
     e = Exc.new(type: "undefined", message: "missing")
     value = [
       { "handles" => [h, h], "errors" => [e] },
@@ -387,12 +387,12 @@ class TestCodec < Minitest::Test
   def test_golden_vector_handle
     # Handle(1) -> fixext4 ext 0x01 + big-endian u32 1
     # 0xd6 0x01 0x00 0x00 0x00 0x01
-    assert_bytes "d60100000001", Handle.from_wire(1)
+    assert_bytes "d60100000001", Handle.restore(1)
   end
 
   def test_golden_vector_handle_max
     # Handle(0x7fff_ffff) -> 0xd6 0x01 0x7f 0xff 0xff 0xff
-    assert_bytes "d6017fffffff", Handle.from_wire(Handle::MAX_ID)
+    assert_bytes "d6017fffffff", Handle.restore(Handle::MAX_ID)
   end
 
   def test_golden_vector_exception_minimal

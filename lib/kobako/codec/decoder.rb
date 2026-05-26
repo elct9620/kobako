@@ -28,7 +28,7 @@ module Kobako
       # result is returned — wire Value Objects use this to build themselves
       # from the decoded payload. The block runs inside this method's
       # rescue, so a Value Object's +ArgumentError+ invariant failure
-      # surfaces as {InvalidType} without a separate {Utils.wire_boundary}
+      # surfaces as {InvalidType} without a separate {Utils.with_boundary}
       # wrapper at the call site.
       def self.decode(bytes)
         value = Factory.load(bytes.b)

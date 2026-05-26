@@ -49,7 +49,7 @@ module Kobako
       # ({docs/behavior.md B-21}[link:../../../docs/behavior.md]).
       #
       # Returning a Handle (rather than a bare Integer id) keeps the
-      # allocator's output a domain entity; +Kobako::Handle.from_wire+
+      # allocator's output a domain entity; +Kobako::Handle.restore+
       # is reserved for the codec's wire-decode path, where the id is
       # the only thing the bytes carry.
       def alloc(object)
@@ -62,7 +62,7 @@ module Kobako
 
         @entries[id] = object
         @next_id = id + 1
-        Kobako::Handle.from_wire(id)
+        Kobako::Handle.restore(id)
       end
 
       # Resolve a Handle ID to its bound object. +id+ is a Handle ID previously

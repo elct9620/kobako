@@ -63,12 +63,12 @@ class TestEnvelopeRoundtrip < Minitest::Test
   end
 
   def test_request_with_handle_target_round_trips
-    bytes = encode_request(Handle.from_wire(7), "save", [], {})
+    bytes = encode_request(Handle.restore(7), "save", [], {})
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
   def test_request_with_handles_in_args_round_trips
-    bytes = encode_request("G::M", "link", [Handle.from_wire(1), Handle.from_wire(2)], { k: Handle.from_wire(3) })
+    bytes = encode_request("G::M", "link", [Handle.restore(1), Handle.restore(2)], { k: Handle.restore(3) })
     assert_equal bytes, oracle_roundtrip("Q", bytes)
   end
 
@@ -89,7 +89,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   end
 
   def test_response_ok_handle_round_trips
-    bytes = Envelope::Response.ok(Handle.from_wire(99)).encode
+    bytes = Envelope::Response.ok(Handle.restore(99)).encode
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 
