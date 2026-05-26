@@ -416,6 +416,30 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
     }
 }
 
+/// A wire value object that encodes itself to its kobako-codec bytes.
+/// Implemented by every envelope that crosses the Transport wire — the
+/// per-call envelopes (`transport::{Request, Response, Yield}`) and the
+/// per-run `Outcome` / `Panic` records alike — which is why the trait
+/// lives here at the codec tier rather than under `transport`. It is the
+/// Rust-native expression of the contract the Ruby host gets via duck
+/// typing (`#encode` on each value object). The value object's own
+/// invariants are the contract; this does not re-validate the shape.
+/// Faults surface as [`Error`] — the same type the byte-level codec
+/// raises — so a value object is encoded as a whole through one error
+/// channel.
+pub trait Encode {
+    fn encode(&self) -> Result<Vec<u8>, Error>;
+}
+
+/// The decode half of [`Encode`]: rebuild a wire value object from its
+/// kobako-codec bytes. Returns [`Error::Malformed`] when the bytes parse
+/// as a value but do not match the expected envelope shape. Types that
+/// only travel one direction (e.g. the host→guest invocation envelope)
+/// implement only the half they need.
+pub trait Decode: Sized {
+    fn decode(bytes: &[u8]) -> Result<Self, Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

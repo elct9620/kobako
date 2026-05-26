@@ -30,7 +30,7 @@ pub enum Response {
     Err(Vec<u8>),
 }
 
-impl super::Encode for Response {
+impl codec::Encode for Response {
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         let (status, payload) = match self {
             Response::Ok(v) => (STATUS_OK, v.clone()),
@@ -43,7 +43,7 @@ impl super::Encode for Response {
     }
 }
 
-impl super::Decode for Response {
+impl codec::Decode for Response {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
         let frame = dec.read_value()?;
@@ -75,7 +75,7 @@ impl super::Decode for Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::{Decode, Encode};
+    use crate::codec::{Decode, Encode};
 
     fn errenv_payload(typ: &str, message: &str) -> Vec<u8> {
         // Build a minimal valid ext 0x02 inner map: {type, message, details=nil}.

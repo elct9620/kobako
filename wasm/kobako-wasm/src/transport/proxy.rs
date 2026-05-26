@@ -9,7 +9,7 @@
 //! ## Layered responsibilities
 //!
 //! [`invoke`] — full round-trip. Builds a [`Request`], encodes it via
-//! its [`crate::transport::Encode`] impl, calls the host via
+//! its [`crate::codec::Encode`] impl, calls the host via
 //! `__kobako_dispatch` on `wasm32`, then decodes the [`Response`]. On the
 //! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
 //! **loopback** hook stands in for the host so that integration-style
@@ -43,8 +43,7 @@
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use crate::codec::{self, Decoder, Value};
-use crate::transport::{Decode, Encode};
+use crate::codec::{self, Decode, Decoder, Encode, Value};
 use crate::transport::{Request, Response, Target};
 
 // ---------------------------------------------------------------------

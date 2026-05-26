@@ -167,7 +167,7 @@ fn encode_break_response(
     kobako: &crate::kobako::Kobako,
     value: crate::mruby::sys::Value,
 ) -> Vec<u8> {
-    use crate::transport::Encode;
+    use crate::codec::Encode;
     use crate::transport::{Yield, TAG_BREAK};
     let codec_value = kobako.to_codec_value(value);
     let resp = Yield {
@@ -209,7 +209,7 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
 
 #[cfg(target_arch = "wasm32")]
 fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::Value) -> Vec<u8> {
-    use crate::transport::Encode;
+    use crate::codec::Encode;
     use crate::transport::{Yield, TAG_OK};
     let codec_value = kobako.to_codec_value(value);
     let resp = Yield {
@@ -258,8 +258,8 @@ fn encode_error_response_from_exception(
 
 #[cfg(target_arch = "wasm32")]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
+    use crate::codec::Encode;
     use crate::codec::Value;
-    use crate::transport::Encode;
     use crate::transport::{Yield, TAG_ERROR};
     let payload = Value::Map(vec![
         (Value::Str("class".into()), Value::Str(class.into())),

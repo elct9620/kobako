@@ -13,7 +13,7 @@
 //! mechanism.
 
 use crate::codec::{self, Decoder, Encoder, Value};
-use crate::transport::{Decode, Encode};
+use crate::codec::{Decode, Encode};
 
 /// First byte of a YieldResponse for the success branch — payload is
 /// the block's return value encoded as a single msgpack value.

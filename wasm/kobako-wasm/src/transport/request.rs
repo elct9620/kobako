@@ -37,7 +37,7 @@ pub enum Target {
     Handle(u32),
 }
 
-impl super::Encode for Request {
+impl codec::Encode for Request {
     /// Encode a [`Request`] to its 5-field msgpack array bytes. Per SPEC
     /// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
     /// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
@@ -65,7 +65,7 @@ impl super::Encode for Request {
     }
 }
 
-impl super::Decode for Request {
+impl codec::Decode for Request {
     /// Decode bytes to a [`Request`].
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
@@ -129,7 +129,7 @@ impl super::Decode for Request {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::{Decode, Encode};
+    use crate::codec::{Decode, Encode};
 
     #[test]
     fn request_round_trip_with_path_target() {
