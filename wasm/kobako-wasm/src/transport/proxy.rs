@@ -45,8 +45,8 @@
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use crate::codec::{CodecError, Decoder, Value};
-use crate::transport::envelope::{encode_request, EnvelopeError, Request, Response, Target};
+use crate::codec::{self, Decoder, Value};
+use crate::transport::envelope::{encode_request, Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -76,30 +76,24 @@ pub struct ExceptionPayload {
 /// Error variants returned by [`invoke`].
 ///
 /// `Service` carries the SPEC-mandated Response.err path payload;
-/// `Envelope` covers everything that fails *before* the response can be
-/// classified (envelope shape violations, codec faults, host returning
+/// `Codec` covers everything that fails *before* the response can be
+/// classified (wire-shape violations, codec faults, host returning
 /// `len == 0`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum InvokeError {
     /// The host returned a Response.err — this is the *normal* path for
     /// a Service raising an exception, surfaced to mruby as a re-raise.
     Service(ExceptionPayload),
-    /// An envelope-layer fault — host returned malformed bytes, the
-    /// response was not a Response envelope, or the host signalled
-    /// `len == 0`. In a real run this routes to `Kobako::SandboxError` /
-    /// `TrapError` via the boot script's panic path.
-    Envelope(EnvelopeError),
+    /// A wire-layer fault — host returned malformed bytes, the response
+    /// was not a Response envelope, or the host signalled `len == 0`. In
+    /// a real run this routes to `Kobako::SandboxError` / `TrapError` via
+    /// the boot script's panic path.
+    Codec(codec::Error),
 }
 
-impl From<EnvelopeError> for InvokeError {
-    fn from(e: EnvelopeError) -> Self {
-        InvokeError::Envelope(e)
-    }
-}
-
-impl From<CodecError> for InvokeError {
-    fn from(e: CodecError) -> Self {
-        InvokeError::Envelope(EnvelopeError::Codec(e))
+impl From<codec::Error> for InvokeError {
+    fn from(e: codec::Error) -> Self {
+        InvokeError::Codec(e)
     }
 }
 
@@ -109,7 +103,7 @@ impl std::fmt::Display for InvokeError {
             InvokeError::Service(ex) => {
                 write!(f, "service raised {}: {}", ex.kind, ex.message)
             }
-            InvokeError::Envelope(e) => write!(f, "transport envelope fault: {e}"),
+            InvokeError::Codec(e) => write!(f, "transport wire fault: {e}"),
         }
     }
 }
@@ -117,7 +111,7 @@ impl std::fmt::Display for InvokeError {
 impl std::error::Error for InvokeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            InvokeError::Envelope(e) => Some(e),
+            InvokeError::Codec(e) => Some(e),
             InvokeError::Service(_) => None,
         }
     }
@@ -141,7 +135,7 @@ pub(crate) fn build_request_bytes(
     args: &[Value],
     kwargs: &[(String, Value)],
     block_given: bool,
-) -> Result<Vec<u8>, EnvelopeError> {
+) -> Result<Vec<u8>, codec::Error> {
     let req = Request {
         target,
         method: method.to_string(),
@@ -179,7 +173,7 @@ pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 /// Invoke the host via `__kobako_dispatch` (or the loopback hook on
 /// host targets). On success, returns the value out of `Response::Ok`;
 /// on a Response.err path returns [`InvokeError::Service`]; on an
-/// envelope fault returns [`InvokeError::Envelope`].
+/// wire fault returns [`InvokeError::Codec`].
 pub fn invoke(
     target: Target,
     method: &str,
@@ -200,13 +194,11 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
         Response::Err(payload_bytes) => {
             // Decode the inner ext 0x02 Exception map: {type, message, details}.
             let mut dec = Decoder::new(&payload_bytes);
-            let inner = dec
-                .read_value()
-                .map_err(|e| InvokeError::Envelope(EnvelopeError::Codec(e)))?;
+            let inner = dec.read_value()?;
             let pairs = match inner {
                 Value::Map(p) => p,
                 _ => {
-                    return Err(InvokeError::Envelope(EnvelopeError::WrongFieldType(
+                    return Err(InvokeError::Codec(codec::Error::Malformed(
                         "ErrEnv inner payload must be a map",
                     )));
                 }
@@ -230,9 +222,11 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
                     }
                 }
             }
-            let kind = typ.ok_or(InvokeError::Envelope(EnvelopeError::MissingField("type")))?;
-            let message = msg.ok_or(InvokeError::Envelope(EnvelopeError::MissingField(
-                "message",
+            let kind = typ.ok_or(InvokeError::Codec(codec::Error::Malformed(
+                "Response error payload missing required field: type",
+            )))?;
+            let message = msg.ok_or(InvokeError::Codec(codec::Error::Malformed(
+                "Response error payload missing required field: message",
             )))?;
             Err(InvokeError::Service(ExceptionPayload {
                 kind,
@@ -264,7 +258,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     let (ptr, len) = unpack_u64(packed);
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
-        return Err(InvokeError::Envelope(EnvelopeError::Shape(
+        return Err(InvokeError::Codec(codec::Error::Malformed(
             "host returned len == 0",
         )));
     }
@@ -278,7 +272,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     LOOPBACK.with(|cell| match cell.borrow().as_ref() {
         Some(hook) => Ok(hook(req_bytes)),
-        None => Err(InvokeError::Envelope(EnvelopeError::Shape(
+        None => Err(InvokeError::Codec(codec::Error::Malformed(
             "no loopback hook installed; install one with set_loopback() \
              when calling invoke on the host target",
         ))),
@@ -469,8 +463,8 @@ mod tests {
         clear_loopback();
 
         match out {
-            Err(InvokeError::Envelope(_)) => {}
-            other => panic!("expected Envelope error, got {other:?}"),
+            Err(InvokeError::Codec(_)) => {}
+            other => panic!("expected Codec error, got {other:?}"),
         }
     }
 
@@ -481,10 +475,10 @@ mod tests {
         clear_loopback();
         let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
         match out {
-            Err(InvokeError::Envelope(EnvelopeError::Shape(msg))) => {
+            Err(InvokeError::Codec(codec::Error::Malformed(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");
             }
-            other => panic!("expected Envelope(Shape) error, got {other:?}"),
+            other => panic!("expected Codec(Malformed) error, got {other:?}"),
         }
     }
 }

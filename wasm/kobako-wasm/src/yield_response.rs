@@ -14,8 +14,7 @@
 //! land here so the wire shape is committed before the export
 //! (S4) and the host dispatcher integration (S5+) consume it.
 
-use crate::codec::{Decoder, Encoder, Value};
-use crate::transport::envelope::EnvelopeError;
+use crate::codec::{self, Decoder, Encoder, Value};
 
 /// First byte of a YieldResponse for the success branch — payload is
 /// the block's return value encoded as a single msgpack value.
@@ -46,7 +45,7 @@ const LIVE_TAGS: &[u8] = &[TAG_OK, TAG_BREAK, TAG_ERROR];
 
 /// Encode `response` to YieldResponse bytes: one tag byte followed by
 /// an msgpack-encoded `value`.
-pub fn encode_response(response: &Response) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_response(response: &Response) -> Result<Vec<u8>, codec::Error> {
     debug_assert!(
         LIVE_TAGS.contains(&response.tag),
         "Response.tag must be a live tag — caller invariant"
@@ -62,22 +61,22 @@ pub fn encode_response(response: &Response) -> Result<Vec<u8>, EnvelopeError> {
 
 /// Decode `bytes` into a [`Response`]. Rejects empty input, the
 /// reserved tag `0x03`, and any tag outside [`LIVE_TAGS`] by returning
-/// an [`EnvelopeError::Shape`].
-pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
+/// an [`codec::Error::Malformed`].
+pub fn decode_response(bytes: &[u8]) -> Result<Response, codec::Error> {
     let Some((&tag, body)) = bytes.split_first() else {
-        return Err(EnvelopeError::Shape(
+        return Err(codec::Error::Malformed(
             "YieldResponse must carry at least one byte",
         ));
     };
     if !LIVE_TAGS.contains(&tag) {
-        return Err(EnvelopeError::Shape(match tag {
+        return Err(codec::Error::Malformed(match tag {
             TAG_RESERVED => "YieldResponse tag 0x03 is reserved",
             _ => "YieldResponse tag is not recognised",
         }));
     }
 
     let mut dec = Decoder::new(body);
-    let value = dec.read_value().map_err(EnvelopeError::from)?;
+    let value = dec.read_value()?;
     Ok(Response { tag, value })
 }
 
@@ -135,8 +134,8 @@ mod tests {
         bytes.extend_from_slice(&enc.into_bytes());
         let err = decode_response(&bytes).unwrap_err();
         match err {
-            EnvelopeError::Shape(msg) => assert!(msg.contains("reserved")),
-            other => panic!("expected EnvelopeError::Shape, got {other:?}"),
+            codec::Error::Malformed(msg) => assert!(msg.contains("reserved")),
+            other => panic!("expected codec::Error::Malformed, got {other:?}"),
         }
     }
 
@@ -148,13 +147,16 @@ mod tests {
         bytes.extend_from_slice(&enc.into_bytes());
         assert!(matches!(
             decode_response(&bytes),
-            Err(EnvelopeError::Shape(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
     #[test]
     fn decode_rejects_empty_bytes() {
-        assert!(matches!(decode_response(&[]), Err(EnvelopeError::Shape(_))));
+        assert!(matches!(
+            decode_response(&[]),
+            Err(codec::Error::Malformed(_))
+        ));
     }
 
     #[test]

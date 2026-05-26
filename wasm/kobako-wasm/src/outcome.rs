@@ -7,17 +7,17 @@
 //! shape lives here at the crate top level, distinct from the
 //! per-transport-call envelope in `transport/envelope.rs`.
 //!
-//! The error type [`EnvelopeError`] is shared with `transport::envelope` — both
-//! layers raise codec-level shape faults the same way; deduplicating it
-//! avoids a parallel hierarchy.
+//! Decode faults surface as [`crate::codec::Error`] — the same type the
+//! byte-level codec raises — so a malformed Outcome shares one error
+//! channel with a malformed value. This matches the host, which raises a
+//! single `Codec::Error` for both.
 //!
 //! No `unsafe`. No third-party dependencies. Like the underlying codec,
 //! this module is an independent re-implementation of SPEC; the Ruby
 //! host outcome module ends up byte-compatible because both sides follow
 //! SPEC, not because one was copied from the other.
 
-use crate::codec::{Decoder, Encoder, Value};
-use crate::transport::envelope::EnvelopeError;
+use crate::codec::{self, Decoder, Encoder, Value};
 
 /// Outcome envelope tag for a Result envelope (docs/wire-contract.md § Outcome
 /// Envelope). Module-private — `Outcome::Value` is the public surface
@@ -65,21 +65,21 @@ pub enum Outcome {
 /// Encode the success branch of an Outcome: the raw msgpack encoding of
 /// `value`. SPEC pins this as direct (no enclosing array); the Outcome
 /// tag byte is the sole discriminator.
-pub fn encode_result(value: &Value) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_result(value: &Value) -> Result<Vec<u8>, codec::Error> {
     let mut enc = Encoder::new();
     enc.write_value(value)?;
     Ok(enc.into_bytes())
 }
 
 /// Decode the success branch of an Outcome into the carried [`Value`].
-pub fn decode_result(bytes: &[u8]) -> Result<Value, EnvelopeError> {
+pub fn decode_result(bytes: &[u8]) -> Result<Value, codec::Error> {
     let mut dec = Decoder::new(bytes);
-    Ok(dec.read_value()?)
+    dec.read_value()
 }
 
 // ---------------- Panic envelope ----------------
 
-pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, codec::Error> {
     let mut pairs: Vec<(Value, Value)> = Vec::with_capacity(5);
     pairs.push((
         Value::Str("origin".into()),
@@ -106,12 +106,12 @@ pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, EnvelopeError> {
     Ok(enc.into_bytes())
 }
 
-pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
+pub fn decode_panic(bytes: &[u8]) -> Result<Panic, codec::Error> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
     let pairs = match frame {
         Value::Map(p) => p,
-        _ => return Err(EnvelopeError::Shape("Panic envelope must be a map")),
+        _ => return Err(codec::Error::Malformed("Panic envelope must be a map")),
     };
     let mut origin = None;
     let mut class = None;
@@ -126,15 +126,15 @@ pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
         match key.as_str() {
             "origin" => match v {
                 Value::Str(s) => origin = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic origin must be str")),
+                _ => return Err(codec::Error::Malformed("Panic origin must be str")),
             },
             "class" => match v {
                 Value::Str(s) => class = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic class must be str")),
+                _ => return Err(codec::Error::Malformed("Panic class must be str")),
             },
             "message" => match v {
                 Value::Str(s) => message = Some(s),
-                _ => return Err(EnvelopeError::WrongFieldType("Panic message must be str")),
+                _ => return Err(codec::Error::Malformed("Panic message must be str")),
             },
             "backtrace" => match v {
                 Value::Array(items) => {
@@ -142,27 +142,29 @@ pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
                         match line {
                             Value::Str(s) => backtrace.push(s),
                             _ => {
-                                return Err(EnvelopeError::WrongFieldType(
+                                return Err(codec::Error::Malformed(
                                     "Panic backtrace lines must be str",
                                 ))
                             }
                         }
                     }
                 }
-                _ => {
-                    return Err(EnvelopeError::WrongFieldType(
-                        "Panic backtrace must be array",
-                    ))
-                }
+                _ => return Err(codec::Error::Malformed("Panic backtrace must be array")),
             },
             "details" => details = Some(v),
             _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
         }
     }
     Ok(Panic {
-        origin: origin.ok_or(EnvelopeError::MissingField("origin"))?,
-        class: class.ok_or(EnvelopeError::MissingField("class"))?,
-        message: message.ok_or(EnvelopeError::MissingField("message"))?,
+        origin: origin.ok_or(codec::Error::Malformed(
+            "Panic missing required field: origin",
+        ))?,
+        class: class.ok_or(codec::Error::Malformed(
+            "Panic missing required field: class",
+        ))?,
+        message: message.ok_or(codec::Error::Malformed(
+            "Panic missing required field: message",
+        ))?,
         backtrace,
         details,
     })
@@ -170,7 +172,7 @@ pub fn decode_panic(bytes: &[u8]) -> Result<Panic, EnvelopeError> {
 
 // ---------------- Outcome envelope ----------------
 
-pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, codec::Error> {
     let (tag, body) = match outcome {
         Outcome::Value(v) => (OUTCOME_TAG_RESULT, encode_result(v)?),
         Outcome::Panic(p) => (OUTCOME_TAG_PANIC, encode_panic(p)?),
@@ -181,16 +183,16 @@ pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, EnvelopeError> {
     Ok(out)
 }
 
-pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, EnvelopeError> {
+pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, codec::Error> {
     if bytes.is_empty() {
-        return Err(EnvelopeError::Shape("Outcome bytes must not be empty"));
+        return Err(codec::Error::Malformed("Outcome bytes must not be empty"));
     }
     let tag = bytes[0];
     let body = &bytes[1..];
     match tag {
         OUTCOME_TAG_RESULT => Ok(Outcome::Value(decode_result(body)?)),
         OUTCOME_TAG_PANIC => Ok(Outcome::Panic(decode_panic(body)?)),
-        _ => Err(EnvelopeError::Shape("Outcome tag must be 0x01 or 0x02")),
+        _ => Err(codec::Error::Malformed("Outcome tag must be 0x01 or 0x02")),
     }
 }
 
@@ -292,7 +294,9 @@ mod tests {
         .unwrap();
         assert!(matches!(
             decode_panic(&enc.into_bytes()),
-            Err(EnvelopeError::MissingField("class"))
+            Err(codec::Error::Malformed(
+                "Panic missing required field: class"
+            ))
         ));
     }
 
@@ -302,7 +306,7 @@ mod tests {
         enc.write_value(&Value::Array(vec![Value::Int(1)])).unwrap();
         assert!(matches!(
             decode_panic(&enc.into_bytes()),
-            Err(EnvelopeError::Shape(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
@@ -336,13 +340,16 @@ mod tests {
         let bytes = [0x03_u8, 0x90];
         assert!(matches!(
             decode_outcome(&bytes),
-            Err(EnvelopeError::Shape(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
     #[test]
     fn outcome_decode_rejects_empty_bytes() {
-        assert!(matches!(decode_outcome(&[]), Err(EnvelopeError::Shape(_))));
+        assert!(matches!(
+            decode_outcome(&[]),
+            Err(codec::Error::Malformed(_))
+        ));
     }
 
     #[test]

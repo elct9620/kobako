@@ -15,8 +15,8 @@
 //!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
 //!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
 //!   `decode_panic` / `encode_result` / `decode_result` helpers
-//!   (docs/wire-contract.md § Outcome Envelope). Shares
-//!   [`transport::envelope::EnvelopeError`] for codec-shape faults.
+//!   (docs/wire-contract.md § Outcome Envelope). Raises [`codec::Error`]
+//!   for both byte-level and structural faults.
 //! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //!   `__kobako_take_outcome` guest exports (docs/wire-codec.md

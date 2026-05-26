@@ -14,7 +14,7 @@
 //! host envelope module ends up byte-compatible because both sides
 //! follow SPEC, not because one was copied from the other.
 
-use crate::codec::{CodecError, Decoder, Encoder, Value};
+use crate::codec::{self, Decoder, Encoder, Value};
 
 /// Response variant marker for the success branch
 /// (docs/wire-codec.md § Envelope Encoding → Response). Module-private — `Response::Ok`
@@ -22,60 +22,6 @@ use crate::codec::{CodecError, Decoder, Encoder, Value};
 const STATUS_OK: i64 = 0;
 /// Response variant marker for the error branch. Module-private.
 const STATUS_ERROR: i64 = 1;
-
-/// Errors raised by envelope-level encode/decode on top of [`CodecError`].
-///
-/// A pure codec fault (truncated input, bad UTF-8, etc.) bubbles up as
-/// [`EnvelopeError::Codec`]. Envelope-shape faults (wrong arity, missing
-/// required field, illegal tag byte) get their own variants so the host
-/// can classify them per SPEC's attribution rules.
-///
-/// Shared with `crate::outcome` — both layers raise codec-shape faults
-/// the same way, and deduplicating the error type avoids a parallel
-/// hierarchy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EnvelopeError {
-    /// Underlying codec rejected the input bytes.
-    Codec(CodecError),
-    /// The decoded value does not match the SPEC envelope shape (e.g.
-    /// Request was not a 5-element array, Response status was outside
-    /// {0, 1}, Outcome tag byte was neither 0x01 nor 0x02).
-    Shape(&'static str),
-    /// A required field was missing from a Panic envelope (SPEC pins
-    /// "origin", "class", "message" as mandatory).
-    MissingField(&'static str),
-    /// A field had the wrong msgpack family (e.g. Request `target` was
-    /// neither str nor Handle).
-    WrongFieldType(&'static str),
-}
-
-impl From<CodecError> for EnvelopeError {
-    fn from(e: CodecError) -> Self {
-        EnvelopeError::Codec(e)
-    }
-}
-
-impl std::fmt::Display for EnvelopeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EnvelopeError::Codec(e) => write!(f, "codec rejected envelope bytes: {e}"),
-            EnvelopeError::Shape(msg) => write!(f, "envelope shape mismatch: {msg}"),
-            EnvelopeError::MissingField(name) => {
-                write!(f, "envelope missing required field: {name}")
-            }
-            EnvelopeError::WrongFieldType(msg) => write!(f, "envelope field had wrong type: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for EnvelopeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            EnvelopeError::Codec(e) => Some(e),
-            _ => None,
-        }
-    }
-}
 
 // ============================================================
 // Value objects
@@ -129,7 +75,7 @@ pub enum Response {
 /// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
 /// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
 /// slot.
-pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_request(req: &Request) -> Result<Vec<u8>, codec::Error> {
     let target_value = match &req.target {
         Target::Path(s) => Value::Str(s.clone()),
         Target::Handle(id) => Value::Handle(*id),
@@ -152,32 +98,32 @@ pub fn encode_request(req: &Request) -> Result<Vec<u8>, EnvelopeError> {
 }
 
 /// Decode bytes to a [`Request`].
-pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
+pub fn decode_request(bytes: &[u8]) -> Result<Request, codec::Error> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
     // `try_into` on a Vec succeeds iff length matches; the preceding guard
     // makes that condition true, so the unwrap is unreachable in practice.
     let [target_v, method_v, args_v, kwargs_v, block_given_v]: [Value; 5] = match frame {
         Value::Array(items) if items.len() == 5 => items.try_into().unwrap(),
-        _ => return Err(EnvelopeError::Shape("Request must be a 5-element array")),
+        _ => return Err(codec::Error::Malformed("Request must be a 5-element array")),
     };
 
     let target = match target_v {
         Value::Str(s) => Target::Path(s),
         Value::Handle(id) => Target::Handle(id),
         _ => {
-            return Err(EnvelopeError::WrongFieldType(
+            return Err(codec::Error::Malformed(
                 "Request target must be str or Handle",
             ))
         }
     };
     let method = match method_v {
         Value::Str(s) => s,
-        _ => return Err(EnvelopeError::WrongFieldType("Request method must be str")),
+        _ => return Err(codec::Error::Malformed("Request method must be str")),
     };
     let args = match args_v {
         Value::Array(items) => items,
-        _ => return Err(EnvelopeError::WrongFieldType("Request args must be array")),
+        _ => return Err(codec::Error::Malformed("Request args must be array")),
     };
     let kwargs = match kwargs_v {
         Value::Map(pairs) => {
@@ -186,7 +132,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
                 let key = match k {
                     Value::Sym(s) => s,
                     _ => {
-                        return Err(EnvelopeError::WrongFieldType(
+                        return Err(codec::Error::Malformed(
                             "Request kwargs keys must be Symbol (ext 0x00)",
                         ))
                     }
@@ -195,15 +141,11 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
             }
             out
         }
-        _ => return Err(EnvelopeError::WrongFieldType("Request kwargs must be map")),
+        _ => return Err(codec::Error::Malformed("Request kwargs must be map")),
     };
     let block_given = match block_given_v {
         Value::Bool(b) => b,
-        _ => {
-            return Err(EnvelopeError::WrongFieldType(
-                "Request block_given must be bool",
-            ))
-        }
+        _ => return Err(codec::Error::Malformed("Request block_given must be bool")),
     };
     Ok(Request {
         target,
@@ -216,7 +158,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, EnvelopeError> {
 
 // ---------------- Response ----------------
 
-pub fn encode_response(resp: &Response) -> Result<Vec<u8>, EnvelopeError> {
+pub fn encode_response(resp: &Response) -> Result<Vec<u8>, codec::Error> {
     let (status, payload) = match resp {
         Response::Ok(v) => (STATUS_OK, v.clone()),
         Response::Err(payload_bytes) => (STATUS_ERROR, Value::ErrEnv(payload_bytes.clone())),
@@ -227,26 +169,30 @@ pub fn encode_response(resp: &Response) -> Result<Vec<u8>, EnvelopeError> {
     Ok(enc.into_bytes())
 }
 
-pub fn decode_response(bytes: &[u8]) -> Result<Response, EnvelopeError> {
+pub fn decode_response(bytes: &[u8]) -> Result<Response, codec::Error> {
     let mut dec = Decoder::new(bytes);
     let frame = dec.read_value()?;
     let [status, payload]: [Value; 2] = match frame {
         Value::Array(items) if items.len() == 2 => items.try_into().unwrap(),
-        _ => return Err(EnvelopeError::Shape("Response must be a 2-element array")),
+        _ => {
+            return Err(codec::Error::Malformed(
+                "Response must be a 2-element array",
+            ))
+        }
     };
     let status = match status {
         Value::Int(n) => n,
-        _ => return Err(EnvelopeError::WrongFieldType("Response status must be int")),
+        _ => return Err(codec::Error::Malformed("Response status must be int")),
     };
     match status {
         STATUS_OK => Ok(Response::Ok(payload)),
         STATUS_ERROR => match payload {
             Value::ErrEnv(bytes) => Ok(Response::Err(bytes)),
-            _ => Err(EnvelopeError::WrongFieldType(
+            _ => Err(codec::Error::Malformed(
                 "Response status=1 payload must be ext 0x02 Fault",
             )),
         },
-        _ => Err(EnvelopeError::Shape("Response status must be 0 or 1")),
+        _ => Err(codec::Error::Malformed("Response status must be 0 or 1")),
     }
 }
 
@@ -342,7 +288,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             decode_request(&enc.into_bytes()),
-            Err(EnvelopeError::Shape(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
@@ -359,7 +305,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             decode_request(&enc.into_bytes()),
-            Err(EnvelopeError::WrongFieldType(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
@@ -418,7 +364,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             decode_response(&enc.into_bytes()),
-            Err(EnvelopeError::Shape(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 
@@ -432,7 +378,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             decode_response(&enc.into_bytes()),
-            Err(EnvelopeError::WrongFieldType(_))
+            Err(codec::Error::Malformed(_))
         ));
     }
 

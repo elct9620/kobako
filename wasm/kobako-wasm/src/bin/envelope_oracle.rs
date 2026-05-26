@@ -28,11 +28,12 @@
 
 use std::io::{self, Read, Write};
 
+use kobako_wasm::codec;
 use kobako_wasm::outcome::{
     decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
 };
 use kobako_wasm::transport::envelope::{
-    decode_request, decode_response, encode_request, encode_response, EnvelopeError,
+    decode_request, decode_response, encode_request, encode_response,
 };
 use kobako_wasm::FRAME_LEN_SIZE;
 
@@ -113,6 +114,6 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-fn stringify(e: EnvelopeError) -> String {
+fn stringify(e: codec::Error) -> String {
     e.to_string()
 }
