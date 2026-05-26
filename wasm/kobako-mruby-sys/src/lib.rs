@@ -67,6 +67,8 @@ pub mod array;
 pub mod ccontext;
 pub mod class;
 #[cfg(target_arch = "wasm32")]
+pub mod convert;
+#[cfg(target_arch = "wasm32")]
 pub mod hash;
 pub mod state;
 pub mod value;
@@ -83,6 +85,8 @@ pub use ccontext::Ccontext;
 #[cfg(target_arch = "wasm32")]
 pub use array::Array;
 pub use class::{Class, Module};
+#[cfg(target_arch = "wasm32")]
+pub use convert::{FromValue, IntoValue};
 #[cfg(target_arch = "wasm32")]
 pub use hash::Hash;
 pub use value::cstr_ptr;

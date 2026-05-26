@@ -268,12 +268,11 @@ impl Kobako {
     /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
     /// callers see "empty collection" rather than a panic.
     pub fn collection_len(&self, col: Value) -> usize {
+        use crate::mruby::sys::FromValue;
         let len_val = col.call(self.mrb(), c"length", &[]);
-        if !len_val.is_integer() {
+        let Some(len) = i32::from_value(len_val) else {
             return 0;
-        }
-        // SAFETY: gated by the is_integer check above.
-        let len = unsafe { len_val.unbox_integer() };
+        };
         if len < 0 {
             0
         } else {
@@ -357,12 +356,11 @@ impl Kobako {
     /// and tighter on the wire-violation surface.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
+        use crate::mruby::sys::FromValue;
         let id_val = handle_val.iv_get(self.mrb(), id_sym);
-        if !id_val.is_integer() {
+        let Some(id) = i32::from_value(id_val) else {
             return 0;
-        }
-        // SAFETY: gated by the is_integer check above.
-        let id = unsafe { id_val.unbox_integer() };
+        };
         if id < 0 {
             0
         } else {

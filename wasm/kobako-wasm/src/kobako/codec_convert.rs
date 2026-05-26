@@ -151,17 +151,15 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
-        // Direct-unbox primitives dispatch on mruby's own type tag
-        // (`mrb_type`, via `is_integer` / `is_float`) so the `unsafe`
-        // unbox precondition is established by the guard itself rather
-        // than inferred from a classname-string match.
-        if val.is_integer() {
-            // SAFETY: `is_integer` confirmed MRB_TT_INTEGER tagging.
-            return CodecValue::Int(unsafe { val.unbox_integer() } as i64);
+        use crate::mruby::sys::FromValue;
+        // Scalar leaves dispatch on mruby's own type tag through the safe
+        // `FromValue` downcast (which folds the `mrb_type` guard into the
+        // unbox) rather than a classname-string match.
+        if let Some(n) = i32::from_value(val) {
+            return CodecValue::Int(n as i64);
         }
-        if val.is_float() {
-            // SAFETY: `is_float` confirmed MRB_TT_FLOAT tagging.
-            return CodecValue::Float(unsafe { val.unbox_float() });
+        if let Some(f) = f64::from_value(val) {
+            return CodecValue::Float(f);
         }
         match val.classname(self.mrb()) {
             "NilClass" => CodecValue::Nil,
@@ -196,15 +194,14 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_outcome(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
-        // Tag-predicate gate for the direct-unbox primitives, as in
+        use crate::mruby::sys::FromValue;
+        // Scalar-leaf downcast through the safe `FromValue` seam, as in
         // `to_codec_value`.
-        if val.is_integer() {
-            // SAFETY: `is_integer` confirmed MRB_TT_INTEGER tagging.
-            return CodecValue::Int(unsafe { val.unbox_integer() } as i64);
+        if let Some(n) = i32::from_value(val) {
+            return CodecValue::Int(n as i64);
         }
-        if val.is_float() {
-            // SAFETY: `is_float` confirmed MRB_TT_FLOAT tagging.
-            return CodecValue::Float(unsafe { val.unbox_float() });
+        if let Some(f) = f64::from_value(val) {
+            return CodecValue::Float(f);
         }
         match val.classname(self.mrb()) {
             "NilClass" => CodecValue::Nil,
@@ -249,33 +246,28 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_mrb_value(&self, val: crate::codec::Value) -> Value {
         use crate::codec::Value as CodecValue;
+        use crate::mruby::sys::IntoValue;
         let mrb = self.mrb();
         match val {
             CodecValue::Nil => Value::nil(),
-            CodecValue::Bool(b) => {
-                if b {
-                    Value::true_()
-                } else {
-                    Value::false_()
-                }
-            }
+            CodecValue::Bool(b) => b.into_value(mrb),
             CodecValue::Int(n) => {
                 // mrb_int on wasm32 is 32-bit (MRB_INT32); clamp to i32.
                 let n32 = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-                Value::from_int(mrb, n32)
+                n32.into_value(mrb)
             }
             CodecValue::UInt(n) => {
                 let n32 = n.min(i32::MAX as u64) as i32;
-                Value::from_int(mrb, n32)
+                n32.into_value(mrb)
             }
-            CodecValue::Float(f) => Value::from_float(mrb, f),
+            CodecValue::Float(f) => f.into_value(mrb),
             CodecValue::Str(s) => match std::ffi::CString::new(s.as_str()) {
                 Ok(cs) => mrb.str_new_cstr(&cs),
                 Err(_) => mrb.str_new(s.as_bytes()),
             },
             CodecValue::Handle(id) => self
                 .handle_class
-                .obj_new(mrb, &[Value::from_int(mrb, id as i32)]),
+                .obj_new(mrb, &[(id as i32).into_value(mrb)]),
             CodecValue::Bin(bytes) => mrb.str_new(&bytes),
             CodecValue::Sym(name) => {
                 // Intern via String#to_sym — mruby's mrb_symbol_value

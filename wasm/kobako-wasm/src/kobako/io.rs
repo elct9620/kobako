@@ -82,7 +82,8 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
         unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
     }
 
-    let fd_val = Value::from_int(mrb_ref, fd);
+    use crate::mruby::sys::IntoValue;
+    let fd_val = fd.into_value(mrb_ref);
     let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
     self_.iv_set(mrb_ref, sym, fd_val);
     Value::zeroed()
@@ -126,7 +127,8 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
             }
         }
     }
-    Value::from_int(mrb_ref, total)
+    use crate::mruby::sys::IntoValue;
+    total.into_value(mrb_ref)
 }
 
 unsafe extern "C" {
@@ -144,8 +146,9 @@ unsafe extern "C" {
 pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     // SAFETY: bridge frame — mruby invoked us with a live state.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+    use crate::mruby::sys::IntoValue;
     let fd = read_fd(mrb_ref, self_);
-    Value::from_int(mrb_ref, fd)
+    fd.into_value(mrb_ref)
 }
 
 /// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the
@@ -158,12 +161,9 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// `.to_s.parse` round-trip.
 fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
+    use crate::mruby::sys::FromValue;
     let val = self_.iv_get(mrb, sym);
-    if !val.is_integer() {
-        return 0;
-    }
-    // SAFETY: gated by the is_integer check above.
-    unsafe { val.unbox_integer() }
+    i32::from_value(val).unwrap_or(0)
 }
 
 /// Raise `ArgumentError` with `msg`. Diverges — `mrb_raise` does not

@@ -158,10 +158,11 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
     // (docs/behavior.md B-04).
     io::install(mrb);
 
+    use crate::mruby::sys::IntoValue;
     let io_class = mrb.class_get(c"IO");
     let mode_str = mrb.str_new_cstr(c"w");
-    let stdout_val = io_class.obj_new(mrb, &[sys::Value::from_int(mrb, 1), mode_str]);
-    let stderr_val = io_class.obj_new(mrb, &[sys::Value::from_int(mrb, 2), mode_str]);
+    let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
+    let stderr_val = io_class.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);
 
     mrb.define_global_const(c"STDOUT", stdout_val);
     mrb.define_global_const(c"STDERR", stderr_val);
