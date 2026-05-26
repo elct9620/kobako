@@ -14,13 +14,15 @@
 //! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
 //! **loopback** hook stands in for the host so that integration-style
 //! tests can drive the full transport path without a real wasm runtime.
-//! The envelope codec itself is exhaustively tested at the envelope layer
-//! (`envelope.rs` golden vectors); this module only adds the demux logic.
+//! The envelope codec itself is exhaustively tested at the value-object
+//! layer (`request.rs` / `response.rs` golden vectors); this module only
+//! adds the demux logic.
 //!
 //! ## Why the loopback indirection on host
 //!
 //! The codec and envelope layers are exhaustively tested on the host
-//! target already (see `envelope.rs` and `codec/mod.rs`). What this
+//! target already (see `request.rs` / `response.rs` and `codec/mod.rs`).
+//! What this
 //! module adds is the *demux* logic that turns a `Response::Ok(value)`
 //! into a returnable mruby value, and a `Response::Err(payload)` into
 //! an mruby exception. We test that demux without a real wasm runtime

@@ -5,7 +5,7 @@
 //! top-level uncaught exception (`Panic` branch). This module mirrors the
 //! host's `lib/kobako/outcome.rb` + `lib/kobako/outcome/panic.rb`: per-run
 //! shape lives here at the crate top level, distinct from the
-//! per-transport-call envelope in `transport/envelope.rs`.
+//! per-transport-call envelopes in `transport/{request,response}.rs`.
 //!
 //! Decode faults surface as [`crate::codec::Error`] — the same type the
 //! byte-level codec raises — so a malformed Outcome shares one error

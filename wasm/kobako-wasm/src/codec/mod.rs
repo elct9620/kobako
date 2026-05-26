@@ -12,7 +12,8 @@
 //!
 //! This module is intentionally a thin shim: the public surface — `Value`,
 //! `Encoder`, `Decoder`, `Error` — is the same one downstream callers
-//! (`envelope.rs`, `transport/proxy.rs`, the round-trip oracle binary) used
+//! (`transport/{request,response}.rs`, `transport/proxy.rs`, the round-trip
+//! oracle binary) used
 //! against the previous hand-rolled implementation, but the byte-level
 //! work is now delegated to `rmp::encode` / `rmp::decode`.
 

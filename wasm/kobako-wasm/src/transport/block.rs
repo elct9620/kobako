@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn encode_ok_with_int_42_golden() {
         // Same byte sequence as the Ruby golden test in
-        // test_yield_response.rb: tag 0x01 + msgpack int 42 (0x2a).
+        // test/transport/test_yield.rb: tag 0x01 + msgpack int 42 (0x2a).
         let bytes = Yield {
             tag: TAG_OK,
             value: Value::Int(42),
