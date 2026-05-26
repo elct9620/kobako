@@ -21,13 +21,13 @@ module Kobako
     # a truncation sentinel; +#truncated?+ is the only way to observe
     # that the cap was hit.
     def stdout
-      Capture.from_ext(stdout_bytes, stdout_truncated)
+      Capture.new(bytes: stdout_bytes, truncated: stdout_truncated)
     end
 
     # Wrap the stderr capture pair as a +Kobako::Capture+ value object.
     # Mirror of +#stdout+.
     def stderr
-      Capture.from_ext(stderr_bytes, stderr_truncated)
+      Capture.new(bytes: stderr_bytes, truncated: stderr_truncated)
     end
 
     # Wrap the per-last-invocation usage pair (+wall_time+,

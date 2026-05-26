@@ -8,18 +8,23 @@ module Kobako
   #
   # Immutable value object: the captured bytes and the truncation flag
   # always travel together and the instance is frozen on construction.
-  # Construct via +Capture.from_ext+ for ext-provided binary bytes (handles
-  # UTF-8 / ASCII-8BIT fallback) or reach +Capture::EMPTY+ for the pre-
-  # invocation sentinel that +Sandbox+ uses before any invocation has
-  # executed.
+  # Construct via +Capture.new(bytes:, truncated:)+ for the ext-provided
+  # binary bytes (the constructor handles the UTF-8 / ASCII-8BIT fallback)
+  # or reach +Capture::EMPTY+ for the pre-invocation sentinel that
+  # +Sandbox+ uses before any invocation has executed.
   class Capture
     attr_reader :bytes
 
     # Build a Capture wrapping +bytes+ (the captured prefix as a String) and
     # +truncated+ (whether the originating WASI pipe reported the cap was
-    # hit). Freezes the instance so callers cannot mutate the pair.
+    # hit). Coerces +bytes+ to UTF-8 when they are valid UTF-8, otherwise
+    # falls back to ASCII-8BIT so invalid sequences remain inspectable
+    # without raising; +bytes+ is duplicated, never mutated. Freezes the
+    # instance so callers cannot mutate the pair.
     def initialize(bytes:, truncated:)
-      @bytes = bytes
+      copy = bytes.dup.force_encoding(Encoding::UTF_8)
+      copy.force_encoding(Encoding::ASCII_8BIT) unless copy.valid_encoding?
+      @bytes = copy
       @truncated = truncated
       freeze
     end
@@ -28,16 +33,6 @@ module Kobako
     # configured cap during the originating +Sandbox+ invocation
     # ({docs/behavior.md B-04}[link:../../docs/behavior.md]).
     def truncated? = @truncated
-
-    # Construct a Capture from ext-provided binary bytes. Coerces +bytes+
-    # to UTF-8 when the bytes are valid UTF-8, otherwise falls back to
-    # ASCII-8BIT so invalid sequences remain inspectable without raising.
-    # +bytes+ is not mutated.
-    def self.from_ext(bytes, truncated)
-      copy = bytes.dup.force_encoding(Encoding::UTF_8)
-      copy.force_encoding(Encoding::ASCII_8BIT) unless copy.valid_encoding?
-      new(bytes: copy, truncated: truncated)
-    end
 
     # Pre-invocation sentinel ({docs/behavior.md B-05}[link:../../docs/behavior.md]).
     # Empty UTF-8 bytes and +truncated? == false+; reused by every fresh

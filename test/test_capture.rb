@@ -33,11 +33,11 @@ class TestCapture < Minitest::Test
     assert_predicate capture, :frozen?
   end
 
-  # SPEC.md B-04: ext provides binary bytes; Capture.from_ext coerces them
+  # SPEC.md B-04: ext provides binary bytes; Capture.new coerces them
   # to UTF-8 when valid so callers receive an inspectable String without
   # encoding work.
-  def test_from_ext_returns_utf8_when_bytes_are_valid_utf8
-    capture = Kobako::Capture.from_ext("hello".b, false)
+  def test_new_returns_utf8_when_bytes_are_valid_utf8
+    capture = Kobako::Capture.new(bytes: "hello".b, truncated: false)
 
     assert_equal Encoding::UTF_8, capture.bytes.encoding
     assert_equal "hello", capture.bytes
@@ -46,19 +46,19 @@ class TestCapture < Minitest::Test
 
   # Invalid UTF-8 must not raise — fall back to ASCII-8BIT so the host
   # can still inspect the raw bytes for debugging.
-  def test_from_ext_falls_back_to_ascii_8bit_on_invalid_utf8
+  def test_new_falls_back_to_ascii_8bit_on_invalid_utf8
     invalid = "\xff\xfe".b
-    capture = Kobako::Capture.from_ext(invalid, true)
+    capture = Kobako::Capture.new(bytes: invalid, truncated: true)
 
     assert_equal Encoding::ASCII_8BIT, capture.bytes.encoding
     assert_equal invalid, capture.bytes
     assert_predicate capture, :truncated?
   end
 
-  def test_from_ext_does_not_mutate_input_bytes
+  def test_new_does_not_mutate_input_bytes
     original = "data".b
 
-    Kobako::Capture.from_ext(original, false)
+    Kobako::Capture.new(bytes: original, truncated: false)
 
     assert_equal Encoding::ASCII_8BIT, original.encoding
   end

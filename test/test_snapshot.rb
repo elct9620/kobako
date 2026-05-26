@@ -43,7 +43,7 @@ class TestSnapshot < Minitest::Test
   # a +Kobako::Capture+ value object. Pinning the raw-to-helper mapping
   # catches a regression where the helper accidentally reads the
   # stderr-side fields — the kind of swap a magnus reader rename could
-  # introduce silently. +Capture.from_ext+ force-encodes the bytes, so
+  # introduce silently. +Capture.new+ force-encodes the bytes, so
   # compare via +.b+ to isolate the assertion from UTF-8 / ASCII-8BIT
   # drift.
   def test_stdout_helper_packs_stdout_pair_into_capture
