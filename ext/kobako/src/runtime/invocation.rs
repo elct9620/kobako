@@ -1,26 +1,26 @@
 //! Per-invocation host state — the materialised
 //! [SPEC.md Single-Invocation Slot] (one [`Invocation`] per OS thread
-//! for the lifetime of one [`Instance::eval`] / [`Instance::run`] call).
+//! for the lifetime of one [`Runtime::eval`] / [`Runtime::run`] call).
 //!
 //! Owned by [`StoreCell`] (a `RefCell` shim wrapping `wasmtime::Store`)
 //! and threaded through every host import — the `__kobako_dispatch`
 //! dispatcher reads the bound dispatch Proc, while the run-path methods
-//! on [`crate::runtime::Instance`] install fresh WASI context + pipes
+//! on [`crate::runtime::Runtime`] install fresh WASI context + pipes
 //! before every invocation (docs/behavior.md B-03 / B-04).
 //!
 //! The slot also carries the per-invocation wall-clock deadline
 //! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
 //! delta cap [`KobakoLimiter`] (docs/behavior.md B-01, E-20). Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
-//! callbacks installed in [`crate::runtime::Instance::from_path`]. The
+//! callbacks installed in [`crate::runtime::Runtime::from_path`]. The
 //! memory cap measures only the `memory.grow` delta past the linear-
 //! memory size captured at invocation entry — the mruby image's
 //! initial allocation and prior invocations' watermark are outside the
 //! budget.
 //!
 //! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
-//! [`Instance::eval`]: crate::runtime::instance::Instance::eval
-//! [`Instance::run`]: crate::runtime::instance::Instance::run
+//! [`Runtime::eval`]: crate::runtime::instance::Runtime::eval
+//! [`Runtime::run`]: crate::runtime::instance::Runtime::run
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};
@@ -70,8 +70,8 @@ impl Invocation {
     }
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
-    /// pipe clones. Called from [`crate::wasm::Instance::eval`] /
-    /// [`crate::wasm::Instance::run`] at the top of every guest
+    /// pipe clones. Called from [`crate::runtime::Runtime::eval`] /
+    /// [`crate::runtime::Runtime::run`] at the top of every guest
     /// invocation (docs/behavior.md B-03 / B-04).
     pub(super) fn install_wasi(
         &mut self,
@@ -120,11 +120,11 @@ impl Invocation {
     /// Mutable handle to the live WASI context. Panics if no context has
     /// been installed yet — every call site is downstream of
     /// [`Invocation::install_wasi`] running at the top of
-    /// `Instance::eval` / `Instance::run`, so reaching this branch with
+    /// `Runtime::eval` / `Runtime::run`, so reaching this branch with
     /// `None` signals a host-side wiring bug.
     pub(super) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
         self.wasi.as_mut().expect(
-            "WASI context not initialised — call Instance#eval / Instance#run before any WASI use",
+            "WASI context not initialised — call Runtime#eval / Runtime#run before any WASI use",
         )
     }
 
@@ -136,14 +136,14 @@ impl Invocation {
     }
 
     /// Return the current per-run deadline. Read from the epoch-deadline
-    /// callback installed by [`crate::wasm::Instance::from_path`].
+    /// callback installed by [`crate::runtime::Runtime::from_path`].
     pub(super) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
 
     /// Mutable handle to the embedded [`KobakoLimiter`]. Required by
     /// the wasmtime [`ResourceLimiter`] callback wiring in
-    /// [`crate::wasm::Instance::from_path`]
+    /// [`crate::runtime::Runtime::from_path`]
     /// (`store.limiter(|state| state.limiter_mut())`); kept private to
     /// the wasm submodule so the only public surface for arming the
     /// cap goes through [`Invocation::arm_memory_cap`] /
@@ -221,7 +221,7 @@ impl Invocation {
 /// `ResourceLimiter` also fires for the module's declared initial
 /// allocation at instantiation time, but the cap stays dormant until
 /// [`KobakoLimiter::activate`] flips the flag for one
-/// `Instance::eval` / `Instance::run` call. When `cap_active` is
+/// `Runtime::eval` / `Runtime::run` call. When `cap_active` is
 /// `false`, the limiter always allows growth.
 ///
 /// When `memory.grow` would push the per-invocation delta past
@@ -376,7 +376,7 @@ pub(super) struct StoreCell {
 
 impl StoreCell {
     /// Wrap a freshly-built `wasmtime::Store<Invocation>` so it can be owned
-    /// by the magnus-wrapped `Instance`.
+    /// by the magnus-wrapped `Runtime`.
     pub(super) fn new(store: WtStore<Invocation>) -> Self {
         Self {
             inner: RefCell::new(store),

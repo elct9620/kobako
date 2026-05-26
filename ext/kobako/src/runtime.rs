@@ -36,7 +36,7 @@ use magnus::{
     function, method, prelude::*, Error as MagnusError, ExceptionClass, RModule, RString, Ruby,
 };
 
-use instance::Instance;
+use instance::Runtime;
 
 /// Copy the bytes of +s+ into a fresh +Vec<u8>+. Single safe entry to
 /// what would otherwise be an inline +unsafe { rstring.as_slice() }
@@ -129,15 +129,15 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
-    runtime.define_singleton_method("from_path", function!(Instance::from_path, 5))?;
-    runtime.define_method("on_dispatch=", method!(Instance::set_on_dispatch, 1))?;
+    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 5))?;
+    runtime.define_method("on_dispatch=", method!(Runtime::set_on_dispatch, 1))?;
     runtime.define_method(
         "yield_to_active_invocation",
-        method!(Instance::yield_to_active_invocation, 1),
+        method!(Runtime::yield_to_active_invocation, 1),
     )?;
-    runtime.define_method("eval", method!(Instance::eval, 3))?;
-    runtime.define_method("run", method!(Instance::run, 3))?;
-    runtime.define_method("usage", method!(Instance::usage, 0))?;
+    runtime.define_method("eval", method!(Runtime::eval, 3))?;
+    runtime.define_method("run", method!(Runtime::run, 3))?;
+    runtime.define_method("usage", method!(Runtime::usage, 0))?;
 
     Ok(())
 }

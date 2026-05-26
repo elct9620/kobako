@@ -6,7 +6,7 @@
 //! amortise Engine creation and Module JIT compilation across multiple
 //! `Kobako::Sandbox` constructions, the ext keeps a process-scope
 //! shared Engine and a per-path Module cache. Both are transparent to
-//! Ruby callers, who construct an `Instance` via
+//! Ruby callers, who construct a `Runtime` via
 //! `Kobako::Runtime.from_path(...)` and never see Engine or Module.
 //!
 //! Concurrency: under Ruby's GVL only one thread can execute Rust code

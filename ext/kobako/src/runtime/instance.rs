@@ -1,6 +1,6 @@
 //! `Kobako::Runtime` — the only Ruby-visible wasmtime wrapper.
 //!
-//! Constructed via [`Instance::from_path`]; the wasmtime [`Engine`] and
+//! Constructed via [`Runtime::from_path`]; the wasmtime [`Engine`] and
 //! compiled [`Module`] are owned by the [`super::cache`] singletons and
 //! never surface to Ruby. The instance wraps a [`StoreCell`] (interior-
 //! mutability around `wasmtime::Store<Invocation>`) plus three cached
@@ -13,7 +13,7 @@
 //! two for `#run`: preamble + snippets), packed-u64 outcome encoding,
 //! and the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //! `__kobako_take_outcome` exports are all wrapped inside
-//! [`Instance::eval`] and [`Instance::run`]; Ruby callers see only
+//! [`Runtime::eval`] and [`Runtime::run`]; Ruby callers see only
 //! `#eval(preamble, source, snippets)`, `#run(preamble, snippets,
 //! envelope)`, `#usage`, `#on_dispatch=`, and `#yield_to_active_invocation`
 //! — every per-invocation observable arrives bundled in the
@@ -21,11 +21,11 @@
 //!
 //! WASI stdout/stderr capture (docs/behavior.md B-04): wasmtime-wasi p1
 //! bindings route guest fd 1 and fd 2 into per-run [`MemoryOutputPipe`]
-//! instances rebuilt at the start of every [`Instance::eval`] /
-//! [`Instance::run`]. The per-channel cap is enforced directly on the
+//! instances rebuilt at the start of every [`Runtime::eval`] /
+//! [`Runtime::run`]. The per-channel cap is enforced directly on the
 //! pipe — the pipe is sized at `cap + 1` so a guest that writes exactly
 //! `cap` bytes is distinguishable from one that exceeded the cap, and
-//! [`Instance::build_snapshot`] slices the captured bytes back to `cap`
+//! [`Runtime::build_snapshot`] slices the captured bytes back to `cap`
 //! before packing them into the returned [`Snapshot`]. Uncapped
 //! channels (`None`) build the pipe at `usize::MAX`; `memory_limit`
 //! provides the real upper bound in that case.
@@ -64,7 +64,7 @@ use super::invocation::{Invocation, MemoryLimitTrap, StoreCell, TimeoutTrap};
 use super::{memory_limit_err, rstring_to_vec, setup_err, timeout_err, trap_err};
 
 #[magnus::wrap(class = "Kobako::Runtime", free_immediately, size)]
-pub(crate) struct Instance {
+pub(crate) struct Runtime {
     inner: WtInstance,
     store: StoreCell,
     // Cached TypedFunc handles for the two host-driven ABI exports.
@@ -79,24 +79,24 @@ pub(crate) struct Instance {
     take_outcome: Option<TypedFunc<(), u64>>,
     // Wall-clock cap for one guest `#run` (docs/behavior.md B-01); `None` disables
     // the cap. Translated into an `Instant`-based deadline stamped into
-    // [`Invocation`] at the top of every `Instance::eval`.
+    // [`Invocation`] at the top of every `Runtime::eval`.
     timeout: Option<Duration>,
     // Per-channel byte caps for guest stdout / stderr capture
     // (docs/behavior.md B-01 / B-04). `None` disables the cap on that
     // channel. Read by
-    // [`Instance::refresh_wasi`] to size the MemoryOutputPipe and by
-    // [`Instance::stdout`] / [`Instance::stderr`] to compute the
+    // [`Runtime::refresh_wasi`] to size the MemoryOutputPipe and by
+    // [`Runtime::stdout`] / [`Runtime::stderr`] to compute the
     // truncation flag. See the module-level note above for the `cap + 1`
     // sizing rationale. Unlike `memory_limit` (which lives on
     // [`Invocation`] because the wasmtime [`ResourceLimiter`] callback
     // consumes it from within the wasm engine), these caps are read only
-    // by Instance methods, so they live on Instance itself.
+    // by Runtime methods, so they live on Runtime itself.
     stdout_limit_bytes: Option<usize>,
     stderr_limit_bytes: Option<usize>,
 }
 
-impl Instance {
-    /// Construct an Instance from a wasm file path, using the process-wide
+impl Runtime {
+    /// Construct an Runtime from a wasm file path, using the process-wide
     /// shared Engine and per-path Module cache. The single Ruby-facing
     /// constructor for `Kobako::Runtime` — Engine and Module are never
     /// visible to Ruby.
@@ -150,8 +150,8 @@ impl Instance {
         )
     }
 
-    /// Build an `Instance` from an engine, module, and store cell. The
-    /// store cell is moved in and ends up owned by the returned Instance.
+    /// Build an `Runtime` from an engine, module, and store cell. The
+    /// store cell is moved in and ends up owned by the returned Runtime.
     /// Wires the WASI p1 imports plus the `__kobako_dispatch` host import.
     fn build(
         engine: &wasmtime::Engine,
@@ -166,7 +166,7 @@ impl Instance {
 
         // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
         // to the MemoryOutputPipes set up before each run via
-        // `Instance::eval`. The closure pulls a `&mut WasiP1Ctx` out of
+        // `Runtime::eval`. The closure pulls a `&mut WasiP1Ctx` out of
         // Invocation; the panic semantics live inside `Invocation::wasi_mut`
         // so the wiring stays honest about its precondition.
         p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut()).map_err(
@@ -276,7 +276,7 @@ impl Instance {
     ) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let _ = self; // The Caller carries its own Store; `self` is only
-                      // a marker that the method belongs to an Instance.
+                      // a marker that the method belongs to an Runtime.
 
         let bytes = rstring_to_vec(args_bytes);
         let Some(caller) = super::dispatch::current_caller() else {
@@ -343,7 +343,7 @@ impl Instance {
     /// (preamble + snippets; no user source frame — docs/wire-codec.md
     /// § Invocation channels), copies +envelope+ bytes into guest linear
     /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
-    /// env_len)`. Per-invocation cap semantics match [`Instance::eval`].
+    /// env_len)`. Per-invocation cap semantics match [`Runtime::eval`].
     /// Raises +Kobako::TrapError+ ("alloc returned 0") when guest
     /// allocation fails (docs/behavior.md E-31).
     pub(crate) fn run(
@@ -406,8 +406,8 @@ impl Instance {
     ///
     ///   * `wall_time` (Float seconds) — the wall-clock duration the
     ///     most recent invocation spent inside the guest export call.
-    ///     Bracket opens in [`Instance::prime_caps`] and closes in
-    ///     [`Instance::disarm_caps`], so the value mirrors the
+    ///     Bracket opens in [`Runtime::prime_caps`] and closes in
+    ///     [`Runtime::disarm_caps`], so the value mirrors the
     ///     `timeout` deadline accounting and excludes everything that
     ///     runs after the guest export returns — the post-export
     ///     `OUTCOME_BUFFER` fetch and decode, plus stdout / stderr
@@ -418,7 +418,7 @@ impl Instance {
     ///     invocation.
     ///
     /// Packing both readers into one ext call mirrors the
-    /// [`Instance::stdout`] / [`Instance::stderr`] pattern: one
+    /// [`Runtime::stdout`] / [`Runtime::stderr`] pattern: one
     /// `store.borrow()` per readout and a single magnus binding to
     /// extend when B-35's field list grows past two.
     pub(crate) fn usage(&self) -> Result<RArray, MagnusError> {
@@ -450,7 +450,7 @@ impl Instance {
     ///
     /// Also stamps the wall-clock entry instant for the
     /// docs/behavior.md B-35 `wall_time` measurement. The bracket
-    /// closes in [`Instance::disarm_caps`] so it matches the
+    /// closes in [`Runtime::disarm_caps`] so it matches the
     /// `timeout` deadline window and excludes `OUTCOME_BUFFER`
     /// decoding and stdout / stderr capture readout.
     fn prime_caps(&self) {
@@ -478,8 +478,8 @@ impl Instance {
     /// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
     /// which can grow guest memory transiently) is not attributed to
     /// the user script. Also closes the docs/behavior.md B-35
-    /// `wall_time` bracket opened by [`Instance::prime_caps`]. Paired
-    /// with [`Instance::prime_caps`].
+    /// `wall_time` bracket opened by [`Runtime::prime_caps`]. Paired
+    /// with [`Runtime::prime_caps`].
     fn disarm_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
         store_ref.data_mut().stop_wall_clock();
@@ -529,7 +529,7 @@ impl Instance {
     /// three frames (preamble, source, snippets), +#run+ passes two
     /// (preamble, snippets — the invocation envelope arrives via linear
     /// memory instead). Each output pipe is sized at `cap + 1` so
-    /// [`Instance::stdout`] / [`Instance::stderr`] can distinguish "wrote
+    /// [`Runtime::stdout`] / [`Runtime::stderr`] can distinguish "wrote
     /// exactly cap bytes" from "exceeded cap"; uncapped channels fall back
     /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
     /// for the real ceiling.
@@ -630,8 +630,8 @@ fn envelope_len_to_i32(len: usize) -> Result<i32, &'static str> {
 
 /// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
 /// copy, validating that the arithmetic does not overflow and the range
-/// fits inside `mem_size`. Shared by [`Instance::write_envelope`] (write
-/// side) and [`Instance::fetch_outcome_bytes`] (read side).
+/// fits inside `mem_size`. Shared by [`Runtime::write_envelope`] (write
+/// side) and [`Runtime::fetch_outcome_bytes`] (read side).
 fn guest_buffer_range(
     ptr: usize,
     len: usize,
@@ -717,7 +717,7 @@ fn pipe_capacity(cap: Option<usize>) -> usize {
     }
 }
 
-/// Pure slicing core shared by [`Instance::stdout`] / [`Instance::stderr`]:
+/// Pure slicing core shared by [`Runtime::stdout`] / [`Runtime::stderr`]:
 /// given the unclipped pipe snapshot and the configured cap, return the
 /// bytes Ruby should observe (clipped to `cap`) plus the truncation flag.
 /// `truncated` is `true` only when the snapshot strictly exceeded the cap
@@ -735,7 +735,7 @@ fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
 /// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
-/// `Instance::eval` / `Instance::run` flow because
+/// `Runtime::eval` / `Runtime::run` flow because
 /// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
 /// keeps the callback inert as a defence in depth.
 fn epoch_deadline_callback(
