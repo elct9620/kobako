@@ -66,7 +66,7 @@ use crate::mruby::sys::Value;
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: crate::transport::envelope::Target,
+    target: crate::transport::Target,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
@@ -113,7 +113,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    use crate::transport::envelope::Target;
+    use crate::transport::Target;
 
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
@@ -161,7 +161,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    use crate::transport::envelope::Target;
+    use crate::transport::Target;
 
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };

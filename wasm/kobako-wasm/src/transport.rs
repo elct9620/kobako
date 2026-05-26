@@ -1,7 +1,9 @@
 //! Kobako transport layer — guest-side mirror of the host's
-//! `lib/kobako/transport/` directory. Houses the per-call envelope value
-//! objects (`envelope`) and the guest dispatch path (`proxy`) that drive
-//! every host↔guest transport call.
+//! `lib/kobako/transport/` directory. One file per value object —
+//! [`Request`] (`request`), [`Response`] (`response`), [`Yield`] (`block`)
+//! — plus the guest dispatch path (`proxy`). Each type is re-exported at
+//! this root so call sites name it `transport::Request` etc., matching the
+//! host's flat `Kobako::Transport::Request`.
 //!
 //! Each per-call envelope type carries its own wire codec through the
 //! [`Encode`] / [`Decode`] traits — the Rust-native expression of the
@@ -12,8 +14,14 @@
 //! only travel one direction (e.g. the host→guest invocation envelope)
 //! implement only the half they need.
 
-pub mod envelope;
+pub mod block;
 pub mod proxy;
+pub mod request;
+pub mod response;
+
+pub use block::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK, TAG_RESERVED};
+pub use request::{Request, Target};
+pub use response::Response;
 
 /// Encode a per-call transport envelope to its wire bytes. The value
 /// object's own invariants are the contract; this does not re-validate

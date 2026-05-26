@@ -32,8 +32,8 @@ use kobako_wasm::codec;
 use kobako_wasm::outcome::{
     decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
 };
-use kobako_wasm::transport::envelope::{Request, Response};
 use kobako_wasm::transport::{Decode, Encode};
+use kobako_wasm::transport::{Request, Response};
 use kobako_wasm::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;

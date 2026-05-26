@@ -6,9 +6,10 @@
 //! * `codec` — MessagePack codec, a thin glue layer over the `rmp`
 //!   crate that adds kobako's two ext types (docs/wire-codec.md).
 //! * `transport` — Per-call transport layer mirroring the host's
-//!   `lib/kobako/transport/`. Holds `transport::envelope` (Request /
-//!   Response value objects and their encoders/decoders on top of
-//!   `codec` — docs/wire-contract.md) and `transport::proxy` (the
+//!   `lib/kobako/transport/`. Holds the Request / Response / Yield value
+//!   objects (one file each, re-exported flat as `transport::Request`
+//!   etc.) with their `Encode` / `Decode` impls on top of `codec`
+//!   (docs/wire-contract.md), and `transport::proxy` (the
 //!   round-trip pipeline used by the guest-side mruby bridge to
 //!   dispatch a call through `__kobako_dispatch`).
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
@@ -53,7 +54,6 @@ pub(crate) mod kobako;
 pub(crate) mod mruby;
 pub mod outcome;
 pub mod transport;
-pub mod yield_response;
 
 // Re-export the `cstr!` macro at the crate root so the consumer-side
 // `use crate::cstr;` pattern continues to resolve after the macro

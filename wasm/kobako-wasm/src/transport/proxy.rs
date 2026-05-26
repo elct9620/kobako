@@ -42,8 +42,8 @@ use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
 use crate::codec::{self, Decoder, Value};
-use crate::transport::envelope::{Request, Response, Target};
 use crate::transport::{Decode, Encode};
+use crate::transport::{Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
