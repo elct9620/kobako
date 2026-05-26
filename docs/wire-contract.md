@@ -60,7 +60,7 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ## Fault Envelope
 
-The fault envelope appears inside a Response `status=1` variant and describes a Service-layer failure. Maps to the Ruby value object `Kobako::Transport::Fault`. It carries three fields:
+The fault envelope appears inside a Response `status=1` variant and describes a Service-layer failure. Maps to the Ruby value object `Kobako::Fault`. It carries three fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|

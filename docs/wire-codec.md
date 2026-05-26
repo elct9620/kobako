@@ -29,7 +29,7 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 | 9 | ext (general channel) | Dispatch point; kobako uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
 | 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
-| 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::Transport::Fault` (deserialized per error type, → `SPEC.md` § Error Classes) | `Errenv` struct |
+| 12 | ext 0x02 | Fault envelope (see Ext Types below) | `Kobako::Fault` (deserialized per error type, → `SPEC.md` § Error Classes) | `Errenv` struct |
 
 ---
 
