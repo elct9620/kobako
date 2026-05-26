@@ -81,13 +81,36 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 | Concurrent characterization (#6, not gated) | `bundle exec rake bench:concurrent` |
 | Memory characterization (#7, not gated) | `bundle exec rake bench:memory` |
 
+## Layering
+
+Dependencies point downward — a tier may use the tiers below it, never above. The non-obvious tier is the **root** of dependency-free value objects / entities: they live at `Kobako::*`, *not* under the layer that consumes them, so a lower layer can use them without an upward dependency.
+
+```
+Orchestration   Kobako::Sandbox, Kobako::Runtime (+ ext), Kobako::Snapshot
+      │
+Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
+      │
+Transport ──┐   Kobako::Transport::{Request, Response, Run, Yield, Dispatcher, YieldProxy}
+Outcome ────┤   Kobako::Outcome (decode + Panic)
+      │     │
+Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, Factory, Utils}   (byte-level wire)
+      │
+Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOptions},
+                Kobako::Snippet::{Source, Binary}, Kobako::Outcome::Panic, Kobako::*Error
+                — pure data / invariants, depend on nothing
+```
+
+`Codec` depends on `Root` (it registers the `Handle`/`Fault` ext types); `Transport`, `Outcome`, `Catalog`, and orchestration depend on `Codec` + `Root`.
+
+**Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. The ext-type leaves `Kobako::Handle` (0x01) and `Kobako::Fault` (0x02) are consumed almost entirely by Transport, yet they sit at the root because `Codec` — below Transport — must register them; nesting them under `Transport` would force `Codec` to depend upward. When unsure where a value object belongs, put it at the **lowest tier that needs it**.
+
 ## Where to Look
 
 Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`, `transport/request.rb`, etc.) are reachable from there. The Notes column carries only what reading the entry-point file won't tell you.
 
 | Topic | Entry points | Notes |
 |-------|--------------|-------|
-| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/` (envelope split into `request.rb` / `response.rb` / `fault.rb`); guest `wasm/kobako-wasm/src/{codec,transport}/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. |
+| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/` (envelopes: `request.rb` / `response.rb` / `run.rb` / `yield.rb`); guest `wasm/kobako-wasm/src/{codec,transport}/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02) — see Layering. |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior.md`. |
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `ext/kobako/src/wasm.rs`; guest `wasm/kobako-wasm/src/abi.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-wasm/src/kobako/io.rs`, `wasm/kobako-wasm/mrblib/{io,kernel}.rb` | mrblib is precompiled to RITE bytecode by `build.rs` and embedded via `src/kobako/bytecode.rs`. SPEC B-04. |
