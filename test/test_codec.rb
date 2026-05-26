@@ -5,20 +5,20 @@
 # Intentionally does NOT require "test_helper" — like the other clean-checkout
 # tests in this suite, the codec must be exercisable without the native
 # extension being compiled. Requires +kobako/codec+ for Encoder / Decoder /
-# Error classes and the +Kobako::Handle+ / +Transport::Fault+ value
+# Error classes and the +Kobako::Handle+ / +Kobako::Fault+ value
 # objects this test exercises through the codec.
 
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "kobako/codec"
-require "kobako/transport/fault"
+require "kobako/fault"
 
 class TestCodec < Minitest::Test
   Encoder         = Kobako::Codec::Encoder
   Decoder         = Kobako::Codec::Decoder
   Handle          = Kobako::Handle
-  Exc             = Kobako::Transport::Fault
+  Exc             = Kobako::Fault
   Truncated       = Kobako::Codec::Truncated
   InvalidType     = Kobako::Codec::InvalidType
   InvalidEncoding = Kobako::Codec::InvalidEncoding

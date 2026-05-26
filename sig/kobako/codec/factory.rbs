@@ -24,8 +24,8 @@ module Kobako
       def register_handle: () -> void
       def register_fault: () -> void
       def unpack_handle: (String payload) -> Kobako::Handle
-      def pack_fault: (Kobako::Transport::Fault fault) -> String
-      def unpack_fault: (String payload) -> Kobako::Transport::Fault
+      def pack_fault: (Kobako::Fault fault) -> String
+      def unpack_fault: (String payload) -> Kobako::Fault
     end
   end
 end

@@ -2,7 +2,7 @@
 
 require_relative "../codec"
 require_relative "../transport"
-require_relative "fault"
+require_relative "../fault"
 require_relative "request"
 
 module Kobako
@@ -25,8 +25,8 @@ module Kobako
       end
 
       def self.error(fault)
-        unless fault.is_a?(Kobako::Transport::Fault)
-          raise ArgumentError, "Response.error requires Kobako::Transport::Fault, got #{fault.class}"
+        unless fault.is_a?(Kobako::Fault)
+          raise ArgumentError, "Response.error requires Kobako::Fault, got #{fault.class}"
         end
 
         new(status: STATUS_ERROR, payload: fault)
@@ -50,8 +50,8 @@ module Kobako
         unless [STATUS_OK, STATUS_ERROR].include?(status)
           raise ArgumentError, "Response status must be 0 (ok) or 1 (error), got #{status.inspect}"
         end
-        if status == STATUS_ERROR && !payload.is_a?(Kobako::Transport::Fault)
-          raise ArgumentError, "Response with error status must carry a Kobako::Transport::Fault payload"
+        if status == STATUS_ERROR && !payload.is_a?(Kobako::Fault)
+          raise ArgumentError, "Response with error status must carry a Kobako::Fault payload"
         end
 
         super

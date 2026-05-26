@@ -2,7 +2,7 @@
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
 require "kobako/handle"
-require "kobako/transport/fault"
+require "kobako/fault"
 
 # Seeded random generator for kobako wire-encodable values, used by the
 # round-trip fuzz harness (SPEC.md F-09; Testing Style Layer 1).
@@ -19,7 +19,7 @@ require "kobako/transport/fault"
 # reader.
 class WireValueGenerator
   Handle = Kobako::Handle
-  Exc    = Kobako::Transport::Fault
+  Exc    = Kobako::Fault
 
   MAX_DEPTH = 4
 

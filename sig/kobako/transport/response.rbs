@@ -6,7 +6,7 @@ module Kobako
 
       def self.ok: (untyped value) -> Response
 
-      def self.error: (Kobako::Transport::Fault fault) -> Response
+      def self.error: (Kobako::Fault fault) -> Response
 
       def self.decode: (String bytes) -> Response
 

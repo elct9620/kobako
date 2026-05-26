@@ -14,7 +14,7 @@ module Kobako
   class TransportEnvelopeTest < Minitest::Test
     Envelope    = Kobako::Transport
     Handle      = Kobako::Handle
-    Exc         = Kobako::Transport::Fault
+    Exc         = Kobako::Fault
     Encoder     = Kobako::Codec::Encoder
     InvalidType = Kobako::Codec::InvalidType
 

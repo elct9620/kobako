@@ -7,8 +7,11 @@ module Kobako
   # byte-level layer ({docs/wire-codec.md}[link:../../docs/wire-codec.md]).
   # Two consumers sit on top:
   # +Kobako::Transport+ pins the host↔guest framing (Request / Response /
-  # Fault / Run / Yield) and +Kobako::Outcome+ owns the per-+#run+
-  # outcome envelope (Result body / Panic map).
+  # Run / Yield) and +Kobako::Outcome+ owns the per-+#run+ outcome
+  # envelope (Result body / Panic map). The ext-type leaves this layer
+  # carries — +Kobako::Handle+ (0x01) and +Kobako::Fault+ (0x02) — live at
+  # the kobako root so the codec can register them without depending
+  # upward on Transport.
   #
   # Backed by the official +msgpack+ gem via {Factory}; {Encoder} and
   # {Decoder} are thin wrappers that register the three kobako-specific

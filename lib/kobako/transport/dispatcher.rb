@@ -194,7 +194,7 @@ module Kobako
       end
 
       def encode_error(type, message)
-        fault = Kobako::Transport::Fault.new(type: type, message: message)
+        fault = Kobako::Fault.new(type: type, message: message)
         response = Kobako::Transport::Response.error(fault)
         response.encode
       end

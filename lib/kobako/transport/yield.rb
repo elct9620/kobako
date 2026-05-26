@@ -37,7 +37,7 @@ module Kobako
     # decides how to translate each variant into Ruby control flow.
     #
     # Lives alongside the other envelope value objects (+Request+,
-    # +Response+, +Fault+) since it is the guest-to-host shape used
+    # +Response+) since it is the guest-to-host shape used
     # mid-dispatch-frame to answer a +__kobako_yield_to_block+ re-entry.
     class Yield < Data.define(:tag, :value)
       def initialize(tag:, value:)

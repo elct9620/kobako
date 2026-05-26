@@ -2,8 +2,8 @@
 
 module Kobako
   # Kobako::Transport — host↔guest message transport namespace.
-  # Houses the envelope value objects (Request / Response / Fault / Run /
-  # Yield), the guest→host +Dispatcher+, and the host→guest
+  # Houses the envelope value objects (Request / Response / Run / Yield),
+  # the guest→host +Dispatcher+, and the host→guest
   # +YieldProxy+ factory. +Sandbox#initialize+ composes them onto the
   # +Runtime+ as a dispatch +Proc+ + +yield_to_guest+ lambda pair
   # ({docs/behavior.md B-12}[link:../../docs/behavior.md]). "RPC" was

@@ -7,7 +7,7 @@ require "msgpack"
 require_relative "error"
 require_relative "utils"
 require_relative "../handle"
-require_relative "../transport/fault"
+require_relative "../fault"
 
 module Kobako
   module Codec
@@ -108,7 +108,7 @@ module Kobako
 
       def register_fault
         @factory.register_type(
-          EXT_ERRENV, Transport::Fault,
+          EXT_ERRENV, Kobako::Fault,
           packer: ->(fault) { pack_fault(fault) },
           unpacker: ->(payload) { unpack_fault(payload) }
         )
@@ -136,7 +136,7 @@ module Kobako
         Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
       end
 
-      # Peel the embedded msgpack map and hand it to +Transport::Fault.new+
+      # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
       # inside {Decoder.decode}'s block form, so the value-object's
       # +ArgumentError+ invariants surface as +InvalidType+ through the
       # decoder boundary. Inner decode goes through {Decoder} (not
@@ -154,7 +154,7 @@ module Kobako
         Decoder.decode(payload) do |map|
           raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
 
-          Transport::Fault.new(type: map["type"], message: map["message"], details: map["details"])
+          Kobako::Fault.new(type: map["type"], message: map["message"], details: map["details"])
         end
       end
     end
