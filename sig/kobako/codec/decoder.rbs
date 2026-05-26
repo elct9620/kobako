@@ -1,7 +1,8 @@
 module Kobako
   module Codec
     module Decoder
-      def self.decode: (String bytes) -> untyped
+      def self.decode: [T] (String bytes) { (untyped value) -> T } -> T
+                     | (String bytes) -> untyped
 
       private
 

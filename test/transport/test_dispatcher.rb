@@ -367,7 +367,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # integer. The host-side wire decoder rejects the malformed encoding
   # before the value reaches the Catalog::Handles. Operationally, a Request
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
-  # fails Envelope.decode_request's type validation and the dispatcher
+  # fails Request.decode's type validation and the dispatcher
   # surfaces it as a Response.error. The integer never reaches resolve_target
   # or Catalog::Handles#fetch — see the assertion on table size below.
   #
@@ -439,9 +439,7 @@ class TestTransportDispatchUnit < Minitest::Test
   private
 
   def encode_request_with_target(target, method, args, kwargs)
-    Kobako::Transport.encode_request(
-      Kobako::Transport::Request.new(target: target, method_name: method, args: args, kwargs: kwargs)
-    )
+    Kobako::Transport::Request.new(target: target, method_name: method, args: args, kwargs: kwargs).encode
   end
 
   def encode_request(target, method, args, kwargs)
@@ -449,7 +447,7 @@ class TestTransportDispatchUnit < Minitest::Test
   end
 
   def decode_response(bytes)
-    Kobako::Transport.decode_response(bytes)
+    Kobako::Transport::Response.decode(bytes)
   end
 
   # Fixture: service member that records each `tag(arg, key:)` invocation

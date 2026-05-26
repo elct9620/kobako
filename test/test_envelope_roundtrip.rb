@@ -83,24 +83,24 @@ class TestEnvelopeRoundtrip < Minitest::Test
   end
 
   def encode_request(target, method, args, kwargs)
-    Envelope.encode_request(Envelope::Request.new(target: target, method_name: method, args: args, kwargs: kwargs))
+    Envelope::Request.new(target: target, method_name: method, args: args, kwargs: kwargs).encode
   end
 
   # ---------- Response ----------
 
   def test_response_ok_primitive_round_trips
-    bytes = Envelope.encode_response(Envelope::Response.ok(42))
+    bytes = Envelope::Response.ok(42).encode
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 
   def test_response_ok_handle_round_trips
-    bytes = Envelope.encode_response(Envelope::Response.ok(Handle.from_wire(99)))
+    bytes = Envelope::Response.ok(Handle.from_wire(99)).encode
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 
   def test_response_error_round_trips
     exc = Exc.new(type: "runtime", message: "boom", details: nil)
-    bytes = Envelope.encode_response(Envelope::Response.error(exc))
+    bytes = Envelope::Response.error(exc).encode
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
 end

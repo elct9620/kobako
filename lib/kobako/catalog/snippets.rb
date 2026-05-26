@@ -39,9 +39,10 @@ module Kobako
       # msgpack array. An empty registry serializes to an empty array, never
       # absent. The wire codec is an implementation detail — callers
       # receive a binary +String+ that the +Kobako::Runtime+ layer ships
-      # through the invocation channel. Mirrors the
-      # +Kobako::Transport.encode_request+ pattern: entry value objects stay
-      # pure carriers, this method reads their attributes externally.
+      # through the invocation channel. The entry value objects stay pure
+      # carriers — this collection-tier method reads their attributes
+      # externally via +entry_payload+ rather than asking each entry to
+      # self-encode.
       def encode
         MessagePack.pack(@entries.map { |entry| entry_payload(entry) })
       end

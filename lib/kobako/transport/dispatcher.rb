@@ -57,7 +57,7 @@ module Kobako
       # Response.error envelope so the guest sees a transport error rather
       # than a wasm trap.
       def dispatch(request_bytes, namespaces, handler, yield_to_guest)
-        request = Kobako::Transport.decode_request(request_bytes)
+        request = Kobako::Transport::Request.decode(request_bytes)
         target = resolve_target(request.target, namespaces, handler)
         args, kwargs = resolve_call_args(request, handler)
         block_proxy, invalidator = build_block_proxy(yield_to_guest) if request.block_given
@@ -142,7 +142,7 @@ module Kobako
       # Catalog::Handles) holds. String targets go through the registry;
       # Handle targets (ext 0x01) go through the Catalog::Handles.
       #
-      # Target type is already validated by +Transport.decode_request+
+      # Target type is already validated by +Transport::Request.decode+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
       def resolve_target(target, namespaces, handler)
@@ -180,7 +180,7 @@ module Kobako
       # path encodes exactly once.
       def encode_ok(value, handler)
         response = Kobako::Transport::Response.ok(value)
-        Kobako::Transport.encode_response(response)
+        response.encode
       rescue Kobako::Codec::UnsupportedType
         encode_ok(wrap_as_handle(value, handler), handler)
       end
@@ -196,7 +196,7 @@ module Kobako
       def encode_error(type, message)
         fault = Kobako::Transport::Fault.new(type: type, message: message)
         response = Kobako::Transport::Response.error(fault)
-        Kobako::Transport.encode_response(response)
+        response.encode
       end
     end
   end

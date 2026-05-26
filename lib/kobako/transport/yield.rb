@@ -5,8 +5,8 @@ require_relative "../transport"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the +Yield+ envelope value object plus the +encode_yield+ /
-  # +decode_yield+ helpers for the +__kobako_yield_to_block+ wire form.
+  # owns the +Yield+ envelope value object plus its +#encode+ / +.decode+
+  # codec for the +__kobako_yield_to_block+ wire form.
   module Transport
     # First byte of the YieldResponse for the success branch — body is
     # the block's return value encoded as a single msgpack value.
@@ -52,40 +52,41 @@ module Kobako
       def ok?    = tag == Kobako::Transport::TAG_OK
       def break? = tag == Kobako::Transport::TAG_BREAK
       def error? = tag == Kobako::Transport::TAG_ERROR
-    end
 
-    # Encode +response+ to YieldResponse bytes: one tag byte followed
-    # by an msgpack-encoded +value+.
-    def self.encode_yield(response)
-      [response.tag].pack("C") + Codec::Encoder.encode(response.value)
-    end
+      # Encode this Yield to YieldResponse bytes: one tag byte followed
+      # by an msgpack-encoded +value+.
+      def encode
+        [tag].pack("C") + Codec::Encoder.encode(value)
+      end
 
-    # Decode +bytes+ into a {Yield}. Rejects empty input, the reserved
-    # tag 0x03, and any tag outside +LIVE_TAGS+ by raising
-    # +Kobako::Codec::InvalidType+ — these are wire violations per the
-    # SPEC's YieldResponse envelope contract.
-    def self.decode_yield(bytes)
-      bytes = bytes.b
-      raise Codec::InvalidType, "YieldResponse must carry at least one byte" if bytes.empty?
+      # Decode +bytes+ into a {Yield}. Rejects empty input, the reserved
+      # tag 0x03, and any tag outside +LIVE_TAGS+ by raising
+      # +Kobako::Codec::InvalidType+ — these are wire violations per the
+      # SPEC's YieldResponse envelope contract.
+      def self.decode(bytes)
+        bytes = bytes.b
+        raise Codec::InvalidType, "YieldResponse must carry at least one byte" if bytes.empty?
 
-      tag = bytes.getbyte(0) # : Integer
-      body = bytes.byteslice(1, bytes.bytesize - 1) || +""
+        tag = bytes.getbyte(0) # : Integer
+        body = bytes.byteslice(1, bytes.bytesize - 1) || +""
 
-      reject_dead_yield_tag!(tag)
-      Yield.new(tag: tag, value: Codec::Decoder.decode(body))
-    end
+        reject_dead_tag!(tag)
+        new(tag: tag, value: Codec::Decoder.decode(body))
+      end
 
-    def self.reject_dead_yield_tag!(tag)
-      return if LIVE_TAGS.include?(tag)
+      def self.reject_dead_tag!(tag)
+        return if LIVE_TAGS.include?(tag)
 
-      msg = if tag == TAG_RESERVED
-              "YieldResponse tag 0x03 is reserved"
-            else
-              format(
-                "YieldResponse tag 0x%02x is not recognised", tag
-              )
-            end
-      raise Codec::InvalidType, msg
+        msg = if tag == TAG_RESERVED
+                "YieldResponse tag 0x03 is reserved"
+              else
+                format(
+                  "YieldResponse tag 0x%02x is not recognised", tag
+                )
+              end
+        raise Codec::InvalidType, msg
+      end
+      private_class_method :reject_dead_tag!
     end
   end
 end

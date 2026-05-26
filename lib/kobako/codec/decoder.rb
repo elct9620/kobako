@@ -23,13 +23,21 @@ module Kobako
       # Decode +bytes+ into one Ruby value and validate transitively
       # against the SPEC type mapping. Raises {Truncated}, {InvalidType},
       # or {InvalidEncoding} on wire violations.
+      #
+      # When a block is given, the decoded value is yielded and the block's
+      # result is returned — wire Value Objects use this to build themselves
+      # from the decoded payload. The block runs inside this method's
+      # rescue, so a Value Object's +ArgumentError+ invariant failure
+      # surfaces as {InvalidType} without a separate {Utils.wire_boundary}
+      # wrapper at the call site.
       def self.decode(bytes)
         value = Factory.load(bytes.b)
         validate_utf8!(value)
-        value
-      # msgpack gem raises these for type/format violations; +ArgumentError+
-      # also comes from our ext-type validators (Handle id range, Exception
-      # type whitelist).
+        block_given? ? yield(value) : value
+      # msgpack gem raises the format/type errors below; +ArgumentError+
+      # comes from our ext-type validators (Handle id range, Exception type
+      # whitelist) and from a yielded block's Value Object invariants — both
+      # are wire violations, so both map to {InvalidType}.
       rescue ::MessagePack::UnknownExtTypeError, ::MessagePack::MalformedFormatError,
              ::MessagePack::StackError, ::ArgumentError => e
         raise InvalidType, e.message

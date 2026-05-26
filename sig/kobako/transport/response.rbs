@@ -8,6 +8,8 @@ module Kobako
 
       def self.error: (Kobako::Transport::Fault fault) -> Response
 
+      def self.decode: (String bytes) -> Response
+
       def self.new: (status: Integer, payload: untyped) -> Response
 
       def initialize: (status: Integer, payload: untyped) -> void
@@ -18,13 +20,11 @@ module Kobako
 
       def error?: () -> bool
 
+      def encode: () -> String
+
       def ==: (untyped other) -> bool
 
       def hash: () -> Integer
     end
-
-    def self.encode_response: (Response response) -> String
-
-    def self.decode_response: (String bytes) -> Response
   end
 end

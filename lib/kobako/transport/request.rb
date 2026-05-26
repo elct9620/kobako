@@ -6,8 +6,8 @@ require_relative "../transport"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the Request value object and its encode/decode helpers, plus
-  # the +STATUS_OK+ / +STATUS_ERROR+ constants shared with Response.
+  # owns the Request value object and its +#encode+ / +.decode+ codec,
+  # plus the +STATUS_OK+ / +STATUS_ERROR+ constants shared with Response.
   module Transport
     # ---------------- Response status bytes (docs/wire-contract.md § Response Shape) ---
 
@@ -45,6 +45,26 @@ module Kobako
         super
       end
 
+      # Encode this Request to msgpack bytes. The Value Object's own
+      # invariants are the contract; this method does not re-check the shape.
+      def encode
+        Codec::Encoder.encode([target, method_name, args, kwargs, block_given])
+      end
+
+      # Decode +bytes+ into a {Request}. Raises +Codec::InvalidType+ when the
+      # envelope is not the expected 5-element msgpack array, or when the
+      # Value Object's construction invariants reject the decoded fields.
+      def self.decode(bytes)
+        Codec::Decoder.decode(bytes) do |arr|
+          unless arr.is_a?(Array) && arr.length == 5
+            raise Codec::InvalidType, "Request envelope is malformed (expected a 5-element array)"
+          end
+
+          target, method_name, args, kwargs, block_given = arr
+          new(target: target, method_name: method_name, args: args, kwargs: kwargs, block_given: block_given)
+        end
+      end
+
       private
 
       def validate_kwargs!(kwargs)
@@ -53,27 +73,6 @@ module Kobako
         kwargs.each_key do |k|
           raise ArgumentError, "Request kwargs keys must be Symbol, got #{k.class}" unless k.is_a?(Symbol)
         end
-      end
-    end
-
-    # Encode a {Request} to msgpack bytes. The Value Object's own
-    # invariants are the contract; this method does not re-check the shape.
-    def self.encode_request(request)
-      Codec::Encoder.encode([
-                              request.target, request.method_name,
-                              request.args, request.kwargs, request.block_given
-                            ])
-    end
-
-    def self.decode_request(bytes)
-      arr = Codec::Decoder.decode(bytes)
-      unless arr.is_a?(Array) && arr.length == 5
-        raise Codec::InvalidType, "Request envelope is malformed (expected a 5-element array)"
-      end
-
-      target, method_name, args, kwargs, block_given = arr
-      Codec::Utils.wire_boundary do
-        Request.new(target: target, method_name: method_name, args: args, kwargs: kwargs, block_given: block_given)
       end
     end
   end

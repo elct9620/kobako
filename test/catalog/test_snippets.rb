@@ -105,9 +105,9 @@ end
 # docs/wire-codec.md § Invocation channels: Frame 3 is a msgpack array of
 # per-entry maps. Source entries carry "name" / "kind" = "source" /
 # "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
-# (bin) and no "name". The encoder lives on Table to keep wire knowledge
-# in one place (mirroring Kobako::Transport.encode_request /
-# encode_response on entry-tier carriers).
+# (bin) and no "name". The encoder lives on the collection
+# (Catalog::Snippets#encode) to keep wire knowledge in one place; the
+# leaf Snippet::Source / Snippet::Binary entries stay pure carriers.
 class TestCatalogSnippetsEncoding < Minitest::Test
   def setup
     @table = Kobako::Catalog::Snippets.new

@@ -7,7 +7,7 @@ require_relative "request"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the Response value object and its encode/decode helpers.
+  # owns the Response value object and its +#encode+ / +.decode+ codec.
   module Transport
     # Value object for a single host-side Transport Response
     # ({docs/wire-codec.md Envelope Encoding → Response}[link:../../../docs/wire-codec.md]).
@@ -32,6 +32,20 @@ module Kobako
         new(status: STATUS_ERROR, payload: fault)
       end
 
+      # Decode +bytes+ into a {Response}. Raises +Codec::InvalidType+ when the
+      # envelope is not the expected 2-element msgpack array, or when the
+      # Value Object's construction invariants reject the decoded fields.
+      def self.decode(bytes)
+        Codec::Decoder.decode(bytes) do |arr|
+          unless arr.is_a?(Array) && arr.length == 2
+            raise Codec::InvalidType, "Response envelope is malformed (expected a 2-element array)"
+          end
+
+          status, payload = arr
+          new(status: status, payload: payload)
+        end
+      end
+
       def initialize(status:, payload:)
         unless [STATUS_OK, STATUS_ERROR].include?(status)
           raise ArgumentError, "Response status must be 0 (ok) or 1 (error), got #{status.inspect}"
@@ -45,20 +59,12 @@ module Kobako
 
       def ok?    = status == STATUS_OK
       def error? = status == STATUS_ERROR
-    end
 
-    def self.encode_response(response)
-      Codec::Encoder.encode([response.status, response.payload])
-    end
-
-    def self.decode_response(bytes)
-      arr = Codec::Decoder.decode(bytes)
-      unless arr.is_a?(Array) && arr.length == 2
-        raise Codec::InvalidType, "Response envelope is malformed (expected a 2-element array)"
+      # Encode this Response to msgpack bytes as the 2-element
+      # +[status, payload]+ array.
+      def encode
+        Codec::Encoder.encode([status, payload])
       end
-
-      status, payload = arr
-      Codec::Utils.wire_boundary { Response.new(status: status, payload: payload) }
     end
   end
 end

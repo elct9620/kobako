@@ -38,14 +38,14 @@ module Kobako
 
     def test_round_trip_ok_with_primitive
       resp = Yield.new(tag: T::TAG_OK, value: 42)
-      decoded = T.decode_yield(T.encode_yield(resp))
+      decoded = Yield.decode(resp.encode)
       assert decoded.ok?
       assert_equal 42, decoded.value
     end
 
     def test_round_trip_break_with_symbol
       resp = Yield.new(tag: T::TAG_BREAK, value: :stop)
-      decoded = T.decode_yield(T.encode_yield(resp))
+      decoded = Yield.decode(resp.encode)
       assert decoded.break?
       assert_equal :stop, decoded.value
     end
@@ -57,7 +57,7 @@ module Kobako
         "backtrace" => ["(eval):1:in `block'"]
       }
       resp = Yield.new(tag: T::TAG_ERROR, value: payload)
-      decoded = T.decode_yield(T.encode_yield(resp))
+      decoded = Yield.decode(resp.encode)
       assert decoded.error?
       assert_equal payload, decoded.value
     end
@@ -69,17 +69,17 @@ module Kobako
     def test_decode_rejects_reserved_tag_0x03
       # Forge bytes: tag 0x03 followed by msgpack nil.
       bytes = [T::TAG_RESERVED].pack("C") + Encoder.encode(nil)
-      err = assert_raises(InvalidType) { T.decode_yield(bytes) }
+      err = assert_raises(InvalidType) { Yield.decode(bytes) }
       assert_match(/reserved/i, err.message)
     end
 
     def test_decode_rejects_unknown_tag
       bytes = [0x7e].pack("C") + Encoder.encode(nil)
-      assert_raises(InvalidType) { T.decode_yield(bytes) }
+      assert_raises(InvalidType) { Yield.decode(bytes) }
     end
 
     def test_decode_rejects_empty_bytes
-      assert_raises(InvalidType) { T.decode_yield("".b) }
+      assert_raises(InvalidType) { Yield.decode("".b) }
     end
 
     # ------------------------------------------------------------
@@ -87,12 +87,12 @@ module Kobako
     # ------------------------------------------------------------
 
     def test_encode_ok_with_int_42_golden
-      bytes = T.encode_yield(Yield.new(tag: T::TAG_OK, value: 42))
+      bytes = Yield.new(tag: T::TAG_OK, value: 42).encode
       assert_equal "012a", hex(bytes) # tag 0x01 + msgpack int 42
     end
 
     def test_encode_break_with_nil_golden
-      bytes = T.encode_yield(Yield.new(tag: T::TAG_BREAK, value: nil))
+      bytes = Yield.new(tag: T::TAG_BREAK, value: nil).encode
       assert_equal "02c0", hex(bytes) # tag 0x02 + msgpack nil
     end
   end

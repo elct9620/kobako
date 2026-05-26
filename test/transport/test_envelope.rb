@@ -48,7 +48,7 @@ module Kobako
         kwargs: {},
         block_given: true
       )
-      decoded = Envelope.decode_request(Envelope.encode_request(req))
+      decoded = Envelope::Request.decode(req.encode)
       assert_equal req, decoded
       assert decoded.block_given
     end
@@ -60,8 +60,8 @@ module Kobako
         args: [42, "alice"],
         kwargs: { active: true }
       )
-      bytes   = Envelope.encode_request(req)
-      decoded = Envelope.decode_request(bytes)
+      bytes   = req.encode
+      decoded = Envelope::Request.decode(bytes)
       assert_equal req, decoded
     end
 
@@ -72,8 +72,8 @@ module Kobako
         args: [],
         kwargs: {}
       )
-      bytes   = Envelope.encode_request(req)
-      decoded = Envelope.decode_request(bytes)
+      bytes   = req.encode
+      decoded = Envelope::Request.decode(bytes)
       assert_equal req, decoded
       assert_instance_of Handle, decoded.target
     end
@@ -87,7 +87,7 @@ module Kobako
         args: [h1, h2, "tag"],
         kwargs: { k: h1 }
       )
-      decoded = Envelope.decode_request(Envelope.encode_request(req))
+      decoded = Envelope::Request.decode(req.encode)
       assert_equal req, decoded
     end
 
@@ -95,7 +95,7 @@ module Kobako
       # SPEC.md → Wire Codec → Ext Types → ext 0x00 pins kwargs keys
       # to Symbols. The Value Object refuses non-Symbol kwargs keys at
       # construction; the wire-level InvalidType guarantee is preserved
-      # via the decode_request boundary translator.
+      # via the Request.decode boundary translator.
       assert_raises(ArgumentError) do
         Envelope::Request.new(target: "G::M", method_name: "x", args: [], kwargs: { "active" => true })
       end
@@ -106,14 +106,14 @@ module Kobako
       # envelope-illegal. The decoder must translate the value-object
       # ArgumentError into a wire-layer InvalidType.
       bytes = Encoder.encode(["G::M", "x", [], { 42 => "v" }, false])
-      assert_raises(InvalidType) { Envelope.decode_request(bytes) }
+      assert_raises(InvalidType) { Envelope::Request.decode(bytes) }
     end
 
     def test_request_decode_rejects_wrong_arity
       # 4-element array, not 5 — post-B-23 the Request envelope carries
       # +block_given+ as the 5th element.
       bytes = Encoder.encode(["G::M", "x", [], {}])
-      assert_raises(InvalidType) { Envelope.decode_request(bytes) }
+      assert_raises(InvalidType) { Envelope::Request.decode(bytes) }
     end
 
     # ---------- Request golden vector ----------
@@ -123,7 +123,7 @@ module Kobako
       # fixarray 5 (0x95) | fixstr 4 "G::M" (0xa4 47 3a 3a 4d) |
       # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) |
       # fixmap 0 (0x80) | false (0xc2)
-      bytes = Envelope.encode_request(Envelope::Request.new(target: "G::M", method_name: "ping"))
+      bytes = Envelope::Request.new(target: "G::M", method_name: "ping").encode
       assert_equal "95a4473a3a4da470696e679080c2", hex(bytes)
     end
 
@@ -133,14 +133,14 @@ module Kobako
 
     def test_response_ok_round_trip_with_primitive
       resp = Envelope::Response.ok(42)
-      decoded = Envelope.decode_response(Envelope.encode_response(resp))
+      decoded = Envelope::Response.decode(resp.encode)
       assert decoded.ok?
       assert_equal 42, decoded.payload
     end
 
     def test_response_ok_round_trip_with_handle
       resp = Envelope::Response.ok(Handle.from_wire(99))
-      decoded = Envelope.decode_response(Envelope.encode_response(resp))
+      decoded = Envelope::Response.decode(resp.encode)
       assert decoded.ok?
       assert_instance_of Handle, decoded.payload
       assert_equal 99, decoded.payload.id
@@ -149,7 +149,7 @@ module Kobako
     def test_response_error_round_trip
       exc = Exc.new(type: "runtime", message: "boom", details: nil)
       resp = Envelope::Response.error(exc)
-      decoded = Envelope.decode_response(Envelope.encode_response(resp))
+      decoded = Envelope::Response.decode(resp.encode)
       assert decoded.error?
       assert_equal exc, decoded.payload
     end
@@ -167,28 +167,28 @@ module Kobako
 
     def test_response_decode_rejects_unknown_status
       bytes = Encoder.encode([2, nil])
-      assert_raises(InvalidType) { Envelope.decode_response(bytes) }
+      assert_raises(InvalidType) { Envelope::Response.decode(bytes) }
     end
 
     def test_response_decode_rejects_wrong_arity
       # 3-element array, not 2. Symmetric with
       # +test_request_decode_rejects_wrong_arity+ above; covers the
-      # decode_response shape guard at lib/kobako/transport/response.rb.
+      # Response.decode shape guard at lib/kobako/transport/response.rb.
       bytes = Encoder.encode([0, nil, "extra"])
-      assert_raises(InvalidType) { Envelope.decode_response(bytes) }
+      assert_raises(InvalidType) { Envelope::Response.decode(bytes) }
     end
 
     def test_response_decode_error_requires_fault_payload
       # status=1 with a non-Fault value
       bytes = Encoder.encode([1, "stringy"])
-      assert_raises(InvalidType) { Envelope.decode_response(bytes) }
+      assert_raises(InvalidType) { Envelope::Response.decode(bytes) }
     end
 
     # ---------- Response golden vector ----------
 
     def test_response_ok_golden_for_int
       # Response: [0, 42]  =>  fixarray 2 (0x92) | 0x00 | 0x2a
-      bytes = Envelope.encode_response(Envelope::Response.ok(42))
+      bytes = Envelope::Response.ok(42).encode
       assert_equal "92002a", hex(bytes)
     end
 
@@ -205,11 +205,11 @@ module Kobako
 
       req = Envelope::Request.new(target: h_target, method_name: "save",
                                   args: [h_arg], kwargs: {})
-      decoded_req = Envelope.decode_request(Envelope.encode_request(req))
+      decoded_req = Envelope::Request.decode(req.encode)
       assert_equal req, decoded_req
 
       resp = Envelope::Response.ok(h_value)
-      decoded_resp = Envelope.decode_response(Envelope.encode_response(resp))
+      decoded_resp = Envelope::Response.decode(resp.encode)
       assert_equal h_value, decoded_resp.payload
     end
 
@@ -220,7 +220,7 @@ module Kobako
         details: { "given" => [1, 2], "expected" => "string" }
       )
       resp = Envelope::Response.error(exc)
-      decoded = Envelope.decode_response(Envelope.encode_response(resp))
+      decoded = Envelope::Response.decode(resp.encode)
       assert_equal exc, decoded.payload
     end
   end

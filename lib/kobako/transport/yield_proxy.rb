@@ -44,7 +44,7 @@ module Kobako
         proxy = proc do |*args|
           raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless frame_active
 
-          response = Kobako::Transport.decode_yield(yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
+          response = Kobako::Transport::Yield.decode(yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
           next response.value if response.ok?
 
           throw break_tag, response.value if response.break?

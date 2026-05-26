@@ -15,9 +15,9 @@ module Kobako
     # The class is a +Data.define+ subclass — frozen, value-equal, and
     # carries no mutation API. Callers (chiefly +Catalog::Snippets+)
     # construct instances via keyword form +Source.new(name: ..., body: ...)+.
-    # Wire-form construction is the registry's responsibility, mirroring
-    # +Kobako::Transport.encode_request+'s pattern of reading attributes off
-    # a carrier rather than asking the carrier to self-describe.
+    # Wire-form construction is the registry's responsibility: as a leaf
+    # carrier this Source stays pure and +Catalog::Snippets#encode+ reads
+    # its attributes off the outside rather than asking it to self-encode.
     class Source < Data.define(:name, :body)
       # The +kind+ field value carried by source snippets in their Frame
       # 3 wire envelope entry

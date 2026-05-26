@@ -10,6 +10,10 @@ module Kobako
       attr_reader tag: Integer
       attr_reader value: untyped
 
+      def self.decode: (String bytes) -> Yield
+
+      def self.reject_dead_tag!: (Integer tag) -> void
+
       def initialize: (tag: Integer, value: untyped) -> void
 
       def with: (?tag: Integer, ?value: untyped) -> Yield
@@ -20,15 +24,11 @@ module Kobako
 
       def error?: () -> bool
 
+      def encode: () -> String
+
       def ==: (untyped other) -> bool
 
       def hash: () -> Integer
     end
-
-    def self.encode_yield: (Yield response) -> String
-
-    def self.decode_yield: (String bytes) -> Yield
-
-    def self.reject_dead_yield_tag!: (Integer tag) -> void
   end
 end
