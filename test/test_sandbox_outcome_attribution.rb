@@ -10,14 +10,7 @@
 #   - SPEC.md E-08 — missing required key in Panic envelope
 #   - SPEC.md Wire Codec — Result envelope decode failures map to SandboxError
 
-require "minitest/autorun"
-require_relative "support/outcome_bytes_helpers"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/sandbox"
-require "kobako/transport/request"
-require "kobako/transport/response"
-require "kobako/errors"
+require "test_helper"
 
 class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   include OutcomeBytesHelpers

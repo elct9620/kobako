@@ -4,11 +4,7 @@
 # (SPEC.md F-05 / F-09). Builds on top of the byte-level wire codec covered by
 # test/test_codec.rb. No native extension dependency.
 
-require "minitest/autorun"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/transport/request"
-require "kobako/transport/response"
+require "test_helper"
 
 module Kobako
   class TransportEnvelopeTest < Minitest::Test

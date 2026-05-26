@@ -38,13 +38,7 @@
 #   * If `cargo` is not on PATH: skip with informative message (consistent
 #     with the cycle-5 pattern in test_wasm_crate.rb).
 
-require "minitest/autorun"
-require_relative "support/cargo_oracle"
-require_relative "support/wire_value_generator"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/transport/request"
-require "kobako/transport/response"
+require "test_helper"
 
 class TestCodecRoundtripFuzz < Minitest::Test
   CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)

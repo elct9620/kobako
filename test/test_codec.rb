@@ -2,17 +2,12 @@
 
 # E2E + integration test for the pure-Ruby host wire codec (SPEC.md F-09).
 #
-# Intentionally does NOT require "test_helper" — like the other clean-checkout
-# tests in this suite, the codec must be exercisable without the native
-# extension being compiled. Requires +kobako/codec+ for Encoder / Decoder /
-# Error classes and the +Kobako::Handle+ / +Kobako::Fault+ value
-# objects this test exercises through the codec.
+# Exercises +Kobako::Codec+ Encoder / Decoder / Error classes and the
+# +Kobako::Handle+ / +Kobako::Fault+ value objects. The codec is pure Ruby
+# and needs no native extension; test_helper's no-ext fallback loads the
+# whole pure-Ruby tree, so this still runs on a clean checkout.
 
-require "minitest/autorun"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/codec"
-require "kobako/fault"
+require "test_helper"
 
 class TestCodec < Minitest::Test
   Encoder         = Kobako::Codec::Encoder

@@ -21,12 +21,7 @@
 # test_codec_roundtrip_fuzz.rb already covers byte-level wire shapes
 # underneath.
 
-require "minitest/autorun"
-require_relative "support/cargo_oracle"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/transport/request"
-require "kobako/transport/response"
+require "test_helper"
 
 class TestEnvelopeRoundtrip < Minitest::Test
   Envelope = Kobako::Transport

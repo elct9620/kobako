@@ -16,11 +16,7 @@
 #   - SPEC.md / docs/behavior.md E-16 — Malformed Namespace name
 #   - SPEC.md / docs/behavior.md E-17 — Malformed Member name
 
-require "minitest/autorun"
-require "msgpack"
-
-$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "kobako/catalog/namespaces"
+require "test_helper"
 
 module Kobako
   class CatalogNamespacesTest < Minitest::Test

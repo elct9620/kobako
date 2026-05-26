@@ -2,8 +2,10 @@
 
 # E2E + integration test for the pure-Ruby host Catalog::Handles.
 #
-# Intentionally does NOT require "test_helper" — Catalog::Handles is pure
-# Ruby and must be exercisable without the native extension being compiled.
+# Catalog::Handles is pure Ruby and needs no native extension; test_helper's
+# no-ext fallback loads the whole pure-Ruby tree (including the
+# Kobako::SandboxError / Kobako::HandlerExhaustedError this test asserts on),
+# so it still runs on a clean checkout.
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
@@ -11,10 +13,7 @@
 #   - SPEC.md B-21 — Catalog::Handles exhaustion at 0x7fff_ffff
 #   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
 
-require "minitest/autorun"
-
-$LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "kobako/catalog/handles"
+require "test_helper"
 
 module Kobako
   class CatalogHandlesTest < Minitest::Test

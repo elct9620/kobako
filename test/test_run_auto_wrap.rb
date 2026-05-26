@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "stringio"
-
 require "test_helper"
 
 # Coverage for Kobako::Sandbox#run host→guest argument auto-wrap

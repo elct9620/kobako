@@ -10,10 +10,7 @@
 #   - SPEC.md / docs/behavior.md B-11 — Duplicate bind raises, existing binding preserved
 #   - SPEC.md / docs/behavior.md E-17 — Malformed Member name
 
-require "minitest/autorun"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/namespace"
+require "test_helper"
 
 module Kobako
   class NamespaceTest < Minitest::Test

@@ -6,10 +6,7 @@
 # No native extension dependency — this exercises only the host-side
 # value object plus the msgpack codec already covered elsewhere.
 
-require "minitest/autorun"
-
-$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "kobako/transport/yield"
+require "test_helper"
 
 module Kobako
   class YieldResponseTest < Minitest::Test

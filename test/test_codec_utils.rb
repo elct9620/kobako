@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "stringio"
-
 require "test_helper"
 
 # Coverage for the Codec::Utils predicate and deep-wrap helpers
