@@ -1166,7 +1166,7 @@ class TestE2EJourneys < Minitest::Test
   # ── B-23 / B-24 — Block / Yield round-trip (S5a stub) ──
   #
   # The block / yield mechanism (docs/behavior.md B-23..B-30) lands
-  # incrementally. At S5a the host-side proxy is fully wired but the
+  # incrementally. At S5a the host-side Yielder is fully wired but the
   # guest's `__kobako_yield_to_block` export is still a stub that always
   # returns +tag 0x04+ +NotImplementedError+ — so every Service method
   # that actually invokes +yield+ observes the stub's error at the
@@ -1285,7 +1285,7 @@ class TestE2EJourneys < Minitest::Test
   # still on the guest call stack would unwind across the host yield
   # boundary — unrepresentable on the wire. The guest classifier sees
   # an RBreak whose `ci_break_index` points deeper than the yielder's
-  # frame and emits tag 0x04 LocalJumpError; the host proxy surfaces
+  # frame and emits tag 0x04 LocalJumpError; the host Yielder surfaces
   # it as a Ruby exception.
   E21_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; end; make_return"
 
@@ -1300,7 +1300,7 @@ class TestE2EJourneys < Minitest::Test
                  "must surface as a LocalJumpError at the yield site")
   end
 
-  # B-28: nested dispatch frames each carry their own block proxy. An
+  # B-28: nested dispatch frames each carry their own Yielder. An
   # inner +break+ terminates only the inner Service; the outer block
   # resumes normally. The guest's BLOCK_STACK pushes / pops in strict
   # LIFO so each yield round-trip targets the correct frame.
@@ -1332,11 +1332,11 @@ class TestE2EJourneys < Minitest::Test
 
   # E-23: when a Service method stashes its block and invokes it from a
   # later dispatch (after the originating frame has returned), the host
-  # proxy raises +LocalJumpError+ — the +frame_active+ invalidator the
-  # Dispatcher's +ensure+ ran flipped the proxy off.
+  # Yielder raises +LocalJumpError+ — the Dispatcher's +ensure+ block
+  # called +#invalidate!+, flipping the Yielder off.
   E23_ESCAPE_SCRIPT = "Probe::Stash.stash { :payload }; Probe::Stash.replay"
 
-  def test_e23_escaped_proxy_invocation_raises_local_jump_error
+  def test_e23_escaped_yielder_invocation_raises_local_jump_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     stash_service = Class.new do
       def stash(&block) = (@blk = block)
@@ -1347,7 +1347,7 @@ class TestE2EJourneys < Minitest::Test
     err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT) }
 
     assert_match(/LocalJumpError/, err.message,
-                 "E-23: invoking the yield proxy after its dispatch frame " \
+                 "E-23: invoking the Yielder after its dispatch frame " \
                  "returned must raise LocalJumpError host-side")
   end
 end

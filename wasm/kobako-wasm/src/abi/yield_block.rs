@@ -2,7 +2,7 @@
 //! block (docs/wire-codec.md § ABI Signatures, docs/behavior.md B-24).
 //!
 //! The host calls this from inside a `__kobako_dispatch` callback when
-//! a Service method invokes its yield proxy. The signature mirrors
+//! a Service method invokes its Yielder. The signature mirrors
 //! `__kobako_dispatch`'s — `(req_ptr, req_len) -> i64` with the same
 //! packed-u64 `(ptr<<32)|len` return — so the same alloc / write /
 //! read shape applies in the symmetric direction.
