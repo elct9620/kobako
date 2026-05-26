@@ -45,10 +45,11 @@ use magnus::{
     function, method, prelude::*, Error as MagnusError, ExceptionClass, RModule, RString, Ruby,
 };
 
+use std::cell::Cell;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use magnus::{value::Opaque, RArray, Value};
+use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
 use crate::snapshot::Snapshot;
 use wasmtime::{
@@ -168,7 +169,8 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     Ok(())
 }
 
-#[magnus::wrap(class = "Kobako::Runtime", free_immediately, size)]
+#[derive(TypedData)]
+#[magnus(class = "Kobako::Runtime", free_immediately, size, mark)]
 pub(crate) struct Runtime {
     inner: WtInstance,
     store: StoreCell,
@@ -181,7 +183,42 @@ pub(crate) struct Runtime {
     // which lives on [`Invocation`] because the wasmtime [`ResourceLimiter`]
     // callback consumes it from inside the wasm engine.
     config: Config,
+    // The host-side dispatch Proc (docs/behavior.md B-12), held here only
+    // to give [`DataTypeFunctions::mark`] a Store-free read path so it can
+    // pin the Proc across GC. The copy the `__kobako_dispatch` import
+    // actually calls lives on [`Invocation`] (reached through
+    // `Caller<Invocation>`, which cannot see this struct); see
+    // [`Runtime::set_on_dispatch`]. Both hold the same `Copy` handle to the
+    // one pinned Proc. `Cell` is sound under the GVL (see the `unsafe impl
+    // Sync` below).
+    on_dispatch: Cell<Option<Opaque<Value>>>,
 }
+
+impl DataTypeFunctions for Runtime {
+    /// Mark — and thereby pin — the host-side dispatch Proc so Ruby's GC
+    /// neither collects nor moves it while the ext holds a raw `Opaque`
+    /// copy on [`Invocation`] for the duration of a guest invocation.
+    /// `gc::Marker::mark` maps to `rb_gc_mark`, which pins: required because
+    /// the Invocation copy is a cached `VALUE` that compaction would
+    /// otherwise leave dangling (docs/behavior.md B-12 / B-13). Without
+    /// this the Proc has no GC root at all — sweep collects it (SIGSEGV on
+    /// the next dispatch) and compaction relocates it (dispatch lands on
+    /// the wrong receiver).
+    fn mark(&self, marker: &gc::Marker) {
+        if let Some(on_dispatch) = self.on_dispatch.get() {
+            marker.mark(on_dispatch);
+        }
+    }
+}
+
+// SAFETY: magnus requires `Send + Sync` on TypedData types. The added
+// `on_dispatch: Cell<…>` makes the auto-derived `Sync` unavailable, but the
+// same GVL invariant that justifies [`StoreCell`]'s assertion applies here:
+// every access to the Cell happens under the GVL on a single thread at a
+// time — `set_on_dispatch` from a Ruby method call, and `mark` from a GC
+// pass that also holds the GVL. No cross-thread access to the Cell can
+// occur. `Send` stays auto-derived (`Opaque<Value>` is `Send`).
+unsafe impl Sync for Runtime {}
 
 impl Runtime {
     /// Construct an Runtime from a wasm file path, using the process-wide
@@ -308,6 +345,7 @@ impl Runtime {
                 stdout_limit_bytes,
                 stderr_limit_bytes,
             },
+            on_dispatch: Cell::new(None),
         })
     }
 
@@ -317,10 +355,19 @@ impl Runtime {
     /// with the request bytes and writes the returned Response bytes back
     /// into guest memory (docs/behavior.md B-12).
     pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
-        let mut store_ref = self.store.borrow_mut();
-        store_ref
+        let on_dispatch = Opaque::from(proc_value);
+        // Write both copies of the one Proc handle: the `on_dispatch` Cell
+        // gives `DataTypeFunctions::mark` a Store-free read path to pin the
+        // Proc across GC, and the [`Invocation`] copy is what the
+        // `__kobako_dispatch` import reads through `Caller<Invocation>`.
+        // `mark` cannot reach the Invocation copy itself — the Store is held
+        // `borrow_mut` for the whole guest call, exactly when GC may fire
+        // during dispatch — so the Cell is the dedicated GC-rooting anchor.
+        self.on_dispatch.set(Some(on_dispatch));
+        self.store
+            .borrow_mut()
             .data_mut()
-            .bind_on_dispatch(Opaque::from(proc_value));
+            .bind_on_dispatch(on_dispatch);
         Ok(())
     }
 
