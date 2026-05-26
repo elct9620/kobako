@@ -2,7 +2,7 @@
 
 # Unit tests for Kobako::Namespace — the per-Sandbox name→Service binding
 # table. Pure Ruby; does NOT require the native extension. Registry-level
-# behaviour (define / lookup / seal! / encoded_preamble) lives in
+# behaviour (define / lookup / seal! / encode) lives in
 # test/catalog/test_namespaces.rb.
 #
 # Cross-references:

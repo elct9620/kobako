@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "msgpack"
 require_relative "handles"
+require_relative "../codec"
 require_relative "../errors"
 require_relative "../transport/request"
 require_relative "../namespace"
@@ -18,7 +18,7 @@ module Kobako
     #   namespaces = Kobako::Catalog::Namespaces.new
     #   namespace = namespaces.define(:MyService)  # => Kobako::Namespace
     #   namespace.bind(:KV, kv_object)             # => namespace (chainable)
-    #   namespaces.encoded_preamble                # => msgpack bytes for Frame 1
+    #   namespaces.encode                          # => msgpack bytes for Frame 1
     #   namespaces.lookup("MyService::KV")         # => kv_object
     #
     # Namespaces live at +Kobako::Namespace+. Per-dispatch routing is
@@ -73,13 +73,14 @@ module Kobako
       end
 
       # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
-      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Uses plain MessagePack (no
-      # kobako ext types) because the preamble contains only strings — no
-      # Handles or Fault envelopes. Structure:
+      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Routes through
+      # {Kobako::Codec::Encoder} like every other host-side wire encode so
+      # there is a single codec path; the preamble carries only Strings and
+      # Arrays, so none of the kobako ext types actually fire. Structure:
       # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
       # +String+ of msgpack bytes.
-      def encoded_preamble
-        MessagePack.pack(@namespaces.values.map(&:to_preamble))
+      def encode
+        Codec::Encoder.encode(@namespaces.values.map(&:to_preamble))
       end
 
       # Mark the registry as sealed. Called by +Sandbox+ on the first

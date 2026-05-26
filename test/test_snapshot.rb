@@ -101,7 +101,7 @@ class TestSnapshot < Minitest::Test
 
   # Minimal Runtime driver that mirrors +Sandbox#eval+'s wiring without
   # the Sandbox wrapper. Builds an empty Catalog::Namespaces / Snippet table
-  # so encoded_preamble + encoded snippets are both wire-valid, registers
+  # so the encoded preamble + encoded snippets are both wire-valid, registers
   # a guard Proc on +on_dispatch=+ (no Service callbacks expected from
   # the simple eval sources used by these tests), and returns the raw
   # Snapshot the ext produces.
@@ -113,6 +113,6 @@ class TestSnapshot < Minitest::Test
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil)
     runtime.on_dispatch = ->(_) { raise "unexpected dispatch in eval-only snapshot test" }
 
-    runtime.eval(services.encoded_preamble, code.b, snippets.encode)
+    runtime.eval(services.encode, code.b, snippets.encode)
   end
 end

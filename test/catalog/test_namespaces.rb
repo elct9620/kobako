@@ -121,13 +121,13 @@ module Kobako
       assert_match(/Ghost/, err.message)
     end
 
-    # ---------- to_preamble / encoded_preamble (Frame 1 wire shape) ----------
+    # ---------- to_preamble / encode (Frame 1 wire shape) ----------
 
     def test_encoded_preamble_decodes_to_two_level_array_of_namespace_descriptors
       @namespaces.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
       @namespaces.define(:Auth).bind(:Token, :tk)
 
-      bytes = @namespaces.encoded_preamble
+      bytes = @namespaces.encode
       assert_kind_of String, bytes
       assert_equal Encoding::ASCII_8BIT, bytes.encoding
 
@@ -136,13 +136,13 @@ module Kobako
     end
 
     def test_encoded_preamble_empty_registry_is_valid_msgpack_array
-      decoded = MessagePack.unpack(@namespaces.encoded_preamble)
+      decoded = MessagePack.unpack(@namespaces.encode)
       assert_equal [], decoded
     end
 
     def test_encoded_preamble_with_only_empty_namespace_emits_empty_member_list
       @namespaces.define(:Empty)
-      decoded = MessagePack.unpack(@namespaces.encoded_preamble)
+      decoded = MessagePack.unpack(@namespaces.encode)
       assert_equal [["Empty", []]], decoded
     end
   end

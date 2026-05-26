@@ -7,7 +7,7 @@ module Kobako
 
       def lookup: (String target) -> untyped
 
-      def encoded_preamble: () -> String
+      def encode: () -> String
 
       def seal!: () -> self
 

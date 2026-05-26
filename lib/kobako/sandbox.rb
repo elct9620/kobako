@@ -173,7 +173,7 @@ module Kobako
     def run(target, *args, **kwargs)
       run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @runtime.run(@services.encoded_preamble, @snippets.encode, run_envelope.encode(@handler))
+        @runtime.run(@services.encode, @snippets.encode, run_envelope.encode(@handler))
       end
     end
 
@@ -204,7 +204,7 @@ module Kobako
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       invoke!(:eval) do
-        @runtime.eval(@services.encoded_preamble, code.b, @snippets.encode)
+        @runtime.eval(@services.encode, code.b, @snippets.encode)
       end
     end
 

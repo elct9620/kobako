@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "msgpack"
-
+require_relative "../codec"
 require_relative "../snippet"
 
 module Kobako
@@ -44,7 +43,7 @@ module Kobako
       # externally via +entry_payload+ rather than asking each entry to
       # self-encode.
       def encode
-        MessagePack.pack(@entries.map { |entry| entry_payload(entry) })
+        Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) })
       end
 
       # Register one preloaded snippet in either of two forms
