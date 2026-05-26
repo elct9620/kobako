@@ -3,17 +3,12 @@
 require "forwardable"
 
 require_relative "capture"
-require_relative "catalog/snippets"
 require_relative "errors"
-require_relative "catalog/handles"
-require_relative "transport/run"
 require_relative "outcome"
-require_relative "catalog/namespaces"
-require_relative "transport/dispatcher"
-require_relative "transport/request"
-require_relative "transport/response"
 require_relative "sandbox_options"
 require_relative "usage"
+require_relative "transport"
+require_relative "catalog"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
