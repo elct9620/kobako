@@ -31,8 +31,9 @@ fn eval_body() {
     use super::frames;
     use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
+    use crate::codec::Encode;
     use crate::mruby::Ccontext;
-    use crate::outcome::{encode_outcome, Outcome, Panic};
+    use crate::outcome::{Outcome, Panic};
 
     // Declare the MRB cleanup scope early. Any `return write_panic(...)`
     // below drops `_mrb_scope` first, which calls `MRB.clear()` and
@@ -85,7 +86,7 @@ fn eval_body() {
     }
 
     let codec_value = kobako.to_codec_outcome(result_val);
-    match encode_outcome(&Outcome::Value(codec_value)) {
+    match Outcome::Value(codec_value).encode() {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {
             origin: "sandbox".into(),

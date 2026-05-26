@@ -13,7 +13,9 @@
 //! by the same invocation that owns the outcome buffer.
 
 #[cfg(target_arch = "wasm32")]
-use crate::outcome::{encode_outcome, Outcome, Panic};
+use crate::codec::Encode;
+#[cfg(target_arch = "wasm32")]
+use crate::outcome::{Outcome, Panic};
 
 #[cfg(target_arch = "wasm32")]
 use super::pack_u64;
@@ -83,7 +85,7 @@ pub(super) fn write_outcome(bytes: Vec<u8>) {
 /// the TrapError path (docs/behavior.md Error Scenarios).
 #[cfg(target_arch = "wasm32")]
 pub(super) fn write_panic(panic: Panic) {
-    if let Ok(bytes) = encode_outcome(&Outcome::Panic(panic)) {
+    if let Ok(bytes) = Outcome::Panic(panic).encode() {
         write_outcome(bytes);
     }
 }

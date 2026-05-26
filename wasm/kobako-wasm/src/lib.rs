@@ -13,9 +13,8 @@
 //!   round-trip pipeline used by the guest-side mruby bridge to
 //!   dispatch a call through `__kobako_dispatch`).
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
-//!   `lib/kobako/outcome.rb`. Holds the Panic / Outcome value objects
-//!   and the `encode_outcome` / `decode_outcome` / `encode_panic` /
-//!   `decode_panic` / `encode_result` / `decode_result` helpers
+//!   `lib/kobako/outcome.rb`. Holds the `Panic` / `Outcome` value objects,
+//!   each carrying its own `codec::{Encode, Decode}` impl
 //!   (docs/wire-contract.md § Outcome Envelope). Raises [`codec::Error`]
 //!   for both byte-level and structural faults.
 //! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and

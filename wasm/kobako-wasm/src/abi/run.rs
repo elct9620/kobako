@@ -128,9 +128,9 @@ fn run_body(env_ptr: i32, env_len: i32) {
     use super::boot;
     use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
-    use crate::codec::Decoder;
+    use crate::codec::{Decoder, Encode};
     use crate::mruby::sys;
-    use crate::outcome::{encode_outcome, Outcome, Panic};
+    use crate::outcome::{Outcome, Panic};
 
     // See `eval_body` for the MRB scope-guard rationale — declared
     // early so every `return write_panic(...)` clears the slot.
@@ -312,7 +312,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
     }
 
     let codec_value = kobako.to_codec_outcome(result_val);
-    match encode_outcome(&Outcome::Value(codec_value)) {
+    match Outcome::Value(codec_value).encode() {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {
             origin: "sandbox".into(),

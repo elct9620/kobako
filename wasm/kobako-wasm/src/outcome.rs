@@ -17,7 +17,7 @@
 //! host outcome module ends up byte-compatible because both sides follow
 //! SPEC, not because one was copied from the other.
 
-use crate::codec::{self, Decoder, Encoder, Value};
+use crate::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 
 /// Outcome envelope tag for a Result envelope (docs/wire-contract.md § Outcome
 /// Envelope). Module-private — `Outcome::Value` is the public surface
@@ -60,139 +60,135 @@ pub enum Outcome {
 // Encode / decode
 // ============================================================
 
-// ---------------- Result envelope ----------------
-
-/// Encode the success branch of an Outcome: the raw msgpack encoding of
-/// `value`. SPEC pins this as direct (no enclosing array); the Outcome
-/// tag byte is the sole discriminator.
-pub fn encode_result(value: &Value) -> Result<Vec<u8>, codec::Error> {
-    let mut enc = Encoder::new();
-    enc.write_value(value)?;
-    Ok(enc.into_bytes())
-}
-
-/// Decode the success branch of an Outcome into the carried [`Value`].
-pub fn decode_result(bytes: &[u8]) -> Result<Value, codec::Error> {
-    let mut dec = Decoder::new(bytes);
-    dec.read_value()
-}
-
-// ---------------- Panic envelope ----------------
-
-pub fn encode_panic(panic: &Panic) -> Result<Vec<u8>, codec::Error> {
-    let mut pairs: Vec<(Value, Value)> = Vec::with_capacity(5);
-    pairs.push((
-        Value::Str("origin".into()),
-        Value::Str(panic.origin.clone()),
-    ));
-    pairs.push((Value::Str("class".into()), Value::Str(panic.class.clone())));
-    pairs.push((
-        Value::Str("message".into()),
-        Value::Str(panic.message.clone()),
-    ));
-    if !panic.backtrace.is_empty() {
-        let bt = panic
-            .backtrace
-            .iter()
-            .map(|s| Value::Str(s.clone()))
-            .collect();
-        pairs.push((Value::Str("backtrace".into()), Value::Array(bt)));
+impl Encode for Panic {
+    /// Encode the Panic body as a msgpack map keyed by name. The optional
+    /// keys (`backtrace`, `details`) are omitted when empty / absent.
+    fn encode(&self) -> Result<Vec<u8>, codec::Error> {
+        let mut pairs: Vec<(Value, Value)> = Vec::with_capacity(5);
+        pairs.push((Value::Str("origin".into()), Value::Str(self.origin.clone())));
+        pairs.push((Value::Str("class".into()), Value::Str(self.class.clone())));
+        pairs.push((
+            Value::Str("message".into()),
+            Value::Str(self.message.clone()),
+        ));
+        if !self.backtrace.is_empty() {
+            let bt = self
+                .backtrace
+                .iter()
+                .map(|s| Value::Str(s.clone()))
+                .collect();
+            pairs.push((Value::Str("backtrace".into()), Value::Array(bt)));
+        }
+        if let Some(d) = &self.details {
+            pairs.push((Value::Str("details".into()), d.clone()));
+        }
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(pairs))?;
+        Ok(enc.into_bytes())
     }
-    if let Some(d) = &panic.details {
-        pairs.push((Value::Str("details".into()), d.clone()));
-    }
-    let mut enc = Encoder::new();
-    enc.write_value(&Value::Map(pairs))?;
-    Ok(enc.into_bytes())
 }
 
-pub fn decode_panic(bytes: &[u8]) -> Result<Panic, codec::Error> {
-    let mut dec = Decoder::new(bytes);
-    let frame = dec.read_value()?;
-    let pairs = match frame {
-        Value::Map(p) => p,
-        _ => return Err(codec::Error::Malformed("Panic must be a map")),
-    };
-    let mut origin = None;
-    let mut class = None;
-    let mut message = None;
-    let mut backtrace: Vec<String> = Vec::new();
-    let mut details: Option<Value> = None;
-    for (k, v) in pairs {
-        let key = match k {
-            Value::Str(s) => s,
-            _ => continue, // SPEC: unknown / non-str keys are silently ignored
+impl Decode for Panic {
+    fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
+        let mut dec = Decoder::new(bytes);
+        let frame = dec.read_value()?;
+        let pairs = match frame {
+            Value::Map(p) => p,
+            _ => return Err(codec::Error::Malformed("Panic must be a map")),
         };
-        match key.as_str() {
-            "origin" => match v {
-                Value::Str(s) => origin = Some(s),
-                _ => return Err(codec::Error::Malformed("Panic origin must be str")),
-            },
-            "class" => match v {
-                Value::Str(s) => class = Some(s),
-                _ => return Err(codec::Error::Malformed("Panic class must be str")),
-            },
-            "message" => match v {
-                Value::Str(s) => message = Some(s),
-                _ => return Err(codec::Error::Malformed("Panic message must be str")),
-            },
-            "backtrace" => match v {
-                Value::Array(items) => {
-                    for line in items {
-                        match line {
-                            Value::Str(s) => backtrace.push(s),
-                            _ => {
-                                return Err(codec::Error::Malformed(
-                                    "Panic backtrace lines must be str",
-                                ))
+        let mut origin = None;
+        let mut class = None;
+        let mut message = None;
+        let mut backtrace: Vec<String> = Vec::new();
+        let mut details: Option<Value> = None;
+        for (k, v) in pairs {
+            let key = match k {
+                Value::Str(s) => s,
+                _ => continue, // SPEC: unknown / non-str keys are silently ignored
+            };
+            match key.as_str() {
+                "origin" => match v {
+                    Value::Str(s) => origin = Some(s),
+                    _ => return Err(codec::Error::Malformed("Panic origin must be str")),
+                },
+                "class" => match v {
+                    Value::Str(s) => class = Some(s),
+                    _ => return Err(codec::Error::Malformed("Panic class must be str")),
+                },
+                "message" => match v {
+                    Value::Str(s) => message = Some(s),
+                    _ => return Err(codec::Error::Malformed("Panic message must be str")),
+                },
+                "backtrace" => match v {
+                    Value::Array(items) => {
+                        for line in items {
+                            match line {
+                                Value::Str(s) => backtrace.push(s),
+                                _ => {
+                                    return Err(codec::Error::Malformed(
+                                        "Panic backtrace lines must be str",
+                                    ))
+                                }
                             }
                         }
                     }
-                }
-                _ => return Err(codec::Error::Malformed("Panic backtrace must be array")),
-            },
-            "details" => details = Some(v),
-            _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
+                    _ => return Err(codec::Error::Malformed("Panic backtrace must be array")),
+                },
+                "details" => details = Some(v),
+                _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
+            }
         }
+        Ok(Panic {
+            origin: origin.ok_or(codec::Error::Malformed(
+                "Panic missing required field: origin",
+            ))?,
+            class: class.ok_or(codec::Error::Malformed(
+                "Panic missing required field: class",
+            ))?,
+            message: message.ok_or(codec::Error::Malformed(
+                "Panic missing required field: message",
+            ))?,
+            backtrace,
+            details,
+        })
     }
-    Ok(Panic {
-        origin: origin.ok_or(codec::Error::Malformed(
-            "Panic missing required field: origin",
-        ))?,
-        class: class.ok_or(codec::Error::Malformed(
-            "Panic missing required field: class",
-        ))?,
-        message: message.ok_or(codec::Error::Malformed(
-            "Panic missing required field: message",
-        ))?,
-        backtrace,
-        details,
-    })
 }
 
-// ---------------- Outcome envelope ----------------
-
-pub fn encode_outcome(outcome: &Outcome) -> Result<Vec<u8>, codec::Error> {
-    let (tag, body) = match outcome {
-        Outcome::Value(v) => (OUTCOME_TAG_RESULT, encode_result(v)?),
-        Outcome::Panic(p) => (OUTCOME_TAG_PANIC, encode_panic(p)?),
-    };
-    let mut out = Vec::with_capacity(1 + body.len());
-    out.push(tag);
-    out.extend_from_slice(&body);
-    Ok(out)
+impl Encode for Outcome {
+    /// Encode an Outcome: a 1-byte tag (`0x01` value / `0x02` panic)
+    /// followed by the branch payload. The value branch is the bare
+    /// msgpack encoding of the carried value (no enclosing wrapper, per
+    /// docs/wire-contract.md § Outcome Envelope); the panic branch delegates
+    /// to [`Panic`]'s own codec.
+    fn encode(&self) -> Result<Vec<u8>, codec::Error> {
+        let (tag, body) = match self {
+            Outcome::Value(v) => {
+                let mut enc = Encoder::new();
+                enc.write_value(v)?;
+                (OUTCOME_TAG_RESULT, enc.into_bytes())
+            }
+            Outcome::Panic(p) => (OUTCOME_TAG_PANIC, p.encode()?),
+        };
+        let mut out = Vec::with_capacity(1 + body.len());
+        out.push(tag);
+        out.extend_from_slice(&body);
+        Ok(out)
+    }
 }
 
-pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, codec::Error> {
-    if bytes.is_empty() {
-        return Err(codec::Error::Malformed("Outcome bytes must not be empty"));
-    }
-    let tag = bytes[0];
-    let body = &bytes[1..];
-    match tag {
-        OUTCOME_TAG_RESULT => Ok(Outcome::Value(decode_result(body)?)),
-        OUTCOME_TAG_PANIC => Ok(Outcome::Panic(decode_panic(body)?)),
-        _ => Err(codec::Error::Malformed("Outcome tag must be 0x01 or 0x02")),
+impl Decode for Outcome {
+    fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
+        let Some((&tag, body)) = bytes.split_first() else {
+            return Err(codec::Error::Malformed("Outcome bytes must not be empty"));
+        };
+        match tag {
+            OUTCOME_TAG_RESULT => {
+                let mut dec = Decoder::new(body);
+                Ok(Outcome::Value(dec.read_value()?))
+            }
+            OUTCOME_TAG_PANIC => Ok(Outcome::Panic(Panic::decode(body)?)),
+            _ => Err(codec::Error::Malformed("Outcome tag must be 0x01 or 0x02")),
+        }
     }
 }
 
@@ -203,35 +199,6 @@ pub fn decode_outcome(bytes: &[u8]) -> Result<Outcome, codec::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ---------------- Result envelope ----------------
-
-    #[test]
-    fn result_round_trip_primitive() {
-        let bytes = encode_result(&Value::Int(42)).unwrap();
-        let out = decode_result(&bytes).unwrap();
-        assert_eq!(out, Value::Int(42));
-    }
-
-    #[test]
-    fn result_round_trip_nil() {
-        let out = decode_result(&encode_result(&Value::Nil).unwrap()).unwrap();
-        assert_eq!(out, Value::Nil);
-    }
-
-    #[test]
-    fn result_round_trip_handle() {
-        let out = decode_result(&encode_result(&Value::Handle(5)).unwrap()).unwrap();
-        assert_eq!(out, Value::Handle(5));
-    }
-
-    #[test]
-    fn result_golden_value_42() {
-        let bytes = encode_result(&Value::Int(42)).unwrap();
-        // docs/wire-codec.md § Envelope Encoding → Result Envelope: the value is emitted directly without
-        // an enclosing array, so the success body is just msgpack(42) = 0x2a.
-        assert_eq!(bytes, vec![0x2a]);
-    }
 
     // ---------------- Panic envelope ----------------
 
@@ -244,7 +211,7 @@ mod tests {
             backtrace: vec![],
             details: None,
         };
-        let out = decode_panic(&encode_panic(&p).unwrap()).unwrap();
+        let out = Panic::decode(&p.encode().unwrap()).unwrap();
         assert_eq!(p, out);
     }
 
@@ -260,7 +227,7 @@ mod tests {
                 Value::Str("runtime".into()),
             )])),
         };
-        let out = decode_panic(&encode_panic(&p).unwrap()).unwrap();
+        let out = Panic::decode(&p.encode().unwrap()).unwrap();
         assert_eq!(p, out);
     }
 
@@ -280,7 +247,7 @@ mod tests {
             ),
         ]))
         .unwrap();
-        let p = decode_panic(&enc.into_bytes()).unwrap();
+        let p = Panic::decode(&enc.into_bytes()).unwrap();
         assert_eq!(p.origin, "sandbox");
     }
 
@@ -293,7 +260,7 @@ mod tests {
         ]))
         .unwrap();
         assert!(matches!(
-            decode_panic(&enc.into_bytes()),
+            Panic::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(
                 "Panic missing required field: class"
             ))
@@ -305,7 +272,7 @@ mod tests {
         let mut enc = Encoder::new();
         enc.write_value(&Value::Array(vec![Value::Int(1)])).unwrap();
         assert!(matches!(
-            decode_panic(&enc.into_bytes()),
+            Panic::decode(&enc.into_bytes()),
             Err(codec::Error::Malformed(_))
         ));
     }
@@ -315,9 +282,9 @@ mod tests {
     #[test]
     fn outcome_result_round_trip() {
         let o = Outcome::Value(Value::Int(123));
-        let bytes = encode_outcome(&o).unwrap();
+        let bytes = o.encode().unwrap();
         assert_eq!(bytes[0], OUTCOME_TAG_RESULT);
-        assert_eq!(decode_outcome(&bytes).unwrap(), o);
+        assert_eq!(Outcome::decode(&bytes).unwrap(), o);
     }
 
     #[test]
@@ -330,16 +297,16 @@ mod tests {
             details: None,
         };
         let o = Outcome::Panic(p);
-        let bytes = encode_outcome(&o).unwrap();
+        let bytes = o.encode().unwrap();
         assert_eq!(bytes[0], OUTCOME_TAG_PANIC);
-        assert_eq!(decode_outcome(&bytes).unwrap(), o);
+        assert_eq!(Outcome::decode(&bytes).unwrap(), o);
     }
 
     #[test]
     fn outcome_decode_rejects_unknown_tag() {
         let bytes = [0x03_u8, 0x90];
         assert!(matches!(
-            decode_outcome(&bytes),
+            Outcome::decode(&bytes),
             Err(codec::Error::Malformed(_))
         ));
     }
@@ -347,14 +314,14 @@ mod tests {
     #[test]
     fn outcome_decode_rejects_empty_bytes() {
         assert!(matches!(
-            decode_outcome(&[]),
+            Outcome::decode(&[]),
             Err(codec::Error::Malformed(_))
         ));
     }
 
     #[test]
     fn outcome_result_golden_for_42() {
-        let bytes = encode_outcome(&Outcome::Value(Value::Int(42))).unwrap();
+        let bytes = Outcome::Value(Value::Int(42)).encode().unwrap();
         // Tag 0x01 + bare msgpack value 0x2a (no enclosing array).
         assert_eq!(bytes, vec![0x01, 0x2a]);
     }

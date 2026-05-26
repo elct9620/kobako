@@ -30,9 +30,7 @@ use std::io::{self, Read, Write};
 
 use kobako_wasm::codec;
 use kobako_wasm::codec::{Decode, Encode};
-use kobako_wasm::outcome::{
-    decode_outcome, decode_panic, decode_result, encode_outcome, encode_panic, encode_result,
-};
+use kobako_wasm::outcome::{Outcome, Panic};
 use kobako_wasm::transport::{Request, Response};
 use kobako_wasm::FRAME_LEN_SIZE;
 
@@ -98,16 +96,22 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
             resp.encode().map_err(stringify)
         }
         b'R' => {
-            let v = decode_result(body).map_err(stringify)?;
-            encode_result(&v).map_err(stringify)
+            // Result envelope is a bare codec value (no enclosing wrapper);
+            // round-trip it straight through the codec, mirroring the host's
+            // Outcome.decode success branch which calls Codec::Decoder.decode.
+            let mut dec = codec::Decoder::new(body);
+            let v = dec.read_value().map_err(stringify)?;
+            let mut enc = codec::Encoder::new();
+            enc.write_value(&v).map_err(stringify)?;
+            Ok(enc.into_bytes())
         }
         b'X' => {
-            let p = decode_panic(body).map_err(stringify)?;
-            encode_panic(&p).map_err(stringify)
+            let p = Panic::decode(body).map_err(stringify)?;
+            p.encode().map_err(stringify)
         }
         b'O' => {
-            let o = decode_outcome(body).map_err(stringify)?;
-            encode_outcome(&o).map_err(stringify)
+            let o = Outcome::decode(body).map_err(stringify)?;
+            o.encode().map_err(stringify)
         }
         other => Err(format!("unknown envelope kind {:#04x}", other)),
     }
