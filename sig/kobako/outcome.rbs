@@ -19,6 +19,6 @@ module Kobako
 
     def self?.panic_target_class: (Panic panic) -> (singleton(SandboxError) | singleton(ServiceError))
 
-    def self?.build_wire_violation_error: (String message, ?wire_error: String?) -> Transport::WireError
+    def self?.build_transport_error: (String message, ?detail: String?) -> Transport::Error
   end
 end

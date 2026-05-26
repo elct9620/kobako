@@ -5,7 +5,7 @@ require_relative "transport/response"
 require_relative "transport/run"
 require_relative "transport/yield"
 require_relative "transport/yielder"
-require_relative "transport/wire_error"
+require_relative "transport/error"
 require_relative "transport/dispatcher"
 
 module Kobako

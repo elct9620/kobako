@@ -89,7 +89,7 @@ fn eval_body() {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::Transport::WireError".into(),
+            class: "Kobako::Transport::Error".into(),
             message: "result envelope encode failed".into(),
             backtrace: Vec::new(),
             details: None,

@@ -8,7 +8,7 @@
 //! kobako-specific registrations (`Kobako` module, `Kobako::Transport`
 //! namespace + `Proxy` abstract base, the `Kobako::Member` / `Kobako::Handle`
 //! proxy subclasses, `Kobako::ServiceError` /
-//! `Kobako::Transport::WireError`, `Kernel#puts` / `Kernel#p` shims) belong to a
+//! `Kobako::Transport::Error`, `Kernel#puts` / `Kernel#p` shims) belong to a
 //! different concern and live behind this domain boundary.
 //!
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
@@ -119,7 +119,7 @@ pub struct Kobako {
     member_class: sys::Class,
     handle_class: sys::Class,
     service_error_class: sys::Class,
-    wire_error_class: sys::Class,
+    transport_error_class: sys::Class,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -146,7 +146,7 @@ impl Kobako {
             member_class: classes.member_class,
             handle_class: classes.handle_class,
             service_error_class: classes.service_error_class,
-            wire_error_class: classes.wire_error_class,
+            transport_error_class: classes.transport_error_class,
         }
     }
 
@@ -175,13 +175,13 @@ impl Kobako {
         let member_class = kobako_mod.class_get_under(mrb_ref, c"Member");
         let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
         let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
-        let wire_error_class = transport_mod.class_get_under(mrb_ref, c"WireError");
+        let transport_error_class = transport_mod.class_get_under(mrb_ref, c"Error");
         Self {
             mrb,
             member_class,
             handle_class,
             service_error_class,
-            wire_error_class,
+            transport_error_class,
         }
     }
 
@@ -207,7 +207,7 @@ impl Kobako {
         Ok(())
     }
 
-    /// Raise `Kobako::Transport::WireError` with `msg`. Diverges — `mrb_raise` does
+    /// Raise `Kobako::Transport::Error` with `msg`. Diverges — `mrb_raise` does
     /// not return.
     ///
     /// # Safety
@@ -216,9 +216,9 @@ impl Kobako {
     /// bridges, mrb_funcall handlers). Calling from arbitrary Rust code
     /// would jump through mruby's exception machinery in a way the Rust
     /// stack does not anticipate.
-    pub unsafe fn raise_wire_error(&self, msg: &core::ffi::CStr) -> ! {
+    pub unsafe fn raise_transport_error(&self, msg: &core::ffi::CStr) -> ! {
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { self.wire_error_class.raise(self.mrb(), msg) };
+        unsafe { self.transport_error_class.raise(self.mrb(), msg) };
     }
 
     /// Raise `Kobako::ServiceError` for `ex`. Diverges — `mrb_raise`
@@ -230,7 +230,7 @@ impl Kobako {
     ///
     /// # Safety
     ///
-    /// As [`Kobako::raise_wire_error`].
+    /// As [`Kobako::raise_transport_error`].
     pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.

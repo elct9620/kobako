@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "outcome/panic"
-require_relative "transport/wire_error"
+require_relative "transport/error"
 
 module Kobako
   # Host-facing boundary for the OUTCOME_BUFFER produced by
@@ -73,16 +73,16 @@ module Kobako
 
     # Decode failure on the success tag is a SandboxError (E-09): the
     # framing was fine, but the carried value is unrepresentable. The
-    # specific codec fault is stashed in +details[:wire_error]+ rather
+    # specific codec fault is stashed in +details+ rather
     # than spliced into the message — callers cannot act on the inner
     # "Symbol payload must be …" wording, but operators triaging a
     # corrupted Sandbox runtime still need it.
     def decode_value(body)
       Kobako::Codec::Decoder.decode(body)
     rescue Kobako::Codec::Error => e
-      raise build_wire_violation_error(
+      raise build_transport_error(
         "Sandbox produced an invalid result value",
-        wire_error: e.message
+        detail: e.message
       )
     end
 
@@ -93,20 +93,19 @@ module Kobako
     def decode_panic(body)
       raise build_panic_error(build_panic_record(body))
     rescue Kobako::Codec::Error => e
-      raise build_wire_violation_error(
+      raise build_transport_error(
         "Sandbox produced an invalid panic record",
-        wire_error: e.message
+        detail: e.message
       )
     end
 
     # Build a +Panic+ value object from the msgpack-decoded body. Raises
     # +Kobako::Codec::InvalidType+ when the body is not a map or when
     # required keys are missing — both routed by +decode_panic+ to
-    # +build_wire_violation_error+. The decode runs in block form so
+    # +build_transport_error+. The decode runs in block form so
     # +Panic.new+'s +ArgumentError+ invariants surface as +InvalidType+
     # through the decoder boundary; the message itself is never user-
-    # facing — it lands in +details[:wire_error]+ via the rescue chain
-    # above.
+    # facing — it lands in +details+ via the rescue chain above.
     def build_panic_record(body)
       Kobako::Codec::Decoder.decode(body) do |map|
         raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
@@ -148,19 +147,19 @@ module Kobako
     end
 
     # Lift the wire-violation fallback to the real
-    # +Kobako::Transport::WireError+ class so callers can +rescue+ it
+    # +Kobako::Transport::Error+ class so callers can +rescue+ it
     # specifically instead of pattern-matching on +error.klass+. The
     # +klass+ field is still populated so existing operator-side
     # tooling that greps on the string continues to work.
-    # +wire_error+ carries the inner codec / framing message for
-    # operator diagnosis without polluting the user-facing
-    # +#message+.
-    def build_wire_violation_error(message, wire_error: nil)
-      Kobako::Transport::WireError.new(
+    # +detail+ carries the inner codec / framing message, stashed
+    # directly into +details+ for operator diagnosis without polluting
+    # the user-facing +#message+.
+    def build_transport_error(message, detail: nil)
+      Kobako::Transport::Error.new(
         message,
         origin: Panic::ORIGIN_SANDBOX,
-        klass: "Kobako::Transport::WireError",
-        details: wire_error.nil? ? nil : { wire_error: wire_error }
+        klass: "Kobako::Transport::Error",
+        details: detail
       )
     end
   end

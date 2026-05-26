@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn origin_for_class_defaults_to_sandbox() {
         assert_eq!(origin_for_class("RuntimeError"), "sandbox");
-        assert_eq!(origin_for_class("Kobako::Transport::WireError"), "sandbox");
+        assert_eq!(origin_for_class("Kobako::Transport::Error"), "sandbox");
         assert_eq!(origin_for_class("NoMethodError"), "sandbox");
     }
 }

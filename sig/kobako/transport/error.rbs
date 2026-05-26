@@ -1,6 +1,6 @@
 module Kobako
   module Transport
-    class WireError < Kobako::SandboxError
+    class Error < Kobako::SandboxError
     end
   end
 end

@@ -57,7 +57,7 @@ use crate::mruby::sys::Value;
 /// request through the host via [`crate::transport::proxy::invoke`]; and
 /// converts the result back to an mruby value — raising
 /// `Kobako::ServiceError` on a Response.err and
-/// `Kobako::Transport::WireError` on an envelope fault (both raise paths
+/// `Kobako::Transport::Error` on an envelope fault (both raise paths
 /// diverge). The `Kobako` token supplies only the VM-level primitives
 /// (arg/result conversion, error raising); the dispatch orchestration
 /// lives here, not on the token.
@@ -84,7 +84,7 @@ fn forward_to_dispatch(
 
     let method_name = match kobako.mrb().sym_name(method_sym) {
         Some(name) => name,
-        None => unsafe { kobako.raise_wire_error(sym_err_msg) },
+        None => unsafe { kobako.raise_transport_error(sym_err_msg) },
     };
 
     let (args, kwargs) = kobako.unpack_args_kwargs(rest);
@@ -94,7 +94,7 @@ fn forward_to_dispatch(
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(InvokeError::Service(ex)) => unsafe { kobako.raise_service_error(&ex) },
         // SAFETY: as above.
-        Err(_) => unsafe { kobako.raise_wire_error(envelope_err_msg) },
+        Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
     }
 }
 
@@ -125,7 +125,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
         Some(name) => name,
         None => unsafe {
             // SAFETY: bridge frame.
-            kobako.raise_wire_error(c"transport target class name is null")
+            kobako.raise_transport_error(c"transport target class name is null")
         },
     };
     let target = Target::Path(target_str.to_string());
