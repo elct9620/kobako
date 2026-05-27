@@ -2,7 +2,7 @@
 
 # Characterization benchmark (not in SPEC.md release gate) — covers
 # the Sandbox#preload + Sandbox#run path that did not exist when the
-# SPEC #1..#5 suite was written. The other benchmarks all measure
+# original SPEC #1..#5 gated suite was written. The other benchmarks all measure
 # inside Sandbox#eval; this file isolates the cost dimensions the
 # two new verbs add.
 #
@@ -13,7 +13,7 @@
 # code across one-shot scripts. The cases below isolate each new
 # verb's contribution.
 #
-#   8a — Preload registration cost (host-side trial-compile path).
+#   9a — Preload registration cost (host-side trial-compile path).
 #        Steady-state cost of `Sandbox.new + N #preload(code:,
 #        name:)`. Each #preload trial-compiles the source against a
 #        fresh host mrb_state to catch E-32 (compile error) early,
@@ -24,25 +24,25 @@
 #        waypoints; subtract a Sandbox.new baseline (cold_start 1a)
 #        to isolate per-snippet cost.
 #
-#   8b — Run dispatch baseline. Warm Sandbox with one preloaded
+#   9b — Run dispatch baseline. Warm Sandbox with one preloaded
 #        snippet defining `Noop`; `sandbox.run(:Noop)` cost in
 #        steady state. Isolates the #run-specific entry path: host
 #        pre-flight (Invocation envelope construction, target / args
 #        / kwargs validation per E-24 / E-25 / E-29 / E-30) plus
 #        guest-side constant resolution.
 #
-#   8c — Run dispatch with one positional Integer arg.
+#   9c — Run dispatch with one positional Integer arg.
 #        `sandbox.run(:Echo, 42)` exercises the Invocation envelope's
 #        args Array encoding.
 #
-#   8d — Run dispatch with Symbol-keyed kwargs. `sandbox.run(:Greet,
+#   9d — Run dispatch with Symbol-keyed kwargs. `sandbox.run(:Greet,
 #        name: :alice)` puts a Symbol key through the Invocation
 #        envelope's kwargs Map. The ext 0x00 codec path here is the
 #        host→guest direction — structurally distinct from the
 #        guest→host Transport kwargs path measured by transport_roundtrip 2c,
 #        even though both rely on the same Symbol wire ext.
 #
-#   8e — Per-invocation snippet replay overhead. Same #run(:Noop)
+#   9e — Per-invocation snippet replay overhead. Same #run(:Noop)
 #        dispatch, but with 0 / 8 / 64 additional helper snippets
 #        preloaded alongside `Noop`. Every snippet is replayed
 #        against the fresh mrb_state on every invocation per B-32,
@@ -51,14 +51,14 @@
 #        that makes replay super-linear in snippet count would show
 #        here.
 #
-#   8f — #run dispatch with a non-wire-representable positional
+#   9f — #run dispatch with a non-wire-representable positional
 #        arg (B-34 host→guest auto-wrap). The args walker routes
 #        the StringIO through Codec::Utils.deep_wrap, which routes
 #        non-wire-representable leaves through Catalog::Handles#alloc;
 #        the guest receives a +Kobako::Handle+ proxy. The entrypoint
 #        ignores the proxy, so this case isolates the host-side
 #        auto-wrap cost (predicate + alloc + wire encode) without
-#        also incurring a guest→host Transport roundtrip — 8c / 8d only
+#        also incurring a guest→host Transport roundtrip — 9c / 9d only
 #        cover the wire-fast path and miss any regression in the
 #        auto-wrap branch.
 #
@@ -98,7 +98,7 @@ GREET_SNIPPET_CODE = <<~RUBY
   end
 RUBY
 
-# 8f auto-wrap target. The entrypoint discards the Handle proxy so
+# 9f auto-wrap target. The entrypoint discards the Handle proxy so
 # the case measures only the host-side wrap path (predicate +
 # Catalog::Handles#alloc + wire encode) — calling #read on the proxy
 # would add a guest→host Transport roundtrip that confounds the signal.
@@ -111,7 +111,7 @@ WRAP_SNIPPET_CODE = <<~RUBY
 RUBY
 
 # Small but realistic helper snippet shape: module + constant +
-# self-method. Each snippet is ~70 bytes of source, so the 8e-64
+# self-method. Each snippet is ~70 bytes of source, so the 9e-64
 # waypoint replays ~4.5 KiB of helper source against the fresh
 # mrb_state on every invocation — representative of a "small set
 # of helper modules" deployment, not a degenerate empty constant.
@@ -131,7 +131,7 @@ def helper_snippet_name(index)
 end
 
 # Pre-compute the helper snippet sources and names ONCE at suite
-# setup time. The 8a / 8e timed blocks below index into these frozen
+# setup time. The 9a / 9e timed blocks below index into these frozen
 # arrays so the heredoc interpolation and Symbol construction cost
 # stays out of the measurement window — only Sandbox.new, #preload,
 # and #run land inside the timer. Mirrors the mruby_eval.rb pattern
@@ -141,12 +141,12 @@ HELPER_MAX = 64
 HELPER_CODES = Array.new(HELPER_MAX) { |i| helper_snippet_code(i) }.freeze
 HELPER_NAMES = Array.new(HELPER_MAX) { |i| helper_snippet_name(i) }.freeze
 
-# Process-wide warm-up so 8a's first iteration does not pay the
+# Process-wide warm-up so 9a's first iteration does not pay the
 # first-Sandbox cold cost (Engine init + Module JIT compile).
 # Mirrors the warm-up pattern in transport_roundtrip / codec / mruby_eval.
 Kobako::Sandbox.new.eval("nil")
 
-# 8a — preload registration cost. Each iteration constructs a fresh
+# 9a — preload registration cost. Each iteration constructs a fresh
 # Sandbox and registers N helper snippets via index lookups into the
 # pre-computed +HELPER_CODES+ / +HELPER_NAMES+ arrays — no string or
 # Symbol construction inside the timer. The Sandbox.new term is
@@ -154,13 +154,13 @@ Kobako::Sandbox.new.eval("nil")
 # (Sandbox.new alone) to recover the per-snippet preload cost.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 [1, 8, 64].each do |n|
-  runner.case("8a-sandbox-new+preload-#{n}-source") do
+  runner.case("9a-sandbox-new+preload-#{n}-source") do
     sandbox = Kobako::Sandbox.new(memory_limit: nil)
     n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   end
 end
 
-# Shared dispatch sandbox for 8b / 8c / 8d. One warm-up #run seals
+# Shared dispatch sandbox for 9b / 9c / 9d. One warm-up #run seals
 # the Service / snippet tables (B-07 / B-33) so the first measured
 # iteration does not pay seal cost.
 dispatch_sandbox = Kobako::Sandbox.new(memory_limit: nil)
@@ -169,26 +169,26 @@ dispatch_sandbox.preload(code: ECHO_SNIPPET_CODE, name: :Echo)
 dispatch_sandbox.preload(code: GREET_SNIPPET_CODE, name: :Greet)
 dispatch_sandbox.run(:Noop) # warm + seal
 
-runner.case_with_usage("8b-run-dispatch-empty", dispatch_sandbox) { dispatch_sandbox.run(:Noop) }
-runner.case_with_usage("8c-run-dispatch-positional", dispatch_sandbox) { dispatch_sandbox.run(:Echo, 42) }
-runner.case_with_usage("8d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sandbox.run(:Greet, name: :alice) }
+runner.case_with_usage("9b-run-dispatch-empty", dispatch_sandbox) { dispatch_sandbox.run(:Noop) }
+runner.case_with_usage("9c-run-dispatch-positional", dispatch_sandbox) { dispatch_sandbox.run(:Echo, 42) }
+runner.case_with_usage("9d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sandbox.run(:Greet, name: :alice) }
 
-# 8e — per-invocation snippet replay overhead. Each waypoint owns a
+# 9e — per-invocation snippet replay overhead. Each waypoint owns a
 # Sandbox with N additional helpers preloaded alongside the Noop
 # entrypoint. The slope between 0 / 8 / 64 isolates per-snippet
-# replay cost on the steady-state #run path. (8e's preload calls
+# replay cost on the steady-state #run path. (9e's preload calls
 # already sit outside the timer, but the +HELPER_CODES+ /
-# +HELPER_NAMES+ lookup keeps the setup code uniform with 8a.)
+# +HELPER_NAMES+ lookup keeps the setup code uniform with 9a.)
 [0, 8, 64].each do |n|
   sandbox = Kobako::Sandbox.new(memory_limit: nil)
   sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
   n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
-  runner.case_with_usage("8e-run-replay-#{n}-snippets", sandbox) { sandbox.run(:Noop) }
+  runner.case_with_usage("9e-run-replay-#{n}-snippets", sandbox) { sandbox.run(:Noop) }
 end
 
-# 8f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
-# already sealed by 8b's warm-up #run; subsequent #preload would
+# 9f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
+# already sealed by 9b's warm-up #run; subsequent #preload would
 # raise E-35. The same +autowrap_arg+ is reused across iterations,
 # but B-15 / B-19 reset the Catalog::Handles at the start of every
 # invocation, so each measured #run still pays for one fresh
@@ -198,7 +198,7 @@ autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
 autowrap_arg = StringIO.new("payload")
 autowrap_sandbox.run(:Wrap, autowrap_arg) # warm + seal
 
-runner.case_with_usage("8f-run-dispatch-autowrap", autowrap_sandbox) do
+runner.case_with_usage("9f-run-dispatch-autowrap", autowrap_sandbox) do
   autowrap_sandbox.run(:Wrap, autowrap_arg)
 end
 

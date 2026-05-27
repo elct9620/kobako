@@ -12,10 +12,10 @@
 #   bench:smoke       — alias of bench (no fast/slow split yet; the
 #                       1 MiB cap is already CI-friendly).
 #   bench:full        — bench plus codec @ 16 MiB (BENCH_FULL=1).
-#   bench:concurrent        — #6 characterization (not in release gate).
-#   bench:memory            — #7 characterization: per-Sandbox RSS,
+#   bench:concurrent        — #7 characterization (not in release gate).
+#   bench:memory            — #8 characterization: per-Sandbox RSS,
 #                             leak detection, large-payload retention.
-#   bench:preload_dispatch  — #8 characterization: #preload + #run
+#   bench:preload_dispatch  — #9 characterization: #preload + #run
 #                             setup-once / dispatch-many path
 #                             (not in release gate).
 #
@@ -46,17 +46,17 @@ namespace :bench do
   desc "Noise-aware release gate: compare the two newest results (or args [current,baseline])."
   task(:gate, %i[current baseline]) { |_t, args| KobakoBench::Gate.gate!(args[:current], args[:baseline]) }
 
-  desc "Run concurrent characterization benchmark (SPEC.md #6; not in release gate)."
+  desc "Run concurrent characterization benchmark (#7; not in release gate)."
   task :concurrent do
     sh "bundle exec ruby benchmark/concurrent/threads.rb"
   end
 
-  desc "Run memory characterization benchmark (#7; not in release gate)."
+  desc "Run memory characterization benchmark (#8; not in release gate)."
   task :memory do
     sh "bundle exec ruby benchmark/memory.rb"
   end
 
-  desc "Run #preload + #run dispatch characterization (#8; not in release gate)."
+  desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
   task :preload_dispatch do
     sh "bundle exec ruby benchmark/preload_dispatch.rb"
   end

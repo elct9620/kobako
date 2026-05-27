@@ -7,17 +7,17 @@
 # future ext/ changes (e.g. introducing rb_thread_call_without_gvl)
 # can be compared before/after.
 #
-#   6a — N Threads each owning a Sandbox, running #eval in parallel.
+#   7a — N Threads each owning a Sandbox, running #eval in parallel.
 #        Under Ruby's GVL with no rb_thread_call_without_gvl call
 #        in ext/, total throughput is expected to stay close to flat
 #        across N — modest scaling can appear because Ruby-side
 #        setup before each #eval (preamble pack, buffer init) can
 #        overlap across threads even while wasm execution is
 #        serialised.
-#   6b — N Threads each calling Sandbox.new cold. Measures mutex
+#   7b — N Threads each calling Sandbox.new cold. Measures mutex
 #        contention on the shared MODULE_CACHE in
 #        ext/kobako/src/wasm/cache.rs.
-#   6c — Concurrent contention overhead: one Thread runs a long
+#   7c — Concurrent contention overhead: one Thread runs a long
 #        #eval, a second Thread tries to start its own #eval("nil").
 #        The worker signals readiness via a host-bound Service
 #        (Sync::Ready) from inside wasm, so the measurement is
@@ -60,26 +60,26 @@ def parallel_join(count)
   Array.new(count) { |i| Thread.new { yield(i) } }.each(&:join)
 end
 
-def measure_6a(runner, count)
+def measure_7a(runner, count)
   sandboxes = Array.new(count) { Kobako::Sandbox.new }
   sandboxes.each { |s| s.eval("nil") }
   elapsed = time_block { parallel_join(count) { |i| OPS_PER_THREAD_6A.times { sandboxes[i].eval("nil") } } }
   total = count * OPS_PER_THREAD_6A
-  runner.results << { label: "6a-threads-#{count}", seconds: elapsed,
+  runner.results << { label: "7a-threads-#{count}", seconds: elapsed,
                       ops: total, ops_per_sec: total / elapsed, mode: "concurrent" }
-  puts format("6a-threads-%<n>-3d %<rate>12.1f ops/s", n: count, rate: total / elapsed)
+  puts format("7a-threads-%<n>-3d %<rate>12.1f ops/s", n: count, rate: total / elapsed)
 end
 
-def measure_6b(runner, count)
+def measure_7b(runner, count)
   elapsed = time_block { parallel_join(count) { Kobako::Sandbox.new } }
-  runner.results << { label: "6b-new-#{count}", seconds: elapsed,
+  runner.results << { label: "7b-new-#{count}", seconds: elapsed,
                       constructions: count, per_construction_seconds: elapsed / count,
                       mode: "concurrent" }
-  puts format("6b-new-%<n>-3d %<sec>12.3f ms (%<per>.3f ms each)",
+  puts format("7b-new-%<n>-3d %<sec>12.3f ms (%<per>.3f ms each)",
               n: count, sec: elapsed * 1000, per: (elapsed / count) * 1000)
 end
 
-def measure_6c(runner)
+def measure_7c(runner)
   ready = Queue.new
   short = Kobako::Sandbox.new
   long = build_synced_long_sandbox(ready)
@@ -87,7 +87,7 @@ def measure_6c(runner)
   long.eval("nil") # warm — does not trip Sync::Ready
   baseline = time_block { short.eval("nil") }
   contended = run_under_contention(long, short, ready)
-  record_6c(runner, baseline, contended)
+  record_7c(runner, baseline, contended)
 end
 
 def build_synced_long_sandbox(ready)
@@ -107,14 +107,14 @@ def run_under_contention(long_sandbox, short_sandbox, ready)
   elapsed
 end
 
-def record_6c(runner, baseline, contended)
-  runner.results << { label: "6c-baseline-eval-nil", seconds: baseline, mode: "concurrent" }
-  runner.results << { label: "6c-contended-eval-nil", seconds: contended, mode: "concurrent" }
-  runner.results << { label: "6c-blocking-ratio", ratio: contended / baseline,
+def record_7c(runner, baseline, contended)
+  runner.results << { label: "7c-baseline-eval-nil", seconds: baseline, mode: "concurrent" }
+  runner.results << { label: "7c-contended-eval-nil", seconds: contended, mode: "concurrent" }
+  runner.results << { label: "7c-blocking-ratio", ratio: contended / baseline,
                       baseline_ms: baseline * 1000, contended_ms: contended * 1000,
                       mode: "concurrent" }
-  puts format("6c-baseline      %<b>10.3f ms", b: baseline * 1000)
-  puts format("6c-contended     %<c>10.3f ms (%<r>.1fx baseline)",
+  puts format("7c-baseline      %<b>10.3f ms", b: baseline * 1000)
+  puts format("7c-contended     %<c>10.3f ms (%<r>.1fx baseline)",
               c: contended * 1000, r: contended / baseline)
 end
 
@@ -122,9 +122,9 @@ runner = Kobako::Bench::Runner.new("concurrent")
 Kobako::Sandbox.new.eval("nil") # warm process-wide caches
 
 [1, 2, 4, 8].each do |count|
-  measure_6a(runner, count)
-  measure_6b(runner, count)
+  measure_7a(runner, count)
+  measure_7b(runner, count)
 end
-measure_6c(runner)
+measure_7c(runner)
 
 puts runner.write!
