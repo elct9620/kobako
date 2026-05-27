@@ -62,7 +62,7 @@ class TestSandboxRun < Minitest::Test
   # E-30
   def test_e30_kwargs_keys_must_be_symbols
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, **{ "bad" => 1 }) }
-    assert_match(/kwargs keys must be Symbols/, err.message)
+    assert_match(/keyword argument keys must be Symbols/, err.message)
   end
 
   # --- Guest-driven (real data/kobako.wasm) ---

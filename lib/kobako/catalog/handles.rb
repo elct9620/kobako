@@ -57,7 +57,8 @@ module Kobako
         cap = Kobako::Handle::MAX_ID
         if id > cap
           raise HandlerExhaustedError,
-                "Handle id space exhausted: allocation would assign id #{id}, exceeding the cap (#{cap})"
+                "Out of handle allocations: too many host objects were referenced " \
+                "in a single invocation (limit #{cap})"
         end
 
         @entries[id] = object

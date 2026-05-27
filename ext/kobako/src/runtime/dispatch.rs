@@ -171,10 +171,10 @@ fn try_handle(
     let on_dispatch = caller
         .data()
         .on_dispatch()
-        .ok_or("transport dispatch fired outside an active Sandbox#run — internal wiring bug")?;
+        .ok_or("a sandbox callback fired outside an active Sandbox#run — please report this as a kobako bug")?;
 
     let resp_bytes = invoke_on_dispatch(on_dispatch, &req_bytes).map_err(|_| {
-        "transport dispatch Proc raised an exception instead of returning a fault — please report this as a kobako bug"
+        "a sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug"
     })?;
 
     write_response(caller, &resp_bytes)

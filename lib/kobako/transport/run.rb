@@ -81,13 +81,13 @@ module Kobako
       # +::+-segmented names and any non-constant form.
       def normalize_entrypoint(target)
         unless target.is_a?(Symbol) || target.is_a?(String)
-          raise TypeError, "Run entrypoint must be a Symbol or String, got #{target.class}"
+          raise TypeError, "entrypoint must be a Symbol or String, got #{target.class}"
         end
 
         target_str = target.to_s
         unless NAME_PATTERN.match?(target_str)
           raise ArgumentError,
-                "Run entrypoint must match #{NAME_PATTERN.inspect} (got #{target.inspect})"
+                "entrypoint must match #{NAME_PATTERN.inspect} (got #{target.inspect})"
         end
 
         target_str.to_sym
@@ -101,8 +101,8 @@ module Kobako
       # auto-wrap inside +#encode+ (B-34) — the reject path is reserved
       # for Handle objects specifically.
       def validate_args!(args)
-        raise ArgumentError, "Run args must be Array" unless args.is_a?(Array)
-        raise ArgumentError, forged_handle_message("args") if args.any?(Kobako::Handle)
+        raise ArgumentError, "arguments must be an Array" unless args.is_a?(Array)
+        raise ArgumentError, forged_handle_message("arguments") if args.any?(Kobako::Handle)
 
         args
       end
@@ -113,14 +113,14 @@ module Kobako
       # Host App sees the host-side error message before any encode /
       # decode boundary.
       def validate_kwargs!(kwargs)
-        raise ArgumentError, "Run kwargs must be Hash" unless kwargs.is_a?(Hash)
+        raise ArgumentError, "keyword arguments must be a Hash" unless kwargs.is_a?(Hash)
 
         bad_keys = kwargs.each_key.grep_v(Symbol)
         unless bad_keys.empty?
           raise ArgumentError,
-                "Run kwargs keys must be Symbols (got #{bad_keys.inspect})"
+                "keyword argument keys must be Symbols (got #{bad_keys.inspect})"
         end
-        raise ArgumentError, forged_handle_message("kwargs values") if kwargs.each_value.any?(Kobako::Handle)
+        raise ArgumentError, forged_handle_message("keyword argument values") if kwargs.each_value.any?(Kobako::Handle)
 
         kwargs
       end
@@ -133,8 +133,8 @@ module Kobako
       # architecture terms — the error is raised BY kobako, so saying
       # "allocated by the Host Gem" reads as third-person about self.
       def forged_handle_message(slot)
-        "Run #{slot} must not contain a Kobako::Handle — " \
-          "Kobako::Handle instances are internal wire tokens, not caller-constructible"
+        "#{slot} must not contain a Kobako::Handle — " \
+          "Handles are created internally by the sandbox and cannot be passed in"
       end
     end
   end

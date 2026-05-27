@@ -13,6 +13,14 @@ use wasmtime::{Caller, Extern, Memory};
 
 use super::invocation::Invocation;
 
+/// User-facing reason when a required guest export (the allocation or
+/// block-yield hook) is absent or has the wrong signature — the loaded
+/// `data/kobako.wasm` does not match the installed gem. Phrased in caller
+/// vocabulary: the underlying hook symbol names are not actionable, and
+/// the actionable fix is to rebuild the runtime.
+const RUNTIME_INCOMPATIBLE: &str =
+    "the Sandbox runtime is incompatible; rebuild data/kobako.wasm against the installed version";
+
 /// Resolve the guest's exported linear `memory`. The lookup shape (and its
 /// diagnostic) is shared by every Caller-based path here — the write side
 /// (`alloc_and_write`), the read side (`read`), and the yield round-trip
@@ -21,7 +29,7 @@ use super::invocation::Invocation;
 fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
     match caller.get_export("memory") {
         Some(Extern::Memory(m)) => Ok(m),
-        _ => Err("Sandbox runtime does not export linear memory"),
+        _ => Err("the loaded Wasm module is not a Kobako-compatible runtime"),
     }
 }
 
@@ -36,20 +44,20 @@ pub(super) fn alloc_and_write(
     let alloc = match caller.get_export("__kobako_alloc") {
         Some(Extern::Func(f)) => f
             .typed::<i32, i32>(&*caller)
-            .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
-        _ => return Err("Sandbox runtime is missing the allocation hook"),
+            .map_err(|_| RUNTIME_INCOMPATIBLE)?,
+        _ => return Err(RUNTIME_INCOMPATIBLE),
     };
     let len = checked_payload_len(bytes.len())?;
     let ptr = alloc
         .call(&mut *caller, len)
-        .map_err(|_| "Sandbox allocation trapped while preparing a guest buffer")?;
+        .map_err(|_| "the sandbox trapped while allocating memory for the request")?;
     if ptr == 0 {
-        return Err("Sandbox is out of memory while preparing a guest buffer");
+        return Err("the sandbox ran out of memory while preparing the request");
     }
 
     let mem = memory_export(caller)?;
     mem.write(&mut *caller, ptr as usize, bytes)
-        .map_err(|_| "could not write into Sandbox memory (range invalid)")?;
+        .map_err(|_| "could not write the request into the sandbox's memory")?;
     Ok(ptr as u32)
 }
 
@@ -64,19 +72,20 @@ pub(super) fn read(
     ptr: i32,
     len: i32,
 ) -> Result<Vec<u8>, &'static str> {
-    let len = usize::try_from(len).map_err(|_| "transport request length is negative")?;
+    let len = usize::try_from(len).map_err(|_| "the sandbox produced a negative request length")?;
     if len > MAX_DISPATCH_PAYLOAD {
-        return Err("transport request exceeds the 16 MiB single-dispatch wire limit");
+        return Err("request payload exceeds the 16 MiB limit");
     }
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
-    let start = usize::try_from(ptr).map_err(|_| "transport request pointer is negative")?;
+    let start =
+        usize::try_from(ptr).map_err(|_| "the sandbox produced a negative request pointer")?;
     let end = start
         .checked_add(len)
-        .ok_or("transport request slice overflows the address space")?;
+        .ok_or("the sandbox produced an out-of-range request")?;
     data.get(start..end)
         .map(|s| s.to_vec())
-        .ok_or("transport request slice falls outside Sandbox memory")
+        .ok_or("the sandbox produced an out-of-bounds request")
 }
 
 /// Single-dispatch payload cap: 16 MiB in either direction
@@ -94,10 +103,10 @@ pub(super) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
 /// against `MAX_DISPATCH_PAYLOAD` directly.
 pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
     if len > MAX_DISPATCH_PAYLOAD {
-        return Err("payload exceeds the 16 MiB single-dispatch wire limit");
+        return Err("payload exceeds the 16 MiB limit");
     }
     // The cap above sits below `i32::MAX`, so this conversion cannot wrap.
-    i32::try_from(len).map_err(|_| "payload exceeds the 16 MiB single-dispatch wire limit")
+    i32::try_from(len).map_err(|_| "payload exceeds the 16 MiB limit")
 }
 
 /// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
@@ -140,24 +149,24 @@ pub(super) fn drive_yield(
     let yield_fn = match caller.get_export("__kobako_yield_to_block") {
         Some(Extern::Func(f)) => f
             .typed::<(i32, i32), u64>(&*caller)
-            .map_err(|_| "Sandbox runtime's yield hook has the wrong signature")?,
-        _ => return Err("Sandbox runtime is missing the yield hook"),
+            .map_err(|_| RUNTIME_INCOMPATIBLE)?,
+        _ => return Err(RUNTIME_INCOMPATIBLE),
     };
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
-        .map_err(|_| "Sandbox trapped during yield_to_block")?;
+        .map_err(|_| "the sandbox trapped while invoking a block")?;
     let (resp_ptr, resp_len) = unpack_outcome_packed(packed);
     if resp_len == 0 {
-        return Err("Sandbox returned an empty YieldResponse (wire violation)");
+        return Err("the sandbox returned an empty block result");
     }
     if resp_len > MAX_DISPATCH_PAYLOAD {
-        return Err("YieldResponse exceeds the 16 MiB single-dispatch wire limit");
+        return Err("block result payload exceeds the 16 MiB limit");
     }
 
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
     let range = guest_buffer_range(resp_ptr, resp_len, data.len())
-        .map_err(|_| "YieldResponse buffer is out of bounds")?;
+        .map_err(|_| "the sandbox returned an out-of-bounds block result")?;
     Ok(data[range].to_vec())
 }
 

@@ -53,7 +53,7 @@ pub(super) fn unrepresentable_return_panic(
         origin: "sandbox".into(),
         class: "Kobako::SandboxError".into(),
         message: format!(
-            "return value of type {} has no wire representation",
+            "return value of type {} is not a supported sandbox value type",
             value.classname(kobako.mrb())
         ),
         backtrace: Vec::new(),
@@ -78,19 +78,19 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 /// Either step failing surfaces as a `boot_panic`.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
-    let bytes =
-        super::frames::read_frame().ok_or_else(|| boot_panic("failed to read preamble frame"))?;
+    let bytes = super::frames::read_frame()
+        .ok_or_else(|| boot_panic("failed to read the sandbox setup data"))?;
     super::frames::decode_preamble(&bytes)
-        .ok_or_else(|| boot_panic("failed to decode preamble msgpack"))
+        .ok_or_else(|| boot_panic("failed to decode the sandbox setup data"))
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
-    let bytes =
-        super::frames::read_frame().ok_or_else(|| boot_panic("failed to read snippets frame"))?;
+    let bytes = super::frames::read_frame()
+        .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
     super::frames::decode_snippets(&bytes)
-        .ok_or_else(|| boot_panic("failed to decode snippets msgpack"))
+        .ok_or_else(|| boot_panic("failed to decode the preloaded snippets"))
 }
 
 /// Open an mruby VM, install it into `super::mrb_slot::MRB`, wire
@@ -102,7 +102,7 @@ pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
 /// state.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<Kobako, Panic> {
-    let mrb = Mrb::open().map_err(|_| boot_panic("mrb_open returned NULL"))?;
+    let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the sandbox interpreter"))?;
     super::mrb_slot::MRB.install(mrb);
 
     let result: Result<Kobako, Panic> = (|| {
@@ -111,8 +111,12 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
             .expect("MRB just installed above");
         let kobako = Kobako::install(mrb);
         kobako.install_groups(preamble).map_err(|err| match err {
-            InstallGroupsError::NulInGroupName => boot_panic("group name contains NUL byte"),
-            InstallGroupsError::NulInMemberName => boot_panic("member name contains NUL byte"),
+            InstallGroupsError::NulInGroupName => {
+                boot_panic("namespace name contains an invalid character")
+            }
+            InstallGroupsError::NulInMemberName => {
+                boot_panic("member name contains an invalid character")
+            }
         })?;
         Ok(kobako)
     })();
@@ -201,9 +205,9 @@ enum BytecodeLoad {
 #[cfg(target_arch = "wasm32")]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
-        .map_err(|_| boot_panic("snippet name contains NUL byte"))?;
+        .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
     let Some(cxt) = Ccontext::new(mrb, &filename) else {
-        return Err(boot_panic("mrb_ccontext_new returned NULL"));
+        return Err(boot_panic("failed to initialize the sandbox interpreter"));
     };
     cxt.load_nstring(body.as_bytes());
     // `cxt` drops here — `mrb_ccontext_free` runs automatically.

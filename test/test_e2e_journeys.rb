@@ -637,8 +637,8 @@ class TestE2EJourneys < Minitest::Test
       sandbox.eval(UNREPRESENTABLE_OUTCOME_SCRIPT)
     end
 
-    assert_match(/no wire representation/, err.message,
-                 "E-06: an #eval return value outside the wire type set must take " \
+    assert_match(/not a supported sandbox value type/, err.message,
+                 "E-06: an #eval return value of an unsupported type must take " \
                  "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
@@ -1257,8 +1257,8 @@ class TestE2EJourneys < Minitest::Test
       sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
     end
 
-    assert_match(/no wire representation/, err.message,
-                 "E-22: a guest block returning a value outside the wire type set " \
+    assert_match(/not a supported sandbox value type/, err.message,
+                 "E-22: a guest block returning a value of an unsupported type " \
                  "must surface as a 0x04 error at the yield site, not a coerced String")
   end
 
@@ -1266,17 +1266,17 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
 
-    # `break Object.new` is a real break (B-25), but the break value has
-    # no wire representation. The break value cannot ride the 0x02 break
-    # tag, so the guest emits a 0x04 error instead of coercing it — the
-    # Service observes an error at its yield site rather than an unwind to
-    # a misleading String.
+    # `break Object.new` is a real break (B-25), but the break value is
+    # not a supported sandbox value type. The break value cannot ride the
+    # 0x02 break tag, so the guest emits a 0x04 error instead of coercing
+    # it — the Service observes an error at its yield site rather than an
+    # unwind to a misleading String.
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
     end
 
-    assert_match(/no wire representation/, err.message,
-                 "E-22: a break value outside the wire type set must surface as a " \
+    assert_match(/not a supported sandbox value type/, err.message,
+                 "E-22: a break value of an unsupported type must surface as a " \
                  "0x04 error, not unwind the Service method with a coerced String")
   end
 

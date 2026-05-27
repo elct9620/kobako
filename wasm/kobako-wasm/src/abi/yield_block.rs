@@ -70,7 +70,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
     let Some(mrb) = MRB.as_ref() else {
         return write_error_response(
             "RuntimeError",
-            "yield_to_block invoked without an active Sandbox invocation",
+            "block was called outside an active sandbox invocation",
             Vec::new(),
         );
     };
@@ -78,11 +78,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
     // current invocation; `resolve_raw`'s precondition is satisfied.
     let kobako = unsafe { Kobako::resolve_raw(mrb.as_ptr()) };
     let Some(block) = BLOCK_STACK.last() else {
-        return write_error_response(
-            "LocalJumpError",
-            "yield_to_block invoked without a block on the stack",
-            Vec::new(),
-        );
+        return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
     // Step 3: convert codec args → mrb_value args.
@@ -159,7 +155,7 @@ fn classify_protected_error(
         // — unrepresentable across the host yield boundary (E-21).
         encode_error_bytes(
             "LocalJumpError",
-            "unexpected return across a Kobako yield boundary",
+            "cannot return from a block passed into the sandbox",
             Vec::new(),
         )
     }
@@ -178,7 +174,10 @@ fn encode_break_response(
         // rather than coerce the value to a String.
         return encode_error_bytes(
             "TypeError",
-            "break value has no wire representation",
+            &format!(
+                "break value of type {} is not a supported sandbox value type",
+                value.classname(kobako.mrb())
+            ),
             Vec::new(),
         );
     };
@@ -212,10 +211,10 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
     let mut dec = Decoder::new(bytes);
     let frame = dec
         .read_value()
-        .map_err(|e| format!("failed to decode yield args: {e}"))?;
+        .map_err(|e| format!("failed to decode the block arguments: {e}"))?;
     match frame {
         Value::Array(items) => Ok(items),
-        _ => Err("yield args must be a msgpack array".to_string()),
+        _ => Err("block arguments must be an array".to_string()),
     }
 }
 
@@ -229,7 +228,10 @@ fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::
         // Service's yield site instead of receiving a misleading String.
         return encode_error_bytes(
             "TypeError",
-            "block return value has no wire representation",
+            &format!(
+                "block return value of type {} is not a supported sandbox value type",
+                value.classname(kobako.mrb())
+            ),
             Vec::new(),
         );
     };

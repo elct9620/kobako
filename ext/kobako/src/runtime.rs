@@ -315,14 +315,8 @@ impl Runtime {
         // `Runtime::eval`. The closure pulls a `&mut WasiP1Ctx` out of
         // Invocation; the panic semantics live inside `Invocation::wasi_mut`
         // so the wiring stays honest about its precondition.
-        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut()).map_err(
-            |e| {
-                setup_err(
-                    &ruby,
-                    format!("failed to wire WASI runtime into Sandbox: {}", e),
-                )
-            },
-        )?;
+        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
+            .map_err(|e| setup_err(&ruby, format!("failed to set up the WASI runtime: {}", e)))?;
 
         // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
         // § ABI Signatures:
@@ -344,7 +338,7 @@ impl Runtime {
             .map_err(|e| {
                 setup_err(
                     &ruby,
-                    format!("failed to register host transport dispatch import: {}", e),
+                    format!("failed to set up the host callback bridge: {}", e),
                 )
             })?;
 
@@ -730,13 +724,10 @@ impl Runtime {
         let mut store_ref = self.store.borrow_mut();
         let packed = take
             .call(store_ref.as_context_mut(), ())
-            .map_err(|e| trap_err(ruby, format!("failed to read invocation result: {}", e)))?;
+            .map_err(|e| trap_err(ruby, format!("failed to read the sandbox result: {}", e)))?;
         let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
         if len > guest_mem::MAX_DISPATCH_PAYLOAD {
-            return Err(trap_err(
-                ruby,
-                "invocation result exceeds the 16 MiB single-dispatch wire limit",
-            ));
+            return Err(trap_err(ruby, "result payload exceeds the 16 MiB limit"));
         }
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
@@ -745,7 +736,10 @@ impl Runtime {
         };
         let data = mem.data(store_ref.as_context_mut());
         let range = guest_mem::guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
-            trap_err(ruby, format!("invocation result is out of bounds: {}", msg))
+            trap_err(
+                ruby,
+                format!("the sandbox result is out of bounds: {}", msg),
+            )
         })?;
         Ok(data[range].to_vec())
     }
@@ -765,8 +759,8 @@ const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required
 /// Kobako-shaped runtime at all" failure mode (no linear memory
 /// export). Same phrasing philosophy as
 /// `SANDBOX_RUNTIME_MISSING_HOOKS`.
-const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear memory; \
-     this is not a Kobako-compatible Wasm module";
+const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
+    "the loaded Wasm module is not a Kobako-compatible runtime";
 
 /// Return the cached +TypedFunc+ for an ABI export, or raise
 /// +Kobako::TrapError+ when the option is +None+. Both run-path

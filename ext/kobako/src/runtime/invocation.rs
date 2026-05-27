@@ -339,8 +339,8 @@ impl std::fmt::Display for MemoryLimitTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "linear memory growth exceeded memory_limit: \
-             desired={} bytes, limit={} bytes",
+            "memory usage exceeded memory_limit: \
+             requested={} bytes, limit={} bytes",
             self.desired, self.limit
         )
     }

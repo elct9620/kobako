@@ -82,14 +82,14 @@ module Kobako
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
       # rescue. Returns a msgpack-encoded Response envelope (binary). Three
       # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
-      # +Kobako::Codec::Error+ → type="runtime" (malformed transport request);
+      # +Kobako::Codec::Error+ → type="runtime" (malformed request);
       # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
       # type="argument" (B-12 arity mismatch); everything else →
       # type="runtime".
       def encode_caught_error(error)
         case error
         when Kobako::Codec::Error then encode_error("runtime",
-                                                    "Sandbox received a malformed transport request: #{error.message}")
+                                                    "Sandbox received a malformed request: #{error.message}")
         when UndefinedTargetError then encode_error("undefined", error.message)
         when ArgumentError        then encode_error("argument", error.message)
         else                           encode_error("runtime", "#{error.class}: #{error.message}")

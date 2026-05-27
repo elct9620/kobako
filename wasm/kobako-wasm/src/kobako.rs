@@ -77,10 +77,10 @@ impl std::fmt::Display for InstallGroupsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InstallGroupsError::NulInGroupName => {
-                f.write_str("preamble Group name contains interior NUL byte")
+                f.write_str("namespace name contains an invalid character")
             }
             InstallGroupsError::NulInMemberName => {
-                f.write_str("preamble Member name contains interior NUL byte")
+                f.write_str("member name contains an invalid character")
             }
         }
     }

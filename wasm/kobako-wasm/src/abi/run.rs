@@ -60,8 +60,8 @@ pub(super) enum InvocationError {
 impl InvocationError {
     pub(super) fn message(&self) -> &'static str {
         match self {
-            Self::NotMap => "invocation envelope must be a msgpack map",
-            Self::MissingEntrypoint => "invocation envelope missing entrypoint Symbol",
+            Self::NotMap => "malformed invocation request",
+            Self::MissingEntrypoint => "invocation request is missing an entrypoint",
         }
     }
 }
@@ -185,7 +185,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
                 return write_panic(Panic {
                     origin: "sandbox".into(),
                     class: "Kobako::Transport::Error".into(),
-                    message: "failed to decode invocation envelope".into(),
+                    message: "failed to decode the invocation request".into(),
                     backtrace: Vec::new(),
                     details: None,
                 });
@@ -281,7 +281,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::Transport::Error".into(),
-            message: "invocation envelope args must be an array".into(),
+            message: "invocation arguments must be an array".into(),
             backtrace: Vec::new(),
             details: None,
         });
@@ -290,7 +290,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::Transport::Error".into(),
-            message: "invocation envelope kwargs must be a map".into(),
+            message: "invocation keyword arguments must be a map".into(),
             backtrace: Vec::new(),
             details: None,
         });
@@ -410,11 +410,11 @@ mod tests {
     fn invocation_error_messages_match_panic_text() {
         assert_eq!(
             InvocationError::NotMap.message(),
-            "invocation envelope must be a msgpack map"
+            "malformed invocation request"
         );
         assert_eq!(
             InvocationError::MissingEntrypoint.message(),
-            "invocation envelope missing entrypoint Symbol"
+            "invocation request is missing an entrypoint"
         );
     }
 }

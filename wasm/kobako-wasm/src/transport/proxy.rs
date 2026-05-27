@@ -101,7 +101,7 @@ impl std::fmt::Display for InvokeError {
             InvokeError::Service(ex) => {
                 write!(f, "service raised {}: {}", ex.kind, ex.message)
             }
-            InvokeError::Codec(e) => write!(f, "transport wire fault: {e}"),
+            InvokeError::Codec(e) => write!(f, "sandbox communication error: {e}"),
         }
     }
 }
@@ -175,7 +175,7 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
                 Value::Map(p) => p,
                 _ => {
                     return Err(InvokeError::Codec(codec::Error::Malformed(
-                        "ErrEnv inner payload must be a map",
+                        "malformed error response from the host",
                     )));
                 }
             };
@@ -199,10 +199,10 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
                 }
             }
             let kind = typ.ok_or(InvokeError::Codec(codec::Error::Malformed(
-                "Response error payload missing required field: type",
+                "error response from the host is missing the field: type",
             )))?;
             let message = msg.ok_or(InvokeError::Codec(codec::Error::Malformed(
-                "Response error payload missing required field: message",
+                "error response from the host is missing the field: message",
             )))?;
             Err(InvokeError::Service(ExceptionPayload {
                 kind,
@@ -235,7 +235,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
         return Err(InvokeError::Codec(codec::Error::Malformed(
-            "host returned len == 0",
+            "the host returned an empty response",
         )));
     }
     // SAFETY: the host promises [ptr, ptr+len) is a valid response

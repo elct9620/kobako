@@ -49,7 +49,7 @@ fn eval_body() {
 
     let frame2 = match frames::read_frame() {
         Some(b) => b,
-        None => return write_panic(boot::boot_panic("failed to read script frame")),
+        None => return write_panic(boot::boot_panic("failed to read the script")),
     };
 
     let snippets = match boot::read_snippets() {

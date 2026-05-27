@@ -144,7 +144,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed request/, resp.payload.message)
   end
 
   # SPEC: non-Symbol keys (e.g. Integer) are a wire violation — the
@@ -158,7 +158,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     assert resp.error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed request/, resp.payload.message)
   end
 
   # Mixed positional + kwargs: the dispatcher passes positional args
@@ -382,11 +382,11 @@ class TestTransportDispatchUnit < Minitest::Test
 
     assert resp.error?
     # Kobako::Codec::Error rescues to type="runtime" with the
-    # "Sandbox received a malformed transport request" prefix; the
+    # "Sandbox received a malformed request" prefix; the
     # dispatcher's contract pins this taxonomy and the guest
     # observes a normal transport error rather than a wasm trap.
     assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed transport request/, resp.payload.message)
+    assert_match(/Sandbox received a malformed request/, resp.payload.message)
     # The malformed int never made it into the Catalog::Handles.
     assert_equal 0, @handler.size
   end
