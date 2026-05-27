@@ -42,14 +42,49 @@ jobs:
         run: bundle install
       - name: Regenerate Cargo.lock kobako entry
         run: cargo update -p kobako --workspace --offline || cargo update -p kobako
-      - name: Commit and push lockfile updates
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Gemfile.lock Cargo.lock
-          if git diff --cached --quiet; then
-            echo "No lockfile drift; nothing to commit."
-            exit 0
-          fi
-          git commit -m "chore: sync lockfiles after release-please version bump"
-          git push
+      # Commit via the GraphQL createCommitOnBranch mutation rather than
+      # `git push`: commits that enter GitHub over the API with the bot
+      # GITHUB_TOKEN are signed by GitHub and marked Verified, whereas a
+      # plain push over the git protocol stays Unverified and is rejected
+      # by a "Require signed commits" branch protection.
+      - name: Commit lockfile updates as a verified commit
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+
+            const candidates = ['Gemfile.lock', 'Cargo.lock'];
+            const changed = candidates.filter((path) => {
+              try {
+                execSync(`git diff --quiet -- ${path}`);
+                return false; // exit 0 -> no drift
+              } catch {
+                return true; // exit 1 -> drifted
+              }
+            });
+            if (changed.length === 0) {
+              core.info('No lockfile drift; nothing to commit.');
+              return;
+            }
+
+            const additions = changed.map((path) => ({
+              path,
+              contents: fs.readFileSync(path).toString('base64'),
+            }));
+            const expectedHeadOid = execSync('git rev-parse HEAD').toString().trim();
+
+            await github.graphql(`
+              mutation($input: CreateCommitOnBranchInput!) {
+                createCommitOnBranch(input: $input) { commit { url } }
+              }`, {
+              input: {
+                branch: {
+                  repositoryNameWithOwner: context.payload.repository.full_name,
+                  branchName: '${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}',
+                },
+                message: { headline: 'chore: sync lockfiles after release-please version bump' },
+                expectedHeadOid,
+                fileChanges: { additions },
+              },
+            });
