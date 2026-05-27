@@ -114,11 +114,11 @@ extern "C" {
 /// before the first call. Approach (a) from the two known fixes —
 /// smaller and sufficient for the kobako use case.
 ///
-/// Per docs/wire-codec.md § ABI Signatures, the four kobako exports
+/// Per docs/wire-codec.md § ABI Signatures, the five kobako exports
 /// counted by the host are `__kobako_eval`, `__kobako_run`,
-/// `__kobako_alloc`, and `__kobako_take_outcome`. `_initialize` is
-/// WASI reactor bookkeeping and is explicitly excluded from the kobako
-/// export count.
+/// `__kobako_alloc`, `__kobako_take_outcome`, and
+/// `__kobako_yield_to_block`. `_initialize` is WASI reactor bookkeeping
+/// and is explicitly excluded from the kobako export count.
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn _initialize() {

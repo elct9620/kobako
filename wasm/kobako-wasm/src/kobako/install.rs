@@ -10,10 +10,9 @@
 //! never calls them because `super::Kobako` short-circuits to the
 //! empty stub there.
 //!
-//! Mirrors the host-side install split in `lib/kobako/registry/` —
-//! `install` here plays the same role as the per-service-group
-//! `service_group.rb` modules: the façade (`super::Kobako`) stays
-//! lean while the bulk of the boot wiring lives in sibling files.
+//! Keeps the façade (`super::Kobako`) lean by housing the bulk of the
+//! boot wiring in sibling files like this one — the same
+//! one-thing-per-file split the crate uses elsewhere.
 
 use crate::mruby::sys;
 
