@@ -86,37 +86,45 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 // verb prefix and lets the subclass identity flow through unchanged.
 // ---------------------------------------------------------------------------
 
-pub(crate) static SETUP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
+/// Resolve `Kobako::<name>` as an +ExceptionClass+ — the shared body of
+/// every error-class [`Lazy`] below, which differ only in the constant
+/// name. The constants are guaranteed present by the time any of these
+/// lazies first resolve (`lib/kobako/errors.rb` loads the hierarchy before
+/// the ext raises into it), so a missing constant is a build / wiring bug
+/// and the +unwrap+ is the correct fail-fast.
+fn kobako_error_class(ruby: &Ruby, name: &str) -> ExceptionClass {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get("SetupError").unwrap()
-});
+    kobako.const_get(name).unwrap()
+}
 
-pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get("ModuleNotBuiltError").unwrap()
-});
+pub(crate) static SETUP_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "SetupError"));
 
-pub(crate) static TRAP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get("TrapError").unwrap()
-});
+pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "ModuleNotBuiltError"));
 
-pub(crate) static TIMEOUT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get("TimeoutError").unwrap()
-});
+pub(crate) static TRAP_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "TrapError"));
 
-pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get("MemoryLimitError").unwrap()
-});
+pub(crate) static TIMEOUT_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "TimeoutError"));
+
+pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "MemoryLimitError"));
+
+/// Build a +MagnusError+ in +class+ carrying +msg+ — the shared body of
+/// the named +*_err+ constructors below, which differ only in which
+/// error-class [`Lazy`] they target.
+fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -> MagnusError {
+    MagnusError::new(ruby.get_inner(class), msg.into())
+}
 
 /// Construct a `Kobako::TrapError` magnus error. Used for every
 /// invocation-time wasmtime engine failure that is not a configured-cap
 /// trap — missing exports, allocation faults, memory write/read failures.
 /// Construction-time setup failures use `setup_err`, not this.
 pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&TRAP_ERROR), msg.into())
+    error_in(ruby, &TRAP_ERROR, msg)
 }
 
 /// Construct a `Kobako::SetupError` magnus error. Used for every
@@ -126,21 +134,21 @@ pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// E-41). The `ModuleNotBuiltError` subclass (artifact absent, E-40) is
 /// raised through `MODULE_NOT_BUILT_ERROR` directly.
 pub(crate) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&SETUP_ERROR), msg.into())
+    error_in(ruby, &SETUP_ERROR, msg)
 }
 
 /// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
 /// docs/behavior.md E-19 wall-clock cap path with the verb prefix added
 /// by `Kobako::Sandbox#invoke!`.
 pub(crate) fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&TIMEOUT_ERROR), msg.into())
+    error_in(ruby, &TIMEOUT_ERROR, msg)
 }
 
 /// Construct a `Kobako::MemoryLimitError` magnus error. Surfaces the
 /// docs/behavior.md E-20 linear-memory cap path with the verb prefix
 /// added by `Kobako::Sandbox#invoke!`.
 pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    MagnusError::new(ruby.get_inner(&MEMORY_LIMIT_ERROR), msg.into())
+    error_in(ruby, &MEMORY_LIMIT_ERROR, msg)
 }
 
 // ---------------------------------------------------------------------------
