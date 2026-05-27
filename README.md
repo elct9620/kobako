@@ -2,14 +2,14 @@
 
 Kobako is a Ruby gem that embeds a Wasm-isolated mruby interpreter inside your application, so you can execute untrusted Ruby scripts (LLM-generated code, user formulas, student submissions, third-party plugins) in-process without giving them access to host memory, files, network, or credentials.
 
-The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and an RPC client. The only way a guest script can reach the outside world is through Host App-declared **Services** — named Ruby objects you explicitly inject into the sandbox.
+The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and a Transport proxy. The only way a guest script can reach the outside world is through Host App-declared **Services** — named Ruby objects you explicitly inject into the sandbox; the guest sees each one as a proxy that forwards calls back to the host over the Transport wire.
 
 ```
         Host process                       Wasm guest
    ┌──────────────────────┐         ┌──────────────────────┐
    │  Kobako::Sandbox     │ ─eval─▶ │  mruby interpreter   │
    │                      │ ─run──▶ │                      │
-   │  Services            │ ◀──RPC─ │  KV::Lookup.call(k)  │
+   │  Services            │ ◀─call─ │  KV::Lookup.call(k)  │
    │   KV::Lookup         │ ─resp─▶ │                      │
    │                      │         │                      │
    │  stdout / stderr buf │ ◀─pipe─ │  puts / warn         │
@@ -27,7 +27,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 | Per-invocation caps | Every invocation enforces a wall-clock `timeout` (default 60 s) and a per-invocation linear-memory `memory_limit` (default 1 MiB); exhaustion raises `Kobako::TimeoutError` / `Kobako::MemoryLimitError`. |
 | Capability injection via Services | Guest scripts can only call Ruby objects you explicitly `bind` under a two-level `Namespace::Member` path. |
 | Preloaded snippets | `Sandbox#preload` registers source or RITE bytecode for setup-once dispatch via `Sandbox#run(:Entrypoint, *args, **kwargs)`. |
-| Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::Handle` proxy it can use as the target of follow-up RPC calls, with no way to dereference it. `Sandbox#run` also accepts non-wire-representable Ruby objects as args and auto-wraps them into Handles, so the guest can use any host object the script needs. |
+| Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::Handle` proxy it can use as the target of follow-up Service calls, with no way to dereference it. `Sandbox#run` also accepts non-wire-representable Ruby objects as args and auto-wraps them into Handles, so the guest can use any host object the script needs. |
 | Three-class error taxonomy | Every failure is exactly one of `TrapError`, `SandboxError`, or `ServiceError`, so you can route errors without inspecting messages. |
 | Per-invocation state reset | Handles issued during one invocation are invalidated before the next; Service bindings and preloaded snippets remain. |
 | Separated stdout / stderr capture | Guest writes to `$stdout` / `$stderr` are buffered per-channel (1 MiB default cap, configurable); overflow is clipped and reported by `#stdout_truncated?` / `#stderr_truncated?`. |
@@ -121,7 +121,7 @@ The timeout deadline is absolute wall-clock from invocation entry and is checked
 
 `memory_limit` is scoped to the **per-invocation linear-memory delta** — the budget covers how much the current `#eval` / `#run` may grow `memory.grow` past the size observed at invocation entry. The mruby image's initial allocation and prior invocations' high-water mark are folded into that entry baseline, so a Sandbox reused across many invocations does not silently accumulate against a global budget.
 
-The 1 MiB default targets lightweight dynamic RPC workloads — short scripts that orchestrate Service calls, return small structured values, or replace a tool-calling layer in an AI Agent's Code Mode dispatch. Bump `memory_limit` when scripts compose multi-hundred-KiB strings, hold large composite return values, or run computations that allocate substantial intermediate state. Because the cap resets every invocation, multi-call patterns on one Sandbox do not need a budget that covers their cumulative footprint — only the largest single invocation's working set.
+The 1 MiB default targets lightweight dynamic dispatch workloads — short scripts that orchestrate Service calls, return small structured values, or replace a tool-calling layer in an AI Agent's Code Mode dispatch. Bump `memory_limit` when scripts compose multi-hundred-KiB strings, hold large composite return values, or run computations that allocate substantial intermediate state. Because the cap resets every invocation, multi-call patterns on one Sandbox do not need a budget that covers their cumulative footprint — only the largest single invocation's working set.
 
 To see how much of the cap an invocation actually consumed, read `Sandbox#usage` after the call. It returns a `Kobako::Usage` value object with `wall_time` (Float seconds the guest export call spent inside wasmtime, aligned with the `timeout` accounting) and `memory_peak` (Integer high-water `memory.grow` delta in bytes, aligned with the `memory_limit` accounting). The fields are populated on every outcome, including the `TrapError` branches, so you can read them after rescuing a trap to diagnose which budget the failing invocation chewed through.
 
@@ -191,12 +191,12 @@ end
 |----------------------------------------|--------------------|------------------------------------------------------------------------------------------|
 | `Kobako::TimeoutError`                 | `TrapError`        | Per-invocation `timeout` exhausted                                                       |
 | `Kobako::MemoryLimitError`             | `TrapError`        | Per-invocation `memory_limit` exhausted                                                  |
-| `Kobako::HandleTableExhausted`         | `SandboxError`     | Per-invocation Handle counter reached its 2³¹ − 1 cap                                    |
+| `Kobako::HandlerExhaustedError`        | `SandboxError`     | Per-invocation Handle counter reached its 2³¹ − 1 cap                                    |
 | `Kobako::BytecodeError`                | `SandboxError`     | `#preload(binary:)` payload failed RITE structural validation at first invocation replay |
 
 ## Capability Handles
 
-When a Service returns a stateful host object (anything beyond `nil` / Boolean / Integer / Float / String / Symbol / Array / Hash), the wire layer transparently allocates an opaque Handle. The guest receives a `Kobako::Handle` proxy it can use as the target of further RPC calls — but cannot dereference, forge from an integer, or smuggle across runs.
+When a Service returns a stateful host object (anything beyond `nil` / Boolean / Integer / Float / String / Symbol / Array / Hash), the wire layer transparently allocates an opaque Handle. The guest receives a `Kobako::Handle` proxy it can use as the target of further Service calls — but cannot dereference, forge from an integer, or smuggle across runs.
 
 ```ruby
 class Greeter
@@ -208,7 +208,7 @@ sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
 
 sandbox.eval(<<~RUBY)
   g = Factory::Make.call("Bob")  # g is a Kobako::Handle proxy
-  g.greet                         # second RPC, routed to the Greeter
+  g.greet                         # second Service call, routed to the Greeter
 RUBY
 # => "hi, Bob"
 ```
@@ -323,7 +323,7 @@ Snippets replay in insertion order, so later snippets can reference constants de
 
 ### Choosing between source and bytecode
 
-Use the **source form** when snippets are authored in your repo or generated at boot — compile errors land at the `#preload` call so a misbehaving snippet fails fast at setup time, and no separate `mrbc` toolchain is needed. The trial-compile happens once per snippet (~2.5 µs per snippet) and is paid at preload, not on the request hot path.
+Use the **source form** when snippets are authored in your repo or generated at boot — compile errors land at the `#preload` call so a misbehaving snippet fails fast at setup time, and no separate `mrbc` toolchain is needed. The trial-compile happens once per snippet (~2.1 µs per snippet) and is paid at preload, not on the request hot path.
 
 Use the **bytecode form** when snippets ship as build artifacts from a pipeline that runs `mrbc` separately — for example, when source bodies should not be embedded in the running process, when you want a build step that compiles and packages snippets ahead of release, or when you want `Exception#backtrace` frames attributed to the bytecode's `debug_info` filename rather than a host-supplied `name:` keyword. Structural validation (RITE version, body integrity) is deferred to the first invocation, so a malformed bytecode payload surfaces as `Kobako::BytecodeError` on the first `#eval` or `#run`, not at `#preload`.
 
@@ -338,11 +338,11 @@ Order-of-magnitude figures for capacity planning on macOS arm64, Ruby 3.4.7, YJI
 | Phase                                                       | Cost                                            |
 |-------------------------------------------------------------|-------------------------------------------------|
 | First `Sandbox.new` in a fresh process (Engine + Module JIT) | ~600 ms one-time                                |
-| Subsequent `Sandbox.new` (Engine cache warm)                | ~130 µs                                         |
+| Subsequent `Sandbox.new` (Engine cache warm)                | ~125 µs                                         |
 | Reusing a Sandbox for one `#eval("nil")`                    | ~135 µs                                         |
-| Fresh `Sandbox.new` per request                             | ~275 µs (≈ +140 µs vs reuse)                    |
+| Fresh `Sandbox.new` per request                             | ~272 µs (≈ +135 µs vs reuse)                    |
 | Warm `#run(:Entrypoint, ...)` dispatch                      | ~165 µs                                         |
-| Per-RPC cost amortized inside one invocation                | ~6.6 µs (1 000 RPCs in one `#eval` ≈ 6.6 ms)    |
+| Per-call cost amortized inside one invocation               | ~6.7 µs (1 000 Service calls in one `#eval` ≈ 6.7 ms) |
 | 100 000-iteration integer XOR loop in mruby                 | ~43 ms                                          |
 | 1 000 Onigmo `Regexp =~` matches                            | ~3 µs each                                      |
 
@@ -352,9 +352,9 @@ The ~600 ms cold start dominates the first Sandbox in a process — wasmtime JIT
 
 | Allocation                                  | Cost                                                                       |
 |---------------------------------------------|----------------------------------------------------------------------------|
-| Process RSS after first `Sandbox.new`       | ~165-195 MB (one-time engine + module + first instance)                    |
-| Per additional Sandbox                      | ~580 KB (Wasm instance + linear memory + WASI capture pipes)               |
-| 1 000 isolated tenants in one process       | ~765 MB total                                                              |
+| Process RSS after first `Sandbox.new`       | ~140-190 MB (one-time engine + module + first instance)                    |
+| Per additional Sandbox                      | ~570 KB (Wasm instance + linear memory + WASI capture pipes)               |
+| 1 000 isolated tenants in one process       | ~705 MB total                                                              |
 
 Use these as upper-bound budgets for capacity planning, not lower bounds — actual RSS shifts ~30% with host process load and macOS allocator state.
 
@@ -362,22 +362,22 @@ Use these as upper-bound budgets for capacity planning, not lower bounds — act
 
 When the script is ad-hoc (LLM-generated, untrusted user input) and only runs once, use `Sandbox#eval(source)`. Per-invocation cost is ~135 µs of setup plus the script's own runtime; mruby parses the source on every call.
 
-When you have a fixed set of entrypoints exercised many times — a stable AI Agent tool-call protocol, a plug-in registry loaded at boot, a small library of host-side commands — preload the entrypoints via `Sandbox#preload(code:, name:)` once at setup and dispatch via `Sandbox#run(:Target, *args, **kwargs)`. The mruby source compile (~2.5 µs per snippet) lands once at preload, not on every request, and warm dispatch costs ~165 µs.
+When you have a fixed set of entrypoints exercised many times — a stable AI Agent tool-call protocol, a plug-in registry loaded at boot, a small library of host-side commands — preload the entrypoints via `Sandbox#preload(code:, name:)` once at setup and dispatch via `Sandbox#run(:Target, *args, **kwargs)`. The mruby source compile (~2.1 µs per snippet) lands once at preload, not on every request, and warm dispatch costs ~165 µs.
 
-Mind the snippet replay cost. Every preloaded snippet replays into a fresh `mrb_state` before **every** invocation, whether the invocation is `#eval` or `#run`, at ~7-9 µs per snippet per invocation. Preloading 8 helpers adds ~60 µs to every subsequent invocation; preloading 64 helpers adds ~565 µs. Keep the snippet count proportionate to how often the helpers are actually used — preloading rarely-touched helpers is more expensive than inlining or re-eval'ing them.
+Mind the snippet replay cost. Every preloaded snippet replays into a fresh `mrb_state` before **every** invocation, whether the invocation is `#eval` or `#run`, at ~7-9 µs per snippet per invocation. Preloading 8 helpers adds ~60 µs to every subsequent invocation; preloading 64 helpers adds ~585 µs. Keep the snippet count proportionate to how often the helpers are actually used — preloading rarely-touched helpers is more expensive than inlining or re-eval'ing them.
 
-For tenant isolation between mutually untrusted scopes, construct a fresh `Kobako::Sandbox` per scope. Per-request construction costs ~140 µs over reuse plus ~580 KB of RSS — comfortably affordable for 1 000+ isolated tenants in one Sidekiq / Puma worker. Reuse a Sandbox when all requests share one trust scope; isolate when scripts come from many.
+For tenant isolation between mutually untrusted scopes, construct a fresh `Kobako::Sandbox` per scope. Per-request construction costs ~135 µs over reuse plus ~570 KB of RSS — comfortably affordable for 1 000+ isolated tenants in one Sidekiq / Puma worker. Reuse a Sandbox when all requests share one trust scope; isolate when scripts come from many.
 
 ### Concurrency
 
-`ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput across N Threads stays around 7-8k `#eval`/s regardless of N. Ruby-side `#eval` setup can still overlap, so a short `#eval` running while another Thread is in a long `#eval` is slowed by ~2× (not 10×) — host-side synchronization yields the GVL and the contending Thread interleaves. Mixed short / long workloads in one process do not deadlock.
+`ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput across N Threads stays around 7-8k `#eval`/s regardless of N. Ruby-side `#eval` setup can still overlap, so a short `#eval` running while another Thread is in a long `#eval` is slowed by ~1.5-2× (not 10×) — host-side synchronization yields the GVL and the contending Thread interleaves. Mixed short / long workloads in one process do not deadlock.
 
 ### Regression gate
 
-A +10% regression on any of the five SPEC-mandated benchmarks (cold_start, RPC roundtrip, codec, mruby VM, HandleTable) blocks release. Full per-suite breakdown in [`benchmark/README.md`](benchmark/README.md).
+A +10% regression on any of the six SPEC-mandated benchmarks (cold start, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) blocks release. Full per-suite breakdown in [`benchmark/README.md`](benchmark/README.md).
 
 ```bash
-bundle exec rake bench   # five gated regression benchmarks (~5-8 min, ≤ 1 MiB payloads)
+bundle exec rake bench   # six gated regression benchmarks (~5-8 min, ≤ 1 MiB payloads)
 ```
 
 ## Development
