@@ -29,6 +29,10 @@
           },
           {
             "type": "command",
+            "command": "RUSTDOCFLAGS=\"-D warnings\" cargo doc --manifest-path \"$CLAUDE_PROJECT_DIR/Cargo.toml\" --workspace --no-deps --document-private-items -q >&2 || exit 2; RUSTDOCFLAGS=\"-D warnings\" cargo doc --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace --no-deps --document-private-items -q >&2 || exit 2"
+          },
+          {
+            "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && bundle exec rake >&2 || exit 2",
             "timeout": 1800,
             "statusMessage": "Running bundle exec rake (compile + test + rubocop + steep)"
