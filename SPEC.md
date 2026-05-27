@@ -76,7 +76,7 @@ These five roles describe the system. All design and behavior content in later l
 - Capture guest stdout and stderr into separate in-process buffers and expose them to the Host App
 - Classify every execution failure into exactly one of three typed error classes and raise it to the Host App
 - Ship `kobako.wasm` inside the gem alongside a source-only native extension; provide a single build command that produces both artifacts from a clean clone on Linux or macOS
-- Maintain a four-layer test suite and five regression benchmarks as release quality gates
+- Maintain a four-layer test suite and six regression benchmarks as release quality gates
 
 **Does not do:**
 - LLM integration, agent frameworks, or prompt engineering — the Host App connects kobako to any LLM
@@ -485,7 +485,7 @@ Iteration count and the transport between the two codec implementations are impl
 - `Catalog::Handles` ID cap guard: after `ext/kobako/` is compiled, immediately verify that ID `0x7fff_ffff` is successfully allocated and that the next attempt raises `Kobako::HandlerExhaustedError`.
 - Gemspec files whitelist check: after `gem build kobako.gemspec`, verify that the resulting archive does not contain `vendor/`, `wasm/`, `tasks/`, or `build_config/` content.
 
-**Regression benchmarks** — the following five benchmarks must be maintained in `benchmark/` with baseline results stored in git. Each release compares against the previous baseline; a regression greater than +10% requires explicit review and approval before release proceeds.
+**Regression benchmarks** — the following six benchmarks must be maintained in `benchmark/` with baseline results stored in git. Each release compares against the previous baseline; a regression greater than +10% requires explicit review and approval before release proceeds.
 
 | # | Benchmark | What it detects |
 |---|-----------|----------------|
@@ -494,8 +494,9 @@ Iteration count and the transport between the two codec implementations are impl
 | 3 | Codec throughput at varying payload sizes and nesting depths (host and guest sides measured separately) | Unnecessary allocations or codec path regressions |
 | 4 | mruby script evaluation time (fixed script, no Transport calls) | Impact of `build_config/wasi.rb` flag changes on VM execution speed |
 | 5 | Handle allocation and release throughput (bulk Service return value wrapping) | `Catalog::Handles` internal dictionary and counter performance |
+| 6 | Yield round-trip latency (single host-initiated yield into a guest block) | YieldResponse codec, host→guest yield re-entry dispatch (`__kobako_yield_to_block`), and guest-side `BLOCK_STACK` push/pop combined |
 
-Benchmark #1 and #4 are the primary indicators of `build_config/wasi.rb` changes. Benchmark #3 must be run across two dimensions independently: (a) fixed payload size, varying nesting depth; (b) fixed depth, varying payload size. Baseline records are stored as `benchmark/results/<date>-<short-sha>.json`; release baselines are stored under git tags following the pattern `benchmark/<semver>` (e.g., `benchmark/1.0.0`).
+Benchmark #1 and #4 are the primary indicators of `build_config/wasi.rb` changes. Benchmark #3 must be run across two dimensions independently: (a) fixed payload size, varying nesting depth; (b) fixed depth, varying payload size. Benchmark #6 must isolate the per-yield steady-state cost by amortizing per-dispatch setup over many yields in one dispatch — the J-06 iteration shape, where per-yield cost compounds linearly — in addition to the single-yield latency; it is the primary indicator of regressions on the host-initiated re-entry path that benchmark #2 (guest-initiated dispatch) does not exercise. Baseline records are stored as `benchmark/results/<date>-<short-sha>.json`; release baselines are stored under git tags following the pattern `benchmark/<semver>` (e.g., `benchmark/1.0.0`).
 
 #### Code Organization
 
