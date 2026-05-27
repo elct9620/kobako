@@ -76,7 +76,7 @@ These five roles describe the system. All design and behavior content in later l
 - Capture guest stdout and stderr into separate in-process buffers and expose them to the Host App
 - Classify every execution failure into exactly one of three typed error classes and raise it to the Host App
 - Ship `kobako.wasm` inside the gem alongside a source-only native extension; provide a single build command that produces both artifacts from a clean clone on Linux or macOS
-- Maintain a four-layer test suite and six regression benchmarks as release quality gates
+- Maintain a four-layer test suite and six regression benchmarks that perceive performance drift against a committed anchor baseline across releases
 
 **Does not do:**
 - LLM integration, agent frameworks, or prompt engineering — the Host App connects kobako to any LLM
@@ -485,7 +485,7 @@ Iteration count and the transport between the two codec implementations are impl
 - `Catalog::Handles` ID cap guard: after `ext/kobako/` is compiled, immediately verify that ID `0x7fff_ffff` is successfully allocated and that the next attempt raises `Kobako::HandlerExhaustedError`.
 - Gemspec files whitelist check: after `gem build kobako.gemspec`, verify that the resulting archive does not contain `vendor/`, `wasm/`, `tasks/`, or `build_config/` content.
 
-**Regression benchmarks** — the following six benchmarks must be maintained in `benchmark/` with baseline results stored in git. Each run is gated against a single committed anchor baseline, not the immediately preceding run: a gated case regresses when its cumulative slowdown past the anchor exceeds +10% and clears the measured noise band. The anchor advances only by a deliberate re-bless that records the accepted shift and its justification in writing; until then every run is measured from the same fixed point, so sub-threshold drift accumulates against the anchor instead of resetting each release. A gated case present in a run but absent from the anchor fails the gate rather than passing silently — the anchor must carry every gated case before release proceeds.
+**Regression benchmarks** — the following six benchmarks must be maintained in `benchmark/` with baseline results stored in git. The gate perceives performance drift relative to a committed anchor baseline; it is not a portable performance guarantee, and the anchor's absolute numbers are meaningful only on hardware comparable to the machine that produced them. Each run is gated against a single committed anchor baseline, not the immediately preceding run: a gated case regresses when its cumulative slowdown past the anchor exceeds +10% and clears the measured noise band. The anchor advances only by a deliberate re-bless that records the accepted shift and its justification in writing; until then every run is measured from the same fixed point, so sub-threshold drift accumulates against the anchor instead of resetting each release. A gated case present in a run but absent from the anchor fails the gate rather than passing silently — the anchor must carry every gated case before release proceeds.
 
 | # | Benchmark | What it detects |
 |---|-----------|----------------|
