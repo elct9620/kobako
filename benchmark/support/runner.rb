@@ -5,14 +5,19 @@ require "json"
 require "time"
 
 require_relative "env"
+require_relative "stats"
+require_relative "usage_sampler"
 
 module Kobako
   module Bench
     # Collects per-suite benchmark results and writes them to
     # +benchmark/results/<date>-<sha>.json+. Two measurement modes:
     #
-    #   - {#case} runs a calibrated CPU-time loop and records mean ips
-    #     plus sample standard deviation across measurement cycles.
+    #   - {#case} runs a calibrated CPU-time loop and records the median
+    #     ips across measurement cycles plus their sample standard
+    #     deviation. The median, not the mean, is the central value: a
+    #     single GC-inflated cycle (large-payload cases allocate fresh
+    #     Ruby objects per iteration) skews a mean, not a median.
     #   - {#one_shot} runs the block exactly once and records the CPU
     #     seconds spent. Used for cold-path timings (first +Sandbox.new+
     #     in a process pays for Engine + Module init) where iterating
@@ -58,9 +63,7 @@ module Kobako
         iters_per_cycle = calibrate(block)
         warmup_cpu(block, iters_per_cycle)
         samples, iterations = measure_samples(block, iters_per_cycle)
-        mean = samples.sum / samples.size
-        sd = stdev(samples, mean)
-        emit_case(label, mean, sd, iterations, samples.size)
+        emit_case(label, Stats.median(samples), Stats.stdev(samples), iterations, samples.size)
       end
 
       # Record a one-shot CPU-time measurement. +label+ identifies the
@@ -88,13 +91,16 @@ module Kobako
         )
       end
 
-      # Sugar for the common +#case+ + +#annotate_usage!+ pairing.
-      # The block must drive +sandbox+ (an +#eval+ or +#run+ call)
-      # so the last measurement iteration leaves a meaningful
-      # +sandbox.usage+ for +#annotate_usage!+ to sample.
+      # Measure +label+ via {#case}, then fold the MEDIAN +wall_time+ /
+      # +memory_peak+ across a fresh sampling loop into the row. The
+      # block must drive +sandbox+ (an +#eval+ or +#run+ call) so each
+      # call leaves its own usage on +sandbox.usage+. Unlike the bare
+      # {#annotate_usage!} point sample, this surfaces the guest budget
+      # as a distribution, so a single GC-inflated invocation does not
+      # become the row's recorded +wall_time+.
       def case_with_usage(label, sandbox, &)
         self.case(label, &)
-        annotate_usage!(sandbox)
+        @results.last.merge!(UsageSampler.sample(sandbox, &))
       end
 
       # Persist the collected results to
@@ -169,21 +175,12 @@ module Kobako
         [samples, total]
       end
 
-      # Sample standard deviation across measurement cycles. Returns
-      # 0.0 when fewer than two samples were collected (the single
-      # sample has no spread to report).
-      def stdev(values, mean)
-        return 0.0 if values.size < 2
-
-        Math.sqrt(values.sum { |v| (v - mean)**2 } / (values.size - 1))
-      end
-
-      def emit_case(label, ips_mean, ips_sd, iterations, cycles)
-        @results << { label: label, ips: ips_mean, ips_sd: ips_sd.round,
+      def emit_case(label, ips_median, ips_sd, iterations, cycles)
+        @results << { label: label, ips: ips_median, ips_sd: ips_sd.round,
                       iterations: iterations, cycles: cycles }
-        pct = ips_mean.positive? ? (ips_sd / ips_mean * 100) : 0.0
+        pct = ips_median.positive? ? (ips_sd / ips_median * 100) : 0.0
         puts format("%<label>-35s %<ips>14s (CPU ±%<pct>.1f%%, %<n>d samples)",
-                    label: label, ips: humanize_ips(ips_mean), pct: pct, n: cycles)
+                    label: label, ips: humanize_ips(ips_median), pct: pct, n: cycles)
       end
 
       def humanize_ips(ips)

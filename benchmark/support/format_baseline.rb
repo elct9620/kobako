@@ -8,8 +8,9 @@
 #
 # Conversions:
 #
-#   - ips cases  → mean time per op in µs (1e6 / ips) or ms when
-#                  ips < 1000. ±sd is reported as percentage of mean.
+#   - ips cases  → median time per op in µs (1e6 / ips) or ms when
+#                  ips < 1000. ±sd is reported as percentage of the
+#                  reported (median) ips.
 #   - one_shot   → CPU seconds → ms.
 #   - memory     → rss_kb → MB (rss_kb / 1024.0); deltas pass through.
 #   - concurrent → seconds → ms; ops_per_sec passed through.
@@ -45,13 +46,13 @@ module Kobako
         format_seconds(1.0 / ips)
       end
 
-      # Standard deviation as a percentage of the mean. The runner
+      # Standard deviation as a percentage of the reported ips. The runner
       # records the absolute sd; we want a relative number for the
       # README's ±x.x% form.
-      def sd_pct(mean, deviation)
-        return "0.0%" if mean.zero?
+      def sd_pct(ips, deviation)
+        return "0.0%" if ips.zero?
 
-        format("±%.1f%%", (deviation.to_f / mean) * 100)
+        format("±%.1f%%", (deviation.to_f / ips) * 100)
       end
 
       # CPU one_shot seconds → ms. The README quotes one_shot timings
