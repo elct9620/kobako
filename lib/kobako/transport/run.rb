@@ -134,7 +134,7 @@ module Kobako
       # "allocated by the Host Gem" reads as third-person about self.
       def forged_handle_message(slot)
         "#{slot} must not contain a Kobako::Handle — " \
-          "Handles are created internally by the sandbox and cannot be passed in"
+          "Handles are created internally by the Sandbox and cannot be passed in"
       end
     end
   end

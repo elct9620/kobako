@@ -79,9 +79,9 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
     let bytes = super::frames::read_frame()
-        .ok_or_else(|| boot_panic("failed to read the sandbox setup data"))?;
+        .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
     super::frames::decode_preamble(&bytes)
-        .ok_or_else(|| boot_panic("failed to decode the sandbox setup data"))
+        .ok_or_else(|| boot_panic("failed to decode the Sandbox setup data"))
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
@@ -102,7 +102,7 @@ pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
 /// state.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<Kobako, Panic> {
-    let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the sandbox interpreter"))?;
+    let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the Sandbox interpreter"))?;
     super::mrb_slot::MRB.install(mrb);
 
     let result: Result<Kobako, Panic> = (|| {
@@ -207,7 +207,7 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
         .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
     let Some(cxt) = Ccontext::new(mrb, &filename) else {
-        return Err(boot_panic("failed to initialize the sandbox interpreter"));
+        return Err(boot_panic("failed to initialize the Sandbox interpreter"));
     };
     cxt.load_nstring(body.as_bytes());
     // `cxt` drops here — `mrb_ccontext_free` runs automatically.

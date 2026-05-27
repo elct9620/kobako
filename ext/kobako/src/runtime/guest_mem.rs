@@ -50,14 +50,14 @@ pub(super) fn alloc_and_write(
     let len = checked_payload_len(bytes.len())?;
     let ptr = alloc
         .call(&mut *caller, len)
-        .map_err(|_| "the sandbox trapped while allocating memory for the request")?;
+        .map_err(|_| "the Sandbox trapped while allocating memory for the request")?;
     if ptr == 0 {
-        return Err("the sandbox ran out of memory while preparing the request");
+        return Err("the Sandbox ran out of memory while preparing the request");
     }
 
     let mem = memory_export(caller)?;
     mem.write(&mut *caller, ptr as usize, bytes)
-        .map_err(|_| "could not write the request into the sandbox's memory")?;
+        .map_err(|_| "could not write the request into the Sandbox's memory")?;
     Ok(ptr as u32)
 }
 
@@ -72,20 +72,20 @@ pub(super) fn read(
     ptr: i32,
     len: i32,
 ) -> Result<Vec<u8>, &'static str> {
-    let len = usize::try_from(len).map_err(|_| "the sandbox produced a negative request length")?;
+    let len = usize::try_from(len).map_err(|_| "the Sandbox produced a negative request length")?;
     if len > MAX_DISPATCH_PAYLOAD {
         return Err("request payload exceeds the 16 MiB limit");
     }
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
     let start =
-        usize::try_from(ptr).map_err(|_| "the sandbox produced a negative request pointer")?;
+        usize::try_from(ptr).map_err(|_| "the Sandbox produced a negative request pointer")?;
     let end = start
         .checked_add(len)
-        .ok_or("the sandbox produced an out-of-range request")?;
+        .ok_or("the Sandbox produced an out-of-range request")?;
     data.get(start..end)
         .map(|s| s.to_vec())
-        .ok_or("the sandbox produced an out-of-bounds request")
+        .ok_or("the Sandbox produced an out-of-bounds request")
 }
 
 /// Single-dispatch payload cap: 16 MiB in either direction
@@ -154,10 +154,10 @@ pub(super) fn drive_yield(
     };
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
-        .map_err(|_| "the sandbox trapped while invoking a block")?;
+        .map_err(|_| "the Sandbox trapped while invoking a block")?;
     let (resp_ptr, resp_len) = unpack_outcome_packed(packed);
     if resp_len == 0 {
-        return Err("the sandbox returned an empty block result");
+        return Err("the Sandbox returned an empty block result");
     }
     if resp_len > MAX_DISPATCH_PAYLOAD {
         return Err("block result payload exceeds the 16 MiB limit");
@@ -166,7 +166,7 @@ pub(super) fn drive_yield(
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
     let range = guest_buffer_range(resp_ptr, resp_len, data.len())
-        .map_err(|_| "the sandbox returned an out-of-bounds block result")?;
+        .map_err(|_| "the Sandbox returned an out-of-bounds block result")?;
     Ok(data[range].to_vec())
 }
 

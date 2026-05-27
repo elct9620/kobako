@@ -70,7 +70,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
     let Some(mrb) = MRB.as_ref() else {
         return write_error_response(
             "RuntimeError",
-            "block was called outside an active sandbox invocation",
+            "block was called outside an active Sandbox invocation",
             Vec::new(),
         );
     };
@@ -155,7 +155,7 @@ fn classify_protected_error(
         // — unrepresentable across the host yield boundary (E-21).
         encode_error_bytes(
             "LocalJumpError",
-            "cannot return from a block passed into the sandbox",
+            "cannot return from a block passed into the Sandbox",
             Vec::new(),
         )
     }

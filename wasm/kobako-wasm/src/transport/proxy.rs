@@ -101,7 +101,7 @@ impl std::fmt::Display for InvokeError {
             InvokeError::Service(ex) => {
                 write!(f, "service raised {}: {}", ex.kind, ex.message)
             }
-            InvokeError::Codec(e) => write!(f, "sandbox communication error: {e}"),
+            InvokeError::Codec(e) => write!(f, "Sandbox communication error: {e}"),
         }
     }
 }

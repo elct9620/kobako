@@ -74,7 +74,9 @@ fn eval_body() {
     // array when scripts are loaded via the bare `mrb_load_nstring`.
     let result_val = {
         let Some(cxt) = Ccontext::new(mrb, c"(eval)") else {
-            return write_panic(boot::boot_panic("mrb_ccontext_new returned NULL"));
+            return write_panic(boot::boot_panic(
+                "failed to initialize the Sandbox interpreter",
+            ));
         };
         cxt.load_nstring(&frame2)
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.

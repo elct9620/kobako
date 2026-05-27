@@ -724,7 +724,7 @@ impl Runtime {
         let mut store_ref = self.store.borrow_mut();
         let packed = take
             .call(store_ref.as_context_mut(), ())
-            .map_err(|e| trap_err(ruby, format!("failed to read the sandbox result: {}", e)))?;
+            .map_err(|e| trap_err(ruby, format!("failed to read the Sandbox result: {}", e)))?;
         let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
         if len > guest_mem::MAX_DISPATCH_PAYLOAD {
             return Err(trap_err(ruby, "result payload exceeds the 16 MiB limit"));
@@ -738,7 +738,7 @@ impl Runtime {
         let range = guest_mem::guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
             trap_err(
                 ruby,
-                format!("the sandbox result is out of bounds: {}", msg),
+                format!("the Sandbox result is out of bounds: {}", msg),
             )
         })?;
         Ok(data[range].to_vec())
