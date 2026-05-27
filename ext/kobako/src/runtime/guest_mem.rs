@@ -7,11 +7,23 @@
 //! bounds-check + `memory.write` dance with only the diagnostic strings
 //! differing. The Store-based write path (`Runtime::write_envelope`) is a
 //! separate beast — it holds the cached `Store`, not a `Caller` — and stays
-//! in `instance.rs`.
+//! in `runtime.rs`.
 
-use wasmtime::{Caller, Extern};
+use wasmtime::{Caller, Extern, Memory};
 
 use super::invocation::Invocation;
+
+/// Resolve the guest's exported linear `memory`. The lookup shape (and its
+/// diagnostic) is shared by every Caller-based path here — the write side
+/// ([`alloc_and_write`]), the read side ([`read`]), and the yield round-trip
+/// ([`drive_yield`]) — so the "no linear memory" reason lives in one place.
+/// `read` maps the `Err` to its own `None` outcome via `.ok()`.
+fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
+    match caller.get_export("memory") {
+        Some(Extern::Memory(m)) => Ok(m),
+        _ => Err("Sandbox runtime does not export linear memory"),
+    }
+}
 
 /// Allocate `bytes.len()` bytes in guest memory via `__kobako_alloc` and
 /// copy `bytes` in. Returns the guest pointer. Every failure path carries a
@@ -35,10 +47,7 @@ pub(super) fn alloc_and_write(
         return Err("Sandbox is out of memory while preparing a guest buffer");
     }
 
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return Err("Sandbox runtime does not export linear memory"),
-    };
+    let mem = memory_export(caller)?;
     mem.write(&mut *caller, ptr as usize, bytes)
         .map_err(|_| "could not write into Sandbox memory (range invalid)")?;
     Ok(ptr as u32)
@@ -48,10 +57,7 @@ pub(super) fn alloc_and_write(
 /// `caller`. Returns `None` when `memory` is not exported or the slice
 /// falls outside the live memory range.
 pub(super) fn read(caller: &mut Caller<'_, Invocation>, ptr: i32, len: i32) -> Option<Vec<u8>> {
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return None,
-    };
+    let mem = memory_export(caller).ok()?;
     let data = mem.data(&caller);
     let start = ptr as usize;
     let end = start.checked_add(len as usize)?;
@@ -119,10 +125,7 @@ pub(super) fn drive_yield(
         return Err("Sandbox returned an empty YieldResponse (wire violation)");
     }
 
-    let mem = match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => m,
-        _ => return Err("Sandbox runtime does not export linear memory"),
-    };
+    let mem = memory_export(caller)?;
     let data = mem.data(&caller);
     let range = guest_buffer_range(resp_ptr, resp_len, data.len())
         .map_err(|_| "YieldResponse buffer is out of bounds")?;
