@@ -26,6 +26,7 @@
 # Release-gate benchmark roster lives in tasks/support/kobako_bench.rb.
 
 require_relative "support/kobako_bench"
+require_relative "support/kobako_bench_gate"
 
 namespace :bench do
   desc "Run all five regression benchmarks (SPEC.md #1..#5; <=1 MiB payloads)."
@@ -41,6 +42,9 @@ namespace :bench do
     ENV["BENCH_FULL"] = "1"
     Rake::Task["bench:release"].invoke
   end
+
+  desc "Noise-aware release gate: compare the two newest results (or args [current,baseline])."
+  task(:gate, %i[current baseline]) { |_t, args| KobakoBench::Gate.gate!(args[:current], args[:baseline]) }
 
   desc "Run concurrent characterization benchmark (SPEC.md #6; not in release gate)."
   task :concurrent do

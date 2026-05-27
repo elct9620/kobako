@@ -63,7 +63,7 @@ module Kobako
         iters_per_cycle = calibrate(block)
         warmup_cpu(block, iters_per_cycle)
         samples, iterations = measure_samples(block, iters_per_cycle)
-        emit_case(label, Stats.median(samples), Stats.stdev(samples), iterations, samples.size)
+        emit_case(label, samples, iterations)
       end
 
       # Record a one-shot CPU-time measurement. +label+ identifies the
@@ -175,12 +175,14 @@ module Kobako
         [samples, total]
       end
 
-      def emit_case(label, ips_median, ips_sd, iterations, cycles)
-        @results << { label: label, ips: ips_median, ips_sd: ips_sd.round,
-                      iterations: iterations, cycles: cycles }
-        pct = ips_median.positive? ? (ips_sd / ips_median * 100) : 0.0
+      def emit_case(label, samples, iterations)
+        median = Stats.median(samples)
+        sd = Stats.stdev(samples)
+        @results << { label: label, ips: median, ips_mean: Stats.mean(samples),
+                      ips_sd: sd.round, iterations: iterations, cycles: samples.size }
+        pct = median.positive? ? (sd / median * 100) : 0.0
         puts format("%<label>-35s %<ips>14s (CPU ±%<pct>.1f%%, %<n>d samples)",
-                    label: label, ips: humanize_ips(ips_median), pct: pct, n: cycles)
+                    label: label, ips: humanize_ips(median), pct: pct, n: samples.size)
       end
 
       def humanize_ips(ips)

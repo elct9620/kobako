@@ -142,6 +142,7 @@ module Kobako
       def format_ips(entry)
         value = Units.time_per_op(entry["ips"])
         meta_parts = ["#{Units.sd_pct(entry["ips"], entry["ips_sd"])}, n=#{entry["cycles"]}"]
+        meta_parts << "mean=#{Units.time_per_op(entry["ips_mean"])}" if entry["ips_mean"]
         meta_parts << format_usage(entry) if entry.key?("wall_time")
         [value, meta_parts.join(" | ")]
       end
@@ -159,7 +160,9 @@ module Kobako
       # {Runner#case_with_usage} and the memory suite's +record+
       # helper fold into ips and memory rows.
       def format_usage(entry)
-        "wall=#{Units.format_seconds(entry["wall_time"])} mem=#{Units.memory_peak(entry["memory_peak"])}"
+        wall = Units.format_seconds(entry["wall_time"])
+        wall += " #{Units.sd_pct(entry["wall_time"], entry["wall_time_sd"])}" if entry["wall_time_sd"]
+        "wall=#{wall} mem=#{Units.memory_peak(entry["memory_peak"])}"
       end
 
       def format_concurrent(entry)

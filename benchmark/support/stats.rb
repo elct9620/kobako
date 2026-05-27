@@ -10,6 +10,16 @@ module Kobako
     module Stats
       module_function
 
+      # Arithmetic mean of +values+ — reported alongside the median so
+      # the throughput / capacity reading is available next to the
+      # outlier-robust one (Google Benchmark and Criterion both surface
+      # both). Returns 0.0 for an empty input.
+      def mean(values)
+        return 0.0 if values.empty?
+
+        values.sum / values.size
+      end
+
       # Median of +values+ — the central value the Runner reports.
       # Robust to a single GC-inflated sample in a way the mean is not.
       # Returns 0.0 for an empty input.
