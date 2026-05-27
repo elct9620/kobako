@@ -1,9 +1,9 @@
-//! Rust ↔ mruby [`Value`] conversion traits — the typed layer over the
+//! Rust ↔ mruby `Value` conversion traits — the typed layer over the
 //! raw boxing / unboxing primitives in `value.rs`.
 //!
 //! This is kobako-mruby-sys's small slice of the magnus conversion
-//! contract: [`IntoValue`] mirrors magnus's `IntoValue` (Rust → value,
-//! infallible boxing), [`FromValue`] mirrors magnus's `TryConvert`
+//! contract: `IntoValue` mirrors magnus's `IntoValue` (Rust → value,
+//! infallible boxing), `FromValue` mirrors magnus's `TryConvert`
 //! (value → Rust, fallible downcast). Both sit ON TOP of the unsafe tag
 //! primitives in `value.rs` (`Value::from_int` / `is_integer` +
 //! `unbox_integer` / …): those primitives are the C-bind floor, these
@@ -20,14 +20,14 @@
 
 use crate::{Mrb, Value};
 
-/// Box a Rust value into an mruby [`Value`]. Infallible — every
+/// Box a Rust value into an mruby `Value`. Infallible — every
 /// implementor has a total mapping into the value domain. Mirrors
 /// magnus's `IntoValue`; the call shape is `n.into_value(mrb)`.
 pub trait IntoValue {
     fn into_value(self, mrb: &Mrb) -> Value;
 }
 
-/// Downcast an mruby [`Value`] to a Rust type, returning [`None`] when
+/// Downcast an mruby `Value` to a Rust type, returning `None` when
 /// the value is not tagged as the target type. Safe: the tag check is
 /// folded in, so callers no longer pair a predicate with an `unsafe`
 /// unbox. Mirrors magnus's `TryConvert`; named `FromValue` here for the

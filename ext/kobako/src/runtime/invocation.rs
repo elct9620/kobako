@@ -1,26 +1,24 @@
 //! Per-invocation host state — the materialised
-//! [SPEC.md Single-Invocation Slot] (one [`Invocation`] per OS thread
-//! for the lifetime of one [`Runtime::eval`] / [`Runtime::run`] call).
+//! [SPEC.md Single-Invocation Slot] (one `Invocation` per OS thread
+//! for the lifetime of one `Runtime::eval` / `Runtime::run` call).
 //!
-//! Owned by [`StoreCell`] (a `RefCell` shim wrapping `wasmtime::Store`)
+//! Owned by `StoreCell` (a `RefCell` shim wrapping `wasmtime::Store`)
 //! and threaded through every host import — the `__kobako_dispatch`
 //! dispatcher reads the bound dispatch Proc, while the run-path methods
-//! on [`crate::runtime::Runtime`] install fresh WASI context + pipes
+//! on `crate::runtime::Runtime` install fresh WASI context + pipes
 //! before every invocation (docs/behavior.md B-03 / B-04).
 //!
 //! The slot also carries the per-invocation wall-clock deadline
 //! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
-//! delta cap [`MemoryLimiter`] (docs/behavior.md B-01, E-20). Both are
+//! delta cap `MemoryLimiter` (docs/behavior.md B-01, E-20). Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
-//! callbacks installed in [`crate::runtime::Runtime::from_path`]. The
+//! callbacks installed in `crate::runtime::Runtime::from_path`. The
 //! memory cap measures only the `memory.grow` delta past the linear-
 //! memory size captured at invocation entry — the mruby image's
 //! initial allocation and prior invocations' watermark are outside the
 //! budget.
 //!
 //! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
-//! [`Runtime::eval`]: crate::runtime::Runtime::eval
-//! [`Runtime::run`]: crate::runtime::Runtime::run
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};
@@ -35,10 +33,10 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 ///
 /// All field access is mediated by methods on this type — the WASI ctx
 /// is rebuilt fresh before each invocation via
-/// [`Invocation::install_wasi`], the Ruby dispatch Proc is set once via
-/// [`Invocation::bind_on_dispatch`], and captured stdout/stderr bytes
-/// are read after the invocation via [`Invocation::stdout_bytes`] /
-/// [`Invocation::stderr_bytes`]. The fields are private so the mutation
+/// `Invocation::install_wasi`, the Ruby dispatch Proc is set once via
+/// `Invocation::bind_on_dispatch`, and captured stdout/stderr bytes
+/// are read after the invocation via `Invocation::stdout_bytes` /
+/// `Invocation::stderr_bytes`. The fields are private so the mutation
 /// surface stays narrow.
 pub(super) struct Invocation {
     wasi: Option<WasiP1Ctx>,
@@ -54,7 +52,7 @@ pub(super) struct Invocation {
 impl Invocation {
     /// Build a fresh per-Store host state. `memory_limit` carries the
     /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
-    /// it is read from the wasmtime [`ResourceLimiter`] callback every
+    /// it is read from the wasmtime `ResourceLimiter` callback every
     /// time the guest grows linear memory (docs/behavior.md B-01, E-20).
     pub(super) fn new(memory_limit: Option<usize>) -> Self {
         Self {
@@ -70,8 +68,8 @@ impl Invocation {
     }
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
-    /// pipe clones. Called from [`crate::runtime::Runtime::eval`] /
-    /// [`crate::runtime::Runtime::run`] at the top of every guest
+    /// pipe clones. Called from `crate::runtime::Runtime::eval` /
+    /// `crate::runtime::Runtime::run` at the top of every guest
     /// invocation (docs/behavior.md B-03 / B-04).
     pub(super) fn install_wasi(
         &mut self,
@@ -112,14 +110,14 @@ impl Invocation {
     /// Return the bound dispatch Proc handle. `Opaque<Value>` is `Copy`,
     /// so the handle is returned by value rather than by reference. None
     /// means no Proc has been bound yet via
-    /// [`Invocation::bind_on_dispatch`].
+    /// `Invocation::bind_on_dispatch`.
     pub(super) fn on_dispatch(&self) -> Option<Opaque<Value>> {
         self.on_dispatch
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has
     /// been installed yet — every call site is downstream of
-    /// [`Invocation::install_wasi`] running at the top of
+    /// `Invocation::install_wasi` running at the top of
     /// `Runtime::eval` / `Runtime::run`, so reaching this branch with
     /// `None` signals a host-side wiring bug.
     pub(super) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
@@ -136,18 +134,18 @@ impl Invocation {
     }
 
     /// Return the current per-run deadline. Read from the epoch-deadline
-    /// callback installed by [`crate::runtime::Runtime::from_path`].
+    /// callback installed by `crate::runtime::Runtime::from_path`.
     pub(super) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
 
-    /// Mutable handle to the embedded [`MemoryLimiter`]. Required by
-    /// the wasmtime [`ResourceLimiter`] callback wiring in
-    /// [`crate::runtime::Runtime::from_path`]
+    /// Mutable handle to the embedded `MemoryLimiter`. Required by
+    /// the wasmtime `ResourceLimiter` callback wiring in
+    /// `crate::runtime::Runtime::from_path`
     /// (`store.limiter(|state| state.limiter_mut())`); kept private to
     /// the wasm submodule so the only public surface for arming the
-    /// cap goes through [`Invocation::arm_memory_cap`] /
-    /// [`Invocation::disarm_memory_cap`].
+    /// cap goes through `Invocation::arm_memory_cap` /
+    /// `Invocation::disarm_memory_cap`.
     pub(super) fn limiter_mut(&mut self) -> &mut MemoryLimiter {
         &mut self.limiter
     }
@@ -157,7 +155,7 @@ impl Invocation {
     /// charges only the `memory.grow` delta past `baseline` against
     /// the cap, so the mruby image's initial allocation and the
     /// high-water mark left by prior invocations do not consume the
-    /// budget. Paired with [`Invocation::disarm_memory_cap`] around the
+    /// budget. Paired with `Invocation::disarm_memory_cap` around the
     /// call to the corresponding `__kobako_*` export so post-run host
     /// bookkeeping (e.g. fetching the OUTCOME_BUFFER) is not
     /// attributed to the user script.
@@ -166,7 +164,7 @@ impl Invocation {
     }
 
     /// Disarm the docs/behavior.md E-20 memory cap. See
-    /// [`Invocation::arm_memory_cap`].
+    /// `Invocation::arm_memory_cap`.
     pub(super) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }
@@ -182,7 +180,7 @@ impl Invocation {
     }
 
     /// Close the docs/behavior.md B-35 `wall_time` measurement
-    /// started by [`Invocation::start_wall_clock`]. Idempotent — a
+    /// started by `Invocation::start_wall_clock`. Idempotent — a
     /// stop with no matching start (e.g. if the guest export call
     /// never executed because of a host-side allocation failure)
     /// leaves the previously-recorded value untouched.
@@ -213,19 +211,19 @@ impl Invocation {
 ///
 /// `max_memory` is the byte cap on per-invocation growth (`None` disables
 /// the cap). `baseline` is the linear-memory size captured at invocation
-/// entry by [`MemoryLimiter::activate`]; the limiter charges only the
+/// entry by `MemoryLimiter::activate`; the limiter charges only the
 /// `memory.grow` delta past `baseline` against `max_memory`, so the
 /// mruby image's initial allocation and any high-water mark left by
 /// prior invocations on the same Sandbox do not consume the budget.
 /// `cap_active` gates whether the cap is enforced — wasmtime's
 /// `ResourceLimiter` also fires for the module's declared initial
 /// allocation at instantiation time, but the cap stays dormant until
-/// [`MemoryLimiter::activate`] flips the flag for one
+/// `MemoryLimiter::activate` flips the flag for one
 /// `Runtime::eval` / `Runtime::run` call. When `cap_active` is
 /// `false`, the limiter always allows growth.
 ///
 /// When `memory.grow` would push the per-invocation delta past
-/// `max_memory`, the limiter returns [`MemoryLimitTrap`] from
+/// `max_memory`, the limiter returns `MemoryLimitTrap` from
 /// `memory_growing`; wasmtime turns that into the trap surfaced to the
 /// host as a guest invocation failure.
 #[derive(Debug, Clone, Copy)]
@@ -248,12 +246,12 @@ impl MemoryLimiter {
 
     /// Arm the cap so subsequent `memory.grow` calls are charged
     /// against `max_memory` starting from `baseline` bytes. Called via
-    /// [`Invocation::arm_memory_cap`] at the top of every invocation;
+    /// `Invocation::arm_memory_cap` at the top of every invocation;
     /// the cap is dormant by default — the module's declared initial
     /// memory is allocated during `Linker::instantiate` and the
     /// per-invocation budget excludes anything that existed before
     /// arming (docs/behavior.md B-01 Notes, E-20). Also clears the
-    /// per-invocation [`MemoryLimiter::peak`] high-water so the
+    /// per-invocation `MemoryLimiter::peak` high-water so the
     /// docs/behavior.md B-35 `memory_peak` accounting restarts from
     /// zero for the new invocation.
     fn activate(&mut self, baseline: usize) {
@@ -265,14 +263,14 @@ impl MemoryLimiter {
     /// Disarm the cap so post-run host bookkeeping (e.g. fetching the
     /// OUTCOME_BUFFER, which can grow guest memory transiently) is
     /// not attributed to the user script. Paired with
-    /// [`MemoryLimiter::activate`].
+    /// `MemoryLimiter::activate`.
     fn deactivate(&mut self) {
         self.cap_active = false;
     }
 
     /// Return the high-water mark of the per-invocation
     /// `memory.grow` delta past `baseline` observed since the last
-    /// [`MemoryLimiter::activate`]. Read after the guest export
+    /// `MemoryLimiter::activate`. Read after the guest export
     /// returns to populate `Kobako::Usage#memory_peak`
     /// (docs/behavior.md B-35). Pinned to the last accepted grow —
     /// rejected `desired` values that trip the docs/behavior.md E-20
@@ -315,7 +313,7 @@ impl ResourceLimiter for MemoryLimiter {
     }
 }
 
-/// Marker error returned from [`MemoryLimiter::memory_growing`] on
+/// Marker error returned from `MemoryLimiter::memory_growing` on
 /// docs/behavior.md E-20. Downcast from the wasmtime trap error to surface as
 /// `Kobako::MemoryLimitError` on the Ruby side. Callers use the
 /// `Display` impl below — no field is read directly — so the inner
@@ -328,7 +326,7 @@ pub(crate) struct MemoryLimitTrap {
 
 impl MemoryLimitTrap {
     /// Construct a trap with the given +desired+ / +limit+ pair. Used
-    /// internally by [`MemoryLimiter::memory_growing`] in production and
+    /// internally by `MemoryLimiter::memory_growing` in production and
     /// by the sibling-module +classify_trap+ unit tests to materialise
     /// a representative error for downcast routing.
     #[cfg(test)]
@@ -422,7 +420,7 @@ unsafe impl Sync for StoreCell {}
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for [`MemoryLimiter`] — the per-invocation memory
+    //! Unit tests for `MemoryLimiter` — the per-invocation memory
     //! delta cap. The Ruby-facing E2E suite exercises the full path
     //! through wasmtime; these tests pin the pure delta arithmetic so
     //! a regression that breaks the baseline accounting (e.g. dropping

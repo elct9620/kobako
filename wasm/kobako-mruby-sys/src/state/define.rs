@@ -1,5 +1,5 @@
 //! Top-level module / class registration and global-state mutation
-//! on [`Mrb`].
+//! on `Mrb`.
 //!
 //! Inherent methods that register names against the Object root or
 //! the global variable table:
@@ -12,7 +12,7 @@
 //!
 //! Nested-namespace counterparts (`mrb_define_module_under`,
 //! `mrb_define_class_under`, `mrb_class_get_under`) live on
-//! [`crate::Class`] because they take an outer class/module receiver,
+//! `crate::Class` because they take an outer class/module receiver,
 //! not the VM root.
 
 #[cfg(target_arch = "wasm32")]
@@ -42,7 +42,7 @@ impl Mrb {
     }
 
     /// `mrb_class_get(mrb, name)` — fetch the top-level class named
-    /// `name`. The returned [`Class`] may be null when no such class
+    /// `name`. The returned `Class` may be null when no such class
     /// is registered.
     #[inline]
     pub fn class_get(&self, name: &core::ffi::CStr) -> Class {

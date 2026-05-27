@@ -1,4 +1,4 @@
-//! RITE / kobako bytecode loaders on [`Mrb`].
+//! RITE / kobako bytecode loaders on `Mrb`.
 //!
 //! Inherent methods that drop a compiled blob into the live mruby VM
 //! and run its top-level Proc.
@@ -13,7 +13,7 @@ impl Mrb {
     /// `mrb_load_irep_buf(mrb, buf, size)` — load and evaluate a
     /// precompiled RITE bytecode blob. On a malformed blob mruby
     /// sets `mrb->exc`; callers should inspect via
-    /// [`Mrb::pending_exc`] before continuing.
+    /// `Mrb::pending_exc` before continuing.
     #[inline]
     pub fn load_irep_buf(&self, bytes: &[u8]) -> Value {
         // SAFETY: `self` is alive; `bytes` is borrowed for the
@@ -92,7 +92,7 @@ impl Mrb {
     }
 
     /// Set `mrb->exc` to a freshly synthesised `RuntimeError` carrying
-    /// `msg`. Used by [`Mrb::load_bytecode`] to surface structural
+    /// `msg`. Used by `Mrb::load_bytecode` to surface structural
     /// failures from `mrb_read_irep_buf` (which signals failure by
     /// returning NULL without setting `mrb->exc`). The caller's
     /// existing pending-exception extraction picks the synthesised

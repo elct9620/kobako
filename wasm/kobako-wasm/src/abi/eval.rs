@@ -10,7 +10,7 @@
 //!    `Exception#backtrace`).
 //! 3. Serialize the last-expression value as a Result envelope, or
 //!    convert the pending mruby exception into a Panic envelope, and
-//!    write the bytes into [`super::outcome_buffer`].
+//!    write the bytes into `super::outcome_buffer`.
 //!
 //! `__kobako_eval` never traps or calls `exit` — the host reads the
 //! outcome tag from `__kobako_take_outcome()` after this function

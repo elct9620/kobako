@@ -15,7 +15,7 @@
 //! * `outcome` — Per-run Outcome envelope mirroring the host's
 //!   `lib/kobako/outcome.rb`. Holds the `Panic` / `Outcome` value objects,
 //!   each carrying its own `codec::{Encode, Decode}` impl
-//!   (docs/wire-contract.md § Outcome Envelope). Raises [`codec::Error`]
+//!   (docs/wire-contract.md § Outcome Envelope). Raises `codec::Error`
 //!   for both byte-level and structural faults.
 //! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /

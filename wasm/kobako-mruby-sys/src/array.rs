@@ -1,10 +1,10 @@
-//! Typed `Array` newtype around an Array-tagged [`Value`].
+//! Typed `Array` newtype around an Array-tagged `Value`.
 //!
-//! `Array` is `#[repr(transparent)]` over [`Value`] (which is itself
+//! `Array` is `#[repr(transparent)]` over `Value` (which is itself
 //! `#[repr(transparent)]` over `mrb_value`). The two share their
 //! in-memory layout — `Array` is exactly an `mrb_value` known to carry
 //! an mruby `Array`. Construction is by explicit unchecked cast from
-//! [`Value`]; element operations cluster on the resulting newtype.
+//! `Value`; element operations cluster on the resulting newtype.
 //!
 //! Mirrors magnus's `src/r_array.rs`: factories live on `Ruby` /
 //! `Mrb`, per-array ops (`push`, `entry`) live here.
@@ -15,12 +15,12 @@ use crate as sys;
 use crate::{Mrb, Value};
 
 /// Typed handle on an mruby `Array`. `#[repr(transparent)]` over
-/// [`Value`] so the C ABI is preserved.
+/// `Value` so the C ABI is preserved.
 ///
-/// Construct via [`Mrb::ary_new`] (fresh array) or
-/// [`Array::from_value_unchecked`] (assert that a [`Value`] you
+/// Construct via `Mrb::ary_new` (fresh array) or
+/// `Array::from_value_unchecked` (assert that a `Value` you
 /// already hold is Array-tagged). Round-trip back to a generic
-/// [`Value`] via [`Array::as_value`] for APIs that take any value.
+/// `Value` via `Array::as_value` for APIs that take any value.
 #[cfg(target_arch = "wasm32")]
 #[repr(transparent)]
 #[derive(Copy, Clone)]
@@ -28,7 +28,7 @@ pub struct Array(Value);
 
 #[cfg(target_arch = "wasm32")]
 impl Array {
-    /// Wrap a [`Value`] that the caller has already determined to be
+    /// Wrap a `Value` that the caller has already determined to be
     /// Array-tagged (e.g. via a `classname` check or because it came
     /// straight from `mrb_ary_new` / a host array decoder).
     ///
@@ -42,7 +42,7 @@ impl Array {
         Self(v)
     }
 
-    /// Reify as a generic [`Value`] for APIs that accept any value.
+    /// Reify as a generic `Value` for APIs that accept any value.
     #[inline]
     pub fn as_value(self) -> Value {
         self.0
@@ -50,7 +50,7 @@ impl Array {
 
     /// Borrow the inner `mrb_value` for raw FFI calls that have not
     /// yet migrated. Same conversion ladder as
-    /// [`Value::as_raw`](crate::Value::as_raw).
+    /// `Value::as_raw`.
     #[inline]
     pub fn as_raw(self) -> sys::mrb_value {
         self.0.as_raw()

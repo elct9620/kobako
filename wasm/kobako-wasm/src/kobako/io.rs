@@ -5,7 +5,7 @@
 //! ## Why a separate file
 //!
 //! The IO surface is a separate concern from the Kobako module /
-//! transport handles housed in [`super::Kobako`]: there is no instance
+//! transport handles housed in `super::Kobako`: there is no instance
 //! state to
 //! cache beyond the fd ivar, and the write path talks directly to
 //! the wasi-libc `write(2)` syscall instead of re-entering the
@@ -18,7 +18,7 @@
 //! write-path (`#write`, `#fileno`). The Ruby-level methods (`#puts`,
 //! `#print`, `#printf`, `#p`, `#<<`, `#tty?`, `#sync`, `#flush`,
 //! `#closed?`) live in `mrblib/io.rb` and load via
-//! [`crate::kobako::bytecode::load`] after this module registers the
+//! `crate::kobako::bytecode::load` after this module registers the
 //! C bridges.
 //!
 //! ## Scope restriction
@@ -155,7 +155,7 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// ivar is missing or not Fixnum-tagged — neither case should arise in
 /// practice because `io_initialize` is the only writer and stores the
 /// fd as a boxed Integer (constrained to 1 / 2). The fd flows straight
-/// into the `write(2)` call in [`io_write`]; a degenerate `0` would
+/// into the `write(2)` call in `io_write`; a degenerate `0` would
 /// target fd 0, where the short-write guard (`if n > 0`) absorbs the
 /// result rather than trapping. The direct unbox skips the previous
 /// `.to_s.parse` round-trip.

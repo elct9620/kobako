@@ -3,7 +3,7 @@
 //! Both directions of a host↔guest buffer handoff that run *inside* a wasm
 //! callback frame go through here: writing the transport Response back
 //! (`super::dispatch`) and shipping block-yield args into the guest
-//! ([`drive_yield`], below) performed the same `__kobako_alloc` +
+//! (`drive_yield`, below) performed the same `__kobako_alloc` +
 //! bounds-check + `memory.write` dance with only the diagnostic strings
 //! differing. The Store-based write path (`Runtime::write_envelope`) is a
 //! separate beast — it holds the cached `Store`, not a `Caller` — and stays
@@ -15,8 +15,8 @@ use super::invocation::Invocation;
 
 /// Resolve the guest's exported linear `memory`. The lookup shape (and its
 /// diagnostic) is shared by every Caller-based path here — the write side
-/// ([`alloc_and_write`]), the read side ([`read`]), and the yield round-trip
-/// ([`drive_yield`]) — so the "no linear memory" reason lives in one place.
+/// (`alloc_and_write`), the read side (`read`), and the yield round-trip
+/// (`drive_yield`) — so the "no linear memory" reason lives in one place.
 /// `read` maps the `Err` to its own `None` outcome via `.ok()`.
 fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
     match caller.get_export("memory") {

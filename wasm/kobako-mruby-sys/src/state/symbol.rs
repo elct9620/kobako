@@ -1,4 +1,4 @@
-//! Symbol intern + lookup on [`Mrb`].
+//! Symbol intern + lookup on `Mrb`.
 //!
 //! Inherent methods that turn a name (NUL-terminated `&CStr` or
 //! arbitrary bytes via an `mrb_value` String) into an `mrb_sym`, or
@@ -23,7 +23,7 @@ impl Mrb {
     /// `mrb_intern_str(mrb, str)` — intern the bytes of an mruby
     /// String value as a Symbol. Use this when the name arrives as
     /// arbitrary bytes that may not be NUL-safe; otherwise prefer
-    /// [`Mrb::intern_cstr`].
+    /// `Mrb::intern_cstr`.
     #[inline]
     pub fn intern_str(&self, s: Value) -> sys::mrb_sym {
         // SAFETY: `self` is alive; `s` originates from the same VM.

@@ -2,7 +2,7 @@
 //!
 //! ## Why a newtype
 //!
-//! Same rationale as [`Value`](crate::Value): the raw pointer crosses
+//! Same rationale as `Value`: the raw pointer crosses
 //! the crate boundary, and consumers historically had to pass it
 //! around as `*mut sys::RClass` — easy to leak, easy to confuse with
 //! other opaque pointers, and impossible to attach inherent methods
@@ -32,7 +32,7 @@
 //!
 //! `Class` may carry a null pointer because several mruby APIs
 //! (`mrb_class_get_under`, `mrb_class_get`) signal "not found" by
-//! returning NULL. Consumers gate on [`Class::is_null`] before
+//! returning NULL. Consumers gate on `Class::is_null` before
 //! treating the value as a live class handle; a future typed-error
 //! migration could move null handling into the return type.
 
@@ -46,11 +46,11 @@ use crate::Value;
 /// Typed handle on an mruby class / module. `#[repr(transparent)]`
 /// over `*mut RClass` so the C ABI is preserved.
 ///
-/// Construct via [`Class::from_raw`] at FFI boundaries. Round-trip
-/// back to the raw pointer via [`Class::as_raw`] when calling raw
+/// Construct via `Class::from_raw` at FFI boundaries. Round-trip
+/// back to the raw pointer via `Class::as_raw` when calling raw
 /// mruby APIs (`mrb_define_method`, `mrb_define_class_under`, …).
 ///
-/// Available on both targets to mirror [`Value`]'s cross-target shape:
+/// Available on both targets to mirror `Value`'s cross-target shape:
 /// the newtype is `#[repr(transparent)]` and carries no mruby linkage,
 /// so its constructors compile for free on host. Methods that talk to
 /// mruby live behind `#[cfg(target_arch = "wasm32")]`.
@@ -58,7 +58,7 @@ use crate::Value;
 #[derive(Copy, Clone)]
 pub struct Class(pub(crate) *mut crate::RClass);
 
-/// Alias for [`Class`] used by install paths to express "this handle
+/// Alias for `Class` used by install paths to express "this handle
 /// refers to a module" without changing the runtime type.
 pub type Module = Class;
 
@@ -66,7 +66,7 @@ impl Class {
     /// Wrap a raw `*mut RClass` produced by FFI. Most call sites get
     /// the pointer from `mrb_define_class_under`,
     /// `mrb_class_get_under`, `mrb_class_get`, or
-    /// [`crate::mrb_object_class`].
+    /// `crate::mrb_object_class`.
     #[inline]
     pub const fn from_raw(p: *mut crate::RClass) -> Self {
         Self(p)
@@ -88,7 +88,7 @@ impl Class {
         self.0.is_null()
     }
 
-    /// Reify this class handle as an mruby [`Value`] via mruby's own
+    /// Reify this class handle as an mruby `Value` via mruby's own
     /// `mrb_obj_value` (an `MRB_INLINE` reached through bindgen's
     /// static-fn trampoline). Used by call paths that need to pass
     /// the class through generic mruby APIs that accept `mrb_value`
@@ -150,7 +150,7 @@ impl Class {
     }
 
     /// `mrb_class_get_under(mrb, self, name)` — fetch a nested class
-    /// by name. The returned [`Class`] may be null when no such class
+    /// by name. The returned `Class` may be null when no such class
     /// is registered.
     #[cfg(target_arch = "wasm32")]
     #[inline]

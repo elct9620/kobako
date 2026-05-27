@@ -1,10 +1,10 @@
-//! String / Array / Hash factories on [`Mrb`].
+//! String / Array / Hash factories on `Mrb`.
 //!
 //! `str_new` / `str_new_cstr` construct mruby Strings from Rust byte
 //! slices or a NUL-terminated `&CStr`. `ary_new` / `hash_new` return
-//! typed [`Array`] / [`Hash`] newtypes — per-collection operations
+//! typed `Array` / `Hash` newtypes — per-collection operations
 //! (`push`, `set`, `get`, `keys`) live on the value newtype rather
-//! than on [`Mrb`] so the call shape mirrors Ruby (`arr.push(x)`,
+//! than on `Mrb` so the call shape mirrors Ruby (`arr.push(x)`,
 //! not `mrb.ary_push(arr, x)`).
 
 #[cfg(target_arch = "wasm32")]
@@ -18,7 +18,7 @@ impl Mrb {
     /// `bytes`. The buffer is copied into the mruby heap; the slice
     /// only has to live for the duration of the call.
     ///
-    /// `bytes.len()` saturates to [`i32::MAX`] (mruby's `mrb_int` on
+    /// `bytes.len()` saturates to `i32::MAX` (mruby's `mrb_int` on
     /// wasm32 is signed 32-bit). Real callers never reach that — the
     /// host-side String size cap (8 MiB) sits well below.
     #[inline]
@@ -46,7 +46,7 @@ impl Mrb {
     }
 
     /// `mrb_ary_new(mrb)` — construct a fresh empty mruby `Array` as
-    /// a typed [`Array`]. Element operations (`push`, `entry`) live
+    /// a typed `Array`. Element operations (`push`, `entry`) live
     /// on the returned newtype.
     #[inline]
     pub fn ary_new(&self) -> Array {
@@ -56,7 +56,7 @@ impl Mrb {
     }
 
     /// `mrb_hash_new(mrb)` — construct a fresh empty mruby `Hash` as
-    /// a typed [`Hash`]. Element operations (`set`, `get`, `keys`)
+    /// a typed `Hash`. Element operations (`set`, `get`, `keys`)
     /// live on the returned newtype.
     #[inline]
     pub fn hash_new(&self) -> Hash {

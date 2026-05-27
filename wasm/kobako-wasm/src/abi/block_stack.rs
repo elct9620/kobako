@@ -2,10 +2,10 @@
 //!
 //! When guest code calls `Service.method(...) { ... }`, the C-bridge
 //! captures the block as a non-orphan `mrb_value` via the `"n*&"`
-//! argspec and pushes it onto [`BLOCK_STACK`] before dispatching to the
+//! argspec and pushes it onto `BLOCK_STACK` before dispatching to the
 //! host. The host's eventual `__kobako_yield_to_block` re-entry (S5+)
 //! reads `BLOCK_STACK.last()` to find the block bound to the active
-//! dispatch frame. The push/pop pair is enforced by [`BlockFrame`]'s
+//! dispatch frame. The push/pop pair is enforced by `BlockFrame`'s
 //! drop guard so any bridge exit path — normal return, mruby raise,
 //! Rust panic — preserves the LIFO invariant.
 //!
@@ -15,10 +15,10 @@
 //!
 //! ## Cross-Sandbox isolation
 //!
-//! Same argument as [`super::mrb_slot`]: each `Kobako::Sandbox` owns
+//! Same argument as `super::mrb_slot`: each `Kobako::Sandbox` owns
 //! its own `wasmtime::Instance` and therefore its own copy of this
 //! module-level static. The single-threaded wasm execution model
-//! inside any one Instance licenses the [`UnsafeCell`] interior
+//! inside any one Instance licenses the `UnsafeCell` interior
 //! mutability used here.
 
 #[cfg(target_arch = "wasm32")]
@@ -28,7 +28,7 @@ use crate::mruby::sys::Value;
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability stack of guest-supplied block
-/// `mrb_value`s. Modelled after [`super::outcome_buffer::OutcomeBuffer`]
+/// `mrb_value`s. Modelled after `super::outcome_buffer::OutcomeBuffer`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
 #[cfg(target_arch = "wasm32")]
@@ -69,7 +69,7 @@ impl BlockStack {
     }
 }
 
-// SAFETY: identical argument to [`super::mrb_slot::MrbSlot`] — wasm32
+// SAFETY: identical argument to `super::mrb_slot::MrbSlot` — wasm32
 // is single-threaded inside any one Instance; the inner `Value` is
 // `!Send + !Sync` but the surrounding Instance gives the same
 // guarantee operationally. `static` requires `Sync` regardless.
@@ -80,8 +80,8 @@ unsafe impl Sync for BlockStack {}
 #[cfg(target_arch = "wasm32")]
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 
-/// RAII drop-guard that owns one push/pop pair on [`BLOCK_STACK`].
-/// Constructed via [`BlockFrame::push_if_block`] — the guard becomes a
+/// RAII drop-guard that owns one push/pop pair on `BLOCK_STACK`.
+/// Constructed via `BlockFrame::push_if_block` — the guard becomes a
 /// no-op when the supplied `block` is `nil` (i.e. the caller did not
 /// pass a block). Pop runs unconditionally on drop, mirroring the C
 /// bridge's exit invariant: every entry must have a matching exit,
@@ -93,7 +93,7 @@ pub(crate) struct BlockFrame {
 
 #[cfg(target_arch = "wasm32")]
 impl BlockFrame {
-    /// Push `block` onto [`BLOCK_STACK`] when it is non-nil and return
+    /// Push `block` onto `BLOCK_STACK` when it is non-nil and return
     /// a guard whose drop pops the same frame. When `block` is nil the
     /// guard is inert — `Drop` is a no-op.
     pub(crate) fn push_if_block(block: Value) -> Self {

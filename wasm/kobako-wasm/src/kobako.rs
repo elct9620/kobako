@@ -1,7 +1,7 @@
 //! Kobako runtime — installs the Kobako module surface onto an mruby VM
 //! and owns the class handles needed by the dispatch layer.
 //!
-//! ## Why a separate type from [`crate::mruby::Mrb`]
+//! ## Why a separate type from `crate::mruby::Mrb`
 //!
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
@@ -14,22 +14,22 @@
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
 //! proves you can talk to the runtime, with no Drop and no lifetime —
 //! liveness is the caller's contract, just as it is for mruby's own C
-//! API. The C-bridges in [`crate::kobako::bridges`] remain
+//! API. The C-bridges in `crate::kobako::bridges` remain
 //! `unsafe extern "C" fn` callbacks invoked by mruby, but their bodies
-//! acquire a [`Kobako`] through [`Kobako::resolve_raw`] and then call
+//! acquire a `Kobako` through `Kobako::resolve_raw` and then call
 //! safe methods.
 //!
 //! ## Lifecycle
 //!
-//! [`Kobako::install`] is called once per `__kobako_eval` invocation,
-//! immediately after [`Mrb::open`]. It registers every boot-time entity
+//! `Kobako::install` is called once per `__kobako_eval` invocation,
+//! immediately after `Mrb::open`. It registers every boot-time entity
 //! and returns a `Kobako` carrying the resolved class handles. The
 //! returned value is then used to drive the Frame 1 preamble through
-//! [`Kobako::install_groups`].
+//! `Kobako::install_groups`.
 //!
 //! C-bridges that receive a raw `*mut mrb_state` from mruby — the
-//! [`crate::mruby::sys::mrb_func_t`] ABI mandates the raw pointer at
-//! the bridge entry — use [`Kobako::resolve_raw`] to obtain the same
+//! `crate::mruby::sys::mrb_func_t` ABI mandates the raw pointer at
+//! the bridge entry — use `Kobako::resolve_raw` to obtain the same
 //! handle without repeating registration.
 
 #[cfg(target_arch = "wasm32")]
@@ -52,14 +52,14 @@ use crate::mruby::Mrb;
 use crate::transport::proxy::ExceptionPayload;
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
-/// stores the Handle id under. Read back through [`Kobako::extract_handle_id`]
+/// stores the Handle id under. Read back through `Kobako::extract_handle_id`
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
 /// silently when the ivar layout changes.
 #[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
-/// Failures returned by [`Kobako::install_groups`] when a preamble entry
+/// Failures returned by `Kobako::install_groups` when a preamble entry
 /// carries a name that cannot be passed through the mruby C API (which
 /// expects NUL-terminated strings). wasm32-only because the preamble
 /// install path itself is wasm32-only.
@@ -97,25 +97,25 @@ impl std::error::Error for InstallGroupsError {}
 /// the duration of any `Kobako` method call. Constructed through one of
 /// two entry points:
 ///
-///   * [`Kobako::install`] — register every boot-time entity then
-///     return a fully populated handle. Takes an [`Mrb`] borrow so the
+///   * `Kobako::install` — register every boot-time entity then
+///     return a fully populated handle. Takes an `Mrb` borrow so the
 ///     pipeline below it stays in safe Rust.
-///   * [`Kobako::resolve_raw`] — re-resolve class handles produced by
+///   * `Kobako::resolve_raw` — re-resolve class handles produced by
 ///     a prior install. Used by C-bridges, which mruby invokes with a
-///     raw `*mut mrb_state` per the [`crate::mruby::sys::mrb_func_t`]
+///     raw `*mut mrb_state` per the `crate::mruby::sys::mrb_func_t`
 ///     ABI; the raw entry is mandated by mruby, not by kobako.
 ///
 /// ## wasm32-only
 ///
 /// `Kobako` and its methods only exist on `wasm32-wasip1` (the
 /// production target). Host-target `cargo test` does not link
-/// `libmruby.a`, so neither [`Mrb::open`] nor `Kobako::install` is
+/// `libmruby.a`, so neither `Mrb::open` nor `Kobako::install` is
 /// callable there; the type is cfg-gated out entirely.
 #[cfg(target_arch = "wasm32")]
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Member` base class — parent of every bound Member proxy
-    /// installed via [`Kobako::install_groups`].
+    /// installed via `Kobako::install_groups`.
     member_class: sys::Class,
     handle_class: sys::Class,
     service_error_class: sys::Class,
@@ -124,7 +124,7 @@ pub struct Kobako {
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
 // longer live on the `Kobako` struct. They are captured once into
-// the sys-side [`Value`] immediates cache and read via
+// the sys-side `Value` immediates cache and read via
 // `Value::nil()` / `Value::true_()` / `Value::false_()` — each call
 // is a single atomic load against the `OnceLock`, on par with the
 // previous per-instance field read.
@@ -153,12 +153,12 @@ impl Kobako {
     /// Resolve the class handles produced by a prior install, from a
     /// raw `*mut mrb_state`. C-bridge re-entry point — mruby invokes
     /// bridges with a raw `*mut mrb_state` per the
-    /// [`crate::mruby::sys::mrb_func_t`] ABI, and this is how those
+    /// `crate::mruby::sys::mrb_func_t` ABI, and this is how those
     /// bridge bodies recover the `Kobako` handle.
     ///
     /// # Safety
     ///
-    /// `mrb` must be a live mruby state on which [`Kobako::install`]
+    /// `mrb` must be a live mruby state on which `Kobako::install`
     /// has already run. Calling this against a fresh state without
     /// prior install would surface as a NULL `mrb_class_get_under`
     /// return value and later UB; the C-bridge entry points uphold
@@ -230,7 +230,7 @@ impl Kobako {
     ///
     /// # Safety
     ///
-    /// As [`Kobako::raise_transport_error`].
+    /// As `Kobako::raise_transport_error`.
     pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
@@ -238,14 +238,14 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // VM access. The +mrb+ accessor synthesises a borrowed [`Mrb`]
+    // VM access. The +mrb+ accessor synthesises a borrowed `Mrb`
     // reference over the raw pointer so callers can use the safe
     // builder / accessor methods (`hash_get`, `intern_cstr`, etc.)
     // without each method re-implementing the same FFI dispatch.
     // ----------------------------------------------------------------
 
     /// Borrow `self.mrb` as `&Mrb`. The borrow lives for the duration
-    /// of `&self`, which the [`Kobako`] construction contract ties
+    /// of `&self`, which the `Kobako` construction contract ties
     /// to the underlying `mrb_state`'s liveness.
     #[inline]
     pub(crate) fn mrb(&self) -> &Mrb {
@@ -316,7 +316,7 @@ impl Kobako {
     ///
     /// Returns an empty vec when `Object.constants` does not return an
     /// Array — Ruby core guarantees it does, but the defensive fallback
-    /// matches [`Self::extract_backtrace`]'s style and keeps the Panic
+    /// matches `Self::extract_backtrace`'s style and keeps the Panic
     /// envelope serialising cleanly under guest-class shenanigans.
     pub fn top_level_constants(&self) -> Vec<String> {
         // SAFETY: `mrb->object_class` lives until `mrb_close`; the

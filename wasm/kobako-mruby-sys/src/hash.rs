@@ -1,10 +1,10 @@
-//! Typed `Hash` newtype around a Hash-tagged [`Value`].
+//! Typed `Hash` newtype around a Hash-tagged `Value`.
 //!
-//! `Hash` is `#[repr(transparent)]` over [`Value`] (which is itself
+//! `Hash` is `#[repr(transparent)]` over `Value` (which is itself
 //! `#[repr(transparent)]` over `mrb_value`). The two share their
 //! in-memory layout — `Hash` is exactly an `mrb_value` known to carry
 //! an mruby `Hash`. Construction is by explicit unchecked cast from
-//! [`Value`]; element operations cluster on the resulting newtype.
+//! `Value`; element operations cluster on the resulting newtype.
 //!
 //! Mirrors magnus's `src/r_hash.rs`: factories live on `Ruby` /
 //! `Mrb`, per-hash ops (`set`, `get`, `keys`) live here.
@@ -15,12 +15,12 @@ use crate as sys;
 use crate::{Array, Mrb, Value};
 
 /// Typed handle on an mruby `Hash`. `#[repr(transparent)]` over
-/// [`Value`] so the C ABI is preserved.
+/// `Value` so the C ABI is preserved.
 ///
-/// Construct via [`Mrb::hash_new`] (fresh hash) or
-/// [`Hash::from_value_unchecked`] (assert that a [`Value`] you
+/// Construct via `Mrb::hash_new` (fresh hash) or
+/// `Hash::from_value_unchecked` (assert that a `Value` you
 /// already hold is Hash-tagged). Round-trip back to a generic
-/// [`Value`] via [`Hash::as_value`] for APIs that take any value.
+/// `Value` via `Hash::as_value` for APIs that take any value.
 #[cfg(target_arch = "wasm32")]
 #[repr(transparent)]
 #[derive(Copy, Clone)]
@@ -28,7 +28,7 @@ pub struct Hash(Value);
 
 #[cfg(target_arch = "wasm32")]
 impl Hash {
-    /// Wrap a [`Value`] that the caller has already determined to be
+    /// Wrap a `Value` that the caller has already determined to be
     /// Hash-tagged (e.g. via a `classname` check or because it came
     /// straight from `mrb_hash_new` / a host hash decoder).
     ///
@@ -41,7 +41,7 @@ impl Hash {
         Self(v)
     }
 
-    /// Reify as a generic [`Value`] for APIs that accept any value.
+    /// Reify as a generic `Value` for APIs that accept any value.
     #[inline]
     pub fn as_value(self) -> Value {
         self.0
@@ -72,7 +72,7 @@ impl Hash {
     }
 
     /// `mrb_hash_keys(mrb, self)` — return the Array of keys as a
-    /// typed [`Array`].
+    /// typed `Array`.
     #[inline]
     pub fn keys(self, mrb: &Mrb) -> Array {
         // SAFETY: as `set`; `mrb_hash_keys` always returns an

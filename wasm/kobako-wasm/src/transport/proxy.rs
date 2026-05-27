@@ -8,9 +8,9 @@
 //!
 //! ## Layered responsibilities
 //!
-//! [`invoke`] — full round-trip. Builds a [`Request`], encodes it via
-//! its [`crate::codec::Encode`] impl, calls the host via
-//! `__kobako_dispatch` on `wasm32`, then decodes the [`Response`]. On the
+//! `invoke` — full round-trip. Builds a `Request`, encodes it via
+//! its `crate::codec::Encode` impl, calls the host via
+//! `__kobako_dispatch` on `wasm32`, then decodes the `Response`. On the
 //! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
 //! **loopback** hook stands in for the host so that integration-style
 //! tests can drive the full transport path without a real wasm runtime.
@@ -35,7 +35,7 @@
 //! shim on `Kobako::Member` (Member classes) and the instance shim on
 //! `Kobako::Handle` for the Handle chaining path (docs/behavior.md B-17).
 //! Both shims live in `crate::kobako::bridges`; their shared
-//! `forward_to_dispatch` body calls [`invoke`] here. This module's role
+//! `forward_to_dispatch` body calls `invoke` here. This module's role
 //! is the Rust-level encode/transport/decode pipeline that the C bridges
 //! delegate to.
 
@@ -71,7 +71,7 @@ pub struct ExceptionPayload {
     pub raw: Vec<u8>,
 }
 
-/// Error variants returned by [`invoke`].
+/// Error variants returned by `invoke`.
 ///
 /// `Service` carries the SPEC-mandated Response.err path payload;
 /// `Codec` covers everything that fails *before* the response can be
@@ -141,8 +141,8 @@ pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 
 /// Invoke the host via `__kobako_dispatch` (or the loopback hook on
 /// host targets). On success, returns the value out of `Response::Ok`;
-/// on a Response.err path returns [`InvokeError::Service`]; on an
-/// wire fault returns [`InvokeError::Codec`].
+/// on a Response.err path returns `InvokeError::Service`; on an
+/// wire fault returns `InvokeError::Codec`.
 pub fn invoke(
     target: Target,
     method: &str,
@@ -163,7 +163,7 @@ pub fn invoke(
     classify_response(resp)
 }
 
-/// Demux a decoded Response into the [`invoke`] return type.
+/// Demux a decoded Response into the `invoke` return type.
 fn classify_response(resp: Response) -> Result<Value, InvokeError> {
     match resp {
         Response::Ok(v) => Ok(v),

@@ -1,8 +1,8 @@
 //! Response envelope — the host→guest reply value object + its wire codec.
 //!
 //! docs/wire-codec.md § Envelope Encoding → Response pins the binary
-//! framing; this assembles it on top of the lower-level [`Encoder`] /
-//! [`Decoder`] primitives in `codec/`. Mirrors the host's
+//! framing; this assembles it on top of the lower-level `Encoder` /
+//! `Decoder` primitives in `codec/`. Mirrors the host's
 //! `lib/kobako/transport/response.rb`.
 //!
 //! No `unsafe`. No third-party dependencies. An independent

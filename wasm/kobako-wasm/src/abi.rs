@@ -29,12 +29,12 @@
 //! host return type and `__kobako_take_outcome`. Each guest export
 //! body lives in its own sibling file alongside the helpers it owns:
 //!
-//! * [`eval`] — `__kobako_eval` body.
-//! * [`run`] — `__kobako_run` body + invocation-envelope parser.
-//! * [`boot`] — shared mruby boot / preamble install / snippet replay
+//! * `eval` — `__kobako_eval` body.
+//! * `run` — `__kobako_run` body + invocation-envelope parser.
+//! * `boot` — shared mruby boot / preamble install / snippet replay
 //!   / pending-exception extraction helpers used by both entry points.
-//! * [`frames`] — stdin frame reader and Frame 1 / Frame 3 decoders.
-//! * [`outcome_buffer`] — `OUTCOME_BUFFER` plus `__kobako_alloc` /
+//! * `frames` — stdin frame reader and Frame 1 / Frame 3 decoders.
+//! * `outcome_buffer` — `OUTCOME_BUFFER` plus `__kobako_alloc` /
 //!   `__kobako_take_outcome` and the Panic / outcome write helpers.
 //!
 //! ## Packed u64 layout
@@ -144,8 +144,8 @@ pub(crate) fn pack_u64(ptr: u32, len: u32) -> u64 {
     ((ptr as u64) << 32) | (len as u64)
 }
 
-/// Unpack a u64 produced by [`pack_u64`] back into `(ptr, len)`.
-/// Crate-internal companion to [`pack_u64`]; see that item for the
+/// Unpack a u64 produced by `pack_u64` back into `(ptr, len)`.
+/// Crate-internal companion to `pack_u64`; see that item for the
 /// host-target `dead_code` rationale.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[inline]

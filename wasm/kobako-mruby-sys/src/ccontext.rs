@@ -22,10 +22,10 @@ use crate as sys;
 use crate::Mrb;
 use crate::Value;
 
-/// Owned mruby compile context, tied to the lifetime of an [`Mrb`].
+/// Owned mruby compile context, tied to the lifetime of an `Mrb`.
 ///
 /// The lifetime parameter prevents the context from outliving the
-/// `mrb_state` that produced it: when [`Drop`] runs we still need
+/// `mrb_state` that produced it: when `Drop` runs we still need
 /// `self.mrb.as_ptr()` to call `mrb_ccontext_free`, and the borrow
 /// checker keeps `Mrb` alive long enough.
 pub struct Ccontext<'mrb> {

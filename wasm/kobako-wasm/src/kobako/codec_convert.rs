@@ -1,6 +1,6 @@
-//! Codec ↔ mruby Value conversion methods on [`super::Kobako`].
+//! Codec ↔ mruby Value conversion methods on `super::Kobako`.
 //!
-//! Keep the [`Kobako`] façade lean by housing the codec-adjacent
+//! Keep the `Kobako` façade lean by housing the codec-adjacent
 //! translation in its own sibling file. The methods stay on `Kobako`
 //! (so call sites read `kobako.to_codec_value(val)` rather than
 //! `codec_convert::to_codec_value(&kobako, val)`) via a second `impl`
@@ -27,11 +27,11 @@ use crate::mruby::sys::Value;
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; `Request`'s [`crate::codec::Encode`] impl re-emits
+    /// key's name; `Request`'s `crate::codec::Encode` impl re-emits
     /// each name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
     /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. Values go through
-    /// [`Kobako::to_codec_value`].
+    /// `Kobako::to_codec_value`.
     #[cfg(target_arch = "wasm32")]
     pub fn extract_hash_kwargs(&self, hash: Value, out: &mut Vec<(String, crate::codec::Value)>) {
         // SAFETY: callers reach this only after a `classname == "Hash"`
@@ -76,9 +76,9 @@ impl Kobako {
     }
 
     /// Iterate an mruby Array and convert each element via `convert`,
-    /// returning a `Vec<Value>` ready to wrap in [`Value::Array`].
+    /// returning a `Vec<Value>` ready to wrap in `Value::Array`.
     /// `convert` is a function pointer so the two consumer converters
-    /// ([`Kobako::to_codec_value`] and [`Kobako::to_codec_outcome`]) can
+    /// (`Kobako::to_codec_value` and `Kobako::to_codec_outcome`) can
     /// share the iteration while preserving their per-converter
     /// recursion target — the outcome path must keep recursing on
     /// `to_codec_outcome` so unknown nested types fall back to
@@ -103,9 +103,9 @@ impl Kobako {
 
     /// Iterate an mruby Hash and convert each key/value pair via
     /// `convert`, returning a `Vec<(Value, Value)>` ready to wrap in
-    /// [`Value::Map`]. Both the key and the value flow through the
-    /// same `convert` so a `Symbol` key arrives as [`Value::Sym`]
-    /// (ext 0x00) and a `String` key as [`Value::Str`] — distinct codec
+    /// `Value::Map`. Both the key and the value flow through the
+    /// same `convert` so a `Symbol` key arrives as `Value::Sym`
+    /// (ext 0x00) and a `String` key as `Value::Str` — distinct codec
     /// encodings per docs/wire-codec.md § Ext Types.
     #[cfg(target_arch = "wasm32")]
     fn hash_to_codec(
@@ -127,23 +127,23 @@ impl Kobako {
         pairs
     }
 
-    /// Convert a [`Value`] to a kobako [`crate::codec::Value`] for use
+    /// Convert a `Value` to a kobako `crate::codec::Value` for use
     /// as a transport argument or keyword value. Symbol values map to
-    /// [`crate::codec::Value::Sym`] (ext 0x00, docs/wire-codec.md
+    /// `crate::codec::Value::Sym` (ext 0x00, docs/wire-codec.md
     /// § Ext Types). Array / Hash values map to
-    /// [`crate::codec::Value::Array`] / [`crate::codec::Value::Map`]
+    /// `crate::codec::Value::Array` / `crate::codec::Value::Map`
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8). Unknown
     /// types fall back to `Object#to_s`.
     ///
     /// ## Why two converters
     ///
     /// This is the **transport-path** converter. Hash arguments are still
-    /// decoded into kwargs separately via [`Kobako::extract_hash_kwargs`]
+    /// decoded into kwargs separately via `Kobako::extract_hash_kwargs`
     /// when they trail the positional list; a Hash that arrives here is
     /// either nested inside an Array argument or sitting in a non-final
     /// positional slot, and travels natively as
-    /// [`crate::codec::Value::Map`]. The sibling
-    /// [`Kobako::to_codec_outcome`] handles the **outcome-path** (the
+    /// `crate::codec::Value::Map`. The sibling
+    /// `Kobako::to_codec_outcome` handles the **outcome-path** (the
     /// script's last-expression value) and uses `inspect` for its
     /// unknown-type fallback instead. Do not unify the two: the outcome
     /// path is read as a display representation, while transport arguments
@@ -174,15 +174,15 @@ impl Kobako {
         }
     }
 
-    /// Convert a [`Value`] to a kobako [`crate::codec::Value`] for
+    /// Convert a `Value` to a kobako `crate::codec::Value` for
     /// inclusion in the outcome Result envelope. Used by
     /// `__kobako_eval` to serialize the user script's last-expression
     /// value. Array / Hash values map to
-    /// [`crate::codec::Value::Array`] / [`crate::codec::Value::Map`]
+    /// `crate::codec::Value::Array` / `crate::codec::Value::Map`
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a
     /// script returning a collection retains element-level fidelity.
     ///
-    /// ## Why this differs from [`Kobako::to_codec_value`]
+    /// ## Why this differs from `Kobako::to_codec_value`
     ///
     /// Unknown types fall back to `Object#inspect` rather than
     /// `Object#to_s`. The outcome envelope is read by host-side
@@ -225,7 +225,7 @@ impl Kobako {
     /// sees a recognisable identifier rather than the raised exception.
     #[cfg(target_arch = "wasm32")]
     fn protected_inspect_or_classname(&self, val: Value, class_name: &str) -> String {
-        // [`Mrb::protect`] catches any exception `inspect` might raise
+        // `Mrb::protect` catches any exception `inspect` might raise
         // (user-defined `inspect` overriding the default) and surfaces
         // it as `Err` instead of long-jumping past the Rust frame.
         // docs/wire-contract.md § Outcome Envelope leaves the
@@ -237,7 +237,7 @@ impl Kobako {
         }
     }
 
-    /// Convert a kobako [`crate::codec::Value`] into a [`Value`]
+    /// Convert a kobako `crate::codec::Value` into a `Value`
     /// suitable for handing back to the mruby VM. Handle values are
     /// boxed into a fresh `Kobako::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through

@@ -1,8 +1,8 @@
 //! Request envelope — the guest→host call value object + its wire codec.
 //!
 //! docs/wire-codec.md § Envelope Encoding → Request pins the binary
-//! framing; this assembles it on top of the lower-level [`Encoder`] /
-//! [`Decoder`] primitives in `codec/`. Mirrors the host's
+//! framing; this assembles it on top of the lower-level `Encoder` /
+//! `Decoder` primitives in `codec/`. Mirrors the host's
 //! `lib/kobako/transport/request.rb`.
 //!
 //! No `unsafe`. No third-party dependencies. An independent
@@ -38,9 +38,9 @@ pub enum Target {
 }
 
 impl codec::Encode for Request {
-    /// Encode a [`Request`] to its 5-field msgpack array bytes. Per SPEC
+    /// Encode a `Request` to its 5-field msgpack array bytes. Per SPEC
     /// (docs/wire-codec.md § Ext Types → ext 0x00) `kwargs` keys are
-    /// emitted as Symbols, so we emit [`Value::Sym`] at every kwargs-key
+    /// emitted as Symbols, so we emit `Value::Sym` at every kwargs-key
     /// slot.
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         let target_value = match &self.target {
@@ -66,7 +66,7 @@ impl codec::Encode for Request {
 }
 
 impl codec::Decode for Request {
-    /// Decode bytes to a [`Request`].
+    /// Decode bytes to a `Request`.
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
         let frame = dec.read_value()?;

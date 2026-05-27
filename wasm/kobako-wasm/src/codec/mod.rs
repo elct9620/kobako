@@ -424,15 +424,15 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
 /// Rust-native expression of the contract the Ruby host gets via duck
 /// typing (`#encode` on each value object). The value object's own
 /// invariants are the contract; this does not re-validate the shape.
-/// Faults surface as [`Error`] — the same type the byte-level codec
+/// Faults surface as `Error` — the same type the byte-level codec
 /// raises — so a value object is encoded as a whole through one error
 /// channel.
 pub trait Encode {
     fn encode(&self) -> Result<Vec<u8>, Error>;
 }
 
-/// The decode half of [`Encode`]: rebuild a wire value object from its
-/// kobako-codec bytes. Returns [`Error::Malformed`] when the bytes parse
+/// The decode half of `Encode`: rebuild a wire value object from its
+/// kobako-codec bytes. Returns `Error::Malformed` when the bytes parse
 /// as a value but do not match the expected envelope shape. Types that
 /// only travel one direction (e.g. the host→guest invocation envelope)
 /// implement only the half they need.

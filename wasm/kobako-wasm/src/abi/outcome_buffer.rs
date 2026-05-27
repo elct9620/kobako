@@ -3,11 +3,11 @@
 //!
 //! The buffer is a static `Vec<u8>` written once per `__kobako_eval` /
 //! `__kobako_run` invocation, then read by the host through
-//! [`__kobako_take_outcome`] before the next invocation overwrites it.
+//! `__kobako_take_outcome` before the next invocation overwrites it.
 //! The single-threaded wasm execution model guarantees the buffer is
 //! never accessed concurrently inside a single wasm instance.
 //!
-//! [`__kobako_alloc`] is the companion guest allocator the host calls
+//! `__kobako_alloc` is the companion guest allocator the host calls
 //! from inside the `__kobako_dispatch` host import — it delegates to
 //! wasi-libc `malloc` and lives here because its lifetime is bounded
 //! by the same invocation that owns the outcome buffer.
@@ -42,7 +42,7 @@ impl OutcomeBuffer {
     /// `__kobako_eval` / `__kobako_run` reactor body; the reader is
     /// `__kobako_take_outcome`. Host serialisation guarantees the two
     /// never run concurrently, so the interior `&mut` taken here
-    /// cannot alias the slice surfaced via [`Self::as_slice`].
+    /// cannot alias the slice surfaced via `Self::as_slice`.
     fn write(&self, bytes: Vec<u8>) {
         // SAFETY: see type doc — single-threaded wasm execution + host
         // serialisation around `__kobako_take_outcome` guarantee no
@@ -52,7 +52,7 @@ impl OutcomeBuffer {
 
     /// Borrow the stored bytes. Pointer arithmetic on the result is
     /// the host's contract: the returned slice lives until the next
-    /// [`Self::write`] in the same wasm instance.
+    /// `Self::write` in the same wasm instance.
     fn as_slice(&self) -> &[u8] {
         // SAFETY: see type doc.
         unsafe { &*self.0.get() }
@@ -72,7 +72,7 @@ unsafe impl Sync for OutcomeBuffer {}
 #[cfg(target_arch = "wasm32")]
 static OUTCOME_BUFFER: OutcomeBuffer = OutcomeBuffer::new();
 
-/// Write `bytes` into [`OUTCOME_BUFFER`], replacing whatever was left
+/// Write `bytes` into `OUTCOME_BUFFER`, replacing whatever was left
 /// from the previous invocation.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn write_outcome(bytes: Vec<u8>) {
@@ -80,7 +80,7 @@ pub(super) fn write_outcome(bytes: Vec<u8>) {
 }
 
 /// Encode `panic` as an Outcome envelope and stamp it into
-/// [`OUTCOME_BUFFER`]. If encoding itself fails, the buffer stays
+/// `OUTCOME_BUFFER`. If encoding itself fails, the buffer stays
 /// empty — the host treats `len = 0` as a wire violation and follows
 /// the TrapError path (docs/behavior.md Error Scenarios).
 #[cfg(target_arch = "wasm32")]
@@ -127,7 +127,7 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
 }
 
 /// Outcome reader — host calls this after `__kobako_eval` /
-/// `__kobako_run` returns to fetch the [`OUTCOME_BUFFER`] bytes.
+/// `__kobako_run` returns to fetch the `OUTCOME_BUFFER` bytes.
 /// Returns packed u64 `(ptr << 32) | len`. `len == 0` is a wire
 /// violation (docs/wire-codec.md § ABI Signatures). Signature:
 /// `() -> i64`.

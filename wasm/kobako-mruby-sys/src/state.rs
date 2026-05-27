@@ -1,10 +1,10 @@
 //! RAII wrapper around mruby's `mrb_state *` plus the per-concern
 //! capability traits that extend it.
 //!
-//! [`Mrb`] owns a freshly opened mruby VM. [`Mrb::open`] allocates a
-//! new state via `mrb_open`; [`Drop`] releases it via `mrb_close`.
+//! `Mrb` owns a freshly opened mruby VM. `Mrb::open` allocates a
+//! new state via `mrb_open`; `Drop` releases it via `mrb_close`.
 //! Callers that still reach for the raw FFI (during the staged
-//! migration) use [`Mrb::as_ptr`] as an explicit escape hatch.
+//! migration) use `Mrb::as_ptr` as an explicit escape hatch.
 //!
 //! `Mrb` is intentionally `!Send` and `!Sync` (inherited from
 //! `NonNull<mrb_state>`): mruby's `mrb_state` is single-threaded and
@@ -28,18 +28,18 @@
 //!
 //! The mruby C API surface that the kobako guest actually uses is
 //! grouped into per-concern files under `state::`. Each file extends
-//! [`Mrb`] with inherent methods covering one concern:
+//! `Mrb` with inherent methods covering one concern:
 //!
-//!   * [`factory`] — `String` / `Array` / `Hash` factories
-//!   * [`symbol`] — symbol intern + name lookup
-//!   * [`define`] — top-level module / class / const / gvar
-//!   * [`args`] — `mrb_get_args` shape-typed dispatch via
-//!     [`Format`](crate::Format) trait + [`format`](crate::format)
+//!   * `factory` — `String` / `Array` / `Hash` factories
+//!   * `symbol` — symbol intern + name lookup
+//!   * `define` — top-level module / class / const / gvar
+//!   * `args` — `mrb_get_args` shape-typed dispatch via
+//!     `Format` trait + `format`
 //!     ZST markers (currently the only trait-based cluster — see the
 //!     `args` module doc for the pattern, applicable to future
 //!     clusters once combinatorial pressure shows up)
-//!   * [`load`] — RITE / kobako bytecode loaders
-//!   * [`protect`] — closure-based `mrb_protect_error`
+//!   * `load` — RITE / kobako bytecode loaders
+//!   * `protect` — closure-based `mrb_protect_error`
 //!
 //! Splitting per concern keeps each file's surface small and the
 //! rustdoc on each cluster focused.
@@ -63,12 +63,12 @@ use core::ptr::NonNull;
 /// Owning handle to a live mruby VM. Closed automatically on drop.
 ///
 /// On non-wasm32 targets the inner pointer field is absent because
-/// [`Mrb::open`] always returns `Err` there; the type still compiles
+/// `Mrb::open` always returns `Err` there; the type still compiles
 /// so that `Result<Mrb, MrbOpenError>` is a uniform return type
 /// across targets.
 ///
 /// On wasm32 the type is `#[repr(transparent)]` over
-/// `NonNull<mrb_state>` so [`Mrb::borrow_raw`] can fabricate a `&Mrb`
+/// `NonNull<mrb_state>` so `Mrb::borrow_raw` can fabricate a `&Mrb`
 /// reference from a raw `*mut mrb_state` received at a C-bridge
 /// frame. The two layouts are byte-identical there.
 #[cfg_attr(target_arch = "wasm32", repr(transparent))]
@@ -77,7 +77,7 @@ pub struct Mrb {
     state: NonNull<sys::mrb_state>,
 }
 
-/// Returned by [`Mrb::open`] when `mrb_open` returns NULL (allocation
+/// Returned by `Mrb::open` when `mrb_open` returns NULL (allocation
 /// failure inside mruby) or on the host target where `mrb_open` is
 /// not linked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +92,7 @@ impl std::fmt::Display for MrbOpenError {
 impl std::error::Error for MrbOpenError {}
 
 impl Mrb {
-    /// Open a fresh mruby state. Returns [`MrbOpenError`] when
+    /// Open a fresh mruby state. Returns `MrbOpenError` when
     /// mruby's allocator cannot produce a state (or unconditionally
     /// on the host target — the mruby C API is not linked into the
     /// rlib).
@@ -124,12 +124,12 @@ impl Mrb {
 
     /// Borrow a live `*mut mrb_state` as an `&Mrb` reference. Used
     /// by C-bridge frames that receive a raw pointer from mruby and
-    /// need to call the safe [`Mrb`] / capability-trait methods
-    /// without first acquiring an owning [`Mrb`].
+    /// need to call the safe `Mrb` / capability-trait methods
+    /// without first acquiring an owning `Mrb`.
     ///
     /// The returned reference does not own the state; no `mrb_close`
     /// runs when it goes out of scope. The owning `Mrb` (the one
-    /// produced by [`Mrb::open`]) keeps Drop responsibility.
+    /// produced by `Mrb::open`) keeps Drop responsibility.
     ///
     /// ## Why a `&*mut mrb_state` parameter instead of a raw pointer
     ///
@@ -168,7 +168,7 @@ impl Mrb {
     /// Return the currently pending mruby exception, or
     /// `mrb_nil_value()` (`w == 0`) if none. Reads `mrb->exc`
     /// directly through the bindgen-exposed struct field; does NOT
-    /// clear the field — callers pair this with [`Mrb::clear_exc`]
+    /// clear the field — callers pair this with `Mrb::clear_exc`
     /// after they have captured class/message/backtrace.
     #[cfg(target_arch = "wasm32")]
     pub fn pending_exc(&self) -> Value {
@@ -186,13 +186,13 @@ impl Mrb {
 
     /// Set `mrb->exc` to `exc`, replacing whatever was there. Used by
     /// synthesis paths where an FFI call signals failure by returning
-    /// NULL without raising — see [`Mrb::load_bytecode`]'s
+    /// NULL without raising — see `Mrb::load_bytecode`'s
     /// `mrb_read_irep_buf` recovery. Most code paths should let mruby
     /// raise via `mrb_raise` from inside a C bridge instead; that path
     /// triggers the normal exception flow without needing a manual
     /// slot write.
     ///
-    /// `exc` must be an exception-object-tagged [`Value`]; mruby's
+    /// `exc` must be an exception-object-tagged `Value`; mruby's
     /// downstream machinery dereferences the slot as `RObject *`. Pass
     /// nil or a non-object value at your peril (segfault on the next
     /// exception check).
@@ -219,11 +219,11 @@ impl Mrb {
         let _ = unsafe { sys::mrb_check_error(self.as_ptr()) };
     }
 
-    /// Return `mrb->object_class` as a typed [`Class`] handle.
+    /// Return `mrb->object_class` as a typed `Class` handle.
     /// Replaces direct field access — the `object_class` field on
-    /// the [`crate::mrb_state`] struct is `pub(crate)` so this
+    /// the `crate::mrb_state` struct is `pub(crate)` so this
     /// accessor is the one external entry point. The free function
-    /// [`crate::mrb_object_class`] remains for code paths that hold
+    /// `crate::mrb_object_class` remains for code paths that hold
     /// only a raw `*mut mrb_state` (currently the kobako-wasm
     /// install helpers).
     #[cfg(target_arch = "wasm32")]

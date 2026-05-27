@@ -31,7 +31,7 @@ pub const TAG_ERROR: u8 = 0x04;
 /// three live values (`TAG_OK` / `TAG_BREAK` / `TAG_ERROR`); `value`
 /// carries the decoded payload regardless of variant. Variants that
 /// reach the value-object layer are always live — `TAG_RESERVED` and
-/// any unknown tag are rejected by [`Yield::decode`] before reaching here.
+/// any unknown tag are rejected by `Yield::decode` before reaching here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Yield {
     pub tag: u8,
@@ -60,9 +60,9 @@ impl Encode for Yield {
 }
 
 impl Decode for Yield {
-    /// Decode `bytes` into a [`Yield`]. Rejects empty input, the reserved
-    /// tag `0x03`, and any tag outside [`LIVE_TAGS`] by returning
-    /// [`codec::Error::Malformed`].
+    /// Decode `bytes` into a `Yield`. Rejects empty input, the reserved
+    /// tag `0x03`, and any tag outside `LIVE_TAGS` by returning
+    /// `codec::Error::Malformed`.
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let Some((&tag, body)) = bytes.split_first() else {
             return Err(codec::Error::Malformed(

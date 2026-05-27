@@ -2,7 +2,7 @@
 //!
 //! When the guest invokes the wasm import declared in
 //! `wasm/kobako-wasm/src/abi.rs`, wasmtime calls back into the host
-//! through the closure built in [`super::Runtime::build`].
+//! through the closure built in `super::Runtime::build`.
 //! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
@@ -34,7 +34,7 @@
 //! raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
 //! rejected).
 //!
-//! [`handle`] writes a single `[kobako-dispatch] <reason>` line to
+//! `handle` writes a single `[kobako-dispatch] <reason>` line to
 //! `stderr` on each failure path so operators have a breadcrumb to
 //! correlate the trap with the actual cause. The line is emitted in
 //! both debug and release builds on purpose: dispatcher failures are
@@ -75,15 +75,15 @@ use super::invocation::Invocation;
 // "Single-Invocation Slot" invariant. The single-threaded wasm
 // execution per Sandbox (B-22) plus the LIFO re-entry shape of nested
 // dispatch frames (B-28) ensures no aliasing across threads or across
-// frames; the recovery invariant lives at [`current_caller`]. The
-// pointer is set on entry to [`handle`] and restored to the outer
+// frames; the recovery invariant lives at `current_caller`. The
+// pointer is set on entry to `handle` and restored to the outer
 // frame's value on every exit through a drop guard.
 
 thread_local! {
     static ACTIVE_CALLER: Cell<Option<NonNull<()>>> = const { Cell::new(None) };
 }
 
-/// RAII guard that saves the previous [`ACTIVE_CALLER`] value on
+/// RAII guard that saves the previous `ACTIVE_CALLER` value on
 /// installation and restores it on drop. Nested `__kobako_dispatch`
 /// frames stack within one Invocation (B-28) — the inner frame's `set`
 /// swaps in its own pointer while remembering the outer's; drop
@@ -107,13 +107,13 @@ impl Drop for CallerGuard {
 }
 
 /// Recover the active `&mut Caller<'_, Invocation>` set by the
-/// enclosing [`handle`] frame. Returns `None` when no dispatch frame is
+/// enclosing `handle` frame. Returns `None` when no dispatch frame is
 /// active on this thread.
 ///
 /// # Safety
 ///
 /// The returned reference aliases the original `&mut Caller` borrow
-/// held on the Rust stack inside [`handle`]'s enclosing frame. The
+/// held on the Rust stack inside `handle`'s enclosing frame. The
 /// original borrow is logically inactive while Ruby code is running
 /// (it is parked on the stack between `invoke_on_dispatch` and the
 /// eventual `funcall` return), and the SPEC.md Single-Invocation Slot
@@ -129,7 +129,7 @@ pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
 }
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
-/// from the wasmtime closure built in [`super::Runtime::build`].
+/// from the wasmtime closure built in `super::Runtime::build`.
 ///
 /// Returns the packed `(ptr<<32)|len` u64 on success, 0 on any
 /// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to
@@ -156,7 +156,7 @@ pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len:
     }
 }
 
-/// Result-returning core of [`handle`]. Pulled out so each early
+/// Result-returning core of `handle`. Pulled out so each early
 /// failure path carries a diagnostic string instead of an opaque 0.
 fn try_handle(
     caller: &mut Caller<'_, Invocation>,
@@ -205,7 +205,7 @@ fn invoke_on_dispatch(
 }
 
 /// Allocate a guest-side buffer and copy the response bytes into it via
-/// [`super::guest_mem::alloc_and_write`], returning the packed
+/// `super::guest_mem::alloc_and_write`, returning the packed
 /// `(ptr<<32)|len` u64 the guest's `__kobako_dispatch` import expects.
 fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
     let ptr = super::guest_mem::alloc_and_write(caller, bytes)?;

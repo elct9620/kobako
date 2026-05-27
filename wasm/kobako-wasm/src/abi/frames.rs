@@ -2,7 +2,7 @@
 //!
 //! Stdin frame format: 4-byte big-endian u32 length prefix + payload
 //! bytes. Frame 1 (preamble) and Frame 3 (snippets) parsers are shared
-//! across [`super::eval`] and [`super::run`]; the entry-specific
+//! across `super::eval` and `super::run`; the entry-specific
 //! Frame 2 (user source for `__kobako_eval`) is read inline by the
 //! eval entry. See docs/wire-codec.md § Invocation channels.
 

@@ -7,7 +7,7 @@
 //! shape lives here at the crate top level, distinct from the
 //! per-transport-call envelopes in `transport/{request,response}.rs`.
 //!
-//! Decode faults surface as [`crate::codec::Error`] — the same type the
+//! Decode faults surface as `crate::codec::Error` — the same type the
 //! byte-level codec raises — so a malformed Outcome shares one error
 //! channel with a malformed value. This matches the host, which raises a
 //! single `Codec::Error` for both.
@@ -48,7 +48,7 @@ pub struct Panic {
 /// docs/wire-contract.md § Outcome Envelope: 1-byte tag (`0x01` success-value,
 /// `0x02` Panic) followed by the msgpack payload of the corresponding
 /// branch. The success branch is the bare msgpack encoding of the
-/// returned [`Value`]; the tag alone discriminates the variant, so no
+/// returned `Value`; the tag alone discriminates the variant, so no
 /// enclosing wrapper is added.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
@@ -159,7 +159,7 @@ impl Encode for Outcome {
     /// followed by the branch payload. The value branch is the bare
     /// msgpack encoding of the carried value (no enclosing wrapper, per
     /// docs/wire-contract.md § Outcome Envelope); the panic branch delegates
-    /// to [`Panic`]'s own codec.
+    /// to `Panic`'s own codec.
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         let (tag, body) = match self {
             Outcome::Value(v) => {

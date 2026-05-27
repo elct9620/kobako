@@ -1,5 +1,5 @@
-//! Process-wide caches for the wasmtime [`Engine`] and compiled
-//! [`Module`].
+//! Process-wide caches for the wasmtime `Engine` and compiled
+//! `Module`.
 //!
 //! SPEC.md "Code Organization" pins `ext/` as private and forbids
 //! exposing wasm engine types to the Host App or downstream gems. To
@@ -13,9 +13,6 @@
 //! at a time, so the Mutex is held briefly during HashMap insert/lookup
 //! and serves to satisfy `Sync` bounds rather than to arbitrate real
 //! contention.
-//!
-//! [`Engine`]: wasmtime::Engine
-//! [`Module`]: wasmtime::Module
 
 use std::collections::HashMap;
 use std::fs;
@@ -54,7 +51,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// Also enables `epoch_interruption(true)` so every Store can install an
 /// `epoch_deadline_callback` for the per-run wall-clock cap
 /// (docs/behavior.md B-01, E-19). The first call spawns the process-singleton ticker
-/// thread that drives `engine.increment_epoch()` at [`EPOCH_TICK`]
+/// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
 /// cadence; subsequent calls reuse the same engine and ticker.
 pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
     if let Some(engine) = SHARED_ENGINE.get() {
@@ -74,8 +71,8 @@ pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
 
 /// Spawn the process-singleton epoch ticker. The thread holds a clone of
 /// the shared Engine (`wasmtime::Engine` is reference-counted internally)
-/// and ticks the epoch counter at [`EPOCH_TICK`] cadence. Idempotent
-/// across reentrant calls to [`shared_engine`] because [`OnceLock`]
+/// and ticks the epoch counter at `EPOCH_TICK` cadence. Idempotent
+/// across reentrant calls to `shared_engine` because `OnceLock`
 /// gates the spawn.
 fn spawn_epoch_ticker(engine: WtEngine) {
     static TICKER_SPAWNED: OnceLock<()> = OnceLock::new();

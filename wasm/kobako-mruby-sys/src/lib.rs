@@ -130,7 +130,7 @@ impl mrb_value {
     /// configuration this matches `mrb_nil_value()` (MRB_Qnil = 0).
     /// Out-parameter initialisers (`mrb_get_args` writes to it) use
     /// this; callers that need a guaranteed nil should prefer the
-    /// [`Value::nil`] accessor which reads through mruby's helper.
+    /// `Value::nil` accessor which reads through mruby's helper.
     pub const fn zeroed() -> Self {
         Self { w: 0 }
     }
@@ -167,11 +167,11 @@ const _: () = assert!(
 
 /// Read `mrb->object_class` from a raw `*mut mrb_state`. Companion
 /// accessor for code paths that hold a raw pointer rather than an
-/// [`Mrb`] borrow — currently the `install_*` helpers in
+/// `Mrb` borrow — currently the `install_*` helpers in
 /// `kobako-wasm/src/kobako/install.rs` which are themselves called
 /// with a raw `*mut mrb_state` from `Kobako::install`.
 ///
-/// Prefer [`Mrb::object_class`] when an `Mrb` borrow is in scope.
+/// Prefer `Mrb::object_class` when an `Mrb` borrow is in scope.
 ///
 /// # Safety
 ///

@@ -51,7 +51,7 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 }
 
 /// Read Frame 1 from stdin and decode it into the Group / Member list.
-/// Either step failing surfaces as a [`boot_panic`].
+/// Either step failing surfaces as a `boot_panic`.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
     let bytes =
@@ -69,12 +69,12 @@ pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
         .ok_or_else(|| boot_panic("failed to decode snippets msgpack"))
 }
 
-/// Open an mruby VM, install it into [`super::mrb_slot::MRB`], wire
+/// Open an mruby VM, install it into `super::mrb_slot::MRB`, wire
 /// the Kobako runtime, then materialise the Group / Member proxy
-/// classes from `preamble`. Returns the live [`Kobako`] handle so the
+/// classes from `preamble`. Returns the live `Kobako` handle so the
 /// entry-specific body can keep driving the same VM through
-/// [`super::mrb_slot::MRB`]. On any `Err`, the slot is cleared so the
-/// caller's [`super::mrb_slot::MrbScope`] does not observe a half-set
+/// `super::mrb_slot::MRB`. On any `Err`, the slot is cleared so the
+/// caller's `super::mrb_slot::MrbScope` does not observe a half-set
 /// state.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<Kobako, Panic> {
@@ -107,7 +107,7 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
 /// present, is baked into their RITE `debug_info` section). The first
 /// snippet that raises wins: the resulting Panic carries that snippet's
 /// class / message / backtrace and is forced to sandbox origin even
-/// when [`origin_for_class`] would have chosen `"service"`. Bytecode
+/// when `origin_for_class` would have chosen `"service"`. Bytecode
 /// entries whose load returned a structural-failure code (E-37 / E-38)
 /// additionally override the panic class to `Kobako::BytecodeError`;
 /// a successful load that then raised at top level (E-36) keeps the
@@ -170,10 +170,10 @@ enum BytecodeLoad {
 
 /// Compile and execute a source snippet under a fresh ccontext whose
 /// filename is `(snippet:Name)`. Surfaces ccontext allocation failure
-/// as a [`boot_panic`]; any mruby compile / runtime fault is left in
+/// as a `boot_panic`; any mruby compile / runtime fault is left in
 /// `mrb->exc` for the shared `take_pending_panic` step. A snippet
 /// `name` carrying an interior NUL byte (wire violation) also fails
-/// through [`boot_panic`] since `CString::new` rejects it.
+/// through `boot_panic` since `CString::new` rejects it.
 #[cfg(target_arch = "wasm32")]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
@@ -187,11 +187,11 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 }
 
 /// Execute a precompiled RITE bytecode blob via the
-/// [`crate::mruby::sys::kobako_load_bytecode`] shim. The shim parses
+/// `crate::mruby::sys::kobako_load_bytecode` shim. The shim parses
 /// the IREP and runs its top-level Proc. Returns
-/// [`BytecodeLoad::Loaded`] when the IREP parsed (even if its top-
+/// `BytecodeLoad::Loaded` when the IREP parsed (even if its top-
 /// level execution then raised — E-36) and
-/// [`BytecodeLoad::StructuralFailure`] when the RITE header / IREP
+/// `BytecodeLoad::StructuralFailure` when the RITE header / IREP
 /// body failed structural validation (E-37 / E-38). Either way, a
 /// pending exception is left in `mrb->exc` for the shared
 /// `take_pending_panic` step. Folding the C return code into a typed
@@ -208,8 +208,8 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
 
 /// If an mruby exception is pending on `mrb`, extract its class name,
 /// message, and backtrace into a Panic envelope (with `origin` chosen
-/// by [`origin_for_class`]). Returns `None` when no exception is
-/// pending. Clears `mrb->exc` via [`Mrb::clear_exc`] before returning.
+/// by `origin_for_class`). Returns `None` when no exception is
+/// pending. Clears `mrb->exc` via `Mrb::clear_exc` before returning.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     let exc_val = mrb.pending_exc();

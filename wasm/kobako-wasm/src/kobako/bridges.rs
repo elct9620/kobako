@@ -1,10 +1,10 @@
 //! C-callable shims registered with mruby at install time.
 //!
-//! Every function here matches the [`crate::mruby::sys::mrb_func_t`]
+//! Every function here matches the `crate::mruby::sys::mrb_func_t`
 //! signature so mruby can invoke it as a method body. The registrations
-//! happen in [`super::Kobako::install`]; the bridges themselves
+//! happen in `super::Kobako::install`; the bridges themselves
 //! re-enter the boundary by resolving a `Kobako` token via
-//! [`super::Kobako::resolve_raw`] and then call safe methods.
+//! `super::Kobako::resolve_raw` and then call safe methods.
 //!
 //! ## Dispatch chain
 //!
@@ -27,14 +27,14 @@
 //! ```
 //!
 //! The two `method_missing` bridges live on the two `Kobako::Transport::Proxy`
-//! subclasses: [`member_method_missing`] is the singleton-class shim on
+//! subclasses: `member_method_missing` is the singleton-class shim on
 //! `Kobako::Member` (Member *classes*, `Target::Path`) and
-//! [`handle_method_missing`] is the instance shim on `Kobako::Handle`
+//! `handle_method_missing` is the instance shim on `Kobako::Handle`
 //! (Handle *instances*, `Target::Handle`, docs/behavior.md B-17). The
 //! two differ only in how they derive the `Target` from `self_`; the
 //! BlockFrame push, method-symbol extraction, args/kwargs unpacking,
 //! host round-trip, and result conversion all live in
-//! [`forward_to_dispatch`].
+//! `forward_to_dispatch`.
 //!
 //! ## Safety
 //!
@@ -54,7 +54,7 @@ use crate::mruby::sys::Value;
 /// `Kobako::Handle` instance shim) plus two error labels: `sym_err_msg`
 /// for a null method symbol, `envelope_err_msg` for a transport envelope
 /// fault. Extracts the method symbol, args/kwargs, and block; rounds the
-/// request through the host via [`crate::transport::proxy::invoke`]; and
+/// request through the host via `crate::transport::proxy::invoke`; and
 /// converts the result back to an mruby value — raising
 /// `Kobako::ServiceError` on a Response.err and
 /// `Kobako::Transport::Error` on an envelope fault (both raise paths
@@ -108,7 +108,7 @@ fn forward_to_dispatch(
 ///   - `args`   = rest args (positional), last arg absorbed into kwargs if Hash
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
-/// Forwards to [`forward_to_dispatch`] with `Target::Path`.
+/// Forwards to `forward_to_dispatch` with `Target::Path`.
 pub(crate) unsafe extern "C" fn member_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
@@ -140,7 +140,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
 
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
-/// [`super::Kobako::set_handle_id`].
+/// `super::Kobako::set_handle_id`.
 pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
@@ -156,7 +156,7 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
 /// carries only that id; all of its dispatch behaviour is this one
 /// method plus the inherited `forward_to_dispatch` body.
 ///
-/// Forwards to [`forward_to_dispatch`] with `Target::Handle`.
+/// Forwards to `forward_to_dispatch` with `Target::Handle`.
 pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,

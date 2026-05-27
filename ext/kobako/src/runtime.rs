@@ -18,15 +18,15 @@
 //   * `config`      — per-Runtime caps (timeout / stdout / stderr limits).
 //   * `exports`     — cached `__kobako_eval` / `_run` / `_take_outcome` handles.
 //   * `invocation`  — Invocation (per-Store context), StoreCell wrapper, the
-//                     [`MemoryLimiter`] memory cap, and the trap marker
-//                     types ([`TimeoutTrap`] / [`MemoryLimitTrap`]).
+//                     `MemoryLimiter` memory cap, and the trap marker
+//                     types (`TimeoutTrap` / `MemoryLimitTrap`).
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //   * `guest_mem`   — Caller-based guest linear-memory alloc / write / read.
 //   * `capture`     — stdout / stderr pipe sizing + clip helpers.
 //   * `trap`        — wasmtime-error → `Kobako::*` trap classification.
 //
 // This file owns the `Kobako::Runtime` magnus class itself (the wasmtime
-// instance + Store + cached [`Exports`] + [`Config`], plus the `#eval` /
+// instance + Store + cached `Exports` + `Config`, plus the `#eval` /
 // `#run` run path), the Ruby error-class lazy-resolvers, the `trap_err` /
 // `timeout_err` / `memory_limit_err` / `setup_err` constructors shared by
 // every submodule, and the Ruby init() that registers the class.
@@ -87,7 +87,7 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// Resolve `Kobako::<name>` as an +ExceptionClass+ — the shared body of
-/// every error-class [`Lazy`] below, which differ only in the constant
+/// every error-class `Lazy` below, which differ only in the constant
 /// name. The constants are guaranteed present by the time any of these
 /// lazies first resolve (`lib/kobako/errors.rb` loads the hierarchy before
 /// the ext raises into it), so a missing constant is a build / wiring bug
@@ -114,7 +114,7 @@ pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
 
 /// Build a +MagnusError+ in +class+ carrying +msg+ — the shared body of
 /// the named +*_err+ constructors below, which differ only in which
-/// error-class [`Lazy`] they target.
+/// error-class `Lazy` they target.
 fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(class), msg.into())
 }
@@ -183,20 +183,20 @@ pub(crate) struct Runtime {
     inner: WtInstance,
     store: StoreCell,
     // Cached host-driven ABI export handles (`__kobako_eval` / `_run` /
-    // `_take_outcome`); see [`Exports`]. `__kobako_alloc` is not among them
+    // `_take_outcome`); see `Exports`. `__kobako_alloc` is not among them
     // — only `dispatch.rs` calls it, via `Caller::get_export`.
     exports: Exports,
     // Wall-clock + per-channel capture caps forwarded from the Sandbox;
-    // see [`Config`]. Distinct from the per-invocation `memory_limit`,
-    // which lives on [`Invocation`] because the wasmtime [`ResourceLimiter`]
+    // see `Config`. Distinct from the per-invocation `memory_limit`,
+    // which lives on `Invocation` because the wasmtime `ResourceLimiter`
     // callback consumes it from inside the wasm engine.
     config: Config,
     // The host-side dispatch Proc (docs/behavior.md B-12), held here only
-    // to give [`DataTypeFunctions::mark`] a Store-free read path so it can
+    // to give `DataTypeFunctions::mark` a Store-free read path so it can
     // pin the Proc across GC. The copy the `__kobako_dispatch` import
-    // actually calls lives on [`Invocation`] (reached through
+    // actually calls lives on `Invocation` (reached through
     // `Caller<Invocation>`, which cannot see this struct); see
-    // [`Runtime::set_on_dispatch`]. Both hold the same `Copy` handle to the
+    // `Runtime::set_on_dispatch`. Both hold the same `Copy` handle to the
     // one pinned Proc. `Cell` is sound under the GVL (see the `unsafe impl
     // Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
@@ -205,7 +205,7 @@ pub(crate) struct Runtime {
 impl DataTypeFunctions for Runtime {
     /// Mark — and thereby pin — the host-side dispatch Proc so Ruby's GC
     /// neither collects nor moves it while the ext holds a raw `Opaque`
-    /// copy on [`Invocation`] for the duration of a guest invocation.
+    /// copy on `Invocation` for the duration of a guest invocation.
     /// `gc::Marker::mark` maps to `rb_gc_mark`, which pins: required because
     /// the Invocation copy is a cached `VALUE` that compaction would
     /// otherwise leave dangling (docs/behavior.md B-12 / B-13). Without
@@ -221,7 +221,7 @@ impl DataTypeFunctions for Runtime {
 
 // SAFETY: magnus requires `Send + Sync` on TypedData types. The added
 // `on_dispatch: Cell<…>` makes the auto-derived `Sync` unavailable, but the
-// same GVL invariant that justifies [`StoreCell`]'s assertion applies here:
+// same GVL invariant that justifies `StoreCell`'s assertion applies here:
 // every access to the Cell happens under the GVL on a single thread at a
 // time — `set_on_dispatch` from a Ruby method call, and `mark` from a GC
 // pass that also holds the GVL. No cross-thread access to the Cell can
@@ -366,7 +366,7 @@ impl Runtime {
         let on_dispatch = Opaque::from(proc_value);
         // Write both copies of the one Proc handle: the `on_dispatch` Cell
         // gives `DataTypeFunctions::mark` a Store-free read path to pin the
-        // Proc across GC, and the [`Invocation`] copy is what the
+        // Proc across GC, and the `Invocation` copy is what the
         // `__kobako_dispatch` import reads through `Caller<Invocation>`.
         // `mark` cannot reach the Invocation copy itself — the Store is held
         // `borrow_mut` for the whole guest call, exactly when GC may fire
@@ -422,14 +422,14 @@ impl Runtime {
     // -----------------------------------------------------------------
 
     /// Execute one guest invocation (`__kobako_eval` — one-shot source)
-    /// and return a [`Snapshot`] bundling every per-invocation observable.
+    /// and return a `Snapshot` bundling every per-invocation observable.
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
     /// (the three-frame stdin protocol carries +preamble+, +source+, then
     /// +snippets+ — docs/wire-codec.md § Invocation channels), then
     /// invokes `__kobako_eval`. Per-invocation caps (docs/behavior.md
     /// B-01) are primed here: the wall-clock deadline is stamped into
-    /// [`Invocation`] and the epoch deadline is set to fire at the next
+    /// `Invocation` and the epoch deadline is set to fire at the next
     /// ticker tick; the memory-cap limiter is already wired.
     ///
     /// On a wasmtime trap the configured-cap path raises
@@ -456,13 +456,13 @@ impl Runtime {
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`) and return a
-    /// [`Snapshot`] bundling every per-invocation observable.
+    /// `Snapshot` bundling every per-invocation observable.
     ///
     /// Rebuilds the WASI context with the two-frame stdin protocol
     /// (preamble + snippets; no user source frame — docs/wire-codec.md
     /// § Invocation channels), copies +envelope+ bytes into guest linear
     /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
-    /// env_len)`. Per-invocation cap semantics match [`Runtime::eval`].
+    /// env_len)`. Per-invocation cap semantics match `Runtime::eval`.
     /// Raises +Kobako::TrapError+ ("alloc returned 0") when guest
     /// allocation fails (docs/behavior.md E-31).
     pub(crate) fn run(
@@ -480,7 +480,7 @@ impl Runtime {
         self.build_snapshot(&ruby)
     }
 
-    /// Collect every per-invocation observable into a fresh [`Snapshot`].
+    /// Collect every per-invocation observable into a fresh `Snapshot`.
     /// Called from the run-path methods after the guest export returns
     /// successfully: drains OUTCOME_BUFFER via `__kobako_take_outcome`,
     /// snapshots the per-channel stdout / stderr pipes (clipped to their
@@ -522,8 +522,8 @@ impl Runtime {
     ///
     ///   * `wall_time` (Float seconds) — the wall-clock duration the
     ///     most recent invocation spent inside the guest export call.
-    ///     Bracket opens in [`Runtime::prime_caps`] and closes in
-    ///     [`Runtime::disarm_caps`], so the value mirrors the
+    ///     Bracket opens in `Runtime::prime_caps` and closes in
+    ///     `Runtime::disarm_caps`, so the value mirrors the
     ///     `timeout` deadline accounting and excludes everything that
     ///     runs after the guest export returns — the post-export
     ///     `OUTCOME_BUFFER` fetch and decode, plus stdout / stderr
@@ -534,7 +534,7 @@ impl Runtime {
     ///     invocation.
     ///
     /// Packing both readers into one ext call mirrors the combined
-    /// stdout / stderr readout in [`Runtime::build_snapshot`]: one
+    /// stdout / stderr readout in `Runtime::build_snapshot`: one
     /// `store.borrow()` per readout and a single magnus binding to
     /// extend when B-35's field list grows past two.
     pub(crate) fn usage(&self) -> Result<RArray, MagnusError> {
@@ -552,7 +552,7 @@ impl Runtime {
     // -----------------------------------------------------------------
 
     /// Run one guest export call inside the per-invocation cap window:
-    /// [`Runtime::prime_caps`] before, [`Runtime::disarm_caps`] after —
+    /// `Runtime::prime_caps` before, `Runtime::disarm_caps` after —
     /// the shared bracket for both run-path exports (`__kobako_eval` /
     /// `__kobako_run`). Disarm runs whether the call returns or traps, so
     /// the docs/behavior.md B-35 `wall_time` bracket and the E-20 memory
@@ -578,7 +578,7 @@ impl Runtime {
         result
     }
 
-    /// Stamp the per-invocation wall-clock deadline into [`Invocation`]
+    /// Stamp the per-invocation wall-clock deadline into `Invocation`
     /// and prime the wasmtime epoch deadline so the next ticker tick
     /// wakes the epoch-deadline callback. When `timeout` is disabled,
     /// the deadline is set far enough in the future that the callback
@@ -593,7 +593,7 @@ impl Runtime {
     ///
     /// Also stamps the wall-clock entry instant for the
     /// docs/behavior.md B-35 `wall_time` measurement. The bracket
-    /// closes in [`Runtime::disarm_caps`] so it matches the
+    /// closes in `Runtime::disarm_caps` so it matches the
     /// `timeout` deadline window and excludes `OUTCOME_BUFFER`
     /// decoding and stdout / stderr capture readout.
     fn prime_caps(&self) {
@@ -621,8 +621,8 @@ impl Runtime {
     /// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
     /// which can grow guest memory transiently) is not attributed to
     /// the user script. Also closes the docs/behavior.md B-35
-    /// `wall_time` bracket opened by [`Runtime::prime_caps`]. Paired
-    /// with [`Runtime::prime_caps`].
+    /// `wall_time` bracket opened by `Runtime::prime_caps`. Paired
+    /// with `Runtime::prime_caps`.
     fn disarm_caps(&self) {
         let mut store_ref = self.store.borrow_mut();
         store_ref.data_mut().stop_wall_clock();
@@ -673,7 +673,7 @@ impl Runtime {
     /// three frames (preamble, source, snippets), +#run+ passes two
     /// (preamble, snippets — the invocation envelope arrives via linear
     /// memory instead). Each output pipe is sized at `cap + 1` so
-    /// [`capture::clip_capture`] can distinguish "wrote exactly cap
+    /// `capture::clip_capture` can distinguish "wrote exactly cap
     /// bytes" from "exceeded cap"; uncapped channels fall back
     /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
     /// for the real ceiling.
@@ -742,7 +742,7 @@ const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required
 /// User-facing message for the "the loaded Wasm module is not a
 /// Kobako-shaped runtime at all" failure mode (no linear memory
 /// export). Same phrasing philosophy as
-/// [`SANDBOX_RUNTIME_MISSING_HOOKS`].
+/// `SANDBOX_RUNTIME_MISSING_HOOKS`.
 const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear memory; \
      this is not a Kobako-compatible Wasm module";
 
@@ -752,7 +752,7 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear
 /// drains +OUTCOME_BUFFER+ share the same "missing export → Ruby
 /// error" boilerplate; this helper collapses those sites onto one
 /// safe entry. The user-facing message is intentionally export-
-/// agnostic (see [`SANDBOX_RUNTIME_MISSING_HOOKS`]) — the ABI symbol
+/// agnostic (see `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol
 /// name is not actionable to callers, so it is not threaded in.
 fn require_export<'a, Params, Results>(
     ruby: &Ruby,

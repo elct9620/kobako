@@ -4,8 +4,8 @@
 //! `.mrb` blobs by `build.rs` (invoking the host-target `mrbc` produced
 //! by the same vendored mruby tree as `libmruby.a`). The blobs are
 //! embedded into the cdylib via `include_bytes!` and loaded at install
-//! time through [`mrb_load_irep_buf`], side-stepping the source-parse
-//! cost paid by [`mrb_load_nstring`].
+//! time through `mrb_load_irep_buf`, side-stepping the source-parse
+//! cost paid by `mrb_load_nstring`.
 //!
 //! ## Why precompile
 //!
@@ -14,9 +14,6 @@
 //! measurable cold-start cost on every `__kobako_eval`. `mrb_load_irep_buf`
 //! parses only the RITE header and pulls iseq bytes straight into the
 //! VM — the same fast path mruby's own gem mrblib uses.
-//!
-//! [`mrb_load_irep_buf`]: crate::mruby::sys::mrb_load_irep_buf
-//! [`mrb_load_nstring`]: crate::mruby::sys::mrb_load_nstring
 
 /// Compiled bytecode for `mrblib/io.rb` — defines the instance method
 /// surface on the top-level `IO` class (`#print`, `#puts`, `#printf`,
@@ -40,7 +37,7 @@ pub(crate) const KERNEL_MRB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/k
 /// On a malformed blob (version drift between the linked `libmruby.a`
 /// and the host `mrbc` that produced the blob, truncated buffer, etc.)
 /// mruby sets `mrb->exc` and returns. Callers that need to surface the
-/// fault should inspect the exception via [`crate::mruby::Mrb::pending_exc`]
+/// fault should inspect the exception via `crate::mruby::Mrb::pending_exc`
 /// before proceeding. The build pipeline guarantees `mrbc` and
 /// `libmruby.a` originate from the same `vendor/mruby/` tree, so under
 /// correct builds the load is unconditional.

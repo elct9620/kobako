@@ -1,4 +1,4 @@
-//! `mrb_get_args` shape-typed dispatch on [`Mrb`].
+//! `mrb_get_args` shape-typed dispatch on `Mrb`.
 //!
 //! mruby's `mrb_get_args` is a variadic C function whose format string
 //! drives heterogeneous out-parameters at runtime. Rust cannot express
@@ -7,18 +7,18 @@
 //! force every call site into hand-counted `unsafe` plumbing.
 //!
 //! The trade is to lift the format string to the *type* level. Each
-//! format becomes a zero-sized marker type implementing [`Format`];
-//! [`Mrb::get_args`] is the single safe entry point that
+//! format becomes a zero-sized marker type implementing `Format`;
+//! `Mrb::get_args` is the single safe entry point that
 //! monomorphises the FFI call against `F::FMT` and returns the typed
 //! tuple from `F::Output`.
 //!
-//!   - [`format::O`]          — `"o"`   → single positional
-//!   - [`format::Rest`]       — `"*"`   → rest array borrowed from the
+//!   - `format::O`          — `"o"`   → single positional
+//!   - `format::Rest`       — `"*"`   → rest array borrowed from the
 //!     call frame
-//!   - [`format::NRest`]      — `"n*"`  → symbol + rest array
-//!   - [`format::NRestBlock`] — `"n*&"` → symbol + rest array + block
+//!   - `format::NRest`      — `"n*"`  → symbol + rest array
+//!   - `format::NRestBlock` — `"n*&"` → symbol + rest array + block
 //!     slot
-//!   - [`format::Io`]         — `"io"`  → integer + object
+//!   - `format::Io`         — `"io"`  → integer + object
 //!
 //! Rest-form variants borrow the call frame's argv buffer; the
 //! lifetime is tied to `&self`, which the bridge body holds for the
@@ -28,20 +28,20 @@
 //!
 //! ## Why a trait rather than per-method wrappers
 //!
-//! The previous shape was four inherent methods on [`Mrb`] — one per
+//! The previous shape was four inherent methods on `Mrb` — one per
 //! format string. That worked for a closed set, but every new format
-//! widened the [`Mrb`] surface and duplicated the variadic FFI dance.
+//! widened the `Mrb` surface and duplicated the variadic FFI dance.
 //! The trait pattern flips the axis: format identity moves to a ZST,
 //! the dispatch surface collapses to a single `get_args::<F>()`, and
 //! adding a fifth format means adding a struct + impl — not editing
 //! `impl Mrb`. The same pattern is the right template for any other
 //! capability cluster that currently lives as fan-of-methods on
-//! [`Mrb`] (`Define`, `Build`, etc.) once a similar combinatorial
+//! `Mrb` (`Define`, `Build`, etc.) once a similar combinatorial
 //! pressure shows up.
 //!
 //! ## Extending with a new format
 //!
-//! Add a marker ZST under [`format`] and implement [`Format`]:
+//! Add a marker ZST under `format` and implement `Format`:
 //!
 //! ```ignore
 //! use kobako_mruby_sys::{Format, Mrb, Value};
@@ -64,18 +64,18 @@ use crate::{Mrb, Value};
 
 /// Type-level marker for a single `mrb_get_args` format string.
 ///
-/// Implementors are zero-sized structs (see [`format`]) whose
-/// [`Format::FMT`] supplies the mruby format and whose
-/// [`Format::Output`] names the typed return shape. The GAT lifetime
+/// Implementors are zero-sized structs (see `format`) whose
+/// `Format::FMT` supplies the mruby format and whose
+/// `Format::Output` names the typed return shape. The GAT lifetime
 /// `'a` carries the borrow from the call-frame argv slot for
 /// rest-form formats; immediate formats leave it unused.
 ///
 /// New implementors should monomorphise the `mrb_get_args` call inside
-/// [`Format::read`] against [`Format::FMT`] — see `format::O` for the
+/// `Format::read` against `Format::FMT` — see `format::O` for the
 /// minimal pattern.
 #[cfg(target_arch = "wasm32")]
 pub trait Format {
-    /// Typed shape returned by [`Format::read`]. The `'a` lifetime is
+    /// Typed shape returned by `Format::read`. The `'a` lifetime is
     /// the borrow on the call-frame argv slot for rest-form formats;
     /// immediate formats leave it unused.
     type Output<'a>;
@@ -86,14 +86,14 @@ pub trait Format {
     const FMT: &'static core::ffi::CStr;
 
     /// Read the call-frame argv against `Self::FMT` and project it
-    /// into [`Format::Output`]. The body issues exactly one
+    /// into `Format::Output`. The body issues exactly one
     /// `mrb_get_args` call with the per-format out-parameter shape.
     fn read(mrb: &Mrb) -> Self::Output<'_>;
 }
 
 #[cfg(target_arch = "wasm32")]
 impl Mrb {
-    /// Read the call-frame argv using a [`Format`] marker. The
+    /// Read the call-frame argv using a `Format` marker. The
     /// monomorphised call expands to a single `mrb_get_args` against
     /// `F::FMT` and returns the typed tuple from `F::Output`.
     ///
@@ -108,7 +108,7 @@ impl Mrb {
     }
 }
 
-/// Zero-sized marker types implementing [`Format`]. Each marker maps
+/// Zero-sized marker types implementing `Format`. Each marker maps
 /// one mruby format string to a typed Rust return.
 #[cfg(target_arch = "wasm32")]
 pub mod format {
@@ -116,7 +116,7 @@ pub mod format {
     use super::{slice_from_argv, Format, Mrb, Value};
 
     /// `mrb_get_args(mrb, "o", &val)` — read a single positional
-    /// argument as a [`Value`].
+    /// argument as a `Value`.
     pub struct O;
     impl Format for O {
         type Output<'a> = Value;
@@ -254,7 +254,7 @@ pub mod format {
 /// so the helper folds that into an empty slice.
 ///
 /// The slice's lifetime is bound by the caller's `&self` borrow on
-/// [`Mrb`] (the call frame that produced argv).
+/// `Mrb` (the call frame that produced argv).
 #[cfg(target_arch = "wasm32")]
 #[inline]
 fn slice_from_argv<'a>(argv: *const sys::mrb_value, argc: core::ffi::c_int) -> &'a [Value] {

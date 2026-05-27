@@ -21,23 +21,23 @@
 //!
 //! ## ABI guarantee
 //!
-//! `Value` is `#[repr(transparent)]` over [`mrb_value`]. The wasm32
+//! `Value` is `#[repr(transparent)]` over `mrb_value`. The wasm32
 //! `mrb_value` is a 4-byte word; `Value` is therefore also 4 bytes
 //! and shares the C ABI. This matters at the `mrb_func_t` boundary:
 //! a bridge declared with `Value` parameters and return type
 //! produces the same wasm function signature as one declared with
-//! `mrb_value`. Round-tripping through [`Value::from_raw`] /
-//! [`Value::into_raw`] is therefore a no-op at the codegen level.
+//! `mrb_value`. Round-tripping through `Value::from_raw` /
+//! `Value::into_raw` is therefore a no-op at the codegen level.
 //!
 //! ## What lives next to `Value` here
 //!
-//!   * The [`cstr!`] macro and [`cstr_ptr`] helper — generic
+//!   * The `cstr!` macro and `cstr_ptr` helper — generic
 //!     NUL-terminated `*const c_char` plumbing; unchanged across
 //!     the `Value` introduction.
-//!   * The [`Immediates`] cache — `nil` / `true` / `false`
+//!   * The `Immediates` cache — `nil` / `true` / `false`
 //!     `mrb_value` snapshots captured once via the layout-safe C
-//!     shims, exposed through [`Value::nil`] / [`Value::true_`] /
-//!     [`Value::false_`].
+//!     shims, exposed through `Value::nil` / `Value::true_` /
+//!     `Value::false_`.
 
 use crate as sys;
 
@@ -123,13 +123,13 @@ impl Immediates {
 // --------------------------------------------------------------------
 
 /// Typed handle on a single mruby value. `#[repr(transparent)]` over
-/// [`mrb_value`] so the C ABI is preserved.
+/// `mrb_value` so the C ABI is preserved.
 ///
-/// Construct via [`Value::from_raw`] (at FFI boundaries),
-/// [`Value::nil`] / [`Value::true_`] / [`Value::false_`] (immediates),
-/// or [`Value::from_int`] / [`Value::from_float`] (numeric factories).
-/// Round-trip back to the raw type via [`Value::as_raw`] /
-/// [`Value::into_raw`] when calling raw FFI that has not yet been
+/// Construct via `Value::from_raw` (at FFI boundaries),
+/// `Value::nil` / `Value::true_` / `Value::false_` (immediates),
+/// or `Value::from_int` / `Value::from_float` (numeric factories).
+/// Round-trip back to the raw type via `Value::as_raw` /
+/// `Value::into_raw` when calling raw FFI that has not yet been
 /// migrated.
 ///
 /// ## What is intentionally NOT here
@@ -142,9 +142,9 @@ impl Immediates {
 ///
 /// ## Cross-target availability
 ///
-/// `Value` itself, [`Value::from_raw`] / [`Value::as_raw`] /
-/// [`Value::into_raw`] / [`Value::zeroed`], and the
-/// [`sys::mrb_func_t`] typedef are available on every target so the
+/// `Value` itself, `Value::from_raw` / `Value::as_raw` /
+/// `Value::into_raw` / `Value::zeroed`, and the
+/// `sys::mrb_func_t` typedef are available on every target so the
 /// host-target `mrb_func_t_is_a_valid_extern_c_fn_pointer` signature
 /// check (in this crate's `tests` module) keeps compiling. Methods
 /// that talk to mruby (`classname` / `call` / numeric factories /
@@ -173,7 +173,7 @@ impl Value {
     }
 
     /// Consume and return the inner `mrb_value`. Identical to
-    /// [`Value::as_raw`] semantically — `Value: Copy` makes the move
+    /// `Value::as_raw` semantically — `Value: Copy` makes the move
     /// vs. borrow distinction immaterial — but reads cleaner at the
     /// final return statement of a bridge function.
     #[inline]
@@ -184,7 +184,7 @@ impl Value {
     /// All-zero `Value`. On wasm32 with the kobako mruby
     /// configuration this matches `mrb_nil_value()` (MRB_Qnil = 0),
     /// but callers that need a guaranteed nil should prefer
-    /// [`Value::nil`] which reads through the mruby shim. The
+    /// `Value::nil` which reads through the mruby shim. The
     /// zeroed form exists for out-parameter initialization
     /// (`mrb_get_args` writes to it).
     #[inline]
@@ -196,19 +196,19 @@ impl Value {
 #[cfg(target_arch = "wasm32")]
 impl Value {
     /// Canonical mruby `nil`. Reads through the process-wide
-    /// [`Immediates`] cache; capture is lazy and one-shot.
+    /// `Immediates` cache; capture is lazy and one-shot.
     #[inline]
     pub fn nil() -> Self {
         Self(Immediates::get().qnil)
     }
 
-    /// Canonical mruby `true`. See [`Value::nil`].
+    /// Canonical mruby `true`. See `Value::nil`.
     #[inline]
     pub fn true_() -> Self {
         Self(Immediates::get().qtrue)
     }
 
-    /// Canonical mruby `false`. See [`Value::nil`].
+    /// Canonical mruby `false`. See `Value::nil`.
     #[inline]
     pub fn false_() -> Self {
         Self(Immediates::get().qfalse)
@@ -350,8 +350,8 @@ impl Value {
 
     /// Invoke `self.<method>(args...)` via the non-variadic
     /// `mrb_funcall_argv`. The method name is interned through
-    /// [`Mrb::intern_cstr`]; use [`Value::call_argv`] directly when
-    /// the caller already holds an interned [`sys::mrb_sym`] (e.g. a
+    /// `Mrb::intern_cstr`; use `Value::call_argv` directly when
+    /// the caller already holds an interned `sys::mrb_sym` (e.g. a
     /// dispatch site that cached the sym across a `respond_to?`
     /// gate).
     #[inline]
@@ -361,7 +361,7 @@ impl Value {
     }
 
     /// `mrb_funcall_argv(mrb, self, sym, argc, argv)` — invoke the
-    /// method already interned as `sym`. Counterpart to [`Value::call`]
+    /// method already interned as `sym`. Counterpart to `Value::call`
     /// for sites that pre-intern (typically because the same symbol is
     /// queried via `respond_to?` first).
     ///
@@ -401,7 +401,7 @@ impl Value {
     /// TRUE when `self` carries `MRB_TT_INTEGER`. Pure tag predicate
     /// via mruby's `mrb_type` (`MRB_INLINE`), reached through
     /// bindgen's static-fn trampoline. Pair with
-    /// [`Value::unbox_integer`] for the direct-unbox path.
+    /// `Value::unbox_integer` for the direct-unbox path.
     #[inline]
     pub fn is_integer(self) -> bool {
         // SAFETY: mrb_type is a pure predicate over the value tag and
@@ -409,8 +409,8 @@ impl Value {
         unsafe { sys::mrb_type(self.0) == sys::MRB_TT_INTEGER }
     }
 
-    /// TRUE when `self` carries `MRB_TT_FLOAT`. See [`Value::is_integer`].
-    /// Pair with [`Value::unbox_float`].
+    /// TRUE when `self` carries `MRB_TT_FLOAT`. See `Value::is_integer`.
+    /// Pair with `Value::unbox_float`.
     #[inline]
     pub fn is_float(self) -> bool {
         // SAFETY: as `is_integer`.
@@ -424,7 +424,7 @@ impl Value {
     /// # Safety
     ///
     /// Caller must have confirmed Integer-tagging via
-    /// [`Value::is_integer`]; calling on a non-Integer is undefined
+    /// `Value::is_integer`; calling on a non-Integer is undefined
     /// behaviour per mruby's macro contract.
     #[inline]
     pub unsafe fn unbox_integer(self) -> i32 {
@@ -447,7 +447,7 @@ impl Value {
     ///
     /// # Safety
     ///
-    /// As [`Value::unbox_integer`]: caller has confirmed Float-tagging.
+    /// As `Value::unbox_integer`: caller has confirmed Float-tagging.
     #[inline]
     pub unsafe fn unbox_float(self) -> f64 {
         // SAFETY: forwarded from caller. Float-tagged values have
@@ -509,7 +509,7 @@ impl Value {
 
     /// `mrb_const_get(mrb, self, sym)` — fetch the constant value at
     /// `sym` from `self`. Sets `mrb->exc` if the constant is
-    /// undefined; callers should gate with [`Value::const_defined`].
+    /// undefined; callers should gate with `Value::const_defined`.
     #[inline]
     pub fn const_get(self, mrb: &Mrb, sym: sys::mrb_sym) -> Value {
         // SAFETY: as `iv_set`.

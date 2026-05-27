@@ -1,4 +1,4 @@
-//! `mrb_protect_error` closure wrapper on [`Mrb`].
+//! `mrb_protect_error` closure wrapper on `Mrb`.
 //!
 //! Inherent method that wraps mruby's `mrb_protect_error` so any
 //! Ruby exception the body raises is caught and surfaced as
@@ -22,7 +22,7 @@ impl Mrb {
     /// The closure receives a borrowed `&Mrb` (the same VM `self`
     /// points to) so it can call safe methods inside the protected
     /// frame without re-acquiring the borrow. It must return a
-    /// [`Value`] — the protected frame's value is whatever the
+    /// `Value` — the protected frame's value is whatever the
     /// closure produces, mirroring mruby's own `body` contract.
     ///
     /// ## Drop semantics on the raise path
@@ -33,7 +33,7 @@ impl Mrb {
     /// strings, etc.) **will not be dropped** on that path —
     /// `setjmp`/`longjmp` does not unwind Rust stack frames.
     ///
-    /// **Capture `Copy` values only** ([`Value`] is `Copy`) unless
+    /// **Capture `Copy` values only** (`Value` is `Copy`) unless
     /// the rare leak on the raise path is acceptable for the
     /// captured state. The closure-slot pattern below keeps the
     /// per-call overhead allocation-free; only the closure's own

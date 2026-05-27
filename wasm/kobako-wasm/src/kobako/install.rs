@@ -1,4 +1,4 @@
-//! Per-step install helpers for [`super::Kobako::install`].
+//! Per-step install helpers for `super::Kobako::install`.
 //!
 //! `install` runs three independent registrations against a freshly
 //! opened mruby state — class hierarchy, IO globals, Kernel delegators.
@@ -7,12 +7,12 @@
 //!
 //! The helpers are crate-private and wasm32-only by design — they
 //! exist solely to support the wasm32 install path; the host target
-//! never calls them because [`super::Kobako`] short-circuits to the
+//! never calls them because `super::Kobako` short-circuits to the
 //! empty stub there.
 //!
 //! Mirrors the host-side install split in `lib/kobako/registry/` —
 //! `install` here plays the same role as the per-service-group
-//! `service_group.rb` modules: the façade ([`super::Kobako`]) stays
+//! `service_group.rb` modules: the façade (`super::Kobako`) stays
 //! lean while the bulk of the boot wiring lives in sibling files.
 
 use crate::mruby::sys;
@@ -24,10 +24,10 @@ use super::bytecode;
 #[cfg(target_arch = "wasm32")]
 use super::io;
 
-/// Bundle of [`sys::Class`] handles produced by
-/// [`install_kobako_classes`]. Internal to the install pipeline —
+/// Bundle of `sys::Class` handles produced by
+/// `install_kobako_classes`. Internal to the install pipeline —
 /// the caller pulls each handle into the matching field on
-/// [`super::Kobako`].
+/// `super::Kobako`.
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
     pub(super) member_class: sys::Class,
@@ -40,10 +40,10 @@ pub(super) struct KobakoClasses {
 /// `Kobako::Transport::Proxy` abstract base plus its two top-level
 /// subclasses `Kobako::Member` and `Kobako::Handle`, and the
 /// `Kobako::ServiceError` / `Kobako::Transport::Error` exception
-/// hierarchy. Returns the class handles the [`super::Kobako`] token
+/// hierarchy. Returns the class handles the `super::Kobako` token
 /// needs to keep around.
 ///
-/// Function pointers come from [`bridges`], the only producer of
+/// Function pointers come from `bridges`, the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by
 /// `define_*_under` are owned by mruby and live for the duration of
 /// `mrb`.
@@ -177,7 +177,7 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
 /// redefines `Kernel#print` (overriding mruby-core's `mrb_print_m`
 /// registration that always targets the C `stdout` FILE*) and adds
 /// `#puts` / `#p` / `#printf` / `#warn` as thin pass-throughs to
-/// `$stdout` / `$stderr`. Must run after [`install_io_globals`] —
+/// `$stdout` / `$stderr`. Must run after `install_io_globals` —
 /// the delegators look up the globals at call time but would
 /// NoMethodError if called before they exist.
 ///

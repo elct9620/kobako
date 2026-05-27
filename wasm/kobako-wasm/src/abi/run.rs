@@ -13,11 +13,11 @@
 //!    with the snippet's backtrace attribution (docs/behavior.md E-36)
 //!    and returns.
 //! 2. Decode the invocation envelope from `(env_ptr, env_len)` via
-//!    [`parse_invocation`]. Decode failure writes a Panic envelope
+//!    `parse_invocation`. Decode failure writes a Panic envelope
 //!    (E-26).
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
-//!    [`sys::mrb_const_defined`] (E-27) and confirm the constant
-//!    responds to `:call` via [`sys::mrb_respond_to`] (E-28). Each
+//!    `sys::mrb_const_defined` (E-27) and confirm the constant
+//!    responds to `:call` via `sys::mrb_respond_to` (E-28). Each
 //!    failure writes a Panic envelope directly with the SPEC-mandated
 //!    `Kobako::SandboxError` class string.
 //! 4. Invoke `target.call(*args, **kwargs)` through `mrb_funcall_argv`
@@ -32,8 +32,8 @@ use crate::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
 /// name (a Symbol on the codec side); `args` is always a
-/// [`Value::Array`] and `kwargs` always a [`Value::Map`] — callers can
-/// hand them straight to [`crate::kobako::Kobako::to_mrb_value`]
+/// `Value::Array` and `kwargs` always a `Value::Map` — callers can
+/// hand them straight to `crate::kobako::Kobako::to_mrb_value`
 /// without re-checking.
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, PartialEq)]
@@ -45,7 +45,7 @@ pub(super) struct Invocation {
 
 /// Reasons the invocation envelope failed to decode. Each variant
 /// carries the host-visible Panic message verbatim; the wrapper at
-/// [`__kobako_run`] folds the variant back into a
+/// `__kobako_run` folds the variant back into a
 /// `Kobako::Transport::Error` Panic.
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, PartialEq)]
@@ -66,7 +66,7 @@ impl InvocationError {
     }
 }
 
-/// Parse a decoded msgpack [`Value`] into an [`Invocation`]. Unknown
+/// Parse a decoded msgpack `Value` into an `Invocation`. Unknown
 /// keys are silently ignored for forward compatibility; `args` /
 /// `kwargs` default to empty array / empty map when absent. Pure
 /// parser — host-buildable for unit testing.

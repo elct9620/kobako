@@ -44,6 +44,8 @@ Apply these in order — earlier principles override later ones on conflict.
    end
    ```
 
+   **In Rust, wrap identifiers in backtick code spans (`` `Invocation` ``); do not use rustdoc intra-doc links (`` [`Invocation`] ``).** Intra-doc links rot silently — they break on renames and cannot target private items (`pub(crate)` / `pub(super)` / private `fn`), so the link either dangles or silently drops. `cargo doc --no-deps --document-private-items` under `RUSTDOCFLAGS=-D warnings` runs on both workspaces in the Stop hook and rejects any such breakage (plus stray HTML like `<u8>` — backtick those too). Backtick spans never resolve, so they never rot. Reference-style file links such as `[SPEC.md ...]: ../../SPEC.md` are not intra-doc links and stay.
+
 6. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `Kobako::Outcome` / `Kobako::Transport::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
 
 7. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.

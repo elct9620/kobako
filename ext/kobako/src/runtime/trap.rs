@@ -3,7 +3,7 @@
 //! Maps a `wasmtime` run error to the right top-level `Kobako::*` Ruby
 //! exception (`TimeoutError` / `MemoryLimitError` / `TrapError`), and
 //! hosts the epoch-deadline callback that raises the wall-clock
-//! [`TimeoutTrap`]. The classification is a pure function over the error's
+//! `TimeoutTrap`. The classification is a pure function over the error's
 //! downcast chain so it can be exercised from `cargo test` without the
 //! magnus surface; the trap marker types themselves live in
 //! `super::invocation` (where the limiter / callback construct them).
@@ -17,8 +17,8 @@ use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
 use super::{memory_limit_err, setup_err, timeout_err, trap_err};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from [`Invocation`] (docs/behavior.md B-01) and trap with
-/// [`TimeoutTrap`] once the deadline has passed; otherwise extend the
+/// wall-clock deadline from `Invocation` (docs/behavior.md B-01) and trap with
+/// `TimeoutTrap` once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
 /// `Runtime::eval` / `Runtime::run` flow because
@@ -70,13 +70,13 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
 /// `Sandbox#run`) so the message reads in caller vocabulary rather
 /// than ABI vocabulary.
 ///
-/// For the configured-cap paths ([`TrapClass::Timeout`] /
-/// [`TrapClass::MemoryLimit`]) the trap's own [`std::fmt::Display`]
+/// For the configured-cap paths (`TrapClass::Timeout` /
+/// `TrapClass::MemoryLimit`) the trap's own `std::fmt::Display`
 /// carries the user-facing reason (`"wall-clock deadline exceeded"`,
 /// `"linear memory growth exceeded memory_limit: ..."`). The wasmtime
 /// outer wrapper at `format!("{}", err)` would otherwise surface only
 /// the `"error while executing at wasm backtrace: ..."` framing, which
-/// is operator noise on a cap trap. For [`TrapClass::Other`] the
+/// is operator noise on a cap trap. For `TrapClass::Other` the
 /// wasmtime wrapper IS the diagnostic (real script trap) so it stays.
 pub(super) fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     match classify_trap(&err) {
@@ -102,9 +102,9 @@ pub(super) fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
 /// during `from_path` construction, before any invocation — docs/behavior.md
 /// E-41 classifies every such failure as a construction setup fault, not a
 /// per-invocation cap outcome. The memory cap is dormant during
-/// instantiation (see [`Invocation::arm_memory_cap`] /
-/// [`Invocation::disarm_memory_cap`]) and the epoch deadline is not yet
-/// armed, so the [`call_err`] trap-class split does not apply here.
+/// instantiation (see `Invocation::arm_memory_cap` /
+/// `Invocation::disarm_memory_cap`) and the epoch deadline is not yet
+/// armed, so the `call_err` trap-class split does not apply here.
 pub(super) fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     setup_err(ruby, format!("instantiate: {}", err))
 }
