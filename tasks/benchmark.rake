@@ -43,9 +43,6 @@ namespace :bench do
     Rake::Task["bench:release"].invoke
   end
 
-  desc "Noise-aware release gate: compare the two newest results (or args [current,baseline])."
-  task(:gate, %i[current baseline]) { |_t, args| KobakoBench::Gate.gate!(args[:current], args[:baseline]) }
-
   desc "Run concurrent characterization benchmark (#7; not in release gate)."
   task :concurrent do
     sh "bundle exec ruby benchmark/concurrent/threads.rb"
@@ -59,6 +56,19 @@ namespace :bench do
   desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
   task :preload_dispatch do
     sh "bundle exec ruby benchmark/preload_dispatch.rb"
+  end
+end
+
+namespace :bench do
+  desc "Anchored release gate: compare a run against benchmark/baseline.json (or args [current,baseline])."
+  task(:gate, %i[current baseline]) { |_t, args| KobakoBench::Gate.gate!(args[:current], args[:baseline]) }
+
+  desc "Re-bless the anchor (benchmark/baseline.json) from a run; document the reason in the benchmark README."
+  task(:bless, %i[run]) { |_t, args| KobakoBench::Gate.bless!(args[:run]) }
+
+  desc "Run the release-gate comparator unit tests."
+  task :gate_test do
+    sh "bundle exec ruby tasks/support/kobako_bench_gate_test.rb"
   end
 end
 

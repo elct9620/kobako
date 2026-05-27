@@ -1,17 +1,22 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "json"
 
 require_relative "kobako_bench"
 
 module KobakoBench
-  # Noise-aware release-gate comparator. Diffs a new benchmark run
-  # against a baseline run (both parsed results JSON) and reports the
-  # gated cases whose regression clears BOTH a relative floor and the
-  # measured noise band.
+  # Noise-aware release-gate comparator. Diffs a benchmark run against
+  # the committed anchor baseline (+benchmark/baseline.json+) and reports
+  # two kinds of issue: gated cases whose cumulative regression past the
+  # anchor clears BOTH a relative floor and the measured noise band, and
+  # gated cases the anchor does not yet cover. The anchor is fixed, not
+  # the previous run, so sub-threshold drift accumulates against it
+  # instead of resetting each release; it advances only by {bless!}. See
+  # the Regression benchmarks section of SPEC.md.
   #
-  # The floor (+FLOOR_PCT+) is the conservative backstop the README has
-  # always named; the noise band (+SIGMA+ combined standard deviations)
+  # The floor (+FLOOR_PCT+) is the conservative backstop SPEC.md names;
+  # the noise band (+SIGMA+ combined standard deviations)
   # can only WIDEN the bar on high-variance rows, never narrow it below
   # the floor. So the gate never flags more than a bare +10% rule would
   # — it only suppresses flags on demonstrably noisy rows (the 512 KiB
@@ -32,41 +37,72 @@ module KobakoBench
     class Finding < Data.define(:suite, :label, :metric, :baseline, :current, :delta_pct, :band_pct)
     end
 
+    # One gated case present in the run but missing from the anchor. The
+    # anchor must carry every gated case, so this fails the gate until a
+    # re-bless records the case in the anchor.
+    class Unanchored < Data.define(:suite, :label, :metric)
+    end
+
     RESULTS_GLOB = File.expand_path("../../benchmark/results/*.json", __dir__)
+    ANCHOR_PATH = File.expand_path("../../benchmark/baseline.json", __dir__)
 
     module_function
 
-    # Resolve the two result files, run the comparison, print the
-    # outcome, and abort (non-zero exit) on any gated regression so the
-    # release pipeline fails. The IO/exit shell around the pure
-    # {compare}; the rake task delegates here so the .rake stays DSL.
+    # Resolve the run and the anchor, run the comparison, print the
+    # outcome, and abort (non-zero exit) on any gated regression or
+    # unanchored case so the release pipeline fails. The IO/exit shell
+    # around the pure {compare} / {unanchored}; the rake task delegates
+    # here so the .rake stays DSL.
     def gate!(current = nil, baseline = nil)
       current, baseline = resolve(current, baseline)
-      raise "bench:gate needs a current and a baseline results JSON" unless current && baseline
+      raise "bench:gate needs a current run and the committed anchor baseline" unless current && baseline
 
-      findings = compare(load_payload(current), load_payload(baseline))
-      puts "gate: #{File.basename(current)} vs #{File.basename(baseline)}"
-      report(findings)
-      abort "gate: #{findings.size} gated regression(s) need review before release." unless findings.empty?
+      run = load_payload(current)
+      anchor = load_payload(baseline)
+      regressions = compare(run, anchor)
+      missing = unanchored(run, anchor)
+      puts "gate: #{File.basename(current)} vs anchor #{File.basename(baseline)}"
+      report(regressions, missing)
+      problems = regressions.size + missing.size
+      abort "gate: #{problems} gated issue(s) need review or a re-bless before release." unless problems.zero?
     end
 
-    # Pick [current, baseline] result files — newest two by mtime
-    # unless either is given explicitly.
+    # Re-bless the anchor baseline from +run+ (a results JSON path),
+    # replacing +benchmark/baseline.json+. This is the only way the
+    # anchor moves; the cumulative budget then resets to the blessed
+    # numbers, so the accepted shift and its justification must be
+    # recorded in the benchmark README's "What changed" section.
+    def bless!(run)
+      raise "bench:bless needs a results JSON to bless as the anchor" unless run
+      raise "bench:bless: #{run} does not exist" unless File.exist?(run)
+
+      FileUtils.cp(run, ANCHOR_PATH)
+      puts "blessed anchor: #{File.basename(run)} -> #{File.basename(ANCHOR_PATH)}"
+      puts "record the accepted shift and why in benchmark/README.md \"What changed\" before committing."
+    end
+
+    # Resolve [current, anchor]: +current+ defaults to the newest run
+    # under benchmark/results/, +baseline+ to the committed anchor
+    # (benchmark/baseline.json). Either may be given explicitly.
     def resolve(current, baseline)
-      files = Dir[RESULTS_GLOB].sort_by { |path| File.mtime(path) }
-      current ||= files.last
-      [current, baseline || (files - [current]).last]
+      current ||= Dir[RESULTS_GLOB].max_by { |path| File.mtime(path) }
+      [current, baseline || ANCHOR_PATH]
     end
 
     def load_payload(path)
       JSON.parse(File.read(path))
     end
 
-    # Print each gated regression, or a clean-pass line.
-    def report(findings)
-      return puts "gate: no regression past the +10% floor and noise band." if findings.empty?
+    # Print each unanchored case and gated regression, or a clean-pass
+    # line. Unanchored cases lead because they block until a re-bless,
+    # not until the code is faster.
+    def report(regressions, missing)
+      if regressions.empty? && missing.empty?
+        return puts "gate: clean — every gated case anchored, none past the +10% floor and noise band."
+      end
 
-      findings.each { |finding| puts "  REGRESSION  #{describe(finding)}" }
+      missing.each { |row| puts "  NO ANCHOR  #{row.suite}/#{row.label} (#{row.metric}) — re-bless required" }
+      regressions.each { |finding| puts "  REGRESSION  #{describe(finding)}" }
     end
 
     # Suite names the release gate covers, derived from the roster.
@@ -83,6 +119,20 @@ module KobakoBench
         index(current.dig("suites", suite)).filter_map do |label, row|
           base = base_rows[label]
           base && finding_for(suite, label, row, base)
+        end
+      end
+    end
+
+    # Gated cases present in +current+ but absent from +baseline+, as an
+    # Array of Unanchored. A case is gated when it carries a gate metric
+    # (+wall_time+ or +ips+); cold-path rows (+seconds+ only) are not
+    # gated, so their absence is not a failure.
+    def unanchored(current, baseline, suites: release_suites)
+      suites.flat_map do |suite|
+        base_rows = index(baseline.dig("suites", suite))
+        index(current.dig("suites", suite)).filter_map do |label, row|
+          metric = gate_metric(row)
+          Unanchored.new(suite, label, metric) if metric && !base_rows.key?(label)
         end
       end
     end
