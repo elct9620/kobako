@@ -54,20 +54,29 @@ pub(super) fn alloc_and_write(
 }
 
 /// Copy `[ptr, ptr + len)` out of the guest's linear memory as seen from
-/// `caller`. Returns `None` when `memory` is not exported or the slice
-/// falls outside the live memory range.
-pub(super) fn read(caller: &mut Caller<'_, Invocation>, ptr: i32, len: i32) -> Option<Vec<u8>> {
-    let len = usize::try_from(len).ok()?;
+/// `caller`. Each failure carries a `&'static str` reason — matching the
+/// other Caller-based ops here — so the caller surfaces a specific
+/// diagnostic instead of a lumped one; a guest-claimed length past the
+/// 16 MiB cap is a wire violation that names the cap (the caller walks
+/// the trap path on any `Err`).
+pub(super) fn read(
+    caller: &mut Caller<'_, Invocation>,
+    ptr: i32,
+    len: i32,
+) -> Result<Vec<u8>, &'static str> {
+    let len = usize::try_from(len).map_err(|_| "transport request length is negative")?;
     if len > MAX_DISPATCH_PAYLOAD {
-        // A guest-claimed request length past the 16 MiB cap is a wire
-        // violation; refusing the read sends the caller down the trap path.
-        return None;
+        return Err("transport request exceeds the 16 MiB single-dispatch wire limit");
     }
-    let mem = memory_export(caller).ok()?;
+    let mem = memory_export(caller)?;
     let data = mem.data(&caller);
-    let start = ptr as usize;
-    let end = start.checked_add(len)?;
-    data.get(start..end).map(|s| s.to_vec())
+    let start = usize::try_from(ptr).map_err(|_| "transport request pointer is negative")?;
+    let end = start
+        .checked_add(len)
+        .ok_or("transport request slice overflows the address space")?;
+    data.get(start..end)
+        .map(|s| s.to_vec())
+        .ok_or("transport request slice falls outside Sandbox memory")
 }
 
 /// Single-dispatch payload cap: 16 MiB in either direction

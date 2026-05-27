@@ -163,9 +163,7 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = super::guest_mem::read(caller, req_ptr, req_len).ok_or(
-        "Sandbox runtime does not export linear memory, or transport request slice falls outside it",
-    )?;
+    let req_bytes = super::guest_mem::read(caller, req_ptr, req_len)?;
 
     // `Kobako::Sandbox` always installs the dispatch Proc before
     // invoking the runtime, so reaching this branch indicates a misuse
