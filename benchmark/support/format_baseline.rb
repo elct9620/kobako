@@ -88,7 +88,7 @@ module Kobako
 
       # Per-invocation +memory_peak+ ({SPEC.md B-35}) → B / KiB / MiB.
       # +0+ is common for cases that don't grow guest linear memory
-      # (nil-returning evals, RPC roundtrips); the B form preserves
+      # (nil-returning evals, Transport round-trips); the B form preserves
       # that signal instead of rounding it away.
       def memory_peak(bytes)
         return format("%.1f MiB", bytes / 1_048_576.0) if bytes >= 1_048_576
