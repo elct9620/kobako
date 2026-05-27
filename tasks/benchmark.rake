@@ -6,9 +6,9 @@
 #
 # Variants:
 #
-#   bench             — #1..#5 (cold_start, transport_roundtrip, codec,
-#                       mruby_eval, catalog_handles). Cap: 1 MiB on
-#                       codec size sweep.
+#   bench             — #1..#6 (cold_start, transport_roundtrip, codec,
+#                       mruby_eval, catalog_handles, yield_roundtrip).
+#                       Cap: 1 MiB on codec size sweep.
 #   bench:smoke       — alias of bench (no fast/slow split yet; the
 #                       1 MiB cap is already CI-friendly).
 #   bench:full        — bench plus codec @ 16 MiB (BENCH_FULL=1).
@@ -29,7 +29,7 @@ require_relative "support/kobako_bench"
 require_relative "support/kobako_bench_gate"
 
 namespace :bench do
-  desc "Run all five regression benchmarks (SPEC.md #1..#5; <=1 MiB payloads)."
+  desc "Run all six regression benchmarks (SPEC.md #1..#6; <=1 MiB payloads)."
   task :release do
     KobakoBench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
   end
@@ -62,5 +62,5 @@ namespace :bench do
   end
 end
 
-desc "Alias for bench:release — the five SPEC regression benchmarks."
+desc "Alias for bench:release — the six SPEC regression benchmarks."
 task bench: "bench:release"

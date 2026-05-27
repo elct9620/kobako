@@ -4,7 +4,7 @@
 # ===================================
 #
 # Pure-Ruby data backing +tasks/benchmark.rake+. Owns the SPEC.md
-# #1..#5 benchmark roster that +rake bench+ runs as the release gate.
+# #1..#6 benchmark roster that +rake bench+ runs as the release gate.
 
 # Release-gate benchmark roster. See sibling +tasks/benchmark.rake+ for
 # the rake DSL.
@@ -15,5 +15,6 @@ module KobakoBench
     benchmark/codec.rb
     benchmark/mruby_eval.rb
     benchmark/catalog_handles.rb
+    benchmark/yield_roundtrip.rb
   ].freeze
 end

@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the five performance dimensions [SPEC.md](../SPEC.md) names as release quality gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles) plus three characterization suites (multi-thread behaviour, per-Sandbox RSS, `#preload` + `#run` dispatch). Baselines for every release live under `benchmark/results/` so subsequent runs can diff against a known point; a +10% regression on any of the five gated benchmarks requires explicit review before release.
+Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release quality gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus three characterization suites (multi-thread behaviour, per-Sandbox RSS, `#preload` + `#run` dispatch). Baselines for every release live under `benchmark/results/` so subsequent runs can diff against a known point; a +10% regression on any of the six gated benchmarks requires explicit review before release.
 
 ## Latest baseline
 
@@ -172,6 +172,19 @@ All `5a` / `5b` rows are 3-4× the previous-baseline number — the absolute lev
 
 The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different dimension than `1b-sandbox-new+eval-nil` from cold_start (~274 µs). It runs **after** the 5b loop has grown a 1 M-entry handle table that stays alive in the same Ruby process for the rest of the run, so every measured `#eval` allocates capture-buffer Strings under sustained GC pressure. 1b is the clean per-invocation cost; 5c is the regression signal for changes that make per-invocation work more GC-sensitive when the process is already holding a large handle table — a condition 1b cannot detect.
 
+### Yield round-trip latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
+
+The host-initiated counterpart of #2. Where `transport_roundtrip` measures the guest→host Request/Response direction, this suite measures the reverse re-entry: a Service method yields into a guest-supplied block ([SPEC.md B-23..B-30](../SPEC.md)). The cost lives on a different path — the `YieldResponse` codec, the `__kobako_yield_to_block` export, and the guest-side `BLOCK_STACK` push/pop — so a regression here is invisible to #2. Every case wraps one `#eval`; regression detection is on the delta between cases, not the absolute ips.
+
+| Case | What it isolates |
+|---|---|
+| `6a-single-yield` | One yield (tag 0x01 ok) above the no-block #2 baseline — the single-yield latency. |
+| `6b-block-no-yield` | A call site that supplies a block the Service never invokes (B-30): the `block_given` flag travels and the host builds a Yielder, but there is zero re-entry. The block-flag + Yielder construction/invalidation floor. |
+| `6c-1000-yields-in-one-call` | 1 000 yields in one dispatch (the J-06 iteration shape). Per-yield steady-state cost is `wall_time / 1000`, isolating the re-entry path from the per-dispatch setup the way `2d` does for guest→host calls. This is the load-bearing number for `each`-style Services. |
+| `6d-yield-break` | A block that runs `break` on the first yield (tag 0x02), unwinding the Service via catch/throw (B-25). The delta over `6a` is the break classification + unwind cost. |
+
+`6c` is the gate-relevant row: it gates on `wall_time` (guest budget), so the 1 000-element return-array decode on the host side does not enter the gated metric. The baseline table is captured with the next full `rake bench` refresh alongside the other five suites; this section documents what each case measures.
+
 ### `#preload` + `#run` dispatch ([`preload_dispatch.rb`](preload_dispatch.rb)) — characterization only
 
 Coverage of the two verbs added after the SPEC #1..#5 suite was written. `#preload` and `#run` are independent features — `#preload(code: ..., name: ...)` registers snippets that replay against the fresh `mrb_state` on every subsequent invocation (whether `#eval` or `#run`); `#run(:Target)` dispatches into a preloaded entrypoint constant via the Invocation envelope. The rows below isolate each verb's contribution rather than comparing them against `#eval`.
@@ -265,7 +278,7 @@ For the previous (`8bfd888` → `19e51d9`) diff — `memory_limit` semantics fix
 ## Running
 
 ```bash
-bundle exec rake bench             # five gated benchmarks (CI-friendly, payloads ≤ 1 MiB)
+bundle exec rake bench             # six gated benchmarks (CI-friendly, payloads ≤ 1 MiB)
 bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#6)
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#7)
