@@ -134,7 +134,7 @@ The msgpack encoding of the user script's last mruby expression value, emitted d
 
 | Field | Type |
 |-------|------|
-| `value` | any wire-legal type including ext 0x01 (if the script returned a stateful host object) |
+| `value` | any wire-legal type including ext 0x01 (if the script returned a Capability Handle; the host restores it to its original object per [`docs/behavior.md`](behavior.md) § B-37) |
 
 ### Panic Envelope (Outcome payload — failure)
 
