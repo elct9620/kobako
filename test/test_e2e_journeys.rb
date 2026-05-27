@@ -1262,6 +1262,24 @@ class TestE2EJourneys < Minitest::Test
                  "must surface as a 0x04 error at the yield site, not a coerced String")
   end
 
+  def test_e22_break_with_unrepresentable_value_raises_at_yield_site
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+
+    # `break Object.new` is a real break (B-25), but the break value has
+    # no wire representation. The break value cannot ride the 0x02 break
+    # tag, so the guest emits a 0x04 error instead of coercing it — the
+    # Service observes an error at its yield site rather than an unwind to
+    # a misleading String.
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
+    end
+
+    assert_match(/no wire representation/, err.message,
+                 "E-22: a break value outside the wire type set must surface as a " \
+                 "0x04 error, not unwind the Service method with a coerced String")
+  end
+
   def test_b30_service_with_block_that_never_yields_runs_clean
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Probe).bind(:Ignores, ->(*, &_blk) { :ok })
