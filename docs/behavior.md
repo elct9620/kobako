@@ -236,7 +236,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | An invocation is in progress. The Catalog::Handles counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
-| **Result / Final State** | The allocation fails immediately with a `Kobako::SandboxError`. The counter is not incremented, no new entry is written to the Catalog::Handles, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current invocation terminates. |
+| **Result / Final State** | The allocation fails immediately with a `Kobako::HandlerExhaustedError` (a `Kobako::SandboxError` subclass). The counter is not incremented, no new entry is written to the Catalog::Handles, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current invocation terminates. |
 | **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
 
 ---
@@ -379,7 +379,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | `#run(target, *args, **kwargs)` is invoked (B-31). At least one element of `args`, or at least one value in `kwargs`, is not wire-representable per the type set defined in B-13 — for example, a `StringIO`, an arbitrary Host App `Env` instance, or any other Ruby object whose class is outside the wire 12-entry mapping. |
 | **Operation** | During Invocation envelope encoding the Host Gem walks the `args` Array and the `kwargs` Hash values; container types (Array, Hash) are walked one level at a time, and each leaf value that is not wire-representable is allocated into the Sandbox's Catalog::Handles. The allocator returns a fresh u32 ID (B-15) which is written into the envelope as an `ext 0x01` Capability Handle in place of the original Ruby object. Wire-representable leaves pass through unchanged. |
-| **Result / Final State** | The guest mruby code receives a `Kobako::Handle` proxy at each position where the host supplied a non-wire-representable argument. The proxy carries no observable Ruby value content; method calls on it dispatch back to the host through the same `method_missing` → Transport path the guest uses for Service-returned Handles (B-17). The host-side `Catalog::Handles` entry remains live for the duration of the invocation and is cleared together with all other Handles at the invocation boundary (B-18 / B-19). `Catalog::Handles` cap exhaustion during the walk raises `Kobako::SandboxError` at host pre-call via the same path as B-21 / E-07. |
+| **Result / Final State** | The guest mruby code receives a `Kobako::Handle` proxy at each position where the host supplied a non-wire-representable argument. The proxy carries no observable Ruby value content; method calls on it dispatch back to the host through the same `method_missing` → Transport path the guest uses for Service-returned Handles (B-17). The host-side `Catalog::Handles` entry remains live for the duration of the invocation and is cleared together with all other Handles at the invocation boundary (B-18 / B-19). `Catalog::Handles` cap exhaustion during the walk raises `Kobako::HandlerExhaustedError` at host pre-call via the same path as B-21 / E-07. |
 | **Notes** | This behavior is symmetric with B-14 (Service-returned stateful objects): both directions of the boundary route non-wire-representable Ruby objects through the Catalog::Handles allocator under identical lifecycle rules. The walk traverses Array and Hash containers but does not descend into instance variables or other internal structure of non-wire-representable leaves — once a leaf is identified as needing wrapping, its sub-structure is hidden behind the Handle. A `Kobako::Handle` value already produced internally by the Host Gem (e.g., an instance fabricated through any non-public path) is rejected at host pre-flight (E-29); auto-wrap never re-wraps an existing Handle. |
 
 ---
@@ -442,7 +442,7 @@ Raised when the Wasm execution engine crashes, when the wire layer detects a str
 | E-19 | Absolute wall-clock time since invocation entry (`Sandbox#eval` or `Sandbox#run`) reached the configured `timeout` and a guest wasm safepoint was hit thereafter (B-01) | Wasm engine reports a wall-clock interrupt at the first guest wasm safepoint after the absolute deadline; Step 1 fires | `Kobako::TimeoutError` |
 | E-20 | Cumulative guest `memory.grow` since invocation entry would push past the configured `memory_limit` (B-01) — the mruby image's initial allocation and prior invocations' watermark are folded into the per-invocation baseline rather than the budget | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
 
-**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::SandboxError`, not `TrapError`. E-19 fires only at guest wasm safepoints — a Service callback running on the host cannot itself trigger E-19 — but the wall-clock time consumed by host callbacks counts against the `timeout` budget (B-01 Notes).
+**Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::HandlerExhaustedError` (a `SandboxError` subclass), not `TrapError`. E-19 fires only at guest wasm safepoints — a Service callback running on the host cannot itself trigger E-19 — but the wall-clock time consumed by host callbacks counts against the `timeout` budget (B-01 Notes).
 
 ---
 
@@ -452,10 +452,10 @@ Raised when the guest execution environment ran to completion but the overall ex
 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
-| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of `__kobako_run` | B-02, B-03 — script execution |
+| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) | B-02, B-03 — script execution |
 | E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
 | E-06 | `#run` last-expression result has no wire representation (e.g., a raw mruby `Object` with no MessagePack encoding); outcome tag `0x01` is present but the value field fails to decode | B-06 — return value semantics |
-| E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1) | B-21 — Handle counter exhaustion |
+| E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1); raised as the `Kobako::HandlerExhaustedError` subclass | B-21 — Handle counter exhaustion |
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as a dispatch argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
