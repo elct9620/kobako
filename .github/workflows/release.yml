@@ -8,6 +8,13 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      push:
+        description: 'Push built gems to RubyGems'
+        required: false
+        default: true
+        type: boolean
   release:
     types:
       - released

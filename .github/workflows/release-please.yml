@@ -20,6 +20,16 @@ jobs:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
 
+  # release-please creates the GitHub Release with the default GITHUB_TOKEN,
+  # and Actions does not re-trigger workflows from GITHUB_TOKEN-authored
+  # events. So `release.yml`'s `on: release` never fires on a release-please
+  # tag; chain it explicitly as a reusable workflow instead.
+  release-gem:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
+
   sync-lockfiles:
     needs: release-please
     if: ${{ needs.release-please.outputs.pr }}
