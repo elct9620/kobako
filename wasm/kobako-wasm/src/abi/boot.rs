@@ -37,6 +37,30 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
     }
 }
 
+/// Build the Panic envelope for a return value that has no wire
+/// representation (docs/behavior.md E-06 / B-06). Both `__kobako_eval`
+/// and `__kobako_run` reach this when `Kobako::try_codec_value` returns
+/// `None`. `origin = "sandbox"` maps host-side to `Kobako::SandboxError`
+/// (B-06 attributes the unrepresentable-value case to the guest code);
+/// the value's class name rides the message so the developer can see
+/// which type failed without an implicit `inspect`.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn unrepresentable_return_panic(
+    kobako: &Kobako,
+    value: crate::mruby::sys::Value,
+) -> Panic {
+    Panic {
+        origin: "sandbox".into(),
+        class: "Kobako::SandboxError".into(),
+        message: format!(
+            "return value of type {} has no wire representation",
+            value.classname(kobako.mrb())
+        ),
+        backtrace: Vec::new(),
+        details: None,
+    }
+}
+
 /// Decide which Panic `origin` field a given mruby exception class
 /// should produce. Mirrors the docs/behavior.md attribution rules —
 /// a `Kobako::ServiceError` raised from a Service capability lands on

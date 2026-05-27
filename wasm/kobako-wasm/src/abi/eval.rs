@@ -85,7 +85,9 @@ fn eval_body() {
         return;
     }
 
-    let codec_value = kobako.to_codec_outcome(result_val);
+    let Some(codec_value) = kobako.try_codec_value(result_val) else {
+        return write_panic(boot::unrepresentable_return_panic(&kobako, result_val));
+    };
     match Outcome::Value(codec_value).encode() {
         Ok(bytes) => write_outcome(bytes),
         Err(_) => write_panic(Panic {

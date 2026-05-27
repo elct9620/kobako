@@ -8,13 +8,18 @@
 //!
 //! Three concerns live here:
 //!
-//! 1. **Transport-arg conversion** (`to_codec_value`) — unknown types fall
-//!    back to `Object#to_s`, the interchange representation.
-//! 2. **Outcome conversion** (`to_codec_outcome`) — unknown types fall
-//!    back to `Object#inspect`, the display representation. The
-//!    inspect call is protected by `mrb_protect_error` (see H-3 in
-//!    docs/spec-rubrics-todo.md) so a user-defined `inspect` that
-//!    raises cannot longjmp past the Rust frame.
+//! 1. **Transport-arg conversion** (`to_codec_value`) — the guest→host
+//!    Request args / kwargs path; unknown types fall back to
+//!    `Object#to_s`, the interchange representation a Service's
+//!    `public_send` receives.
+//! 2. **Return conversion** (`try_codec_value`) — the `#eval` / `#run`
+//!    outcome and the yield-block result; returns `None` for a value
+//!    with no wire representation so the caller emits a Panic envelope
+//!    (outcome, docs/behavior.md E-06) or a `0x04` error YieldResponse
+//!    (yield, docs/behavior.md E-22). A return value is never coerced
+//!    through an implicit `to_s` / `inspect` — SPEC.md § Implementation
+//!    Standards pins "objects without a wire representation take the
+//!    Panic envelope path — no implicit inspect or to_h conversion".
 //! 3. **Args / kwargs unpacking** (`extract_hash_kwargs` /
 //!    `unpack_args_kwargs`) — used by the `method_missing` C bridges
 //!    to split a `mrb_get_args` "n*" rest slice into positional args
@@ -76,19 +81,16 @@ impl Kobako {
     }
 
     /// Iterate an mruby Array and convert each element via `convert`,
-    /// returning a `Vec<Value>` ready to wrap in `Value::Array`.
-    /// `convert` is a function pointer so the two consumer converters
-    /// (`Kobako::to_codec_value` and `Kobako::to_codec_outcome`) can
-    /// share the iteration while preserving their per-converter
-    /// recursion target — the outcome path must keep recursing on
-    /// `to_codec_outcome` so unknown nested types fall back to
-    /// `inspect`, not `to_s`.
+    /// returning a `Vec<R>` ready to wrap in `Value::Array`. `convert`
+    /// is a function pointer generic over its output so the two consumer
+    /// converters share the iteration while preserving their per-converter
+    /// recursion target: `to_codec_value` recurses with
+    /// `R = crate::codec::Value` (each element `to_s`-coerced), while
+    /// `try_codec_value` recurses with `R = Option<crate::codec::Value>`
+    /// so a single unrepresentable element collapses the whole Array to
+    /// `None`.
     #[cfg(target_arch = "wasm32")]
-    fn array_to_codec(
-        &self,
-        val: Value,
-        convert: fn(&Self, Value) -> crate::codec::Value,
-    ) -> Vec<crate::codec::Value> {
+    fn array_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<R> {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { sys::Array::from_value_unchecked(val) };
@@ -102,17 +104,14 @@ impl Kobako {
     }
 
     /// Iterate an mruby Hash and convert each key/value pair via
-    /// `convert`, returning a `Vec<(Value, Value)>` ready to wrap in
+    /// `convert`, returning a `Vec<(R, R)>` ready to wrap in
     /// `Value::Map`. Both the key and the value flow through the
     /// same `convert` so a `Symbol` key arrives as `Value::Sym`
     /// (ext 0x00) and a `String` key as `Value::Str` — distinct codec
-    /// encodings per docs/wire-codec.md § Ext Types.
+    /// encodings per docs/wire-codec.md § Ext Types. Generic over `R`
+    /// for the same reason as `array_to_codec`.
     #[cfg(target_arch = "wasm32")]
-    fn hash_to_codec(
-        &self,
-        val: Value,
-        convert: fn(&Self, Value) -> crate::codec::Value,
-    ) -> Vec<(crate::codec::Value, crate::codec::Value)> {
+    fn hash_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<(R, R)> {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { sys::Hash::from_value_unchecked(val) };
@@ -137,17 +136,18 @@ impl Kobako {
     ///
     /// ## Why two converters
     ///
-    /// This is the **transport-path** converter. Hash arguments are still
+    /// This is the **transport-arg** converter. Hash arguments are still
     /// decoded into kwargs separately via `Kobako::extract_hash_kwargs`
     /// when they trail the positional list; a Hash that arrives here is
     /// either nested inside an Array argument or sitting in a non-final
     /// positional slot, and travels natively as
-    /// `crate::codec::Value::Map`. The sibling
-    /// `Kobako::to_codec_outcome` handles the **outcome-path** (the
-    /// script's last-expression value) and uses `inspect` for its
-    /// unknown-type fallback instead. Do not unify the two: the outcome
-    /// path is read as a display representation, while transport arguments
-    /// are interchange values that reach a Service's `public_send`.
+    /// `crate::codec::Value::Map`. The sibling `Kobako::try_codec_value`
+    /// handles the **return path** (the `#eval` / `#run` outcome and the
+    /// yield-block result) and returns `None` for an unrepresentable
+    /// value instead of coercing it. Do not unify the two: an argument
+    /// the guest hands to a Service tolerates a best-effort `to_s`, but a
+    /// return value with no wire representation must fail loudly so the
+    /// host raises rather than receive a misleading String.
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
@@ -174,66 +174,53 @@ impl Kobako {
         }
     }
 
-    /// Convert a `Value` to a kobako `crate::codec::Value` for
-    /// inclusion in the outcome Result envelope. Used by
-    /// `__kobako_eval` to serialize the user script's last-expression
-    /// value. Array / Hash values map to
+    /// Convert a `Value` to a kobako `crate::codec::Value` for a guest
+    /// **return** path — the `#eval` / `#run` outcome Result envelope and
+    /// the yield-block result. Array / Hash values map to
     /// `crate::codec::Value::Array` / `crate::codec::Value::Map`
-    /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a
-    /// script returning a collection retains element-level fidelity.
+    /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a return
+    /// of a collection retains element-level fidelity.
     ///
-    /// ## Why this differs from `Kobako::to_codec_value`
-    ///
-    /// Unknown types fall back to `Object#inspect` rather than
-    /// `Object#to_s`. The outcome envelope is read by host-side
-    /// callers as a *display* representation, not an interchange
-    /// value, so `inspect` (which quotes strings, shows class names)
-    /// is the right shape. Nested values inside an Array or Hash also
-    /// flow through `inspect` for unknown types — the recursive call
-    /// lands back in this same arm.
+    /// Returns `None` when `val` has no wire representation (any type
+    /// outside the 12-entry wire set, or a collection containing such a
+    /// value). The return contract forbids an implicit `to_s` / `inspect`
+    /// coercion, so the caller turns `None` into a Panic envelope
+    /// (outcome, docs/behavior.md E-06 / B-06) or a `0x04` error
+    /// YieldResponse (yield, docs/behavior.md E-22) rather than handing
+    /// the host a misleading String.
     #[cfg(target_arch = "wasm32")]
-    pub fn to_codec_outcome(&self, val: Value) -> crate::codec::Value {
+    pub fn try_codec_value(&self, val: Value) -> Option<crate::codec::Value> {
         use crate::codec::Value as CodecValue;
         use crate::mruby::sys::FromValue;
         // Scalar-leaf downcast through the safe `FromValue` seam, as in
         // `to_codec_value`.
         if let Some(n) = i32::from_value(val) {
-            return CodecValue::Int(n as i64);
+            return Some(CodecValue::Int(n as i64));
         }
         if let Some(f) = f64::from_value(val) {
-            return CodecValue::Float(f);
+            return Some(CodecValue::Float(f));
         }
         match val.classname(self.mrb()) {
-            "NilClass" => CodecValue::Nil,
-            "TrueClass" => CodecValue::Bool(true),
-            "FalseClass" => CodecValue::Bool(false),
-            "String" => CodecValue::Str(val.to_string(self.mrb())),
-            "Symbol" => CodecValue::Sym(val.to_string(self.mrb())),
-            "Array" => CodecValue::Array(self.array_to_codec(val, Self::to_codec_outcome)),
-            "Hash" => CodecValue::Map(self.hash_to_codec(val, Self::to_codec_outcome)),
-            other => CodecValue::Str(self.protected_inspect_or_classname(val, other)),
-        }
-    }
-
-    /// Coerce `val` to its `Object#inspect` form for the outcome
-    /// envelope, protected by `mrb_protect_error` so a user-defined
-    /// `inspect` that raises does not longjmp past Rust frames.
-    ///
-    /// docs/wire-contract.md § Outcome Envelope leaves the fallback
-    /// string format to the host; we surface `inspect` on success and
-    /// `"#<ClassName>"` on the protected-call failure path so the host
-    /// sees a recognisable identifier rather than the raised exception.
-    #[cfg(target_arch = "wasm32")]
-    fn protected_inspect_or_classname(&self, val: Value, class_name: &str) -> String {
-        // `Mrb::protect` catches any exception `inspect` might raise
-        // (user-defined `inspect` overriding the default) and surfaces
-        // it as `Err` instead of long-jumping past the Rust frame.
-        // docs/wire-contract.md § Outcome Envelope leaves the
-        // fallback string format to the host — `"#<ClassName>"` is a
-        // recognisable identifier when the raise path fires.
-        match self.mrb().protect(|mrb| val.call(mrb, c"inspect", &[])) {
-            Ok(result) => result.to_string(self.mrb()),
-            Err(_) => format!("#<{}>", class_name),
+            "NilClass" => Some(CodecValue::Nil),
+            "TrueClass" => Some(CodecValue::Bool(true)),
+            "FalseClass" => Some(CodecValue::Bool(false)),
+            "String" => Some(CodecValue::Str(val.to_string(self.mrb()))),
+            "Symbol" => Some(CodecValue::Sym(val.to_string(self.mrb()))),
+            // A single unrepresentable element collapses the whole
+            // collection to `None` — `collect::<Option<Vec<_>>>()`
+            // short-circuits on the first `None`.
+            "Array" => self
+                .array_to_codec(val, Self::try_codec_value)
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .map(CodecValue::Array),
+            "Hash" => self
+                .hash_to_codec(val, Self::try_codec_value)
+                .into_iter()
+                .map(|(k, v)| k.zip(v))
+                .collect::<Option<Vec<_>>>()
+                .map(CodecValue::Map),
+            _ => None,
         }
     }
 

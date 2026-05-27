@@ -584,27 +584,24 @@ class TestE2EJourneys < Minitest::Test
     assert_includes sandbox.stdout, "second"
   end
 
-  # ── Wire converter contract guards ─────────────────────────────────────
+  # ── Wire converter contract: return paths reject unrepresentable values ─
   #
-  # +Kobako::mrb_value_to_wire_outcome+ (outcome path, +inspect+ fallback)
-  # and +Kobako::mrb_value_to_wire_value+ (transport path, +to_s+ fallback)
-  # intentionally diverge; see the cross-referenced doc-comments on both
-  # methods in +wasm/kobako-wasm/src/kobako.rs+. The two tests below pin
-  # the divergence — one per direction — so a future "DRY cleanup" that
-  # unifies them fails loudly on whichever side regressed.
+  # The guest has two value converters that intentionally diverge (see the
+  # doc-comments in +wasm/kobako-wasm/src/kobako/codec_convert.rs+):
+  #
+  #   * +to_codec_value+ — the transport-arg path; an unknown type falls
+  #     back to +Object#to_s+ because a Service tolerates a best-effort
+  #     String argument.
+  #   * +try_codec_value+ — the +#eval+ / +#run+ outcome and yield-block
+  #     return paths; an unknown type has no wire value, so the guest
+  #     raises rather than hand the host a misleading String (E-06 / E-22;
+  #     SPEC.md pins "no implicit inspect or to_h conversion").
+  #
+  # The two tests below pin the divergence — one per direction — so a
+  # future "DRY cleanup" that unifies them fails loudly.
 
-  # Outcome path: the unknown-type fallback arm uses +Object#inspect+,
-  # NOT +Object#to_s+. The Probe class defined inside the script
-  # overrides both with distinct strings; if the converter switched to
-  # +to_s+, this assertion would surface +"<probe-to-s>"+ instead of
-  # +"<probe-inspect>"+.
-  PROBE_SCRIPT = <<~RUBY
-    class Probe
-      def inspect; "<probe-inspect>"; end
-      def to_s;    "<probe-to-s>";    end
-    end
-    Probe.new
-  RUBY
+  # An object outside the 12-entry wire type set has no representation.
+  UNREPRESENTABLE_OUTCOME_SCRIPT = "Object.new"
 
   # H-1 regression: a Float returned from the guest must reach the host
   # bit-identical, not via `Float#to_s` + Rust `parse` (which used the
@@ -633,42 +630,24 @@ class TestE2EJourneys < Minitest::Test
     assert_equal(-268_435_457, sandbox.eval("-268_435_457"))
   end
 
-  # H-3 regression: a user-defined `inspect` that raises must not
-  # longjmp past the Rust frame doing wire conversion. The guest
-  # wraps the inspect call in `mrb_protect_error`; on raise the
-  # converter falls back to `"#<ClassName>"` and the host still
-  # observes a clean outcome (no TrapError, no panic).
-  EXPLODING_INSPECT_SCRIPT = <<~RUBY
-    class Boom
-      def inspect; raise "inspect blew up"; end
-      def to_s;    "<boom-to-s>"; end
+  def test_outcome_unrepresentable_value_raises_sandbox_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.eval(UNREPRESENTABLE_OUTCOME_SCRIPT)
     end
-    Boom.new
-  RUBY
 
-  def test_outcome_inspect_raise_is_caught_by_mrb_protect_error
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    result = sandbox.eval(EXPLODING_INSPECT_SCRIPT)
-    assert_equal "#<Boom>", result,
-                 "H-3: a raising inspect must surface the protected fallback, not a trap"
-  end
-
-  def test_outcome_envelope_unknown_type_uses_inspect_not_to_s
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval(PROBE_SCRIPT)
-
-    assert_equal "<probe-inspect>", result,
-                 "outcome path: unknown-type fallback must call Object#inspect — " \
-                 "see Kobako::mrb_value_to_wire_outcome doc"
+    assert_match(/no wire representation/, err.message,
+                 "E-06: an #eval return value outside the wire type set must take " \
+                 "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
   # transport path: the unknown-type fallback arm uses +Object#to_s+, NOT
   # +Object#inspect+. A user-defined mruby class is not in
-  # +mrb_value_to_wire_value+'s named arms (NilClass / Bool / Integer /
-  # Float / String / Symbol), so it falls through the +to_s+ fallback,
-  # arrives at the Service as a plain String, and is echoed back. If
-  # the converter switched to +inspect+, this assertion would surface
+  # +to_codec_value+'s named arms (NilClass / Bool / Integer / Float /
+  # String / Symbol), so it falls through the +to_s+ fallback, arrives at
+  # the Service as a plain String, and is echoed back. If the converter
+  # switched to +inspect+, this assertion would surface
   # +"<rpc-probe-inspect>"+ instead of +"<rpc-probe-to-s>"+.
   TRANSPORT_PROBE_SCRIPT = <<~RUBY
     class RpcProbe
@@ -686,7 +665,7 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "<rpc-probe-to-s>", result,
                  "transport path: unknown-type fallback must call Object#to_s — " \
-                 "see Kobako::mrb_value_to_wire_value doc"
+                 "see Kobako::to_codec_value doc"
   end
 
   # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol transport argument
@@ -1198,15 +1177,14 @@ class TestE2EJourneys < Minitest::Test
                  "top-level effects on the fresh mrb_state"
   end
 
-  # ── B-23 / B-24 — Block / Yield round-trip (S5a stub) ──
+  # ── B-23 / B-24 — Block / Yield round-trip ──
   #
-  # The block / yield mechanism (docs/behavior.md B-23..B-30) lands
-  # incrementally. At S5a the host-side Yielder is fully wired but the
-  # guest's `__kobako_yield_to_block` export is still a stub that always
-  # returns +tag 0x04+ +NotImplementedError+ — so every Service method
-  # that actually invokes +yield+ observes the stub's error at the
-  # yield site and (when unrescued) surfaces it as a +ServiceError+ to
-  # the Host App. The full happy path lands in S5b.
+  # The block / yield mechanism (docs/behavior.md B-23..B-30): a guest
+  # call site supplying a block surfaces as a non-nil +&block+ on the
+  # host Service method, and each +yield+ / +block.call+ is a synchronous
+  # round-trip into the guest via +__kobako_yield_to_block+, returning the
+  # block result (tag 0x01), a +break+ value (tag 0x02), or an error
+  # (tag 0x04) to the Service's yield site.
 
   def test_b23_block_given_reaches_host_when_guest_supplies_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -1266,6 +1244,24 @@ class TestE2EJourneys < Minitest::Test
                  "propagates back to the Service method's yield site")
   end
 
+  def test_e22_block_returns_unrepresentable_value_raises_at_yield_site
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+
+    # The guest block returns a bare Object — no MessagePack wire
+    # representation. Per E-22 the yield round-trip emits tag 0x04 error
+    # rather than coercing the value to a String, so the Service's
+    # block.call raises at the yield site; unrescued, it surfaces through
+    # the same path as a block exception (B-24) — Kobako::ServiceError.
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
+    end
+
+    assert_match(/no wire representation/, err.message,
+                 "E-22: a guest block returning a value outside the wire type set " \
+                 "must surface as a 0x04 error at the yield site, not a coerced String")
+  end
+
   def test_b30_service_with_block_that_never_yields_runs_clean
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Probe).bind(:Ignores, ->(*, &_blk) { :ok })
@@ -1284,10 +1280,9 @@ class TestE2EJourneys < Minitest::Test
   # an index ≥ baseline lands on the yielder's frame (a real `break`)
   # and emits tag 0x02; an index < baseline aims past the yielder
   # (a non-orphan Proc `return`) and emits tag 0x04 LocalJumpError per
-  # E-21. The Service method observes the tag 0x02 path as a
-  # +RuntimeError+ at its +yield+ site for now; S6b wires the
-  # +catch+/+throw+ path so the Service method actually returns the
-  # break value as B-25 expects.
+  # E-21. The tag 0x02 break path unwinds the Service method to the break
+  # value through the Yielder's +throw+ and the Dispatcher's +catch+
+  # frame, matching B-25.
 
   def test_b25_break_in_block_unwinds_service_to_break_value
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

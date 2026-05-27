@@ -21,12 +21,15 @@
 //!    long-jumping past the Rust frame
 //!    ({docs/behavior.md E-21}[link:../../../../docs/behavior.md]).
 //! 4. Encode the outcome as a `YieldResponse`:
-//!     * normal return → `tag 0x01` ok carrying the value through the
-//!       standard codec
-//!     * raised exception (including RBreak in S5b — the
-//!       `ci_break_index` discrimination that splits real `break`
-//!       from a Proc-`return` lands in S6a) → `tag 0x04` error with
-//!       `{class, message, backtrace}`
+//!     * normal return of a wire-representable value → `tag 0x01` ok
+//!       carrying the value through the standard codec
+//!     * a real `break` from a non-lambda block → `tag 0x02` break
+//!       ({docs/behavior.md B-25}[link:../../../../docs/behavior.md])
+//!     * a raised exception, a return value with no wire representation
+//!       ({docs/behavior.md E-22}[link:../../../../docs/behavior.md]),
+//!       or an RBreak aimed past the yielder's frame (a non-orphan Proc
+//!       `return`, {docs/behavior.md E-21}[link:../../../../docs/behavior.md])
+//!       → `tag 0x04` error with `{class, message, backtrace}`
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
@@ -169,7 +172,16 @@ fn encode_break_response(
 ) -> Vec<u8> {
     use crate::codec::Encode;
     use crate::transport::{Yield, TAG_BREAK};
-    let codec_value = kobako.to_codec_value(value);
+    let Some(codec_value) = kobako.try_codec_value(value) else {
+        // `break val` whose value has no wire representation is the
+        // E-22 shape on the break path — surface it as a 0x04 error
+        // rather than coerce the value to a String.
+        return encode_error_bytes(
+            "TypeError",
+            "break value has no wire representation",
+            Vec::new(),
+        );
+    };
     let resp = Yield {
         tag: TAG_BREAK,
         value: codec_value,
@@ -211,7 +223,16 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
 fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::Value) -> Vec<u8> {
     use crate::codec::Encode;
     use crate::transport::{Yield, TAG_OK};
-    let codec_value = kobako.to_codec_value(value);
+    let Some(codec_value) = kobako.try_codec_value(value) else {
+        // A block returning a value with no wire representation is E-22.
+        // The host Yielder reifies this 0x04 error as an exception at the
+        // Service's yield site instead of receiving a misleading String.
+        return encode_error_bytes(
+            "TypeError",
+            "block return value has no wire representation",
+            Vec::new(),
+        );
+    };
     let resp = Yield {
         tag: TAG_OK,
         value: codec_value,
