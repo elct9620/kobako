@@ -37,8 +37,8 @@ module Kobako
       # {#yield} invokes to re-enter the guest; +break_tag+ is the +catch+
       # throw tag the Dispatcher matches against to unwind the Service on
       # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,
-      # used to restore a Capability Handle in the block's ok / break value
-      # back to its host object before it reaches the Service +yield+ site
+      # used to restore a Capability Handle in the block's ok value back to
+      # its host object before it reaches the Service +yield+ site
       # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]).
       def initialize(yield_to_guest, break_tag, handler)
         @yield_to_guest = yield_to_guest
@@ -49,17 +49,18 @@ module Kobako
 
       # Re-enter the guest with +args+ and reify the YieldResponse into
       # Ruby control flow. Raises +LocalJumpError+ if called after
-      # {#invalidate!} (E-23). The ok and break values pass through
-      # {Kobako::Codec::Utils.deep_restore} so a Capability Handle the
-      # block returned arrives at the +yield+ site as its host object
-      # (B-37), never a +Kobako::Handle+ token.
+      # {#invalidate!} (E-23). The ok value is consumed by the host Service
+      # method, so a Capability Handle in it is restored to its host object
+      # (B-37). The break value unwinds past the Service back to the guest
+      # Member call (B-25), so it passes through verbatim — a Handle stays a
+      # Handle and rides back on the same id rather than churning a new one.
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
         response = Kobako::Transport::Yield.decode(@yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
         return restore(response.value) if response.ok?
 
-        throw @break_tag, restore(response.value) if response.break?
+        throw @break_tag, response.value if response.break?
 
         raise yield_failure(response.value, default: "yield error")
       end
@@ -79,11 +80,13 @@ module Kobako
 
       private
 
-      # Restore any Capability Handle in a block's ok / break value to its
-      # host object via the injected +Catalog::Handles+
-      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]). Walks
-      # nested Array / Hash one level at a time; a plain value passes
-      # through unchanged.
+      # Restore any Capability Handle in a block's ok value to its host
+      # object via the injected +Catalog::Handles+
+      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]). Only the
+      # ok path calls this — host code consumes the ok value, whereas a
+      # break value returns to the guest and stays a Handle. Walks nested
+      # Array / Hash one level at a time; a plain value passes through
+      # unchanged.
       def restore(value)
         Kobako::Codec::Utils.deep_restore(value, @handler)
       end

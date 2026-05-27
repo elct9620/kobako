@@ -333,6 +333,25 @@ class TestE2EJourneys < Minitest::Test
                 "as the original host object"
   end
 
+  # SPEC.md B-25 / B-37: a Handle broken out of a guest block is NOT restored
+  # — the break value returns to the guest Member call, not to host code — so
+  # it rides back as a Handle the guest can still route through to the
+  # original host object on a later call.
+  def test_b37_broken_handle_returns_to_guest_and_still_routes_to_host_object
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+
+    result = sandbox.eval(
+      "h = Source::Get.call; found = Probe::Each.call([1, 2, 3]) { |x| break h if x == 2 }; found.greet"
+    )
+
+    assert_equal "hi,Bob", result,
+                 "B-25/B-37: a Handle broken out of a guest block returns to the guest and still " \
+                 "routes a later call to the original host object"
+  end
+
   # mruby's +puts+ on a capped channel may raise +IOError+ once the
   # WASI write is rejected. The rescue swallows that script-level
   # failure so these tests pin only the host-observable contract
