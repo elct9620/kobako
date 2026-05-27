@@ -652,7 +652,7 @@ impl Runtime {
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
         let bytes = rstring_to_vec(envelope);
         let len_i32 =
-            guest_mem::envelope_len_to_i32(bytes.len()).map_err(|msg| trap_err(ruby, msg))?;
+            guest_mem::checked_payload_len(bytes.len()).map_err(|msg| trap_err(ruby, msg))?;
 
         let mut store_ref = self.store.borrow_mut();
         let alloc: TypedFunc<u32, u32> = self
@@ -720,9 +720,10 @@ impl Runtime {
 
     /// Invoke `__kobako_take_outcome`, decode the packed +(ptr<<32)|len+
     /// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Raises
-    /// `Kobako::TrapError` when the export is missing, the +ptr+/+len+
-    /// arithmetic overflows, the slice falls outside live memory, or the
-    /// `memory` export itself is absent.
+    /// `Kobako::TrapError` when the export is missing, +len+ exceeds the
+    /// 16 MiB single-dispatch cap, the +ptr+/+len+ arithmetic overflows,
+    /// the slice falls outside live memory, or the `memory` export itself
+    /// is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
         let take = require_export(ruby, self.exports.take_outcome.as_ref())?;
 
@@ -731,6 +732,12 @@ impl Runtime {
             .call(store_ref.as_context_mut(), ())
             .map_err(|e| trap_err(ruby, format!("failed to read invocation result: {}", e)))?;
         let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
+        if len > guest_mem::MAX_DISPATCH_PAYLOAD {
+            return Err(trap_err(
+                ruby,
+                "invocation result exceeds the 16 MiB single-dispatch wire limit",
+            ));
+        }
 
         let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
             Some(Extern::Memory(m)) => m,

@@ -39,7 +39,7 @@ pub(super) fn alloc_and_write(
             .map_err(|_| "Sandbox runtime's allocation hook has the wrong signature")?,
         _ => return Err("Sandbox runtime is missing the allocation hook"),
     };
-    let len = i32::try_from(bytes.len()).map_err(|_| "guest buffer exceeds 2 GiB")?;
+    let len = checked_payload_len(bytes.len())?;
     let ptr = alloc
         .call(&mut *caller, len)
         .map_err(|_| "Sandbox allocation trapped while preparing a guest buffer")?;
@@ -57,19 +57,38 @@ pub(super) fn alloc_and_write(
 /// `caller`. Returns `None` when `memory` is not exported or the slice
 /// falls outside the live memory range.
 pub(super) fn read(caller: &mut Caller<'_, Invocation>, ptr: i32, len: i32) -> Option<Vec<u8>> {
+    let len = usize::try_from(len).ok()?;
+    if len > MAX_DISPATCH_PAYLOAD {
+        // A guest-claimed request length past the 16 MiB cap is a wire
+        // violation; refusing the read sends the caller down the trap path.
+        return None;
+    }
     let mem = memory_export(caller).ok()?;
     let data = mem.data(&caller);
     let start = ptr as usize;
-    let end = start.checked_add(len as usize)?;
+    let end = start.checked_add(len)?;
     data.get(start..end).map(|s| s.to_vec())
 }
 
-/// Validate the invocation envelope length and return it as `i32` — the
-/// signed wasm ABI parameter type for the guest-run entrypoint. Rejects
-/// sizes above `i32::MAX` (2 GiB) so the downstream cast cannot silently
-/// wrap.
-pub(super) fn envelope_len_to_i32(len: usize) -> Result<i32, &'static str> {
-    i32::try_from(len).map_err(|_| "invocation payload exceeds 2 GiB")
+/// Single-dispatch payload cap: 16 MiB in either direction
+/// (SPEC.md § Wire Codec; docs/wire-codec.md § ABI). A host↔guest
+/// transfer larger than this is a wire violation — the Host Gem walks
+/// the trap path rather than allocate or copy the buffer. Held as a
+/// constant for now; a future SPEC anchor may let the Host App raise it.
+pub(super) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
+
+/// Validate a payload length against `MAX_DISPATCH_PAYLOAD` and narrow it
+/// to `i32` — the signed wasm ABI width for the guest buffer parameters.
+/// Every host *write* boundary (`alloc_and_write`, `drive_yield`,
+/// `Runtime::write_envelope`) routes its length through here so the
+/// wire-violation reason is uniform; the *read* boundaries compare
+/// against `MAX_DISPATCH_PAYLOAD` directly.
+pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
+    if len > MAX_DISPATCH_PAYLOAD {
+        return Err("payload exceeds the 16 MiB single-dispatch wire limit");
+    }
+    // The cap above sits below `i32::MAX`, so this conversion cannot wrap.
+    i32::try_from(len).map_err(|_| "payload exceeds the 16 MiB single-dispatch wire limit")
 }
 
 /// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
@@ -106,7 +125,7 @@ pub(super) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
     args: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    let len_i32 = i32::try_from(args.len()).map_err(|_| "yield args exceed 2 GiB")?;
+    let len_i32 = checked_payload_len(args.len())?;
     let req_ptr = alloc_and_write(caller, args)? as i32;
 
     let yield_fn = match caller.get_export("__kobako_yield_to_block") {
@@ -122,6 +141,9 @@ pub(super) fn drive_yield(
     if resp_len == 0 {
         return Err("Sandbox returned an empty YieldResponse (wire violation)");
     }
+    if resp_len > MAX_DISPATCH_PAYLOAD {
+        return Err("YieldResponse exceeds the 16 MiB single-dispatch wire limit");
+    }
 
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
@@ -132,18 +154,23 @@ pub(super) fn drive_yield(
 
 #[cfg(test)]
 mod tests {
-    use super::{envelope_len_to_i32, guest_buffer_range, unpack_outcome_packed};
+    use super::{
+        checked_payload_len, guest_buffer_range, unpack_outcome_packed, MAX_DISPATCH_PAYLOAD,
+    };
 
     #[test]
-    fn envelope_len_to_i32_accepts_zero_and_max() {
-        assert_eq!(envelope_len_to_i32(0), Ok(0));
-        assert_eq!(envelope_len_to_i32(i32::MAX as usize), Ok(i32::MAX));
+    fn checked_payload_len_accepts_zero_and_the_cap() {
+        assert_eq!(checked_payload_len(0), Ok(0));
+        assert_eq!(
+            checked_payload_len(MAX_DISPATCH_PAYLOAD),
+            Ok(MAX_DISPATCH_PAYLOAD as i32)
+        );
     }
 
     #[test]
-    fn envelope_len_to_i32_rejects_past_i32_max() {
-        assert!(envelope_len_to_i32(i32::MAX as usize + 1).is_err());
-        assert!(envelope_len_to_i32(usize::MAX).is_err());
+    fn checked_payload_len_rejects_past_the_cap() {
+        assert!(checked_payload_len(MAX_DISPATCH_PAYLOAD + 1).is_err());
+        assert!(checked_payload_len(usize::MAX).is_err());
     }
 
     #[test]
