@@ -181,6 +181,13 @@ impl Kobako {
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a return
     /// of a collection retains element-level fidelity.
     ///
+    /// A `Kobako::Handle` proxy the guest holds (a Service return per
+    /// B-14, or a `#run` argument auto-wrap per B-34) re-emits as an
+    /// `ext 0x01` Capability Handle carrying its id, so the host restores
+    /// it to its original object on every guest→host value path
+    /// (docs/behavior.md B-37) — the invocation result and the yield-block
+    /// result alike.
+    ///
     /// Returns `None` when `val` has no wire representation (any type
     /// outside the 12-entry wire set, or a collection containing such a
     /// value). The return contract forbids an implicit `to_s` / `inspect`
@@ -206,6 +213,15 @@ impl Kobako {
             "FalseClass" => Some(CodecValue::Bool(false)),
             "String" => Some(CodecValue::Str(val.to_string(self.mrb()))),
             "Symbol" => Some(CodecValue::Sym(val.to_string(self.mrb()))),
+            // A Capability Handle the guest received earlier this
+            // invocation is wire-representable: re-emit it as ext 0x01 so
+            // the host restores the original object (docs/behavior.md
+            // B-37). id 0 means a missing or forged ivar — treat as
+            // unrepresentable rather than emit a wire-violation Handle.
+            "Kobako::Handle" => match self.extract_handle_id(val) {
+                0 => None,
+                id => Some(CodecValue::Handle(id)),
+            },
             // A single unrepresentable element collapses the whole
             // collection to `None` — `collect::<Option<Vec<_>>>()`
             // short-circuits on the first `None`.

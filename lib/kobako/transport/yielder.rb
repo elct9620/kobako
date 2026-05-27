@@ -36,23 +36,30 @@ module Kobako
       # +Runtime#yield_to_active_invocation+ bound through a lambda) that
       # {#yield} invokes to re-enter the guest; +break_tag+ is the +catch+
       # throw tag the Dispatcher matches against to unwind the Service on
-      # +tag 0x02+.
-      def initialize(yield_to_guest, break_tag)
+      # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,
+      # used to restore a Capability Handle in the block's ok / break value
+      # back to its host object before it reaches the Service +yield+ site
+      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]).
+      def initialize(yield_to_guest, break_tag, handler)
         @yield_to_guest = yield_to_guest
         @break_tag = break_tag
+        @handler = handler
         @active = true
       end
 
       # Re-enter the guest with +args+ and reify the YieldResponse into
       # Ruby control flow. Raises +LocalJumpError+ if called after
-      # {#invalidate!} (E-23).
+      # {#invalidate!} (E-23). The ok and break values pass through
+      # {Kobako::Codec::Utils.deep_restore} so a Capability Handle the
+      # block returned arrives at the +yield+ site as its host object
+      # (B-37), never a +Kobako::Handle+ token.
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
         response = Kobako::Transport::Yield.decode(@yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
-        return response.value if response.ok?
+        return restore(response.value) if response.ok?
 
-        throw @break_tag, response.value if response.break?
+        throw @break_tag, restore(response.value) if response.break?
 
         raise yield_failure(response.value, default: "yield error")
       end
@@ -71,6 +78,15 @@ module Kobako
       end
 
       private
+
+      # Restore any Capability Handle in a block's ok / break value to its
+      # host object via the injected +Catalog::Handles+
+      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]). Walks
+      # nested Array / Hash one level at a time; a plain value passes
+      # through unchanged.
+      def restore(value)
+        Kobako::Codec::Utils.deep_restore(value, @handler)
+      end
 
       # Reify a +YieldResponse+ tag 0x04 payload into a +RuntimeError+ the
       # Service method observes at its +yield+ site. The +{class, message,

@@ -3,6 +3,7 @@
 require "forwardable"
 
 require_relative "capture"
+require_relative "codec"
 require_relative "errors"
 require_relative "outcome"
 require_relative "sandbox_options"
@@ -304,7 +305,11 @@ module Kobako
       snapshot = yield
       @stdout_capture = snapshot.stdout
       @stderr_capture = snapshot.stderr
-      Outcome.decode(snapshot.return_bytes)
+      # A Capability Handle in the result is decoded as a Kobako::Handle
+      # token; restore it to the host object the guest referenced before
+      # handing the value to the Host App (B-37). @handler still holds this
+      # invocation's table — reset only happens at the next #begin_invocation!.
+      Codec::Utils.deep_restore(Outcome.decode(snapshot.return_bytes), @handler)
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure

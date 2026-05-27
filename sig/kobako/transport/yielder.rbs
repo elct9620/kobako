@@ -3,9 +3,10 @@ module Kobako
     class Yielder
       @yield_to_guest: ^(String) -> String
       @break_tag: Symbol
+      @handler: Kobako::Catalog::Handles
       @active: bool
 
-      def initialize: (^(String) -> String yield_to_guest, Symbol break_tag) -> void
+      def initialize: (^(String) -> String yield_to_guest, Symbol break_tag, Kobako::Catalog::Handles handler) -> void
 
       def yield: (*untyped args) -> untyped
 
@@ -14,6 +15,8 @@ module Kobako
       def invalidate!: () -> void
 
       private
+
+      def restore: (untyped value) -> untyped
 
       def yield_failure: (untyped payload, default: String) -> RuntimeError
     end

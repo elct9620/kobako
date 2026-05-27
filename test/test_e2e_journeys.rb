@@ -283,6 +283,56 @@ class TestE2EJourneys < Minitest::Test
                  "report true so guest-side capability probing succeeds before dispatch"
   end
 
+  # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
+  # then returns as the #eval result is restored on the host to the very
+  # object Catalog::Handles holds — Source binds a fixed instance so the
+  # test can pin identity, not just equality.
+  def test_b37_returned_handle_is_restored_to_the_original_host_object
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+
+    result = sandbox.eval("Source::Get.call")
+
+    assert_same greeter, result,
+                "B-37: a Capability Handle returned as the #eval result must arrive at the " \
+                "Host App as the original host object, never a Kobako::Handle"
+  end
+
+  # SPEC.md B-37: the restoration walks nested Array / Hash, so a Handle in
+  # any leaf position resolves to its host object while the surrounding
+  # structure is preserved.
+  def test_b37_returned_handle_is_restored_inside_nested_containers
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+
+    result = sandbox.eval("g = Source::Get.call; { list: [g], pair: g }")
+
+    assert_same greeter, result[:list][0],
+                "B-37: a Handle nested in an Array leaf must be restored to its host object"
+    assert_same greeter, result[:pair],
+                "B-37: a Handle in a Hash value must be restored to its host object"
+  end
+
+  # SPEC.md B-37 (yield path): a guest block that returns a Handle hands the
+  # original host object back to the Service's yield expression, not a
+  # Kobako::Handle token. Sink::Run captures its block's return value so the
+  # test observes what the yield site received.
+  def test_b37_returned_handle_is_restored_on_the_yield_block_result
+    greeter = Greeter.new("Bob")
+    captured = nil
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.define(:Sink).bind(:Run, ->(&blk) { captured = blk.call })
+
+    sandbox.eval("Sink::Run.call { Source::Get.call }")
+
+    assert_same greeter, captured,
+                "B-37: a Handle returned from a guest block must reach the Service yield site " \
+                "as the original host object"
+  end
+
   # mruby's +puts+ on a capped channel may raise +IOError+ once the
   # WASI write is rejected. The rescue swallows that script-level
   # failure so these tests pin only the host-observable contract

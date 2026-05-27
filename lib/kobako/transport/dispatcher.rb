@@ -59,7 +59,7 @@ module Kobako
         request = Kobako::Transport::Request.decode(request_bytes)
         target = resolve_target(request.target, namespaces, handler)
         args, kwargs = resolve_call_args(request, handler)
-        yielder = Yielder.new(yield_to_guest, BREAK_THROW) if request.block_given
+        yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if request.block_given
         value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }
         encode_ok(value, handler)
       rescue StandardError => e

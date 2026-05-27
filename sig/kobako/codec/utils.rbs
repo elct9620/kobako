@@ -11,6 +11,8 @@ module Kobako
 
       def self?.deep_wrap: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
+      def self?.deep_restore: (untyped value, Kobako::Catalog::Handles handler) -> untyped
+
       def self?.primitive_type?: (untyped value) -> bool
 
       def self?.container_representable?: (untyped value) -> bool

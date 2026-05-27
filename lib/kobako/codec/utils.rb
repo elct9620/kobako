@@ -116,6 +116,33 @@ module Kobako
         end
       end
 
+      # Deep-walk Array / Hash containers in +value+ and replace every
+      # +Kobako::Handle+ leaf with the host-side object +handler+ resolves
+      # it to ({docs/behavior.md B-37}[link:../../../docs/behavior.md]).
+      # The symmetric inverse of {deep_wrap}: that walk allocates objects
+      # into Handles on the host→guest argument path; this walk resolves
+      # Handles back to their objects on every guest→host value path — the
+      # +#eval+ / +#run+ result and the yield-block result alike. The walk
+      # descends through Array elements and Hash keys and values one
+      # structural level at a time; any non-Handle leaf passes through
+      # unchanged.
+      #
+      # +value+ is a decoded Ruby value (a Handle here is a wire-decoded
+      # +Kobako::Handle+, never a guest-forged one — B-20); +handler+ must
+      # respond to +#fetch(id) -> object+ (a host-side
+      # +Kobako::Catalog::Handles+). +handler.fetch+ raises
+      # +Kobako::SandboxError+ for an id with no live binding, which is the
+      # corrupted-runtime fallback B-37 specifies.
+      def deep_restore(value, handler)
+        case value
+        when ::Array then value.map { |element| Utils.deep_restore(element, handler) }
+        when ::Hash
+          value.to_h { |key, val| [Utils.deep_restore(key, handler), Utils.deep_restore(val, handler)] }
+        when Kobako::Handle then handler.fetch(value.id)
+        else value
+        end
+      end
+
       # Predicate split out of {representable?} for cyclomatic
       # budget — the closed-set non-container branch. Returns +true+ for
       # the scalar leaves and an existing Handle. Not part of the
