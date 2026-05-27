@@ -66,7 +66,7 @@ wire_types = {
   "array" => [1, 2, 3],
   "map" => { "a" => 1 },
   "symbol" => :sym,
-  "handle" => Kobako::Handle.restore(7),
+  "handle" => Kobako::Catalog::Handles.new.alloc(:obj),
   "exception" => sample_exception
 }
 

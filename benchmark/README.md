@@ -170,7 +170,7 @@ The 1 K to 1 M waypoint rows confirm the underlying dictionary still stays effec
 
 All `5a` / `5b` rows are 3-4× the previous-baseline number — the absolute level shifted but the shape did not. The cause is documented in [What changed vs previous baseline](#what-changed-vs-previous-baseline) and reflects `Catalog::Handles#alloc` now returning a `Kobako::Handle` object instead of a bare Integer id; the per-call Handle allocation is the regression's dominant term.
 
-The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different dimension than `1b-sandbox-new+eval-nil` from cold_start (~274 µs). It runs **after** the 5b loop has grown a 1 M-entry Catalog::Handles table that stays alive in the same Ruby process for the rest of the run, so every measured `#eval` allocates capture-buffer Strings under sustained GC pressure. 1b is the clean per-invocation cost; 5c is the regression signal for changes that make per-invocation work more GC-sensitive when the process is already holding a large Catalog::Handles table — a condition 1b cannot detect.
+The `5c-warm-eval-nil-under-gc-pressure` row deliberately measures a different dimension than `1b-sandbox-new+eval-nil` from cold_start (~274 µs). It runs **after** the 5b loop has grown a 1 M-entry handle table that stays alive in the same Ruby process for the rest of the run, so every measured `#eval` allocates capture-buffer Strings under sustained GC pressure. 1b is the clean per-invocation cost; 5c is the regression signal for changes that make per-invocation work more GC-sensitive when the process is already holding a large handle table — a condition 1b cannot detect.
 
 ### `#preload` + `#run` dispatch ([`preload_dispatch.rb`](preload_dispatch.rb)) — characterization only
 
