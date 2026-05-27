@@ -66,9 +66,9 @@ namespace :bench do
   desc "Re-bless the anchor (benchmark/baseline.json) from a run; document the reason in the benchmark README."
   task(:bless, %i[run]) { |_t, args| KobakoBench::Gate.bless!(args[:run]) }
 
-  desc "Run the release-gate comparator unit tests."
+  desc "Run the release-gate unit tests (comparator + runner)."
   task :gate_test do
-    sh "bundle exec ruby tasks/support/kobako_bench_gate_test.rb"
+    Dir["tasks/support/kobako_bench_*_test.rb"].each { |file| sh "bundle exec ruby #{file}" }
   end
 end
 
