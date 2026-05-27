@@ -99,11 +99,9 @@ pub(super) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
 
 /// Allocate `args.len()` bytes in guest memory, copy the args payload in,
 /// call `__kobako_yield_to_block(ptr, len)`, then read the response slice
-/// the guest produced and return it. Mirrors [`write_response`]'s allocator
-/// dance but in the opposite direction — the host is the *initiator* of
-/// this round-trip, not the responder.
-///
-/// [`write_response`]: super::dispatch
+/// the guest produced and return it. Mirrors `dispatch::write_response`'s
+/// allocator dance but in the opposite direction — the host is the
+/// *initiator* of this round-trip, not the responder.
 pub(super) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
     args: &[u8],

@@ -65,7 +65,7 @@ use self::config::Config;
 use self::exports::Exports;
 use self::invocation::{Invocation, StoreCell};
 
-/// Copy the bytes of +s+ into a fresh +Vec<u8>+. Single safe entry to
+/// Copy the bytes of +s+ into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline +unsafe { rstring.as_slice() }
 /// .to_vec()+ duplicated at every host-↔-guest boundary. The borrow
 /// does not outlive this call, so no Ruby allocation can move the
@@ -533,8 +533,8 @@ impl Runtime {
     ///     size captured at invocation entry. `0` before the first
     ///     invocation.
     ///
-    /// Packing both readers into one ext call mirrors the
-    /// [`Runtime::stdout`] / [`Runtime::stderr`] pattern: one
+    /// Packing both readers into one ext call mirrors the combined
+    /// stdout / stderr readout in [`Runtime::build_snapshot`]: one
     /// `store.borrow()` per readout and a single magnus binding to
     /// extend when B-35's field list grows past two.
     pub(crate) fn usage(&self) -> Result<RArray, MagnusError> {
@@ -673,8 +673,8 @@ impl Runtime {
     /// three frames (preamble, source, snippets), +#run+ passes two
     /// (preamble, snippets — the invocation envelope arrives via linear
     /// memory instead). Each output pipe is sized at `cap + 1` so
-    /// [`Runtime::stdout`] / [`Runtime::stderr`] can distinguish "wrote
-    /// exactly cap bytes" from "exceeded cap"; uncapped channels fall back
+    /// [`capture::clip_capture`] can distinguish "wrote exactly cap
+    /// bytes" from "exceeded cap"; uncapped channels fall back
     /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
     /// for the real ceiling.
     fn refresh_wasi(&self, frames: &[Vec<u8>]) {
