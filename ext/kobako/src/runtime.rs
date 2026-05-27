@@ -436,7 +436,7 @@ impl Runtime {
         snippets: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let eval = require_export(&ruby, self.exports.eval.as_ref(), "__kobako_eval")?;
+        let eval = require_export(&ruby, self.exports.eval.as_ref())?;
         self.refresh_wasi(&[
             rstring_to_vec(preamble),
             rstring_to_vec(source),
@@ -464,7 +464,7 @@ impl Runtime {
         envelope: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let run = require_export(&ruby, self.exports.run.as_ref(), "__kobako_run")?;
+        let run = require_export(&ruby, self.exports.run.as_ref())?;
         self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.call_with_caps(run, (env_ptr, env_len))
@@ -701,11 +701,7 @@ impl Runtime {
     /// arithmetic overflows, the slice falls outside live memory, or the
     /// `memory` export itself is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
-        let take = require_export(
-            ruby,
-            self.exports.take_outcome.as_ref(),
-            "__kobako_take_outcome",
-        )?;
+        let take = require_export(ruby, self.exports.take_outcome.as_ref())?;
 
         let mut store_ref = self.store.borrow_mut();
         let packed = take
@@ -747,13 +743,12 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str = "Sandbox runtime does not export linear
 /// methods (+#eval+, +#run+) plus the +build_snapshot+ readout that
 /// drains +OUTCOME_BUFFER+ share the same "missing export → Ruby
 /// error" boilerplate; this helper collapses those sites onto one
-/// safe entry. The +_name+ argument is retained for future
-/// operator-side logging but is deliberately not spliced into the
-/// user-facing message (see [`SANDBOX_RUNTIME_MISSING_HOOKS`]).
+/// safe entry. The user-facing message is intentionally export-
+/// agnostic (see [`SANDBOX_RUNTIME_MISSING_HOOKS`]) — the ABI symbol
+/// name is not actionable to callers, so it is not threaded in.
 fn require_export<'a, Params, Results>(
     ruby: &Ruby,
     export: Option<&'a TypedFunc<Params, Results>>,
-    _name: &str,
 ) -> Result<&'a TypedFunc<Params, Results>, MagnusError>
 where
     Params: wasmtime::WasmParams,
