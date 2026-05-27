@@ -112,6 +112,9 @@ pub(crate) static TIMEOUT_ERROR: Lazy<ExceptionClass> =
 pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "MemoryLimitError"));
 
+pub(crate) static SANDBOX_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| kobako_error_class(ruby, "SandboxError"));
+
 /// Build a +MagnusError+ in +class+ carrying +msg+ — the shared body of
 /// the named +*_err+ constructors below, which differ only in which
 /// error-class `Lazy` they target.
@@ -151,6 +154,16 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
     error_in(ruby, &MEMORY_LIMIT_ERROR, msg)
 }
 
+/// Construct a `Kobako::SandboxError` magnus error. Used for the
+/// host-side pre-call faults the SPEC attributes to the sandbox / wire
+/// layer rather than the Wasm engine — currently the `#run` invocation
+/// envelope reservation failure (`__kobako_alloc` returns 0,
+/// docs/behavior.md E-31). The runtime is intact, so this must not be a
+/// `TrapError`: no discard-and-recreate recovery is owed to the caller.
+pub(crate) fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+    error_in(ruby, &SANDBOX_ERROR, msg)
+}
+
 // ---------------------------------------------------------------------------
 // Ruby init
 // ---------------------------------------------------------------------------
@@ -160,8 +173,8 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // `Kobako::TrapError` / `TimeoutError` / `MemoryLimitError` /
     // `SetupError` / `ModuleNotBuiltError`). The ext raises directly into
     // those classes through `trap_err` / `timeout_err` / `memory_limit_err`
-    // / `setup_err` / `MODULE_NOT_BUILT_ERROR`; no intermediate hierarchy is
-    // registered.
+    // / `sandbox_err` / `setup_err` / `MODULE_NOT_BUILT_ERROR`; no
+    // intermediate hierarchy is registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 5))?;
@@ -632,8 +645,10 @@ impl Runtime {
     /// Allocate a +len+-byte buffer in guest linear memory via
     /// `__kobako_alloc`, copy +envelope+ into it, and return +(ptr, len)+
     /// as +i32+ values matching the `__kobako_run(env_ptr, env_len)` ABI.
-    /// Raises +Kobako::TrapError+ when the guest export is missing or
-    /// allocation fails (docs/behavior.md E-31).
+    /// Raises +Kobako::TrapError+ when the allocation hook is missing or
+    /// itself traps, and +Kobako::SandboxError+ when the hook runs but
+    /// cannot reserve the buffer (`__kobako_alloc` returns 0,
+    /// docs/behavior.md E-31) — an intact runtime, not an engine fault.
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
         let bytes = rstring_to_vec(envelope);
         let len_i32 =
@@ -648,7 +663,7 @@ impl Runtime {
             .call(store_ref.as_context_mut(), bytes.len() as u32)
             .map_err(|e| trap_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
         if ptr == 0 {
-            return Err(trap_err(
+            return Err(sandbox_err(
                 ruby,
                 "could not allocate input buffer (out of memory)",
             ));
