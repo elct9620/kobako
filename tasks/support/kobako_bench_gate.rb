@@ -114,12 +114,9 @@ module KobakoBench
     # regressions as an Array of Finding. +suites+ defaults to the
     # release roster; cases absent from the baseline are skipped.
     def compare(current, baseline, suites: release_suites)
-      suites.flat_map do |suite|
-        base_rows = index(baseline.dig("suites", suite))
-        index(current.dig("suites", suite)).filter_map do |label, row|
-          base = base_rows[label]
-          base && finding_for(suite, label, row, base)
-        end
+      map_run_rows(current, baseline, suites) do |suite, label, row, base_rows|
+        base = base_rows[label]
+        base && finding_for(suite, label, row, base)
       end
     end
 
@@ -128,11 +125,22 @@ module KobakoBench
     # (+wall_time+ or +ips+); cold-path rows (+seconds+ only) are not
     # gated, so their absence is not a failure.
     def unanchored(current, baseline, suites: release_suites)
+      map_run_rows(current, baseline, suites) do |suite, label, row, base_rows|
+        metric = gate_metric(row)
+        Unanchored.new(suite, label, metric) if metric && !base_rows.key?(label)
+      end
+    end
+
+    # Walk every row of the run across +suites+, yielding the suite, its
+    # label, the row, and the anchor's rows for that suite indexed by
+    # label; collect each non-nil block result. The shared traversal
+    # behind {compare} (a regression per row) and {unanchored} (anchor
+    # coverage per row).
+    def map_run_rows(current, baseline, suites)
       suites.flat_map do |suite|
         base_rows = index(baseline.dig("suites", suite))
         index(current.dig("suites", suite)).filter_map do |label, row|
-          metric = gate_metric(row)
-          Unanchored.new(suite, label, metric) if metric && !base_rows.key?(label)
+          yield(suite, label, row, base_rows)
         end
       end
     end
