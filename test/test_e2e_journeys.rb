@@ -963,6 +963,41 @@ class TestE2EJourneys < Minitest::Test
     assert_match(/memory_limit/, err.message)
   end
 
+  # SPEC.md L161-173 (setup-once / run-many) + E-19: a host trap is
+  # recoverable. The per-invocation cap window that `Runtime#eval` opens is
+  # always closed afterwards whether the guest returns or traps, so the
+  # next invocation runs under a fresh window rather than inheriting the
+  # trapped run's armed deadline. The reuse-after-success path is pinned by
+  # +test_memory_limit_resets_per_invocation+ and the reuse-after-guest-
+  # raise path by +test_entrypoint_runtime_exception_surfaces_as_sandbox_error+;
+  # this case closes the remaining gap — reuse after a host *trap*.
+  def test_sandbox_reusable_after_timeout_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+
+    assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
+
+    assert_equal 3, sandbox.eval("1 + 2"),
+                 "a Sandbox must stay usable after a TimeoutError — the next " \
+                 "eval must run under a fresh cap window, not re-trap on the old one"
+  end
+
+  # SPEC.md L161-173 + E-20: the MemoryLimitError counterpart of the
+  # timeout-recovery case above. After the memory cap traps a runaway
+  # allocation, the same Sandbox must run a within-budget script normally —
+  # the limiter re-anchors its baseline per invocation rather than staying
+  # armed at the trapped run's watermark.
+  def test_sandbox_reusable_after_memory_limit_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
+
+    assert_raises(Kobako::MemoryLimitError) do
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
+    end
+
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize'),
+                 "a Sandbox must stay usable after a MemoryLimitError — the next " \
+                 "within-budget eval must succeed under a re-anchored cap window"
+  end
+
   # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
   # the corresponding cap. With caps off, a small script must complete
   # normally — the guards are dormant rather than always-firing.
