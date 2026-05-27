@@ -18,7 +18,7 @@
 //   * `config`      — per-Runtime caps (timeout / stdout / stderr limits).
 //   * `exports`     — cached `__kobako_eval` / `_run` / `_take_outcome` handles.
 //   * `invocation`  — Invocation (per-Store context), StoreCell wrapper, the
-//                     [`KobakoLimiter`] memory cap, and the trap marker
+//                     [`MemoryLimiter`] memory cap, and the trap marker
 //                     types ([`TimeoutTrap`] / [`MemoryLimitTrap`]).
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //   * `guest_mem`   — Caller-based guest linear-memory alloc / write / read.
