@@ -26,6 +26,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 | In-process Wasm sandbox | No subprocess, no container. Both invocation verbs (`Sandbox#eval` for ad-hoc source, `Sandbox#run` for entrypoint dispatch) are synchronous Ruby calls. |
 | Per-invocation caps | Every invocation enforces a wall-clock `timeout` (default 60 s) and a per-invocation linear-memory `memory_limit` (default 1 MiB); exhaustion raises `Kobako::TimeoutError` / `Kobako::MemoryLimitError`. |
 | Capability injection via Services | Guest scripts can only call Ruby objects you explicitly `bind` under a two-level `Namespace::Member` path. |
+| Block-yielding Services | A Service method can take a guest-supplied block via `&block` and `yield` / `block.call` into it; each yield is a synchronous round-trip executing the block inside the guest, with `break` / `next` / exceptions following standard Ruby semantics. |
 | Preloaded snippets | `Sandbox#preload` registers source or RITE bytecode for setup-once dispatch via `Sandbox#run(:Entrypoint, *args, **kwargs)`. |
 | Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::Handle` proxy it can use as the target of follow-up Service calls, with no way to dereference it. `Sandbox#run` also accepts non-wire-representable Ruby objects as args and auto-wraps them into Handles, so the guest can use any host object the script needs. |
 | Three-class error taxonomy | Every failure is exactly one of `TrapError`, `SandboxError`, or `ServiceError`, so you can route errors without inspecting messages. |
@@ -96,6 +97,21 @@ sandbox.define(:Geo).bind(:Lookup, ->(name:, region:) { "#{region}/#{name}" })
 sandbox.eval('Geo::Lookup.call(name: "alice", region: "us")')
 # => "us/alice"
 ```
+
+### Yielding to guest blocks
+
+A Service method can accept a guest-supplied block and `yield` into it. The block body runs inside the Wasm guest with the same isolation as the rest of the script; the Service sees it as an ordinary Ruby Proc on the `&block` slot and writes idiomatic Ruby — the sandbox boundary is invisible from the method's side.
+
+```ruby
+sandbox.define(:Seq).bind(:Map, ->(items, &blk) { items.map(&blk) })
+
+sandbox.eval(<<~RUBY)
+  Seq::Map.call([1, 2, 3]) { |x| x * 2 }
+RUBY
+# => [2, 4, 6]
+```
+
+Each `yield` / `block.call` is a synchronous round-trip into the guest. `break` from the block terminates the Service early with the break value; `next` (or fall-through) returns the block result and iteration continues; an exception raised inside the block propagates to the `yield` site, where the Service may rescue it or let it flow up. The block is scoped to the single dispatch that received it — it cannot be stored and invoked after that call returns.
 
 ## Per-invocation caps
 
