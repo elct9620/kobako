@@ -442,13 +442,8 @@ impl Runtime {
             rstring_to_vec(source),
             rstring_to_vec(snippets),
         ]);
-        self.prime_caps();
-        let result = {
-            let mut store_ref = self.store.borrow_mut();
-            eval.call(store_ref.as_context_mut(), ())
-        };
-        self.disarm_caps();
-        result.map_err(|e| trap::call_err(&ruby, e))?;
+        self.call_with_caps(eval, ())
+            .map_err(|e| trap::call_err(&ruby, e))?;
         self.build_snapshot(&ruby)
     }
 
@@ -472,13 +467,8 @@ impl Runtime {
         let run = require_export(&ruby, self.exports.run.as_ref(), "__kobako_run")?;
         self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
-        self.prime_caps();
-        let result = {
-            let mut store_ref = self.store.borrow_mut();
-            run.call(store_ref.as_context_mut(), (env_ptr, env_len))
-        };
-        self.disarm_caps();
-        result.map_err(|e| trap::call_err(&ruby, e))?;
+        self.call_with_caps(run, (env_ptr, env_len))
+            .map_err(|e| trap::call_err(&ruby, e))?;
         self.build_snapshot(&ruby)
     }
 
@@ -552,6 +542,33 @@ impl Runtime {
     // -----------------------------------------------------------------
     // Private helpers.
     // -----------------------------------------------------------------
+
+    /// Run one guest export call inside the per-invocation cap window:
+    /// [`Runtime::prime_caps`] before, [`Runtime::disarm_caps`] after —
+    /// the shared bracket for both run-path exports (`__kobako_eval` /
+    /// `__kobako_run`). Disarm runs whether the call returns or traps, so
+    /// the docs/behavior.md B-35 `wall_time` bracket and the E-20 memory
+    /// cap always close — that close-on-trap guarantee is the reason this
+    /// bracket lives in one place rather than inline at each call site.
+    /// The wasmtime trap is returned unmapped; each caller wraps it
+    /// through `trap::call_err` for its own error context.
+    fn call_with_caps<Params, Results>(
+        &self,
+        export: &TypedFunc<Params, Results>,
+        params: Params,
+    ) -> Result<Results, wasmtime::Error>
+    where
+        Params: wasmtime::WasmParams,
+        Results: wasmtime::WasmResults,
+    {
+        self.prime_caps();
+        let result = {
+            let mut store_ref = self.store.borrow_mut();
+            export.call(store_ref.as_context_mut(), params)
+        };
+        self.disarm_caps();
+        result
+    }
 
     /// Stamp the per-invocation wall-clock deadline into [`Invocation`]
     /// and prime the wasmtime epoch deadline so the next ticker tick
