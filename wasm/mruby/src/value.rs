@@ -550,4 +550,24 @@ mod tests {
         let cs = unsafe { core::ffi::CStr::from_ptr(p) };
         assert_eq!(cs.to_str().unwrap(), "");
     }
+
+    #[test]
+    fn value_shares_abi_with_mrb_value() {
+        // The `Value` newtype is `#[repr(transparent)]` over
+        // `sys::mrb_value`, which is the load-bearing invariant
+        // for the `core::mem::transmute(func)` inside
+        // `Class::define_method` / `define_singleton_method`
+        // (typed `mruby::mrb_func_t` → raw `sys::mrb_func_t`).
+        // If a future change removes the repr attribute, drops a
+        // field, or adds padding, the transmute becomes UB; this
+        // test fails first.
+        assert_eq!(
+            core::mem::size_of::<Value>(),
+            core::mem::size_of::<sys::mrb_value>(),
+        );
+        assert_eq!(
+            core::mem::align_of::<Value>(),
+            core::mem::align_of::<sys::mrb_value>(),
+        );
+    }
 }

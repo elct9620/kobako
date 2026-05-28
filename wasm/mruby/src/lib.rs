@@ -93,5 +93,31 @@ pub use mruby_sys as sys;
 /// `as`-cast at every call site. The `transmute` from this typed
 /// alias to `sys::mrb_func_t` happens once inside
 /// `Class::define_method` / `define_singleton_method`.
-#[cfg(target_arch = "wasm32")]
+///
+/// Unconditional (not wasm32-gated) so the host-target sanity test
+/// `typed_mrb_func_t_coerces_from_value_bridge` (in `tests` below)
+/// pins the bridge signature → typed alias coercion at compile time
+/// against the host placeholders for `mrb_state` / `mrb_value`.
 pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut sys::mrb_state, self_: Value) -> Value;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_mrb_func_t_coerces_from_value_bridge() {
+        // Compile-time check (companion to mruby-sys's
+        // `mrb_func_t_is_a_valid_extern_c_fn_pointer`): building a
+        // function with the typed `Value`-based signature must
+        // coerce to `crate::mrb_func_t` without an explicit cast.
+        // If `Value`'s `#[repr(transparent)]` over `mrb_value` ever
+        // drifts (or someone removes the repr attribute), the
+        // `transmute` inside `Class::define_method` becomes UB —
+        // this test together with `value::tests::value_shares_abi_
+        // with_mrb_value` is the guard rail.
+        unsafe extern "C" fn _stub(_mrb: *mut sys::mrb_state, _self_: Value) -> Value {
+            Value::zeroed()
+        }
+        let _f: crate::mrb_func_t = _stub;
+    }
+}
