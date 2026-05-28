@@ -25,23 +25,27 @@
 #
 # What this crate is NOT
 # ----------------------
-#   * Not a magnus-style typed value wrapper. The safe `Mrb` / `Ccontext`
-#     / `mrb_value` ergonomics live in the safe-layer modules in this
-#     same crate (`src/{state,value,class,ccontext}.rs`); the bindgen
-#     output stays a pure FFI surface beneath them.
+#   * Not a magnus-style typed value wrapper. The safe `Mrb` /
+#     `Ccontext` / `Value` / `Class` / `Array` / `Hash` ergonomics,
+#     the `IntoValue` / `FromValue` trait seam, the `Format`-based
+#     `mrb_get_args` dispatch, and the typed `mrb_func_t` alias all
+#     live in the sibling `mruby` crate. This crate stays a pure
+#     FFI surface (bindings + ABI constants + host placeholders);
+#     the typed wrappers consume it as a path dependency.
 
 [package]
 name = "mruby-sys"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "bindgen-driven mruby C API FFI bindings + layout-safe C shims for the kobako Guest Binary."
+description = "bindgen-driven mruby C API FFI bindings + layout-safe C shims for the kobako Guest Binary; consumed by the typed `mruby` wrapper crate."
 license = "Apache-2.0"
 
 [lib]
 # `rlib` only — this crate produces no standalone artefact. It is
-# consumed as a path dependency by `kobako-wasm`, whose cdylib carries
-# the eventual symbol surface into `kobako.wasm`.
+# consumed as a path dependency by the `mruby` wrapper crate (and
+# transitively by `kobako-wasm`), whose cdylib carries the eventual
+# symbol surface into `kobako.wasm`.
 crate-type = ["rlib"]
 
 [build-dependencies]

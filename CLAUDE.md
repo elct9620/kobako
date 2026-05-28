@@ -97,11 +97,14 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — Rus
   · Codec · Root        (tier stack below)       │    · outcome · codec · root  (mirrors lib/)
        ▲  owns the wire codec                    │       ▲  owns the wire codec
        │  (#encode / .decode, duck-typed)        │       │  (codec::{Encode,Decode} trait)
-       │                                         │  wasm/mruby-sys  — Rust mruby FFI
-       │                                         │    Value · Class · Array · Hash
-       │                                         │    · convert (IntoValue/FromValue) · state
+       │                                         │  wasm/mruby  — typed Rust wrapper
+       │                                         │    Mrb · Value · Class · Array · Hash
+       │                                         │    · IntoValue/FromValue · Format · protect
+       │                                         │  wasm/mruby-sys  — bindgen FFI surface
+       │                                         │    bindings::* · mrb_func_t · mrb_args_*
+       │                                         │    · ABI const assertions
        │                                         │    → libmruby.a (mruby C API)
-       ▼                                         │       ▲  kobako-wasm calls sys
+       ▼                                         │       ▲  kobako-wasm → mruby → mruby-sys
 ext/  — Rust native ext (magnus + wasmtime)      │       │
   Runtime (Exports, Config) · Invocation ·       │       │
   dispatch · guest_mem · cache · Snapshot        │       │
@@ -111,7 +114,8 @@ ext/  — Rust native ext (magnus + wasmtime)      │       │
 
 - **`lib/` ↔ `wasm/kobako-wasm` are wire-symmetric peers.** Each independently implements the same SPEC wire — MessagePack `Codec` plus the `Transport` / `Outcome` envelopes — so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Every wire value object self-encodes: Ruby via duck-typed `#encode` / `.decode`, the guest via the `codec::{Encode, Decode}` trait (lives at the **codec tier** because per-call `Transport` *and* per-run `Outcome`/`Panic` implement it). The asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models, correct on each side.
 - **`ext/` is the host's wasmtime driver, not a wire endpoint.** It instantiates the guest, drives the ABI exports, and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — it never decodes envelopes itself. Its internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec. The Rust struct is `Runtime` (matching the `Kobako::Runtime` magnus class); `Exports` caches the per-instance export handles, `Config` holds the caps, `cache` is the process-wide Engine/Module cache.
-- **`wasm/mruby-sys` is the typed mruby C-API wrapper**, consumed only by `kobako-wasm`. `convert.rs` (`IntoValue` / `FromValue`) is the safe typed seam over the raw boxing/tag primitives in `value.rs`; a future `mruby` (typed) / `mruby-sys` (FFI) split moves the seam, not the primitives.
+- **`wasm/mruby` is the typed mruby C-API wrapper**, consumed by `kobako-wasm` via the `crate::mruby` façade (`pub use mruby::*`). Owns every Rust-level abstraction over the mruby C API: `Mrb` / `Ccontext` RAII, the `Value` / `Class` / `Array` / `Hash` newtypes, `convert.rs`'s `IntoValue` / `FromValue` trait seam, `state::args`'s `Format` + ZST + GAT `mrb_get_args` dispatch, `state::protect`'s closure wrapper, the typed `mrb_func_t` alias, and the `cstr!` macro. Splits magnus-style off `mruby-sys` so the FFI surface stays at the bindgen boundary.
+- **`wasm/mruby-sys` is the bindgen FFI surface only**, consumed only by `mruby`. Holds the bindgen-generated `extern "C"` declarations (`mrb_open` / `mrb_load_nstring` / …), the `mrb_value::zeroed()` / `mrb_object_class` / `mrb_args_*` helpers, the host-target type placeholders, the ABI const assertions that pin `mrb_value` size / `mrb_state.exc` offset against a vendored-mruby drift, and the raw `mrb_func_t` (`mrb_value`-based) alias bindings.rs reaches via `super::mrb_func_t`. No typed wrappers — those moved to `mruby`.
 
 ### `lib/` tier stack
 
@@ -169,20 +173,40 @@ Outcome ────┤   outcome::{Outcome, Panic}
       │     │
 Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
       │
-(FFI)           wasm/mruby-sys
+(mruby)         wasm/mruby (typed wrapper) → wasm/mruby-sys (bindgen FFI)
 ```
 
-### `wasm/mruby-sys` tier stack (mruby FFI)
+### `wasm/mruby` tier stack (typed wrapper)
 
 ```
-Typed wrappers  Value · Class · Module · Array · Hash · convert::{IntoValue, FromValue}
+L2 trait seams  convert::{IntoValue, FromValue}
+                state::args::{Format + format::* ZST markers + GAT Output<'a>}
+                state::protect (closure-based mrb_protect_error)
       │
-State / RAII    Mrb · Ccontext · state::{args, define, factory, load, protect, symbol}
+L1 RAII /       Mrb (state.rs, NonNull<mrb_state>)
+   newtypes     Value (value.rs, #[repr(transparent)] over sys::mrb_value, owns cstr!)
+                Class · Module (class.rs)
+                Array · Hash (array.rs / hash.rs, transparent over Value)
+                Ccontext (ccontext.rs, RAII *mut mrb_ccontext)
+                state::{factory, define, symbol, load} — per-concern Mrb inherent methods
       │
-FFI surface     bindgen bindings (libmruby.a) + wrapper.h static-inline macro shims
+(FFI)           wasm/mruby-sys (path dependency, re-exported as `mruby::sys`)
 ```
 
-`convert` (the typed Rust↔Value seam) sits at the **top** of the typed layer, on the raw tag/box primitives on `Value`; a future `mruby` / `mruby-sys` split cleaves between the typed wrappers and the FFI surface.
+The typed `mrb_func_t` alias at the crate root uses `Value` for receiver / return slots; `Class::define_method` transmutes it once to the raw `sys::mrb_func_t` (`mrb_value`-based) before forwarding to `sys::mrb_define_method`. The two are ABI-identical because `Value` is `#[repr(transparent)]`. `convert` sits at the **top** of the L2 trait layer, on the raw tag/box primitives on `Value`.
+
+### `wasm/mruby-sys` tier stack (bindgen FFI surface)
+
+```
+ABI const     mrb_value::zeroed() · const assertions on mrb_value size / mrb_state.exc offset
+helpers       mrb_object_class · mrb_args_{none, any, req}
+      │
+FFI surface   bindings::* (bindgen output, wasm32) · mrb_func_t (raw alias)
+              · host placeholders (mrb_state = c_void, etc. on non-wasm32)
+              · wrapper.h static-inline macro shims compiled by build.rs
+```
+
+`build.rs` is the only consumer of `MRUBY_LIB_DIR` / `WASI_SDK_PATH`; libclang stays a sys-only build dependency so the bindgen cost sits in one place. The crate exposes raw `mrb_value`, `mrb_state`, `RClass`, etc.; typed newtypes belong upstream in `mruby`.
 
 ## Where to Look
 
@@ -199,7 +223,8 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live one level deep at `"Namespace::Member"`. Catalog::Handles is injected by the owning Sandbox, not owned by the registry. |
 | ABI surface (host ↔ guest exports) | `wasm/kobako-wasm/src/abi.rs` ↔ `ext/kobako/src/runtime.rs` | — |
 | E2E coverage | `test/test_e2e_journeys.rb` (`#eval`), `test/test_sandbox_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/test_wasm_wrapper.rb`) covers only `from_path` and deliberately does not duplicate ABI-export checks. |
-| mruby C API FFI | `wasm/mruby-sys/` (`wrapper.h`, `build.rs`, `src/{state,value,class,ccontext,array,hash}.rs`) | bindgen scoped to this crate (libclang stays sys-only); `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. Consumed by `kobako-wasm` via the `crate::mruby` façade. |
+| mruby typed wrapper | `wasm/mruby/src/{state,value,class,array,hash,ccontext,convert}.rs`, `wasm/mruby/src/state/{args,factory,define,symbol,load,protect}.rs` | Owns `Mrb`, `Value`, `Class`, `Array`, `Hash`, `Ccontext`, `IntoValue`/`FromValue`, `Format`+ZST+GAT `get_args`, `protect`, the typed `mrb_func_t`, and `cstr!`. Consumed by `kobako-wasm` via the `crate::mruby` façade (single `pub use mruby::*`). Sits over `mruby-sys`. |
+| mruby C API FFI | `wasm/mruby-sys/` (`wrapper.h`, `build.rs`, `src/lib.rs`) | bindgen-only surface: `extern "C"` declarations + `mrb_value::zeroed` + `mrb_args_*` + `mrb_object_class` + ABI const assertions + host placeholders. bindgen scoped here (libclang stays sys-only); `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. Consumed only by the `mruby` wrapper crate. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), and `library "<name>"` in `Steepfile` (stdlib — reach for this first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
 | Regression benchmarks | `tasks/benchmark.rake`, `benchmark/` | #1..#5 are gated (+10% regression blocks release); #6/#7 are characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. Scope + caveats in `benchmark/README.md`. |
 | Build / toolchain | `tasks/{vendor,mruby,wasm}.rake` | — |
