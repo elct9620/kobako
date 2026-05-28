@@ -93,7 +93,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A `Kobako::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. |
 | **Operation** | `namespace.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
-| **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `Name::MemberName`. The method returns the `Kobako::Namespace` instance (`self`) to allow chaining. |
+| **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `<Namespace>::<Member>`. The method returns the `Kobako::Namespace` instance (`self`) to allow chaining. |
 | **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). |
 
 ---
@@ -135,9 +135,9 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `Name::MemberName`. The guest holds a reference to the constant `Name::MemberName` and calls a method on it. |
-| **Operation** | Guest code executes `Name::MemberName.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
-| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `Name::MemberName` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
+| **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `<Namespace>::<Member>` (e.g., `MyService::KV`). The guest holds a reference to the constant `<Namespace>::<Member>` and calls a method on it. |
+| **Operation** | Guest code executes `<Namespace>::<Member>.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
+| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `<Namespace>::<Member>` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
 | **Notes** | Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in `Catalog::Namespaces`, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
 
 ---
@@ -256,8 +256,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox is executing a mruby script. A Member is bound at `Name::MemberName`. |
-| **Operation** | Guest code executes `Name::MemberName.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
+| **Initial State** | A Sandbox is executing a mruby script. A Member is bound at `<Namespace>::<Member>`. |
+| **Operation** | Guest code executes `<Namespace>::<Member>.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
 | **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a Yielder into the resolved Service method as its block argument. The Service method observes it as a Ruby Proc: `block_given?` returns `true`, `yield` invokes the Yielder, and it is also accessible as `&block` if the method declares one. The Yielder is valid for the duration of this dispatch only. |
 | **Notes** | The block itself is not transmitted as a wire value; only a single bit (`block_given`) on the Request tells the host that a block exists. The block body remains inside the guest and is invoked through B-24's yield round-trip. The Yielder has loose Proc-style arity (extras dropped, missing args filled with `nil`); strict-arity behavior must come from a guest-side lambda, which mruby enforces during B-24. |
 
@@ -280,7 +280,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Service method is mid-execution after `yield val` (B-24). |
 | **Operation** | The guest block executes `break val` (where the block is a non-lambda, non-orphan block — the standard form). |
-| **Result / Final State** | The Service method's invocation terminates immediately as if it had `return`ed `val`. No code in the Service method body after the `yield` statement runs. The Member call in the guest code (`Name::MemberName.method_name(...) { ... }`) returns `val`. A Capability Handle in `val` is not restored — the break value returns to the guest, not to host code, so it rides back as the same Handle (B-37 Notes). Subsequent guest code runs normally; `break` does not terminate the enclosing guest method or invocation. |
+| **Result / Final State** | The Service method's invocation terminates immediately as if it had `return`ed `val`. No code in the Service method body after the `yield` statement runs. The Member call in the guest code (`<Namespace>::<Member>.method_name(...) { ... }`) returns `val`. A Capability Handle in `val` is not restored — the break value returns to the guest, not to host code, so it rides back as the same Handle (B-37 Notes). Subsequent guest code runs normally; `break` does not terminate the enclosing guest method or invocation. |
 | **Notes** | This matches standard Ruby `break` semantics — `break` unwinds the most recent yielder. `break` from a deeply-nested block (multiple `Service.outer { Service.inner { break } }`) still terminates only the innermost Service method (B-28). The Service method has no opportunity to observe the break — it is unwound transparently. |
 
 ---
@@ -399,8 +399,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `Name::MemberName` (B-08) or a `Kobako::Handle` instance obtained from a prior dispatch (B-14) or `#run` auto-wrap (B-34). |
-| **Operation** | Guest code calls `Name::MemberName.respond_to?(:any_name)` on the Member constant, or `handle.respond_to?(:any_name)` on the Handle instance, for a name the proxy does not define locally. |
+| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `<Namespace>::<Member>` (B-08) or a `Kobako::Handle` instance obtained from a prior dispatch (B-14) or `#run` auto-wrap (B-34). |
+| **Operation** | Guest code calls `<Namespace>::<Member>.respond_to?(:any_name)` on the Member constant, or `handle.respond_to?(:any_name)` on the Handle instance, for a name the proxy does not define locally. |
 | **Result / Final State** | `respond_to?` returns `true` for every such probe, on both the Member constant and the Handle instance. The probe is answered entirely inside the guest — no Transport Request is sent. A following method call dispatches normally (B-12 for a Member, B-17 for a Handle). |
 | **Notes** | Every method call on a Member or Handle is forwarded to the host, so `respond_to?` answers `true` to stay consistent: a method the guest can dispatch must not be reported as unsupported. The answer is optimistic, not authoritative — it does not consult the host and does not confirm the bound object implements the method. When the resolved host object does not implement the method, the host-side `public_send` raises `NoMethodError`, which surfaces to the guest as a `ServiceError` with `type="runtime"` (E-11); this is distinct from `type="undefined"`, which is reserved for a target that itself cannot be resolved (E-12 unregistered Member path, E-13 stale Handle). Names the proxy defines locally resolve through their own methods and never reach this path. |
 
@@ -492,7 +492,7 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
 | E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — Transport dispatch |
-| E-12 | The dispatch `target` path (e.g., `"Name::MemberName"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
+| E-12 | The dispatch `target` path (e.g., `"<Namespace>::<Member>"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
 | E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); error `type="undefined"` | B-18 — stale Handle cross-invocation |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |
 
