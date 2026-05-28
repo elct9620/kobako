@@ -44,5 +44,12 @@ rmp = { version = "0.8", default-features = false }
 # stay intact.
 mruby-sys = { path = "../mruby-sys" }
 
+# `mruby` — typed Rust wrapper crate over `mruby-sys`. Currently a
+# transparent proxy; the typed wrappers will physically move out of
+# `mruby-sys` into here in a follow-up commit. Listed alongside the
+# direct `mruby-sys` dependency so callers can migrate imports from
+# `use mruby_sys::*` to `use mruby::*` step by step.
+mruby = { path = "../mruby" }
+
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so both members share the same wasm size hygiene tuning.
