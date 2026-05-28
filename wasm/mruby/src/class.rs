@@ -197,10 +197,14 @@ impl Class {
         func: crate::mrb_func_t,
         aspec: sys::mrb_aspec,
     ) {
-        // SAFETY: `mrb` is alive; `self` was produced by the same
-        // VM; `name` is NUL-terminated; `func` matches the
-        // `mrb_func_t` ABI by repr-transparent typing on its
-        // mrb_value-shaped parameters.
+        // SAFETY (transmute): `Value` is `#[repr(transparent)]`
+        // over `sys::mrb_value` (pinned by
+        // `value::tests::value_shares_abi_with_mrb_value`), so
+        // `crate::mrb_func_t` and `sys::mrb_func_t` share C ABI and
+        // the transmute is a no-op at codegen.
+        // SAFETY (mrb_define_method): `mrb` is alive; `self` was
+        // produced by the same VM; `name` is NUL-terminated; `raw`
+        // has the C ABI mruby expects.
         let raw: sys::mrb_func_t = unsafe { core::mem::transmute(func) };
         unsafe { sys::mrb_define_method(mrb.as_ptr(), self.0, name.as_ptr(), raw, aspec) };
     }
@@ -218,9 +222,13 @@ impl Class {
         func: crate::mrb_func_t,
         aspec: sys::mrb_aspec,
     ) {
-        // SAFETY: as `define_method`. `RClass *` and `RObject *` are
-        // both `c_void *` aliases in this crate's binding; the cast
-        // matches what `mrbgems/mruby-singleton-class` does inline.
+        // SAFETY (transmute): as `define_method` — `Value` is
+        // `#[repr(transparent)]` over `sys::mrb_value`, so the typed
+        // and raw `mrb_func_t` aliases share C ABI.
+        // SAFETY (mrb_define_singleton_method): `RClass *` and
+        // `RObject *` are both `c_void *` aliases in this crate's
+        // binding; the cast matches what `mrbgems/mruby-singleton-
+        // class` does inline.
         let raw: sys::mrb_func_t = unsafe { core::mem::transmute(func) };
         unsafe {
             sys::mrb_define_singleton_method(

@@ -144,9 +144,12 @@ impl Immediates {
 ///
 /// `Value` itself, `Value::from_raw` / `Value::as_raw` /
 /// `Value::into_raw` / `Value::zeroed`, and the
-/// `sys::mrb_func_t` typedef are available on every target so the
-/// host-target `mrb_func_t_is_a_valid_extern_c_fn_pointer` signature
-/// check (in this crate's `tests` module) keeps compiling. Methods
+/// `sys::mrb_func_t` / `crate::mrb_func_t` typedefs are available
+/// on every target so the host-target ABI invariant checks keep
+/// compiling — `value::tests::value_shares_abi_with_mrb_value`
+/// here, and `tests::typed_mrb_func_t_coerces_from_value_bridge`
+/// at the crate root, pin the `#[repr(transparent)]` contract that
+/// `Class::define_method`'s `mem::transmute` depends on. Methods
 /// that talk to mruby (`classname` / `call` / numeric factories /
 /// predicates) live behind `#[cfg(target_arch = "wasm32")]` because
 /// they would link against unresolved mruby symbols on the host.
