@@ -1,27 +1,24 @@
-//! Façade re-exporting the mruby C-API binding from the sibling
-//! `mruby-sys` crate.
+//! Façade re-exporting the typed mruby surface from the sibling
+//! `mruby` crate.
 //!
 //! Existing call sites continue to spell their imports as
 //! `use crate::mruby::sys;` / `use crate::mruby::Mrb;` /
 //! `use crate::mruby::Ccontext;` — this module forwards each to its
-//! real home in `mruby-sys`. The submodules that previously
-//! lived here (`state.rs`, `ccontext.rs`, `value.rs`) have moved into
-//! `mruby-sys/src/` alongside the FFI declarations they wrap.
+//! real home in the `mruby` crate, which in turn re-exports
+//! `mruby-sys` through its `sys` namespace for raw-FFI access.
 //!
-//! This façade exists so the typed-newtype migration could land
-//! incrementally without touching every `use crate::mruby::*` in the
-//! codebase. Now that `Value` / `Class` are in place, the next step
-//! is to retire the façade — either by switching every call site to
-//! `use mruby_sys as sys;` / `use mruby_sys::Mrb;`
-//! directly, or by collapsing this module into a single
-//! `pub use mruby_sys;` line. Left in place for now so this
-//! commit stays a pure clean-up of stale references.
+//! This façade is the migration anchor for typed-newtype adoption.
+//! Now that every consumer path resolves through `mruby::*`, the
+//! next step is to retire the façade — either by switching every
+//! call site to `use mruby as sys;` / `use mruby::Mrb;` directly,
+//! or by collapsing this module into a single `pub use mruby;` line.
+//! Left in place for now so this commit stays a pure import switch.
 
 #[cfg(target_arch = "wasm32")]
-pub use mruby_sys as sys;
+pub use mruby::sys;
 
 #[cfg(target_arch = "wasm32")]
-pub use mruby_sys::Mrb;
+pub use mruby::Mrb;
 
 // `Value` is reached via `crate::mruby::sys::Value` at call sites;
 // no shorter re-export here to avoid an unused-import warning while
@@ -29,10 +26,10 @@ pub use mruby_sys::Mrb;
 // principle applies (`crate::mruby::sys::Class`).
 
 #[cfg(target_arch = "wasm32")]
-pub use mruby_sys::Ccontext;
+pub use mruby::Ccontext;
 
 // Re-export the `cstr!` macro at the consumer crate's root so the
 // existing `use crate::cstr;` pattern at the few remaining raw-FFI
 // call sites (e.g. `mrb_get_args` format strings) keeps resolving.
-// The macro itself ships from `mruby-sys` with
-// `#[macro_export]`; this re-export lives in `lib.rs`.
+// The macro itself ships from `mruby-sys` (via `mruby`'s wholesale
+// re-export) with `#[macro_export]`; this re-export lives in `lib.rs`.

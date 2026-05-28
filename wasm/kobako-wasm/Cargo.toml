@@ -38,18 +38,19 @@ crate-type = ["cdylib", "rlib"]
 # wasm32-wasip1 target, which already pays for `std` through mruby.
 rmp = { version = "0.8", default-features = false }
 
-# `mruby-sys` — sibling crate carrying the mruby C API FFI
-# declarations and the four layout-safe C shims. Re-exported through
-# `crate::mruby::sys` so existing `use crate::mruby::sys;` call sites
-# stay intact.
-mruby-sys = { path = "../mruby-sys" }
-
-# `mruby` — typed Rust wrapper crate over `mruby-sys`. Currently a
-# transparent proxy; the typed wrappers will physically move out of
-# `mruby-sys` into here in a follow-up commit. Listed alongside the
-# direct `mruby-sys` dependency so callers can migrate imports from
-# `use mruby_sys::*` to `use mruby::*` step by step.
+# `mruby` — typed Rust wrapper crate over the mruby C API. Re-exports
+# the underlying `mruby-sys` FFI through its `sys` namespace, so
+# `crate::mruby::sys::*` resolves to the raw bindgen surface and
+# typed entry points (`Mrb`, `Ccontext`, …) come through `mruby::*`
+# directly.
 mruby = { path = "../mruby" }
+
+# `mruby-sys` — kept as a direct dependency only for the `cstr!`
+# macro, which does not transit `pub use` cleanly through the
+# `mruby` wrapper. The dependency disappears once the typed
+# wrappers (including the macro's defining file) physically move
+# into the `mruby` crate.
+mruby-sys = { path = "../mruby-sys" }
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so both members share the same wasm size hygiene tuning.

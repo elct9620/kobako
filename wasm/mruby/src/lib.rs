@@ -29,6 +29,13 @@
 // just the raw FFI names that genuinely belong to the sys layer
 // (`mrb_value`, `mrb_state`, `mrb_func_t`, the `mrb_args_*`
 // helpers, …); the typed names will then be owned modules here.
+//
+// The `cstr!` macro from `mruby-sys` (`#[macro_export]`) does NOT
+// re-export through `pub use` cleanly across crates — the macro
+// namespace is opaque to consumer-side `pub use mruby::cstr`. The
+// macro stays imported directly from `mruby-sys` at the consumer
+// crate root until the typed wrappers physically move into this
+// crate (at which point `cstr` is defined here natively).
 #[cfg(any(target_arch = "wasm32", test))]
 pub use mruby_sys::*;
 
