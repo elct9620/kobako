@@ -58,9 +58,9 @@
 //! ```
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::{Mrb, Value};
+#[cfg(target_arch = "wasm32")]
+use mruby_sys as sys;
 
 /// Type-level marker for a single `mrb_get_args` format string.
 ///

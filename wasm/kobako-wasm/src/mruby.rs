@@ -18,18 +18,12 @@
 pub use mruby::sys;
 
 #[cfg(target_arch = "wasm32")]
-pub use mruby::Mrb;
-
-// `Value` is reached via `crate::mruby::sys::Value` at call sites;
-// no shorter re-export here to avoid an unused-import warning while
-// keeping the canonical path explicit. Once Class arrives the same
-// principle applies (`crate::mruby::sys::Class`).
-
-#[cfg(target_arch = "wasm32")]
-pub use mruby::Ccontext;
+pub use mruby::{format, Array, Ccontext, Class, FromValue, Hash, IntoValue, Mrb, Value};
 
 // Re-export the `cstr!` macro at the consumer crate's root so the
 // existing `use crate::cstr;` pattern at the few remaining raw-FFI
 // call sites (e.g. `mrb_get_args` format strings) keeps resolving.
-// The macro itself ships from `mruby-sys` (via `mruby`'s wholesale
-// re-export) with `#[macro_export]`; this re-export lives in `lib.rs`.
+// `#[macro_export]` exports a macro from its defining crate's root,
+// so re-anchoring it here is the minimum-diff bridge. The macro
+// itself ships from `mruby` (the typed wrapper crate, now that
+// `value.rs` has moved); the re-export lives in `lib.rs`.

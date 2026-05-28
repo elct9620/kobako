@@ -23,16 +23,16 @@ use super::bytecode;
 #[cfg(target_arch = "wasm32")]
 use super::io;
 
-/// Bundle of `sys::Class` handles produced by
+/// Bundle of `crate::mruby::Class` handles produced by
 /// `install_kobako_classes`. Internal to the install pipeline —
 /// the caller pulls each handle into the matching field on
 /// `super::Kobako`.
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
-    pub(super) member_class: sys::Class,
-    pub(super) handle_class: sys::Class,
-    pub(super) service_error_class: sys::Class,
-    pub(super) transport_error_class: sys::Class,
+    pub(super) member_class: crate::mruby::Class,
+    pub(super) handle_class: crate::mruby::Class,
+    pub(super) service_error_class: crate::mruby::Class,
+    pub(super) transport_error_class: crate::mruby::Class,
 }
 
 /// Register the Kobako module, the `Kobako::Transport` namespace, the
@@ -157,7 +157,7 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
     // (docs/behavior.md B-04).
     io::install(mrb);
 
-    use crate::mruby::sys::IntoValue;
+    use crate::mruby::IntoValue;
     let io_class = mrb.class_get(c"IO");
     let mode_str = mrb.str_new_cstr(c"w");
     let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);

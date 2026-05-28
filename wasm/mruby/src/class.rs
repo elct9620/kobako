@@ -37,11 +37,10 @@
 //! migration could move null handling into the return type.
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::Value;
+use mruby_sys as sys;
 
 /// Typed handle on an mruby class / module. `#[repr(transparent)]`
 /// over `*mut RClass` so the C ABI is preserved.
@@ -56,7 +55,7 @@ use crate::Value;
 /// mruby live behind `#[cfg(target_arch = "wasm32")]`.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub struct Class(pub(crate) *mut crate::RClass);
+pub struct Class(pub(crate) *mut sys::RClass);
 
 /// Alias for `Class` used by install paths to express "this handle
 /// refers to a module" without changing the runtime type.
@@ -68,14 +67,14 @@ impl Class {
     /// `mrb_class_get_under`, `mrb_class_get`, or
     /// `crate::mrb_object_class`.
     #[inline]
-    pub const fn from_raw(p: *mut crate::RClass) -> Self {
+    pub const fn from_raw(p: *mut sys::RClass) -> Self {
         Self(p)
     }
 
     /// Borrow the inner `*mut RClass` for raw FFI calls. The wrapper
     /// itself stays usable after the borrow (`Class: Copy`).
     #[inline]
-    pub const fn as_raw(self) -> *mut crate::RClass {
+    pub const fn as_raw(self) -> *mut sys::RClass {
         self.0
     }
 
@@ -184,20 +183,26 @@ impl Class {
     }
 
     /// `mrb_define_method(mrb, self, name, func, aspec)` — register
-    /// an instance method on this class.
+    /// an instance method on this class. Takes the typed
+    /// `crate::mrb_func_t` (Value-based) and transmutes to the raw
+    /// `sys::mrb_func_t` (mrb_value-based) once. Both have identical
+    /// C ABI because `Value` is `#[repr(transparent)]` over
+    /// `mrb_value`.
     #[cfg(target_arch = "wasm32")]
     #[inline]
     pub fn define_method(
         self,
         mrb: &Mrb,
         name: &core::ffi::CStr,
-        func: sys::mrb_func_t,
+        func: crate::mrb_func_t,
         aspec: sys::mrb_aspec,
     ) {
         // SAFETY: `mrb` is alive; `self` was produced by the same
         // VM; `name` is NUL-terminated; `func` matches the
-        // `mrb_func_t` ABI by type.
-        unsafe { sys::mrb_define_method(mrb.as_ptr(), self.0, name.as_ptr(), func, aspec) };
+        // `mrb_func_t` ABI by repr-transparent typing on its
+        // mrb_value-shaped parameters.
+        let raw: sys::mrb_func_t = unsafe { core::mem::transmute(func) };
+        unsafe { sys::mrb_define_method(mrb.as_ptr(), self.0, name.as_ptr(), raw, aspec) };
     }
 
     /// `mrb_define_singleton_method(mrb, self, name, func, aspec)` —
@@ -210,18 +215,19 @@ impl Class {
         self,
         mrb: &Mrb,
         name: &core::ffi::CStr,
-        func: sys::mrb_func_t,
+        func: crate::mrb_func_t,
         aspec: sys::mrb_aspec,
     ) {
         // SAFETY: as `define_method`. `RClass *` and `RObject *` are
         // both `c_void *` aliases in this crate's binding; the cast
         // matches what `mrbgems/mruby-singleton-class` does inline.
+        let raw: sys::mrb_func_t = unsafe { core::mem::transmute(func) };
         unsafe {
             sys::mrb_define_singleton_method(
                 mrb.as_ptr(),
                 self.0 as *mut sys::RObject,
                 name.as_ptr(),
-                func,
+                raw,
                 aspec,
             )
         };

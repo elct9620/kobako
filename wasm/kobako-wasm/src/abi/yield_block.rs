@@ -107,7 +107,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
         // `argv_ptr` / `argc` point into the outer `mrb_args` Vec
         // which outlives this closure.
         let raw = unsafe { sys::mrb_yield_argv(mrb_ptr, block_raw, argc, argv_ptr) };
-        sys::Value::from_raw(raw)
+        crate::mruby::Value::from_raw(raw)
     });
 
     // Step 5: encode the outcome. Extract any exception fields
@@ -133,7 +133,7 @@ fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
 fn classify_protected_error(
     kobako: &crate::kobako::Kobako,
     mrb: &crate::mruby::Mrb,
-    exc: crate::mruby::sys::Value,
+    exc: crate::mruby::Value,
     enter_idx: usize,
 ) -> Vec<u8> {
     use crate::mruby::sys;
@@ -148,7 +148,7 @@ fn classify_protected_error(
     if brk_idx >= enter_idx {
         // SAFETY: same gate as `mrb_break_ci_index_func` above.
         let brk_val_raw = unsafe { sys::mrb_break_value_func(exc.as_raw()) };
-        encode_break_response(kobako, sys::Value::from_raw(brk_val_raw))
+        encode_break_response(kobako, crate::mruby::Value::from_raw(brk_val_raw))
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
@@ -162,10 +162,7 @@ fn classify_protected_error(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn encode_break_response(
-    kobako: &crate::kobako::Kobako,
-    value: crate::mruby::sys::Value,
-) -> Vec<u8> {
+fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
     use crate::codec::Encode;
     use crate::transport::{Yield, TAG_BREAK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
@@ -219,7 +216,7 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
 }
 
 #[cfg(target_arch = "wasm32")]
-fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::Value) -> Vec<u8> {
+fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
     use crate::codec::Encode;
     use crate::transport::{Yield, TAG_OK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
@@ -253,7 +250,7 @@ fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::sys::
 fn encode_error_response_from_exception(
     kobako: &crate::kobako::Kobako,
     mrb: &crate::mruby::Mrb,
-    exc: crate::mruby::sys::Value,
+    exc: crate::mruby::Value,
 ) -> Vec<u8> {
     // Mirror `boot::take_pending_panic` field order: classname →
     // message → backtrace. Each step uses `exc` while it is still

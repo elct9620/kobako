@@ -26,8 +26,7 @@
 //!    and trailing-Hash kwargs.
 
 use super::Kobako;
-use crate::mruby::sys;
-use crate::mruby::sys::Value;
+use crate::mruby::Value;
 
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
@@ -41,7 +40,7 @@ impl Kobako {
     pub fn extract_hash_kwargs(&self, hash: Value, out: &mut Vec<(String, crate::codec::Value)>) {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
-        let hash = unsafe { sys::Hash::from_value_unchecked(hash) };
+        let hash = unsafe { crate::mruby::Hash::from_value_unchecked(hash) };
         let keys_ary = hash.keys(self.mrb());
         let keys_len = self.collection_len(keys_ary.as_value());
         for i in 0..keys_len {
@@ -93,7 +92,7 @@ impl Kobako {
     fn array_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<R> {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
-        let ary = unsafe { sys::Array::from_value_unchecked(val) };
+        let ary = unsafe { crate::mruby::Array::from_value_unchecked(val) };
         let len = self.collection_len(val);
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
@@ -114,7 +113,7 @@ impl Kobako {
     fn hash_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<(R, R)> {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
-        let hash = unsafe { sys::Hash::from_value_unchecked(val) };
+        let hash = unsafe { crate::mruby::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
         let len = self.collection_len(keys_ary.as_value());
         let mut pairs = Vec::with_capacity(len);
@@ -151,7 +150,7 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
-        use crate::mruby::sys::FromValue;
+        use crate::mruby::FromValue;
         // Scalar leaves dispatch on mruby's own type tag through the safe
         // `FromValue` downcast (which folds the `mrb_type` guard into the
         // unbox) rather than a classname-string match.
@@ -198,7 +197,7 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn try_codec_value(&self, val: Value) -> Option<crate::codec::Value> {
         use crate::codec::Value as CodecValue;
-        use crate::mruby::sys::FromValue;
+        use crate::mruby::FromValue;
         // Scalar-leaf downcast through the safe `FromValue` seam, as in
         // `to_codec_value`.
         if let Some(n) = i32::from_value(val) {
@@ -249,7 +248,7 @@ impl Kobako {
     #[cfg(target_arch = "wasm32")]
     pub fn to_mrb_value(&self, val: crate::codec::Value) -> Value {
         use crate::codec::Value as CodecValue;
-        use crate::mruby::sys::IntoValue;
+        use crate::mruby::IntoValue;
         let mrb = self.mrb();
         match val {
             CodecValue::Nil => Value::nil(),

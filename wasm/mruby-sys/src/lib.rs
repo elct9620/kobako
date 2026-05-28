@@ -1,12 +1,13 @@
-//! mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
+//! mruby-sys — bindgen-driven mruby C API FFI surface.
 //!
-//! This crate is the boundary between `kobako-wasm` and `libmruby.a`.
-//! The entire FFI surface comes from `bindgen` at build time:
+//! This crate is the boundary between the typed `mruby` wrapper and
+//! `libmruby.a`. The entire FFI surface comes from `bindgen` at
+//! build time:
 //!
 //!   * `src/wrapper.h` is the bindgen entry header. It includes the
-//!     mruby header subset the Guest Binary calls and adds a small
-//!     set of `static inline` wrappers around mruby's function-like
-//!     macros (`RSTRING_PTR` / `RSTRING_LEN`, `mrb_obj_ptr`,
+//!     mruby header subset the guest calls and adds a small set of
+//!     `static inline` wrappers around mruby's function-like macros
+//!     (`RSTRING_PTR` / `RSTRING_LEN`, `mrb_obj_ptr`,
 //!     `mrb_gc_arena_save` / `_restore`) and unexported helpers
 //!     (`mrb_proc_new`) that bindgen cannot reach directly.
 //!   * `build.rs::run_bindgen` emits the Rust bindings into
@@ -23,28 +24,34 @@
 //! ## Why bindgen runs from inside this crate
 //!
 //! Confining the bindgen call here keeps libclang a sys-only build
-//! dependency. The downstream `kobako-wasm` crate consumes this one as
-//! a path dependency and never sees bindgen — so the cost of staging
-//! libclang sits in one place, against one well-defined header set
-//! (`src/wrapper.h`), instead of leaking into every consumer build.
+//! dependency. The downstream `mruby` wrapper (and through it,
+//! `kobako-wasm`) consumes this crate as a path dependency and
+//! never sees bindgen — so the cost of staging libclang sits in
+//! one place, against one well-defined header set (`src/wrapper.h`),
+//! instead of leaking into every consumer build.
 //!
-//! ## Safe layer
+//! ## No typed wrappers here
 //!
-//! The typed `Value` / `Class` / `Array` / `Hash` newtypes plus the
-//! `Mrb` / `Ccontext` RAII wrappers live alongside the FFI surface in
-//! this crate so consumers get one coherent surface. See
-//! `src/{state,value,class,ccontext,array,hash}.rs`.
+//! The typed `Value` / `Class` / `Array` / `Hash` newtypes, the
+//! `Mrb` / `Ccontext` RAII wrappers, and the `IntoValue` /
+//! `FromValue` / `Format` trait seams all live in the sibling
+//! `mruby` crate. This crate stays a pure FFI surface: bindgen
+//! output, the `mrb_func_t` typed-fn alias, the
+//! `mrb_value::zeroed()` constant, the `mrb_args_*` aspec encoders,
+//! the `mrb_object_class` raw-state accessor, and the ABI const
+//! assertions that catch a vendored-mruby layout drift at compile
+//! time.
 //!
 //! ## ABI / opaque types
 //!
-//! `mrb_value` layout depends on mruby compile-time configuration. For
-//! wasm32 with `MRB_INT32` and `MRB_WORDBOX_NO_INLINE_FLOAT` the value
-//! is a 32-bit word-box (`struct { uintptr_t w }` where `uintptr_t` is
-//! 4 bytes). The `build.rs` clang invocation mirrors those defines so
-//! bindgen sees the same layout libmruby.a was built with. The const
-//! assertions below pin the size / align at compile time — any future
-//! vendor bump that drifts the layout fails to compile rather than
-//! silently breaking the ABI.
+//! `mrb_value` layout depends on mruby compile-time configuration.
+//! For wasm32 with `MRB_INT32` and `MRB_WORDBOX_NO_INLINE_FLOAT`
+//! the value is a 32-bit word-box (`struct { uintptr_t w }` where
+//! `uintptr_t` is 4 bytes). The `build.rs` clang invocation mirrors
+//! those defines so bindgen sees the same layout libmruby.a was
+//! built with. The const assertions below pin the size / align at
+//! compile time — any future vendor bump that drifts the layout
+//! fails to compile rather than silently breaking the ABI.
 
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
@@ -53,53 +60,14 @@
 #[cfg(not(target_arch = "wasm32"))]
 use core::ffi::c_void;
 
-// Safe-layer modules. These hold the kobako abstractions over the FFI
-// surface: `Mrb` / `Ccontext` RAII, typed `Value` / `Class` / `Array` /
-// `Hash` newtypes, and the `cstr!` / `cstr_ptr` C-string helpers.
-//
-// `ccontext` / `array` / `hash` are wasm32-only because their bodies
-// call mruby functions that are only linked on wasm32; including them
-// on host targets would surface `unresolved import` errors as soon as
-// `cargo test` ran the sys crate on its own.
-#[cfg(target_arch = "wasm32")]
-pub mod array;
-#[cfg(target_arch = "wasm32")]
-pub mod ccontext;
-pub mod class;
-#[cfg(target_arch = "wasm32")]
-pub mod convert;
-#[cfg(target_arch = "wasm32")]
-pub mod hash;
-pub mod state;
-pub mod value;
-
-#[cfg(target_arch = "wasm32")]
-pub use state::{Mrb, MrbOpenError};
-
-#[cfg(target_arch = "wasm32")]
-pub use state::args::{format, Format};
-
-#[cfg(target_arch = "wasm32")]
-pub use ccontext::Ccontext;
-
-#[cfg(target_arch = "wasm32")]
-pub use array::Array;
-pub use class::{Class, Module};
-#[cfg(target_arch = "wasm32")]
-pub use convert::{FromValue, IntoValue};
-#[cfg(target_arch = "wasm32")]
-pub use hash::Hash;
-pub use value::cstr_ptr;
-pub use value::Value;
-
 // --------------------------------------------------------------------
 // bindgen-generated FFI surface (wasm32 only).
 // --------------------------------------------------------------------
 //
 // On the host target the FFI block is absent. Tests that target the
-// pure-Rust unit suite (codec / outcome / transport envelope) still need
-// `mrb_value` / `mrb_state` / `RClass` etc. to resolve as types — the
-// stub aliases below cover that.
+// pure-Rust unit suite (codec / outcome / transport envelope) still
+// need `mrb_value` / `mrb_state` / `RClass` etc. to resolve as
+// types — the stub aliases below cover that.
 //
 // The generated `bindings.rs` is `include!`-d into a private
 // submodule so the `#![allow(clippy::all)]` / `#![allow(warnings)]`
@@ -113,10 +81,10 @@ pub use value::Value;
 #[allow(warnings)]
 mod bindings {
     // `mrb_func_t` is blocklisted in bindgen so consumers see the
-    // typed-`Value` alias declared at the crate root. The generated
-    // bindings still reference the bare name in function signatures
-    // (e.g. `mrb_define_method`'s `func` parameter); pull the parent
-    // alias into scope so those references resolve.
+    // typed-`mrb_value` alias declared at the crate root. The
+    // generated bindings still reference the bare name in function
+    // signatures (e.g. `mrb_define_method`'s `func` parameter);
+    // pull the parent alias into scope so those references resolve.
     use super::mrb_func_t;
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -130,7 +98,8 @@ impl mrb_value {
     /// configuration this matches `mrb_nil_value()` (MRB_Qnil = 0).
     /// Out-parameter initialisers (`mrb_get_args` writes to it) use
     /// this; callers that need a guaranteed nil should prefer the
-    /// `Value::nil` accessor which reads through mruby's helper.
+    /// `Value::nil` accessor in the `mruby` wrapper which reads
+    /// through mruby's helper.
     pub const fn zeroed() -> Self {
         Self { w: 0 }
     }
@@ -150,14 +119,14 @@ const _: () = assert!(
 );
 
 // `Mrb::pending_exc` and `Mrb::load_bytecode`'s exception
-// synthesiser read / write `mrb_state.exc` through bindgen's
-// struct accessor. Pin the field's offset so a future bindgen run
-// or mruby vendor bump that shifts it fails at compile time
-// rather than silently reading the wrong slot. The field sits
-// after `jmp` / `c` / `root_c` / `globals` (four pointer-sized
-// fields); `mrb_gc` (which carries the bitfield workaround) lives
-// further down the struct, so the bitfield mis-pack does not
-// affect this offset.
+// synthesiser (in the `mruby` wrapper crate) read / write
+// `mrb_state.exc` through bindgen's struct accessor. Pin the
+// field's offset so a future bindgen run or mruby vendor bump that
+// shifts it fails at compile time rather than silently reading the
+// wrong slot. The field sits after `jmp` / `c` / `root_c` /
+// `globals` (four pointer-sized fields); `mrb_gc` (which carries
+// the bitfield workaround) lives further down the struct, so the
+// bitfield mis-pack does not affect this offset.
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
     core::mem::offset_of!(mrb_state, exc) == 4 * core::mem::size_of::<*const core::ffi::c_void>(),
@@ -171,7 +140,8 @@ const _: () = assert!(
 /// `kobako-wasm/src/kobako/install.rs` which are themselves called
 /// with a raw `*mut mrb_state` from `Kobako::install`.
 ///
-/// Prefer `Mrb::object_class` when an `Mrb` borrow is in scope.
+/// Prefer the `mruby` wrapper's `Mrb::object_class` when an `Mrb`
+/// borrow is in scope.
 ///
 /// # Safety
 ///
@@ -234,29 +204,30 @@ impl mrb_value {
 // --------------------------------------------------------------------
 //
 // `mrb_func_t` is blocklisted in the bindgen builder so consumers can
-// import the typed shape declared here. `Value` is
-// `#[repr(transparent)]` over `mrb_value` so the wasm32 C ABI matches
-// mruby's own `mrb_func_t` byte-for-byte; bridge functions in the
-// consumer crate use this alias and pass through `Class::define_method`
+// import the typed shape declared here. The signature uses the raw
+// `mrb_value` directly; the `mruby` wrapper crate's `Value` newtype
+// is `#[repr(transparent)]` over `mrb_value`, so a bridge declared
+// with `Value` parameters and return type coerces to this alias
 // without an `Option`-wrapping cast.
 
 /// C function pointer matching mruby's method-implementation signature
 /// `mrb_value (*)(mrb_state*, mrb_value)`. Used by `mrb_define_method`
 /// and `mrb_define_singleton_method`.
-pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: Value) -> Value;
+pub type mrb_func_t = unsafe extern "C" fn(mrb: *mut mrb_state, self_: mrb_value) -> mrb_value;
 
 // --------------------------------------------------------------------
 // Argument-spec encoders.
 // --------------------------------------------------------------------
 //
 // mruby spells these as the function-like macros MRB_ARGS_NONE() /
-// MRB_ARGS_ANY() / MRB_ARGS_REQ(n); bindgen cannot expand macros, so the
-// `mrb_args_*_func` static-inline shims in `wrapper.h` emit the bit
-// packing from mruby's own header (reached through bindgen's
+// MRB_ARGS_ANY() / MRB_ARGS_REQ(n); bindgen cannot expand macros, so
+// the `mrb_args_*_func` static-inline shims in `wrapper.h` emit the
+// bit packing from mruby's own header (reached through bindgen's
 // `wrap_static_fns` trampolines). These safe wrappers forward to the
-// trampolines so method-registration sites keep a const-like call shape
-// without an `unsafe` block, and the encoding can never desync from a
-// mruby vendor bump the way a Rust-side bit-packing mirror could.
+// trampolines so method-registration sites keep a const-like call
+// shape without an `unsafe` block, and the encoding can never desync
+// from a mruby vendor bump the way a Rust-side bit-packing mirror
+// could.
 
 /// `MRB_ARGS_NONE()` — no arguments.
 #[cfg(target_arch = "wasm32")]
@@ -301,8 +272,8 @@ mod tests {
         // signature must coerce to `mrb_func_t` without an explicit
         // cast. If the `mrb_func_t` shape ever drifts, this function
         // definition fails to compile.
-        unsafe extern "C" fn _stub(_mrb: *mut mrb_state, _self_: Value) -> Value {
-            Value::zeroed()
+        unsafe extern "C" fn _stub(_mrb: *mut mrb_state, _self_: mrb_value) -> mrb_value {
+            mrb_value::zeroed()
         }
         let _f: mrb_func_t = _stub;
     }

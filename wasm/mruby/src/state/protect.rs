@@ -5,9 +5,9 @@
 //! `Err(value)` instead of long-jumping past the Rust caller.
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::{Mrb, Value};
+#[cfg(target_arch = "wasm32")]
+use mruby_sys as sys;
 
 #[cfg(target_arch = "wasm32")]
 impl Mrb {

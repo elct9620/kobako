@@ -39,7 +39,7 @@
 //!     shims, exposed through `Value::nil` / `Value::true_` /
 //!     `Value::false_`.
 
-use crate as sys;
+use mruby_sys as sys;
 
 #[cfg(target_arch = "wasm32")]
 use crate::Mrb;

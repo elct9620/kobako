@@ -52,13 +52,13 @@ pub mod protect;
 pub mod symbol;
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::Class;
 #[cfg(target_arch = "wasm32")]
 use crate::Value;
 #[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
+#[cfg(target_arch = "wasm32")]
+use mruby_sys as sys;
 
 /// Owning handle to a live mruby VM. Closed automatically on drop.
 ///

@@ -29,7 +29,7 @@
 //! to route to.
 
 use crate::mruby::sys;
-use crate::mruby::sys::Value;
+use crate::mruby::Value;
 
 /// Install the top-level `::IO` class on `mrb` and load the
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
@@ -66,7 +66,7 @@ pub(crate) fn install(mrb: &crate::mruby::Mrb) {
 pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     // SAFETY: bridge frame — mruby invoked us with a live state.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let (fd, mode_val) = mrb_ref.get_args::<sys::format::Io>();
+    let (fd, mode_val) = mrb_ref.get_args::<crate::mruby::format::Io>();
 
     if fd != 1 && fd != 2 {
         unsafe {
@@ -82,7 +82,7 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
         unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
     }
 
-    use crate::mruby::sys::IntoValue;
+    use crate::mruby::IntoValue;
     let fd_val = fd.into_value(mrb_ref);
     let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
     self_.iv_set(mrb_ref, sym, fd_val);
@@ -102,7 +102,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
     // SAFETY: bridge frame — mruby invoked us with a live state.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
     let fd = read_fd(mrb_ref, self_);
-    let argv = mrb_ref.get_args::<sys::format::Rest>();
+    let argv = mrb_ref.get_args::<crate::mruby::format::Rest>();
 
     let mut total: i32 = 0;
     for val in argv {
@@ -127,7 +127,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
             }
         }
     }
-    use crate::mruby::sys::IntoValue;
+    use crate::mruby::IntoValue;
     total.into_value(mrb_ref)
 }
 
@@ -146,7 +146,7 @@ unsafe extern "C" {
 pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     // SAFETY: bridge frame — mruby invoked us with a live state.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    use crate::mruby::sys::IntoValue;
+    use crate::mruby::IntoValue;
     let fd = read_fd(mrb_ref, self_);
     fd.into_value(mrb_ref)
 }
@@ -161,7 +161,7 @@ pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value
 /// `.to_s.parse` round-trip.
 fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
-    use crate::mruby::sys::FromValue;
+    use crate::mruby::FromValue;
     let val = self_.iv_get(mrb, sym);
     i32::from_value(val).unwrap_or(0)
 }

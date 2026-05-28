@@ -22,7 +22,7 @@
 //! mutability used here.
 
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::sys::Value;
+use crate::mruby::Value;
 
 #[cfg(target_arch = "wasm32")]
 use core::cell::UnsafeCell;

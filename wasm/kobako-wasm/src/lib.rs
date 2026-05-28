@@ -53,14 +53,3 @@ pub(crate) mod kobako;
 pub(crate) mod mruby;
 pub mod outcome;
 pub mod transport;
-
-// Re-export the `cstr!` macro at the crate root so the consumer-side
-// `use crate::cstr;` pattern continues to resolve after the macro
-// migrated to `mruby-sys` (`#[macro_export]` exports a macro
-// from its defining crate's root, so re-anchoring it here is the
-// minimum-diff bridge). Imported directly from `mruby-sys` because
-// `pub use` does not cleanly transit a `#[macro_export]` macro
-// through the intermediate `mruby` wrapper crate; once the macro
-// physically moves to `mruby`, this can switch to `mruby::cstr`.
-#[cfg(any(target_arch = "wasm32", test))]
-pub use mruby_sys::cstr;

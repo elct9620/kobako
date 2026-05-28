@@ -45,7 +45,7 @@
 //! explicit `unsafe { ... }` blocks at each remaining FFI call site.
 
 use crate::mruby::sys;
-use crate::mruby::sys::Value;
+use crate::mruby::Value;
 
 /// Full guest→host dispatch from the active mruby call frame — the
 /// shared body of the two `method_missing` bridges. The caller supplies
@@ -73,7 +73,7 @@ fn forward_to_dispatch(
     use crate::abi::block_stack::BlockFrame;
     use crate::transport::proxy::{invoke, InvokeError};
 
-    let (method_sym, rest, block) = kobako.mrb().get_args::<sys::format::NRestBlock>();
+    let (method_sym, rest, block) = kobako.mrb().get_args::<crate::mruby::format::NRestBlock>();
 
     // Push the block onto BLOCK_STACK for the duration of this bridge
     // frame; drops + pops automatically on return / mruby raise. The
@@ -120,7 +120,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
 
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
-    let class = sys::Class::from_raw(unsafe { self_.as_class_ptr() });
+    let class = crate::mruby::Class::from_raw(unsafe { self_.as_class_ptr() });
     let target_str = match class.name(kobako.mrb()) {
         Some(name) => name,
         None => unsafe {
@@ -144,7 +144,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
 pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    let id_val = kobako.mrb().get_args::<sys::format::O>();
+    let id_val = kobako.mrb().get_args::<crate::mruby::format::O>();
     kobako.set_handle_id(self_, id_val);
     Value::zeroed()
 }

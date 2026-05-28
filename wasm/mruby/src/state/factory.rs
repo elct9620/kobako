@@ -8,9 +8,9 @@
 //! not `mrb.ary_push(arr, x)`).
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::{Array, Hash, Mrb, Value};
+#[cfg(target_arch = "wasm32")]
+use mruby_sys as sys;
 
 #[cfg(target_arch = "wasm32")]
 impl Mrb {

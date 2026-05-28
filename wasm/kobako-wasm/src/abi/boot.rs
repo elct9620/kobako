@@ -45,10 +45,7 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 /// the value's class name rides the message so the developer can see
 /// which type failed without an implicit `inspect`.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn unrepresentable_return_panic(
-    kobako: &Kobako,
-    value: crate::mruby::sys::Value,
-) -> Panic {
+pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: crate::mruby::Value) -> Panic {
     Panic {
         origin: "sandbox".into(),
         class: "Kobako::SandboxError".into(),

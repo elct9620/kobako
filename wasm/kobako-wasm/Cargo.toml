@@ -41,16 +41,12 @@ rmp = { version = "0.8", default-features = false }
 # `mruby` — typed Rust wrapper crate over the mruby C API. Re-exports
 # the underlying `mruby-sys` FFI through its `sys` namespace, so
 # `crate::mruby::sys::*` resolves to the raw bindgen surface and
-# typed entry points (`Mrb`, `Ccontext`, …) come through `mruby::*`
-# directly.
+# typed entry points (`Mrb`, `Ccontext`, `Value`, `Class`, the
+# `format::*` ZST markers, `IntoValue` / `FromValue` / `Format`
+# traits, …) come through `mruby::*` directly. `mruby-sys` reaches
+# the dependency graph transitively through `mruby`; no direct entry
+# is needed here.
 mruby = { path = "../mruby" }
-
-# `mruby-sys` — kept as a direct dependency only for the `cstr!`
-# macro, which does not transit `pub use` cleanly through the
-# `mruby` wrapper. The dependency disappears once the typed
-# wrappers (including the macro's defining file) physically move
-# into the `mruby` crate.
-mruby-sys = { path = "../mruby-sys" }
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so both members share the same wasm size hygiene tuning.

@@ -10,9 +10,9 @@
 //! `Mrb`, per-hash ops (`set`, `get`, `keys`) live here.
 
 #[cfg(target_arch = "wasm32")]
-use crate as sys;
-#[cfg(target_arch = "wasm32")]
 use crate::{Array, Mrb, Value};
+#[cfg(target_arch = "wasm32")]
+use mruby_sys as sys;
 
 /// Typed handle on an mruby `Hash`. `#[repr(transparent)]` over
 /// `Value` so the C ABI is preserved.

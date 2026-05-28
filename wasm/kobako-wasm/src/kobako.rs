@@ -45,9 +45,9 @@ pub(crate) mod io;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::sys::Value;
-#[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby::Value;
 #[cfg(target_arch = "wasm32")]
 use crate::transport::proxy::ExceptionPayload;
 
@@ -116,10 +116,10 @@ pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Member` base class — parent of every bound Member proxy
     /// installed via `Kobako::install_groups`.
-    member_class: sys::Class,
-    handle_class: sys::Class,
-    service_error_class: sys::Class,
-    transport_error_class: sys::Class,
+    member_class: crate::mruby::Class,
+    handle_class: crate::mruby::Class,
+    service_error_class: crate::mruby::Class,
+    transport_error_class: crate::mruby::Class,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -268,7 +268,7 @@ impl Kobako {
     /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
     /// callers see "empty collection" rather than a panic.
     pub fn collection_len(&self, col: Value) -> usize {
-        use crate::mruby::sys::FromValue;
+        use crate::mruby::FromValue;
         let len_val = col.call(self.mrb(), c"length", &[]);
         let Some(len) = i32::from_value(len_val) else {
             return 0;
@@ -297,7 +297,7 @@ impl Kobako {
             return Vec::new();
         }
         // SAFETY: classname check above proves Array-tagged.
-        let bt_ary = unsafe { sys::Array::from_value_unchecked(bt_val) };
+        let bt_ary = unsafe { crate::mruby::Array::from_value_unchecked(bt_val) };
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
@@ -328,7 +328,7 @@ impl Kobako {
             return Vec::new();
         }
         // SAFETY: classname check above proves Array-tagged.
-        let consts_ary = unsafe { sys::Array::from_value_unchecked(consts) };
+        let consts_ary = unsafe { crate::mruby::Array::from_value_unchecked(consts) };
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
@@ -356,7 +356,7 @@ impl Kobako {
     /// and tighter on the wire-violation surface.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
-        use crate::mruby::sys::FromValue;
+        use crate::mruby::FromValue;
         let id_val = handle_val.iv_get(self.mrb(), id_sym);
         let Some(id) = i32::from_value(id_val) else {
             return 0;

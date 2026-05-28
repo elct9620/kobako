@@ -129,7 +129,6 @@ fn run_body(env_ptr: i32, env_len: i32) {
     use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
     use crate::codec::{Decoder, Encode};
-    use crate::mruby::sys;
     use crate::outcome::{Outcome, Panic};
 
     // See `eval_body` for the MRB scope-guard rationale — declared
@@ -296,7 +295,7 @@ fn run_body(env_ptr: i32, env_len: i32) {
         });
     };
     let kwargs_present = !kwargs_pairs.is_empty();
-    let mut argv: Vec<sys::Value> = arg_items
+    let mut argv: Vec<crate::mruby::Value> = arg_items
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
         .collect();
