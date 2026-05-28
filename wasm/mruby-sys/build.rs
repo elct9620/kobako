@@ -1,4 +1,4 @@
-// build.rs — kobako-mruby-sys link wiring, bindgen run, and static-fn
+// build.rs — mruby-sys link wiring, bindgen run, and static-fn
 // trampoline compilation.
 //
 // Purpose
@@ -100,7 +100,7 @@ fn main() {
 
     if !mruby_include.exists() || mruby_build_include.is_none() || wasi_sdk.is_none() {
         panic!(
-            "kobako-mruby-sys: vendor toolchain not staged for wasm32 build. \
+            "mruby-sys: vendor toolchain not staged for wasm32 build. \
              Run `bundle exec rake vendor:setup mruby:build` first."
         );
     }
@@ -217,7 +217,7 @@ fn compile_trampolines(
         // a stale OUT_DIR cannot ship a link graph missing trampoline
         // symbols.
         panic!(
-            "kobako-mruby-sys: bindgen did not emit {}",
+            "mruby-sys: bindgen did not emit {}",
             static_wrappers_c.display()
         );
     }

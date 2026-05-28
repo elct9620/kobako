@@ -1,7 +1,7 @@
 //! Rust ↔ mruby `Value` conversion traits — the typed layer over the
 //! raw boxing / unboxing primitives in `value.rs`.
 //!
-//! This is kobako-mruby-sys's small slice of the magnus conversion
+//! This is mruby-sys's small slice of the magnus conversion
 //! contract: `IntoValue` mirrors magnus's `IntoValue` (Rust → value,
 //! infallible boxing), `FromValue` mirrors magnus's `TryConvert`
 //! (value → Rust, fallible downcast). Both sit ON TOP of the unsafe tag

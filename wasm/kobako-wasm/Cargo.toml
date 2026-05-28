@@ -4,7 +4,7 @@
 # houses the MessagePack codec, the transport client (`crate::transport`),
 # the ABI exports, and the Ruby boot bytecode pipeline. The mruby C API
 # FFI surface (bindgen-generated bindings + the `wrapper.h` static-inline
-# shims) lives in the sibling `kobako-mruby-sys` crate; `kobako-wasm`
+# shims) lives in the sibling `mruby-sys` crate; `kobako-wasm`
 # consumes it as a path dependency and re-exports it as `crate::mruby::sys`.
 #
 # This crate is a member of the `wasm/` sub-workspace (see
@@ -38,11 +38,11 @@ crate-type = ["cdylib", "rlib"]
 # wasm32-wasip1 target, which already pays for `std` through mruby.
 rmp = { version = "0.8", default-features = false }
 
-# `kobako-mruby-sys` — sibling crate carrying the mruby C API FFI
+# `mruby-sys` — sibling crate carrying the mruby C API FFI
 # declarations and the four layout-safe C shims. Re-exported through
 # `crate::mruby::sys` so existing `use crate::mruby::sys;` call sites
 # stay intact.
-kobako-mruby-sys = { path = "../kobako-mruby-sys" }
+mruby-sys = { path = "../mruby-sys" }
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so both members share the same wasm size hygiene tuning.

@@ -26,7 +26,7 @@
 //!   exception classes on an mruby VM and registers the C-bridges in
 //!   its `bridges` submodule. No Ruby boot text.
 //! * `mruby` — thin façade re-exporting the mruby C-API binding from
-//!   the sibling `kobako-mruby-sys` crate. Both the raw FFI surface
+//!   the sibling `mruby-sys` crate. Both the raw FFI surface
 //!   (`mruby::sys`) and every safe wrapper (`Mrb`, `Ccontext`, the
 //!   typed `Value` / `Class` newtypes, `cstr_ptr`) now live in that
 //!   crate; this module forwards the existing `use crate::mruby::*`
@@ -56,8 +56,8 @@ pub mod transport;
 
 // Re-export the `cstr!` macro at the crate root so the consumer-side
 // `use crate::cstr;` pattern continues to resolve after the macro
-// migrated to `kobako-mruby-sys` (`#[macro_export]` exports a macro
+// migrated to `mruby-sys` (`#[macro_export]` exports a macro
 // from its defining crate's root, so re-anchoring it here is the
 // minimum-diff bridge).
 #[cfg(any(target_arch = "wasm32", test))]
-pub use kobako_mruby_sys::cstr;
+pub use mruby_sys::cstr;

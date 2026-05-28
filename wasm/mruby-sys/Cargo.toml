@@ -1,4 +1,4 @@
-# kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
+# mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
 #
 # Sole responsibility: `bindgen`-generated FFI declarations for the
 # mruby C API surface the Guest Binary calls (the `mrb_open` /
@@ -31,7 +31,7 @@
 #     output stays a pure FFI surface beneath them.
 
 [package]
-name = "kobako-mruby-sys"
+name = "mruby-sys"
 version = "0.0.0"
 edition = "2021"
 publish = false

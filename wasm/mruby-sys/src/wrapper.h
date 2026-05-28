@@ -1,5 +1,5 @@
 /*
- * wrapper.h — bindgen entry point for the kobako-mruby-sys crate.
+ * wrapper.h — bindgen entry point for the mruby-sys crate.
  *
  * Pulled in by `build.rs::run_bindgen` to expose the mruby C API
  * the kobako Guest Binary needs. No hand-written C translation

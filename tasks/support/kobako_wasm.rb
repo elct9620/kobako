@@ -17,7 +17,7 @@ module KobakoWasm
   ROOT = File.expand_path("../..", __dir__)
   # `wasm/` is now a cargo sub-workspace whose members share a single
   # `target/` directory at the workspace root. `kobako-wasm` is the
-  # cdylib-bearing member; its sibling `kobako-mruby-sys` carries the
+  # cdylib-bearing member; its sibling `mruby-sys` carries the
   # mruby FFI surface (path dependency, no separate artifact).
   WASM_WORKSPACE_DIR = File.join(ROOT, "wasm").freeze
   CRATE_DIR  = File.join(WASM_WORKSPACE_DIR, "kobako-wasm").freeze

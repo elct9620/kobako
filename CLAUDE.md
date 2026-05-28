@@ -97,7 +97,7 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — Rus
   · Codec · Root        (tier stack below)       │    · outcome · codec · root  (mirrors lib/)
        ▲  owns the wire codec                    │       ▲  owns the wire codec
        │  (#encode / .decode, duck-typed)        │       │  (codec::{Encode,Decode} trait)
-       │                                         │  wasm/kobako-mruby-sys  — Rust mruby FFI
+       │                                         │  wasm/mruby-sys  — Rust mruby FFI
        │                                         │    Value · Class · Array · Hash
        │                                         │    · convert (IntoValue/FromValue) · state
        │                                         │    → libmruby.a (mruby C API)
@@ -111,7 +111,7 @@ ext/  — Rust native ext (magnus + wasmtime)      │       │
 
 - **`lib/` ↔ `wasm/kobako-wasm` are wire-symmetric peers.** Each independently implements the same SPEC wire — MessagePack `Codec` plus the `Transport` / `Outcome` envelopes — so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Every wire value object self-encodes: Ruby via duck-typed `#encode` / `.decode`, the guest via the `codec::{Encode, Decode}` trait (lives at the **codec tier** because per-call `Transport` *and* per-run `Outcome`/`Panic` implement it). The asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models, correct on each side.
 - **`ext/` is the host's wasmtime driver, not a wire endpoint.** It instantiates the guest, drives the ABI exports, and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — it never decodes envelopes itself. Its internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec. The Rust struct is `Runtime` (matching the `Kobako::Runtime` magnus class); `Exports` caches the per-instance export handles, `Config` holds the caps, `cache` is the process-wide Engine/Module cache.
-- **`wasm/kobako-mruby-sys` is the typed mruby C-API wrapper**, consumed only by `kobako-wasm`. `convert.rs` (`IntoValue` / `FromValue`) is the safe typed seam over the raw boxing/tag primitives in `value.rs`; a future `mruby` (typed) / `mruby-sys` (FFI) split moves the seam, not the primitives.
+- **`wasm/mruby-sys` is the typed mruby C-API wrapper**, consumed only by `kobako-wasm`. `convert.rs` (`IntoValue` / `FromValue`) is the safe typed seam over the raw boxing/tag primitives in `value.rs`; a future `mruby` (typed) / `mruby-sys` (FFI) split moves the seam, not the primitives.
 
 ### `lib/` tier stack
 
@@ -169,10 +169,10 @@ Outcome ────┤   outcome::{Outcome, Panic}
       │     │
 Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
       │
-(FFI)           wasm/kobako-mruby-sys
+(FFI)           wasm/mruby-sys
 ```
 
-### `wasm/kobako-mruby-sys` tier stack (mruby FFI)
+### `wasm/mruby-sys` tier stack (mruby FFI)
 
 ```
 Typed wrappers  Value · Class · Module · Array · Hash · convert::{IntoValue, FromValue}
@@ -199,7 +199,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live one level deep at `"Namespace::Member"`. Catalog::Handles is injected by the owning Sandbox, not owned by the registry. |
 | ABI surface (host ↔ guest exports) | `wasm/kobako-wasm/src/abi.rs` ↔ `ext/kobako/src/runtime.rs` | — |
 | E2E coverage | `test/test_e2e_journeys.rb` (`#eval`), `test/test_sandbox_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/test_wasm_wrapper.rb`) covers only `from_path` and deliberately does not duplicate ABI-export checks. |
-| mruby C API FFI | `wasm/kobako-mruby-sys/` (`wrapper.h`, `build.rs`, `src/{state,value,class,ccontext,array,hash}.rs`) | bindgen scoped to this crate (libclang stays sys-only); `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. Consumed by `kobako-wasm` via the `crate::mruby` façade. |
+| mruby C API FFI | `wasm/mruby-sys/` (`wrapper.h`, `build.rs`, `src/{state,value,class,ccontext,array,hash}.rs`) | bindgen scoped to this crate (libclang stays sys-only); `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. Consumed by `kobako-wasm` via the `crate::mruby` façade. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), and `library "<name>"` in `Steepfile` (stdlib — reach for this first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
 | Regression benchmarks | `tasks/benchmark.rake`, `benchmark/` | #1..#5 are gated (+10% regression blocks release); #6/#7 are characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. Scope + caveats in `benchmark/README.md`. |
 | Build / toolchain | `tasks/{vendor,mruby,wasm}.rake` | — |

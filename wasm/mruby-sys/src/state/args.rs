@@ -44,7 +44,7 @@
 //! Add a marker ZST under `format` and implement `Format`:
 //!
 //! ```ignore
-//! use kobako_mruby_sys::{Format, Mrb, Value};
+//! use mruby_sys::{Format, Mrb, Value};
 //!
 //! pub struct S;
 //! impl Format for S {
@@ -98,7 +98,7 @@ impl Mrb {
     /// `F::FMT` and returns the typed tuple from `F::Output`.
     ///
     /// ```ignore
-    /// use kobako_mruby_sys::format::{Io, Rest};
+    /// use mruby_sys::format::{Io, Rest};
     /// let (fd, mode_val) = mrb.get_args::<Io>();
     /// let argv = mrb.get_args::<Rest>();
     /// ```

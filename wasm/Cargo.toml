@@ -9,7 +9,7 @@
 #
 # Members
 # -------
-#   * `kobako-mruby-sys` — bindgen-driven mruby C API FFI surface plus
+#   * `mruby-sys` — bindgen-driven mruby C API FFI surface plus
 #     the `wrapper.h` static-inline shims that bridge macro-only mruby
 #     APIs (emitted as a single `wrap_static_fns` trampoline). The
 #     consumer of `MRUBY_LIB_DIR` and `WASI_SDK_PATH`.
@@ -23,7 +23,7 @@
 # customization can each evolve one crate at a time.
 
 [workspace]
-members = ["kobako-mruby-sys", "kobako-wasm"]
+members = ["mruby-sys", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

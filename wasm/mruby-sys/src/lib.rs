@@ -1,4 +1,4 @@
-//! kobako-mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
+//! mruby-sys — mruby C API FFI surface for the kobako Guest Binary.
 //!
 //! This crate is the boundary between `kobako-wasm` and `libmruby.a`.
 //! The entire FFI surface comes from `bindgen` at build time:

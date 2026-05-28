@@ -134,7 +134,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
 unsafe extern "C" {
     /// wasi-libc `write(2)` syscall. Declared locally because this
     /// is a libc concern, not a mruby concern — keeping it out of
-    /// `kobako-mruby-sys`' public surface preserves that crate's
+    /// `mruby-sys`' public surface preserves that crate's
     /// mruby-only scope. wasm32-wasip1 auto-links wasi-libc, so
     /// the symbol resolves at link time.
     fn write(fd: core::ffi::c_int, buf: *const core::ffi::c_void, n: usize) -> isize;
