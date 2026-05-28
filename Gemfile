@@ -27,5 +27,5 @@ group :development do
 
   # benchmark-ips drives the SPEC.md "Regression benchmarks" suite in
   # benchmark/. Dev-only — the gem itself does not depend on it.
-  gem "benchmark-ips", "~> 2.14"
+  gem "benchmark-ips", "~> 2.15"
 end
