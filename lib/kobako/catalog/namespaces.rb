@@ -59,10 +59,11 @@ module Kobako
         @namespaces[name_str] ||= Namespace.new(name_str)
       end
 
-      # Resolve a +target+ path of the form +"Namespace::Member"+ to the
-      # bound Host object. +target+ is a two-level path using the +::+
-      # separator. Returns the bound Host object. Raises +KeyError+ when the
-      # namespace or the member is not bound.
+      # Resolve a +target+ path of the form +"<Namespace>::<Member>"+
+      # (e.g. +"MyService::KV"+) to the bound Host object. +target+ is a
+      # two-level path using the +::+ separator. Returns the bound Host
+      # object. Raises +KeyError+ when the namespace or the member is not
+      # bound.
       def lookup(target)
         namespace_name, member_name = target.to_s.split("::", 2)
         namespace = @namespaces[namespace_name]

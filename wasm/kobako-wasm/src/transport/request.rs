@@ -13,8 +13,9 @@ use crate::codec::{self, Decoder, Encoder, Value};
 
 /// docs/wire-codec.md § Envelope Encoding → Request: 5-element msgpack
 /// array `[target, method, args, kwargs, block_given]`. `target` is
-/// either a Member constant path (str, e.g. `"Namespace::Member"`) or a
-/// Capability Handle. `block_given` is a Boolean signalling whether the
+/// either a Member constant path (str of the form `"<Namespace>::<Member>"`,
+/// e.g. `"MyService::KV"`) or a Capability Handle. `block_given` is a
+/// Boolean signalling whether the
 /// guest call site supplied a block (B-23); the block body itself never
 /// crosses the wire.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,7 +32,8 @@ pub struct Request {
 /// the wire").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    /// Member constant path, e.g. `"Namespace::Member"`.
+    /// Member constant path of the form `"<Namespace>::<Member>"`
+    /// (e.g. `"MyService::KV"`).
     Path(String),
     /// Capability Handle reference (ext 0x01).
     Handle(u32),

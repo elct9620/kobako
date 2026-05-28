@@ -27,7 +27,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 |---|---|
 | In-process Wasm sandbox | No subprocess, no container. Both invocation verbs (`Sandbox#eval` for ad-hoc source, `Sandbox#run` for entrypoint dispatch) are synchronous Ruby calls. |
 | Per-invocation caps | Every invocation enforces a wall-clock `timeout` (default 60 s) and a per-invocation linear-memory `memory_limit` (default 1 MiB); exhaustion raises `Kobako::TimeoutError` / `Kobako::MemoryLimitError`. |
-| Capability injection via Services | Guest scripts can only call Ruby objects you explicitly `bind` under a two-level `Namespace::Member` path. |
+| Capability injection via Services | Guest scripts can only call Ruby objects you explicitly `bind` under a two-level `<Namespace>::<Member>` path (e.g., `MyService::KV`). |
 | Block-yielding Services | A Service method can take a guest-supplied block via `&block` and `yield` / `block.call` into it; each yield is a synchronous round-trip executing the block inside the guest, with `break` / `next` / exceptions following standard Ruby semantics. |
 | Preloaded snippets | `Sandbox#preload` registers source or RITE bytecode for setup-once dispatch via `Sandbox#run(:Entrypoint, *args, **kwargs)`. |
 | Capability Handles | Services may return stateful host objects; the guest receives an opaque `Kobako::Handle` proxy it can use as the target of follow-up Service calls, with no way to dereference it. `Sandbox#run` also accepts non-wire-representable Ruby objects as args and auto-wraps them into Handles, so the guest can use any host object the script needs. |

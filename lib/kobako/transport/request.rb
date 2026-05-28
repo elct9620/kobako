@@ -20,11 +20,12 @@ module Kobako
     #
     # 5-element msgpack array:
     # +[target, method_name, args, kwargs, block_given]+. +target+ is
-    # either a +String+ (+"Namespace::Member"+) or a {Handle}. SPEC pins
-    # +kwargs+ map keys to ext 0x00 Symbol; enforced at construction so
-    # the Value Object is the single source of truth. +block_given+ is a
-    # Boolean signalling whether the guest call site supplied a block
-    # (B-23); the block body itself never crosses the wire.
+    # either a +String+ (+"<Namespace>::<Member>"+, e.g. +"MyService::KV"+)
+    # or a {Handle}. SPEC pins +kwargs+ map keys to ext 0x00 Symbol;
+    # enforced at construction so the Value Object is the single source of
+    # truth. +block_given+ is a Boolean signalling whether the guest call
+    # site supplied a block (B-23); the block body itself never crosses the
+    # wire.
     #
     # Built on the +class X < Data.define(...)+ subclass form so the
     # class body is fully Steep-visible; see +lib/kobako/outcome/panic.rb+
