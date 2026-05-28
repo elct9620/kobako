@@ -52,9 +52,7 @@ pub mod protect;
 pub mod symbol;
 
 #[cfg(target_arch = "wasm32")]
-use crate::Class;
-#[cfg(target_arch = "wasm32")]
-use crate::Value;
+use crate::{Class, Value};
 #[cfg(target_arch = "wasm32")]
 use core::ptr::NonNull;
 #[cfg(target_arch = "wasm32")]

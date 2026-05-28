@@ -37,9 +37,7 @@
 //! migration could move null handling into the return type.
 
 #[cfg(target_arch = "wasm32")]
-use crate::Mrb;
-#[cfg(target_arch = "wasm32")]
-use crate::Value;
+use crate::{Mrb, Value};
 use mruby_sys as sys;
 
 /// Typed handle on an mruby class / module. `#[repr(transparent)]`

@@ -18,8 +18,7 @@
 //! `Ccontext::new(&mrb, c"...")` + `cxt.load_nstring(bytes)` pair;
 //! `Drop` runs the free unconditionally.
 
-use crate::Mrb;
-use crate::Value;
+use crate::{Mrb, Value};
 use mruby_sys as sys;
 
 /// Owned mruby compile context, tied to the lifetime of an `Mrb`.
