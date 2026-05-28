@@ -155,7 +155,7 @@ end
 
 ### Capability Handles
 
-When a Service returns a stateful host object, the wire layer wraps it in an opaque `Kobako::Handle` proxy — the guest can call further methods on it but cannot dereference or forge it ([`docs/behavior.md`](docs/behavior.md) B-13..B-21). `Sandbox#run` also auto-wraps non-wire-representable arguments through the same path ([`docs/behavior.md`](docs/behavior.md) B-34), so you can pass framework objects (a Rack `env`, an enumerator, a `StringIO`) into the entrypoint without marshalling.
+A non-wire-representable host object — returned from a Service (B-14), passed to `#run` (B-34), or handed back from the guest (B-37) — crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it; any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation ([`docs/behavior.md`](docs/behavior.md) B-13..B-21, B-34, B-37).
 
 ```ruby
 class Greeter
@@ -165,14 +165,11 @@ end
 
 sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
 
-sandbox.eval(<<~RUBY)
-  g = Factory::Make.call("Bob")  # Kobako::Handle proxy
-  g.greet                         # second Service call, routed to the Greeter
-RUBY
-# => "hi, Bob"
+sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-trip inside guest)
+sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
 ```
 
-Handles are scoped to a single invocation — an N-issued Handle is invalid in N+1 ([`docs/behavior.md`](docs/behavior.md) B-18).
+A `break` value from a guest block is the one exception: it unwinds back to the guest Member call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
 
 ### Setup-once, run-many
 
