@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/elct9620/kobako/compare/v0.6.0...v0.6.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **loader:** try Ruby-ABI subdir before bare path ([51017eb](https://github.com/elct9620/kobako/commit/51017eb5ee40fa722ec962ce3b9a5d016b128d41))
+
 ## [0.6.0](https://github.com/elct9620/kobako/compare/v0.5.0...v0.6.0) (2026-05-28)
 
 
