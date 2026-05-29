@@ -29,10 +29,15 @@ jobs:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
           rubygems: '3.6.9'
+      # dtolnay/rust-toolchain does not read rust-toolchain.toml, so source
+      # the channel from it here to keep a single version of truth.
+      - name: Read Rust channel from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: '1.96.0' # keep in sync with rust-toolchain.toml
+          toolchain: ${{ steps.rust.outputs.channel }}
           components: clippy, rustfmt
           targets: wasm32-wasip1
       - name: Cache cargo

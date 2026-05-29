@@ -45,9 +45,15 @@ jobs:
         with:
           ruby-version: '3.4'
           bundler-cache: false
+      # Regenerate Cargo.lock with the pinned toolchain, not floating stable,
+      # so the lockfile matches what the rest of CI builds with. dtolnay does
+      # not read rust-toolchain.toml, so source the channel from it here.
+      - name: Read Rust channel from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: stable
+          toolchain: ${{ steps.rust.outputs.channel }}
       - name: Regenerate Gemfile.lock
         run: bundle install
       - name: Regenerate Cargo.lock kobako entry

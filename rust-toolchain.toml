@@ -2,7 +2,7 @@
 # The wasm32-wasip1 crt1-command.o references __wasi_init_tp from 1.96 onward;
 # vendored wasi-sdk 33's libc.a supplies that symbol, so the two move together.
 # Bump this in lockstep with WASI_SDK_VERSION in tasks/support/kobako_vendor.rb.
-# CI mirrors this version in both workflows.
+# This file is the single source of the channel; the CI workflows read it.
 [toolchain]
 channel = "1.96.0"
 components = ["clippy", "rustfmt"]
