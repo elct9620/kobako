@@ -35,7 +35,11 @@ module KobakoVendor
 
   # ---- Pinned versions ---------------------------------------------------
   # wasi-sdk: must be >= 26 for native wasm32-wasip1 setjmp/longjmp support.
-  WASI_SDK_VERSION      = "26"
+  # 33's +libc.a+ supplies +__wasi_init_tp+, which Rust's wasm32-wasip1
+  # +crt1-command.o+ references from 1.96 onward (wasi-sdk 26's libc lacks it,
+  # breaking the oracle command-bin link). Keep in lockstep with the channel
+  # in +rust-toolchain.toml+.
+  WASI_SDK_VERSION      = "33"
   WASI_SDK_MINOR        = "0"
   WASI_SDK_FULL_VERSION = "#{WASI_SDK_VERSION}.#{WASI_SDK_MINOR}".freeze
 
