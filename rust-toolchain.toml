@@ -1,0 +1,10 @@
+# Pin the Rust toolchain so local builds and CI stay byte-identical.
+# 1.93.1's bundled wasm32-wasip1 crt1-command.o matches vendored wasi-sdk 26;
+# newer stable releases reference __wasi_init_tp, which wasi-sdk 26's libc
+# lacks, breaking `rake wasm:build`. Bump this in lockstep with WASI_SDK_VERSION
+# in tasks/support/kobako_vendor.rb. CI mirrors this version in both workflows.
+[toolchain]
+channel = "1.93.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-wasip1"]
+profile = "minimal"
