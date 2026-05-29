@@ -16,9 +16,10 @@
 # wasm build uses) does not fit the tarball pipeline and stays declared
 # by hand below the loop.
 #
-# Idempotency: every step is a +file+ task targeting a sentinel path
-# inside the cache or unpacked tree; re-runs short-circuit when the
-# sentinel exists.
+# Idempotency: tarball downloads are +file+ tasks keyed on the cached
+# tarball path; unpacking short-circuits unless the version stamped in
+# the unpacked tree differs from the pinned version, in which case a
+# bump forces a clean re-extract.
 #
 # Honors +KOBAKO_VENDOR_BASE_URL+ to point downloads at a local fixture
 # during tests, and +KOBAKO_VENDOR_DIR+ to relocate the entire vendor

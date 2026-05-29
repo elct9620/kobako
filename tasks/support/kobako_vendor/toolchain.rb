@@ -17,8 +17,9 @@ module KobakoVendor
   #
   #   * +name+             — display name and base for the +setup:<name>+
   #                          task identifier (dashes become underscores).
-  #   * +version_label+    — human-readable version string printed in the
-  #                          download log; opaque to the pipeline itself.
+  #   * +version_label+    — version string; printed in the download log and
+  #                          stamped into +final_dir+ as the idempotency key
+  #                          that detects a bump and forces a re-extract.
   #   * +base_url+         — remote URL prefix; resolved through
   #                          +KobakoVendor.base_url_for+ so test fixtures
   #                          can override via +KOBAKO_VENDOR_BASE_URL+.
@@ -29,15 +30,12 @@ module KobakoVendor
   #                          +Tarball#prepare+ under the same name.
   #   * +final_dir+        — destination under +VENDOR_DIR+ where the
   #                          unpacked tree is moved.
-  #   * +sentinel+         — relative path inside +final_dir+ whose
-  #                          presence marks the install as complete and
-  #                          short-circuits +#install+.
   #   * +sha_key+          — symbol used by +KobakoVendor.expected_sha256+
   #                          to look up the +KOBAKO_VENDOR_<KEY>_SHA256+
   #                          environment variable.
   Toolchain = Data.define(
     :name, :version_label, :base_url, :tarball_name,
-    :top_level_dir, :final_dir, :sentinel, :sha_key
+    :top_level_dir, :final_dir, :sha_key
   ) do
     # Symbol used to identify the +setup:<task_name>+ rake task. Dashes
     # in +name+ are not valid in rake task identifiers, so we map them
@@ -78,15 +76,15 @@ module KobakoVendor
     end
 
     # Verify the cached tarball, then unpack it into +final_dir+ via
-    # +Tarball#prepare+. A no-op when +sentinel+ is already present
-    # under +final_dir+.
+    # +Tarball#prepare+. A no-op when the version stamped under +final_dir+
+    # already matches +version_label+.
     def install
       verify
       Tarball.new(
         tarball: tarball_path,
         top_level_dir: top_level_dir,
         final_dir: final_dir,
-        sentinel: sentinel
+        version: version_label
       ).prepare
       puts "[vendor] #{name} ready at #{final_dir}"
     end

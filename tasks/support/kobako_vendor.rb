@@ -87,7 +87,6 @@ module KobakoVendor
     tarball_name: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}.tar.gz",
     top_level_dir: "wasi-sdk-#{WASI_SDK_FULL_VERSION}-#{WASI_SDK_PLATFORM}",
     final_dir: File.join(VENDOR_DIR, "wasi-sdk"),
-    sentinel: "bin/clang",
     sha_key: :WASI_SDK
   )
 
@@ -98,7 +97,6 @@ module KobakoVendor
     tarball_name: "#{MRUBY_VERSION}.tar.gz",
     top_level_dir: "mruby-#{MRUBY_VERSION}",
     final_dir: File.join(VENDOR_DIR, "mruby"),
-    sentinel: "Rakefile",
     sha_key: :MRUBY
   )
 
@@ -109,7 +107,6 @@ module KobakoVendor
     tarball_name: "#{MRUBY_ONIG_REGEXP_COMMIT}.tar.gz",
     top_level_dir: "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}",
     final_dir: File.join(VENDOR_DIR, "mruby-onig-regexp"),
-    sentinel: "mrbgem.rake",
     sha_key: :MRUBY_ONIG_REGEXP
   )
 
