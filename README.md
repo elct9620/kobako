@@ -53,9 +53,21 @@ result # => 3
 
 The script executes inside the Wasm guest. It cannot read your filesystem, open sockets, or touch your `ENV`.
 
+## Glossary
+
+| Term | Meaning |
+|------|---------|
+| Sandbox | The runtime unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. |
+| Service | A host Ruby object injected under `<Namespace>::<Member>` — the guest's only path to host resources. |
+| Namespace / Member | A guest-visible Ruby module, and a named binding (a module constant) within it. |
+| Invocation | One `#eval` or `#run`; capability state resets between invocations. |
+| Snippet | Named mruby code (source or bytecode) replayed into a fresh state before every invocation. |
+| Handle | An opaque token the guest holds for a host object the wire cannot transmit directly. |
+| Block | A guest mruby block passed to a Service; each `yield` is a synchronous round-trip into the guest. |
+
 ## Usage
 
-### Injecting Services
+### Services
 
 Declare a Namespace, then `bind` any Ruby object as a Member; the guest reaches it as a `<Namespace>::<Member>` proxy and invokes its public methods through the Transport wire. See [`docs/behavior.md`](docs/behavior.md) B-07..B-12.
 
@@ -77,42 +89,9 @@ sandbox.eval(<<~RUBY)
 RUBY
 ```
 
-Names must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation; later `#define` raises `ArgumentError`.
+Names must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#define` raises `ArgumentError`.
 
-### Yielding to guest blocks
-
-A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior.md`](docs/behavior.md) B-23..B-30.
-
-```ruby
-sandbox.define(:Seq).bind(:Map, ->(items, &blk) { items.map(&blk) })
-
-sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }')
-# => [2, 4, 6]
-```
-
-### Per-invocation caps
-
-Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Sandbox#usage`](lib/kobako/sandbox.rb) after the call — populated on every outcome including traps — for actual consumption ([`docs/behavior.md`](docs/behavior.md) B-35).
-
-```ruby
-sandbox = Kobako::Sandbox.new(
-  timeout:      5.0,              # seconds, default 60.0
-  memory_limit: 10 * 1024 * 1024, # bytes,   default 1 MiB
-  stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
-  stderr_limit: 64 * 1024
-)
-```
-
-| Cap            | Raises                     | Default |
-|----------------|----------------------------|---------|
-| `timeout`      | `Kobako::TimeoutError`     | 60.0 s  |
-| `memory_limit` | `Kobako::MemoryLimitError` | 1 MiB   |
-| `stdout_limit` | output clipped (no raise)  | 1 MiB   |
-| `stderr_limit` | output clipped (no raise)  | 1 MiB   |
-
-`memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
-
-### Capturing stdout / stderr
+### Output Capture
 
 Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and exposed independently of the return value ([`docs/behavior.md`](docs/behavior.md) B-04). Buffers clear at the start of each invocation; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
 
@@ -128,7 +107,7 @@ sandbox.stdout  # => "hello\n"
 sandbox.stderr  # => "be careful\n"
 ```
 
-### Error handling
+### Error Handling
 
 Every invocation either returns a value or raises exactly one of three classes, so you can route faults without inspecting messages. The full taxonomy lives in [`lib/kobako/errors.rb`](lib/kobako/errors.rb).
 
@@ -153,25 +132,29 @@ end
 
 `SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` / `details` fields when the guest produced a panic envelope.
 
-### Capability Handles
+### Resource Limits
 
-A non-wire-representable host object — returned from a Service (B-14), passed to `#run` (B-34), or handed back from the guest (B-37) — crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it; any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation ([`docs/behavior.md`](docs/behavior.md) B-13..B-21, B-34, B-37).
+Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Sandbox#usage`](lib/kobako/sandbox.rb) after the call — populated on every outcome including traps — for actual consumption ([`docs/behavior.md`](docs/behavior.md) B-35).
 
 ```ruby
-class Greeter
-  def initialize(name) = @name = name
-  def greet            = "hi, #{@name}"
-end
-
-sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
-
-sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-trip inside guest)
-sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
+sandbox = Kobako::Sandbox.new(
+  timeout:      5.0,              # seconds, default 60.0
+  memory_limit: 10 * 1024 * 1024, # bytes,   default 1 MiB
+  stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
+  stderr_limit: 64 * 1024
+)
 ```
 
-A `break` value from a guest block is the one exception: it unwinds back to the guest Member call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
+| Cap            | Raises                     | Default |
+|----------------|----------------------------|---------|
+| `timeout`      | `Kobako::TimeoutError`     | 60.0 s  |
+| `memory_limit` | `Kobako::MemoryLimitError` | 1 MiB   |
+| `stdout_limit` | output clipped (no raise)  | 1 MiB   |
+| `stderr_limit` | output clipped (no raise)  | 1 MiB   |
 
-### Setup-once, run-many
+`memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
+
+### Invocation Lifecycle
 
 One Sandbox serves many invocations. Service bindings and preloaded snippets persist across calls; capability state (Handles, stdout, stderr, memory delta) resets between them.
 
@@ -216,7 +199,54 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
 For workloads that must be isolated from each other (one Sandbox per tenant, per student submission, per agent session), construct a fresh `Kobako::Sandbox` per scope — wasmtime's Engine and the compiled Module are cached at process scope, so additional Sandboxes amortize cold-start cost automatically.
 
-### Preloaded snippets and entrypoint dispatch
+### Service Blocks
+
+A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior.md`](docs/behavior.md) B-23..B-30.
+
+```ruby
+sandbox.define(:Seq).bind(:Map, ->(items, &blk) { items.map(&blk) })
+
+sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }')
+# => [2, 4, 6]
+```
+
+### Handle Management
+
+A non-wire-representable host object — returned from a Service (B-14), passed to `#run` (B-34), or handed back from the guest (B-37) — crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it; any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation ([`docs/behavior.md`](docs/behavior.md) B-13..B-21, B-34, B-37).
+
+```ruby
+class Greeter
+  def initialize(name) = @name = name
+  def greet            = "hi, #{@name}"
+end
+
+sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+
+sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-trip inside guest)
+sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
+```
+
+A `break` value from a guest block is the one exception: it unwinds back to the guest Member call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
+
+Each dispatch that hands back a non-wire-representable object allocates a *new* Handle — kobako never deduplicates by object identity (B-15, B-17). This is most visible with fluent / builder APIs. An `ActiveRecord::Relation` chain `spawn`s a fresh relation at each step, so every hop is an independent dispatch that binds its own Handle:
+
+```
+   guest chain                        host  (Catalog::Handles, one invocation)
+   ───────────                        ─────────────────────────────────────────
+   User.where(active: true)  ─call──▶ Relation #1 (fresh clone)  bound ▶ Handle 1
+                             ◀─Handle 1
+       .order(:created_at)   ─call──▶ Relation #2 (fresh clone)  bound ▶ Handle 2
+                             ◀─Handle 2
+       .limit(10)            ─call──▶ Relation #3 (fresh clone)  bound ▶ Handle 3
+                             ◀─Handle 3
+
+   3 hops ─▶ 3 dispatches ─▶ 3 distinct relations ─▶ 3 Handles
+   all stay live until the invocation ends, then reset together
+```
+
+This is deliberate, not a leak. Handle IDs run to 2³¹ − 1 per invocation and reset between invocations, so even deep chains stay far inside the range. Two consequences are worth keeping in mind: the same host object handed back twice yields two *different* Handles — the guest cannot tell they alias — and every intermediate Handle stays live until the invocation ends, since there is no per-Handle release (B-19).
+
+### Snippets & Entrypoints
 
 `Sandbox#preload` registers named mruby snippets that replay against the fresh `mrb_state` before every invocation; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets ([`docs/behavior.md`](docs/behavior.md) B-31..B-33).
 
