@@ -608,6 +608,50 @@ class TestE2EJourneys < Minitest::Test
                  "Integer argument to `print` must reach stdout as its `to_s` form"
   end
 
+  # ── sprintf / String#% / IO#printf — the mruby-sprintf mrbgem ────────
+  #
+  # mruby-sprintf supplies Kernel#sprintf, String#% and the format engine
+  # they share; without it in the allowlist these methods are absent and
+  # mrblib/io.rb's `printf` (which calls `sprintf`) raises NoMethodError.
+  # These journeys exercise the capability through the public `#eval` API:
+  # the outcome path proves sprintf/% return formatted Strings, and the
+  # stdout path proves `printf` writes the formatted bytes to the capture
+  # channel.
+
+  # Kernel#sprintf must apply width / precision specifiers and return the
+  # formatted String through the outcome envelope.
+  def test_sprintf_formats_value_through_eval
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval('sprintf("%05.2f", 3.14159)')
+
+    assert_equal "03.14", result,
+                 "sprintf through #eval must apply width/precision and return the formatted String"
+  end
+
+  # String#% must route through the same format engine, threading an Array
+  # of arguments into positional specifiers.
+  def test_string_percent_formats_array_through_eval
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval('"%d-%s" % [42, "x"]')
+
+    assert_equal "42-x", result,
+                 "String#% through #eval must interpolate the Array into positional specifiers"
+  end
+
+  # mrblib/io.rb's IO#printf delegates to sprintf, so a guest `printf`
+  # call must write the formatted bytes to the stdout capture channel —
+  # the latent NoMethodError this gem fixes surfaced exactly here.
+  def test_printf_writes_formatted_output_to_stdout
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    sandbox.eval('printf("%03d\n", 7)')
+
+    assert_equal "007\n", sandbox.stdout,
+                 "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"
+  end
+
   # Reassigning $stdout inside a #run must not bleed into the next
   # #run — each invocation rebuilds the mruby state and reinstalls
   # the globals, so a subsequent puts always lands on the host's

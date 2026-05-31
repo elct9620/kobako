@@ -90,6 +90,7 @@ unless defined?(KobakoBuildConfig)
       mruby-proc-ext
       mruby-range-ext
       mruby-string-ext
+      mruby-sprintf
       mruby-symbol-ext
       mruby-error
       mruby-metaprog
