@@ -127,12 +127,13 @@ jobs:
         with:
           name: kobako-wasm
           path: data/
-      # The pinned channel exists for the wasm32-wasip1 guest's wasi-sdk
-      # lockstep (build-wasm); the host-side ext built here has no such tie, so
-      # drop the pin to let rb-sys-dock use its default `stable` toolchain,
+      # The pinned channel only matters for the wasm32-wasip1 guest's wasi-sdk
+      # lockstep (build-wasm); the host ext built here has no such tie. The file
+      # ships in the gem, so retarget its channel (don't delete it — that breaks
+      # the cross task's copy step) to rb-sys-dock's default `stable` toolchain,
       # which already carries this platform's cross-target std.
-      - name: Unpin Rust so the container uses its cross-target toolchain
-        run: rm -f rust-toolchain.toml
+      - name: Build the host ext with the container's stable toolchain
+        run: sed -i 's/^channel = .*/channel = "stable"/' rust-toolchain.toml
       - uses: oxidize-rb/actions/cross-gem@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
         id: cross-gem
         with:
