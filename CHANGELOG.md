@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/elct9620/kobako/compare/v0.6.1...v0.6.2) (2026-05-31)
+
+
+### Bug Fixes
+
+* **guest:** enable mruby-sprintf for printf and String#% ([1179227](https://github.com/elct9620/kobako/commit/1179227b85b861bccc82d2a258481769a13ed4d5))
+
 ## [0.6.1](https://github.com/elct9620/kobako/compare/v0.6.0...v0.6.1) (2026-05-28)
 
 
