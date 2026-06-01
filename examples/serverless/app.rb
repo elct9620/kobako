@@ -2,10 +2,20 @@
 # frozen_string_literal: true
 
 # Minimal serverless demo: a Rack app that dispatches GET /:name to an
-# operator-provided mruby script. Each request constructs a fresh
-# Kobako::Sandbox, preloads the script body as the :App entrypoint, and
-# invokes it via #run(:App, Rack::Request.new(env)). The script returns
-# a Rack response triplet [status, headers, body] directly.
+# operator-provided mruby script. The script body is preloaded as a named
+# entrypoint constant and invoked via #run(:Entrypoint, Rack::Request.new(env)),
+# returning a Rack response triplet [status, headers, body] directly.
+#
+# Two sandbox strategies, selected by --pool:
+#
+#   * default (per-request): each request builds a fresh Kobako::Sandbox,
+#     preloads only the matched route, and invokes it once. The strongest
+#     isolation kobako offers; Sandbox.new + #preload sit on the hot path.
+#   * --pool: a pool of long-lived Sandboxes, each preloaded with every
+#     route at boot, is built once; each request checks one out and
+#     dispatches #run on it. Per-invocation guest isolation is unchanged —
+#     every #run still runs a fresh mrb_state (SPEC B-03) — while
+#     Sandbox.new + #preload move off the hot path.
 #
 # The Rack::Request is a non-wire-representable host object, so kobako
 # 0.4.0's #run host→guest auto-wrap (SPEC B-34) allocates a Handle for
@@ -14,9 +24,10 @@
 # host-side marshalling step sits between the Rack env and the script.
 #
 # Usage:
-#   ruby examples/serverless/app.rb                # Puma (default)
-#   ruby examples/serverless/app.rb --type puma
+#   ruby examples/serverless/app.rb                       # Puma, per-request
 #   ruby examples/serverless/app.rb --type falcon
+#   ruby examples/serverless/app.rb --pool                # reuse a pool of Sandboxes
+#   ruby examples/serverless/app.rb --pool --pool-size 8
 #
 # Parsing CLI flags before bundler/inline runs is deliberate: only the
 # server gem the operator picked is added to the inline Gemfile, so
@@ -25,13 +36,20 @@
 require "optparse"
 
 SERVER_TYPES = %w[puma falcon].freeze
+DEFAULT_POOL_SIZE = 5
 
-options = { type: "puma" }
+options = { type: "puma", pool: false, pool_size: DEFAULT_POOL_SIZE }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/serverless/app.rb [options]"
   opts.on("--type TYPE", SERVER_TYPES,
           "Rack handler to start (#{SERVER_TYPES.join(", ")}; default: puma)") do |type|
     options[:type] = type
+  end
+  opts.on("--pool", "Reuse a pool of preloaded Sandboxes instead of building one per request") do
+    options[:pool] = true
+  end
+  opts.on("--pool-size N", Integer, "Number of pooled Sandboxes (default: #{DEFAULT_POOL_SIZE})") do |size|
+    options[:pool_size] = size
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -46,61 +64,115 @@ gemfile do
   gem "kobako", "~> 0.4.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
+  gem "connection_pool", "~> 2.4"
   gem options[:type]
 end
 
 require "kobako"
 require "rack"
 require "rackup"
+require "connection_pool"
 
 # Example types are nested under Serverless so the script has a single
 # top-level constant — Rubocop's Style/OneClassPerFile is happy and the
 # example reads top-down without splitting into multiple files.
 module Serverless
-  # Operator-managed script table — keys are the route segment after
-  # `/`, values are mruby source that defines the `App` constant. The
-  # script body is preloaded into a fresh +Kobako::Sandbox+ per request
-  # and invoked as +App.call(req)+ where +req+ is a +Kobako::Handle+
-  # proxy of a host-side +Rack::Request+: every +req.params+ /
-  # +req.request_method+ / +req.path+ call dispatches back to the host
-  # as one RPC round-trip.
+  # How long a request waits for a free Sandbox before the pool gives up
+  # and the request is served a 503. Under kobako's GVL-held wasm segment
+  # one #run executes at a time process-wide, so this only bites when more
+  # requests are in flight than there are Sandboxes plus the queue can
+  # drain within the window.
+  POOL_CHECKOUT_TIMEOUT = 5
+
+  # Operator-managed script table — keys are the route segment after `/`,
+  # values are a +[Entrypoint, source]+ pair: +Entrypoint+ is the
+  # top-level constant the +source+ defines, used both as the +#preload+
+  # name and the +#run+ target. Each entrypoint is a callable accepting
+  # one argument — a +Kobako::Handle+ proxy of a host-side +Rack::Request+
+  # whose +req.params+ / +req.request_method+ / +req.path+ calls dispatch
+  # back to the host as one RPC round-trip.
   ROUTES = {
-    "hello" => <<~'MRUBY',
-      App = ->(req) {
+    "hello" => [:Hello, <<~'MRUBY'],
+      Hello = ->(req) {
         name = (req.params["name"] || "world")
         [200, { "content-type" => "text/plain" }, ["Hello, #{name}!\n"]]
       }
     MRUBY
-    "echo" => <<~'MRUBY',
-      App = ->(req) {
+    "echo" => [:Echo, <<~'MRUBY'],
+      Echo = ->(req) {
         body = "method: #{req.request_method}\npath: #{req.path}\nquery: #{req.params.inspect}\n"
         [200, { "content-type" => "text/plain" }, [body]]
       }
     MRUBY
-    "sum" => <<~'MRUBY',
-      App = ->(req) {
+    "sum" => [:Sum, <<~'MRUBY'],
+      Sum = ->(req) {
         a = req.params["a"].to_i
         b = req.params["b"].to_i
         [200, { "content-type" => "text/plain" }, ["#{a} + #{b} = #{a + b}\n"]]
       }
     MRUBY
-    "shout" => <<~'MRUBY'
-      App = ->(req) {
+    "shout" => [:Shout, <<~'MRUBY']
+      Shout = ->(req) {
         msg = req.params["msg"] || ""
         [200, { "content-type" => "text/plain" }, ["#{msg.upcase}!\n"]]
       }
     MRUBY
   }.freeze
 
-  # Rack-compatible application. Routes +GET /:name+ to +ROUTES[name]+,
-  # spinning up a fresh +Kobako::Sandbox+ per request so concurrent
-  # invocations cannot share guest state. The root path +/+ lists the
-  # available scripts so the demo is self-discoverable.
+  # Builds a fresh +Kobako::Sandbox+ per request, preloads only the matched
+  # route's entrypoint, and invokes it once — the original per-request
+  # demo behaviour, selected when +--pool+ is off. Concurrent requests
+  # cannot share guest state because each gets its own +mrb_state+.
+  class PerRequestInvoker
+    def invoke(entry, rack_env)
+      entrypoint, source = entry
+      sandbox = Kobako::Sandbox.new
+      sandbox.preload(code: source, name: entrypoint)
+      sandbox.run(entrypoint, Rack::Request.new(rack_env))
+    end
+  end
+
+  # Builds a pool of long-lived +Kobako::Sandbox+ instances at boot, each
+  # preloaded with every route's entrypoint, and dispatches +#run+ on a
+  # checked-out Sandbox per request. Reuse keeps the same per-invocation
+  # guest isolation (each +#run+ runs a fresh +mrb_state+, SPEC B-03)
+  # while moving +Sandbox.new+ + +#preload+ off the hot path. Exclusive
+  # checkout is mandatory, not an optimisation: the host-side Sandbox
+  # carries per-invocation state, so two threads sharing one would
+  # interleave captures and Handles across requests.
+  class PooledInvoker
+    def initialize(routes, size:)
+      @pool = ConnectionPool.new(size: size, timeout: POOL_CHECKOUT_TIMEOUT) do
+        build_sandbox(routes)
+      end
+    end
+
+    def invoke(entry, rack_env)
+      entrypoint, = entry
+      @pool.with { |sandbox| sandbox.run(entrypoint, Rack::Request.new(rack_env)) }
+    end
+
+    private
+
+    def build_sandbox(routes)
+      sandbox = Kobako::Sandbox.new
+      routes.each_value { |entrypoint, source| sandbox.preload(code: source, name: entrypoint) }
+      sandbox
+    end
+  end
+
+  # Rack-compatible application. Routes +GET /:name+ to +ROUTES[name]+ and
+  # delegates the matched entrypoint's execution to an injected invoker
+  # (+PerRequestInvoker+ or +PooledInvoker+), so the routing and error
+  # mapping here are identical regardless of the sandbox strategy. The
+  # root path +/+ lists the available scripts so the demo is
+  # self-discoverable.
   class App
     PLAIN = { "content-type" => "text/plain" }.freeze
 
-    def initialize(routes)
+    def initialize(routes, invoker)
       @routes = routes
+      @invoker = invoker
     end
 
     def call(env)
@@ -109,10 +181,12 @@ module Serverless
       name = env["PATH_INFO"].sub(%r{\A/}, "")
       return index if name.empty?
 
-      script = @routes[name]
-      return not_found(name) unless script
+      entry = @routes[name]
+      return not_found(name) unless entry
 
-      render(script, env)
+      @invoker.invoke(entry, env)
+    rescue ConnectionPool::TimeoutError => e
+      pool_exhausted(e)
     rescue Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError => e
       sandbox_error(e)
     end
@@ -136,19 +210,9 @@ module Serverless
       [500, PLAIN, ["#{error.class}: #{error.message}\n"]]
     end
 
-    # Build a fresh Sandbox per request, preload the script as :App, and
-    # invoke it with a +Rack::Request+ wrapping the Rack env. The Request
-    # is not wire-representable, so kobako auto-wraps it into a Handle
-    # (SPEC B-34) and the guest sees a +Kobako::Handle+ proxy; method
-    # calls on +req+ inside the script dispatch back to the host as RPC,
-    # so query parsing and header access happen on the host's full Rack
-    # implementation. The returned +[status, headers, body]+ triplet
-    # comes back through msgpack as plain mutable Integer / Hash /
-    # Array, which is exactly what Rack 3 wants.
-    def render(script, rack_env)
-      sandbox = Kobako::Sandbox.new
-      sandbox.preload(code: script, name: :App)
-      sandbox.run(:App, Rack::Request.new(rack_env))
+    def pool_exhausted(error)
+      [503, { "content-type" => "text/plain", "retry-after" => "1" },
+       ["sandbox pool exhausted: #{error.message}\n"]]
     end
   end
 end
@@ -156,9 +220,17 @@ end
 if __FILE__ == $PROGRAM_NAME
   port = Integer(ENV.fetch("PORT", "9292"))
   host = ENV.fetch("HOST", "127.0.0.1")
-  app = Serverless::App.new(Serverless::ROUTES)
+
+  invoker =
+    if options[:pool]
+      Serverless::PooledInvoker.new(Serverless::ROUTES, size: options[:pool_size])
+    else
+      Serverless::PerRequestInvoker.new
+    end
+  app = Serverless::App.new(Serverless::ROUTES, invoker)
 
   handler = Rackup::Handler.get(options[:type])
-  warn "Serverless demo on http://#{host}:#{port} (handler: #{handler.name})"
+  mode = options[:pool] ? "pool=#{options[:pool_size]}" : "per-request"
+  warn "Serverless demo on http://#{host}:#{port} (handler: #{handler.name}, sandbox: #{mode})"
   handler.run(app, Host: host, Port: port)
 end
