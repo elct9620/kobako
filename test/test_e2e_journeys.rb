@@ -140,6 +140,25 @@ class TestE2EJourneys < Minitest::Test
     assert_equal "record:b", b, "J-02: subsequent run still sees the binding (SPEC.md L173)"
   end
 
+  # B-03: one long-lived Sandbox runs #run twice; each invocation executes
+  # against a fresh mrb_state, so guest runtime state mutated by one
+  # invocation cannot survive into the next. This is the isolation
+  # invariant the serverless example's Object Pool depends on when it
+  # reuses a single preloaded Sandbox across many requests. The Probe
+  # returns the global it observed at entry and then sets it: a leak would
+  # make the second invocation observe `true` instead of the fresh `nil`.
+  def test_j02_reused_sandbox_does_not_leak_guest_globals_between_runs
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.preload(code: "Probe = ->(*_a, **_k) { s = $leak; $leak = true; s }", name: :Probe)
+
+    first = sandbox.run(:Probe)
+    second = sandbox.run(:Probe)
+
+    assert_nil first, "J-02 / B-03: first #run on a fresh Sandbox observes an unset guest global"
+    assert_nil second,
+               "J-02 / B-03: a reused Sandbox must not surface the prior #run's guest global mutation"
+  end
+
   # SPEC.md L169 + B-04: developer reads Sandbox#stdout for guest puts/print
   # output AND the script's return value comes through the outcome envelope.
   # Both channels are independently observable.
