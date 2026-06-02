@@ -131,7 +131,7 @@ module AsyncIO
 
     def fetch(descriptor)
       sleep(@latency)
-      descriptor.split("/").last.to_s.reverse
+      descriptor.split("/").last.reverse
     end
   end
 
@@ -167,14 +167,15 @@ module AsyncIO
   # while it sleeps.
   def self.run_async(count, fetcher, timeline)
     requests = build_requests(count, fetcher, timeline)
-    results = nil
-    elapsed = measure { results = await_all(requests) }
-    [results, elapsed]
+    measure { await_all(requests) }
   end
 
   def self.await_all(requests)
     Async do
-      requests.each_with_index.map { |req, id| Async { req.process(id) } }.map(&:wait)
+      # Spawn one child task per request, then wait for every result. The
+      # reactor runs the children concurrently on this single thread.
+      tasks = requests.each_with_index.map { |req, id| Async { req.process(id) } }
+      tasks.map(&:wait)
     end.wait
   end
 
@@ -182,15 +183,14 @@ module AsyncIO
   # thread and the total is the sum of the latencies.
   def self.run_sequential(count, fetcher, timeline)
     requests = build_requests(count, fetcher, timeline)
-    results = nil
-    elapsed = measure { results = requests.each_with_index.map { |req, id| req.process(id) } }
-    [results, elapsed]
+    measure { requests.each_with_index.map { |req, id| req.process(id) } }
   end
 
+  # Runs the block and returns [block_result, elapsed_seconds].
   def self.measure
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    yield
-    Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+    value = yield
+    [value, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start]
   end
 end
 
