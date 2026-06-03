@@ -283,6 +283,29 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
 
 Use the source form for snippets authored in your repo (compile errors fail fast at `#preload`); use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Both replay through the same per-invocation path.
 
+## Security
+
+kobako isolates the guest, but **what it may reach is whatever you `bind`** — and `bind`
+exposes *every* public method of the object. So bind a purpose-built object scoped to the
+task, not a capable one whose other methods leak more than you intend.
+
+```ruby
+class ThemeReader          # only #color is reachable; AppConfig.secret_key is not
+  def color = AppConfig.theme.color
+end
+
+sandbox = Kobako::Sandbox.new
+sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # not: bind(:Settings, AppConfig)
+
+sandbox.eval('Cfg::Settings.color')  # => "#3366ff"  — every other method raises NoMethodError
+```
+
+Guest code can name any `<Namespace>::<Member>` path, but a forged name only resolves to
+something you bound — the real authorization gate is this host-side allowlist. Give each
+trust context its own Sandbox, and see [`docs/security.md`](docs/security.md) for the rest
+as security-design concerns: validating untrusted input, default-deny external effects,
+and controlling the return surface.
+
 ## Performance
 
 Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values vary by hardware but ratios are stable across machines. Full numbers, methodology, and the +10%-regression gate live in [`benchmark/README.md`](benchmark/README.md).
