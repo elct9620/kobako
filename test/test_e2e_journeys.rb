@@ -671,6 +671,41 @@ class TestE2EJourneys < Minitest::Test
                  "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"
   end
 
+  # ── Regexp named captures — the mruby-onig-regexp mrbgem ─────────────
+  #
+  # mruby-onig-regexp brings the Onigmo engine (mruby 4.0 ships no built-in
+  # Regexp). A pattern with named groups builds a name table, which Onigmo
+  # walks via st_foreach to renumber group ids at compile time. Onigmo's
+  # frozen-6.2.0 callbacks take three params while st_foreach calls them
+  # with four (the ANYARGS cast hides the mismatch); on native this is
+  # benign UB, but wasm32 type-checks call_indirect and hard-traps. The
+  # symptom is broad — merely constructing /(?<x>..)/ traps — so these
+  # journeys exercise both the construction+match path and the
+  # named-capture lookup path through the public #eval API.
+
+  # A named-capture pattern must compile, match, and yield the captured
+  # substring by Symbol index — the exact path that hard-trapped before.
+  def test_named_capture_lookup_returns_captured_substring
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval('/(?<num>\d+)/.match("abc123")[:num]')
+
+    assert_equal "123", result,
+                 "a named-capture Regexp through #eval must compile, match, and return the captured substring by name"
+  end
+
+  # MatchData#named_captures walks the name table through a second
+  # st_foreach callback (i_names), so it pins the same fix from the
+  # name→value enumeration angle rather than single-name lookup.
+  def test_named_captures_returns_name_to_value_hash
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval('/(?<area>\d+)-(?<line>\d+)/.match("555-1234").named_captures')
+
+    assert_equal({ "area" => "555", "line" => "1234" }, result,
+                 "MatchData#named_captures through #eval must return every named group as a name→value Hash")
+  end
+
   # Reassigning $stdout inside a #run must not bleed into the next
   # #run — each invocation rebuilds the mruby state and reinstalls
   # the globals, so a subsequent puts always lands on the host's

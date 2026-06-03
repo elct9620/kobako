@@ -141,6 +141,7 @@ unless defined?(KobakoBuildConfig)
 
       extract_onigmo_tarball(build_dir)
       overwrite_config_aux(oniguruma_dir)
+      patch_regparse_st_foreach(oniguruma_dir)
     end
 
     def self.extract_onigmo_tarball(build_dir)
@@ -159,6 +160,40 @@ unless defined?(KobakoBuildConfig)
         FileUtils.cp(src, dst)
         File.chmod(0o755, dst)
       end
+    end
+
+    # Onigmo 6.2.0's `st_general_foreach` invokes its name-table callbacks
+    # with four arguments while the four `regparse.c` callbacks are declared
+    # with three; the `ANYARGS` cast hides the mismatch. Native targets ignore
+    # the extra argument, but wasm32 type-checks every `call_indirect` and hard
+    # -traps the moment a named-capture pattern compiles and walks its name
+    # table. Align each callback to the call site by appending the ignored
+    # fourth parameter (the same migration CRuby applied for wasm / CFI). The
+    # +onigmo.h+ sentinel in +pre_extract_and_patch_onigmo!+ keeps this a
+    # one-shot edit per extraction; a missing target raises so a future Onigmo
+    # pin bump cannot silently skip the fix.
+    ONIGMO_ST_FOREACH_CALLBACKS = [
+      ["i_print_name_entry(UChar* key, NameEntry* e, void* arg)",
+       "i_print_name_entry(UChar* key, NameEntry* e, void* arg, int error ARG_UNUSED)"],
+      ["i_free_name_entry(UChar* key, NameEntry* e, void* arg ARG_UNUSED)",
+       "i_free_name_entry(UChar* key, NameEntry* e, void* arg ARG_UNUSED, int error ARG_UNUSED)"],
+      ["i_names(UChar* key ARG_UNUSED, NameEntry* e, INamesArg* arg)",
+       "i_names(UChar* key ARG_UNUSED, NameEntry* e, INamesArg* arg, int error ARG_UNUSED)"],
+      ["i_renumber_name(UChar* key ARG_UNUSED, NameEntry* e, GroupNumRemap* map)",
+       "i_renumber_name(UChar* key ARG_UNUSED, NameEntry* e, GroupNumRemap* map, int error ARG_UNUSED)"]
+    ].freeze
+
+    def self.patch_regparse_st_foreach(oniguruma_dir)
+      path = File.join(oniguruma_dir, "regparse.c")
+      source = File.read(path)
+      ONIGMO_ST_FOREACH_CALLBACKS.each do |three_arg, four_arg|
+        unless source.include?(three_arg)
+          raise "[kobako] Onigmo regparse.c patch target missing: #{three_arg.inspect} " \
+                "— the pinned Onigmo source changed; re-verify the st_foreach callback arity fix"
+        end
+        source = source.sub(three_arg, four_arg)
+      end
+      File.write(path, source)
     end
 
     # Returns the absolute path to a vendored GNU config aux script, or
