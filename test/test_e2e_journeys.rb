@@ -349,6 +349,43 @@ class TestE2EJourneys < Minitest::Test
     end
   end
 
+  # The wire str type is UTF-8 text (docs/wire-codec.md § Type Mapping #5)
+  # and an embedded NUL is a valid UTF-8 codepoint, so a String / Symbol /
+  # Hash key carrying one must round-trip as an ordinary result. The guest
+  # result encoder read mruby strings as C strings, which truncate at and
+  # raise on NUL; on the outcome-encode path that raise had no protect frame
+  # and hard-trapped the whole eval. Reading by length keeps the NUL bytes
+  # and the value crosses the boundary intact. The three shapes exercise the
+  # distinct encoder branches that all funnel through the same string read.
+  def test_embedded_nul_round_trips_through_the_result_encoder
+    {
+      '"a\x00b"' => "a\u0000b",
+      '"a\x00b".to_sym' => :"a\x00b",
+      '{ "k\x00" => 1 }' => { "k\u0000" => 1 }
+    }.each do |code, expected|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+      assert_equal expected, sandbox.eval(code),
+                   "a returned value carrying an embedded NUL (#{code}) must round-trip " \
+                   "intact through the result encoder, not hard-trap the eval"
+    end
+  end
+
+  # The same length-based string read governs the Panic envelope message, a
+  # separate call site from the result path: a raised exception whose message
+  # holds a NUL must surface as a clean, rescuable SandboxError rather than an
+  # unrescuable hard trap.
+  def test_embedded_nul_in_raised_message_is_a_clean_sandbox_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('raise "a\x00b"') }
+
+    assert_equal "RuntimeError", err.klass,
+                 "a NUL in a raised message must reach the host as a clean SandboxError, not a trap"
+    assert_match(/a\u0000b/, err.message,
+                 "the NUL-bearing message must survive the length-based read intact")
+  end
+
   # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
   # then returns as the #eval result is restored on the host to the very
   # object Catalog::Handles holds — Source binds a fixed instance so the

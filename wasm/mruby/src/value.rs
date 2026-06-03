@@ -303,38 +303,39 @@ impl Value {
     }
 
     /// Coerce to a Rust `String` by calling `Object#to_s` and copying
-    /// the bytes. `String#to_s` is idempotent on mruby Strings, so
-    /// the redundant call is cheap and keeps a single conversion
-    /// entry point.
+    /// the bytes by length. `String#to_s` is idempotent on mruby
+    /// Strings, so the redundant call is cheap and keeps a single
+    /// conversion entry point.
+    ///
+    /// Bytes are read through `as_bytes` (RSTRING_PTR / RSTRING_LEN),
+    /// not as a C string: an embedded NUL is a valid UTF-8 codepoint
+    /// and must survive, yet `mrb_str_to_cstr` truncates at and raises
+    /// on a NUL — and on the outcome-encode path (a `#eval` / `#run`
+    /// result, a Panic message) that raise has no protect frame and
+    /// aborts the guest. Bytes that are not valid UTF-8 collapse to an
+    /// empty `String`.
     ///
     /// ## Exception handling
     ///
-    /// If `.to_s` raises a Ruby exception (e.g. a user object
-    /// overrides `to_s` with `raise`), the failure is **swallowed**:
-    /// the pending `mrb->exc` is cleared via `mrb_check_error` and an
-    /// empty `String` is returned. This prevents the leaked
-    /// exception from corrupting subsequent mruby calls in the same
-    /// C bridge.
+    /// If `.to_s` raises (a user object overrides it with `raise`) or
+    /// returns a non-String, the failure is **swallowed**: any pending
+    /// `mrb->exc` is cleared and an empty `String` is returned, so the
+    /// leaked exception does not corrupt subsequent mruby calls in the
+    /// same C bridge.
     #[inline]
     pub fn to_string(self, mrb: &Mrb) -> String {
         let s_val = self.call(mrb, c"to_s", &[]);
-        // SAFETY: `mrb` is alive by the borrow; `s_val` originates
-        // from the same VM.
-        let ptr = unsafe { sys::mrb_str_to_cstr(mrb.as_ptr(), s_val.0) };
-        if ptr.is_null() {
-            // `.to_s` raised or returned a non-String. Clear
-            // `mrb->exc` so subsequent mruby calls in the same C
-            // bridge don't see corrupted state.
+        if !mrb.pending_exc().is_nil() {
             mrb.clear_exc();
             return String::new();
         }
-        // SAFETY: mruby's `mrb_str_to_cstr` returns a NUL-terminated
-        // pointer valid until the next GC cycle; copying the bytes
-        // before any further mruby call is sound.
-        unsafe { core::ffi::CStr::from_ptr(ptr) }
-            .to_str()
-            .unwrap_or("")
-            .to_string()
+        if s_val.classname(mrb) != "String" {
+            return String::new();
+        }
+        // SAFETY: the classname gate confirms `s_val` is String-tagged;
+        // the bytes are copied before any further mruby call.
+        let bytes = unsafe { s_val.as_bytes(mrb) };
+        core::str::from_utf8(bytes).unwrap_or("").to_string()
     }
 
     /// Recover the `*mut RClass` pointer from a class-tagged
