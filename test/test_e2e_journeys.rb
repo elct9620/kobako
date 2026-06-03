@@ -359,9 +359,9 @@ class TestE2EJourneys < Minitest::Test
   # distinct encoder branches that all funnel through the same string read.
   def test_embedded_nul_round_trips_through_the_result_encoder
     {
-      '"a\x00b"' => "a\u0000b",
+      '"a\x00b"' => "a\x00b",
       '"a\x00b".to_sym' => :"a\x00b",
-      '{ "k\x00" => 1 }' => { "k\u0000" => 1 }
+      '{ "k\x00" => 1 }' => { "k\x00" => 1 }
     }.each do |code, expected|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -382,7 +382,7 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "RuntimeError", err.klass,
                  "a NUL in a raised message must reach the host as a clean SandboxError, not a trap"
-    assert_match(/a\u0000b/, err.message,
+    assert_match(/a\x00b/, err.message,
                  "the NUL-bearing message must survive the length-based read intact")
   end
 
@@ -405,13 +405,22 @@ class TestE2EJourneys < Minitest::Test
 
   # A structure nested within the cap round-trips unaffected — the guard
   # rejects only what would otherwise overflow, not ordinary nested data.
+  # Unwrapping every level pins that all 100 levels and the innermost value
+  # survive, so a silent truncation to a shallower array would still fail.
   def test_nesting_within_the_cap_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     result = sandbox.eval("a = 0; 100.times { a = [a] }; a")
 
-    assert_instance_of Array, result,
-                       "a 100-level nested array sits within the cap and must round-trip intact"
+    depth = 0
+    node = result
+    while node.is_a?(Array)
+      depth += 1
+      node = node.first
+    end
+
+    assert_equal 100, depth, "all 100 nesting levels must round-trip, not be truncated"
+    assert_equal 0, node, "the innermost value must survive the round-trip intact"
   end
 
   # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
