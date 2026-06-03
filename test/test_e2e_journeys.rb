@@ -321,6 +321,8 @@ class TestE2EJourneys < Minitest::Test
       assert_equal "NoMethodError", err.klass,
                    "B-38: constructing a Member (#{code}) through the guest must raise " \
                    "NoMethodError, not produce an empty instance"
+      assert_match(/Models::User/, err.message,
+                   "B-38: the error must name the offending Member so the author can locate it")
     end
   end
 
