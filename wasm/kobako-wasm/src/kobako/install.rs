@@ -89,6 +89,22 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         bridges::proxy_respond_to_missing,
         sys::mrb_args_any(),
     );
+    // A Member is a dispatch target, not a constructible type
+    // (docs/behavior.md B-38): block both construction entries so a
+    // guest `MyService::KV.new` / `.allocate` fails fast as
+    // `NoMethodError` instead of yielding an inert empty instance.
+    member_class.define_singleton_method(
+        mrb,
+        c"new",
+        bridges::member_not_constructible,
+        sys::mrb_args_any(),
+    );
+    member_class.define_singleton_method(
+        mrb,
+        c"allocate",
+        bridges::member_not_constructible,
+        sys::mrb_args_any(),
+    );
 
     // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
     // instance-level (a Handle is an instance carrying its id ivar), so

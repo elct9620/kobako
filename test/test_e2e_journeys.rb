@@ -302,6 +302,26 @@ class TestE2EJourneys < Minitest::Test
                  "report true so guest-side capability probing succeeds before dispatch"
   end
 
+  # SPEC.md B-38: a Member is a dispatch target, not a constructible type.
+  # The bound object (a Greeter instance) is reached by calling methods on
+  # the constant; a guest `Models::User.new` / `.allocate` must raise
+  # NoMethodError rather than yield an inert empty instance that silently
+  # masks the mistake. Unrescued, it reaches the host as SandboxError
+  # (E-04) carrying the guest exception class. Both construction entries
+  # are covered because mruby exposes both on a class.
+  def test_b38_member_proxy_is_not_constructible
+    ["Models::User.new", "Models::User.allocate"].each do |code|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.define(:Models).bind(:User, Greeter.new("bound"))
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
+
+      assert_equal "NoMethodError", err.klass,
+                   "B-38: constructing a Member (#{code}) through the guest must raise " \
+                   "NoMethodError, not produce an empty instance"
+    end
+  end
+
   # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
   # then returns as the #eval result is restored on the host to the very
   # object Catalog::Handles holds — Source binds a fixed instance so the
