@@ -386,6 +386,34 @@ class TestE2EJourneys < Minitest::Test
                  "the NUL-bearing message must survive the length-based read intact")
   end
 
+  # docs/wire-codec.md § Structural Nesting Depth: the guest encoder caps its
+  # recursive walk at 128 levels — the MessagePack limit the host decoder
+  # already enforces. A return value that nests deeper, or that holds a
+  # reference cycle (unbounded depth), has no wire representation and must
+  # surface as a clean, rescuable SandboxError (E-06) rather than overflowing
+  # the wasm stack into an unrescuable hard trap. A direct Array cycle, a Hash
+  # self-cycle, and a structure far past the cap each exercise the guard.
+  def test_over_depth_or_cyclic_result_is_a_clean_sandbox_error
+    ["a = []; a << a; a", "h = {}; h[:self] = h; h", "a = 0; 5000.times { a = [a] }; a"].each do |code|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      assert_raises(Kobako::SandboxError,
+                    "an over-deep or cyclic result (#{code}) must fail cleanly, not hard-trap") do
+        sandbox.eval(code)
+      end
+    end
+  end
+
+  # A structure nested within the cap round-trips unaffected — the guard
+  # rejects only what would otherwise overflow, not ordinary nested data.
+  def test_nesting_within_the_cap_round_trips
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval("a = 0; 100.times { a = [a] }; a")
+
+    assert_instance_of Array, result,
+                       "a 100-level nested array sits within the cap and must round-trip intact"
+  end
+
   # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
   # then returns as the #eval result is restored on the host to the very
   # object Catalog::Handles holds — Source binds a fixed instance so the

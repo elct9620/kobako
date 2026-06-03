@@ -28,6 +28,16 @@
 use super::Kobako;
 use crate::mruby::Value;
 
+/// Maximum structural nesting depth the guest encoder walks before a value
+/// counts as non-wire-representable. Matches the MessagePack ecosystem's
+/// established limit, which the Host Gem's codec library already enforces on
+/// decode (docs/wire-codec.md § Structural Nesting Depth). The cap stops a
+/// reference cycle or a pathologically deep structure from overflowing the
+/// wasm stack and hard-trapping the guest; it sits far below that overflow
+/// threshold.
+#[cfg(target_arch = "wasm32")]
+const MAX_NESTING_DEPTH: usize = 128;
+
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
@@ -89,7 +99,12 @@ impl Kobako {
     /// so a single unrepresentable element collapses the whole Array to
     /// `None`.
     #[cfg(target_arch = "wasm32")]
-    fn array_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<R> {
+    fn array_to_codec<R>(
+        &self,
+        val: Value,
+        depth: usize,
+        convert: fn(&Self, Value, usize) -> R,
+    ) -> Vec<R> {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { crate::mruby::Array::from_value_unchecked(val) };
@@ -97,7 +112,7 @@ impl Kobako {
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
             let elem = ary.entry(i as i32);
-            items.push(convert(self, elem));
+            items.push(convert(self, elem, depth + 1));
         }
         items
     }
@@ -110,7 +125,12 @@ impl Kobako {
     /// encodings per docs/wire-codec.md § Ext Types. Generic over `R`
     /// for the same reason as `array_to_codec`.
     #[cfg(target_arch = "wasm32")]
-    fn hash_to_codec<R>(&self, val: Value, convert: fn(&Self, Value) -> R) -> Vec<(R, R)> {
+    fn hash_to_codec<R>(
+        &self,
+        val: Value,
+        depth: usize,
+        convert: fn(&Self, Value, usize) -> R,
+    ) -> Vec<(R, R)> {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { crate::mruby::Hash::from_value_unchecked(val) };
@@ -120,7 +140,7 @@ impl Kobako {
         for i in 0..len {
             let key = keys_ary.entry(i as i32);
             let v = hash.get(self.mrb(), key);
-            pairs.push((convert(self, key), convert(self, v)));
+            pairs.push((convert(self, key, depth + 1), convert(self, v, depth + 1)));
         }
         pairs
     }
@@ -149,6 +169,11 @@ impl Kobako {
     /// host raises rather than receive a misleading String.
     #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> crate::codec::Value {
+        self.to_codec_value_at(val, 0)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn to_codec_value_at(&self, val: Value, depth: usize) -> crate::codec::Value {
         use crate::codec::Value as CodecValue;
         use crate::mruby::FromValue;
         // Scalar leaves dispatch on mruby's own type tag through the safe
@@ -166,9 +191,15 @@ impl Kobako {
             "FalseClass" => CodecValue::Bool(false),
             "String" => CodecValue::Str(val.to_string(self.mrb())),
             "Symbol" => CodecValue::Sym(val.to_string(self.mrb())),
-            "Array" => CodecValue::Array(self.array_to_codec(val, Self::to_codec_value)),
-            "Hash" => CodecValue::Map(self.hash_to_codec(val, Self::to_codec_value)),
-            // Fallback: route through `.to_s`.
+            "Array" if depth < MAX_NESTING_DEPTH => {
+                CodecValue::Array(self.array_to_codec(val, depth, Self::to_codec_value_at))
+            }
+            "Hash" if depth < MAX_NESTING_DEPTH => {
+                CodecValue::Map(self.hash_to_codec(val, depth, Self::to_codec_value_at))
+            }
+            // An unknown type, or an Array / Hash at the nesting cap (a
+            // too-deep subtree or a reference cycle), routes through `.to_s`
+            // — bounded, valid wire data, never an unguarded recursion.
             _ => CodecValue::Str(val.to_string(self.mrb())),
         }
     }
@@ -187,15 +218,21 @@ impl Kobako {
     /// (docs/behavior.md B-37) — the invocation result and the yield-block
     /// result alike.
     ///
-    /// Returns `None` when `val` has no wire representation (any type
-    /// outside the 12-entry wire set, or a collection containing such a
-    /// value). The return contract forbids an implicit `to_s` / `inspect`
-    /// coercion, so the caller turns `None` into a Panic envelope
-    /// (outcome, docs/behavior.md E-06 / B-06) or a `0x04` error
-    /// YieldResponse (yield, docs/behavior.md E-22) rather than handing
-    /// the host a misleading String.
+    /// Returns `None` when `val` has no wire representation: any type
+    /// outside the 12-entry wire set, a collection containing such a value,
+    /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
+    /// cycle necessarily does). The return contract forbids an implicit
+    /// `to_s` / `inspect` coercion, so the caller turns `None` into a Panic
+    /// envelope (outcome, docs/behavior.md E-06 / B-06) or a `0x04` error
+    /// YieldResponse (yield, docs/behavior.md E-22) rather than handing the
+    /// host a misleading String.
     #[cfg(target_arch = "wasm32")]
     pub fn try_codec_value(&self, val: Value) -> Option<crate::codec::Value> {
+        self.try_codec_value_at(val, 0)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<crate::codec::Value> {
         use crate::codec::Value as CodecValue;
         use crate::mruby::FromValue;
         // Scalar-leaf downcast through the safe `FromValue` seam, as in
@@ -223,14 +260,17 @@ impl Kobako {
             },
             // A single unrepresentable element collapses the whole
             // collection to `None` — `collect::<Option<Vec<_>>>()`
-            // short-circuits on the first `None`.
-            "Array" => self
-                .array_to_codec(val, Self::try_codec_value)
+            // short-circuits on the first `None`. Past `MAX_NESTING_DEPTH`
+            // (a too-deep structure or a reference cycle) the arm falls
+            // through to `None`, so the caller takes the Panic / error
+            // YieldResponse path rather than overflowing the wasm stack.
+            "Array" if depth < MAX_NESTING_DEPTH => self
+                .array_to_codec(val, depth, Self::try_codec_value_at)
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .map(CodecValue::Array),
-            "Hash" => self
-                .hash_to_codec(val, Self::try_codec_value)
+            "Hash" if depth < MAX_NESTING_DEPTH => self
+                .hash_to_codec(val, depth, Self::try_codec_value_at)
                 .into_iter()
                 .map(|(k, v)| k.zip(v))
                 .collect::<Option<Vec<_>>>()
