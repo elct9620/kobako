@@ -165,6 +165,31 @@ pub(crate) unsafe extern "C" fn member_not_constructible(
     unsafe { nomethod.raise(mrb_ref, &message) }
 }
 
+/// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
+/// A Handle is a host-issued capability reference the wire decoder
+/// constructs (docs/behavior.md B-39), never guest code, so both
+/// construction entries raise `NoMethodError` rather than minting a proxy
+/// from a bare id that would dispatch against an arbitrary Catalog::Handles
+/// entry. Registered with `mrb_args_any()` so the raise fires regardless of
+/// arguments instead of tripping an arity check first. The decoder's own
+/// restoration path uses `mrb_obj_new`, which bypasses these Ruby entries
+/// (B-14 / B-34) and is unaffected.
+pub(crate) unsafe extern "C" fn handle_not_constructible(
+    mrb: *mut sys::mrb_state,
+    _self: Value,
+) -> Value {
+    // SAFETY: bridge contract — `mrb` is live for the call.
+    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+    let nomethod = mrb_ref.class_get(c"NoMethodError");
+    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+    unsafe {
+        nomethod.raise(
+            mrb_ref,
+            c"Kobako::Handle is a host-issued capability reference, not a constructible class",
+        )
+    }
+}
+
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// `super::Kobako::set_handle_id`.

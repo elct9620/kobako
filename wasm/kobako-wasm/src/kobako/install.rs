@@ -116,6 +116,23 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
         bridges::handle_initialize,
         sys::mrb_args_req(1),
     );
+    // Block both construction entries so the guest cannot fabricate a
+    // Handle from a bare id (docs/behavior.md B-39); see
+    // `bridges::handle_not_constructible`. The wire decoder's restoration
+    // path constructs Handles through `mrb_obj_new`, which bypasses these
+    // Ruby entries and is unaffected.
+    handle_class.define_singleton_method(
+        mrb,
+        c"new",
+        bridges::handle_not_constructible,
+        sys::mrb_args_any(),
+    );
+    handle_class.define_singleton_method(
+        mrb,
+        c"allocate",
+        bridges::handle_not_constructible,
+        sys::mrb_args_any(),
+    );
     handle_class.define_method(
         mrb,
         c"method_missing",

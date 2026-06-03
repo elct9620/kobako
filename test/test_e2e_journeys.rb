@@ -326,6 +326,29 @@ class TestE2EJourneys < Minitest::Test
     end
   end
 
+  # SPEC.md B-39: a Handle is a host-issued capability reference the wire
+  # decoder constructs (B-14 / B-34); guest code has no path to fabricate
+  # one. `Kobako::Handle.new(1)` / `.allocate` must raise NoMethodError
+  # rather than mint a proxy from a bare id that would dispatch against an
+  # arbitrary Catalog::Handles entry. Unrescued, it reaches the host as
+  # SandboxError (E-04). The `.new(1)` case pins that an integer argument
+  # does not change the outcome — the raise fires ahead of any arity check
+  # (the reason the bridge registers `mrb_args_any()`); `.allocate` covers
+  # mruby's other construction entry.
+  def test_b39_handle_proxy_is_not_constructible
+    ["Kobako::Handle.new(1)", "Kobako::Handle.allocate"].each do |code|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
+
+      assert_equal "NoMethodError", err.klass,
+                   "B-39: fabricating a Handle (#{code}) through the guest must raise " \
+                   "NoMethodError, not mint a proxy from a bare id"
+      assert_match(/Kobako::Handle/, err.message,
+                   "B-39: the error must name Kobako::Handle so the author can locate it")
+    end
+  end
+
   # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
   # then returns as the #eval result is restored on the host to the very
   # object Catalog::Handles holds — Source binds a fixed instance so the
