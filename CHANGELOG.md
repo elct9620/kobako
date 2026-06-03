@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/elct9620/kobako/compare/v0.6.2...v0.7.0) (2026-06-03)
+
+
+### Features
+
+* **examples/async-io:** demo single-thread I/O overlap across Sandboxes ([858a0f7](https://github.com/elct9620/kobako/commit/858a0f70bb0730e5e3ad3f49a5caadf948f6ed7d))
+* **guest:** reject construction of Handle proxies (B-39) ([bda5e2b](https://github.com/elct9620/kobako/commit/bda5e2b5e48fe25adeefac19c47f1b93585091bf))
+* **guest:** reject construction of Member proxies (B-38) ([885c281](https://github.com/elct9620/kobako/commit/885c2812da8627e4ec7c185d9e04e4056c94a7fd))
+
+
+### Bug Fixes
+
+* **ext:** surface the buried root cause on non-cap traps ([dbd1ce5](https://github.com/elct9620/kobako/commit/dbd1ce51f25ab8c83d39daee64278192d763d5ef))
+* **guest:** bound the encoder walk so cycles and deep nesting fail cleanly ([90880ff](https://github.com/elct9620/kobako/commit/90880ffe6f0ee911b3c7c076ef6c86b9e08c62e1))
+* **guest:** stop an embedded NUL in a returned value from hard-trapping ([14fbb97](https://github.com/elct9620/kobako/commit/14fbb97ecb47b4263585602754e92237bb951d46))
+* **guest:** stop named-capture regexes from hard-trapping the sandbox ([a279ea1](https://github.com/elct9620/kobako/commit/a279ea1e2f196580b396342851e4e75ff9ea5cfa))
+
 ## [0.6.2](https://github.com/elct9620/kobako/compare/v0.6.1...v0.6.2) (2026-05-31)
 
 
