@@ -33,6 +33,14 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 
 ---
 
+## Structural Nesting Depth
+
+Encoded values nest to at most a fixed maximum depth. Both codec implementations enforce the identical bound symmetrically: on encode, a value nesting beyond the bound has no wire representation and the encoder reports it through the value-failure path of its position (a guest return surfaces as E-06, a yield-block result as E-22, → [`behavior.md`](behavior.md)); on decode, a payload nesting beyond the bound is a wire violation and the decoder rejects the message without descending further. A reference cycle necessarily exceeds the bound and is reported through this same path — never as a native trap.
+
+The bound is a native-stack safety guard, not a semantic limit on data shape. Its value is derived from the measured recursion headroom of the codec walks — the tighter of the Guest Binary (wasm32 stack) and Host Gem sides, taken at a conservative fraction so compiler and optimization drift cannot push a legal payload into a trap — and is held at or above the nesting limits mainstream serialization formats impose, so the bound is never the restrictive outlier. The two independent implementations pin the identical value (they share no codec source, → Consistency Guarantee). When a workload legitimately needs deeper nesting, the lever is to enlarge the Guest Binary stack, not to relax the guard.
+
+---
+
 ## str / bin Encoding Rules
 
 msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following rules govern which family is used at each wire position. A violation of a "str only" rule is a wire violation and the receiving side rejects the message.
@@ -292,4 +300,4 @@ Round-trip fuzz is the sole mechanism by which Host Gem and Guest Binary codec i
 - **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
 - **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
 
-Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Fault envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Any round-trip fuzz failure is a wire regression that blocks release. The harness contract for this fuzz layer is specified in `SPEC.md` § Implementation Standards → Testing Style.
+Both directions are required. Coverage must include all 12 wire types (→ Type Mapping), all three ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Fault envelope), and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values, Panic envelope with optional `details`). Coverage must also pin that both sides share one maximum nesting depth (→ Structural Nesting Depth): a structure nested just within the bound round-trips, and one nested just beyond it is rejected by both sides at the same depth. Any round-trip fuzz failure is a wire regression that blocks release. The harness contract for this fuzz layer is specified in `SPEC.md` § Implementation Standards → Testing Style.
