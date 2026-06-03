@@ -419,6 +419,17 @@ This behavior refines the value-return semantics of B-06 (`#eval`) and B-31 (`#r
 
 ---
 
+## B-38 — Guest attempts to construct a Member proxy
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `<Namespace>::<Member>` (B-08) whose Host App binding is an object the guest reaches by calling methods on the constant (B-12). |
+| **Operation** | Guest code calls `<Namespace>::<Member>.new(...)` or `<Namespace>::<Member>.allocate` — any attempt to instantiate the Member constant. |
+| **Result / Final State** | The call raises `NoMethodError` inside the guest. No instance is produced and no Transport Request is sent — the construction attempt never reaches the host. When the guest does not rescue it, the exception reaches the invocation top level and is attributed as `Kobako::SandboxError` per E-04, identical to any other uncaught guest exception. |
+| **Notes** | A Member is a dispatch target, not a constructible type: the Host App binds the object guest code calls methods on (B-08), so guest-side instantiation has no meaning and would otherwise yield an inert empty object that silently masks the mistake. Blocking it keeps the proxy surface to dispatch only and fails fast. `new` and `allocate` are the two construction entries mruby exposes on a class; both raise, so neither can produce an instance. The proxy defines both locally as raising methods, so B-36's optimistic `respond_to?` answer does not apply to them — they resolve through their own methods. This behavior is specific to the `Kobako::Member` proxy; `Kobako::Handle` is instance-shaped and constructed internally by the wire decoder (B-14 / B-34), never by guest code, and is unaffected. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
