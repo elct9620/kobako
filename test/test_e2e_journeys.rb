@@ -307,10 +307,12 @@ class TestE2EJourneys < Minitest::Test
   # the constant; a guest `Models::User.new` / `.allocate` must raise
   # NoMethodError rather than yield an inert empty instance that silently
   # masks the mistake. Unrescued, it reaches the host as SandboxError
-  # (E-04) carrying the guest exception class. Both construction entries
-  # are covered because mruby exposes both on a class.
+  # (E-04) carrying the guest exception class. The `.new(1, 2)` case pins
+  # that arguments do not change the outcome — the raise must fire ahead
+  # of any arity check (the reason the bridge registers `mrb_args_any()`);
+  # `.allocate` covers mruby's other construction entry.
   def test_b38_member_proxy_is_not_constructible
-    ["Models::User.new", "Models::User.allocate"].each do |code|
+    ["Models::User.new", "Models::User.new(1, 2)", "Models::User.allocate"].each do |code|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
       sandbox.define(:Models).bind(:User, Greeter.new("bound"))
 
