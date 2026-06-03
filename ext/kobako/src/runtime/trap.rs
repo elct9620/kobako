@@ -76,8 +76,9 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
 /// `"linear memory growth exceeded memory_limit: ..."`). The wasmtime
 /// outer wrapper at `format!("{}", err)` would otherwise surface only
 /// the `"error while executing at wasm backtrace: ..."` framing, which
-/// is operator noise on a cap trap. For `TrapClass::Other` the
-/// wasmtime wrapper IS the diagnostic (real script trap) so it stays.
+/// is operator noise on a cap trap. For `TrapClass::Other` the framing
+/// is kept but the chain's root cause is appended (see
+/// `other_trap_message`) so the real trap reason survives.
 pub(super) fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
     match classify_trap(&err) {
         TrapClass::Timeout => {
@@ -94,7 +95,24 @@ pub(super) fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
                 .unwrap_or_else(|| format!("{}", err));
             memory_limit_err(ruby, msg)
         }
-        TrapClass::Other => trap_err(ruby, format!("{}", err)),
+        TrapClass::Other => trap_err(ruby, other_trap_message(&err)),
+    }
+}
+
+/// Compose the message for a non-cap trap. wasmtime's `Display` surfaces only
+/// the `"error while executing at wasm backtrace: ..."` framing; the actual
+/// trap reason (e.g. `"wasm trap: indirect call type mismatch"`) is the
+/// chain's root cause and would otherwise be dropped, making real guest
+/// faults undiagnosable. Append the root cause unless the framing already
+/// carries it. Pure so it can be exercised from `cargo test` without the
+/// magnus surface.
+fn other_trap_message(err: &wasmtime::Error) -> String {
+    let display = format!("{}", err);
+    let root = err.root_cause().to_string();
+    if display.contains(&root) {
+        display
+    } else {
+        format!("{display}\n\n{root}")
     }
 }
 
@@ -111,7 +129,7 @@ pub(super) fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError 
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_trap, TrapClass};
+    use super::{classify_trap, other_trap_message, TrapClass};
     use crate::runtime::invocation::{MemoryLimitTrap, TimeoutTrap};
 
     #[test]
@@ -130,5 +148,31 @@ mod tests {
     fn classify_trap_falls_back_to_other_for_unknown_errors() {
         let err = wasmtime::Error::msg("some other wasmtime fault");
         assert_eq!(classify_trap(&err), TrapClass::Other);
+    }
+
+    // A guest hard trap reaches the host as a wasmtime error whose Display is
+    // only the backtrace framing, with the trap reason buried as the chain's
+    // root cause. The named-capture regex bug surfaced as exactly this shape.
+    #[test]
+    fn other_trap_message_surfaces_buried_trap_reason() {
+        let err = wasmtime::Error::msg("wasm trap: indirect call type mismatch")
+            .context("error while executing at wasm backtrace:\n  0: 0x1 - <unknown>");
+        let msg = other_trap_message(&err);
+        assert!(
+            msg.contains("indirect call type mismatch"),
+            "a non-cap trap surfaced through Kobako::TrapError must carry the root trap reason, not only the backtrace framing; got: {msg}"
+        );
+        assert!(
+            msg.contains("error while executing"),
+            "a non-cap trap surfaced through Kobako::TrapError must keep the wasm backtrace framing; got: {msg}"
+        );
+    }
+
+    // A flat error (no cause chain) is its own root_cause; appending it would
+    // duplicate the whole message.
+    #[test]
+    fn other_trap_message_does_not_duplicate_a_flat_error() {
+        let err = wasmtime::Error::msg("plain fault");
+        assert_eq!(other_trap_message(&err), "plain fault");
     }
 }
