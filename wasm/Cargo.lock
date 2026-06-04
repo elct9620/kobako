@@ -107,11 +107,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kobako-core"
+version = "0.1.0"
+dependencies = [
+ "rmp",
+]
+
+[[package]]
 name = "kobako-wasm"
 version = "0.0.0"
 dependencies = [
+ "kobako-core",
  "mruby",
- "rmp",
 ]
 
 [[package]]

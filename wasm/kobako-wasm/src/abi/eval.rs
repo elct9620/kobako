@@ -31,9 +31,9 @@ fn eval_body() {
     use super::frames;
     use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
-    use crate::codec::Encode;
     use crate::mruby::Ccontext;
-    use crate::outcome::{Outcome, Panic};
+    use kobako_core::codec::Encode;
+    use kobako_core::outcome::{Outcome, Panic};
 
     // Declare the MRB cleanup scope early. Any `return write_panic(...)`
     // below drops `_mrb_scope` first, which calls `MRB.clear()` and

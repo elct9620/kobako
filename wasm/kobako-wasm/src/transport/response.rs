@@ -9,7 +9,7 @@
 //! re-implementation of SPEC; byte-compatible with the host because both
 //! follow SPEC, not because one was copied from the other.
 
-use crate::codec::{self, Decoder, Encoder, Value};
+use kobako_core::codec::{self, Decoder, Encoder, Value};
 
 /// Response variant marker for the success branch
 /// (docs/wire-codec.md § Envelope Encoding → Response). Module-private — `Response::Ok`
@@ -75,7 +75,7 @@ impl codec::Decode for Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::{Decode, Encode};
+    use kobako_core::codec::{Decode, Encode};
 
     fn errenv_payload(typ: &str, message: &str) -> Vec<u8> {
         // Build a minimal valid ext 0x02 inner map: {type, message, details=nil}.

@@ -28,7 +28,7 @@
 //!    exception into a Panic envelope.
 
 #[cfg(any(target_arch = "wasm32", test))]
-use crate::codec::Value;
+use kobako_core::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
 /// name (a Symbol on the codec side); `args` is always a
@@ -128,8 +128,8 @@ fn run_body(env_ptr: i32, env_len: i32) {
     use super::boot;
     use super::mrb_slot::{MrbScope, MRB};
     use super::outcome_buffer::{write_outcome, write_panic};
-    use crate::codec::{Decoder, Encode};
-    use crate::outcome::{Outcome, Panic};
+    use kobako_core::codec::{Decoder, Encode};
+    use kobako_core::outcome::{Outcome, Panic};
 
     // See `eval_body` for the MRB scope-guard rationale — declared
     // early so every `return write_panic(...)` clears the slot.

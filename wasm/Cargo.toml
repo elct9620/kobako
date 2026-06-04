@@ -17,17 +17,18 @@
 #     the `Mrb` / `Value` / `Class` / … abstractions). Scaffolded as
 #     a transparent proxy first, then the typed wrappers physically
 #     move out of `mruby-sys` into here.
+#   * `kobako-core` — Guest ABI contract crate (publishable rlib).
+#     The mruby-free wire tiers a Guest Binary builds on.
 #   * `kobako-wasm` — Guest Binary crate producing `kobako.wasm`. Owns
-#     the codec, the transport client (`crate::transport`), ABI exports,
-#     and the Ruby boot bytecode pipeline (`mrblib/*.rb` precompiled to
-#     RITE via host `mrbc`).
+#     the mruby-tied ABI exports and the Ruby boot bytecode pipeline
+#     (`mrblib/*.rb` precompiled to RITE via host `mrbc`).
 #
 # The split keeps "talk to libmruby.a" (sys), "how to talk to libmruby
 # in Rust" (mruby), and "what to do with mruby in kobako" (kobako-wasm)
 # in separate crates so each tier can evolve independently.
 
 [workspace]
-members = ["mruby-sys", "mruby", "kobako-wasm"]
+members = ["mruby-sys", "mruby", "kobako-core", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

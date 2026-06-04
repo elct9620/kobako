@@ -13,9 +13,9 @@
 //! by the same invocation that owns the outcome buffer.
 
 #[cfg(target_arch = "wasm32")]
-use crate::codec::Encode;
+use kobako_core::codec::Encode;
 #[cfg(target_arch = "wasm32")]
-use crate::outcome::{Outcome, Panic};
+use kobako_core::outcome::{Outcome, Panic};
 
 #[cfg(target_arch = "wasm32")]
 use super::pack_u64;

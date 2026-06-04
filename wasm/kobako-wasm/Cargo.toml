@@ -1,21 +1,18 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
-# houses the MessagePack codec, the transport client (`crate::transport`),
-# the ABI exports, and the Ruby boot bytecode pipeline. The mruby C API
-# FFI surface (bindgen-generated bindings + the `wrapper.h` static-inline
-# shims) lives in the sibling `mruby-sys` crate; `kobako-wasm`
-# consumes it as a path dependency and re-exports it as `crate::mruby::sys`.
+# houses the transport client (`crate::transport`), the ABI exports,
+# and the Ruby boot bytecode pipeline. The mruby-free wire tiers
+# (`codec`, `outcome`) live in the sibling `kobako-core` contract
+# crate; the mruby C API FFI surface (bindgen-generated bindings + the
+# `wrapper.h` static-inline shims) lives in the sibling `mruby-sys`
+# crate, consumed via the `mruby` wrapper and re-exported as
+# `crate::mruby::sys`.
 #
 # This crate is a member of the `wasm/` sub-workspace (see
 # `wasm/Cargo.toml`). The repo-root `Cargo.toml` excludes the entire
 # `wasm/` subtree so the wasmtime-bearing host workspace does not pull
 # the wasm32-wasip1 crates into its dependency graph.
-#
-# Codec backbone is the `rmp` crate — the Rust counterpart of the
-# msgpack-ruby gem used on the host side. This gives the guest a thin glue
-# layer (Value <-> rmp encode/decode helpers) instead of a hand-rolled
-# binary codec, and keeps the byte form aligned with the host.
 
 [package]
 name = "kobako-wasm"
@@ -31,12 +28,10 @@ license = "Apache-2.0"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# `rmp` is the low-level (no-serde) Pure Rust MessagePack codec. We use it
-# directly through `rmp::encode` / `rmp::decode` so the guest codec stays a
-# thin shim — kobako's Value enum maps one-to-one onto rmp's primitives.
-# `default-features = false` keeps the dependency footprint minimal on the
-# wasm32-wasip1 target, which already pays for `std` through mruby.
-rmp = { version = "0.8", default-features = false }
+# `kobako-core` — Guest ABI contract crate (sibling workspace member).
+# Supplies the mruby-free wire tiers (`codec`, `outcome`); this crate
+# layers the mruby implementation on top.
+kobako-core = { path = "../kobako-core" }
 
 # `mruby` — typed Rust wrapper crate over the mruby C API. Re-exports
 # the underlying `mruby-sys` FFI through its `sys` namespace, so

@@ -28,9 +28,9 @@
 
 use std::io::{self, Read, Write};
 
-use kobako_wasm::codec;
-use kobako_wasm::codec::{Decode, Encode};
-use kobako_wasm::outcome::{Outcome, Panic};
+use kobako_core::codec;
+use kobako_core::codec::{Decode, Encode};
+use kobako_core::outcome::{Outcome, Panic};
 use kobako_wasm::transport::{Request, Response};
 use kobako_wasm::FRAME_LEN_SIZE;
 

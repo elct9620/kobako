@@ -6,7 +6,7 @@
 //! Frame 2 (user source for `__kobako_eval`) is read inline by the
 //! eval entry. See docs/wire-codec.md § Invocation channels.
 
-use crate::codec::{Decoder, Value};
+use kobako_core::codec::{Decoder, Value};
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF or short
 /// read; callers turn that into a Panic envelope.
@@ -148,7 +148,7 @@ fn decode_snippet_entry(item: Value) -> Option<Snippet> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::Encoder;
+    use kobako_core::codec::Encoder;
 
     fn encode(v: &Value) -> Vec<u8> {
         let mut enc = Encoder::new();

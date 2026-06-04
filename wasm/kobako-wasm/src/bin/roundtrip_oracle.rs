@@ -29,7 +29,7 @@
 
 use std::io::{self, Read, Write};
 
-use kobako_wasm::codec::{self, Decoder, Encoder};
+use kobako_core::codec::{self, Decoder, Encoder};
 use kobako_wasm::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024; // 64 MiB hard cap (well above SPEC's 16 MiB single-call limit)

@@ -1,22 +1,17 @@
 //! kobako-wasm — Guest Binary crate root.
 //!
 //! This crate is the source of `kobako.wasm`, the Guest Binary artifact
-//! described in SPEC.md "Core Abstractions". It hosts:
+//! described in SPEC.md "Core Abstractions". The mruby-free wire tiers
+//! (`codec`, `outcome`) live in the sibling `kobako-core` contract
+//! crate; this crate hosts:
 //!
-//! * `codec` — MessagePack codec, a thin glue layer over the `rmp`
-//!   crate that adds kobako's two ext types (docs/wire-codec.md).
 //! * `transport` — Per-call transport layer mirroring the host's
 //!   `lib/kobako/transport/`. Holds the Request / Response / Yield value
 //!   objects (one file each, re-exported flat as `transport::Request`
-//!   etc.) with their `Encode` / `Decode` impls on top of `codec`
-//!   (docs/wire-contract.md), and `transport::proxy` (the
-//!   round-trip pipeline used by the guest-side mruby bridge to
-//!   dispatch a call through `__kobako_dispatch`).
-//! * `outcome` — Per-run Outcome envelope mirroring the host's
-//!   `lib/kobako/outcome.rb`. Holds the `Panic` / `Outcome` value objects,
-//!   each carrying its own `codec::{Encode, Decode}` impl
-//!   (docs/wire-contract.md § Outcome Envelope). Raises `codec::Error`
-//!   for both byte-level and structural faults.
+//!   etc.) with their `Encode` / `Decode` impls on top of
+//!   `kobako_core::codec` (docs/wire-contract.md), and
+//!   `transport::proxy` (the round-trip pipeline used by the guest-side
+//!   mruby bridge to dispatch a call through `__kobako_dispatch`).
 //! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
 //!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
 //!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
@@ -46,10 +41,8 @@
 pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;
-pub mod codec;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod kobako;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod mruby;
-pub mod outcome;
 pub mod transport;

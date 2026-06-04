@@ -20,7 +20,7 @@ use crate::kobako::{InstallGroupsError, Kobako};
 use crate::mruby::Ccontext;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
-use crate::outcome::Panic;
+use kobako_core::outcome::Panic;
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty

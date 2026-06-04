@@ -1,0 +1,27 @@
+# kobako-core — Guest ABI contract crate.
+#
+# The language-agnostic half of the guest: the MessagePack wire codec
+# and the SPEC envelope value objects a kobako Guest Binary needs,
+# free of mruby so it compiles on every target. The assembled mruby
+# guest (`kobako-wasm`, this workspace) consumes it as a path
+# dependency; third-party guests consume the published crate.
+#
+# This crate is a plain rlib — it defines no `#[no_mangle]` symbol and
+# no `cdylib` crate-type. Wasm exports belong to the leaf shell crate
+# that links the final Guest Binary.
+
+[package]
+name = "kobako-core"
+version = "0.1.0"
+edition = "2021"
+description = "Contract crate for kobako Guest Binaries — the guest-side wire codec and SPEC envelopes."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+
+[dependencies]
+# `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
+# Rust counterpart of the msgpack-ruby gem used on the host side. The
+# codec stays a thin shim over `rmp::encode` / `rmp::decode`, keeping
+# the byte form aligned with the host. `default-features = false`
+# keeps the dependency footprint minimal on wasm32-wasip1.
+rmp = { version = "0.8", default-features = false }

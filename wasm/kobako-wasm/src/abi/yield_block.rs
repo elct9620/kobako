@@ -163,8 +163,8 @@ fn classify_protected_error(
 
 #[cfg(target_arch = "wasm32")]
 fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
-    use crate::codec::Encode;
     use crate::transport::{Yield, TAG_BREAK};
+    use kobako_core::codec::Encode;
     let Some(codec_value) = kobako.try_codec_value(value) else {
         // `break val` whose value has no wire representation is the
         // E-22 shape on the break path — surface it as a 0x04 error
@@ -193,8 +193,8 @@ fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Va
 }
 
 #[cfg(target_arch = "wasm32")]
-fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Value>, String> {
-    use crate::codec::{Decoder, Value};
+fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<kobako_core::codec::Value>, String> {
+    use kobako_core::codec::{Decoder, Value};
     // SAFETY: `req_ptr` / `req_len` were produced by the host's
     // `Instance#yield_to_block`, which allocates the buffer via
     // `__kobako_alloc` inside this same wasm instance and writes the
@@ -217,8 +217,8 @@ fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<crate::codec::Val
 
 #[cfg(target_arch = "wasm32")]
 fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
-    use crate::codec::Encode;
     use crate::transport::{Yield, TAG_OK};
+    use kobako_core::codec::Encode;
     let Some(codec_value) = kobako.try_codec_value(value) else {
         // A block returning a value with no wire representation is E-22.
         // The host Yielder reifies this 0x04 error as an exception at the
@@ -278,9 +278,9 @@ fn encode_error_response_from_exception(
 
 #[cfg(target_arch = "wasm32")]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
-    use crate::codec::Encode;
-    use crate::codec::Value;
     use crate::transport::{Yield, TAG_ERROR};
+    use kobako_core::codec::Encode;
+    use kobako_core::codec::Value;
     let payload = Value::Map(vec![
         (Value::Str("class".into()), Value::Str(class.into())),
         (Value::Str("message".into()), Value::Str(message.into())),
