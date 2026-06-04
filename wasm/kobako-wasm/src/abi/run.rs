@@ -105,29 +105,26 @@ pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, Invocation
     })
 }
 
-/// Reactor entry — see module docs.
-#[no_mangle]
-pub extern "C" fn __kobako_run(env_ptr: i32, env_len: i32) {
+/// Invocation entry behind the `__kobako_run` export — see module docs.
+pub(crate) fn run(env: &[u8]) {
     #[cfg(target_arch = "wasm32")]
     {
-        run_body(env_ptr, env_len);
+        run_body(env);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host stub — the reactor export keeps its
-        // `(env_ptr, env_len)` signature on every target; consume the
-        // bindings locally so the `unused_variables` lint passes
-        // without an `#[allow]`.
-        let _ = env_ptr;
-        let _ = env_len;
+        // Host stub — the entry keeps its slice signature on every
+        // target; consume the binding locally so the
+        // `unused_variables` lint passes without an `#[allow]`.
+        let _ = env;
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn run_body(env_ptr: i32, env_len: i32) {
+fn run_body(env: &[u8]) {
     use super::boot;
     use super::mrb_slot::{MrbScope, MRB};
-    use super::outcome_buffer::{write_outcome, write_panic};
+    use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::{Decoder, Encode};
     use kobako_core::outcome::{Outcome, Panic};
 
@@ -162,22 +159,8 @@ fn run_body(env_ptr: i32, env_len: i32) {
         return write_panic(panic);
     }
 
-    // SAFETY: `(env_ptr, env_len)` were produced by the host's
-    // `Instance::write_envelope`, which allocates the buffer via
-    // `__kobako_alloc` (wasi-libc `malloc`) inside this same wasm
-    // instance and then writes the envelope bytes verbatim. The buffer
-    // lives for the duration of the `__kobako_run` call — wasi-libc's
-    // allocator does not relocate live allocations. Reading
-    // `env_len` bytes from `env_ptr` is therefore in-bounds for the
-    // current instance's linear memory.
-    let env_slice: &[u8] = if env_len == 0 {
-        &[]
-    } else {
-        unsafe { std::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize) }
-    };
-
     let envelope = {
-        let mut dec = Decoder::new(env_slice);
+        let mut dec = Decoder::new(env);
         match dec.read_value() {
             Ok(v) => v,
             Err(_) => {

@@ -1,10 +1,13 @@
 //! Guest ABI primitives shared across the wasm boundary.
 //!
-//! Owns the `__kobako_dispatch` host-import declaration and the
-//! packed-u64 helpers pinned by docs/wire-codec.md § ABI Signatures.
-//! The `#[no_mangle]` guest exports themselves belong to the leaf
-//! shell crate that links the final Guest Binary; this module carries
-//! only the building blocks they delegate to.
+//! Owns the `__kobako_dispatch` host-import declaration, the
+//! packed-u64 helpers pinned by docs/wire-codec.md § ABI Signatures,
+//! and the per-invocation outcome-buffer machinery (`alloc` /
+//! `take_outcome` / `write_outcome` / `write_panic`). The
+//! `#[no_mangle]` guest exports themselves are emitted by
+//! `crate::export_guest!` in the leaf shell crate that links the
+//! final Guest Binary; this module carries only the building blocks
+//! they delegate to.
 //!
 //! ## Packed u64 layout
 //!
@@ -24,6 +27,12 @@
 //! Extraction: `ptr = (packed >> 32) as u32; len = packed as u32`.
 //! Composition: `(ptr as u64) << 32 | len as u64`.
 //! `len == 0` is a wire violation (host walks trap path).
+
+mod outcome_buffer;
+
+pub use outcome_buffer::{alloc, take_outcome};
+#[cfg(target_arch = "wasm32")]
+pub use outcome_buffer::{write_outcome, write_panic};
 
 // ---------------------------------------------------------------------------
 // Host import declaration.

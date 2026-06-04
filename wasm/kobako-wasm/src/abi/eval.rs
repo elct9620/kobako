@@ -10,15 +10,14 @@
 //!    `Exception#backtrace`).
 //! 3. Serialize the last-expression value as a Result envelope, or
 //!    convert the pending mruby exception into a Panic envelope, and
-//!    write the bytes into `super::outcome_buffer`.
+//!    write the bytes into the kobako-core outcome buffer.
 //!
 //! `__kobako_eval` never traps or calls `exit` — the host reads the
 //! outcome tag from `__kobako_take_outcome()` after this function
 //! returns.
 
-/// Reactor entry — see module docs.
-#[no_mangle]
-pub extern "C" fn __kobako_eval() {
+/// Invocation entry behind the `__kobako_eval` export — see module docs.
+pub(crate) fn eval() {
     #[cfg(target_arch = "wasm32")]
     {
         eval_body();
@@ -30,8 +29,8 @@ fn eval_body() {
     use super::boot;
     use super::frames;
     use super::mrb_slot::{MrbScope, MRB};
-    use super::outcome_buffer::{write_outcome, write_panic};
     use crate::mruby::Ccontext;
+    use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::Encode;
     use kobako_core::outcome::{Outcome, Panic};
 

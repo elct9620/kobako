@@ -36,32 +36,31 @@
 #[cfg(target_arch = "wasm32")]
 use kobako_core::abi::pack_u64;
 
-/// Reactor entry — see module docs. Signature pinned by
-/// docs/wire-codec.md § ABI Signatures (5 guest exports).
-#[no_mangle]
-pub extern "C" fn __kobako_yield_to_block(req_ptr: i32, req_len: i32) -> u64 {
+/// Invocation entry behind the `__kobako_yield_to_block` export —
+/// see module docs. Signature pinned by docs/wire-codec.md § ABI
+/// Signatures (5 guest exports).
+pub(crate) fn yield_to_block(req: &[u8]) -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        yield_to_block_body(req_ptr, req_len)
+        yield_to_block_body(req)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host stub — see `__kobako_run` for the shape rationale.
-        let _ = req_ptr;
-        let _ = req_len;
+        // Host stub — see `run` for the shape rationale.
+        let _ = req;
         0
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn yield_to_block_body(req_ptr: i32, req_len: i32) -> u64 {
+fn yield_to_block_body(req: &[u8]) -> u64 {
     use super::block_stack::BLOCK_STACK;
     use super::mrb_slot::MRB;
     use crate::kobako::Kobako;
     use crate::mruby::sys;
 
     // Step 1: decode positional args off the request buffer.
-    let args_codec = match decode_yield_args(req_ptr, req_len) {
+    let args_codec = match decode_yield_args(req) {
         Ok(items) => items,
         Err(msg) => return write_error_response("Kobako::Transport::Error", msg, Vec::new()),
     };
@@ -193,19 +192,9 @@ fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Va
 }
 
 #[cfg(target_arch = "wasm32")]
-fn decode_yield_args(req_ptr: i32, req_len: i32) -> Result<Vec<kobako_core::codec::Value>, String> {
+fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, String> {
     use kobako_core::codec::{Decoder, Value};
-    // SAFETY: `req_ptr` / `req_len` were produced by the host's
-    // `Instance#yield_to_block`, which allocates the buffer via
-    // `__kobako_alloc` inside this same wasm instance and writes the
-    // encoded args bytes in. Reading `req_len` bytes from `req_ptr`
-    // is in-bounds for the current Instance's linear memory.
-    let bytes: &[u8] = if req_len == 0 {
-        &[]
-    } else {
-        unsafe { core::slice::from_raw_parts(req_ptr as usize as *const u8, req_len as usize) }
-    };
-    let mut dec = Decoder::new(bytes);
+    let mut dec = Decoder::new(req);
     let frame = dec
         .read_value()
         .map_err(|e| format!("failed to decode the block arguments: {e}"))?;
@@ -314,7 +303,7 @@ fn write_yield_buffer(bytes: &[u8]) -> u64 {
         Ok(n) => n,
         Err(_) => return 0,
     };
-    let ptr = super::outcome_buffer::__kobako_alloc(len_u32);
+    let ptr = kobako_core::abi::alloc(len_u32);
     if ptr == 0 || len_u32 == 0 {
         return 0;
     }

@@ -31,6 +31,7 @@
 //! which already pays for `std` through the embedded mruby interpreter.
 
 pub mod abi;
+mod guest;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod kobako;
 #[cfg(any(target_arch = "wasm32", test))]

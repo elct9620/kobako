@@ -1,5 +1,5 @@
-//! Per-invocation outcome buffer plus the host-driven I/O exports that
-//! frame it.
+//! Per-invocation outcome buffer plus the host-driven I/O entry
+//! points that frame it.
 //!
 //! The buffer is a static `Vec<u8>` written once per `__kobako_eval` /
 //! `__kobako_run` invocation, then read by the host through
@@ -7,18 +7,21 @@
 //! The single-threaded wasm execution model guarantees the buffer is
 //! never accessed concurrently inside a single wasm instance.
 //!
-//! `__kobako_alloc` is the companion guest allocator the host calls
-//! from inside the `__kobako_dispatch` host import — it delegates to
-//! wasi-libc `malloc` and lives here because its lifetime is bounded
-//! by the same invocation that owns the outcome buffer.
+//! `alloc` is the companion guest allocator behind `__kobako_alloc` —
+//! the host calls that export from inside the `__kobako_dispatch`
+//! host import. It delegates to wasi-libc `malloc` and lives here
+//! because its lifetime is bounded by the same invocation that owns
+//! the outcome buffer. The `#[no_mangle]` exports themselves are
+//! emitted by `export_guest!` in the shell crate; these are the plain
+//! functions they delegate to.
 
 #[cfg(target_arch = "wasm32")]
-use kobako_core::codec::Encode;
+use crate::codec::Encode;
 #[cfg(target_arch = "wasm32")]
-use kobako_core::outcome::{Outcome, Panic};
+use crate::outcome::{Outcome, Panic};
 
 #[cfg(target_arch = "wasm32")]
-use kobako_core::abi::pack_u64;
+use super::pack_u64;
 
 #[cfg(target_arch = "wasm32")]
 use core::cell::UnsafeCell;
@@ -39,10 +42,10 @@ impl OutcomeBuffer {
     }
 
     /// Replace the stored bytes. The writer is the wasm32-only
-    /// `__kobako_eval` / `__kobako_run` reactor body; the reader is
-    /// `__kobako_take_outcome`. Host serialisation guarantees the two
-    /// never run concurrently, so the interior `&mut` taken here
-    /// cannot alias the slice surfaced via `Self::as_slice`.
+    /// invocation entry body; the reader is `take_outcome`. Host
+    /// serialisation guarantees the two never run concurrently, so the
+    /// interior `&mut` taken here cannot alias the slice surfaced via
+    /// `Self::as_slice`.
     fn write(&self, bytes: Vec<u8>) {
         // SAFETY: see type doc — single-threaded wasm execution + host
         // serialisation around `__kobako_take_outcome` guarantee no
@@ -67,24 +70,24 @@ impl OutcomeBuffer {
 unsafe impl Sync for OutcomeBuffer {}
 
 /// Static outcome buffer — written once per invocation, consumed once
-/// by `__kobako_take_outcome`. Protected by the single-threaded wasm
-/// execution model.
+/// by `take_outcome`. Protected by the single-threaded wasm execution
+/// model.
 #[cfg(target_arch = "wasm32")]
 static OUTCOME_BUFFER: OutcomeBuffer = OutcomeBuffer::new();
 
-/// Write `bytes` into `OUTCOME_BUFFER`, replacing whatever was left
+/// Write `bytes` into the outcome buffer, replacing whatever was left
 /// from the previous invocation.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn write_outcome(bytes: Vec<u8>) {
+pub fn write_outcome(bytes: Vec<u8>) {
     OUTCOME_BUFFER.write(bytes);
 }
 
-/// Encode `panic` as an Outcome envelope and stamp it into
-/// `OUTCOME_BUFFER`. If encoding itself fails, the buffer stays
+/// Encode `panic` as an Outcome envelope and stamp it into the
+/// outcome buffer. If encoding itself fails, the buffer stays
 /// empty — the host treats `len = 0` as a wire violation and follows
 /// the TrapError path (docs/behavior.md Error Scenarios).
 #[cfg(target_arch = "wasm32")]
-pub(super) fn write_panic(panic: Panic) {
+pub fn write_panic(panic: Panic) {
     if let Ok(bytes) = Outcome::Panic(panic).encode() {
         write_outcome(bytes);
     }
@@ -92,7 +95,8 @@ pub(super) fn write_panic(panic: Panic) {
 
 /// Guest allocator — hands out a `size`-byte buffer in wasm linear
 /// memory and returns its ptr (u32). Returns 0 on allocation failure
-/// (host treats 0 as a trap signal). Signature: `(size: i32) -> i32`.
+/// (host treats 0 as a trap signal). Behind the `__kobako_alloc`
+/// export: signature `(size: i32) -> i32`.
 ///
 /// Delegates to wasi-libc's `malloc`. The allocated buffer is
 /// intentionally not freed — its lifetime is bounded by the wasm
@@ -102,8 +106,7 @@ pub(super) fn write_panic(panic: Panic) {
 /// transport call returns, so the buffer does not need to outlive the
 /// call frame.
 /// Instance drop frees all linear memory.
-#[no_mangle]
-pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
+pub fn alloc(size: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {
         extern "C" {
@@ -126,16 +129,15 @@ pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
     }
 }
 
-/// Outcome reader — host calls this after `__kobako_eval` /
-/// `__kobako_run` returns to fetch the `OUTCOME_BUFFER` bytes.
-/// Returns packed u64 `(ptr << 32) | len`. `len == 0` is a wire
-/// violation (docs/wire-codec.md § ABI Signatures). Signature:
-/// `() -> i64`.
+/// Outcome reader — the host calls the `__kobako_take_outcome` export
+/// after `__kobako_eval` / `__kobako_run` returns to fetch the
+/// outcome-buffer bytes. Returns packed u64 `(ptr << 32) | len`.
+/// `len == 0` is a wire violation (docs/wire-codec.md § ABI
+/// Signatures).
 ///
 /// The buffer is owned by the static `OUTCOME_BUFFER`; the host must
 /// consume the bytes before the next invocation rebuilds the buffer.
-#[no_mangle]
-pub extern "C" fn __kobako_take_outcome() -> u64 {
+pub fn take_outcome() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
         let bytes = OUTCOME_BUFFER.as_slice();

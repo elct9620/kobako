@@ -23,18 +23,18 @@
 //!
 //! ## Module layout
 //!
-//! The `__kobako_dispatch` import declaration and the packed-u64
-//! helpers live in `kobako_core::abi`; this façade owns the WASI
-//! reactor `_initialize` shim. Each guest export body lives in its
-//! own sibling file alongside the helpers it owns:
+//! The `#[no_mangle]` exports themselves are emitted by
+//! `kobako_core::export_guest!` in `crate::guest`; the ABI primitives
+//! (`__kobako_dispatch` import declaration, packed-u64 helpers,
+//! outcome buffer) live in `kobako_core::abi`. This façade groups the
+//! per-entry bodies, one sibling file each alongside the helpers it
+//! owns:
 //!
 //! * `eval` — `__kobako_eval` body.
 //! * `run` — `__kobako_run` body + invocation-envelope parser.
 //! * `boot` — shared mruby boot / preamble install / snippet replay
 //!   / pending-exception extraction helpers used by both entry points.
 //! * `frames` — stdin frame reader and Frame 1 / Frame 3 decoders.
-//! * `outcome_buffer` — `OUTCOME_BUFFER` plus `__kobako_alloc` /
-//!   `__kobako_take_outcome` and the Panic / outcome write helpers.
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod block_stack;
@@ -45,44 +45,9 @@ mod eval;
 mod frames;
 #[cfg(target_arch = "wasm32")]
 mod mrb_slot;
-mod outcome_buffer;
 mod run;
 mod yield_block;
 
-pub use eval::__kobako_eval;
-pub use outcome_buffer::{__kobako_alloc, __kobako_take_outcome};
-pub use run::__kobako_run;
-pub use yield_block::__kobako_yield_to_block;
-
-// ---------------------------------------------------------------------------
-// WASI Reactor `_initialize` entry-point.
-// ---------------------------------------------------------------------------
-
-/// WASI Reactor `_initialize` entry-point.
-///
-/// When compiling as a WASI reactor (`cdylib` targeting
-/// `wasm32-wasip1`), the rust-lld linker looks for an `_initialize`
-/// export to satisfy the reactor CRT model. Without it the link step
-/// fails with:
-///
-///   rust-lld: error: entry symbol not defined: _initialize
-///
-/// We export a no-op here because wasi-libc reactor init
-/// (`crt1-reactor.o` static ctors) is not required for kobako's boot
-/// path — kobako creates and destroys an `mrb_state` inside
-/// `__kobako_eval` / `__kobako_run` for every invocation; there are no
-/// static C++ constructors or WASI preopen operations that need to run
-/// before the first call. Approach (a) from the two known fixes —
-/// smaller and sufficient for the kobako use case.
-///
-/// Per docs/wire-codec.md § ABI Signatures, the five kobako exports
-/// counted by the host are `__kobako_eval`, `__kobako_run`,
-/// `__kobako_alloc`, `__kobako_take_outcome`, and
-/// `__kobako_yield_to_block`. `_initialize` is WASI reactor bookkeeping
-/// and is explicitly excluded from the kobako export count.
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn _initialize() {
-    // No-op: wasi-libc reactor static ctors are not needed for
-    // kobako's reactor model. See item-level doc above.
-}
+pub(crate) use eval::eval;
+pub(crate) use run::run;
+pub(crate) use yield_block::yield_to_block;

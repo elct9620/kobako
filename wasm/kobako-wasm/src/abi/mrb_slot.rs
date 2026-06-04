@@ -30,7 +30,7 @@
 //! locations for this static, with no aliasing. The single-threaded
 //! wasm execution model inside any one Instance is what licenses the
 //! `UnsafeCell` interior mutability here; the same pattern shipping
-//! safely in `super::outcome_buffer` is the worked example.
+//! safely in the kobako-core outcome buffer is the worked example.
 
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Mrb;
@@ -39,7 +39,7 @@ use crate::mruby::Mrb;
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability slot for the active `Mrb`.
-/// Mirrors the `super::outcome_buffer::OutcomeBuffer` shape: an
+/// Mirrors the kobako-core `OutcomeBuffer` shape: an
 /// `UnsafeCell<Option<Mrb>>` that the single-threaded wasm execution
 /// model permits us to mutate from `&self`. `install` / `clear` /
 /// `as_ref` are the only entry points; aliasing rules are documented at
