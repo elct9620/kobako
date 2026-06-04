@@ -23,7 +23,7 @@
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
-//!   crate::transport::proxy::invoke(...)
+//!   kobako_core::transport::proxy::invoke(...)
 //! ```
 //!
 //! The two `method_missing` bridges live on the two `Kobako::Transport::Proxy`
@@ -54,7 +54,7 @@ use crate::mruby::Value;
 /// `Kobako::Handle` instance shim) plus two error labels: `sym_err_msg`
 /// for a null method symbol, `envelope_err_msg` for a transport envelope
 /// fault. Extracts the method symbol, args/kwargs, and block; rounds the
-/// request through the host via `crate::transport::proxy::invoke`; and
+/// request through the host via `kobako_core::transport::proxy::invoke`; and
 /// converts the result back to an mruby value — raising
 /// `Kobako::ServiceError` on a Response.err and
 /// `Kobako::Transport::Error` on an envelope fault (both raise paths
@@ -66,12 +66,12 @@ use crate::mruby::Value;
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: crate::transport::Target,
+    target: kobako_core::transport::Target,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
     use crate::abi::block_stack::BlockFrame;
-    use crate::transport::proxy::{invoke, InvokeError};
+    use kobako_core::transport::proxy::{invoke, InvokeError};
 
     let (method_sym, rest, block) = kobako.mrb().get_args::<crate::mruby::format::NRestBlock>();
 
@@ -113,7 +113,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    use crate::transport::Target;
+    use kobako_core::transport::Target;
 
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
@@ -213,7 +213,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
     mrb: *mut sys::mrb_state,
     self_: Value,
 ) -> Value {
-    use crate::transport::Target;
+    use kobako_core::transport::Target;
 
     // SAFETY: bridge contract.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };

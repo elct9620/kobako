@@ -2,19 +2,13 @@
 //!
 //! This crate is the source of `kobako.wasm`, the Guest Binary artifact
 //! described in SPEC.md "Core Abstractions". The mruby-free wire tiers
-//! (`codec`, `outcome`) live in the sibling `kobako-core` contract
+//! (`codec`, `transport`, `outcome`) and the ABI primitives (dispatch
+//! import, packed-u64) live in the sibling `kobako-core` contract
 //! crate; this crate hosts:
 //!
-//! * `transport` — Per-call transport layer mirroring the host's
-//!   `lib/kobako/transport/`. Holds the Request / Response / Yield value
-//!   objects (one file each, re-exported flat as `transport::Request`
-//!   etc.) with their `Encode` / `Decode` impls on top of
-//!   `kobako_core::codec` (docs/wire-contract.md), and
-//!   `transport::proxy` (the round-trip pipeline used by the guest-side
-//!   mruby bridge to dispatch a call through `__kobako_dispatch`).
-//! * `abi` — Guest ABI surface: the `__kobako_dispatch` host import and
-//!   the `__kobako_eval` / `__kobako_run` / `__kobako_alloc` /
-//!   `__kobako_take_outcome` guest exports (docs/wire-codec.md
+//! * `abi` — Guest ABI surface: the `__kobako_eval` / `__kobako_run` /
+//!   `__kobako_alloc` / `__kobako_take_outcome` /
+//!   `__kobako_yield_to_block` guest exports (docs/wire-codec.md
 //!   § ABI Signatures).
 //! * `kobako` — domain runtime: owns the `Kobako` value-token that
 //!   installs the `Kobako` module / `Kobako::Transport` / `Kobako::Handle` /
@@ -36,13 +30,8 @@
 //! custom panic handler) without buying anything for the Guest Binary,
 //! which already pays for `std` through the embedded mruby interpreter.
 
-/// Width in bytes of the length prefix that precedes each stdin frame
-/// and outcome buffer (docs/wire-codec.md § Invocation channels).
-pub const FRAME_LEN_SIZE: usize = 4;
-
 pub mod abi;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod kobako;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) mod mruby;
-pub mod transport;

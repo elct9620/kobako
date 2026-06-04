@@ -31,8 +31,8 @@ use std::io::{self, Read, Write};
 use kobako_core::codec;
 use kobako_core::codec::{Decode, Encode};
 use kobako_core::outcome::{Outcome, Panic};
-use kobako_wasm::transport::{Request, Response};
-use kobako_wasm::FRAME_LEN_SIZE;
+use kobako_core::transport::{Request, Response};
+use kobako_core::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
 const ERROR_FLAG: u32 = 0x8000_0000;

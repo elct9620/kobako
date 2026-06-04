@@ -49,7 +49,7 @@ use crate::mruby::Mrb;
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::Value;
 #[cfg(target_arch = "wasm32")]
-use crate::transport::proxy::ExceptionPayload;
+use kobako_core::transport::proxy::ExceptionPayload;
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
 /// stores the Handle id under. Read back through `Kobako::extract_handle_id`

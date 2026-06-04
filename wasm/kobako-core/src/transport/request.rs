@@ -9,7 +9,7 @@
 //! re-implementation of SPEC; byte-compatible with the host because both
 //! follow SPEC, not because one was copied from the other.
 
-use kobako_core::codec::{self, Decoder, Encoder, Value};
+use crate::codec::{self, Decoder, Encoder, Value};
 
 /// docs/wire-codec.md § Envelope Encoding → Request: 5-element msgpack
 /// array `[target, method, args, kwargs, block_given]`. `target` is
@@ -131,7 +131,7 @@ impl codec::Decode for Request {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_core::codec::{Decode, Encode};
+    use crate::codec::{Decode, Encode};
 
     #[test]
     fn request_round_trip_with_path_target() {

@@ -13,7 +13,7 @@ use kobako_core::codec::{Decoder, Value};
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_frame() -> Option<Vec<u8>> {
     use std::io::Read;
-    let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
+    let mut len_buf = [0u8; kobako_core::FRAME_LEN_SIZE];
     let mut stdin = std::io::stdin().lock();
     stdin.read_exact(&mut len_buf).ok()?;
     let len = u32::from_be_bytes(len_buf) as usize;

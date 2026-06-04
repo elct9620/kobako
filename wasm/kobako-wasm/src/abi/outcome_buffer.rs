@@ -18,7 +18,7 @@ use kobako_core::codec::Encode;
 use kobako_core::outcome::{Outcome, Panic};
 
 #[cfg(target_arch = "wasm32")]
-use super::pack_u64;
+use kobako_core::abi::pack_u64;
 
 #[cfg(target_arch = "wasm32")]
 use core::cell::UnsafeCell;

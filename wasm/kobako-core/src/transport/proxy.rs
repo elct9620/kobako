@@ -1,15 +1,16 @@
-//! Guest transport proxy — Rust+mruby bridge.
+//! Guest transport proxy — the guest-side dispatch pipeline.
 //!
-//! This module is the glue between the in-VM mruby proxy installed
-//! by `crate::kobako::Kobako::install` (mruby C API registrations) and
-//! the wasm-level `__kobako_dispatch` host import declared in `abi.rs`.
+//! This module is the glue between the interpreter-side bridge of the
+//! consuming guest crate (for the bundled guest: the mruby proxy the
+//! `kobako-wasm` crate installs in-VM) and the wasm-level
+//! `__kobako_dispatch` host import declared in `crate::abi`.
 //! docs/wire-contract.md § Request / Response pins the contract this
 //! module implements.
 //!
 //! ## Layered responsibilities
 //!
 //! `invoke` — full round-trip. Builds a `Request`, encodes it via
-//! its `kobako_core::codec::Encode` impl, calls the host via
+//! its `crate::codec::Encode` impl, calls the host via
 //! `__kobako_dispatch` on `wasm32`, then decodes the `Response`. On the
 //! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
 //! **loopback** hook stands in for the host so that integration-style
@@ -30,21 +31,22 @@
 //!
 //! ## Where the mruby C-side bridge lives
 //!
-//! User-script transport calls land in C via two `method_missing`
-//! shims, one per `Kobako::Transport::Proxy` subclass: the singleton-class
-//! shim on `Kobako::Member` (Member classes) and the instance shim on
-//! `Kobako::Handle` for the Handle chaining path (docs/behavior.md B-17).
-//! Both shims live in `crate::kobako::bridges`; their shared
-//! `forward_to_dispatch` body calls `invoke` here. This module's role
-//! is the Rust-level encode/transport/decode pipeline that the C bridges
+//! In the bundled guest, user-script transport calls land in C via two
+//! `method_missing` shims, one per `Kobako::Transport::Proxy` subclass:
+//! the singleton-class shim on `Kobako::Member` (Member classes) and
+//! the instance shim on `Kobako::Handle` for the Handle chaining path
+//! (docs/behavior.md B-17). Both shims live in the `kobako-wasm`
+//! crate's bridge module; their shared `forward_to_dispatch` body calls
+//! `invoke` here. This module's role is the Rust-level
+//! encode/transport/decode pipeline that interpreter-side bridges
 //! delegate to.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
+use crate::codec::{self, Decode, Decoder, Encode, Value};
 use crate::transport::{Request, Response, Target};
-use kobako_core::codec::{self, Decode, Decoder, Encode, Value};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -256,13 +258,13 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 }
 
 // ---------------------------------------------------------------------
-// mruby C-bridge — see `crate::kobako::bridges`.
+// mruby C-bridge — lives in the `kobako-wasm` crate.
 // ---------------------------------------------------------------------
 //
 // The C-side dispatch entries are the `Kobako::Member` singleton-class
 // `method_missing` shim and the `Kobako::Handle` instance `method_missing`
-// shim. Both live in `crate::kobako::bridges` and reach this module
-// through their shared `forward_to_dispatch` body.
+// shim. Both live in the `kobako-wasm` crate's bridge module and reach
+// this module through their shared `forward_to_dispatch` body.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).
@@ -271,7 +273,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use kobako_core::codec::Encoder;
+    use crate::codec::Encoder;
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
