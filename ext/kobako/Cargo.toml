@@ -19,7 +19,7 @@ magnus = { version = "0.8.2" }
 # later via `wasmtime-wasi` once stdin/stdout wiring is needed (item #16).
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "44.0.1", default-features = false, features = [
+wasmtime = { version = "45.0.0", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
