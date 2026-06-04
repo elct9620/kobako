@@ -34,10 +34,13 @@ pub trait Guest {
 }
 
 /// Emit every wasm export of the Guest ABI in the invoking crate:
-/// the three `Guest` trait forwarders, the `crate::abi` shims
-/// (`__kobako_alloc` / `__kobako_take_outcome`), and the WASI reactor
-/// `_initialize` no-op (linker bookkeeping, excluded from the kobako
-/// export count — see the emitted item's doc).
+/// the three `Guest` trait forwarders and the `crate::abi` shims
+/// (`__kobako_alloc` / `__kobako_take_outcome`).
+///
+/// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`
+/// with `--no-entry`, and wasm-ld runs any static constructors
+/// through its own export wrappers. A hand-written no-op would
+/// suppress that machinery and silently skip ctors instead.
 ///
 /// The invoking crate must be the final `cdylib` shell: `#[no_mangle]`
 /// symbols are only reliable in the linked root crate, and guests
@@ -82,20 +85,6 @@ macro_rules! export_guest {
         pub extern "C" fn __kobako_take_outcome() -> u64 {
             $crate::abi::take_outcome()
         }
-
-        /// WASI Reactor `_initialize` entry-point.
-        ///
-        /// rust-lld resolves `_initialize` as the reactor entry symbol
-        /// when linking a `cdylib` for `wasm32-wasip1`; without an
-        /// export the link fails with "entry symbol not defined". The
-        /// no-op is sufficient because a kobako guest boots per
-        /// invocation inside `__kobako_eval` / `__kobako_run` — no
-        /// static ctors or WASI preopens need to run first. Excluded
-        /// from the kobako export count (docs/wire-codec.md § ABI
-        /// Signatures counts exactly five guest exports).
-        #[cfg(target_arch = "wasm32")]
-        #[no_mangle]
-        pub extern "C" fn _initialize() {}
     };
 }
 

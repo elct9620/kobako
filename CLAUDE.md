@@ -163,7 +163,7 @@ Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; `koba
 ```
 kobako-wasm  (unpublished shell — assembled mruby guest, cdylib)
 Shell           guest — KobakoGuest (impl kobako_core::Guest) + export_guest!
-      │           emits __kobako_{eval,run,alloc,take_outcome,yield_to_block} + _initialize
+      │           emits __kobako_{eval,run,alloc,take_outcome,yield_to_block}
 ABI entry       abi + abi/{boot, eval, run, yield_block, frames, …}
       │           per-invocation entry bodies over mruby
 Domain          kobako + kobako/{install, bridges, io, codec_convert}
