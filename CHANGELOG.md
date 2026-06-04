@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/elct9620/kobako/compare/v0.7.0...v0.8.0) (2026-06-04)
+
+
+### Features
+
+* **wasm:** turn the Guest ABI into a trait + export_guest! macro ([3532dc2](https://github.com/elct9620/kobako/commit/3532dc20521ca8d9dd55bc39f01ff611d9df0d4b))
+
+
+### Bug Fixes
+
+* **build:** track every wasm workspace member in the rebuild check ([3f042a4](https://github.com/elct9620/kobako/commit/3f042a4fe28aa8d8b70bb313f6158e1865a2cbeb))
+
 ## [0.7.0](https://github.com/elct9620/kobako/compare/v0.6.2...v0.7.0) (2026-06-03)
 
 
