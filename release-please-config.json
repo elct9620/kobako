@@ -7,6 +7,17 @@
       "component": "kobako",
       "include-component-in-tag": false,
       "release-type": "ruby"
+    },
+    "wasm/kobako-core": {
+      "component": "kobako-core",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-core')].version"
+        }
+      ]
     }
   },
   "extra-files": [

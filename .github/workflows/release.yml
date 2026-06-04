@@ -31,6 +31,10 @@ permissions:
 jobs:
   ci-data:
     name: Resolve native platforms
+    # Gem-family releases only: a `release` event for a crate tag
+    # (`kobako-core-v*`, published by `release-crate.yml`) must not build
+    # or push gems. The guard cascades to every other job via `needs`.
+    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'kobako-core-') }}
     runs-on: ubuntu-latest
     outputs:
       result: ${{ steps.fetch.outputs.result }}
@@ -50,6 +54,7 @@ jobs:
 
   build-wasm:
     name: Build kobako.wasm (platform-agnostic)
+    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'kobako-core-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

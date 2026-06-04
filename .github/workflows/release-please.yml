@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -28,6 +29,15 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/release.yml
+    secrets: inherit
+
+  # The crate release chains the same way, keyed on the per-path output
+  # of the `wasm/kobako-core` package (the root gem keeps the unprefixed
+  # outputs).
+  release-crate:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.core_release_created }}
+    uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 
   sync-lockfiles:
@@ -58,6 +68,9 @@ jobs:
         run: bundle install
       - name: Regenerate Cargo.lock kobako entry
         run: cargo update -p kobako --workspace --offline || cargo update -p kobako
+      - name: Regenerate wasm/Cargo.lock kobako-core entry
+        working-directory: wasm
+        run: cargo update -p kobako-core --workspace --offline || cargo update -p kobako-core
       # Commit via the GraphQL createCommitOnBranch mutation rather than
       # `git push`: commits that enter GitHub over the API with the bot
       # GITHUB_TOKEN are signed by GitHub and marked Verified, whereas a
@@ -74,7 +87,7 @@ jobs:
             const fs = require('fs');
             const { execSync } = require('child_process');
 
-            const candidates = ['Gemfile.lock', 'Cargo.lock'];
+            const candidates = ['Gemfile.lock', 'Cargo.lock', 'wasm/Cargo.lock'];
             const changed = candidates.filter((path) => {
               try {
                 execSync(`git diff --quiet -- ${path}`);
