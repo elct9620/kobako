@@ -59,15 +59,19 @@ module KobakoWasm
     end
 
     def newest_source_mtime
-      files = Dir.glob(File.join(CRATE_SRC_DIR, "**", "*.{rs,rb,c}"))
-      # mrblib/*.rb is precompiled by build.rs via mrbc; touch them as
-      # inputs so wasm:build picks up edits to the Ruby preamble even
-      # when no other source under src/ has changed.
-      files.concat(Dir.glob(File.join(CRATE_DIR, "mrblib", "*.rb")))
-      files << CRATE_BUILD_RS if File.exist?(CRATE_BUILD_RS)
-      files << MANIFEST
+      input_files.map { |f| File.mtime(f) }.max
+    end
+
+    # Every workspace member feeds the cdylib (kobako-wasm links
+    # kobako-core, mruby, and mruby-sys as path dependencies), so the
+    # input glob spans all member crates, not just the shell. mrblib/*.rb
+    # is precompiled by build.rs via mrbc and counts as an input too.
+    def input_files
+      member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
+      files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))
+      files << File.join(WASM_WORKSPACE_DIR, "Cargo.toml")
       files << LIBMRUBY_PATH if File.exist?(LIBMRUBY_PATH)
-      files.map { |f| File.mtime(f) }.max
+      files
     end
 
     # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
