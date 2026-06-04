@@ -75,18 +75,18 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 /// Either step failing surfaces as a `boot_panic`.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
-    let bytes = super::frames::read_frame()
+    let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
-    super::frames::decode_preamble(&bytes)
+    kobako_core::frames::decode_preamble(&bytes)
         .ok_or_else(|| boot_panic("failed to decode the Sandbox setup data"))
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn read_snippets() -> Result<Vec<super::frames::Snippet>, Panic> {
-    let bytes = super::frames::read_frame()
+pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
+    let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
-    super::frames::decode_snippets(&bytes)
+    super::snippets::decode_snippets(&bytes)
         .ok_or_else(|| boot_panic("failed to decode the preloaded snippets"))
 }
 
@@ -141,15 +141,15 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
 pub(super) fn replay_snippets(
     mrb: &Mrb,
     kobako: &Kobako,
-    snippets: &[super::frames::Snippet],
+    snippets: &[super::snippets::Snippet],
 ) -> Result<(), Panic> {
     for entry in snippets {
         let load = match entry {
-            super::frames::Snippet::Source { name, body } => {
+            super::snippets::Snippet::Source { name, body } => {
                 load_source_snippet(mrb, name, body)?;
                 BytecodeLoad::Loaded
             }
-            super::frames::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
+            super::snippets::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
         };
         if let Some(panic) = take_pending_panic(mrb, kobako) {
             return Err(reshape_replay_panic(panic, load));

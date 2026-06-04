@@ -27,11 +27,11 @@ pub(crate) fn eval() {
 #[cfg(target_arch = "wasm32")]
 fn eval_body() {
     use super::boot;
-    use super::frames;
     use super::mrb_slot::{MrbScope, MRB};
     use crate::mruby::Ccontext;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::Encode;
+    use kobako_core::frames;
     use kobako_core::outcome::{Outcome, Panic};
 
     // Declare the MRB cleanup scope early. Any `return write_panic(...)`

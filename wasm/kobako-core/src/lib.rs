@@ -14,6 +14,7 @@ pub const FRAME_LEN_SIZE: usize = 4;
 
 pub mod abi;
 pub mod codec;
+pub mod frames;
 mod guest;
 pub mod outcome;
 pub mod transport;

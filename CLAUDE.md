@@ -164,8 +164,9 @@ Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; `koba
 kobako-wasm  (unpublished shell — assembled mruby guest, cdylib)
 Shell           guest — KobakoGuest (impl kobako_core::Guest) + export_guest!
       │           emits __kobako_{eval,run,alloc,take_outcome,yield_to_block}
-ABI entry       abi + abi/{boot, eval, run, yield_block, frames, …}
-      │           per-invocation entry bodies over mruby
+ABI entry       abi + abi/{boot, eval, run, yield_block, snippets, …}
+      │           per-invocation entry bodies over mruby; snippets =
+      │           Frame 3 mruby payload semantics (source / RITE)
 Domain          kobako + kobako/{install, bridges, io, codec_convert}
                   installs the Kobako module / classes on an mrb_state
 ────────────────────────────────────────────────────────────────────
@@ -174,6 +175,7 @@ Contract        Guest trait (eval / run / yield_to_block) + export_guest! macro
       │
 ABI primitives  abi — __kobako_dispatch import · pack/unpack_u64 ·
       │           alloc / take_outcome / write_outcome / write_panic (outcome buffer)
+      │         frames — stdin channel reader + Frame 1 preamble parser
 Transport ──┐   transport::{Request, Response, Yield, proxy}
 Outcome ────┤   outcome::{Outcome, Panic}
       │     │

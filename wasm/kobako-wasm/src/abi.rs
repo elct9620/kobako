@@ -34,18 +34,20 @@
 //! * `run` — `__kobako_run` body + invocation-envelope parser.
 //! * `boot` — shared mruby boot / preamble install / snippet replay
 //!   / pending-exception extraction helpers used by both entry points.
-//! * `frames` — stdin frame reader and Frame 1 / Frame 3 decoders.
+//! * `snippets` — Frame 3 snippet decoding (mruby source / RITE
+//!   bytecode kinds); the channel reader and the Frame 1 preamble
+//!   parser live in `kobako_core::frames`.
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod block_stack;
 #[cfg(any(target_arch = "wasm32", test))]
 mod boot;
 mod eval;
-#[cfg(any(target_arch = "wasm32", test))]
-mod frames;
 #[cfg(target_arch = "wasm32")]
 mod mrb_slot;
 mod run;
+#[cfg(any(target_arch = "wasm32", test))]
+mod snippets;
 mod yield_block;
 
 pub(crate) use eval::eval;
