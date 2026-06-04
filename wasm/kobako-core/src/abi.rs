@@ -34,6 +34,12 @@ pub use outcome_buffer::{alloc, take_outcome};
 #[cfg(target_arch = "wasm32")]
 pub use outcome_buffer::{write_outcome, write_panic};
 
+/// The Guest ABI version this crate implements, reported through the
+/// `__kobako_abi_version` export `crate::export_guest!` emits. The host
+/// accepts a Guest Binary only on equality (docs/wire-codec.md § ABI
+/// Version; docs/behavior.md B-40 / E-42).
+pub const ABI_VERSION: u32 = 1;
+
 // ---------------------------------------------------------------------------
 // Host import declaration.
 // ---------------------------------------------------------------------------

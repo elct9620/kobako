@@ -12,11 +12,11 @@ require "test_helper"
 # Replay-side behaviour (B-32 Result, E-32, E-36) is exercised
 # end-to-end in test/test_e2e_journeys.rb.
 class TestSandboxPreload < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
+  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
@@ -29,11 +29,11 @@ class TestSandboxPreload < Minitest::Test
     assert_same @sandbox, @sandbox.preload(binary: "RITE")
   end
 
-  # E-35: post-seal #preload calls raise. The minimal.wasm fixture
-  # lacks SPEC ABI exports so #eval trips on __kobako_eval and raises
-  # TrapError — but seal! has already fired by then, so the subsequent
-  # #preload must raise. The seal-mechanism observable lives on the
-  # Sandbox surface; Namespaces#seal! itself is covered in
+  # E-35: post-seal #preload calls raise. The minimal_abi_ok.wat
+  # fixture stubs the entry points without __kobako_take_outcome, so
+  # #eval raises TrapError — but seal! has already fired by then, so
+  # the subsequent #preload must raise. The seal-mechanism observable
+  # lives on the Sandbox surface; Namespaces#seal! itself is covered in
   # test/catalog/test_namespaces.rb.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)

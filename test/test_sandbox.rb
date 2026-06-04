@@ -10,11 +10,13 @@ require "test_helper"
 # `#stdout_truncated?` / `#stderr_truncated?` (SPEC.md B-04). The per-
 # channel cap itself is enforced inside the ext-owned WASI pipe.
 class TestSandbox < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
+  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
+  ABSENT_ABI_FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
+  MISMATCH_ABI_FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_mismatch.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
   def test_default_construction_exposes_wasm_path
@@ -58,15 +60,40 @@ class TestSandbox < Minitest::Test
   end
 
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
-    # The minimal.wasm fixture has none of the SPEC ABI exports, so the
-    # eval step raises Kobako::TrapError directly from the ext; `#eval`
-    # only adds the verb prefix. The user-facing message attributes the
+    # The minimal_abi_ok.wat fixture passes construction but stubs only
+    # the entry points — `__kobako_take_outcome` is absent, so the eval
+    # step raises Kobako::TrapError directly from the ext; `#eval` only
+    # adds the verb prefix. The user-facing message attributes the
     # failure to the public verb (`Sandbox#eval`) rather than the
     # underlying ABI symbol. Real fixture-based E2E coverage lives in
     # test/test_e2e_journeys.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.eval("nil") }
     assert_match(/Sandbox#eval failed/, err.message)
+  end
+
+  # docs/behavior.md B-40 / E-42: construction probes the guest's
+  # __kobako_abi_version export and accepts only the host's own ABI
+  # version. minimal.wasm predates the export (absent branch);
+  # minimal_abi_mismatch.wat reports 9999 (non-equal branch). Both are
+  # deterministic artifact faults, so they surface at Sandbox.new as
+  # Kobako::SetupError — never mid-invocation.
+  def test_construction_rejects_guest_without_abi_version_export
+    skip "minimal.wasm fixture missing" unless File.exist?(ABSENT_ABI_FIXTURE_PATH)
+
+    err = assert_raises(Kobako::SetupError) do
+      Kobako::Sandbox.new(wasm_path: ABSENT_ABI_FIXTURE_PATH)
+    end
+    assert_match(/does not export __kobako_abi_version/, err.message)
+  end
+
+  def test_construction_rejects_guest_with_mismatched_abi_version
+    skip "minimal_abi_mismatch.wat fixture missing" unless File.exist?(MISMATCH_ABI_FIXTURE_PATH)
+
+    err = assert_raises(Kobako::SetupError) do
+      Kobako::Sandbox.new(wasm_path: MISMATCH_ABI_FIXTURE_PATH)
+    end
+    assert_match(/reports ABI version 9999/, err.message)
   end
 
   def test_eval_rejects_non_string_code

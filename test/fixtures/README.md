@@ -4,7 +4,11 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs. Used by tests that only need a Wasm to satisfy `Kobako::Runtime.from_path`; never invoked end-to-end. Built once from `wasm/test-guest/` before that crate was removed in 2026-05-12. Regeneration is intentionally manual — the source crate is gone and bringing it back would violate the "no parallel fixture-driven wasm crates" convention.
+Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and predates the `__kobako_abi_version` export — the frozen witness for the `docs/behavior.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). Built once from `wasm/test-guest/` before that crate was removed in 2026-05-12. Regeneration is intentionally manual — the source crate is gone and bringing it back would violate the "no parallel fixture-driven wasm crates" convention.
+
+## `minimal_abi_ok.wat` / `minimal_abi_mismatch.wat`
+
+Hand-written text-format modules around the B-40 construction-time ABI version check; the ext's wasmtime `wat` feature loads them through the same `wasm_path:` path as binary artifacts. `minimal_abi_ok.wat` reports the current ABI version plus the `minimal.wasm` no-op stubs — the construction stand-in for tests that never invoke end-to-end (update its `i32.const` by hand on an ABI version bump). `minimal_abi_mismatch.wat` reports `9999` — the E-42 mismatch branch, deterministic regardless of future bumps (same convention as `snippet_wrong_version.mrb`).
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 

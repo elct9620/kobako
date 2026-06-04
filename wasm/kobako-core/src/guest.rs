@@ -35,7 +35,8 @@ pub trait Guest {
 
 /// Emit every wasm export of the Guest ABI in the invoking crate:
 /// the three `Guest` trait forwarders and the `crate::abi` shims
-/// (`__kobako_alloc` / `__kobako_take_outcome`).
+/// (`__kobako_alloc` / `__kobako_take_outcome` /
+/// `__kobako_abi_version`).
 ///
 /// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`
 /// with `--no-entry`, and wasm-ld runs any static constructors
@@ -84,6 +85,11 @@ macro_rules! export_guest {
         #[no_mangle]
         pub extern "C" fn __kobako_take_outcome() -> u64 {
             $crate::abi::take_outcome()
+        }
+
+        #[no_mangle]
+        pub extern "C" fn __kobako_abi_version() -> u32 {
+            $crate::abi::ABI_VERSION
         }
     };
 }

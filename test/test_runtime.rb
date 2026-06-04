@@ -13,7 +13,7 @@ require "test_helper"
 # (test_e2e_journeys.rb), which drive +Sandbox#eval+ end-to-end and would fail
 # fast if any SPEC Wire ABI export went missing.
 class TestRuntime < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal.wasm", __dir__)
+  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
@@ -33,14 +33,14 @@ class TestRuntime < Minitest::Test
   end
 
   def test_from_path_works_with_fixture_module
-    skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
     assert_instance_of Kobako::Runtime, runtime
   end
 
   def test_from_path_repeated_calls_return_independent_instances
-    skip "minimal.wasm fixture missing" unless File.exist?(FIXTURE_PATH)
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
 
     a = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)
     b = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil)

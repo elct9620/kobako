@@ -65,6 +65,12 @@ use self::config::Config;
 use self::exports::Exports;
 use self::invocation::{Invocation, StoreCell};
 
+/// The wire ABI version this host implements (docs/wire-codec.md § ABI
+/// Version). A Guest Binary is accepted only when its
+/// `__kobako_abi_version` export reports the same value (B-40 / E-42);
+/// the guest-side mirror is `kobako_core::abi::ABI_VERSION`.
+const ABI_VERSION: u32 = 1;
+
 /// Copy the bytes of +s+ into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline +unsafe { rstring.as_slice() }
 /// .to_vec()+ duplicated at every host-↔-guest boundary. The borrow
@@ -349,6 +355,8 @@ impl Runtime {
                 .map_err(|e| trap::instantiate_err(&ruby, e))?
         };
 
+        Self::validate_abi_version(&instance, &store_cell, &ruby)?;
+
         let exports = Exports::resolve(&instance, &store_cell);
 
         Ok(Self {
@@ -362,6 +370,48 @@ impl Runtime {
             },
             on_dispatch: Cell::new(None),
         })
+    }
+
+    /// Probe the guest's `__kobako_abi_version` export once at
+    /// construction and require equality with `ABI_VERSION`
+    /// (docs/behavior.md B-40). An absent export or a non-equal value is
+    /// E-42 — a deterministic artifact fault raised as
+    /// `Kobako::SetupError`.
+    fn validate_abi_version(
+        instance: &WtInstance,
+        store: &StoreCell,
+        ruby: &Ruby,
+    ) -> Result<(), MagnusError> {
+        let mut store_ref = store.borrow_mut();
+        let mut ctx = store_ref.as_context_mut();
+        let probe = instance
+            .get_typed_func::<(), u32>(&mut ctx, "__kobako_abi_version")
+            .map_err(|_| {
+                setup_err(
+                    ruby,
+                    format!(
+                        "the Guest Binary does not export __kobako_abi_version; \
+                         rebuild it against ABI version {ABI_VERSION}"
+                    ),
+                )
+            })?;
+        let reported = probe.call(&mut ctx, ()).map_err(|e| {
+            setup_err(
+                ruby,
+                format!("failed to read the Guest Binary's ABI version: {e}"),
+            )
+        })?;
+        if reported != ABI_VERSION {
+            return Err(setup_err(
+                ruby,
+                format!(
+                    "the Guest Binary reports ABI version {reported}, but this host \
+                     implements ABI version {ABI_VERSION}; rebuild the Guest Binary \
+                     against the host's version"
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Register the Ruby-side dispatch +Proc+ on the active Invocation.
