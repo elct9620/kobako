@@ -19,12 +19,12 @@ name = "kobako-wasm"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "kobako Guest Binary — mruby-on-wasm interpreter and MessagePack codec (rmp-backed)."
+description = "kobako Guest Binary — the mruby-on-wasm guest assembled over the kobako-core contract crate."
 license = "Apache-2.0"
 
 [lib]
 # `cdylib` produces the wasm artifact when targeting wasm32-wasip1.
-# `rlib` lets us run codec unit tests on the host target.
+# `rlib` lets us run the entry-body unit tests on the host target.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
