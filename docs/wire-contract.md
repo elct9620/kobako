@@ -136,12 +136,12 @@ A zero-length YieldResponse or any tag outside `{0x01, 0x02, 0x04}` is a wire vi
 
 ---
 
-## Release-Internal Contract
+## ABI-Versioned Contract
 
-The Wire Spec is a **release-internal contract**: the Host Gem and Guest Binary ship together in a single kobako gem release and are always version-coupled. A running sandbox is short-lived (instantiated per invocation, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast a release.
+The Wire Spec is pinned by a single u32 ABI version (→ [`docs/wire-codec.md`](wire-codec.md) § ABI Version): the Guest Binary reports the version it was built against via `__kobako_abi_version`, and the Host Gem accepts it at Sandbox construction only on equality (B-40, E-42). A running sandbox is short-lived (instantiated per invocation, retired after the outcome is retrieved), so there are no long-lived cross-version connections and no stored wire payloads that outlast an ABI version.
 
 Consequently:
 
-- **No in-band version field**: the wire envelope does not carry a version number or negotiation field. Version alignment is enforced at the gem release boundary, not at the message level.
-- **No negotiation mechanism**: there is no handshake, capability advertisement, or version dispatch. The single wire shape defined in this release is the only shape either side implements.
-- **Evolution path**: adding, removing, or changing field semantics requires a kobako gem release that updates both host and guest implementations simultaneously. One-sided evolution is not permitted. Release notes and CHANGELOG document wire-affecting changes at the release boundary.
+- **No in-band version field**: the wire envelopes do not carry a version number or negotiation field. Version alignment is enforced once at Sandbox construction, not at the message level.
+- **No negotiation mechanism**: there is no handshake, capability advertisement, or version dispatch. Each side implements exactly one wire shape — the one its ABI version names.
+- **Evolution path**: adding, removing, or changing field semantics increments the ABI version and updates both the Host Gem and the bundled Guest Binary simultaneously; an independently-built Guest Binary conforms by rebuilding against the new version. One-sided evolution is not permitted. Release notes and CHANGELOG document wire-affecting changes under Breaking Changes.

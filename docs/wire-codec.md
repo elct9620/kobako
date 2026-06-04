@@ -1,6 +1,6 @@
 # Wire Codec
 
-This document pins the binary encoding of the Wire Contract (→ `SPEC.md` § Wire Contract). Both the Host Gem and the Guest Binary implement this encoding independently; the codec form is a public cross-implementer contract. Byte values, ext type codes, ABI function names, and packed return conventions stated here are fixed for the life of a kobako gem release and may only change in a release that simultaneously updates both sides.
+This document pins the binary encoding of the Wire Contract (→ `SPEC.md` § Wire Contract). Both the Host Gem and the Guest Binary implement this encoding independently; the codec form is a public cross-implementer contract. Byte values, ext type codes, ABI function names, and packed return conventions stated here are fixed for the life of an ABI version and may only change together with an ABI version increment (→ § ABI Version).
 
 The governing summary of this codec lives in `SPEC.md` § Wire Codec; this document is its byte-level reference.
 
@@ -226,7 +226,7 @@ Zero-length YieldResponse, tag `0x03`, or any tag outside `{0x01, 0x02, 0x04}` i
 
 ## ABI Signatures
 
-The following function names and byte-level signatures are fixed cross-implementer contracts. Implementers must not rename these functions or change their parameter or return types within a release.
+The following function names and byte-level signatures are fixed cross-implementer contracts. Implementers must not rename these functions or change their parameter or return types within an ABI version.
 
 ### Host-provided import
 
@@ -240,7 +240,7 @@ Single dispatch payload size limit: 16 MiB in either direction. Payloads exceedi
 
 ### Guest-provided exports
 
-The ABI is a closed enumerated set: exactly five guest exports are permitted, listed below. No additional exports may be added without a new SPEC anchor that lifts the count.
+The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. No additional exports may be added without a new SPEC anchor that lifts the count.
 
 | Export name | Wasm signature | Return convention |
 |---|---|---|
@@ -249,10 +249,19 @@ The ABI is a closed enumerated set: exactly five guest exports are permitted, li
 | `__kobako_alloc` | `(size: i32) -> i32` | wasm linear memory offset (u32, unsigned); 0 indicates allocation failure (trap path) |
 | `__kobako_take_outcome` | `() -> i64` | Packed u64: high 32 bits = OUTCOME_BUFFER ptr; low 32 bits = byte length. `len == 0` is a wire violation. |
 | `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = YieldResponse buffer ptr; low 32 bits = YieldResponse byte length. `len == 0` is a wire violation. |
+| `__kobako_abi_version` | `() -> i32` | u32 ABI version the Guest Binary was built against (→ § ABI Version) |
 
 `__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior.md` § Error Scenarios).
 
 The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its Yielder (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-dispatch 16 MiB payload size limit applies in both directions.
+
+### ABI Version
+
+The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `1`.
+
+`__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it once at Sandbox construction and compares the returned value against the version it implements by equality; an absent export or a non-equal value fails construction with `Kobako::SetupError` (B-40, E-42).
+
+Any change to the Wire Contract, this codec document, or the ABI surface (function set, names, signatures) increments the version. There is no compatibility range and no negotiation: a host implements exactly one ABI version and loads only Guest Binaries reporting that version.
 
 ### Invocation channels
 
