@@ -24,8 +24,9 @@
 #     (`mrblib/*.rb` precompiled to RITE via host `mrbc`).
 #
 # The split keeps "talk to libmruby.a" (sys), "how to talk to libmruby
-# in Rust" (mruby), and "what to do with mruby in kobako" (kobako-wasm)
-# in separate crates so each tier can evolve independently.
+# in Rust" (mruby), "the Guest ABI contract" (kobako-core), and "the
+# assembled mruby guest" (kobako-wasm) in separate crates so each tier
+# can evolve independently.
 
 [workspace]
 members = ["mruby-sys", "mruby", "kobako-core", "kobako-wasm"]

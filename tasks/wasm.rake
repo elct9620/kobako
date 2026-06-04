@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-# wasm/ Rust crate (kobako-wasm) tasks.
-# ====================================
+# wasm/ sub-workspace (Guest Binary) tasks.
+# =========================================
 #
-# kobako-wasm is the Guest Binary source; see SPEC.md "Wire Codec".
+# The `kobako-wasm` shell crate (composing the `kobako-core` contract
+# crate with mruby) is the Guest Binary source; see SPEC.md "Wire Codec".
 # Tasks here:
 #
 #   * `rake wasm:check` — compile-only check. Targets wasm32-wasip1 if the
@@ -39,9 +40,9 @@ namespace :wasm do
     abort "cargo not on PATH; install Rust toolchain to run wasm:check" unless KobakoWasm.cargo_available?
     target = KobakoWasm.wasm_target_or_host
     target_flag = target ? ["--target", target] : []
-    # `--workspace` covers both `kobako-wasm` and the sibling
-    # `mruby-sys` FFI crate so the wasm32 lane catches breakage
-    # in either member.
+    # `--workspace` covers every member crate (`kobako-core`,
+    # `kobako-wasm`, `mruby`, `mruby-sys`) so the wasm32 lane
+    # catches breakage in any of them.
     sh "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, "--workspace", *target_flag
   end
 
@@ -51,7 +52,8 @@ namespace :wasm do
     # `--workspace` includes the `mruby-sys` layout assertions
     # (`mrb_args_constants_match_mruby_layout`, `mrb_value_size_covers_known_layouts`,
     # `mrb_func_t_is_a_valid_extern_c_fn_pointer`) alongside the
-    # `kobako-wasm` codec / envelope tests.
+    # `kobako-core` codec / envelope tests and the `kobako-wasm`
+    # entry-body tests.
     sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
 

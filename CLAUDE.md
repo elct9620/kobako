@@ -87,11 +87,14 @@ kobako is three source trees that meet at the wasm sandbox boundary. Host and gu
 ```
 HOST (process)                                  │  GUEST (wasm32, one Sandbox)
 ────────────────────────────────────────────── │ ──────────────────────────────────────
-lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — Rust guest
-  Sandbox · Catalog · Transport · Outcome        │    abi · kobako(domain) · transport
-  · Codec · Root        (tier stack below)       │    · outcome · codec · root  (mirrors lib/)
-       ▲  owns the wire codec                    │       ▲  owns the wire codec
-       │  (#encode / .decode, duck-typed)        │       │  (codec::{Encode,Decode} trait)
+lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — assembled mruby guest
+  Sandbox · Catalog · Transport · Outcome        │    guest(KobakoGuest + export_guest!)
+  · Codec · Root        (tier stack below)       │    · abi(entry bodies) · kobako(domain)
+       ▲  owns the wire codec                    │  wasm/kobako-core  — contract crate
+       │  (#encode / .decode, duck-typed)        │    Guest trait · abi(primitives) · transport
+       │                                         │    · outcome · codec  (mirrors lib/)
+       │                                         │       ▲  owns the wire codec
+       │                                         │       │  (codec::{Encode,Decode} trait)
        │                                         │  wasm/mruby  — typed Rust wrapper
        │                                         │    Mrb · Value · Class · Array · Hash
        │                                         │    · IntoValue/FromValue · Format · protect
@@ -99,15 +102,16 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — Rus
        │                                         │    bindings::* · mrb_func_t · mrb_args_*
        │                                         │    · ABI const assertions
        │                                         │    → libmruby.a (mruby C API)
-       ▼                                         │       ▲  kobako-wasm → mruby → mruby-sys
-ext/  — Rust native ext (magnus + wasmtime)      │       │
+       ▼                                         │       ▲  kobako-wasm → kobako-core · mruby
+ext/  — Rust native ext (magnus + wasmtime)      │       │    (mruby → mruby-sys)
   Runtime (Exports, Config) · Invocation ·       │       │
   dispatch · guest_mem · cache · Snapshot        │       │
        └─────────── drives the ABI ─── wasm ─────┼───────┘
                     (alloc / eval / run / take_outcome / dispatch / yield)
 ```
 
-- **`lib/` ↔ `wasm/kobako-wasm` are wire-symmetric peers.** Each independently implements the same SPEC wire (MessagePack `Codec` + `Transport` / `Outcome` envelopes) so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models.
+- **`lib/` ↔ `wasm/kobako-core` are wire-symmetric peers.** Each independently implements the same SPEC wire (MessagePack `Codec` + `Transport` / `Outcome` envelopes) so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models.
+- **`wasm/kobako-core` is the publishable Guest ABI contract crate** (plain rlib, mruby-free): the `Guest` trait + `export_guest!` macro plus the wire tiers and ABI primitives behind them. It defines no `#[no_mangle]` symbol — every export is macro-emitted in the shell crate. **`wasm/kobako-wasm` is the unpublished shell** that assembles `kobako-core` + mruby into `data/kobako.wasm`, the same path any third-party guest takes.
 - **`ext/` is the host's wasmtime driver, not a wire endpoint.** It drives the ABI exports and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes itself. Internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec.
 - **`wasm/mruby` is the typed mruby C-API wrapper**, consumed by `kobako-wasm` via the `crate::mruby` façade (`pub use mruby::*`). Owns `Mrb` / `Ccontext` RAII, the `Value` / `Class` / `Array` / `Hash` newtypes, `IntoValue` / `FromValue`, the `Format` + ZST + GAT `mrb_get_args` dispatch, `protect`, the typed `mrb_func_t`, and `cstr!`.
 - **`wasm/mruby-sys` is the bindgen FFI surface only**, consumed only by `mruby`. Holds the bindgen `extern "C"` declarations, `mrb_value::zeroed()`, `mrb_args_*`, host-target type placeholders, and ABI const assertions pinning `mrb_value` size / `mrb_state.exc` offset against vendored-mruby drift.
@@ -152,21 +156,30 @@ Process cache    runtime/cache — shared Engine + per-path Module + epoch ticke
 
 In `runtime.rs`, reference siblings as bare `dispatch::` / `trap::` (not `super::`, not `use self::dispatch;`).
 
-### `wasm/kobako-wasm` tier stack (guest)
+### `wasm/kobako-core` + `wasm/kobako-wasm` tier stack (guest)
 
-Mirrors `lib/` tier-for-tier — the wire-symmetric peer.
+Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; `kobako-wasm` assembles it with mruby into `data/kobako.wasm`.
 
 ```
-ABI entry       abi + abi/{boot, eval, run, yield_block, frames, outcome_buffer, …}
-      │           __kobako_{eval,run,alloc,take_outcome,dispatch}
+kobako-wasm  (unpublished shell — assembled mruby guest, cdylib)
+Shell           guest — KobakoGuest (impl kobako_core::Guest) + export_guest!
+      │           emits __kobako_{eval,run,alloc,take_outcome,yield_to_block} + _initialize
+ABI entry       abi + abi/{boot, eval, run, yield_block, frames, …}
+      │           per-invocation entry bodies over mruby
 Domain          kobako + kobako/{install, bridges, io, codec_convert}
-      │           installs the Kobako module / classes on an mrb_state
+                  installs the Kobako module / classes on an mrb_state
+────────────────────────────────────────────────────────────────────
+kobako-core  (contract crate — publishable rlib, mruby-free)
+Contract        Guest trait (eval / run / yield_to_block) + export_guest! macro
+      │
+ABI primitives  abi — __kobako_dispatch import · pack/unpack_u64 ·
+      │           alloc / take_outcome / write_outcome / write_panic (outcome buffer)
 Transport ──┐   transport::{Request, Response, Yield, proxy}
 Outcome ────┤   outcome::{Outcome, Panic}
       │     │
 Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
-      │
-(mruby)         wasm/mruby (typed wrapper) → wasm/mruby-sys (bindgen FFI)
+
+(mruby)         wasm/mruby (typed wrapper) → wasm/mruby-sys (bindgen FFI) — kobako-wasm only
 ```
 
 ### `wasm/mruby` tier stack (typed wrapper)
@@ -207,14 +220,14 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 
 | Topic | Entry points | Notes |
 |-------|--------------|-------|
-| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/` (envelopes: `request.rb` / `response.rb` / `run.rb` / `yield.rb`); guest `wasm/kobako-wasm/src/{codec,transport}/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
+| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/` (envelopes: `request.rb` / `response.rb` / `run.rb` / `yield.rb`); guest `wasm/kobako-core/src/{codec.rs,transport/}` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior.md`. |
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `ext/kobako/src/runtime.rs`; guest `wasm/kobako-wasm/src/abi.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-wasm/src/kobako/io.rs`, `wasm/kobako-wasm/mrblib/{io,kernel}.rb` | mrblib precompiled to RITE bytecode by `build.rs`, embedded via `src/kobako/bytecode.rs`. SPEC B-04. |
-| Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-wasm/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
+| Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
 | Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-13..B-21 in `docs/behavior.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Namespaces` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job. |
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live at `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`). |
-| ABI surface (host ↔ guest exports) | `wasm/kobako-wasm/src/abi.rs` ↔ `ext/kobako/src/runtime.rs` | — |
+| ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-wasm/src/abi.rs` ↔ `ext/kobako/src/runtime.rs` | — |
 | E2E coverage | `test/test_e2e_journeys.rb` (`#eval`), `test/test_sandbox_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/test_wasm_wrapper.rb`) covers only `from_path`. |
 | mruby typed wrapper | `wasm/mruby/src/{state,value,class,array,hash,ccontext,convert}.rs`, `wasm/mruby/src/state/{args,factory,define,symbol,load,protect}.rs` | Consumed by `kobako-wasm` via the `crate::mruby` façade (single `pub use mruby::*`). Sits over `mruby-sys`. |
 | mruby C API FFI | `wasm/mruby-sys/` (`wrapper.h`, `build.rs`, `src/lib.rs`) | bindgen-only surface; libclang scoped here; `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. |
