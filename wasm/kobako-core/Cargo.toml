@@ -17,6 +17,9 @@ edition = "2021"
 description = "Contract crate for kobako Guest Binaries — the guest-side wire codec and SPEC envelopes."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
+keywords = ["wasm", "mruby", "sandbox", "wasi", "msgpack"]
+categories = ["wasm", "encoding"]
 
 [dependencies]
 # `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
