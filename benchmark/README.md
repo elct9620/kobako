@@ -24,7 +24,7 @@ The suite perceives drift against a fixed reference point — the committed anch
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
 | `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Sandbox#usage` (B-35) |
-| `one_shot`        | cold paths (first `Sandbox.new`)        | CPU seconds for a single run, no dispersion                         |
+| `one_shot`        | cold paths (first `Sandbox.new`)        | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
 `ips` is the **median** of per-cycle samples (a GC-inflated cycle skews a mean but not a median); the arithmetic mean rides along as `ips_mean` for the capacity reading, mirroring Google Benchmark / Criterion. For sandbox-driven cases, `case_with_usage` runs a dedicated post-measurement sampling loop (`UsageSampler`, CPU-budget-bounded) that reads `sandbox.usage` after each invocation, so `wall_time` is the median of that distribution rather than a single point sample.
@@ -309,7 +309,10 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
     "processors": 16,
     "yjit_enabled": false,
     "git_sha": "711665d",
-    "captured_at": "2026-05-27T14:20:41Z"
+    "captured_at": "2026-05-27T14:20:41Z",
+    "load_avg": 2.41,
+    "power_source": "ac",
+    "cpu_probe_spread_pct": 0.44
   },
   "suites": {
     "cold_start":          [ { "label": "1a-sandbox-new", "ips": 8013.0, "ips_mean": 7956.4, "ips_sd": 112, "iterations": 18432, "cycles": 3 } ],
@@ -326,7 +329,8 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
 | `ips_mean`                                           | Arithmetic mean of the per-cycle `ips` samples.                                               |
 | `ips_sd`                                             | Standard deviation of the per-cycle `ips` samples.                                            |
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
-| `seconds`                                            | `one_shot` and concurrent CPU seconds; wall seconds on the multi-thread suite.                |
+| `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
+| `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
 | `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Sandbox#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. Annotate-only rows (`1b`) carry one sample with no dispersion. |
 
 Release baselines are additionally marked with `benchmark/<semver>` annotated git tags.
@@ -341,9 +345,30 @@ The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the de
 
 **Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The three characterization suites (#7 / #8 / #9) are informational and not part of the gate.
 
+The gate is **stage 1** — a smoke detector against the anchor. A flag is a reason to arbitrate, not yet a verdict; see the next section for stage 2.
+
+## Noise model and interpretation
+
+Two noise scales exist, and only the smaller one is visible in the reported numbers. The `ips_sd` / `±%` printed per case is the *within-run* sampling spread (±0.5–2 %). Comparing two runs — even minutes apart on an idle machine — additionally exposes *between-run* machine transients of ±5–7 %: the runner measures CPU time, which excludes scheduler waits but still sees frequency scaling, and macOS on Apple Silicon offers no fixed-frequency governor. The `env.cpu_probe_spread_pct` field records each session's own floor.
+
+Interpretation rules:
+
+- **A uniform shift across all guest scenarios is a machine fingerprint, not a code regression.** Guest cases share one wasmtime execution cost structure, so machine state moves them together; a real regression concentrates in the touched paths.
+- **Never read `ips_sd` as the uncertainty of a cross-run comparison** — between-run transients dominate it severalfold.
+- **Long measurement arms alias transients into fake effects.** Worked example (2026-06-07): an A/B with 5-minute arms showed a freshly migrated Guest Binary a consistent-looking 5–6 % slower on `mruby_eval` with tight within-arm spread; 45-second alternating arms across four guest builds then measured all of them within ±2 %, and a rapid 3-pair alternation caught ±6–7 % swings between *adjacent identical processes*. The build chains had been verified equivalent (`libmruby.a` code-byte-identical), so the original signal was aliasing, not code.
+
+When `bench:gate` flags, arbitrate with stage 2:
+
+```bash
+bundle exec rake "bench:confirm[0.8.0]"          # a released version (release asset, gem fallback)
+bundle exec rake "bench:confirm[path/to/a.wasm]" # an explicit Guest Binary
+```
+
+`bench:confirm` alternates the baseline and current Guest Binaries through `mruby_eval` in 3 adjacent short pairs (~5 min) and confirms a regression only when every pair agrees on direction **and** the mean clears ±3 % — the design that survives the transients above. Pairs spreading wider than ±20 % void the arbitration as `UNSTABLE` (the machine was not quiet — rerun idle; even direction-unanimity happens by chance under load). Steady-state cost is zero; it runs only on a gate alarm. `data/kobako.wasm` and any same-day results file are restored afterwards.
+
 ## Known caveats
 
 - **Guest String size cap at 1 MiB.** `MRB_STR_LENGTH_MAX` is mruby's default; the guest-side codec cases stop at 512 KiB. The 16 MiB wire payload limit is reachable only through composite values.
 - **Aggregate throughput is GVL-bounded.** Multi-Thread scaling stays near-flat because `ext/` does not release the GVL during wasmtime execution.
-- **One-shot timings are filesystem-cache-sensitive.** The first `Sandbox.new` reads `data/kobako.wasm` from disk; cold vs hot page cache can vary 5-10 %.
+- **One-shot timings are filesystem-cache-sensitive.** The first `Sandbox.new` reads `data/kobako.wasm` from disk; cold vs hot page cache can vary 5-10 %. Warm one-shot rows report a median across rounds for exactly this class of reason.
 - **Per-suite ordering matters.** `5c` and `8d` are sensitive to GC / allocator state built up by earlier cases in the same process; re-running a case in isolation produces different numbers.
