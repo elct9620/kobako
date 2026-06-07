@@ -18,7 +18,7 @@
 //! one-thing-per-file split the crate uses elsewhere.
 
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::{Error, Gem, MethodDef, Module, Mrb, Object};
+use crate::mruby::{Error, Gem, Module, Mrb, Object};
 
 #[cfg(target_arch = "wasm32")]
 use super::bridges;
@@ -104,24 +104,24 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     member_class.define_singleton_method(
         mrb,
         c"method_missing",
-        MethodDef::new(bridges::member_method_missing, -1),
+        crate::mruby::method!(bridges::member_method_missing, -1),
     )?;
     member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
-        MethodDef::new(bridges::proxy_respond_to_missing, -1),
+        crate::mruby::method!(bridges::proxy_respond_to_missing, -1),
     )?;
     // Block both construction entries so the guest cannot instantiate a
     // Member (docs/behavior.md B-38); see `bridges::member_not_constructible`.
     member_class.define_singleton_method(
         mrb,
         c"new",
-        MethodDef::new(bridges::member_not_constructible, -1),
+        crate::mruby::method!(bridges::member_not_constructible, -1),
     )?;
     member_class.define_singleton_method(
         mrb,
         c"allocate",
-        MethodDef::new(bridges::member_not_constructible, -1),
+        crate::mruby::method!(bridges::member_not_constructible, -1),
     )?;
 
     // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
@@ -130,10 +130,15 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     // routing to a `Target::Handle` derived from the id, and `initialize`
     // stores that id.
     let handle_class = kobako_mod.define_class(mrb, c"Handle", proxy_class)?;
+    // Any-arity like the other bridge bodies: the body reads its one
+    // argument through `format::O` itself (`FromValue` has no `Value`
+    // identity impl to ride `method!`'s typed-parameter form), and the
+    // only caller is the wire decoder's `mrb_obj_new`, which always
+    // passes exactly the Handle id.
     handle_class.define_method(
         mrb,
         c"initialize",
-        MethodDef::new(bridges::handle_initialize, 1),
+        crate::mruby::method!(bridges::handle_initialize, -1),
     )?;
     // Block both construction entries so the guest cannot fabricate a
     // Handle from a bare id (docs/behavior.md B-39); see
@@ -143,22 +148,22 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     handle_class.define_singleton_method(
         mrb,
         c"new",
-        MethodDef::new(bridges::handle_not_constructible, -1),
+        crate::mruby::method!(bridges::handle_not_constructible, -1),
     )?;
     handle_class.define_singleton_method(
         mrb,
         c"allocate",
-        MethodDef::new(bridges::handle_not_constructible, -1),
+        crate::mruby::method!(bridges::handle_not_constructible, -1),
     )?;
     handle_class.define_method(
         mrb,
         c"method_missing",
-        MethodDef::new(bridges::handle_method_missing, -1),
+        crate::mruby::method!(bridges::handle_method_missing, -1),
     )?;
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
-        MethodDef::new(bridges::proxy_respond_to_missing, -1),
+        crate::mruby::method!(bridges::proxy_respond_to_missing, -1),
     )?;
 
     // `Kobako::ServiceError` / `Kobako::Transport::Error` /

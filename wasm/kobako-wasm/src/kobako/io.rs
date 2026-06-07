@@ -28,8 +28,7 @@
 //! `ArgumentError` immediately; the sandbox has no other captured fds
 //! to route to.
 
-use crate::mruby::sys;
-use crate::mruby::{Error, MethodDef, Module, Value};
+use crate::mruby::{Error, Module, Mrb, Value};
 
 /// Install the top-level `::IO` class on `mrb` and load the
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
@@ -44,9 +43,12 @@ pub(crate) fn install(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
     // capture pipe (docs/behavior.md B-04).
     let io_class = mrb.define_class(c"IO", mrb.object_class())?;
 
-    io_class.define_method(mrb, c"initialize", MethodDef::new(io_initialize, 2))?;
-    io_class.define_method(mrb, c"write", MethodDef::new(io_write, -1))?;
-    io_class.define_method(mrb, c"fileno", MethodDef::new(io_fileno, 0))?;
+    // `initialize` registers any-arity because its body reads the
+    // call frame itself through `format::Io` — mruby's `"i"` integer
+    // coercion for the fd has no typed-parameter equivalent.
+    io_class.define_method(mrb, c"initialize", crate::mruby::method!(io_initialize, -1))?;
+    io_class.define_method(mrb, c"write", crate::mruby::method!(io_write, -1))?;
+    io_class.define_method(mrb, c"fileno", crate::mruby::method!(io_fileno, 0))?;
 
     // Load the Ruby-level instance methods (#print / #puts / #printf
     // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,
@@ -64,29 +66,27 @@ pub(crate) fn install(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
 ///   * `mode` is anything other than `"w"` — only the write-path is
 ///     implemented (mruby-io's read-path is intentionally out of
 ///     scope, see `mrblib/io.rb` class doc).
-pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    // SAFETY: bridge frame — mruby invoked us with a live state.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let (fd, mode_val) = mrb_ref.get_args::<crate::mruby::format::Io>();
+pub(crate) fn io_initialize(mrb: &Mrb, self_: Value) -> Value {
+    let (fd, mode_val) = mrb.get_args::<crate::mruby::format::Io>();
 
     if fd != 1 && fd != 2 {
         unsafe {
             raise_argument_error(
-                mrb_ref,
+                mrb,
                 c"kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
             );
         }
     }
 
-    let mode = mode_val.to_string(mrb_ref);
+    let mode = mode_val.to_string(mrb);
     if mode != "w" {
-        unsafe { raise_argument_error(mrb_ref, c"kobako IO only supports mode \"w\"") };
+        unsafe { raise_argument_error(mrb, c"kobako IO only supports mode \"w\"") };
     }
 
     use crate::mruby::IntoValue;
-    let fd_val = fd.into_value(mrb_ref);
-    let sym = mrb_ref.intern_cstr(c"@__kobako_fd__");
-    self_.iv_set(mrb_ref, sym, fd_val);
+    let fd_val = fd.into_value(mrb);
+    let sym = mrb.intern_cstr(c"@__kobako_fd__");
+    self_.iv_set(mrb, sym, fd_val);
     Value::zeroed()
 }
 
@@ -99,20 +99,18 @@ pub(crate) unsafe extern "C" fn io_initialize(mrb: *mut sys::mrb_state, self_: V
 /// bytes past its limit, `write(2)` short-writes and the returned
 /// total reflects only the accepted bytes. No Ruby-level error is
 /// raised.
-pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    // SAFETY: bridge frame — mruby invoked us with a live state.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let fd = read_fd(mrb_ref, self_);
-    let argv = mrb_ref.get_args::<crate::mruby::format::Rest>();
+pub(crate) fn io_write(mrb: &Mrb, self_: Value) -> Value {
+    let fd = read_fd(mrb, self_);
+    let argv = mrb.get_args::<crate::mruby::format::Rest>();
 
     let mut total: i32 = 0;
     for val in argv {
         // `obj_as_string` may raise TypeError; bridge frame
         // tolerates the longjmp.
-        let s = val.obj_as_string(mrb_ref);
+        let s = val.obj_as_string(mrb);
         // SAFETY: `obj_as_string` returns a String-tagged Value;
         // the slice is consumed before the next mruby call.
-        let bytes = unsafe { s.as_bytes(mrb_ref) };
+        let bytes = unsafe { s.as_bytes(mrb) };
         if !bytes.is_empty() {
             // SAFETY: ptr / len describe a live mruby-owned
             // buffer; `write(2)` reads it without retaining.
@@ -129,7 +127,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
         }
     }
     use crate::mruby::IntoValue;
-    total.into_value(mrb_ref)
+    total.into_value(mrb)
 }
 
 unsafe extern "C" {
@@ -144,12 +142,10 @@ unsafe extern "C" {
 /// `IO#fileno` — returns the stored fd as an `Integer`. Used by the
 /// `IO#to_i` alias in `mrblib/io.rb` and by introspecting callers
 /// (e.g. `$stdout.fileno == 1`).
-pub(crate) unsafe extern "C" fn io_fileno(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    // SAFETY: bridge frame — mruby invoked us with a live state.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
+pub(crate) fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
     use crate::mruby::IntoValue;
-    let fd = read_fd(mrb_ref, self_);
-    fd.into_value(mrb_ref)
+    let fd = read_fd(mrb, self_);
+    fd.into_value(mrb)
 }
 
 /// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the

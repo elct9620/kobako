@@ -1,10 +1,11 @@
-//! C-callable shims registered with mruby at install time.
+//! Method bodies registered with mruby at install time.
 //!
-//! Every function here matches the `crate::mruby::sys::mrb_func_t`
-//! signature so mruby can invoke it as a method body. The registrations
-//! happen in `super::Kobako::install`; the bridges themselves
-//! re-enter the boundary by resolving a `Kobako` token via
-//! `super::Kobako::resolve_raw` and then call safe methods.
+//! Every function here is a typed `beni::method!` body
+//! (`fn(&Mrb, Value, …) -> Value`); the macro generates the raw
+//! `mrb_func_t` bridge mruby invokes. The registrations happen in
+//! `super::Kobako::install`; the bodies re-enter the boundary by
+//! resolving a `Kobako` token via `super::Kobako::resolve_raw` and
+//! then call safe methods.
 //!
 //! ## Dispatch chain
 //!
@@ -38,14 +39,14 @@
 //!
 //! ## Safety
 //!
-//! Each bridge is `unsafe extern "C" fn` because mruby invokes it from
-//! the C side with a raw `*mut mrb_state` and a `Value` receiver.
-//! Bodies open with `unsafe { Kobako::resolve_raw(mrb) }` to obtain the
-//! safe `Kobako` token; from then on the work is safe Rust with
-//! explicit `unsafe { ... }` blocks at each remaining FFI call site.
+//! The `method!`-generated bridges hand each body a borrowed `&Mrb`,
+//! so the bodies are safe Rust with explicit `unsafe { ... }` blocks
+//! only at the remaining FFI call sites (`resolve_raw`, the divergent
+//! raises). A divergent raise long-jumps over the macro's bridge
+//! frame, which holds no values needing `Drop` — the same contract
+//! the raw bridges upheld.
 
-use crate::mruby::sys;
-use crate::mruby::{Module, Value};
+use crate::mruby::{Module, Mrb, Value};
 
 /// Full guest→host dispatch from the active mruby call frame — the
 /// shared body of the two `method_missing` bridges. The caller supplies
@@ -109,14 +110,12 @@ fn forward_to_dispatch(
 ///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
 ///
 /// Forwards to `forward_to_dispatch` with `Target::Path`.
-pub(crate) unsafe extern "C" fn member_method_missing(
-    mrb: *mut sys::mrb_state,
-    self_: Value,
-) -> Value {
+pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
     use kobako_core::transport::Target;
 
-    // SAFETY: bridge contract.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    // SAFETY: `mrb` is live for this bridge frame and install has run
+    // (the shim was registered by it).
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
 
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
@@ -144,19 +143,14 @@ pub(crate) unsafe extern "C" fn member_method_missing(
 /// `NoMethodError` naming the offending Member rather than producing an
 /// inert empty instance. Registered with `mrb_args_any()` so the raise
 /// fires regardless of arguments instead of tripping an arity check first.
-pub(crate) unsafe extern "C" fn member_not_constructible(
-    mrb: *mut sys::mrb_state,
-    self_: Value,
-) -> Value {
-    // SAFETY: bridge contract — `mrb` is live for the call.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let nomethod = mrb_ref
+pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
+    let nomethod = mrb
         .class_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
     // SAFETY: `self_` is the Member class receiver of a singleton-class
     // method — class-tagged by mruby itself.
     let class = crate::mruby::RClass::from_raw(unsafe { self_.as_class_ptr() });
-    let message = match class.name(mrb_ref) {
+    let message = match class.name(mrb) {
         Some(name) => std::ffi::CString::new(format!(
             "{name} is a Kobako Member (a dispatch target), not a constructible class"
         ))
@@ -164,7 +158,7 @@ pub(crate) unsafe extern "C" fn member_not_constructible(
         None => c"Kobako Member is not constructible".to_owned(),
     };
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-    unsafe { nomethod.raise(mrb_ref, &message) }
+    unsafe { nomethod.raise(mrb, &message) }
 }
 
 /// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
@@ -176,19 +170,14 @@ pub(crate) unsafe extern "C" fn member_not_constructible(
 /// arguments instead of tripping an arity check first. The decoder's own
 /// restoration path uses `mrb_obj_new`, which bypasses these Ruby entries
 /// (B-14 / B-34) and is unaffected.
-pub(crate) unsafe extern "C" fn handle_not_constructible(
-    mrb: *mut sys::mrb_state,
-    _self: Value,
-) -> Value {
-    // SAFETY: bridge contract — `mrb` is live for the call.
-    let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let nomethod = mrb_ref
+pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
+    let nomethod = mrb
         .class_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
     unsafe {
         nomethod.raise(
-            mrb_ref,
+            mrb,
             c"Kobako::Handle is a host-issued capability reference, not a constructible class",
         )
     }
@@ -197,10 +186,10 @@ pub(crate) unsafe extern "C" fn handle_not_constructible(
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// `super::Kobako::set_handle_id`.
-pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self_: Value) -> Value {
-    // SAFETY: bridge contract.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    let id_val = kobako.mrb().get_args::<crate::mruby::format::O>();
+pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Value {
+    // SAFETY: `mrb` is live for this bridge frame and install has run.
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
+    let id_val = mrb.get_args::<crate::mruby::format::O>();
     kobako.set_handle_id(self_, id_val);
     Value::zeroed()
 }
@@ -213,14 +202,11 @@ pub(crate) unsafe extern "C" fn handle_initialize(mrb: *mut sys::mrb_state, self
 /// method plus the inherited `forward_to_dispatch` body.
 ///
 /// Forwards to `forward_to_dispatch` with `Target::Handle`.
-pub(crate) unsafe extern "C" fn handle_method_missing(
-    mrb: *mut sys::mrb_state,
-    self_: Value,
-) -> Value {
+pub(crate) fn handle_method_missing(mrb: &Mrb, self_: Value) -> Value {
     use kobako_core::transport::Target;
 
-    // SAFETY: bridge contract.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    // SAFETY: `mrb` is live for this bridge frame and install has run.
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
     let handle_id = kobako.extract_handle_id(self_);
     let target = Target::Handle(handle_id);
 
@@ -238,10 +224,7 @@ pub(crate) unsafe extern "C" fn handle_method_missing(
 /// probing via `respond_to?` must succeed (docs/behavior.md B-36).
 /// Registered singleton-class on `Kobako::Member` (Member classes) and
 /// instance-class on `Kobako::Handle`.
-pub(crate) unsafe extern "C" fn proxy_respond_to_missing(
-    _mrb: *mut sys::mrb_state,
-    _self_: Value,
-) -> Value {
+pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
     // No VM access needed: `Value::true_()` reads the sys-side immediates
     // cache, populated at install before any probe runs, so the raw
     // `mrb` pointer goes unused.
