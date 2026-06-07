@@ -1089,13 +1089,10 @@ class TestE2EJourneys < Minitest::Test
                  "the Symbol-vs-String key distinction (SPEC.md Type Mapping #8 + ext 0x00)")
   end
 
-  # Empty collection round-trips. The previous converter had a
-  # +"Hash" => "{}"+ string sentinel for the empty-Hash case; this
-  # commit's predecessor removed it on the premise that
-  # +Value::Map(vec![])+ is the canonical wire encoding for an empty
-  # Hash. These two tests pin the canonical encoding end-to-end so any
-  # regression that re-introduces an empty-sentinel string surfaces
-  # immediately.
+  # Empty collection round-trips. These two tests pin the canonical
+  # wire encoding end-to-end — an empty Hash is +Value::Map(vec![])+,
+  # never a +"{}"+ string sentinel — so any converter regression that
+  # re-introduces a sentinel string surfaces immediately.
   def test_outcome_empty_array_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -1232,8 +1229,7 @@ class TestE2EJourneys < Minitest::Test
   # libmruby.a. A literal pattern matching a multibyte UTF-8 string
   # proves those tables made it through the autotools + libtool +
   # llvm-ar pipeline intact — a regression here would mean the build
-  # silently dropped encoding objects (which has happened in earlier
-  # iterations of this patch chain).
+  # silently dropped encoding objects.
   def test_regexp_matches_utf8_string_literal
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

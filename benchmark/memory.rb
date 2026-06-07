@@ -195,7 +195,7 @@ def sample_during_near_cap(runner, sandbox, before)
   during = sample_rss_kb
   # Read sandbox.stdout *after* the rss sample so the captured 1 MiB
   # String stays alive across the measurement window — mirrors the
-  # 8c pattern (rubocop's auto-correct will strip an "unused" read).
+  # 8c pattern.
   bytes = sandbox.stdout.bytesize
   record(runner, "8d-rss-while-holding-near-cap-stdout",
          sandbox: sandbox,

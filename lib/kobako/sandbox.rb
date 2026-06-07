@@ -292,9 +292,9 @@ module Kobako
     #
     # The yielded block must return a +Kobako::Snapshot+ — i.e. the
     # value of +Runtime#eval+ / +#run+ (SPEC.md Internal Concepts →
-    # Snapshot). The success path unpacks every observable from the
-    # Snapshot in one go: +#stdout+ / +#stderr+ pack into +Capture+,
-    # +#usage+ packs into +Usage+, +#return_bytes+ feeds +Outcome.decode+.
+    # Snapshot). The success path unpacks +#stdout+ / +#stderr+ into
+    # +Capture+ and feeds +#return_bytes+ to +Outcome.decode+; usage is
+    # populated by the +ensure+ readout ({#read_usage!}) on every outcome.
     # The rescue chain is the single trap-translation boundary —
     # configured-cap paths
     # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
