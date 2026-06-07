@@ -138,8 +138,8 @@ pub(super) fn open_with_preamble<G: crate::MrbGuest>(
 /// so any uncaught exception's backtrace attributes back to the
 /// originating `#preload` call (docs/behavior.md B-32). Source entries
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
-/// entries load through `kobako_load_bytecode` (the filename, when
-/// present, is baked into their RITE `debug_info` section). The first
+/// entries load through beni's `Mrb::load_bytecode` (the filename,
+/// when present, is baked into their RITE `debug_info` section). The first
 /// snippet that raises wins: the resulting Panic carries that snippet's
 /// class / message / backtrace and is forced to sandbox origin even
 /// when `origin_for_class` would have chosen `"service"`. Bytecode
@@ -221,17 +221,14 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     Ok(())
 }
 
-/// Execute a precompiled RITE bytecode blob via the
-/// `beni::sys::kobako_load_bytecode` shim. The shim parses
-/// the IREP and runs its top-level Proc. Returns
-/// `BytecodeLoad::Loaded` when the IREP parsed (even if its top-
-/// level execution then raised — E-36) and
-/// `BytecodeLoad::StructuralFailure` when the RITE header / IREP
+/// Execute a precompiled RITE bytecode blob via beni's
+/// `Mrb::load_bytecode`. Returns `BytecodeLoad::Loaded` when the
+/// IREP parsed (even if its top-level execution then raised — E-36)
+/// and `BytecodeLoad::StructuralFailure` when the RITE header / IREP
 /// body failed structural validation (E-37 / E-38). Either way, a
 /// pending exception is left in `mrb->exc` for the shared
-/// `take_pending_panic` step. Folding the C return code into a typed
-/// enum at the FFI boundary keeps the `c_int` from leaking into the
-/// replay control flow.
+/// `take_pending_panic` step. Folding the return code into a typed
+/// enum keeps the `c_int` from leaking into the replay control flow.
 #[cfg(mruby_linked)]
 fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
     if mrb.load_bytecode(body) == 0 {
