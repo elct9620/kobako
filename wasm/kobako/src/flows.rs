@@ -22,11 +22,10 @@
 //! * `snippets` — Frame 3 snippet decoding (mruby source / RITE
 //!   bytecode kinds); the channel reader and the Frame 1 preamble
 //!   parser live in `kobako_core::frames`.
-//! * `mrb_slot` / `block_stack` — per-invocation statics carrying the
-//!   live VM and the guest-supplied block stack across the dispatch
-//!   re-entry boundary.
+//! * `mrb_slot` — per-invocation static carrying the live VM across the
+//!   dispatch re-entry boundary (the block stack lives beside its
+//!   bridge writers in `crate::runtime::block_stack`).
 
-pub(crate) mod block_stack;
 #[cfg(any(mruby_linked, test))]
 mod boot;
 #[cfg(mruby_linked)]

@@ -53,7 +53,7 @@ pub(crate) fn yield_to_block(req: &[u8]) -> u64 {
 
 #[cfg(mruby_linked)]
 fn yield_to_block_body(req: &[u8]) -> u64 {
-    use super::block_stack::BLOCK_STACK;
+    use crate::runtime::block_stack::BLOCK_STACK;
     use super::mrb_slot::MRB;
     use crate::runtime::Kobako;
     use beni::sys;

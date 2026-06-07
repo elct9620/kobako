@@ -169,11 +169,12 @@ kobako  (assembled mruby implementation — publishable rlib)
 Harness         MrbGuest trait — required install_gems hook; provided
       │           eval / run / yield_to_block flows
 Flows           flows + flows/{boot, eval, run, yield_block, snippets,
-      │           mrb_slot, block_stack} — per-invocation entry bodies;
-      │           snippets = Frame 3 mruby payload semantics (source / RITE)
+      │           mrb_slot} — per-invocation entry bodies; snippets =
+      │           Frame 3 mruby payload semantics (source / RITE)
 Runtime         runtime (Kobako token) + runtime/{install (KobakoBridge),
-                  bridges, codec_convert} — installs the Kobako module /
-                  classes on an mrb_state; mrb ↔ wire value conversion
+                  bridges, block_stack, codec_convert} — installs the
+                  Kobako module / classes on an mrb_state; mrb ↔ wire
+                  value conversion; per-invocation block stack
 ────────────────────────────────────────────────────────────────────
 kobako-io  (IO / Kernel capability gem — publishable rlib, kobako-free)
                 KobakoIo (impl beni::Gem) — ::IO class, STDOUT/STDERR,

@@ -34,6 +34,7 @@
 //! the bridge entry — use `Kobako::resolve_raw` to obtain the same
 //! handle without repeating registration.
 
+pub(crate) mod block_stack;
 pub(crate) mod bridges;
 mod codec_convert;
 mod install;

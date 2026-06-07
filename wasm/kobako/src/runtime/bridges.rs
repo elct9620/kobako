@@ -71,7 +71,7 @@ fn forward_to_dispatch(
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
-    use crate::flows::block_stack::BlockFrame;
+    use super::block_stack::BlockFrame;
     use kobako_core::transport::proxy::{invoke, InvokeError};
 
     let (method_sym, rest, block) = kobako.mrb().get_args::<beni::format::NRestBlock>();

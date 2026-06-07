@@ -32,16 +32,18 @@ use beni::{Error, Gem, Mrb};
 pub struct KobakoIo;
 
 impl Gem for KobakoIo {
-    #[cfg(mruby_linked)]
     fn init(mrb: &Mrb) -> Result<(), Error> {
-        io::install(mrb)?;
-        io::install_globals(mrb)?;
-        kernel::install(mrb);
-        Ok(())
-    }
-
-    #[cfg(not(mruby_linked))]
-    fn init(_mrb: &Mrb) -> Result<(), Error> {
-        panic!("kobako-io placeholder mode: mruby is not linked; install needs a discovered libmruby.a")
+        #[cfg(mruby_linked)]
+        {
+            io::install(mrb)?;
+            io::install_globals(mrb)?;
+            kernel::install(mrb);
+            Ok(())
+        }
+        #[cfg(not(mruby_linked))]
+        {
+            let _ = mrb;
+            panic!("kobako-io placeholder mode: mruby is not linked; install needs a discovered libmruby.a")
+        }
     }
 }
