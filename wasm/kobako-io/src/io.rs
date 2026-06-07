@@ -29,11 +29,12 @@
 use beni::sys;
 use beni::{format, FromValue, IntoValue, Mrb, Value};
 
-/// Install the top-level `::IO` class on `mrb` and register the full
-/// instance-method surface — the gem-init step named after mruby's
-/// own `mrb_init_io`. Idempotent (re-running against an
-/// already-initialized state just re-defines the methods, which is
-/// harmless given mruby's last-write-wins semantics).
+/// Install the IO surface on `mrb` — the top-level `::IO` class with
+/// its full instance-method surface, then the `STDOUT` / `STDERR`
+/// constants and the assignable `$stdout` / `$stderr` globals
+/// constructed from it — the gem-init step named after mruby's own
+/// `mrb_init_io`. The class is defined before the instances by
+/// construction; the body order is the dependency order.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     use beni::Module;
 
@@ -67,18 +68,14 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     io.define_method(mrb, c"sync=", beni::method!(io_sync_set, -1))?;
     io.define_method(mrb, c"flush", beni::method!(io_flush, 0))?;
     io.define_method(mrb, c"closed?", beni::method!(io_closed_p, 0))?;
-    Ok(())
-}
 
-/// Construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr` to
-/// them. Guests can reassign either global at script time, which is
-/// the whole point of routing through the Kernel delegators that
-/// `crate::kernel::init` registers afterwards.
-pub(crate) fn init_globals(mrb: &Mrb) -> Result<(), beni::Error> {
-    let io_class = mrb.class_get(c"IO")?;
+    // Construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr` to
+    // them. Guests can reassign either global at script time, which is
+    // the whole point of routing through the Kernel delegators that
+    // `crate::kernel::init` registers afterwards.
     let mode_str = mrb.str_new_cstr(c"w");
-    let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
-    let stderr_val = io_class.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);
+    let stdout_val = io.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
+    let stderr_val = io.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);
 
     mrb.define_global_const(c"STDOUT", stdout_val);
     mrb.define_global_const(c"STDERR", stderr_val);
