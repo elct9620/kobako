@@ -314,7 +314,8 @@ impl Kobako {
     /// Snapshot every top-level constant currently defined on `Object`
     /// by calling `Object.constants` and unpacking the returned Symbol
     /// Array into a `Vec<String>`. Used by `__kobako_run` to compute
-    /// the E-27 `details:` payload: a baseline taken     /// install + preamble materialise (before snippet replay) is
+    /// the E-27 `details:` payload: a baseline taken after kobako
+    /// install + preamble materialise (before snippet replay) is
     /// subtracted from a post-replay snapshot, yielding the constants
     /// the preloaded snippets contributed (docs/behavior.md B-31 / E-27).
     ///
