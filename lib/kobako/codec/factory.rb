@@ -146,8 +146,7 @@ module Kobako
       # method when a nested ext 0x02 appears inside +details+. The recursion
       # is bounded by msgpack nesting depth — identical to nested Array /
       # Hash payloads — so no extra guard is needed. Do not switch back to
-      # +factory.load+ to "simplify": that path bypasses UTF-8 validation
-      # and re-opens the Decoder's special case for Fault (removed in M5).
+      # +factory.load+ to "simplify": that path bypasses UTF-8 validation.
       def unpack_fault(payload)
         Decoder.decode(payload) do |map|
           raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
