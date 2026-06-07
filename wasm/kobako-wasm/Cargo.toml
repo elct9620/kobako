@@ -1,13 +1,11 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
-# houses the transport client (`crate::transport`), the ABI exports,
-# and the Ruby boot bytecode pipeline. The mruby-free wire tiers
-# (`codec`, `outcome`) live in the sibling `kobako-core` contract
-# crate; the mruby C API FFI surface (bindgen-generated bindings + the
-# `wrapper.h` static-inline shims) lives in the sibling `mruby-sys`
-# crate, consumed via the `mruby` wrapper and re-exported as
-# `crate::mruby::sys`.
+# houses the ABI entry bodies plus the Kobako domain runtime. The
+# mruby-free wire tiers (`codec`, `transport`, `outcome`) live in the
+# sibling `kobako-core` contract crate; the IO / Kernel capability gem
+# lives in the sibling `kobako-io` crate; the typed mruby wrapper and
+# its FFI layer come from the published `beni` / `beni-sys` crates.
 #
 # This crate is a member of the `wasm/` sub-workspace (see
 # `wasm/Cargo.toml`). The repo-root `Cargo.toml` excludes the entire
@@ -33,6 +31,10 @@ crate-type = ["cdylib", "rlib"]
 # layers the mruby implementation on top.
 kobako-core = { path = "../kobako-core" }
 
+# `kobako-io` — sandbox IO / Kernel capability gem (sibling workspace
+# member). Composed into the bundled guest by `Kobako::install`.
+kobako-io = { path = "../kobako-io" }
+
 # `beni` — typed Rust wrapper crate over the mruby C API (extracted
 # from this repository). Re-exports the underlying `beni-sys` FFI
 # through its `sys` namespace, so `crate::mruby::sys::*` resolves to
@@ -45,4 +47,4 @@ kobako-core = { path = "../kobako-core" }
 beni = "0.1.0"
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
-# so both members share the same wasm size hygiene tuning.
+# so all members share the same wasm size hygiene tuning.

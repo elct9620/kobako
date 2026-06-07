@@ -1,0 +1,31 @@
+# kobako-io — sandbox IO / Kernel capability gem.
+#
+# The `::IO` class, `STDOUT` / `STDERR`, the assignable `$stdout` /
+# `$stderr` globals, and the private Kernel output delegators for a
+# kobako mruby guest (docs/behavior.md B-04). Pure Rust over beni —
+# the whole Ruby-level surface is defined through the typed wrapper;
+# no mrblib, no mrbc / RITE pipeline. kobako-free by design: output
+# goes straight to wasi-libc `write(2)`, so the gem depends on the
+# `beni` wrapper alone and any guest shell can compose it.
+
+[package]
+name = "kobako-io"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox IO / Kernel capability gem for kobako mruby guests — $stdout / $stderr over wasi-libc, built on beni."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+keywords = ["wasm", "mruby", "sandbox", "wasi", "io"]
+categories = ["wasm"]
+
+[dependencies]
+# Typed mruby wrapper — the `Gem` trait this crate implements plus
+# every `Mrb` / `Value` seam the bridges use. The raw FFI surface is
+# reached through its `beni::sys` re-export.
+beni = "0.1.0"
+
+# Direct dependency on the FFI layer so cargo forwards its
+# `links = "mruby"` metadata (`DEP_MRUBY_LINKED`) to this crate's
+# build script — see build.rs. Code never names this path; call
+# sites go through the `beni::sys` re-export.
+beni-sys = "0.1.0"

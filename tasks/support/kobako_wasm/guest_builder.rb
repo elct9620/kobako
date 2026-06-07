@@ -102,9 +102,9 @@ module KobakoWasm
     end
 
     # Build the env hash threaded into +cargo build+. +MRUBY_LIB_DIR+ wires
-    # the libmruby.a search path inside +build.rs+; the +CC+ / +AR+ pair is
-    # kept honest for any future C compilation (bindgen, cc-rs) without
-    # requiring another env-var pass.
+    # the libmruby.a search path inside the +beni-sys+ build script; the
+    # +CC+ / +AR+ pair is kept honest for any future C compilation
+    # (bindgen, cc-rs) without requiring another env-var pass.
     def cargo_build_env
       clang   = File.join(WASI_SDK_DIR, "bin", "clang")
       llvm_ar = File.join(WASI_SDK_DIR, "bin", "llvm-ar")
@@ -113,8 +113,7 @@ module KobakoWasm
         "CC_wasm32_wasip1" => clang,
         "AR_wasm32_wasip1" => llvm_ar,
         "WASI_SDK_PATH" => WASI_SDK_DIR,
-        "MRUBY_LIB_DIR" => MRUBY_LIB_DIR,
-        "MRBC_PATH" => MRBC_PATH
+        "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
       }
     end
   end

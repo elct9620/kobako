@@ -532,7 +532,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md B-04: $stderr writes land in Sandbox#stderr, not Sandbox#stdout.
-  # Covers the guest-side fd 2 path enabled by the mrblib/io.rb + ::IO bridge.
+  # Covers the guest-side fd 2 path enabled by the kobako-io ::IO gem.
   # The equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
   # for a NULL super class) leaking onto fd 2 — the guest's own +$stderr.puts+
   # output is the only thing the channel may carry on this run.
@@ -546,7 +546,8 @@ class TestE2EJourneys < Minitest::Test
                  "B-04: stderr writes must not bleed into Sandbox#stdout"
   end
 
-  # SPEC.md B-04: Kernel#warn delegates through $stderr per mrblib/kernel.rb,
+  # SPEC.md B-04: Kernel#warn delegates through $stderr per the kobako-io
+  # Kernel delegators,
   # so warned bytes show up on Sandbox#stderr like any other stderr write.
   # The equality assertion also rejects install-time noise (e.g. mruby's
   # +mrb_warn+ for a NULL super class) leaking onto fd 2 — the guest's own
@@ -634,8 +635,8 @@ class TestE2EJourneys < Minitest::Test
   # Reassigning $stdout = $stderr at script time must redirect subsequent
   # Kernel#puts output to the stderr capture channel. This is the whole
   # reason Kernel delegators route through the assignable global instead
-  # of hard-coded fd 1, and verifies that mrblib/kernel.rb honors the
-  # late binding.
+  # of hard-coded fd 1, and verifies that the kobako-io Kernel delegators
+  # honor the late binding.
   def test_redirecting_stdout_to_stderr_routes_subsequent_puts
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval('$stdout = $stderr; puts "redirected"; 1')
@@ -662,7 +663,7 @@ class TestE2EJourneys < Minitest::Test
 
   # Mirror of fd validation for the mode argument — only "w" is
   # supported because mruby-io's read-path is intentionally out of
-  # scope (see mrblib/io.rb class doc).
+  # scope (see the kobako-io IO surface, wasm/kobako-io/src/io.rs).
   def test_io_new_rejects_unsupported_mode
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -682,6 +683,53 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal 1, sandbox.eval("STDOUT.fileno")
     assert_equal 2, sandbox.eval("STDERR.fileno")
+  end
+
+  # Probe script for the supplementary IO surface — each member's
+  # contract value collected into one Array for the outcome path.
+  SUPPLEMENTARY_IO_SCRIPT = <<~RUBY
+    chained = ($stdout << "a" << "b").equal?($stdout)
+    [chained, $stdout.tty?, $stdout.sync, ($stdout.sync = false),
+     $stdout.sync, $stdout.flush.equal?($stdout), $stdout.closed?, $stdout.to_i]
+  RUBY
+
+  # SPEC.md B-04: the mruby-io-compatible supplementary IO surface —
+  # `<<` chaining, tty? / sync / sync= / flush / closed? introspection,
+  # and the to_i alias — stays drop-in compatible so scripts written
+  # against mruby-io run unchanged. `<<` additionally lands its bytes
+  # on the stdout capture channel.
+  def test_io_supplementary_surface_matches_mruby_io
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT)
+
+    assert_equal [true, false, true, false, false, true, false, 1], result,
+                 "IO supplementary surface (<< self-chain, tty?, sync default/assignment, " \
+                 "flush self-return, closed?, to_i alias) must match the mruby-io contract"
+    assert_equal "ab", sandbox.stdout,
+                 "$stdout << must write its argument bytes to the stdout capture channel"
+  end
+
+  # Builds an Array *subclass* instance and puts it — the flattening
+  # witness for the is_a?(Array) recursion gate.
+  ARRAY_SUBCLASS_PUTS_SCRIPT = <<~RUBY
+    class Lines < Array; end
+    list = Lines.new
+    list << "first" << "second"
+    puts list
+    1
+  RUBY
+
+  # SPEC.md B-04: Kernel#puts flattens Array arguments element-wise, and
+  # the recursion gate is is_a?(Array) — an Array *subclass* instance
+  # must flatten too, not stringify wholesale through to_s.
+  def test_puts_flattens_array_subclass_elementwise
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval(ARRAY_SUBCLASS_PUTS_SCRIPT)
+
+    assert_equal "first\nsecond\n", sandbox.stdout,
+                 "Kernel#puts must flatten an Array subclass element-wise, " \
+                 "matching the is_a?(Array) recursion gate"
   end
 
   # IO#write byte-pumping coverage — pins the two paths the safe
@@ -752,7 +800,7 @@ class TestE2EJourneys < Minitest::Test
   #
   # mruby-sprintf supplies Kernel#sprintf, String#% and the format engine
   # they share; without it in the allowlist these methods are absent and
-  # mrblib/io.rb's `printf` (which calls `sprintf`) raises NoMethodError.
+  # kobako-io's `IO#printf` (which calls `sprintf`) raises NoMethodError.
   # These journeys exercise the capability through the public `#eval` API:
   # the outcome path proves sprintf/% return formatted Strings, and the
   # stdout path proves `printf` writes the formatted bytes to the capture
@@ -780,7 +828,7 @@ class TestE2EJourneys < Minitest::Test
                  "String#% through #eval must interpolate the Array into positional specifiers"
   end
 
-  # mrblib/io.rb's IO#printf delegates to sprintf, so a guest `printf`
+  # kobako-io's IO#printf delegates to sprintf, so a guest `printf`
   # call must write the formatted bytes to the stdout capture channel —
   # the latent NoMethodError this gem fixes surfaced exactly here.
   def test_printf_writes_formatted_output_to_stdout

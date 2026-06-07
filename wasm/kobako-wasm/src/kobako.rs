@@ -8,8 +8,10 @@
 //! kobako-specific registrations (`Kobako` module, `Kobako::Transport`
 //! namespace + `Proxy` abstract base, the `Kobako::Member` / `Kobako::Handle`
 //! proxy subclasses, `Kobako::ServiceError` /
-//! `Kobako::Transport::Error`, `Kernel#puts` / `Kernel#p` shims) belong to a
-//! different concern and live behind this domain boundary.
+//! `Kobako::Transport::Error`) belong to a different concern and live
+//! behind this domain boundary. The IO / Kernel surface is the sibling
+//! `kobako-io` crate's gem, composed alongside the bridge gem at
+//! install time.
 //!
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
 //! proves you can talk to the runtime, with no Drop and no lifetime —
@@ -34,13 +36,10 @@
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod bridges;
-pub(crate) mod bytecode;
 #[cfg(target_arch = "wasm32")]
 mod codec_convert;
 #[cfg(target_arch = "wasm32")]
 mod install;
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod io;
 
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::sys;
@@ -139,15 +138,14 @@ pub struct Kobako {
 
 #[cfg(target_arch = "wasm32")]
 impl Kobako {
-    /// Install the Kobako runtime onto `mrb` — the two `beni::Gem`
-    /// units in `install` (`KobakoBridge`: classes + C bridges, then
-    /// `KobakoIo`: IO globals + Kernel delegators) — and return a
-    /// handle to the resulting class registrations. An `Err` means
-    /// mruby rejected a boot-time registration; the boot path surfaces
-    /// it as a Panic.
+    /// Install the Kobako runtime onto `mrb` — the `KobakoBridge` gem
+    /// (classes + C bridges) plus the sibling `kobako-io` crate's IO /
+    /// Kernel gem — and return a handle to the resulting class
+    /// registrations. An `Err` means mruby rejected a boot-time
+    /// registration; the boot path surfaces it as a Panic.
     pub fn install(mrb: &Mrb) -> Result<Self, crate::mruby::Error> {
         mrb.init_gem::<install::KobakoBridge>()?;
-        mrb.init_gem::<install::KobakoIo>()?;
+        mrb.init_gem::<kobako_io::KobakoIo>()?;
 
         // SAFETY: `KobakoBridge::init` just registered every entity
         // `resolve_raw` looks up, satisfying its install precondition.

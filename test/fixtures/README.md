@@ -12,7 +12,7 @@ Hand-written text-format modules around the B-40 construction-time ABI version c
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
-Each fixture exercises one path of `docs/behavior.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (the same binary `wasm/kobako-wasm/build.rs` uses to precompile `mrblib/*.rb`).
+Each fixture exercises one path of `docs/behavior.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
 
 ### `snippet_answers.mrb` — happy-path bytecode
 

@@ -25,7 +25,7 @@
 //! EOF on stdin is the normal exit path (clean shutdown, status 0). Any
 //! IO error is fatal (status 1).
 //!
-//! No third-party deps — only the kobako-wasm codec and `std`.
+//! No third-party deps — only the kobako-core codec and `std`.
 
 use std::io::{self, Read, Write};
 

@@ -1,31 +1,18 @@
-//! The two `beni::Gem` units behind `super::Kobako::install`.
+//! The `KobakoBridge` gem behind `super::Kobako::install`.
 //!
-//! `KobakoBridge` registers the class hierarchy + C bridges;
-//! `KobakoIo` wires the IO globals and Kernel delegators. Splitting
-//! along that line mirrors the planned guest-crate shape: the bridge
-//! gem is the one built-in a future published `kobako` crate carries,
-//! while the IO surface belongs to this shell (the mruby-io
-//! precedent). `Mrb::init_gem` owns the panic boundary around each
-//! `init`.
+//! Registers the Kobako class hierarchy + C bridges. The IO surface
+//! is the sibling `kobako-io` crate's gem, composed alongside this
+//! one by `super::Kobako::install`. `Mrb::init_gem` owns the panic
+//! boundary around each `init`.
 //!
 //! The helpers are crate-private and wasm32-only by design — they
-//! exist solely to support the wasm32 install path; the host target
-//! never calls them because `super::Kobako` short-circuits to the
-//! empty stub there.
-//!
-//! Keeps the façade (`super::Kobako`) lean by housing the bulk of the
-//! boot wiring in sibling files like this one — the same
-//! one-thing-per-file split the crate uses elsewhere.
+//! exist solely to support the wasm32 install path.
 
 #[cfg(target_arch = "wasm32")]
 use crate::mruby::{Error, Gem, Module, Mrb, Object};
 
 #[cfg(target_arch = "wasm32")]
 use super::bridges;
-#[cfg(target_arch = "wasm32")]
-use super::bytecode;
-#[cfg(target_arch = "wasm32")]
-use super::io;
 
 /// The Kobako module / class hierarchy and its C bridges — the unit a
 /// future published `kobako` crate ships as its one built-in gem.
@@ -39,23 +26,6 @@ pub(super) struct KobakoBridge;
 impl Gem for KobakoBridge {
     fn init(mrb: &Mrb) -> Result<(), Error> {
         install_kobako_classes(mrb)
-    }
-}
-
-/// The sandbox IO surface — `::IO`, `STDOUT` / `STDERR`, `$stdout` /
-/// `$stderr`, and the Kernel delegators. Shell-owned (not part of the
-/// bridge gem), following the mruby-io precedent. Order inside `init`
-/// matters: the delegators look up the globals at call time, so the
-/// globals must be wired first.
-#[cfg(target_arch = "wasm32")]
-pub(super) struct KobakoIo;
-
-#[cfg(target_arch = "wasm32")]
-impl Gem for KobakoIo {
-    fn init(mrb: &Mrb) -> Result<(), Error> {
-        install_io_globals(mrb)?;
-        install_kernel_delegators(mrb);
-        Ok(())
     }
 }
 
@@ -182,51 +152,4 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
 
     Ok(())
-}
-
-/// Register the top-level `::IO` class (constructor + `#write` /
-/// `#fileno` C bridges and the `mrblib/io.rb` instance-method surface)
-/// then construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr`
-/// to them. Guests can reassign either global at script time, which
-/// is the whole point of routing through the kernel delegators that
-/// load next.
-#[cfg(target_arch = "wasm32")]
-fn install_io_globals(mrb: &Mrb) -> Result<(), Error> {
-    // Top-level `::IO` class. Registers the constructor + `#write` /
-    // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
-    // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
-    // `#<<`, etc.) in pure Ruby. The `#write` bridge calls wasi-libc's
-    // `write(2)` directly on the stored fd (1 = stdout, 2 = stderr)
-    // (docs/behavior.md B-04).
-    io::install(mrb)?;
-
-    use crate::mruby::IntoValue;
-    let io_class = mrb.class_get(c"IO")?;
-    let mode_str = mrb.str_new_cstr(c"w");
-    let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
-    let stderr_val = io_class.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);
-
-    mrb.define_global_const(c"STDOUT", stdout_val);
-    mrb.define_global_const(c"STDERR", stderr_val);
-
-    let stdout_gvar = mrb.intern_cstr(c"$stdout");
-    let stderr_gvar = mrb.intern_cstr(c"$stderr");
-    mrb.gv_set(stdout_gvar, stdout_val);
-    mrb.gv_set(stderr_gvar, stderr_val);
-    Ok(())
-}
-
-/// Load the precompiled `mrblib/kernel.rb` bytecode. The blob
-/// redefines `Kernel#print` (overriding mruby-core's `mrb_print_m`
-/// registration that always targets the C `stdout` FILE*) and adds
-/// `#puts` / `#p` / `#printf` / `#warn` as thin pass-throughs to
-/// `$stdout` / `$stderr`. Must run after `install_io_globals` —
-/// the delegators look up the globals at call time but would
-/// NoMethodError if called before they exist.
-///
-/// The bytecode blob is a `'static` `&[u8]` produced at build time
-/// by mrbc.
-#[cfg(target_arch = "wasm32")]
-fn install_kernel_delegators(mrb: &Mrb) {
-    bytecode::load(mrb, bytecode::KERNEL_MRB);
 }
