@@ -28,7 +28,7 @@ use crate::mruby::Value;
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability stack of guest-supplied block
-/// `mrb_value`s. Modelled after the kobako-core `OutcomeBuffer`
+/// `mrb_value`s. Modelled after the sibling `super::mrb_slot::MrbSlot`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
 #[cfg(target_arch = "wasm32")]

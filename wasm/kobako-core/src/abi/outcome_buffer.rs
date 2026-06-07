@@ -4,8 +4,6 @@
 //! The buffer is a static `Vec<u8>` written once per `__kobako_eval` /
 //! `__kobako_run` invocation, then read by the host through
 //! `__kobako_take_outcome` before the next invocation overwrites it.
-//! The single-threaded wasm execution model guarantees the buffer is
-//! never accessed concurrently inside a single wasm instance.
 //!
 //! `alloc` is the companion guest allocator behind `__kobako_alloc` —
 //! the host calls that export from inside the `__kobako_dispatch`
@@ -15,78 +13,37 @@
 //! emitted by `export_guest!` in the shell crate; these are the plain
 //! functions they delegate to.
 
-#[cfg(target_arch = "wasm32")]
 use crate::codec::Encode;
-#[cfg(target_arch = "wasm32")]
 use crate::outcome::{Outcome, Panic};
 
-#[cfg(target_arch = "wasm32")]
-use super::pack_u64;
-
-#[cfg(target_arch = "wasm32")]
-use core::cell::UnsafeCell;
-
-/// Single-threaded interior-mutability wrapper for the per-invocation
-/// outcome buffer. The `static mut Vec<u8>` shape is wrong twice over
-/// (the Rust 2024 lints push toward `&raw` reborrows; the simpler
-/// model is "this is a cell that wasm32 can mutate from a `&self`
-/// view") — wrap once, document the single-threaded contract once,
-/// stop sprinkling `unsafe` across the entry points.
-#[cfg(target_arch = "wasm32")]
-struct OutcomeBuffer(UnsafeCell<Vec<u8>>);
-
-#[cfg(target_arch = "wasm32")]
-impl OutcomeBuffer {
-    const fn new() -> Self {
-        Self(UnsafeCell::new(Vec::new()))
-    }
-
-    /// Replace the stored bytes. The writer is the wasm32-only
-    /// invocation entry body; the reader is `take_outcome`. Host
-    /// serialisation guarantees the two never run concurrently, so the
-    /// interior `&mut` taken here cannot alias the slice surfaced via
-    /// `Self::as_slice`.
-    fn write(&self, bytes: Vec<u8>) {
-        // SAFETY: see type doc — single-threaded wasm execution + host
-        // serialisation around `__kobako_take_outcome` guarantee no
-        // aliasing.
-        unsafe { *self.0.get() = bytes };
-    }
-
-    /// Borrow the stored bytes. Pointer arithmetic on the result is
-    /// the host's contract: the returned slice lives until the next
-    /// `Self::write` in the same wasm instance.
-    fn as_slice(&self) -> &[u8] {
-        // SAFETY: see type doc.
-        unsafe { &*self.0.get() }
-    }
-}
-
-// SAFETY: wasm32 is single-threaded; the buffer is never observed
-// from more than one logical owner at a time inside a wasm instance.
-// `static` requires `Sync` regardless of whether anyone could
-// actually contend for it on this target.
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for OutcomeBuffer {}
+use std::sync::Mutex;
 
 /// Static outcome buffer — written once per invocation, consumed once
-/// by `take_outcome`. Protected by the single-threaded wasm execution
-/// model.
-#[cfg(target_arch = "wasm32")]
-static OUTCOME_BUFFER: OutcomeBuffer = OutcomeBuffer::new();
+/// by `take_outcome`. The `Mutex` keeps the static a sound safe API on
+/// every target; on wasm32 (single-threaded, the production target)
+/// the lock is uncontended by construction.
+static OUTCOME_BUFFER: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
+/// Lock the buffer, absorbing poisoning: the guest builds with
+/// `panic = "abort"` so a poisoned lock is unobservable there, and on
+/// host targets the stored bytes stay well-formed regardless (writes
+/// replace the whole `Vec`).
+fn lock_buffer() -> std::sync::MutexGuard<'static, Vec<u8>> {
+    OUTCOME_BUFFER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// Write `bytes` into the outcome buffer, replacing whatever was left
 /// from the previous invocation.
-#[cfg(target_arch = "wasm32")]
 pub fn write_outcome(bytes: Vec<u8>) {
-    OUTCOME_BUFFER.write(bytes);
+    *lock_buffer() = bytes;
 }
 
 /// Encode `panic` as an Outcome envelope and stamp it into the
 /// outcome buffer. If encoding itself fails, the buffer stays
 /// empty — the host treats `len = 0` as a wire violation and follows
 /// the TrapError path (docs/behavior.md Error Scenarios).
-#[cfg(target_arch = "wasm32")]
 pub fn write_panic(panic: Panic) {
     if let Ok(bytes) = Outcome::Panic(panic).encode() {
         write_outcome(bytes);
@@ -135,18 +92,20 @@ pub fn alloc(size: u32) -> u32 {
 /// `len == 0` is a wire violation (docs/wire-codec.md § ABI
 /// Signatures).
 ///
-/// The buffer is owned by the static `OUTCOME_BUFFER`; the host must
+/// The returned ptr aliases the buffer the static owns; the host must
 /// consume the bytes before the next invocation rebuilds the buffer.
+/// The 32-bit ptr packing only means anything in wasm linear memory,
+/// so the host target returns the 0 stub.
 pub fn take_outcome() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        let bytes = OUTCOME_BUFFER.as_slice();
+        let bytes = lock_buffer();
         if bytes.is_empty() {
             return 0;
         }
         let ptr = bytes.as_ptr() as u32;
         let len = bytes.len() as u32;
-        pack_u64(ptr, len)
+        super::pack_u64(ptr, len)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

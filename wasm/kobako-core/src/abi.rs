@@ -30,9 +30,7 @@
 
 mod outcome_buffer;
 
-pub use outcome_buffer::{alloc, take_outcome};
-#[cfg(target_arch = "wasm32")]
-pub use outcome_buffer::{write_outcome, write_panic};
+pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
 
 /// The Guest ABI version this crate implements, reported through the
 /// `__kobako_abi_version` export `crate::export_guest!` emits. The host

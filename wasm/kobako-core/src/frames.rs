@@ -14,7 +14,6 @@ use crate::codec::{Decoder, Value};
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF or short
 /// read; callers turn that into a Panic envelope.
-#[cfg(target_arch = "wasm32")]
 pub fn read_frame() -> Option<Vec<u8>> {
     use std::io::Read;
     let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
