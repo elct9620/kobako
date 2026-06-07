@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; if rustc --target wasm32-wasip1 --print sysroot >/dev/null 2>&1; then cargo clippy --target wasm32-wasip1 --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace -q -- -D warnings >&2 || exit 2; fi"
+            "command": "cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; cargo clippy --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace --all-targets -q -- -D warnings >&2 || exit 2; if rustc --target wasm32-wasip1 --print sysroot >/dev/null 2>&1 && [ -f \"$CLAUDE_PROJECT_DIR/vendor/mruby/build/wasi/lib/libmruby.a\" ]; then MRUBY_LIB_DIR=\"$CLAUDE_PROJECT_DIR/vendor/mruby/build/wasi/lib\" WASI_SDK_PATH=\"$CLAUDE_PROJECT_DIR/vendor/wasi-sdk\" cargo clippy --target wasm32-wasip1 --manifest-path \"$CLAUDE_PROJECT_DIR/wasm/Cargo.toml\" --workspace -q -- -D warnings >&2 || exit 2; fi"
           },
           {
             "type": "command",
