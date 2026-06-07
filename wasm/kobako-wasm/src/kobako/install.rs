@@ -14,7 +14,8 @@
 //! boot wiring in sibling files like this one — the same
 //! one-thing-per-file split the crate uses elsewhere.
 
-use crate::mruby::sys;
+#[cfg(target_arch = "wasm32")]
+use crate::mruby::{Error, MethodDef, Module, Object};
 
 #[cfg(target_arch = "wasm32")]
 use super::bridges;
@@ -23,16 +24,16 @@ use super::bytecode;
 #[cfg(target_arch = "wasm32")]
 use super::io;
 
-/// Bundle of `crate::mruby::Class` handles produced by
+/// Bundle of `crate::mruby::RClass` handles produced by
 /// `install_kobako_classes`. Internal to the install pipeline —
 /// the caller pulls each handle into the matching field on
 /// `super::Kobako`.
 #[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoClasses {
-    pub(super) member_class: crate::mruby::Class,
-    pub(super) handle_class: crate::mruby::Class,
-    pub(super) service_error_class: crate::mruby::Class,
-    pub(super) transport_error_class: crate::mruby::Class,
+    pub(super) member_class: crate::mruby::RClass,
+    pub(super) handle_class: crate::mruby::RClass,
+    pub(super) service_error_class: crate::mruby::RClass,
+    pub(super) transport_error_class: crate::mruby::RClass,
 }
 
 /// Register the Kobako module, the `Kobako::Transport` namespace, the
@@ -43,15 +44,16 @@ pub(super) struct KobakoClasses {
 /// needs to keep around.
 ///
 /// Function pointers come from `bridges`, the only producer of
-/// `mrb_func_t` in this crate. Class handles produced by
-/// `define_*_under` are owned by mruby and live for the duration of
-/// `mrb`.
+/// `mrb_func_t` in this crate. Class handles produced by the
+/// definition calls are owned by mruby and live for the duration of
+/// `mrb`. An `Err` from any registration aborts the install and
+/// surfaces to the boot path as a Panic.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
+pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> Result<KobakoClasses, Error> {
     let object_class = mrb.object_class();
 
     // Kobako module.
-    let kobako_mod = mrb.define_module(c"Kobako");
+    let kobako_mod = mrb.define_module(c"Kobako")?;
 
     // Kobako::Transport module — host↔guest message namespace shared
     // with the host gem's lib/kobako/transport.rb. Houses the Proxy
@@ -60,7 +62,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // — they are Sandbox-level domain entities (Member: bound-service
     // dispatch; Handle: B-14 service return / B-34 host-side argument
     // auto-wrap) and are not owned by the Transport namespace.
-    let transport_mod = kobako_mod.define_module_under(mrb, c"Transport");
+    let transport_mod = kobako_mod.define_module(mrb, c"Transport")?;
 
     // Kobako::Transport::Proxy — abstract base of `Kobako::Member` and
     // `Kobako::Handle`. It holds no dispatch methods itself; each
@@ -68,7 +70,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // Spell the super class as `mrb.object_class()` to match the
     // mrbgems/mruby-io convention; passing NULL would log "no super class
     // for ..., Object assumed" via mrb_warn on every install.
-    let proxy_class = transport_mod.define_class_under(mrb, c"Proxy", object_class);
+    let proxy_class = transport_mod.define_class(mrb, c"Proxy", object_class)?;
 
     // `Kobako::Member` — base of every bound-Member proxy installed via
     // `Kobako::install_groups`. Member calls arrive class-level (the
@@ -76,46 +78,41 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     // / `respond_to_missing?` are singleton-class methods routing to a
     // `Target::Path` derived from the class name. Subclasses inherit them
     // through the metaclass chain.
-    let member_class = kobako_mod.define_class_under(mrb, c"Member", proxy_class);
+    let member_class = kobako_mod.define_class(mrb, c"Member", proxy_class)?;
     member_class.define_singleton_method(
         mrb,
         c"method_missing",
-        bridges::member_method_missing,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::member_method_missing, -1),
+    )?;
     member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
-        bridges::proxy_respond_to_missing,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::proxy_respond_to_missing, -1),
+    )?;
     // Block both construction entries so the guest cannot instantiate a
     // Member (docs/behavior.md B-38); see `bridges::member_not_constructible`.
     member_class.define_singleton_method(
         mrb,
         c"new",
-        bridges::member_not_constructible,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::member_not_constructible, -1),
+    )?;
     member_class.define_singleton_method(
         mrb,
         c"allocate",
-        bridges::member_not_constructible,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::member_not_constructible, -1),
+    )?;
 
     // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
     // instance-level (a Handle is an instance carrying its id ivar), so
     // `method_missing` / `respond_to_missing?` are instance methods
     // routing to a `Target::Handle` derived from the id, and `initialize`
     // stores that id.
-    let handle_class = kobako_mod.define_class_under(mrb, c"Handle", proxy_class);
+    let handle_class = kobako_mod.define_class(mrb, c"Handle", proxy_class)?;
     handle_class.define_method(
         mrb,
         c"initialize",
-        bridges::handle_initialize,
-        sys::mrb_args_req(1),
-    );
+        MethodDef::new(bridges::handle_initialize, 1),
+    )?;
     // Block both construction entries so the guest cannot fabricate a
     // Handle from a bare id (docs/behavior.md B-39); see
     // `bridges::handle_not_constructible`. The wire decoder's restoration
@@ -124,52 +121,46 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
     handle_class.define_singleton_method(
         mrb,
         c"new",
-        bridges::handle_not_constructible,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::handle_not_constructible, -1),
+    )?;
     handle_class.define_singleton_method(
         mrb,
         c"allocate",
-        bridges::handle_not_constructible,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::handle_not_constructible, -1),
+    )?;
     handle_class.define_method(
         mrb,
         c"method_missing",
-        bridges::handle_method_missing,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::handle_method_missing, -1),
+    )?;
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
-        bridges::proxy_respond_to_missing,
-        sys::mrb_args_any(),
-    );
+        MethodDef::new(bridges::proxy_respond_to_missing, -1),
+    )?;
 
     // `Kobako::ServiceError` / `Kobako::Transport::Error` /
     // `Kobako::BytecodeError` — all subclass `RuntimeError`.
     // ServiceError and BytecodeError stay at the Kobako top level
     // (public API); Error lives under Transport since it is a
     // transport-layer fault.
-    let runtime_error_class = mrb.class_get(c"RuntimeError");
-    let service_error_class =
-        kobako_mod.define_class_under(mrb, c"ServiceError", runtime_error_class);
-    let transport_error_class =
-        transport_mod.define_class_under(mrb, c"Error", runtime_error_class);
+    let runtime_error_class = mrb.class_get(c"RuntimeError")?;
+    let service_error_class = kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
+    let transport_error_class = transport_mod.define_class(mrb, c"Error", runtime_error_class)?;
     // `Kobako::BytecodeError` is registered here so guest code can
     // raise it by name; the class handle is not cached on
     // `KobakoClasses` because no compile-time-known call site reads
     // it yet — the snippet-replay path that uses it
     // ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
     // looks the class up lazily.
-    kobako_mod.define_class_under(mrb, c"BytecodeError", runtime_error_class);
+    kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
 
-    KobakoClasses {
+    Ok(KobakoClasses {
         member_class,
         handle_class,
         service_error_class,
         transport_error_class,
-    }
+    })
 }
 
 /// Register the top-level `::IO` class (constructor + `#write` /
@@ -179,17 +170,17 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> KobakoClasses {
 /// is the whole point of routing through the kernel delegators that
 /// load next.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
+pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
     // Top-level `::IO` class. Registers the constructor + `#write` /
     // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
     // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
     // `#<<`, etc.) in pure Ruby. The `#write` bridge calls wasi-libc's
     // `write(2)` directly on the stored fd (1 = stdout, 2 = stderr)
     // (docs/behavior.md B-04).
-    io::install(mrb);
+    io::install(mrb)?;
 
     use crate::mruby::IntoValue;
-    let io_class = mrb.class_get(c"IO");
+    let io_class = mrb.class_get(c"IO")?;
     let mode_str = mrb.str_new_cstr(c"w");
     let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
     let stderr_val = io_class.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);
@@ -201,6 +192,7 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) {
     let stderr_gvar = mrb.intern_cstr(c"$stderr");
     mrb.gv_set(stdout_gvar, stdout_val);
     mrb.gv_set(stderr_gvar, stderr_val);
+    Ok(())
 }
 
 /// Load the precompiled `mrblib/kernel.rb` bytecode. The blob

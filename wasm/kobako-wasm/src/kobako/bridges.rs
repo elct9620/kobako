@@ -45,7 +45,7 @@
 //! explicit `unsafe { ... }` blocks at each remaining FFI call site.
 
 use crate::mruby::sys;
-use crate::mruby::Value;
+use crate::mruby::{Module, Value};
 
 /// Full guest→host dispatch from the active mruby call frame — the
 /// shared body of the two `method_missing` bridges. The caller supplies
@@ -120,7 +120,7 @@ pub(crate) unsafe extern "C" fn member_method_missing(
 
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
-    let class = crate::mruby::Class::from_raw(unsafe { self_.as_class_ptr() });
+    let class = crate::mruby::RClass::from_raw(unsafe { self_.as_class_ptr() });
     let target_str = match class.name(kobako.mrb()) {
         Some(name) => name,
         None => unsafe {
@@ -150,10 +150,12 @@ pub(crate) unsafe extern "C" fn member_not_constructible(
 ) -> Value {
     // SAFETY: bridge contract — `mrb` is live for the call.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let nomethod = mrb_ref.class_get(c"NoMethodError");
+    let nomethod = mrb_ref
+        .class_get(c"NoMethodError")
+        .expect("NoMethodError is an mruby core class");
     // SAFETY: `self_` is the Member class receiver of a singleton-class
     // method — class-tagged by mruby itself.
-    let class = crate::mruby::Class::from_raw(unsafe { self_.as_class_ptr() });
+    let class = crate::mruby::RClass::from_raw(unsafe { self_.as_class_ptr() });
     let message = match class.name(mrb_ref) {
         Some(name) => std::ffi::CString::new(format!(
             "{name} is a Kobako Member (a dispatch target), not a constructible class"
@@ -180,7 +182,9 @@ pub(crate) unsafe extern "C" fn handle_not_constructible(
 ) -> Value {
     // SAFETY: bridge contract — `mrb` is live for the call.
     let mrb_ref = unsafe { crate::mruby::Mrb::borrow_raw(&mrb) };
-    let nomethod = mrb_ref.class_get(c"NoMethodError");
+    let nomethod = mrb_ref
+        .class_get(c"NoMethodError")
+        .expect("NoMethodError is an mruby core class");
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
     unsafe {
         nomethod.raise(

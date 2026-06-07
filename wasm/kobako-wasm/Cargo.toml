@@ -33,15 +33,16 @@ crate-type = ["cdylib", "rlib"]
 # layers the mruby implementation on top.
 kobako-core = { path = "../kobako-core" }
 
-# `mruby` — typed Rust wrapper crate over the mruby C API. Re-exports
-# the underlying `mruby-sys` FFI through its `sys` namespace, so
-# `crate::mruby::sys::*` resolves to the raw bindgen surface and
-# typed entry points (`Mrb`, `Ccontext`, `Value`, `Class`, the
-# `format::*` ZST markers, `IntoValue` / `FromValue` / `Format`
-# traits, …) come through `mruby::*` directly. `mruby-sys` reaches
-# the dependency graph transitively through `mruby`; no direct entry
-# is needed here.
-mruby = { path = "../mruby" }
+# `beni` — typed Rust wrapper crate over the mruby C API (extracted
+# from this repository). Re-exports the underlying `beni-sys` FFI
+# through its `sys` namespace, so `crate::mruby::sys::*` resolves to
+# the raw bindgen surface and typed entry points (`Mrb`, `Ccontext`,
+# `Value`, `RClass`, the `format::*` ZST markers, `IntoValue` /
+# `FromValue` / `Format` / `Module` / `Object` traits, …) come
+# through `beni::*` directly. `beni-sys` reaches the dependency graph
+# transitively; archive discovery reads `MRUBY_LIB_DIR` +
+# `WASI_SDK_PATH` (exported by `rake wasm:build`).
+beni = "0.1.0"
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so both members share the same wasm size hygiene tuning.

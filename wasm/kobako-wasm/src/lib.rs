@@ -14,14 +14,12 @@
 //!   installs the `Kobako` module / `Kobako::Transport` / `Kobako::Handle` /
 //!   exception classes on an mruby VM and registers the C-bridges in
 //!   its `bridges` submodule. No Ruby boot text.
-//! * `mruby` — thin façade re-exporting the mruby C-API binding from
-//!   the sibling `mruby-sys` crate. Both the raw FFI surface
-//!   (`mruby::sys`) and every safe wrapper (`Mrb`, `Ccontext`, the
-//!   typed `Value` / `Class` newtypes, `cstr_ptr`) now live in that
-//!   crate; this module forwards the existing `use crate::mruby::*`
-//!   call-site shape until the consumer code adopts the longer
-//!   `crate::mruby::sys::*` paths everywhere, at which point the
-//!   façade collapses.
+//! * `mruby` — thin façade re-exporting the typed mruby surface from
+//!   the published `beni` crate. Both the raw FFI surface
+//!   (`mruby::sys`, backed by `beni-sys`) and every safe wrapper
+//!   (`Mrb`, `Ccontext`, the typed `Value` / `RClass` newtypes, the
+//!   `Module` / `Object` traits) live in that crate; this module
+//!   keeps the established `use crate::mruby::*` call-site shape.
 //!
 //! The crate uses `std` on every target. `wasm32-wasip1` (the production
 //! target — see SPEC.md "Implementation Standards" Architecture) ships a

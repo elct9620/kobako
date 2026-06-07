@@ -18,6 +18,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "beni"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e2f6557ca21f0674d7c78c8ed74efde1de9ae9c7a2a61fc895ed9112baf41ce"
+dependencies = [
+ "beni-sys",
+]
+
+[[package]]
+name = "beni-sys"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d303a6e091f0dca9a2036cf9de6db44fae15c98bb305076503dfbe2cf7053602"
+dependencies = [
+ "bindgen",
+ "cc",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -117,8 +136,8 @@ dependencies = [
 name = "kobako-wasm"
 version = "0.0.0"
 dependencies = [
+ "beni",
  "kobako-core",
- "mruby",
 ]
 
 [[package]]
@@ -154,21 +173,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "mruby"
-version = "0.0.0"
-dependencies = [
- "mruby-sys",
-]
-
-[[package]]
-name = "mruby-sys"
-version = "0.0.0"
-dependencies = [
- "bindgen",
- "cc",
-]
 
 [[package]]
 name = "nom"

@@ -60,16 +60,21 @@ use kobako_core::transport::proxy::ExceptionPayload;
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
 /// Failures returned by `Kobako::install_groups` when a preamble entry
-/// carries a name that cannot be passed through the mruby C API (which
-/// expects NUL-terminated strings). wasm32-only because the preamble
-/// install path itself is wasm32-only.
+/// cannot be registered — a name that cannot pass through the mruby C
+/// API (which expects NUL-terminated strings), or a registration mruby
+/// itself rejected. wasm32-only because the preamble install path
+/// itself is wasm32-only.
 #[cfg(target_arch = "wasm32")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallGroupsError {
     /// A Group name contained an interior NUL byte.
     NulInGroupName,
     /// A Member name contained an interior NUL byte.
     NulInMemberName,
+    /// mruby rejected the module / class registration (e.g. a name
+    /// that is not a valid constant); carries the rendered exception
+    /// message.
+    Rejected(String),
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -81,6 +86,9 @@ impl std::fmt::Display for InstallGroupsError {
             }
             InstallGroupsError::NulInMemberName => {
                 f.write_str("member name contains an invalid character")
+            }
+            InstallGroupsError::Rejected(msg) => {
+                write!(f, "namespace registration rejected: {msg}")
             }
         }
     }
@@ -116,10 +124,10 @@ pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Member` base class — parent of every bound Member proxy
     /// installed via `Kobako::install_groups`.
-    member_class: crate::mruby::Class,
-    handle_class: crate::mruby::Class,
-    service_error_class: crate::mruby::Class,
-    transport_error_class: crate::mruby::Class,
+    member_class: crate::mruby::RClass,
+    handle_class: crate::mruby::RClass,
+    service_error_class: crate::mruby::RClass,
+    transport_error_class: crate::mruby::RClass,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -135,19 +143,20 @@ impl Kobako {
     /// the resulting class registrations. Order matters:
     /// +install_kernel_delegators+ looks up `$stdout` / `$stderr` at
     /// call time, so +install_io_globals+ must wire those globals
-    /// first.
-    pub fn install(mrb: &Mrb) -> Self {
-        let classes = install::install_kobako_classes(mrb);
-        install::install_io_globals(mrb);
+    /// first. An `Err` means mruby rejected a boot-time registration;
+    /// the boot path surfaces it as a Panic.
+    pub fn install(mrb: &Mrb) -> Result<Self, crate::mruby::Error> {
+        let classes = install::install_kobako_classes(mrb)?;
+        install::install_io_globals(mrb)?;
         install::install_kernel_delegators(mrb);
 
-        Self {
+        Ok(Self {
             mrb: mrb.as_ptr(),
             member_class: classes.member_class,
             handle_class: classes.handle_class,
             service_error_class: classes.service_error_class,
             transport_error_class: classes.transport_error_class,
-        }
+        })
     }
 
     /// Resolve the class handles produced by a prior install, from a
@@ -165,17 +174,25 @@ impl Kobako {
     /// the install precondition by construction (they are invoked
     /// through registrations done at install time).
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
+        use crate::mruby::Module;
+
         // SAFETY: `mrb` is live by the function's safety contract.
         // `mrb_define_module` is idempotent (returns the existing
-        // module if already registered); `class_get_under` returns
-        // the already-registered class produced by `install`.
+        // module if already registered); each `class_get` returns the
+        // already-registered class produced by `install`, so every
+        // `expect` below is the install precondition restated.
+        const INSTALLED: &str = "Kobako::install registered this entity";
         let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
-        let kobako_mod = mrb_ref.define_module(c"Kobako");
-        let transport_mod = kobako_mod.define_module_under(mrb_ref, c"Transport");
-        let member_class = kobako_mod.class_get_under(mrb_ref, c"Member");
-        let handle_class = kobako_mod.class_get_under(mrb_ref, c"Handle");
-        let service_error_class = kobako_mod.class_get_under(mrb_ref, c"ServiceError");
-        let transport_error_class = transport_mod.class_get_under(mrb_ref, c"Error");
+        let kobako_mod = mrb_ref.define_module(c"Kobako").expect(INSTALLED);
+        let transport_mod = kobako_mod
+            .define_module(mrb_ref, c"Transport")
+            .expect(INSTALLED);
+        let member_class = kobako_mod.class_get(mrb_ref, c"Member").expect(INSTALLED);
+        let handle_class = kobako_mod.class_get(mrb_ref, c"Handle").expect(INSTALLED);
+        let service_error_class = kobako_mod
+            .class_get(mrb_ref, c"ServiceError")
+            .expect(INSTALLED);
+        let transport_error_class = transport_mod.class_get(mrb_ref, c"Error").expect(INSTALLED);
         Self {
             mrb,
             member_class,
@@ -193,15 +210,21 @@ impl Kobako {
         &self,
         preamble: &[(String, Vec<String>)],
     ) -> Result<(), InstallGroupsError> {
+        use crate::mruby::Module;
+
         let mrb = self.mrb();
         for (group_name, members) in preamble {
             let group_cstr = std::ffi::CString::new(group_name.as_str())
                 .map_err(|_| InstallGroupsError::NulInGroupName)?;
-            let group_mod = mrb.define_module(&group_cstr);
+            let group_mod = mrb
+                .define_module(&group_cstr)
+                .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
             for member_name in members {
                 let member_cstr = std::ffi::CString::new(member_name.as_str())
                     .map_err(|_| InstallGroupsError::NulInMemberName)?;
-                group_mod.define_class_under(mrb, &member_cstr, self.member_class);
+                group_mod
+                    .define_class(mrb, &member_cstr, self.member_class)
+                    .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
             }
         }
         Ok(())
@@ -320,7 +343,7 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     pub fn top_level_constants(&self) -> Vec<String> {
         // SAFETY: `mrb->object_class` lives until `mrb_close`; the
-        // shim behind `Class::as_value` reuses mruby's own boxing
+        // shim behind `RClass::as_value` reuses mruby's own boxing
         // logic.
         let object_value = unsafe { self.mrb().object_class().as_value(self.mrb()) };
         let consts = object_value.call(self.mrb(), c"constants", &[]);

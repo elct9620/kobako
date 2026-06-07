@@ -63,9 +63,11 @@ module KobakoWasm
     end
 
     # Every workspace member feeds the cdylib (kobako-wasm links
-    # kobako-core, mruby, and mruby-sys as path dependencies), so the
-    # input glob spans all member crates, not just the shell. mrblib/*.rb
-    # is precompiled by build.rs via mrbc and counts as an input too.
+    # kobako-core as a path dependency), so the input glob spans all
+    # member crates, not just the shell. mrblib/*.rb is precompiled by
+    # build.rs via mrbc and counts as an input too. The `beni` wrapper
+    # arrives from crates.io, so dependency bumps surface through
+    # Cargo.toml — already in the glob.
     def input_files
       member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
       files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))

@@ -29,29 +29,30 @@
 //! to route to.
 
 use crate::mruby::sys;
-use crate::mruby::Value;
+use crate::mruby::{Error, MethodDef, Module, Value};
 
 /// Install the top-level `::IO` class on `mrb` and load the
 /// `mrblib/io.rb` instance-method surface. Idempotent (re-running this
 /// against an already-installed state just re-defines the methods,
 /// which is harmless given mruby's last-write-wins semantics).
-pub(crate) fn install(mrb: &crate::mruby::Mrb) {
+pub(crate) fn install(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
     // Spell `Object` as the super class via the canonical
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`
     // line 2241). Passing a NULL super to `mrb_define_class` makes
     // mruby emit `"no super class for 'IO', Object assumed"` via
     // `mrb_warn` on every install, leaking onto the guest `stderr`
     // capture pipe (docs/behavior.md B-04).
-    let io_class = mrb.define_class(c"IO", mrb.object_class());
+    let io_class = mrb.define_class(c"IO", mrb.object_class())?;
 
-    io_class.define_method(mrb, c"initialize", io_initialize, sys::mrb_args_req(2));
-    io_class.define_method(mrb, c"write", io_write, sys::mrb_args_any());
-    io_class.define_method(mrb, c"fileno", io_fileno, sys::mrb_args_none());
+    io_class.define_method(mrb, c"initialize", MethodDef::new(io_initialize, 2))?;
+    io_class.define_method(mrb, c"write", MethodDef::new(io_write, -1))?;
+    io_class.define_method(mrb, c"fileno", MethodDef::new(io_fileno, 0))?;
 
     // Load the Ruby-level instance methods (#print / #puts / #printf
     // / #p / #<< / #tty? / #sync / #sync= / #flush / #closed?,
     // plus the `to_i` alias).
     crate::kobako::bytecode::load(mrb, crate::kobako::bytecode::IO_MRB);
+    Ok(())
 }
 
 /// `IO.new(fd, mode)` — initialize a sandbox-scoped IO bound to a
@@ -134,7 +135,7 @@ pub(crate) unsafe extern "C" fn io_write(mrb: *mut sys::mrb_state, self_: Value)
 unsafe extern "C" {
     /// wasi-libc `write(2)` syscall. Declared locally because this
     /// is a libc concern, not a mruby concern — keeping it out of
-    /// `mruby-sys`' public surface preserves that crate's
+    /// `beni-sys`' public surface preserves that crate's
     /// mruby-only scope. wasm32-wasip1 auto-links wasi-libc, so
     /// the symbol resolves at link time.
     fn write(fd: core::ffi::c_int, buf: *const core::ffi::c_void, n: usize) -> isize;
@@ -173,7 +174,9 @@ fn read_fd(mrb: &crate::mruby::Mrb, self_: Value) -> i32 {
 ///
 /// Only callable from contexts that mruby may unwind from (C bridges).
 unsafe fn raise_argument_error(mrb: &crate::mruby::Mrb, msg: &core::ffi::CStr) -> ! {
-    let cls = mrb.class_get(c"ArgumentError");
+    let cls = mrb
+        .class_get(c"ArgumentError")
+        .expect("ArgumentError is an mruby core class");
     // SAFETY: bridge frame — caller upholds the unwind contract.
     unsafe { cls.raise(mrb, msg) };
 }

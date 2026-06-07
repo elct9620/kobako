@@ -115,7 +115,13 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21.
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
-        Err(exc) => classify_protected_error(&kobako, mrb, exc, enter_idx),
+        Err(crate::mruby::Error::Exception(exc)) => {
+            classify_protected_error(&kobako, mrb, exc, enter_idx)
+        }
+        // A Rust panic inside the protected closure can only surface
+        // here under unwinding panics; the guest builds with
+        // `panic = "abort"`, so this arm is unreachable in production.
+        Err(crate::mruby::Error::Panic(_)) => std::process::abort(),
     };
     write_yield_buffer(&bytes)
 }

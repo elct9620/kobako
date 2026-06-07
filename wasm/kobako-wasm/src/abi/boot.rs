@@ -106,13 +106,21 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
         let mrb = super::mrb_slot::MRB
             .as_ref()
             .expect("MRB just installed above");
-        let kobako = Kobako::install(mrb);
+        let kobako = Kobako::install(mrb).map_err(|e| {
+            boot_panic(format!(
+                "Sandbox boot registration failed: {}",
+                e.message(mrb)
+            ))
+        })?;
         kobako.install_groups(preamble).map_err(|err| match err {
             InstallGroupsError::NulInGroupName => {
                 boot_panic("namespace name contains an invalid character")
             }
             InstallGroupsError::NulInMemberName => {
                 boot_panic("member name contains an invalid character")
+            }
+            InstallGroupsError::Rejected(ref msg) => {
+                boot_panic(format!("namespace registration rejected: {msg}"))
             }
         })?;
         Ok(kobako)

@@ -17,8 +17,9 @@ module KobakoWasm
   ROOT = File.expand_path("../..", __dir__)
   # `wasm/` is a cargo sub-workspace whose members share a single
   # `target/` directory at the workspace root. `kobako-wasm` is the
-  # cdylib-bearing shell; its siblings (`kobako-core`, `mruby`,
-  # `mruby-sys`) are path dependencies with no separate artifact.
+  # cdylib-bearing shell; its sibling `kobako-core` is a path
+  # dependency with no separate artifact, and the mruby wrapper comes
+  # from the published `beni` crate.
   WASM_WORKSPACE_DIR = File.join(ROOT, "wasm").freeze
   CRATE_DIR  = File.join(WASM_WORKSPACE_DIR, "kobako-wasm").freeze
   MANIFEST   = File.join(CRATE_DIR, "Cargo.toml").freeze
