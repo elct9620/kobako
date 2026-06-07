@@ -26,7 +26,6 @@
 //! `ArgumentError` immediately; the sandbox has no other captured fds
 //! to route to.
 
-use beni::sys;
 use beni::{format, FromValue, IntoValue, Mrb, Value};
 
 /// Install the IO surface on `mrb` — the top-level `::IO` class with
@@ -203,13 +202,10 @@ fn io_puts(mrb: &Mrb, self_: Value) -> Value {
 /// `to_s`-coerced, written, and newline-terminated unless the string
 /// already ends with one.
 fn puts_one(mrb: &Mrb, self_: Value, val: Value) {
-    // Gate on the value's type tag, not its classname: `MRB_TT_ARRAY`
+    // Downcast on the value's type tag, not its classname: the tag
     // covers Array subclasses too, matching the `is_a?(Array)` check
     // the mrblib predecessor made.
-    // SAFETY: `mrb_type` only reads the value's tag.
-    if unsafe { sys::mrb_type(val.as_raw()) } == sys::MRB_TT_ARRAY {
-        // SAFETY: the tag gate proves the value is Array-tagged.
-        let ary = unsafe { beni::Array::from_value_unchecked(val) };
+    if let Some(ary) = beni::Array::from_value(val) {
         let len = collection_len(mrb, val);
         for i in 0..len {
             puts_one(mrb, self_, ary.entry(i as isize));
