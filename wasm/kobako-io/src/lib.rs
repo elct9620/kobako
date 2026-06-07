@@ -26,18 +26,18 @@ use beni::{Error, Gem, Mrb};
 
 /// The sandbox IO surface as an installable `beni::Gem`.
 ///
-/// Install order inside `init` matters: the Kernel delegators look up
-/// `$stdout` / `$stderr` at call time, so the `IO` class and the
-/// globals are wired before the delegators register.
+/// Initialization order inside `init` matters: the Kernel delegators
+/// look up `$stdout` / `$stderr` at call time, so the `IO` class and
+/// the globals are wired before the delegators register.
 pub struct KobakoIo;
 
 impl Gem for KobakoIo {
     fn init(mrb: &Mrb) -> Result<(), Error> {
         #[cfg(mruby_linked)]
         {
-            io::install(mrb)?;
-            io::install_globals(mrb)?;
-            kernel::install(mrb)?;
+            io::init(mrb)?;
+            io::init_globals(mrb)?;
+            kernel::init(mrb)?;
             Ok(())
         }
         #[cfg(not(mruby_linked))]

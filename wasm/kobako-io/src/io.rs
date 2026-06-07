@@ -26,10 +26,11 @@ use beni::sys;
 use beni::{format, FromValue, IntoValue, Mrb, Value};
 
 /// Install the top-level `::IO` class on `mrb` and register the full
-/// instance-method surface. Idempotent (re-running against an
-/// already-installed state just re-defines the methods, which is
+/// instance-method surface — the gem-init step named after mruby's
+/// own `mrb_init_io`. Idempotent (re-running against an
+/// already-initialized state just re-defines the methods, which is
 /// harmless given mruby's last-write-wins semantics).
-pub(crate) fn install(mrb: &Mrb) -> Result<(), beni::Error> {
+pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     use beni::Module;
 
     // Spell `Object` as the super class via the canonical
@@ -68,8 +69,8 @@ pub(crate) fn install(mrb: &Mrb) -> Result<(), beni::Error> {
 /// Construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr` to
 /// them. Guests can reassign either global at script time, which is
 /// the whole point of routing through the Kernel delegators that
-/// `crate::kernel::install` registers afterwards.
-pub(crate) fn install_globals(mrb: &Mrb) -> Result<(), beni::Error> {
+/// `crate::kernel::init` registers afterwards.
+pub(crate) fn init_globals(mrb: &Mrb) -> Result<(), beni::Error> {
     let io_class = mrb.class_get(c"IO")?;
     let mode_str = mrb.str_new_cstr(c"w");
     let stdout_val = io_class.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);

@@ -15,8 +15,9 @@
 
 use beni::{format, Module, Mrb, Value};
 
-/// Register the six private Kernel delegators.
-pub(crate) fn install(mrb: &Mrb) -> Result<(), beni::Error> {
+/// Register the six private Kernel delegators — the gem-init step
+/// named after mruby's own `mrb_init_kernel`.
+pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let kernel = mrb.define_module(c"Kernel")?;
     kernel.define_private_method(mrb, c"print", beni::method!(kernel_print, -1))?;
     kernel.define_private_method(mrb, c"puts", beni::method!(kernel_puts, -1))?;
