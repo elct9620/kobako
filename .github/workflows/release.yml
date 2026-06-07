@@ -76,7 +76,7 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: wasm/kobako-wasm
-      - name: Build Guest Binary (chains vendor:setup + mruby:build + wasm:build)
+      - name: Build Guest Binary (chains beni:build + wasm:build)
         run: bundle exec rake wasm:build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

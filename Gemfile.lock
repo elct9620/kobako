@@ -10,6 +10,8 @@ GEM
   specs:
     ast (2.4.3)
     benchmark-ips (2.15.1)
+    beni (0.1.0)
+      rake (~> 13.0)
     concurrent-ruby (1.3.6)
     csv (3.3.5)
     date (3.5.1)
@@ -110,7 +112,6 @@ GEM
       unicode-emoji (~> 4.1)
     unicode-emoji (4.2.0)
     uri (1.1.1)
-    webrick (1.9.2)
 
 PLATFORMS
   arm64-darwin-24
@@ -118,6 +119,7 @@ PLATFORMS
 
 DEPENDENCIES
   benchmark-ips (~> 2.15)
+  beni (~> 0.1)
   irb
   kobako!
   minitest (~> 6.0)
@@ -125,11 +127,11 @@ DEPENDENCIES
   rake-compiler
   rubocop (~> 1.86)
   steep (~> 2.0)
-  webrick (~> 1.8)
 
 CHECKSUMS
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   benchmark-ips (2.15.1) sha256=07a1a9f3c6105ecaf68c174fc3fbcddd71a0e9ada6236ae03093a0dcfd812d59
+  beni (0.1.0) sha256=748996abb24c9d9d18340ee018f8e0ed00836c6a2319fa2efb446c5f4e4cc6b3
   bundler (4.0.12) sha256=7f8b757d28dfb636e7b24fba2344ac6dd13b5b24f4b46d62573d483f211825ac
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   csv (3.3.5) sha256=6e5134ac3383ef728b7f02725d9872934f523cb40b961479f69cf3afa6c8e73f
@@ -179,7 +181,6 @@ CHECKSUMS
   unicode-display_width (3.2.0) sha256=0cdd96b5681a5949cdbc2c55e7b420facae74c4aaf9a9815eee1087cb1853c42
   unicode-emoji (4.2.0) sha256=519e69150f75652e40bf736106cfbc8f0f73aa3fb6a65afe62fefa7f80b0f80f
   uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6
-  webrick (1.9.2) sha256=beb4a15fc474defed24a3bda4ffd88a490d517c9e4e6118c3edce59e45864131
 
 BUNDLED WITH
   4.0.12

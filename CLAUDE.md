@@ -53,7 +53,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 ## Build Pipeline
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and built via a three-stage rake chain: `vendor:setup` → `mruby:build` → `wasm:build`; `rake compile` from a clean clone walks the full chain. The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
+The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` → `wasm:build`; `rake compile` from a clean clone walks the full chain. Stages A+B (wasi-sdk + mruby vendoring, `libmruby.a`) belong to the beni gem, wired in the Rakefile's `Beni::Tasks` block against `build_config/wasi.rb`; mruby-onig-regexp is fetched by mruby's own build system per the `conf.gem github:` pin in that config (lockfile: `build_config/wasi.rb.lock`). The non-obvious linker choice (rust-lld instead of wasi-sdk's clang, required because `libmruby.a` is not `-fPIC`) is documented inline in `tasks/wasm.rake`. The native ext (`ext/kobako/`) is built separately by `rake compile` via `rb_sys` and links against host-side `wasmtime`, not the guest.
 
 CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxidize-rb/actions/setup-ruby-and-rust` — the default task (`compile + test + rubocop + steep`) is the canonical gate.
 
@@ -70,8 +70,8 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` on Ruby 3.4.7 via `oxi
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Guest crate host-only tests (wasm32 has no test runner) | `bundle exec rake wasm:test` |
 | Guest crate `cargo check` | `bundle exec rake wasm:check` |
-| Clean Stage B / Stage C | `rake mruby:clean` / `rake wasm:clean` |
-| Clean vendor toolchains | `rake vendor:clean` (keeps tarball cache) or `rake vendor:clobber` |
+| Clean Stage B / Stage C | `rake beni:clean` / `rake wasm:clean` |
+| Clean vendor toolchains | `rake beni:vendor:clean` (keeps tarball cache) or `rake beni:vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
 | SPEC regression benchmarks (#1..#5, ≤1 MiB payloads) | `bundle exec rake bench` |
 | Regression benchmarks + 16 MiB codec sweep | `bundle exec rake bench:full` |
@@ -235,6 +235,6 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | mruby C API FFI | `wasm/mruby-sys/` (`wrapper.h`, `build.rs`, `src/lib.rs`) | bindgen-only surface; libclang scoped here; `wrap_static_fns` emits a single C trampoline — no hand-written `.c` shims. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
 | Regression benchmarks | `tasks/benchmark.rake`, `benchmark/` | #1..#5 gated (+10% regression blocks release); #6/#7 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
-| Build / toolchain | `tasks/{vendor,mruby,wasm}.rake` | — |
+| Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/{wasi,onigmo}.rb`, `tasks/wasm.rake` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
 
 `test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent.

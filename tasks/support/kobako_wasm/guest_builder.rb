@@ -81,7 +81,7 @@ module KobakoWasm
       return if File.exist?(LIBMRUBY_PATH)
 
       raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
-            "run `rake mruby:build` (Stage B) first"
+            "run `rake beni:build` (Stage B) first"
     end
 
     def run_cargo_release_build

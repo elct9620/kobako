@@ -18,10 +18,10 @@
 #   * `rake wasm:build` — Stage C of the Build Pipeline. Cross-compiles
 #                         the kobako-wasm crate against the vendored wasi-sdk +
 #                         libmruby.a and writes the resulting Guest Binary
-#                         to `data/kobako.wasm`. Depends on `vendor:setup`
-#                         and `mruby:build` so the full three-stage pipeline
-#                         runs end-to-end from a clean clone with a single
-#                         command.
+#                         to `data/kobako.wasm`. Depends on `beni:build`
+#                         (Stages A+B: toolchain vendoring + libmruby.a)
+#                         so the full pipeline runs end-to-end from a
+#                         clean clone with a single command.
 #   * `rake wasm:clean` — removes the produced `data/kobako.wasm` and
 #                         the wasm crate's `target/` cache directory.
 #
@@ -58,7 +58,7 @@ namespace :wasm do
   end
 
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
-  task build: ["vendor:setup", "mruby:build"] do
+  task build: ["beni:build"] do
     abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
     KobakoWasm::GuestBuilder.new.build
   end

@@ -32,11 +32,11 @@ module KobakoWasm
   DATA_DIR  = File.join(ROOT, "data").freeze
   DATA_WASM = File.join(DATA_DIR, "kobako.wasm").freeze
 
-  # Stage B output (set by tasks/mruby.rake → KobakoMruby::LIBMRUBY_PATH).
-  # We avoid a require'd cross-task constant here so this file remains
-  # loadable in isolation; the path is rebuilt from the same env-aware
-  # vendor base.
-  VENDOR_DIR     = (ENV["KOBAKO_VENDOR_DIR"] || File.join(ROOT, "vendor")).freeze
+  # Stage B output (produced by `rake beni:build` against
+  # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`
+  # default (`BENI_VENDOR_DIR` or `vendor/` at the project root) so the
+  # Stage C exports name the same tree beni populated.
+  VENDOR_DIR     = (ENV["BENI_VENDOR_DIR"] || File.join(ROOT, "vendor")).freeze
   WASI_SDK_DIR   = (ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")).freeze
   MRUBY_LIB_DIR  = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib").freeze
   LIBMRUBY_PATH  = File.join(MRUBY_LIB_DIR, "libmruby.a").freeze

@@ -8,11 +8,16 @@ gemspec
 gem "rake", "~> 13.0"
 gem "rake-compiler"
 
-# Dev-only tooling. The rb-sys-dock build image ships Ruby 3.1.3 for
-# orchestrating cross-compilation, while steep ~> 2.0 demands Ruby >= 3.2.
-# Isolating the dev tools behind a group lets the release workflow set
-# BUNDLE_WITHOUT=development so the container's bundler never has to
-# resolve them. Local `bundle install` keeps installing everything.
+# Vendors the pinned mruby + wasi-sdk toolchains and builds libmruby.a
+# (rake beni:build) against build_config/wasi.rb. Top-level rather than
+# development-grouped because the Rakefile requires "beni/tasks"
+# unconditionally, same as rake-compiler above.
+gem "beni", "~> 0.1"
+
+# Dev-only tooling, grouped so a constrained environment can exclude it
+# via BUNDLE_WITHOUT=development. The rb-sys-dock cross-compile container
+# currently resolves the full Gemfile (rake-compiler-dock 1.12 ships
+# Ruby 4.0), so the group is a boundary, not a workaround.
 group :development do
   gem "irb"
   gem "minitest", "~> 6.0"
@@ -20,10 +25,6 @@ group :development do
 
   # Static type checker. Signatures live in sig/.
   gem "steep", "~> 2.0", require: false
-
-  # webrick is no longer bundled with Ruby 3.0+; the vendor:setup E2E test
-  # spins up a tiny HTTP fixture server to serve fake tarballs.
-  gem "webrick", "~> 1.8"
 
   # benchmark-ips drives the SPEC.md "Regression benchmarks" suite in
   # benchmark/. Dev-only — the gem itself does not depend on it.

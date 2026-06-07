@@ -31,8 +31,24 @@ RbSys::ExtensionTask.new("kobako", GEMSPEC) do |ext|
   ext.cross_compile = true
 end
 
-# Load tasks/*.rake (vendor toolchain, build pipeline). Each .rake file is
-# self-contained; see tasks/vendor.rake for the wasi-sdk / mruby fetch flow.
+require "beni/tasks"
+
+# Stages A+B of the Build Pipeline: `rake beni:build` vendors the pinned
+# wasi-sdk + mruby toolchains and drives mruby's own rake against
+# build_config/wasi.rb, producing vendor/mruby/build/wasi/lib/libmruby.a
+# (+ its libmruby.flags.mak sidecar). Only the wasi cross target is
+# declared — the config's host build is mrbc-only, so there is no host
+# libmruby.a for beni to verify.
+Beni::Tasks.new do
+  build_config "build_config/wasi.rb"
+
+  target :wasi do
+    toolchain "wasi-sdk"
+  end
+end
+
+# Load tasks/*.rake (Stage C + bench/coverage wrappers). Each .rake file
+# is self-contained; see tasks/wasm.rake for the Guest Binary flow.
 Dir.glob("tasks/*.rake").each { |t| load t }
 
 # data/kobako.wasm is gitignored and required by Layer 4 journey tests
