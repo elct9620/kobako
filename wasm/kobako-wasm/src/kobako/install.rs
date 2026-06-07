@@ -1,9 +1,12 @@
-//! Per-step install helpers for `super::Kobako::install`.
+//! The two `beni::Gem` units behind `super::Kobako::install`.
 //!
-//! `install` runs three independent registrations against a freshly
-//! opened mruby state — class hierarchy, IO globals, Kernel delegators.
-//! Keeping the steps in their own functions (rather than one ~150-line
-//! body) lets +Kobako::install+ read as a four-line orchestration.
+//! `KobakoBridge` registers the class hierarchy + C bridges;
+//! `KobakoIo` wires the IO globals and Kernel delegators. Splitting
+//! along that line mirrors the planned guest-crate shape: the bridge
+//! gem is the one built-in a future published `kobako` crate carries,
+//! while the IO surface belongs to this shell (the mruby-io
+//! precedent). `Mrb::init_gem` owns the panic boundary around each
+//! `init`.
 //!
 //! The helpers are crate-private and wasm32-only by design — they
 //! exist solely to support the wasm32 install path; the host target
@@ -15,7 +18,7 @@
 //! one-thing-per-file split the crate uses elsewhere.
 
 #[cfg(target_arch = "wasm32")]
-use crate::mruby::{Error, MethodDef, Module, Object};
+use crate::mruby::{Error, Gem, MethodDef, Module, Mrb, Object};
 
 #[cfg(target_arch = "wasm32")]
 use super::bridges;
@@ -24,24 +27,43 @@ use super::bytecode;
 #[cfg(target_arch = "wasm32")]
 use super::io;
 
-/// Bundle of `crate::mruby::RClass` handles produced by
-/// `install_kobako_classes`. Internal to the install pipeline —
-/// the caller pulls each handle into the matching field on
-/// `super::Kobako`.
+/// The Kobako module / class hierarchy and its C bridges — the unit a
+/// future published `kobako` crate ships as its one built-in gem.
+/// `super::Kobako` re-resolves the registered class handles afterwards
+/// via `resolve_raw`; `init` itself stays stateless per the `Gem`
+/// contract.
 #[cfg(target_arch = "wasm32")]
-pub(super) struct KobakoClasses {
-    pub(super) member_class: crate::mruby::RClass,
-    pub(super) handle_class: crate::mruby::RClass,
-    pub(super) service_error_class: crate::mruby::RClass,
-    pub(super) transport_error_class: crate::mruby::RClass,
+pub(super) struct KobakoBridge;
+
+#[cfg(target_arch = "wasm32")]
+impl Gem for KobakoBridge {
+    fn init(mrb: &Mrb) -> Result<(), Error> {
+        install_kobako_classes(mrb)
+    }
+}
+
+/// The sandbox IO surface — `::IO`, `STDOUT` / `STDERR`, `$stdout` /
+/// `$stderr`, and the Kernel delegators. Shell-owned (not part of the
+/// bridge gem), following the mruby-io precedent. Order inside `init`
+/// matters: the delegators look up the globals at call time, so the
+/// globals must be wired first.
+#[cfg(target_arch = "wasm32")]
+pub(super) struct KobakoIo;
+
+#[cfg(target_arch = "wasm32")]
+impl Gem for KobakoIo {
+    fn init(mrb: &Mrb) -> Result<(), Error> {
+        install_io_globals(mrb)?;
+        install_kernel_delegators(mrb);
+        Ok(())
+    }
 }
 
 /// Register the Kobako module, the `Kobako::Transport` namespace, the
 /// `Kobako::Transport::Proxy` abstract base plus its two top-level
 /// subclasses `Kobako::Member` and `Kobako::Handle`, and the
 /// `Kobako::ServiceError` / `Kobako::Transport::Error` exception
-/// hierarchy. Returns the class handles the `super::Kobako` token
-/// needs to keep around.
+/// hierarchy.
 ///
 /// Function pointers come from `bridges`, the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by the
@@ -49,7 +71,7 @@ pub(super) struct KobakoClasses {
 /// `mrb`. An `Err` from any registration aborts the install and
 /// surfaces to the boot path as a Panic.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> Result<KobakoClasses, Error> {
+fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     let object_class = mrb.object_class();
 
     // Kobako module.
@@ -145,22 +167,16 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> Result<KobakoCl
     // (public API); Error lives under Transport since it is a
     // transport-layer fault.
     let runtime_error_class = mrb.class_get(c"RuntimeError")?;
-    let service_error_class = kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
-    let transport_error_class = transport_mod.define_class(mrb, c"Error", runtime_error_class)?;
+    kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
+    transport_mod.define_class(mrb, c"Error", runtime_error_class)?;
     // `Kobako::BytecodeError` is registered here so guest code can
-    // raise it by name; the class handle is not cached on
-    // `KobakoClasses` because no compile-time-known call site reads
-    // it yet — the snippet-replay path that uses it
-    // ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
-    // looks the class up lazily.
+    // raise it by name; like every handle this gem registers, call
+    // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the
+    // snippet-replay path of
+    // {docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md]).
     kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
 
-    Ok(KobakoClasses {
-        member_class,
-        handle_class,
-        service_error_class,
-        transport_error_class,
-    })
+    Ok(())
 }
 
 /// Register the top-level `::IO` class (constructor + `#write` /
@@ -170,7 +186,7 @@ pub(super) fn install_kobako_classes(mrb: &crate::mruby::Mrb) -> Result<KobakoCl
 /// is the whole point of routing through the kernel delegators that
 /// load next.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
+fn install_io_globals(mrb: &Mrb) -> Result<(), Error> {
     // Top-level `::IO` class. Registers the constructor + `#write` /
     // `#fileno` C bridges and then loads `mrblib/io.rb` to layer the
     // rest of the IO surface (`#print`, `#puts`, `#printf`, `#p`,
@@ -206,6 +222,6 @@ pub(super) fn install_io_globals(mrb: &crate::mruby::Mrb) -> Result<(), Error> {
 /// The bytecode blob is a `'static` `&[u8]` produced at build time
 /// by mrbc.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn install_kernel_delegators(mrb: &crate::mruby::Mrb) {
+fn install_kernel_delegators(mrb: &Mrb) {
     bytecode::load(mrb, bytecode::KERNEL_MRB);
 }

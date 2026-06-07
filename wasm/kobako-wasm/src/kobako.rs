@@ -139,24 +139,19 @@ pub struct Kobako {
 
 #[cfg(target_arch = "wasm32")]
 impl Kobako {
-    /// Install the Kobako runtime onto `mrb` and return a handle to
-    /// the resulting class registrations. Order matters:
-    /// +install_kernel_delegators+ looks up `$stdout` / `$stderr` at
-    /// call time, so +install_io_globals+ must wire those globals
-    /// first. An `Err` means mruby rejected a boot-time registration;
-    /// the boot path surfaces it as a Panic.
+    /// Install the Kobako runtime onto `mrb` — the two `beni::Gem`
+    /// units in `install` (`KobakoBridge`: classes + C bridges, then
+    /// `KobakoIo`: IO globals + Kernel delegators) — and return a
+    /// handle to the resulting class registrations. An `Err` means
+    /// mruby rejected a boot-time registration; the boot path surfaces
+    /// it as a Panic.
     pub fn install(mrb: &Mrb) -> Result<Self, crate::mruby::Error> {
-        let classes = install::install_kobako_classes(mrb)?;
-        install::install_io_globals(mrb)?;
-        install::install_kernel_delegators(mrb);
+        mrb.init_gem::<install::KobakoBridge>()?;
+        mrb.init_gem::<install::KobakoIo>()?;
 
-        Ok(Self {
-            mrb: mrb.as_ptr(),
-            member_class: classes.member_class,
-            handle_class: classes.handle_class,
-            service_error_class: classes.service_error_class,
-            transport_error_class: classes.transport_error_class,
-        })
+        // SAFETY: `KobakoBridge::init` just registered every entity
+        // `resolve_raw` looks up, satisfying its install precondition.
+        Ok(unsafe { Self::resolve_raw(mrb.as_ptr()) })
     }
 
     /// Resolve the class handles produced by a prior install, from a
