@@ -18,8 +18,42 @@
           "jsonpath": "$.package[?(@.name=='kobako-core')].version"
         }
       ]
+    },
+    "wasm/kobako": {
+      "component": "kobako-rs",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/wasm/kobako/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-core'].version"
+        }
+      ]
+    },
+    "wasm/kobako-io": {
+      "component": "kobako-io",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-io')].version"
+        }
+      ]
     }
   },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "kobako guest crates",
+      "components": ["kobako-core", "kobako-rs", "kobako-io"]
+    }
+  ],
   "extra-files": [
     {
       "type": "toml",
