@@ -171,7 +171,7 @@ Harness         MrbGuest trait — required init_gems hook; provided
 Flows           flows + flows/{boot, eval, run, yield_block, snippets,
       │           mrb_slot} — per-invocation entry bodies; snippets =
       │           Frame 3 mruby payload semantics (source / RITE)
-Runtime         runtime (Kobako token) + runtime/{install (KobakoBridge),
+Runtime         runtime (Kobako token) + runtime/{init (KobakoBridge),
                   bridges, block_stack, codec_convert} — installs the
                   Kobako module / classes on an mrb_state; mrb ↔ wire
                   value conversion; per-invocation block stack
