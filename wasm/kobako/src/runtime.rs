@@ -1,7 +1,7 @@
 //! Kobako runtime — installs the Kobako module surface onto an mruby VM
 //! and owns the class handles needed by the dispatch layer.
 //!
-//! ## Why a separate type from `crate::mruby::Mrb`
+//! ## Why a separate type from `beni::Mrb`
 //!
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
@@ -16,7 +16,7 @@
 //! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
 //! proves you can talk to the runtime, with no Drop and no lifetime —
 //! liveness is the caller's contract, just as it is for mruby's own C
-//! API. The C-bridges in `crate::kobako::bridges` remain
+//! API. The C-bridges in `crate::runtime::bridges` remain
 //! `unsafe extern "C" fn` callbacks invoked by mruby, but their bodies
 //! acquire a `Kobako` through `Kobako::resolve_raw` and then call
 //! safe methods.
@@ -30,24 +30,17 @@
 //! `Kobako::install_groups`.
 //!
 //! C-bridges that receive a raw `*mut mrb_state` from mruby — the
-//! `crate::mruby::sys::mrb_func_t` ABI mandates the raw pointer at
+//! `beni::sys::mrb_func_t` ABI mandates the raw pointer at
 //! the bridge entry — use `Kobako::resolve_raw` to obtain the same
 //! handle without repeating registration.
 
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod bridges;
-#[cfg(target_arch = "wasm32")]
 mod codec_convert;
-#[cfg(target_arch = "wasm32")]
 mod install;
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::sys;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Mrb;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Value;
-#[cfg(target_arch = "wasm32")]
+use beni::sys;
+use beni::Mrb;
+use beni::Value;
 use kobako_core::transport::proxy::ExceptionPayload;
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
@@ -55,15 +48,12 @@ use kobako_core::transport::proxy::ExceptionPayload;
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
 /// silently when the ivar layout changes.
-#[cfg(target_arch = "wasm32")]
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
 /// Failures returned by `Kobako::install_groups` when a preamble entry
 /// cannot be registered — a name that cannot pass through the mruby C
 /// API (which expects NUL-terminated strings), or a registration mruby
-/// itself rejected. wasm32-only because the preamble install path
-/// itself is wasm32-only.
-#[cfg(target_arch = "wasm32")]
+/// itself rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallGroupsError {
     /// A Group name contained an interior NUL byte.
@@ -76,7 +66,6 @@ pub enum InstallGroupsError {
     Rejected(String),
 }
 
-#[cfg(target_arch = "wasm32")]
 impl std::fmt::Display for InstallGroupsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -93,7 +82,6 @@ impl std::fmt::Display for InstallGroupsError {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 impl std::error::Error for InstallGroupsError {}
 
 /// Handle to a Kobako runtime installed on a live mruby VM.
@@ -109,24 +97,22 @@ impl std::error::Error for InstallGroupsError {}
 ///     pipeline below it stays in safe Rust.
 ///   * `Kobako::resolve_raw` — re-resolve class handles produced by
 ///     a prior install. Used by C-bridges, which mruby invokes with a
-///     raw `*mut mrb_state` per the `crate::mruby::sys::mrb_func_t`
+///     raw `*mut mrb_state` per the `beni::sys::mrb_func_t`
 ///     ABI; the raw entry is mandated by mruby, not by kobako.
 ///
-/// ## wasm32-only
+/// ## Placeholder mode
 ///
-/// `Kobako` and its methods only exist on `wasm32-wasip1` (the
-/// production target). Host-target `cargo test` does not link
-/// `libmruby.a`, so neither `Mrb::open` nor `Kobako::install` is
-/// callable there; the type is cfg-gated out entirely.
-#[cfg(target_arch = "wasm32")]
+/// The type and its methods compile on every target; without a
+/// linked `libmruby.a` (host builds in beni placeholder mode) the
+/// operations they delegate to panic at runtime — see the crate doc.
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Member` base class — parent of every bound Member proxy
     /// installed via `Kobako::install_groups`.
-    member_class: crate::mruby::RClass,
-    handle_class: crate::mruby::RClass,
-    service_error_class: crate::mruby::RClass,
-    transport_error_class: crate::mruby::RClass,
+    member_class: beni::RClass,
+    handle_class: beni::RClass,
+    service_error_class: beni::RClass,
+    transport_error_class: beni::RClass,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -136,16 +122,16 @@ pub struct Kobako {
 // is a single atomic load against the `OnceLock`, on par with the
 // previous per-instance field read.
 
-#[cfg(target_arch = "wasm32")]
 impl Kobako {
-    /// Install the Kobako runtime onto `mrb` — the `KobakoBridge` gem
-    /// (classes + C bridges) plus the sibling `kobako-io` crate's IO /
-    /// Kernel gem — and return a handle to the resulting class
-    /// registrations. An `Err` means mruby rejected a boot-time
-    /// registration; the boot path surfaces it as a Panic.
-    pub fn install(mrb: &Mrb) -> Result<Self, crate::mruby::Error> {
+    /// Install the Kobako runtime onto `mrb` — the built-in
+    /// `KobakoBridge` gem (classes + C bridges, the precondition of
+    /// `Kobako::resolve_raw`) followed by the shell-chosen gem set
+    /// from `G`'s `install_gems` hook — and return a handle to the
+    /// resulting class registrations. An `Err` means mruby rejected a
+    /// boot-time registration; the boot path surfaces it as a Panic.
+    pub fn install<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
         mrb.init_gem::<install::KobakoBridge>()?;
-        mrb.init_gem::<kobako_io::KobakoIo>()?;
+        G::install_gems(mrb)?;
 
         // SAFETY: `KobakoBridge::init` just registered every entity
         // `resolve_raw` looks up, satisfying its install precondition.
@@ -155,7 +141,7 @@ impl Kobako {
     /// Resolve the class handles produced by a prior install, from a
     /// raw `*mut mrb_state`. C-bridge re-entry point — mruby invokes
     /// bridges with a raw `*mut mrb_state` per the
-    /// `crate::mruby::sys::mrb_func_t` ABI, and this is how those
+    /// `beni::sys::mrb_func_t` ABI, and this is how those
     /// bridge bodies recover the `Kobako` handle.
     ///
     /// # Safety
@@ -167,7 +153,7 @@ impl Kobako {
     /// the install precondition by construction (they are invoked
     /// through registrations done at install time).
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
-        use crate::mruby::Module;
+        use beni::Module;
 
         // SAFETY: `mrb` is live by the function's safety contract.
         // `mrb_define_module` is idempotent (returns the existing
@@ -203,7 +189,7 @@ impl Kobako {
         &self,
         preamble: &[(String, Vec<String>)],
     ) -> Result<(), InstallGroupsError> {
-        use crate::mruby::Module;
+        use beni::Module;
 
         let mrb = self.mrb();
         for (group_name, members) in preamble {
@@ -284,7 +270,7 @@ impl Kobako {
     /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
     /// callers see "empty collection" rather than a panic.
     pub fn collection_len(&self, col: Value) -> usize {
-        use crate::mruby::FromValue;
+        use beni::FromValue;
         let len_val = col.call(self.mrb(), c"length", &[]);
         let Some(len) = i32::from_value(len_val) else {
             return 0;
@@ -298,7 +284,7 @@ impl Kobako {
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
     /// Rust `Vec<String>`. Used by the guest panic path
-    /// (`crate::abi::eval` / `crate::abi::run`) to populate the Panic
+    /// (`crate::flows::eval` / `crate::flows::run`) to populate the Panic
     /// envelope's `backtrace` field
     /// (docs/wire-codec.md § Panic Envelope).
     ///
@@ -313,11 +299,11 @@ impl Kobako {
             return Vec::new();
         }
         // SAFETY: classname check above proves Array-tagged.
-        let bt_ary = unsafe { crate::mruby::Array::from_value_unchecked(bt_val) };
+        let bt_ary = unsafe { beni::Array::from_value_unchecked(bt_val) };
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
-            lines.push(bt_ary.entry(i as i32).to_string(self.mrb()));
+            lines.push(bt_ary.entry(i as beni::sys::mrb_int).to_string(self.mrb()));
         }
         lines
     }
@@ -344,11 +330,15 @@ impl Kobako {
             return Vec::new();
         }
         // SAFETY: classname check above proves Array-tagged.
-        let consts_ary = unsafe { crate::mruby::Array::from_value_unchecked(consts) };
+        let consts_ary = unsafe { beni::Array::from_value_unchecked(consts) };
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
-            names.push(consts_ary.entry(i as i32).to_string(self.mrb()));
+            names.push(
+                consts_ary
+                    .entry(i as beni::sys::mrb_int)
+                    .to_string(self.mrb()),
+            );
         }
         names
     }
@@ -372,7 +362,7 @@ impl Kobako {
     /// and tighter on the wire-violation surface.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
-        use crate::mruby::FromValue;
+        use beni::FromValue;
         let id_val = handle_val.iv_get(self.mrb(), id_sym);
         let Some(id) = i32::from_value(id_val) else {
             return 0;

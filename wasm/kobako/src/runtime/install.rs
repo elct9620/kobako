@@ -5,13 +5,11 @@
 //! one by `super::Kobako::install`. `Mrb::init_gem` owns the panic
 //! boundary around each `init`.
 //!
-//! The helpers are crate-private and wasm32-only by design — they
-//! exist solely to support the wasm32 install path.
+//! The helpers are crate-private by design — they exist solely to
+//! support the install path.
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::{Error, Gem, Module, Mrb, Object};
+use beni::{Error, Gem, Module, Mrb, Object};
 
-#[cfg(target_arch = "wasm32")]
 use super::bridges;
 
 /// The Kobako module / class hierarchy and its C bridges — the unit a
@@ -19,10 +17,8 @@ use super::bridges;
 /// `super::Kobako` re-resolves the registered class handles afterwards
 /// via `resolve_raw`; `init` itself stays stateless per the `Gem`
 /// contract.
-#[cfg(target_arch = "wasm32")]
 pub(super) struct KobakoBridge;
 
-#[cfg(target_arch = "wasm32")]
 impl Gem for KobakoBridge {
     fn init(mrb: &Mrb) -> Result<(), Error> {
         install_kobako_classes(mrb)
@@ -40,7 +36,6 @@ impl Gem for KobakoBridge {
 /// definition calls are owned by mruby and live for the duration of
 /// `mrb`. An `Err` from any registration aborts the install and
 /// surfaces to the boot path as a Panic.
-#[cfg(target_arch = "wasm32")]
 fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     let object_class = mrb.object_class();
 
@@ -74,24 +69,24 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     member_class.define_singleton_method(
         mrb,
         c"method_missing",
-        crate::mruby::method!(bridges::member_method_missing, -1),
+        beni::method!(bridges::member_method_missing, -1),
     )?;
     member_class.define_singleton_method(
         mrb,
         c"respond_to_missing?",
-        crate::mruby::method!(bridges::proxy_respond_to_missing, -1),
+        beni::method!(bridges::proxy_respond_to_missing, -1),
     )?;
     // Block both construction entries so the guest cannot instantiate a
     // Member (docs/behavior.md B-38); see `bridges::member_not_constructible`.
     member_class.define_singleton_method(
         mrb,
         c"new",
-        crate::mruby::method!(bridges::member_not_constructible, -1),
+        beni::method!(bridges::member_not_constructible, -1),
     )?;
     member_class.define_singleton_method(
         mrb,
         c"allocate",
-        crate::mruby::method!(bridges::member_not_constructible, -1),
+        beni::method!(bridges::member_not_constructible, -1),
     )?;
 
     // `Kobako::Handle` — capability-handle proxy. Handle calls arrive
@@ -108,7 +103,7 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     handle_class.define_method(
         mrb,
         c"initialize",
-        crate::mruby::method!(bridges::handle_initialize, -1),
+        beni::method!(bridges::handle_initialize, -1),
     )?;
     // Block both construction entries so the guest cannot fabricate a
     // Handle from a bare id (docs/behavior.md B-39); see
@@ -118,22 +113,22 @@ fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     handle_class.define_singleton_method(
         mrb,
         c"new",
-        crate::mruby::method!(bridges::handle_not_constructible, -1),
+        beni::method!(bridges::handle_not_constructible, -1),
     )?;
     handle_class.define_singleton_method(
         mrb,
         c"allocate",
-        crate::mruby::method!(bridges::handle_not_constructible, -1),
+        beni::method!(bridges::handle_not_constructible, -1),
     )?;
     handle_class.define_method(
         mrb,
         c"method_missing",
-        crate::mruby::method!(bridges::handle_method_missing, -1),
+        beni::method!(bridges::handle_method_missing, -1),
     )?;
     handle_class.define_method(
         mrb,
         c"respond_to_missing?",
-        crate::mruby::method!(bridges::proxy_respond_to_missing, -1),
+        beni::method!(bridges::proxy_respond_to_missing, -1),
     )?;
 
     // `Kobako::ServiceError` / `Kobako::Transport::Error` /

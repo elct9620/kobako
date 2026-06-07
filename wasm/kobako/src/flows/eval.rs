@@ -16,19 +16,17 @@
 //! outcome tag from `__kobako_take_outcome()` after this function
 //! returns.
 
-/// Invocation entry behind the `__kobako_eval` export — see module docs.
-pub(crate) fn eval() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        eval_body();
-    }
+/// Invocation entry behind the `__kobako_eval` export — see module
+/// docs. `G` supplies the shell-chosen gem set via
+/// `MrbGuest::install_gems`.
+pub(crate) fn eval<G: crate::MrbGuest>() {
+    eval_body::<G>();
 }
 
-#[cfg(target_arch = "wasm32")]
-fn eval_body() {
+fn eval_body<G: crate::MrbGuest>() {
     use super::boot;
     use super::mrb_slot::{MrbScope, MRB};
-    use crate::mruby::Ccontext;
+    use beni::Ccontext;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::Encode;
     use kobako_core::frames;
@@ -56,7 +54,7 @@ fn eval_body() {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::open_with_preamble(&preamble) {
+    let kobako = match boot::open_with_preamble::<G>(&preamble) {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };

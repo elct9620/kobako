@@ -1,36 +1,12 @@
 //! kobako-wasm — Guest Binary crate root.
 //!
-//! This crate is the source of `kobako.wasm`, the Guest Binary artifact
-//! described in SPEC.md "Core Abstractions". The mruby-free wire tiers
-//! (`codec`, `transport`, `outcome`) and the ABI primitives (dispatch
-//! import, packed-u64) live in the sibling `kobako-core` contract
-//! crate; this crate hosts:
-//!
-//! * `abi` — Guest ABI surface: the `__kobako_eval` / `__kobako_run` /
-//!   `__kobako_alloc` / `__kobako_take_outcome` /
-//!   `__kobako_yield_to_block` guest exports (docs/wire-codec.md
-//!   § ABI Signatures).
-//! * `kobako` — domain runtime: owns the `Kobako` value-token that
-//!   installs the `Kobako` module / `Kobako::Transport` / `Kobako::Handle` /
-//!   exception classes on an mruby VM and registers the C-bridges in
-//!   its `bridges` submodule. No Ruby boot text.
-//! * `mruby` — thin façade re-exporting the typed mruby surface from
-//!   the published `beni` crate. Both the raw FFI surface
-//!   (`mruby::sys`, backed by `beni-sys`) and every safe wrapper
-//!   (`Mrb`, `Ccontext`, the typed `Value` / `RClass` newtypes, the
-//!   `Module` / `Object` traits) live in that crate; this module
-//!   keeps the established `use crate::mruby::*` call-site shape.
-//!
-//! The crate uses `std` on every target. `wasm32-wasip1` (the production
-//! target — see SPEC.md "Implementation Standards" Architecture) ships a
-//! working `std`, including allocator and panic handler. A `no_std` codec
-//! is not required by SPEC; switching adds friction (custom allocator,
-//! custom panic handler) without buying anything for the Guest Binary,
-//! which already pays for `std` through the embedded mruby interpreter.
+//! This crate is the source of `kobako.wasm`, the Guest Binary
+//! artifact described in SPEC.md "Core Abstractions". It is the leaf
+//! shell over the published guest stack: `kobako` supplies the
+//! `MrbGuest` harness (provided flows + the built-in `KobakoBridge`
+//! gem), `kobako-io` the IO / Kernel capability gem, and
+//! `kobako-core` the ABI contract whose `export_guest!` macro emits
+//! the wasm exports here — the exact composition path any
+//! third-party guest takes.
 
-mod abi;
 mod guest;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) mod kobako;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) mod mruby;

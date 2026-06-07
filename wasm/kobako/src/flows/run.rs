@@ -27,15 +27,15 @@
 //!    value as a Result envelope or convert the pending mruby
 //!    exception into a Panic envelope.
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(mruby_linked, test))]
 use kobako_core::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
 /// name (a Symbol on the codec side); `args` is always a
 /// `Value::Array` and `kwargs` always a `Value::Map` — callers can
-/// hand them straight to `crate::kobako::Kobako::to_mrb_value`
+/// hand them straight to `crate::runtime::Kobako::to_mrb_value`
 /// without re-checking.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(mruby_linked, test))]
 #[derive(Debug, PartialEq)]
 pub(super) struct Invocation {
     pub target: String,
@@ -47,7 +47,7 @@ pub(super) struct Invocation {
 /// carries the host-visible Panic message verbatim; the wrapper at
 /// `__kobako_run` folds the variant back into a
 /// `Kobako::Transport::Error` Panic.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(mruby_linked, test))]
 #[derive(Debug, PartialEq)]
 pub(super) enum InvocationError {
     /// Envelope was not a msgpack map.
@@ -56,7 +56,7 @@ pub(super) enum InvocationError {
     MissingEntrypoint,
 }
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(mruby_linked, test))]
 impl InvocationError {
     pub(super) fn message(&self) -> &'static str {
         match self {
@@ -70,7 +70,7 @@ impl InvocationError {
 /// keys are silently ignored for forward compatibility; `args` /
 /// `kwargs` default to empty array / empty map when absent. Pure
 /// parser — host-buildable for unit testing.
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(mruby_linked, test))]
 pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, InvocationError> {
     let pairs = match envelope {
         Value::Map(p) => p,
@@ -105,23 +105,16 @@ pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, Invocation
     })
 }
 
-/// Invocation entry behind the `__kobako_run` export — see module docs.
-pub(crate) fn run(env: &[u8]) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        run_body(env);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Host stub — the entry keeps its slice signature on every
-        // target; consume the binding locally so the
-        // `unused_variables` lint passes without an `#[allow]`.
-        let _ = env;
-    }
+/// Invocation entry behind the `__kobako_run` export — see module
+/// docs. `G` supplies the shell-chosen gem set via
+/// `MrbGuest::install_gems`.
+#[cfg(mruby_linked)]
+pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
+    run_body::<G>(env);
 }
 
-#[cfg(target_arch = "wasm32")]
-fn run_body(env: &[u8]) {
+#[cfg(mruby_linked)]
+fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use super::mrb_slot::{MrbScope, MRB};
     use kobako_core::abi::{write_outcome, write_panic};
@@ -141,7 +134,7 @@ fn run_body(env: &[u8]) {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::open_with_preamble(&preamble) {
+    let kobako = match boot::open_with_preamble::<G>(&preamble) {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
@@ -278,7 +271,7 @@ fn run_body(env: &[u8]) {
         });
     };
     let kwargs_present = !kwargs_pairs.is_empty();
-    let mut argv: Vec<crate::mruby::Value> = arg_items
+    let mut argv: Vec<beni::Value> = arg_items
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
         .collect();

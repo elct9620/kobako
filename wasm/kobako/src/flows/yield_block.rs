@@ -33,31 +33,30 @@
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 use kobako_core::abi::pack_u64;
 
 /// Invocation entry behind the `__kobako_yield_to_block` export —
 /// see module docs. Signature pinned by docs/wire-codec.md § ABI
 /// Signatures (5 guest exports).
 pub(crate) fn yield_to_block(req: &[u8]) -> u64 {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(mruby_linked)]
     {
         yield_to_block_body(req)
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(mruby_linked))]
     {
-        // Host stub — see `run` for the shape rationale.
         let _ = req;
-        0
+        crate::not_linked()
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn yield_to_block_body(req: &[u8]) -> u64 {
     use super::block_stack::BLOCK_STACK;
     use super::mrb_slot::MRB;
-    use crate::kobako::Kobako;
-    use crate::mruby::sys;
+    use crate::runtime::Kobako;
+    use beni::sys;
 
     // Step 1: decode positional args off the request buffer.
     let args_codec = match decode_yield_args(req) {
@@ -106,7 +105,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
         // `argv_ptr` / `argc` point into the outer `mrb_args` Vec
         // which outlives this closure.
         let raw = unsafe { sys::mrb_yield_argv(mrb_ptr, block_raw, argc, argv_ptr) };
-        crate::mruby::Value::from_raw(raw)
+        beni::Value::from_raw(raw)
     });
 
     // Step 5: encode the outcome. Extract any exception fields
@@ -115,13 +114,11 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21.
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
-        Err(crate::mruby::Error::Exception(exc)) => {
-            classify_protected_error(&kobako, mrb, exc, enter_idx)
-        }
+        Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, mrb, exc, enter_idx),
         // A Rust panic inside the protected closure can only surface
         // here under unwinding panics; the guest builds with
         // `panic = "abort"`, so this arm is unreachable in production.
-        Err(crate::mruby::Error::Panic(_)) => std::process::abort(),
+        Err(beni::Error::Panic(_)) => std::process::abort(),
     };
     write_yield_buffer(&bytes)
 }
@@ -134,14 +131,14 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
 /// — discriminate them by comparing `RBreak.ci_break_index` against
 /// the `enter_idx` snapshot taken immediately before the protected
 /// yield.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn classify_protected_error(
-    kobako: &crate::kobako::Kobako,
-    mrb: &crate::mruby::Mrb,
-    exc: crate::mruby::Value,
+    kobako: &crate::runtime::Kobako,
+    mrb: &beni::Mrb,
+    exc: beni::Value,
     enter_idx: usize,
 ) -> Vec<u8> {
-    use crate::mruby::sys;
+    use beni::sys;
     // SAFETY: `mrb_break_p_func` only reads the value's type tag,
     // safe on any mrb_value.
     if !unsafe { sys::mrb_break_p_func(exc.as_raw()) } {
@@ -153,7 +150,7 @@ fn classify_protected_error(
     if brk_idx >= enter_idx {
         // SAFETY: same gate as `mrb_break_ci_index_func` above.
         let brk_val_raw = unsafe { sys::mrb_break_value_func(exc.as_raw()) };
-        encode_break_response(kobako, crate::mruby::Value::from_raw(brk_val_raw))
+        encode_break_response(kobako, beni::Value::from_raw(brk_val_raw))
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
@@ -166,8 +163,8 @@ fn classify_protected_error(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
+#[cfg(mruby_linked)]
+fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
     use kobako_core::codec::Encode;
     use kobako_core::transport::{Yield, TAG_BREAK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
@@ -197,7 +194,7 @@ fn encode_break_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Va
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, String> {
     use kobako_core::codec::{Decoder, Value};
     let mut dec = Decoder::new(req);
@@ -210,8 +207,8 @@ fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, Strin
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value) -> Vec<u8> {
+#[cfg(mruby_linked)]
+fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
     use kobako_core::codec::Encode;
     use kobako_core::transport::{Yield, TAG_OK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
@@ -241,11 +238,11 @@ fn encode_ok_response(kobako: &crate::kobako::Kobako, value: crate::mruby::Value
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn encode_error_response_from_exception(
-    kobako: &crate::kobako::Kobako,
-    mrb: &crate::mruby::Mrb,
-    exc: crate::mruby::Value,
+    kobako: &crate::runtime::Kobako,
+    mrb: &beni::Mrb,
+    exc: beni::Value,
 ) -> Vec<u8> {
     // Mirror `boot::take_pending_panic` field order: classname →
     // message → backtrace. Each step uses `exc` while it is still
@@ -271,7 +268,7 @@ fn encode_error_response_from_exception(
     encode_error_bytes(&class_name, &message, backtrace)
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     use kobako_core::codec::Encode;
     use kobako_core::codec::Value;
@@ -294,7 +291,7 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
 /// Write an error YieldResponse directly into a fresh guest buffer
 /// and return its packed `(ptr<<32)|len`. Used by the early-out paths
 /// that never reach the protect / classify steps.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
     let bytes = encode_error_bytes(class, &message.into(), backtrace);
     write_yield_buffer(&bytes)
@@ -303,7 +300,7 @@ fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<
 /// Allocate a `len`-byte buffer via `__kobako_alloc` inside the active
 /// wasm instance, copy `bytes` into it, and return the packed
 /// `(ptr<<32)|len` u64 the host reads.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn write_yield_buffer(bytes: &[u8]) -> u64 {
     let len_u32 = match u32::try_from(bytes.len()) {
         Ok(n) => n,

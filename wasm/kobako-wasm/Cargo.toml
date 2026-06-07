@@ -1,11 +1,11 @@
 # kobako-wasm — Guest Binary crate.
 #
-# This crate compiles to `kobako.wasm` (the Guest Binary artifact) and
-# houses the ABI entry bodies plus the Kobako domain runtime. The
-# mruby-free wire tiers (`codec`, `transport`, `outcome`) live in the
-# sibling `kobako-core` contract crate; the IO / Kernel capability gem
-# lives in the sibling `kobako-io` crate; the typed mruby wrapper and
-# its FFI layer come from the published `beni` / `beni-sys` crates.
+# This crate compiles to `kobako.wasm` (the Guest Binary artifact) —
+# the leaf shell composing the sibling `kobako` crate (the MrbGuest
+# harness + KobakoBridge built-in) with the sibling `kobako-io` gem
+# over the `kobako-core` contract crate, whose `export_guest!` macro
+# emits the wasm exports here. The typed mruby wrapper and its FFI
+# layer come from the published `beni` / `beni-sys` crates.
 #
 # This crate is a member of the `wasm/` sub-workspace (see
 # `wasm/Cargo.toml`). The repo-root `Cargo.toml` excludes the entire
@@ -21,29 +21,29 @@ description = "kobako Guest Binary — the mruby-on-wasm guest assembled over th
 license = "Apache-2.0"
 
 [lib]
-# `cdylib` produces the wasm artifact when targeting wasm32-wasip1.
-# `rlib` lets us run the entry-body unit tests on the host target.
-crate-type = ["cdylib", "rlib"]
+# `cdylib` produces the wasm artifact when targeting wasm32-wasip1;
+# the shell is deliberately cdylib-only (no rlib) so no crate can
+# depend on the exporting leaf — duplicate `#[no_mangle]` symbols stay
+# structurally impossible.
+crate-type = ["cdylib"]
 
 [dependencies]
 # `kobako-core` — Guest ABI contract crate (sibling workspace member).
-# Supplies the mruby-free wire tiers (`codec`, `outcome`); this crate
-# layers the mruby implementation on top.
+# Direct dependency because `export_guest!` resolves against it.
 kobako-core = { path = "../kobako-core" }
 
+# `kobako` — the assembled mruby implementation (sibling workspace
+# member): the `MrbGuest` harness this shell implements.
+kobako = { path = "../kobako" }
+
 # `kobako-io` — sandbox IO / Kernel capability gem (sibling workspace
-# member). Composed into the bundled guest by `Kobako::install`.
+# member), wired by `KobakoGuest::install_gems`.
 kobako-io = { path = "../kobako-io" }
 
-# `beni` — typed Rust wrapper crate over the mruby C API (extracted
-# from this repository). Re-exports the underlying `beni-sys` FFI
-# through its `sys` namespace, so `crate::mruby::sys::*` resolves to
-# the raw bindgen surface and typed entry points (`Mrb`, `Ccontext`,
-# `Value`, `RClass`, the `format::*` ZST markers, `IntoValue` /
-# `FromValue` / `Format` / `Module` / `Object` traits, …) come
-# through `beni::*` directly. `beni-sys` reaches the dependency graph
-# transitively; archive discovery reads `MRUBY_LIB_DIR` +
-# `WASI_SDK_PATH` (exported by `rake wasm:build`).
+# `beni` — typed mruby wrapper; the shell only names `Mrb` / `Error`
+# in its `install_gems` hook. Archive discovery happens in `beni-sys`
+# via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
+# `rake wasm:build`).
 beni = "0.1.0"
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)

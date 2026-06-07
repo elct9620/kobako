@@ -26,7 +26,7 @@
 //!    and trailing-Hash kwargs.
 
 use super::Kobako;
-use crate::mruby::Value;
+use beni::Value;
 
 /// Maximum structural nesting depth the guest encoder walks before a value
 /// counts as non-wire-representable. Matches the MessagePack ecosystem's
@@ -35,7 +35,6 @@ use crate::mruby::Value;
 /// reference cycle or a pathologically deep structure from overflowing the
 /// wasm stack and hard-trapping the guest; it sits far below that overflow
 /// threshold.
-#[cfg(target_arch = "wasm32")]
 const MAX_NESTING_DEPTH: usize = 128;
 
 impl Kobako {
@@ -46,7 +45,6 @@ impl Kobako {
     /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. Values go through
     /// `Kobako::to_codec_value`.
-    #[cfg(target_arch = "wasm32")]
     pub fn extract_hash_kwargs(
         &self,
         hash: Value,
@@ -54,11 +52,11 @@ impl Kobako {
     ) {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
-        let hash = unsafe { crate::mruby::Hash::from_value_unchecked(hash) };
+        let hash = unsafe { beni::Hash::from_value_unchecked(hash) };
         let keys_ary = hash.keys(self.mrb());
         let keys_len = self.collection_len(keys_ary.as_value());
         for i in 0..keys_len {
-            let key_val = keys_ary.entry(i as i32);
+            let key_val = keys_ary.entry(i as beni::sys::mrb_int);
             let val = hash.get(self.mrb(), key_val);
             out.push((key_val.to_string(self.mrb()), self.to_codec_value(val)));
         }
@@ -73,7 +71,6 @@ impl Kobako {
     /// came from mruby's variadic out-param; `Value` is
     /// `#[repr(transparent)]` over `mrb_value` so the slice layouts
     /// are identical (the bridge call site casts once).
-    #[cfg(target_arch = "wasm32")]
     pub fn unpack_args_kwargs(
         &self,
         rest: &[Value],
@@ -105,7 +102,6 @@ impl Kobako {
     /// `try_codec_value` recurses with `R = Option<kobako_core::codec::Value>`
     /// so a single unrepresentable element collapses the whole Array to
     /// `None`.
-    #[cfg(target_arch = "wasm32")]
     fn array_to_codec<R>(
         &self,
         val: Value,
@@ -114,11 +110,11 @@ impl Kobako {
     ) -> Vec<R> {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
-        let ary = unsafe { crate::mruby::Array::from_value_unchecked(val) };
+        let ary = unsafe { beni::Array::from_value_unchecked(val) };
         let len = self.collection_len(val);
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
-            let elem = ary.entry(i as i32);
+            let elem = ary.entry(i as beni::sys::mrb_int);
             items.push(convert(self, elem, depth + 1));
         }
         items
@@ -131,7 +127,6 @@ impl Kobako {
     /// (ext 0x00) and a `String` key as `Value::Str` — distinct codec
     /// encodings per docs/wire-codec.md § Ext Types. Generic over `R`
     /// for the same reason as `array_to_codec`.
-    #[cfg(target_arch = "wasm32")]
     fn hash_to_codec<R>(
         &self,
         val: Value,
@@ -140,12 +135,12 @@ impl Kobako {
     ) -> Vec<(R, R)> {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
-        let hash = unsafe { crate::mruby::Hash::from_value_unchecked(val) };
+        let hash = unsafe { beni::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
         let len = self.collection_len(keys_ary.as_value());
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
-            let key = keys_ary.entry(i as i32);
+            let key = keys_ary.entry(i as beni::sys::mrb_int);
             let v = hash.get(self.mrb(), key);
             pairs.push((convert(self, key, depth + 1), convert(self, v, depth + 1)));
         }
@@ -174,14 +169,12 @@ impl Kobako {
     /// the guest hands to a Service tolerates a best-effort `to_s`, but a
     /// return value with no wire representation must fail loudly so the
     /// host raises rather than receive a misleading String.
-    #[cfg(target_arch = "wasm32")]
     pub fn to_codec_value(&self, val: Value) -> kobako_core::codec::Value {
         self.to_codec_value_at(val, 0)
     }
 
-    #[cfg(target_arch = "wasm32")]
     fn to_codec_value_at(&self, val: Value, depth: usize) -> kobako_core::codec::Value {
-        use crate::mruby::FromValue;
+        use beni::FromValue;
         use kobako_core::codec::Value as CodecValue;
         // Scalar leaves dispatch on mruby's own type tag through the safe
         // `FromValue` downcast (which folds the `mrb_type` guard into the
@@ -233,14 +226,12 @@ impl Kobako {
     /// envelope (outcome, docs/behavior.md E-06 / B-06) or a `0x04` error
     /// YieldResponse (yield, docs/behavior.md E-22) rather than handing the
     /// host a misleading String.
-    #[cfg(target_arch = "wasm32")]
     pub fn try_codec_value(&self, val: Value) -> Option<kobako_core::codec::Value> {
         self.try_codec_value_at(val, 0)
     }
 
-    #[cfg(target_arch = "wasm32")]
     fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<kobako_core::codec::Value> {
-        use crate::mruby::FromValue;
+        use beni::FromValue;
         use kobako_core::codec::Value as CodecValue;
         // Scalar-leaf downcast through the safe `FromValue` seam, as in
         // `to_codec_value`.
@@ -292,9 +283,8 @@ impl Kobako {
     /// (subsequent method calls on it route to the host through
     /// `Kobako::Handle`'s instance-level `method_missing` and the bridge's
     /// `forward_to_dispatch` round-trip, docs/behavior.md B-17).
-    #[cfg(target_arch = "wasm32")]
     pub fn to_mrb_value(&self, val: kobako_core::codec::Value) -> Value {
-        use crate::mruby::IntoValue;
+        use beni::IntoValue;
         use kobako_core::codec::Value as CodecValue;
         let mrb = self.mrb();
         match val {

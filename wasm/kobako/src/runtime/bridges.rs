@@ -46,7 +46,7 @@
 //! frame, which holds no values needing `Drop` — the same contract
 //! the raw bridges upheld.
 
-use crate::mruby::{Module, Mrb, Value};
+use beni::{Module, Mrb, Value};
 
 /// Full guest→host dispatch from the active mruby call frame — the
 /// shared body of the two `method_missing` bridges. The caller supplies
@@ -71,10 +71,10 @@ fn forward_to_dispatch(
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
-    use crate::abi::block_stack::BlockFrame;
+    use crate::flows::block_stack::BlockFrame;
     use kobako_core::transport::proxy::{invoke, InvokeError};
 
-    let (method_sym, rest, block) = kobako.mrb().get_args::<crate::mruby::format::NRestBlock>();
+    let (method_sym, rest, block) = kobako.mrb().get_args::<beni::format::NRestBlock>();
 
     // Push the block onto BLOCK_STACK for the duration of this bridge
     // frame; drops + pops automatically on return / mruby raise. The
@@ -119,7 +119,7 @@ pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
 
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
-    let class = crate::mruby::RClass::from_raw(unsafe { self_.as_class_ptr() });
+    let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
     let target_str = match class.name(kobako.mrb()) {
         Some(name) => name,
         None => unsafe {
@@ -149,7 +149,7 @@ pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
         .expect("NoMethodError is an mruby core class");
     // SAFETY: `self_` is the Member class receiver of a singleton-class
     // method — class-tagged by mruby itself.
-    let class = crate::mruby::RClass::from_raw(unsafe { self_.as_class_ptr() });
+    let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
     let message = match class.name(mrb) {
         Some(name) => std::ffi::CString::new(format!(
             "{name} is a Kobako Member (a dispatch target), not a constructible class"
@@ -189,7 +189,7 @@ pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
 pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Value {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
-    let id_val = mrb.get_args::<crate::mruby::format::O>();
+    let id_val = mrb.get_args::<beni::format::O>();
     kobako.set_handle_id(self_, id_val);
     Value::zeroed()
 }

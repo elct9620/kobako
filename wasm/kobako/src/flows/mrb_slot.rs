@@ -31,10 +31,8 @@
 //! wasm execution model inside any one Instance is what licenses the
 //! `UnsafeCell` interior mutability here.
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Mrb;
+use beni::Mrb;
 
-#[cfg(target_arch = "wasm32")]
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability slot for the active `Mrb` — an
@@ -43,10 +41,8 @@ use core::cell::UnsafeCell;
 /// `as_ref` are the only entry points; aliasing rules are documented at
 /// the call sites in the `MrbScope` doc and the lifecycle section
 /// above.
-#[cfg(target_arch = "wasm32")]
 pub(super) struct MrbSlot(UnsafeCell<Option<Mrb>>);
 
-#[cfg(target_arch = "wasm32")]
 impl MrbSlot {
     const fn new() -> Self {
         Self(UnsafeCell::new(None))
@@ -92,12 +88,10 @@ impl MrbSlot {
 // inner `Mrb` is `!Send + !Sync` to forbid cross-thread movement at the
 // type level, but the surrounding wasm Instance gives us the same
 // guarantee operationally. `static` requires `Sync` regardless.
-#[cfg(target_arch = "wasm32")]
 unsafe impl Sync for MrbSlot {}
 
 /// The active per-invocation `Mrb` slot. Installed by
 /// `super::boot::open_with_preamble`; cleared by `MrbScope`'s drop.
-#[cfg(target_arch = "wasm32")]
 pub(super) static MRB: MrbSlot = MrbSlot::new();
 
 /// Drop-guard that clears `MRB` when the enclosing scope returns.
@@ -105,10 +99,8 @@ pub(super) static MRB: MrbSlot = MrbSlot::new();
 /// `return` branches still clear the slot. Calling `clear` on an empty
 /// slot is a no-op, so the guard is safe to declare before the install
 /// even succeeds.
-#[cfg(target_arch = "wasm32")]
 pub(super) struct MrbScope;
 
-#[cfg(target_arch = "wasm32")]
 impl Drop for MrbScope {
     fn drop(&mut self) {
         MRB.clear();

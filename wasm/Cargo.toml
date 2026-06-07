@@ -11,20 +11,21 @@
 # -------
 #   * `kobako-core` — Guest ABI contract crate (publishable rlib).
 #     The mruby-free wire tiers a Guest Binary builds on.
+#   * `kobako` — assembled mruby implementation (publishable rlib):
+#     the `MrbGuest` harness + the `KobakoBridge` built-in gem.
 #   * `kobako-io` — sandbox IO / Kernel capability gem (publishable
 #     rlib). Pure Rust over `beni`; kobako-free.
-#   * `kobako-wasm` — Guest Binary crate producing `kobako.wasm`. Owns
-#     the mruby-tied ABI exports. The typed mruby wrapper comes from
-#     the published `beni` crate (extracted from this repository); its
-#     `beni-sys` FFI layer consumes `MRUBY_LIB_DIR` and
-#     `WASI_SDK_PATH`.
+#   * `kobako-wasm` — leaf shell producing `kobako.wasm`; composes the
+#     three published crates and emits the wasm exports. The typed
+#     mruby wrapper comes from the published `beni` crate (extracted
+#     from this repository); its `beni-sys` FFI layer consumes
+#     `MRUBY_LIB_DIR` and `WASI_SDK_PATH`.
 #
-# The split keeps the Guest ABI contract (kobako-core), the IO
-# capability (kobako-io), and the assembled mruby guest (kobako-wasm)
-# in separate crates so each tier can evolve independently.
+# The split keeps each reason-to-change (ABI contract, assembled
+# implementation, IO capability, bundled product) in its own crate.
 
 [workspace]
-members = ["kobako-core", "kobako-io", "kobako-wasm"]
+members = ["kobako", "kobako-core", "kobako-io", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

@@ -14,12 +14,12 @@
 //! are always sandbox-origin even when the raised class would otherwise
 //! map to "service" — preloaded snippets are sandbox code.
 
-#[cfg(target_arch = "wasm32")]
-use crate::kobako::{InstallGroupsError, Kobako};
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Ccontext;
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Mrb;
+#[cfg(mruby_linked)]
+use crate::runtime::{InstallGroupsError, Kobako};
+#[cfg(mruby_linked)]
+use beni::Ccontext;
+#[cfg(mruby_linked)]
+use beni::Mrb;
 use kobako_core::outcome::Panic;
 
 /// Build a Panic envelope carrying the kobako boot defaults
@@ -44,8 +44,8 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 /// (B-06 attributes the unrepresentable-value case to the guest code);
 /// the value's class name rides the message so the developer can see
 /// which type failed without an implicit `inspect`.
-#[cfg(target_arch = "wasm32")]
-pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: crate::mruby::Value) -> Panic {
+#[cfg(mruby_linked)]
+pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) -> Panic {
     Panic {
         origin: "sandbox".into(),
         class: "Kobako::SandboxError".into(),
@@ -73,7 +73,7 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 
 /// Read Frame 1 from stdin and decode it into the Group / Member list.
 /// Either step failing surfaces as a `boot_panic`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
@@ -82,7 +82,7 @@ pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
@@ -97,8 +97,10 @@ pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
 /// `super::mrb_slot::MRB`. On any `Err`, the slot is cleared so the
 /// caller's `super::mrb_slot::MrbScope` does not observe a half-set
 /// state.
-#[cfg(target_arch = "wasm32")]
-pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<Kobako, Panic> {
+#[cfg(mruby_linked)]
+pub(super) fn open_with_preamble<G: crate::MrbGuest>(
+    preamble: &[(String, Vec<String>)],
+) -> Result<Kobako, Panic> {
     let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the Sandbox interpreter"))?;
     super::mrb_slot::MRB.install(mrb);
 
@@ -106,7 +108,7 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
         let mrb = super::mrb_slot::MRB
             .as_ref()
             .expect("MRB just installed above");
-        let kobako = Kobako::install(mrb).map_err(|e| {
+        let kobako = Kobako::install::<G>(mrb).map_err(|e| {
             boot_panic(format!(
                 "Sandbox boot registration failed: {}",
                 e.message(mrb)
@@ -145,7 +147,7 @@ pub(super) fn open_with_preamble(preamble: &[(String, Vec<String>)]) -> Result<K
 /// additionally override the panic class to `Kobako::BytecodeError`;
 /// a successful load that then raised at top level (E-36) keeps the
 /// natural mruby class.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 pub(super) fn replay_snippets(
     mrb: &Mrb,
     kobako: &Kobako,
@@ -174,7 +176,7 @@ pub(super) fn replay_snippets(
 /// natural mruby class preserved. Functional struct-update keeps the
 /// reshape in one expression — no mid-life mutation of the panic
 /// fields.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
     let class = match load {
         BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
@@ -194,7 +196,7 @@ fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
 /// failure on the RITE header / IREP body
 /// ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md]),
 /// which gets promoted to +Kobako::BytecodeError+.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BytecodeLoad {
     Loaded,
@@ -207,7 +209,7 @@ enum BytecodeLoad {
 /// `mrb->exc` for the shared `take_pending_panic` step. A snippet
 /// `name` carrying an interior NUL byte (wire violation) also fails
 /// through `boot_panic` since `CString::new` rejects it.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
         .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
@@ -220,7 +222,7 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 }
 
 /// Execute a precompiled RITE bytecode blob via the
-/// `crate::mruby::sys::kobako_load_bytecode` shim. The shim parses
+/// `beni::sys::kobako_load_bytecode` shim. The shim parses
 /// the IREP and runs its top-level Proc. Returns
 /// `BytecodeLoad::Loaded` when the IREP parsed (even if its top-
 /// level execution then raised — E-36) and
@@ -230,7 +232,7 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 /// `take_pending_panic` step. Folding the C return code into a typed
 /// enum at the FFI boundary keeps the `c_int` from leaking into the
 /// replay control flow.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
     if mrb.load_bytecode(body) == 0 {
         BytecodeLoad::Loaded
@@ -243,7 +245,7 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
 /// message, and backtrace into a Panic envelope (with `origin` chosen
 /// by `origin_for_class`). Returns `None` when no exception is
 /// pending. Clears `mrb->exc` via `Mrb::clear_exc` before returning.
-#[cfg(target_arch = "wasm32")]
+#[cfg(mruby_linked)]
 pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     let exc_val = mrb.pending_exc();
     if exc_val.is_nil() {

@@ -21,20 +21,16 @@
 //! inside any one Instance licenses the `UnsafeCell` interior
 //! mutability used here.
 
-#[cfg(target_arch = "wasm32")]
-use crate::mruby::Value;
+use beni::Value;
 
-#[cfg(target_arch = "wasm32")]
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability stack of guest-supplied block
 /// `mrb_value`s. Modelled after the sibling `super::mrb_slot::MrbSlot`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
-#[cfg(target_arch = "wasm32")]
 pub(crate) struct BlockStack(UnsafeCell<Vec<Value>>);
 
-#[cfg(target_arch = "wasm32")]
 impl BlockStack {
     const fn new() -> Self {
         Self(UnsafeCell::new(Vec::new()))
@@ -63,6 +59,7 @@ impl BlockStack {
     /// rooting argument intact for the duration of the dispatch
     /// frame, so reading the top is safe inside the same single-
     /// threaded invocation that pushed it.
+    #[cfg(mruby_linked)]
     pub(crate) fn last(&self) -> Option<Value> {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).last().copied() }
@@ -73,11 +70,9 @@ impl BlockStack {
 // is single-threaded inside any one Instance; the inner `Value` is
 // `!Send + !Sync` but the surrounding Instance gives the same
 // guarantee operationally. `static` requires `Sync` regardless.
-#[cfg(target_arch = "wasm32")]
 unsafe impl Sync for BlockStack {}
 
 /// Per-invocation LIFO stack of guest-supplied blocks.
-#[cfg(target_arch = "wasm32")]
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 
 /// RAII drop-guard that owns one push/pop pair on `BLOCK_STACK`.
@@ -86,12 +81,10 @@ pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 /// pass a block). Pop runs unconditionally on drop, mirroring the C
 /// bridge's exit invariant: every entry must have a matching exit,
 /// even on the mruby-raise / Rust-panic paths.
-#[cfg(target_arch = "wasm32")]
 pub(crate) struct BlockFrame {
     active: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
 impl BlockFrame {
     /// Push `block` onto `BLOCK_STACK` when it is non-nil and return
     /// a guard whose drop pops the same frame. When `block` is nil the
@@ -105,7 +98,6 @@ impl BlockFrame {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 impl Drop for BlockFrame {
     fn drop(&mut self) {
         if self.active {
