@@ -119,7 +119,7 @@ PLATFORMS
 
 DEPENDENCIES
   benchmark-ips (~> 2.15)
-  beni (~> 0.1)
+  beni (~> 0.1.0)
   irb
   kobako!
   minitest (~> 6.0)
