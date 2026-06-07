@@ -28,10 +28,8 @@ module Kobako
   # consumed. Before the first invocation +Sandbox#usage+ returns the
   # pre-invocation sentinel +Kobako::Usage::EMPTY+.
   #
-  # Built on the +class X < Data.define(...)+ subclass form so the
-  # class body is fully Steep-visible; ruby/rbs upstream documents this
-  # as the Steep-friendly shape and the +Style/DataInheritance+ cop is
-  # disabled on that basis (see +.rubocop.yml+).
+  # Built on the +class X < Data.define(...)+ subclass form (the
+  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
   class Usage < Data.define(:wall_time, :memory_peak)
     # Pre-invocation sentinel ({docs/behavior.md B-35}[link:../../docs/behavior.md]).
     # Reused by +Sandbox+ before any invocation has run so callers do not

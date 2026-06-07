@@ -379,8 +379,7 @@ class TestCodec < Minitest::Test
 
   def test_golden_vector_fixarray_with_positive_fixint
     # [42] -> 0x91 0x2a (fixarray len=1, positive fixint 42).
-    # Generic msgpack codec check; the Outcome envelope no longer
-    # carries the success value inside a 1-elem array.
+    # Generic msgpack codec check.
     assert_bytes "912a", [42]
   end
 

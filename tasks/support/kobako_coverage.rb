@@ -40,8 +40,7 @@ module KobakoCoverage
   end
 
   # Materialise the per-file entry once +entry_for+ has confirmed the
-  # path is in scope and has executable lines. Split out to keep
-  # +entry_for+ inside Rubocop's MethodLength budget.
+  # path is in scope and has executable lines.
   def build_entry(path, hits, relevant)
     covered = relevant.count(&:positive?)
     {

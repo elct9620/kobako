@@ -77,9 +77,7 @@ module Kobako
         )
       end
 
-      # Symbol-to-name packer — extracted to a real method so Steep can
-      # resolve the proc shape without tripping on +lambda(&:name)+'s
-      # +Symbol#to_proc+ inference path.
+      # Symbol-to-name packer for the ext-0x00 registration.
       def pack_symbol(symbol)
         symbol.name
       end

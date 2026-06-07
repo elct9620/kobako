@@ -43,14 +43,12 @@ module Kobako
       # stays {Kobako::Codec::Error} and never leaks +ArgumentError+ from
       # the Ruby standard library.
       #
-      # Most construction sites no longer reach for this directly: a value
-      # object built inside a {Decoder.decode} block has its
-      # +ArgumentError+ mapped to {InvalidType} by the decoder's own
-      # rescue. The lone remaining caller is {Factory#unpack_handle}, which
-      # builds +Handle.restore+ from a raw 4-byte fixext payload without a
-      # {Decoder.decode} call. Do not use it for general-purpose validation
-      # outside the codec boundary — host-layer +ArgumentError+ values
-      # should propagate unchanged.
+      # Reach for this only where a value object is constructed outside a
+      # {Decoder.decode} block, whose rescue already performs the same
+      # mapping (worked example: {Factory#unpack_handle} building
+      # +Handle.restore+ from a raw fixext payload). Do not use it for
+      # general-purpose validation outside the codec boundary —
+      # host-layer +ArgumentError+ values should propagate unchanged.
       def with_boundary
         yield
       rescue ::ArgumentError => e
@@ -143,8 +141,7 @@ module Kobako
         end
       end
 
-      # Predicate split out of {representable?} for cyclomatic
-      # budget — the closed-set non-container branch. Returns +true+ for
+      # The non-container branch of {representable?}: returns +true+ for
       # the scalar leaves and an existing Handle. Not part of the
       # public surface; reach for {representable?} instead.
       def primitive_type?(value)
@@ -155,11 +152,10 @@ module Kobako
         end
       end
 
-      # Predicate split out of {representable?} for cyclomatic
-      # budget — the container branch. Recurses into Array elements and
-      # Hash key+value pairs through the public {representable?}.
-      # Not part of the public surface; reach for {representable?}
-      # instead.
+      # The container branch of {representable?}: recurses into Array
+      # elements and Hash key+value pairs through the public
+      # {representable?}. Not part of the public surface; reach for
+      # {representable?} instead.
       def container_representable?(value)
         case value
         when ::Array then value.all? { |element| Utils.representable?(element) }

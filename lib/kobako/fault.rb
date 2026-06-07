@@ -22,10 +22,8 @@ module Kobako
   # exception class (RuntimeError, ArgumentError, Kobako::ServiceError, ...)
   # is the responsibility of the dispatch layer, not the codec.
   #
-  # Built on the +class X < Data.define(...)+ subclass form so the
-  # class body is fully Steep-visible; ruby/rbs upstream documents
-  # this as the Steep-friendly shape and the +Style/DataInheritance+
-  # cop is disabled on that basis (see +.rubocop.yml+).
+  # Built on the +class X < Data.define(...)+ subclass form (the
+  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
   class Fault < Data.define(:type, :message, :details)
     VALID_TYPES = %w[runtime argument undefined].freeze
 

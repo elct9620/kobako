@@ -89,8 +89,9 @@ class TestSandboxRun < Minitest::Test
   # support keyword arguments"). Entrypoints declare a positional Hash
   # parameter (`def call(req, opts = {})` / `->(req, opts) { ... }`) and
   # unpack it themselves; a Ruby-flavour `def call(name:)` signature
-  # cannot be reached from the host C side without re-introducing the
-  # wrapper-eval workaround.
+  # cannot be reached from the host C side — B-31 accepts the
+  # positional-Hash convention instead of routing every #run through an
+  # eval shim.
   def test_b31_passes_keyword_args_as_trailing_positional_hash
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)

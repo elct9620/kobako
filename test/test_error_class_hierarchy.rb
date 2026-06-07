@@ -42,9 +42,9 @@ class TestErrorClassHierarchy < Minitest::Test
   end
 
   def test_sandbox_output_limit_exceeded_placeholder_is_gone
-    # Cycle 14 left `Kobako::Sandbox::OutputLimitExceeded < StandardError`
-    # as a placeholder; SPEC B-04 specifies truncate-with-marker, not
-    # raise. The placeholder must no longer exist.
+    # SPEC B-04 specifies truncate-with-marker for oversized output, not
+    # an error raise; no +OutputLimitExceeded+ class may exist on
+    # +Kobako::Sandbox+.
     refute defined?(Kobako::Sandbox::OutputLimitExceeded),
            "Kobako::Sandbox::OutputLimitExceeded must be removed (SPEC B-04 truncates)"
   end
