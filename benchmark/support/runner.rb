@@ -5,6 +5,7 @@ require "json"
 require "time"
 
 require_relative "env"
+require_relative "one_shot"
 require_relative "stats"
 require_relative "usage_sampler"
 
@@ -39,6 +40,8 @@ module Kobako
     # VM execution time directly readable instead of derived by
     # subtraction.
     class Runner
+      include OneShot
+
       ROOT = File.expand_path("../..", __dir__)
       RESULTS_DIR = File.join(ROOT, "benchmark", "results")
 
@@ -64,15 +67,6 @@ module Kobako
         warmup_cpu(block, iters_per_cycle)
         samples, iterations = measure_samples(block, iters_per_cycle)
         emit_case(label, samples, iterations)
-      end
-
-      # Record a one-shot CPU-time measurement. +label+ identifies the
-      # observation; the block is executed exactly once and the CPU
-      # seconds it consumes are recorded.
-      def one_shot(label, &)
-        elapsed = cpu_time(&)
-        @results << { label: label, seconds: elapsed, mode: "one_shot" }
-        puts format("%<label>-35s %<ms>10.3f ms (CPU, one-shot)", label: label, ms: elapsed * 1000)
       end
 
       # Sample +sandbox.usage+ ({docs/behavior.md B-35}) and merge

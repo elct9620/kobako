@@ -11,10 +11,13 @@
 #        throughput, not marginal cost at size N — for the latter
 #        see 5b.
 #   5b — Marginal per-alloc cost at table-size waypoints
-#        (1K / 10K / 100K / 1M). The table is grown OUTSIDE the
-#        timer; only the 1000 measured allocs land inside one_shot.
-#        Flat numbers here mean the underlying Hash stays O(1) as
-#        it grows; SPEC's "approach the 2^31 − 1 cap" intent
+#        (1K / 10K / 100K / 1M), the median of 5 rounds. Each round
+#        rebuilds a fresh table and grows it OUTSIDE the timer so
+#        every measured 1000-alloc window starts exactly at the
+#        waypoint; the median absorbs the machine transients a
+#        single sub-millisecond window exposes (README noise
+#        section). Flat numbers here mean the underlying Hash stays
+#        O(1) as it grows; SPEC's "approach the 2^31 − 1 cap" intent
 #        reframed as "does the dictionary degrade." The cap guard
 #        itself is constant-time and not iterated.
 #   5c — Warm Sandbox#eval("nil") round-trip cost measured WHILE the
@@ -46,13 +49,15 @@ runner = Kobako::Bench::Runner.new("catalog_handles")
   end
 end
 
-batch_table = Kobako::Catalog::Handles.new
+batch_table = nil
 batch_obj = Object.new
 [1_000, 10_000, 100_000, 1_000_000].each do |target|
-  (target - batch_table.size - 1000).times { batch_table.alloc(batch_obj) }
-  runner.one_shot("5b-alloc-1000-at-size-#{target}") do
-    1000.times { batch_table.alloc(batch_obj) }
+  samples = Array.new(5) do
+    batch_table = Kobako::Catalog::Handles.new
+    (target - 1000).times { batch_table.alloc(batch_obj) }
+    runner.time_once { 1000.times { batch_table.alloc(batch_obj) } }
   end
+  runner.record_one_shot("5b-alloc-1000-at-size-#{target}", Kobako::Bench::Stats.median(samples), rounds: 5)
 end
 
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.

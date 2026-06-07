@@ -5,12 +5,14 @@
 #   1a — Sandbox.new alone (steady-state warm Sandbox construction)
 #   1b — Sandbox.new + first #eval("nil") (steady-state warm new +
 #        first one-shot source invocation)
-#   1c — First 10 Sandbox.new calls in the process, individually
-#        timed. The very first call pays the wasmtime Engine init
-#        and Module compile cost; subsequent calls hit the shared
-#        Engine and per-path Module cache documented in
-#        `ext/kobako/src/wasm/cache.rs`. README.md claims this
-#        amortisation; 1c is the regression guard for that claim.
+#   1c — The first Sandbox.new in the process (cold: pays wasmtime
+#        Engine init and Module compile) versus the median of the
+#        next 9 (warm: hits the shared Engine and per-path Module
+#        cache documented in `ext/kobako/src/wasm/cache.rs`).
+#        README.md claims this amortisation; 1c is the regression
+#        guard for that claim. The warm rounds aggregate to a median
+#        because a single sub-millisecond round is hostage to
+#        machine transients (see the README noise section).
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -20,9 +22,8 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("cold_start")
 
-10.times do |i|
-  runner.one_shot("1c-sandbox-new-#{i + 1}") { Kobako::Sandbox.new }
-end
+runner.one_shot("1c-sandbox-new-cold") { Kobako::Sandbox.new }
+runner.one_shot_median("1c-sandbox-new-warm", rounds: 9) { Kobako::Sandbox.new }
 
 runner.case("1a-sandbox-new") { Kobako::Sandbox.new }
 
