@@ -24,7 +24,10 @@ module Kobako
         HOST.merge(
           yjit_enabled: yjit_enabled?,
           git_sha: git_sha,
-          captured_at: Time.now.utc.iso8601
+          captured_at: Time.now.utc.iso8601,
+          load_avg: load_avg,
+          power_source: power_source,
+          cpu_probe_spread_pct: cpu_probe_spread_pct
         )
       end
 
@@ -54,6 +57,48 @@ module Kobako
       def git_sha
         sha = `git rev-parse --short HEAD 2>/dev/null`.strip
         sha.empty? ? "unknown" : sha
+      end
+
+      # Best-effort 1-minute load average ("unknown" where neither
+      # /proc nor sysctl answers) — recorded so a run taken on a busy
+      # machine is recognisable after the fact.
+      def load_avg
+        return File.read("/proc/loadavg").split.first.to_f if File.readable?("/proc/loadavg")
+
+        avg = `sysctl -n vm.loadavg 2>/dev/null`[/[\d.]+/]
+        avg ? avg.to_f : "unknown"
+      end
+
+      # "ac" / "battery" via pmset on macOS, "unknown" elsewhere.
+      # Battery-powered runs throttle differently and should not be
+      # compared against AC baselines.
+      def power_source
+        out = `pmset -g batt 2>/dev/null`
+        return "unknown" if out.empty?
+
+        out.include?("AC Power") ? "ac" : "battery"
+      end
+
+      # Spread between two back-to-back runs of a fixed pure-CPU probe,
+      # as a percentage — the session's own noise floor. CPU-time
+      # measurement still sees frequency scaling, so a large spread
+      # flags the whole run as taken in an unstable machine state.
+      # Memoised: the value describes the process, not each call.
+      def cpu_probe_spread_pct
+        @cpu_probe_spread_pct ||= begin
+          first = probe_seconds
+          second = probe_seconds
+          ((first - second).abs / [first, second].max * 100).round(2)
+        end
+      end
+
+      # CPU seconds of one fixed probe workload (pure integer loop, no
+      # allocation, ~0.1s) — comparable across runs by construction.
+      def probe_seconds
+        started = Process.clock_gettime(Process::CLOCK_PROCESS_CPUTIME_ID)
+        x = 0
+        5_000_000.times { |i| x ^= i }
+        Process.clock_gettime(Process::CLOCK_PROCESS_CPUTIME_ID) - started
       end
     end
   end
