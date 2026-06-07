@@ -11,6 +11,7 @@
     "wasm/kobako-core": {
       "component": "kobako-core",
       "release-type": "rust",
+      "release-as": "0.3.0",
       "extra-files": [
         {
           "type": "toml",
@@ -26,6 +27,7 @@
     "wasm/kobako": {
       "component": "kobako-rs",
       "release-type": "rust",
+      "release-as": "0.3.0",
       "extra-files": [
         {
           "type": "toml",
@@ -46,6 +48,7 @@
     "wasm/kobako-io": {
       "component": "kobako-io",
       "release-type": "rust",
+      "release-as": "0.3.0",
       "extra-files": [
         {
           "type": "toml",
