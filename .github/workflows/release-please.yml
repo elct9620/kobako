@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
       core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
@@ -30,6 +31,8 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created }}
     uses: ./.github/workflows/release.yml
     secrets: inherit
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
 
   # The crate release chains the same way, keyed on the per-path output
   # of the `wasm/kobako-core` package (the root gem keeps the unprefixed
