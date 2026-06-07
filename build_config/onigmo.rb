@@ -2,6 +2,7 @@
 
 require "digest"
 require "fileutils"
+require "net/http" # eager — TRANSIENT_ERRORS names Net::* at class-eval
 require "open-uri"
 
 module KobakoBuildConfig
@@ -136,13 +137,42 @@ module KobakoBuildConfig
       cache
     end
 
+    # Transient network errors retried by +download_aux_script+. The
+    # aux scripts are fetched on every cache-miss CI run, so ride out
+    # savannah 5xx hiccups and timeouts; 4xx (URL typo, removed blob)
+    # bypasses the retry path and surfaces immediately.
+    TRANSIENT_ERRORS = [
+      OpenURI::HTTPError, Net::ReadTimeout, Net::OpenTimeout,
+      Errno::ECONNRESET, SocketError
+    ].freeze
+
+    # Retry attempts wait +2 ** attempt+ seconds (2 + 4 + 8 = 14s total).
+    MAX_RETRIES = 3
+
     def self.download_aux_script(name, dest)
       url = "https://git.savannah.gnu.org/cgit/config.git/plain/#{name}?id=#{CONFIG_AUX_COMMIT}"
       puts "[kobako] downloading #{name}@#{CONFIG_AUX_COMMIT[0, 8]} from #{url}"
       FileUtils.mkdir_p(File.dirname(dest))
       tmp = "#{dest}.part"
-      URI.parse(url).open("rb") { |io| File.open(tmp, "wb") { |f| IO.copy_stream(io, f) } }
+      with_retry { URI.parse(url).open("rb") { |io| File.open(tmp, "wb") { |f| IO.copy_stream(io, f) } } }
       File.rename(tmp, dest)
+    end
+
+    def self.with_retry
+      attempts = 0
+      begin
+        yield
+      rescue *TRANSIENT_ERRORS => e
+        raise if permanent?(e) || (attempts += 1) > MAX_RETRIES
+
+        warn "[kobako] retry #{attempts}/#{MAX_RETRIES} after #{e.class}: #{e.message.lines.first&.strip}"
+        sleep(2**attempts)
+        retry
+      end
+    end
+
+    def self.permanent?(error)
+      error.is_a?(OpenURI::HTTPError) && !error.message.match?(/\A5\d\d\b/)
     end
 
     def self.verify_aux_checksum(name, path)
