@@ -37,7 +37,7 @@ impl Gem for KobakoIo {
         {
             io::install(mrb)?;
             io::install_globals(mrb)?;
-            kernel::install(mrb);
+            kernel::install(mrb)?;
             Ok(())
         }
         #[cfg(not(mruby_linked))]

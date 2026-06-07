@@ -608,6 +608,24 @@ class TestE2EJourneys < Minitest::Test
                  "putc 65 must still land on stdout"
   end
 
+  # SPEC.md B-04: the Kernel delegators register private, matching the
+  # mruby-io mrblib declaration (+module Kernel; private; def puts ...+).
+  # mruby 4 enforces visibility at VM dispatch, so a public registration
+  # would be observably different: +42.puts("x")+ would write to the
+  # capture pipe instead of raising. Unrescued, the raise reaches the
+  # host as SandboxError (E-04) carrying the guest exception class.
+  def test_kernel_delegators_register_private
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('42.puts("x")') }
+
+    assert_equal "NoMethodError", err.klass,
+                 "explicit-receiver dispatch of a Kernel delegator through the guest must " \
+                 "raise NoMethodError (private visibility), not write to the capture pipe"
+    assert_empty sandbox.stdout,
+                 "a private Kernel#puts must not leak output through an explicit receiver"
+  end
+
   # SPEC.md B-04: Kernel#putc with a String writes the first character.
   # Mruby is compiled without MRB_UTF8_STRING, so the first character is
   # the first byte — same behavior as mruby-io's non-UTF8 fallback path
