@@ -18,7 +18,7 @@
 
 /// Invocation entry behind the `__kobako_eval` export — see module
 /// docs. `G` supplies the shell-chosen gem set via
-/// `MrbGuest::install_gems`.
+/// `MrbGuest::init_gems`.
 pub(crate) fn eval<G: crate::MrbGuest>() {
     eval_body::<G>();
 }

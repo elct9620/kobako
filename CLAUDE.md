@@ -111,7 +111,7 @@ ext/  — Rust native ext (magnus + wasmtime)      │       │    · kobako-co
 ```
 
 - **`lib/` ↔ `wasm/kobako-core` are wire-symmetric peers.** Each independently implements the same SPEC wire (MessagePack `Codec` + `Transport` / `Outcome` envelopes) so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models.
-- **Three publishable guest crates, one shell.** `wasm/kobako-core` is the ABI contract (plain rlib, mruby-free): the `Guest` trait + `export_guest!` macro plus the wire tiers and ABI primitives behind them; it defines no `#[no_mangle]` symbol. `wasm/kobako` is the assembled mruby implementation: the `MrbGuest` harness (required `install_gems` hook + provided flows) and the built-in `KobakoBridge` gem. `wasm/kobako-io` is the IO / Kernel capability gem (`beni::Gem`, kobako-free, pure Rust over wasi-libc). **`wasm/kobako-wasm` is the unpublished cdylib-only shell** composing the three into `data/kobako.wasm`, the same path any third-party guest takes. Published-crate internals follow the beni placeholder rule: compile on every target, gate mruby-touching code on the `mruby_linked` cfg, fail at runtime in placeholder mode.
+- **Three publishable guest crates, one shell.** `wasm/kobako-core` is the ABI contract (plain rlib, mruby-free): the `Guest` trait + `export_guest!` macro plus the wire tiers and ABI primitives behind them; it defines no `#[no_mangle]` symbol. `wasm/kobako` is the assembled mruby implementation: the `MrbGuest` harness (required `init_gems` hook + provided flows) and the built-in `KobakoBridge` gem. `wasm/kobako-io` is the IO / Kernel capability gem (`beni::Gem`, kobako-free, pure Rust over wasi-libc). **`wasm/kobako-wasm` is the unpublished cdylib-only shell** composing the three into `data/kobako.wasm`, the same path any third-party guest takes. Published-crate internals follow the beni placeholder rule: compile on every target, gate mruby-touching code on the `mruby_linked` cfg, fail at runtime in placeholder mode.
 - **`ext/` is the host's wasmtime driver, not a wire endpoint.** It drives the ABI exports and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes itself. Internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec.
 - **The typed mruby wrapper is the published `beni` crate** (extracted from this repository, developed at [elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by `kobako` / `kobako-io` and the shell. Owns `Mrb` / `Ccontext` RAII, the `Value` / `RClass` / `RModule` / `Array` / `Hash` newtypes, the `Module` / `Object` definition traits (`Result<_, Error>`-based), `IntoValue` / `FromValue`, the `Format` + ZST + GAT `mrb_get_args` dispatch, `protect`, `MethodDef` / `method!`, the `Gem` trait, and the typed `mrb_func_t`. Its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by `rake wasm:build`) and parses the `libmruby.flags.mak` sidecar to keep bindgen's ABI view aligned with the archive.
 
@@ -161,12 +161,12 @@ Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; the `
 
 ```
 kobako-wasm  (unpublished leaf shell, cdylib-only)
-Shell           guest — KobakoGuest (impl kobako::MrbGuest; install_gems
+Shell           guest — KobakoGuest (impl kobako::MrbGuest; init_gems
                   wires kobako-io) + Guest forwarding + export_guest!
                   emits __kobako_{eval,run,alloc,take_outcome,yield_to_block,abi_version}
 ────────────────────────────────────────────────────────────────────
 kobako  (assembled mruby implementation — publishable rlib)
-Harness         MrbGuest trait — required install_gems hook; provided
+Harness         MrbGuest trait — required init_gems hook; provided
       │           eval / run / yield_to_block flows
 Flows           flows + flows/{boot, eval, run, yield_block, snippets,
       │           mrb_slot} — per-invocation entry bodies; snippets =

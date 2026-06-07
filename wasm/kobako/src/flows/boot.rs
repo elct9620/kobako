@@ -108,7 +108,7 @@ pub(super) fn open_with_preamble<G: crate::MrbGuest>(
         let mrb = super::mrb_slot::MRB
             .as_ref()
             .expect("MRB just installed above");
-        let kobako = Kobako::install::<G>(mrb).map_err(|e| {
+        let kobako = Kobako::init::<G>(mrb).map_err(|e| {
             boot_panic(format!(
                 "Sandbox boot registration failed: {}",
                 e.message(mrb)

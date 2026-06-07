@@ -1,6 +1,6 @@
 # kobako — the assembled mruby implementation of the Guest ABI.
 #
-# The `MrbGuest` trait harness (required `install_gems` hook +
+# The `MrbGuest` trait harness (required `init_gems` hook +
 # provided `eval` / `run` / `yield_to_block` flows over mruby), the
 # wire-tied `KobakoBridge` built-in gem (Namespace / Handle dispatch,
 # block/yield machinery), and the mruby ↔ wire codec conversion. A

@@ -3,7 +3,7 @@
 //! Every function here is a typed `beni::method!` body
 //! (`fn(&Mrb, Value, …) -> Value`); the macro generates the raw
 //! `mrb_func_t` bridge mruby invokes. The registrations happen in
-//! `super::Kobako::install`; the bodies re-enter the boundary by
+//! `super::Kobako::init`; the bodies re-enter the boundary by
 //! resolving a `Kobako` token via `super::Kobako::resolve_raw` and
 //! then call safe methods.
 //!

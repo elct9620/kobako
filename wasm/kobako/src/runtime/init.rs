@@ -1,12 +1,12 @@
-//! The `KobakoBridge` gem behind `super::Kobako::install`.
+//! The `KobakoBridge` gem behind `super::Kobako::init`.
 //!
 //! Registers the Kobako class hierarchy + C bridges. The IO surface
 //! is the sibling `kobako-io` crate's gem, composed alongside this
-//! one by `super::Kobako::install`. `Mrb::init_gem` owns the panic
+//! one by `super::Kobako::init`. `Mrb::init_gem` owns the panic
 //! boundary around each `init`.
 //!
 //! The helpers are crate-private by design — they exist solely to
-//! support the install path.
+//! support the boot-time init path.
 
 use beni::{Error, Gem, Module, Mrb, Object};
 
@@ -21,7 +21,7 @@ pub(super) struct KobakoBridge;
 
 impl Gem for KobakoBridge {
     fn init(mrb: &Mrb) -> Result<(), Error> {
-        install_kobako_classes(mrb)
+        init_kobako_classes(mrb)
     }
 }
 
@@ -34,9 +34,9 @@ impl Gem for KobakoBridge {
 /// Function pointers come from `bridges`, the only producer of
 /// `mrb_func_t` in this crate. Class handles produced by the
 /// definition calls are owned by mruby and live for the duration of
-/// `mrb`. An `Err` from any registration aborts the install and
+/// `mrb`. An `Err` from any registration aborts the init and
 /// surfaces to the boot path as a Panic.
-fn install_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
+fn init_kobako_classes(mrb: &Mrb) -> Result<(), Error> {
     let object_class = mrb.object_class();
 
     // Kobako module.

@@ -1,7 +1,7 @@
 //! kobako — the assembled mruby implementation of the kobako Guest
 //! ABI.
 //!
-//! `MrbGuest` is the harness: one required `install_gems` hook naming
+//! `MrbGuest` is the harness: one required `init_gems` hook naming
 //! the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
 //! contract over mruby (fresh `mrb_state` boot per invocation, frame
@@ -30,11 +30,11 @@ pub use runtime::{InstallGroupsError, Kobako};
 
 use beni::{Error, Mrb};
 
-/// The assembled mruby guest as a template: implement `install_gems`
+/// The assembled mruby guest as a template: implement `init_gems`
 /// and inherit the provided flows.
 ///
 /// The flows install the built-in `KobakoBridge` before running the
-/// hook, so `install_gems` names only the shell's additional gems —
+/// hook, so `init_gems` names only the shell's additional gems —
 /// returning `Ok(())` yields a bridge-only guest. Each provided
 /// method matches one `kobako_core::Guest` entry; a shell forwards
 /// them in its own `Guest` impl.
@@ -43,7 +43,7 @@ pub trait MrbGuest {
     /// via `Mrb::init_gem`. Runs once per invocation, after
     /// `KobakoBridge`; an `Err` aborts the boot and surfaces to the
     /// host as a `Kobako::BootError` Panic.
-    fn install_gems(mrb: &Mrb) -> Result<(), Error>;
+    fn init_gems(mrb: &Mrb) -> Result<(), Error>;
 
     /// `__kobako_eval` — runs one-shot user source from stdin Frame 2
     /// and writes the Outcome envelope.

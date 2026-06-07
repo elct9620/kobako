@@ -107,7 +107,7 @@ pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, Invocation
 
 /// Invocation entry behind the `__kobako_run` export — see module
 /// docs. `G` supplies the shell-chosen gem set via
-/// `MrbGuest::install_gems`.
+/// `MrbGuest::init_gems`.
 #[cfg(mruby_linked)]
 pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
     run_body::<G>(env);

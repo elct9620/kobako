@@ -37,11 +37,11 @@ kobako-core = { path = "../kobako-core" }
 kobako = { path = "../kobako" }
 
 # `kobako-io` — sandbox IO / Kernel capability gem (sibling workspace
-# member), wired by `KobakoGuest::install_gems`.
+# member), wired by `KobakoGuest::init_gems`.
 kobako-io = { path = "../kobako-io" }
 
 # `beni` — typed mruby wrapper; the shell only names `Mrb` / `Error`
-# in its `install_gems` hook. Archive discovery happens in `beni-sys`
+# in its `init_gems` hook. Archive discovery happens in `beni-sys`
 # via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
 # `rake wasm:build`).
 beni = "0.2.0"

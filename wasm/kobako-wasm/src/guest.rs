@@ -11,7 +11,7 @@ impl kobako::MrbGuest for KobakoGuest {
     // KobakoBridge is the harness built-in — the provided flows
     // install it themselves; the hook wires the rest of the bundled
     // gem set.
-    fn install_gems(mrb: &Mrb) -> Result<(), Error> {
+    fn init_gems(mrb: &Mrb) -> Result<(), Error> {
         mrb.init_gem::<kobako_io::KobakoIo>()
     }
 }

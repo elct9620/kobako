@@ -72,7 +72,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
             Vec::new(),
         );
     };
-    // SAFETY: MRB is `Some` only after `Kobako::install` ran for the
+    // SAFETY: MRB is `Some` only after `Kobako::init` ran for the
     // current invocation; `resolve_raw`'s precondition is satisfied.
     let kobako = unsafe { Kobako::resolve_raw(mrb.as_ptr()) };
     let Some(block) = BLOCK_STACK.last() else {

@@ -23,7 +23,7 @@
 //!
 //! ## Lifecycle
 //!
-//! `Kobako::install` is called once per `__kobako_eval` invocation,
+//! `Kobako::init` is called once per `__kobako_eval` invocation,
 //! immediately after `Mrb::open`. It registers every boot-time entity
 //! and returns a `Kobako` carrying the resolved class handles. The
 //! returned value is then used to drive the Frame 1 preamble through
@@ -37,7 +37,7 @@
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
 mod codec_convert;
-mod install;
+mod init;
 
 use beni::sys;
 use beni::Mrb;
@@ -93,11 +93,11 @@ impl std::error::Error for InstallGroupsError {}
 /// the duration of any `Kobako` method call. Constructed through one of
 /// two entry points:
 ///
-///   * `Kobako::install` — register every boot-time entity then
+///   * `Kobako::init` — register every boot-time entity then
 ///     return a fully populated handle. Takes an `Mrb` borrow so the
 ///     pipeline below it stays in safe Rust.
 ///   * `Kobako::resolve_raw` — re-resolve class handles produced by
-///     a prior install. Used by C-bridges, which mruby invokes with a
+///     a prior init. Used by C-bridges, which mruby invokes with a
 ///     raw `*mut mrb_state` per the `beni::sys::mrb_func_t`
 ///     ABI; the raw entry is mandated by mruby, not by kobako.
 ///
@@ -127,19 +127,19 @@ impl Kobako {
     /// Install the Kobako runtime onto `mrb` — the built-in
     /// `KobakoBridge` gem (classes + C bridges, the precondition of
     /// `Kobako::resolve_raw`) followed by the shell-chosen gem set
-    /// from `G`'s `install_gems` hook — and return a handle to the
+    /// from `G`'s `init_gems` hook — and return a handle to the
     /// resulting class registrations. An `Err` means mruby rejected a
     /// boot-time registration; the boot path surfaces it as a Panic.
-    pub fn install<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
-        mrb.init_gem::<install::KobakoBridge>()?;
-        G::install_gems(mrb)?;
+    pub fn init<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
+        mrb.init_gem::<init::KobakoBridge>()?;
+        G::init_gems(mrb)?;
 
         // SAFETY: `KobakoBridge::init` just registered every entity
-        // `resolve_raw` looks up, satisfying its install precondition.
+        // `resolve_raw` looks up, satisfying its init precondition.
         Ok(unsafe { Self::resolve_raw(mrb.as_ptr()) })
     }
 
-    /// Resolve the class handles produced by a prior install, from a
+    /// Resolve the class handles produced by a prior init, from a
     /// raw `*mut mrb_state`. C-bridge re-entry point — mruby invokes
     /// bridges with a raw `*mut mrb_state` per the
     /// `beni::sys::mrb_func_t` ABI, and this is how those
@@ -147,32 +147,34 @@ impl Kobako {
     ///
     /// # Safety
     ///
-    /// `mrb` must be a live mruby state on which `Kobako::install`
+    /// `mrb` must be a live mruby state on which `Kobako::init`
     /// has already run. Calling this against a fresh state without
-    /// prior install would surface as a NULL `mrb_class_get_under`
+    /// prior init would surface as a NULL `mrb_class_get_under`
     /// return value and later UB; the C-bridge entry points uphold
-    /// the install precondition by construction (they are invoked
-    /// through registrations done at install time).
+    /// the init precondition by construction (they are invoked
+    /// through registrations done at init time).
     pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
         use beni::Module;
 
         // SAFETY: `mrb` is live by the function's safety contract.
         // `mrb_define_module` is idempotent (returns the existing
         // module if already registered); each `class_get` returns the
-        // already-registered class produced by `install`, so every
-        // `expect` below is the install precondition restated.
-        const INSTALLED: &str = "Kobako::install registered this entity";
+        // already-registered class produced by `init`, so every
+        // `expect` below is the init precondition restated.
+        const INITIALIZED: &str = "Kobako::init registered this entity";
         let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
-        let kobako_mod = mrb_ref.define_module(c"Kobako").expect(INSTALLED);
+        let kobako_mod = mrb_ref.define_module(c"Kobako").expect(INITIALIZED);
         let transport_mod = kobako_mod
             .define_module(mrb_ref, c"Transport")
-            .expect(INSTALLED);
-        let member_class = kobako_mod.class_get(mrb_ref, c"Member").expect(INSTALLED);
-        let handle_class = kobako_mod.class_get(mrb_ref, c"Handle").expect(INSTALLED);
+            .expect(INITIALIZED);
+        let member_class = kobako_mod.class_get(mrb_ref, c"Member").expect(INITIALIZED);
+        let handle_class = kobako_mod.class_get(mrb_ref, c"Handle").expect(INITIALIZED);
         let service_error_class = kobako_mod
             .class_get(mrb_ref, c"ServiceError")
-            .expect(INSTALLED);
-        let transport_error_class = transport_mod.class_get(mrb_ref, c"Error").expect(INSTALLED);
+            .expect(INITIALIZED);
+        let transport_error_class = transport_mod
+            .class_get(mrb_ref, c"Error")
+            .expect(INITIALIZED);
         Self {
             mrb,
             member_class,
@@ -253,7 +255,7 @@ impl Kobako {
     #[inline]
     pub(crate) fn mrb(&self) -> &Mrb {
         // SAFETY: `Kobako` is only constructed against a live
-        // `mrb_state` (via `install` / `resolve_raw`), and the caller
+        // `mrb_state` (via `init` / `resolve_raw`), and the caller
         // upholds liveness for the duration of any method call on it.
         unsafe { Mrb::borrow_raw(&self.mrb) }
     }
@@ -312,8 +314,7 @@ impl Kobako {
     /// Snapshot every top-level constant currently defined on `Object`
     /// by calling `Object.constants` and unpacking the returned Symbol
     /// Array into a `Vec<String>`. Used by `__kobako_run` to compute
-    /// the E-27 `details:` payload: a baseline taken after kobako
-    /// install + preamble materialise (before snippet replay) is
+    /// the E-27 `details:` payload: a baseline taken     /// install + preamble materialise (before snippet replay) is
     /// subtracted from a post-replay snapshot, yielding the constants
     /// the preloaded snippets contributed (docs/behavior.md B-31 / E-27).
     ///
