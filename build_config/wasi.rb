@@ -95,121 +95,12 @@ unless defined?(KobakoBuildConfig)
       mruby-error
       mruby-metaprog
     ].freeze
-
-    # Third-party mrbgems vendored under `vendor/<name>/` by
-    # `tasks/vendor.rake`. Same strict-allowlist contract as
-    # `MRBGEM_ALLOWLIST` but a separate surface: each entry pulls in a
-    # native C dependency too, so the attack surface widens beyond the
-    # gem's Ruby + glue C. Adding to this list is a wire- / security-
-    # review-bearing change.
-    #
-    #   * mruby-onig-regexp — Onigmo regex engine (mruby 4.0 ships no
-    #     built-in Regexp). Onigmo is a guest-side compute capability;
-    #     Regexp objects do NOT cross the host↔guest wire (no SPEC.md
-    #     wire codec change). The Onigmo source bundled by the gem is
-    #     frozen at 6.2.0 (2019) and carries known CVEs covering
-    #     ReDoS, OOB reads, and OOB writes; upgrading requires forking
-    #     the gem because the version is hard-coded in its
-    #     mrbgem.rake. The wasm sandbox isolates the host from any
-    #     guest-side crash, but a malicious / malformed pattern can
-    #     still corrupt guest state — host-side Sandbox limits (fuel,
-    #     memory) bound compute exhaustion but cannot bound engine-
-    #     internal memory-safety bugs.
-    THIRD_PARTY_GEM_DIRS = [
-      File.join(VENDOR_DIR, "mruby-onig-regexp")
-    ].freeze
-
-    # Onigmo 6.2.0 ships pre-wasm `config.sub` / `config.guess` that
-    # reject `wasm32-wasi` host triples. mruby-onig-regexp's
-    # `mrbgem.rake` extracts Onigmo into
-    # `build/wasi/mrbgems/mruby-onig-regexp/onigmo-6.2.0/` only when its
-    # +file header+ rake task fires, but the same +file+ rule is
-    # idempotent (it skips when the sentinel exists). We pre-extract the
-    # tarball and overwrite the aux scripts here so the rule sees the
-    # sentinel and falls through to +./configure+, which then picks up
-    # the modern wasm-aware aux scripts. Hooking the rake task graph
-    # directly is not viable: mruby's build system registers gem file
-    # tasks later in a separate pass than the build_config DSL.
-    ONIGMO_RELATIVE_BUILD_DIR = "vendor/mruby/build/#{MRUBY_BUILD_NAME}/mrbgems/mruby-onig-regexp".freeze
-    ONIGMO_RELATIVE_TARBALL   = "vendor/mruby-onig-regexp/onigmo-6.2.0.tar.gz"
-    ONIGMO_VERSION_DIR        = "onigmo-6.2.0"
-
-    def self.pre_extract_and_patch_onigmo!
-      build_dir = File.join(PROJECT_ROOT, ONIGMO_RELATIVE_BUILD_DIR)
-      oniguruma_dir = File.join(build_dir, ONIGMO_VERSION_DIR)
-      return if File.exist?(File.join(oniguruma_dir, "onigmo.h"))
-
-      extract_onigmo_tarball(build_dir)
-      overwrite_config_aux(oniguruma_dir)
-      patch_regparse_st_foreach(oniguruma_dir)
-    end
-
-    def self.extract_onigmo_tarball(build_dir)
-      tarball = File.join(PROJECT_ROOT, ONIGMO_RELATIVE_TARBALL)
-      return unless File.exist?(tarball)
-
-      FileUtils.mkdir_p(build_dir)
-      system("tar", "-xzf", tarball, "-C", build_dir, exception: true)
-    end
-
-    def self.overwrite_config_aux(oniguruma_dir)
-      aux_dir = File.join(VENDOR_DIR, "onigmo-build-aux")
-      %w[config.sub config.guess].each do |name|
-        src = require_aux_script(aux_dir, name)
-        dst = File.join(oniguruma_dir, name)
-        FileUtils.cp(src, dst)
-        File.chmod(0o755, dst)
-      end
-    end
-
-    # Onigmo 6.2.0's `st_general_foreach` invokes its name-table callbacks
-    # with four arguments while the four `regparse.c` callbacks are declared
-    # with three; the `ANYARGS` cast hides the mismatch. Native targets ignore
-    # the extra argument, but wasm32 type-checks every `call_indirect` and
-    # hard-traps the moment a named-capture pattern compiles and walks its
-    # name table. Align each callback to the call site by appending the
-    # ignored fourth parameter (the same migration CRuby applied for wasm /
-    # CFI). The +onigmo.h+ sentinel in +pre_extract_and_patch_onigmo!+ keeps
-    # this a one-shot edit per extraction; a missing target raises so a future
-    # Onigmo pin bump cannot silently skip the fix.
-    ONIGMO_ST_FOREACH_CALLBACKS = [
-      ["i_print_name_entry(UChar* key, NameEntry* e, void* arg)",
-       "i_print_name_entry(UChar* key, NameEntry* e, void* arg, int error ARG_UNUSED)"],
-      ["i_free_name_entry(UChar* key, NameEntry* e, void* arg ARG_UNUSED)",
-       "i_free_name_entry(UChar* key, NameEntry* e, void* arg ARG_UNUSED, int error ARG_UNUSED)"],
-      ["i_names(UChar* key ARG_UNUSED, NameEntry* e, INamesArg* arg)",
-       "i_names(UChar* key ARG_UNUSED, NameEntry* e, INamesArg* arg, int error ARG_UNUSED)"],
-      ["i_renumber_name(UChar* key ARG_UNUSED, NameEntry* e, GroupNumRemap* map)",
-       "i_renumber_name(UChar* key ARG_UNUSED, NameEntry* e, GroupNumRemap* map, int error ARG_UNUSED)"]
-    ].freeze
-
-    def self.patch_regparse_st_foreach(oniguruma_dir)
-      path = File.join(oniguruma_dir, "regparse.c")
-      source = File.read(path)
-      ONIGMO_ST_FOREACH_CALLBACKS.each do |three_arg, four_arg|
-        unless source.include?(three_arg)
-          raise "[kobako] Onigmo regparse.c patch target missing: #{three_arg.inspect} " \
-                "— the pinned Onigmo source changed; re-verify the st_foreach callback arity fix"
-        end
-        source = source.sub(three_arg, four_arg)
-      end
-      File.write(path, source)
-    end
-
-    # Returns the absolute path to a vendored GNU config aux script, or
-    # raises with an actionable +rake+ hint when the script is missing
-    # (typically the operator forgot +rake vendor:setup:onigmo_build_aux+
-    # before +rake mruby:build+). Failing here means Onigmo's pre-wasm
-    # +./configure+ never runs, which would otherwise blow up downstream
-    # with the cryptic +"Invalid configuration 'wasm32-wasi'"+ error.
-    def self.require_aux_script(aux_dir, name)
-      src = File.join(aux_dir, name)
-      return src if File.exist?(src)
-
-      raise "[kobako] missing #{src} — run `rake vendor:setup:onigmo_build_aux`"
-    end
   end
 end
+
+# Onigmo concern (mruby-onig-regexp pin, pre-extract, config aux fetch,
+# regparse patch) — needs the core constants above at load time.
+require_relative "onigmo"
 
 # +:wasi+ toolchain — wasi-sdk absolute tool paths, wasm32-wasi target
 # / sysroot flags, the setjmp/longjmp three-flag set, the GNU archive
@@ -295,12 +186,15 @@ MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # construction. Bumping the list is a security-review-bearing change.
   KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
 
-  # Third-party mrbgems loaded from `vendor/<name>/`. Same strict-
-  # allowlist contract; see KobakoBuildConfig::THIRD_PARTY_GEM_DIRS.
-  KobakoBuildConfig::THIRD_PARTY_GEM_DIRS.each { |gem_dir| conf.gem gem_dir }
+  # mruby-onig-regexp, fetched by mruby's own build system into
+  # `build/repos/wasi/`; `checksum_hash` pins a content-addressed
+  # detached checkout. Same strict-allowlist contract; see
+  # KobakoBuildConfig::Onigmo::GEM_COMMIT for the security rationale.
+  conf.gem github: "mattn/mruby-onig-regexp",
+           checksum_hash: KobakoBuildConfig::Onigmo::GEM_COMMIT
 
   # Pre-extract Onigmo and overwrite its pre-wasm config.sub/config.guess
   # so mrbgem.rake's file rule skips its own extraction and ./configure
   # sees the wasm-aware aux scripts.
-  KobakoBuildConfig.pre_extract_and_patch_onigmo!
+  KobakoBuildConfig::Onigmo.pre_extract_and_patch!
 end

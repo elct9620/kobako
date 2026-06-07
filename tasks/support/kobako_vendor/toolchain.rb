@@ -9,9 +9,7 @@ module KobakoVendor
   #
   # Adding a new tarball-based vendor artifact is a single Toolchain
   # constant in +KobakoVendor+; the rake DSL loop in +vendor.rake+
-  # picks it up automatically. Artifacts whose pipeline does not match
-  # this shape (e.g. +onigmo-build-aux+, which is a set of plain files,
-  # not a tarball) stay declared by hand alongside the toolchain loop.
+  # picks it up automatically.
   #
   # Fields:
   #

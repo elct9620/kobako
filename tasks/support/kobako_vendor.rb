@@ -18,9 +18,9 @@
 # Extending: a new tarball-based vendor artifact is added by appending
 # one +Toolchain.new(...)+ to +TARBALL_TOOLCHAINS+ and (if its hash
 # pinning is enforced via CI env var) adding a +KOBAKO_VENDOR_<KEY>_SHA256+
-# entry to the deployment env. Artifacts whose pipeline does not match
-# the tarball shape (plain file fetch, multi-file copy) stay declared
-# by hand in +vendor.rake+.
+# entry to the deployment env. Third-party mrbgems are NOT vendor
+# artifacts: mruby's own build system fetches them via +conf.gem github:+
+# declarations in +build_config/wasi.rb+.
 
 require_relative "kobako_vendor/downloader"
 require_relative "kobako_vendor/checksum"
@@ -46,21 +46,6 @@ module KobakoVendor
   # mruby: pinned release tarball.
   MRUBY_VERSION = "4.0.0"
 
-  # mruby-onig-regexp: third-party mrbgem that brings Onigmo regex into the
-  # guest (mruby 4.0 ships no built-in Regexp). The upstream repo has no
-  # tags, so we pin a commit SHA. The gem's tarball already vendors the
-  # Onigmo C source as +onigmo-6.2.0.tar.gz+, so no second tarball is
-  # required.
-  MRUBY_ONIG_REGEXP_COMMIT = "c97d7c1e7073bc5558986da4e2d07171f0761cc8"
-
-  # GNU config aux scripts (config.sub / config.guess). Onigmo 6.2.0
-  # ships pre-wasm copies that reject +wasm32-wasi+ host triples. We
-  # vendor a pinned commit from GNU savannah's config.git (same source
-  # CRuby's wasm build uses, see ruby/ruby +wasm/README.md+) and copy
-  # them over Onigmo's shipped scripts in +build_config/wasi.rb+ before
-  # +./configure+ runs.
-  CONFIG_AUX_COMMIT = "a2287c3041a3f2a204eb942e09c015eab00dc7dd"
-
   # ---- Platform detection (wasi-sdk only; mruby tarball is host-agnostic).
   # +x86_64-linux+ is both the most common host triple and the safest
   # fallback for unrecognised ones, so we collapse both cases into the
@@ -73,12 +58,6 @@ module KobakoVendor
     when /aarch64-linux|arm64-linux/   then "arm64-linux"
     else "x86_64-linux"
     end
-
-  # savannah cgit serves raw blobs as +plain/<path>?id=<sha>+; pinning to
-  # a commit makes the response byte-stable (TOFU sidecar in CACHE_DIR
-  # detects any drift).
-  CONFIG_AUX_FILES = %w[config.sub config.guess].freeze
-  CONFIG_AUX_FINAL = File.join(VENDOR_DIR, "onigmo-build-aux").freeze
 
   WASI_SDK = Toolchain.new(
     name: "wasi-sdk",
@@ -100,17 +79,7 @@ module KobakoVendor
     sha_key: :MRUBY
   )
 
-  MRUBY_ONIG_REGEXP = Toolchain.new(
-    name: "mruby-onig-regexp",
-    version_label: MRUBY_ONIG_REGEXP_COMMIT[0, 8],
-    base_url: "https://github.com/mattn/mruby-onig-regexp/archive",
-    tarball_name: "#{MRUBY_ONIG_REGEXP_COMMIT}.tar.gz",
-    top_level_dir: "mruby-onig-regexp-#{MRUBY_ONIG_REGEXP_COMMIT}",
-    final_dir: File.join(VENDOR_DIR, "mruby-onig-regexp"),
-    sha_key: :MRUBY_ONIG_REGEXP
-  )
-
-  TARBALL_TOOLCHAINS = [WASI_SDK, MRUBY, MRUBY_ONIG_REGEXP].freeze
+  TARBALL_TOOLCHAINS = [WASI_SDK, MRUBY].freeze
 
   module_function
 
@@ -127,8 +96,7 @@ module KobakoVendor
   # Expected SHA256 for a vendored tarball, sourced from
   # +KOBAKO_VENDOR_<KEY>_SHA256+ env vars (empty string falls back to TOFU
   # sidecar pinning in +Checksum#verify_or_pin+). +key+ is the artifact
-  # slug in upper snake case, e.g. +:WASI_SDK+, +:MRUBY+,
-  # +:MRUBY_ONIG_REGEXP+.
+  # slug in upper snake case, e.g. +:WASI_SDK+, +:MRUBY+.
   def expected_sha256(key)
     ENV.fetch("KOBAKO_VENDOR_#{key}_SHA256", "")
   end
