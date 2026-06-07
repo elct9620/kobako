@@ -17,6 +17,8 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
+      rs_release_created: ${{ steps.release.outputs['wasm/kobako--release_created'] }}
+      io_release_created: ${{ steps.release.outputs['wasm/kobako-io--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -34,12 +36,13 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
 
-  # The crate release chains the same way, keyed on the per-path output
-  # of the `wasm/kobako-core` package (the root gem keeps the unprefixed
-  # outputs).
+  # The crate release chains the same way, keyed on the per-path outputs
+  # of the guest crate packages (the root gem keeps the unprefixed
+  # outputs). The linked-versions group releases the three crates
+  # together; the OR keeps the chain alive if one output ever drops.
   release-crate:
     needs: release-please
-    if: ${{ needs.release-please.outputs.core_release_created }}
+    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created }}
     uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 
@@ -71,9 +74,9 @@ jobs:
         run: bundle install
       - name: Regenerate Cargo.lock kobako entry
         run: cargo update -p kobako --workspace --offline || cargo update -p kobako
-      - name: Regenerate wasm/Cargo.lock kobako-core entry
+      - name: Regenerate wasm/Cargo.lock guest crate entries
         working-directory: wasm
-        run: cargo update -p kobako-core --workspace --offline || cargo update -p kobako-core
+        run: cargo update -p kobako-core -p kobako -p kobako-io --workspace --offline || cargo update -p kobako-core -p kobako -p kobako-io
       # Commit via the GraphQL createCommitOnBranch mutation rather than
       # `git push`: commits that enter GitHub over the API with the bot
       # GITHUB_TOKEN are signed by GitHub and marked Verified, whereas a

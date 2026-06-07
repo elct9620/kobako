@@ -1,8 +1,9 @@
 name: Release Crate
 
-# Publishes `kobako-core` from the `wasm/` sub-workspace to crates.io.
-# Split from `release.yml` by release type: that workflow ships the Ruby
-# gem family, this one ships crates. The manual-recovery shape mirrors
+# Publishes the guest crates (`kobako-core`, `kobako-io`, `kobako`)
+# from the `wasm/` sub-workspace to crates.io. Split from
+# `release.yml` by release type: that workflow ships the Ruby gem
+# family, this one ships crates. The manual-recovery shape mirrors
 # the gem's — `workflow_dispatch` defaults `push` to false, so a bare
 # dispatch is a `cargo publish --dry-run` rehearsal; tick `push` to
 # publish for real.
@@ -11,14 +12,14 @@ on:
   workflow_dispatch:
     inputs:
       push:
-        description: 'Publish kobako-core to crates.io'
+        description: 'Publish the guest crates to crates.io'
         required: false
         default: false
         type: boolean
   workflow_call:
     inputs:
       push:
-        description: 'Publish kobako-core to crates.io'
+        description: 'Publish the guest crates to crates.io'
         required: false
         default: true
         type: boolean
@@ -29,7 +30,7 @@ permissions:
 
 jobs:
   publish-crate:
-    name: Publish kobako-core to crates.io
+    name: Publish guest crates to crates.io
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -43,21 +44,43 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: ${{ steps.rust.outputs.channel }}
+      # Rehearsal caveat: after a release PR bumps the linked versions
+      # but before kobako-core publishes, the kobako dry-run fails —
+      # its kobako-core requirement resolves against the registry, not
+      # the workspace path.
       - name: Dry-run publish
         if: ${{ !inputs.push }}
         working-directory: wasm
-        run: cargo publish -p kobako-core --dry-run
+        run: |
+          cargo publish -p kobako-core --dry-run
+          cargo publish -p kobako-io --dry-run
+          cargo publish -p kobako --dry-run
       # Trusted Publishing: exchange the workflow's OIDC token for a
       # short-lived crates.io token (the crates.io counterpart of the
-      # rubygems OIDC flow in release.yml). Requires the kobako-core
+      # rubygems OIDC flow in release.yml). Requires each guest
       # crate's Trusted Publishing config on crates.io to name this
       # repository and workflow file.
       - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
         if: ${{ inputs.push }}
         id: auth
+      # Dependency order: kobako depends on kobako-core, so it goes
+      # last — `cargo publish` waits for each crate to land in the
+      # index before returning. The already-published check makes a
+      # re-run after a partial failure resume instead of dying on
+      # "version already uploaded".
       - name: Publish to crates.io
         if: ${{ inputs.push }}
         working-directory: wasm
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish -p kobako-core
+        run: |
+          for crate in kobako-core kobako-io kobako; do
+            version="$(cargo metadata --no-deps --format-version 1 \
+              | jq -r ".packages[] | select(.name == \"$crate\") | .version")"
+            if curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
+              "https://crates.io/api/v1/crates/$crate/$version" >/dev/null 2>&1; then
+              echo "$crate $version already on crates.io; skipping"
+              continue
+            fi
+            cargo publish -p "$crate"
+          done
