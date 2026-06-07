@@ -127,7 +127,7 @@ pub(super) fn guest_buffer_range(
 
 /// Unpack the `(ptr, len)` u64 returned by `__kobako_take_outcome`:
 /// high 32 bits = ptr, low 32 bits = len. Mirrors the guest-side
-/// `crate::abi::unpack_u64` in `wasm/kobako-wasm/src/abi.rs`.
+/// `unpack_u64` in `wasm/kobako-core/src/abi.rs`.
 pub(super) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
     let ptr = (packed >> 32) as u32 as usize;
     let len = packed as u32 as usize;

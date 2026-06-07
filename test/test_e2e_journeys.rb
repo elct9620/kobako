@@ -988,8 +988,8 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # H-2 regression: an Integer must round-trip via the direct unbox
-  # path, not the previous +to_s + parse+ pipeline that silently fell
-  # back to 0 on parse failure. mruby's MRB_INT32 word-box reserves a
+  # path — a text-coercion round-trip would silently fall back to 0 on
+  # parse failure. mruby's MRB_INT32 word-box reserves a
   # tag bit on wasm32, so the addressable Fixnum range is narrower than
   # i32; use 2^28 ± 1 as a representative magnitude that exercises the
   # signed 32-bit return path of `kobako_fixnum_value` without leaving
@@ -1496,14 +1496,12 @@ class TestE2EJourneys < Minitest::Test
   # structural failure modes (E-37 / E-38). The raise_boom fixture is
   # `raise "boom from snippet"` compiled with `mrbc -g`.
   #
-  # Scope: this test pins the E-36 dispatch contract only — the spec
-  # change broadens E-36 to cover binary form, and the regression risk
-  # is the silent promotion to BytecodeError that the previous
-  # implementation enforced unconditionally. Backtrace attribution for
+  # Scope: this test pins the E-36 dispatch contract only — E-36 covers
+  # binary form, and the regression risk is a silent unconditional
+  # promotion to BytecodeError. Backtrace attribution for
   # binary form (whatever filename the bytecode's debug_info carries,
-  # routed through mruby's own `pack_backtrace`) is inherited from
-  # upstream and unchanged by the spec relaxation, so it is not
-  # separately pinned here. The source-form companion at
+  # routed through mruby's own `pack_backtrace`) is upstream-inherited,
+  # so it is not separately pinned here. The source-form companion at
   # `test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error`
   # exercises the parallel attribution path for the `(snippet:Name)`
   # ccontext filename, which is host-set rather than upstream-inherited.

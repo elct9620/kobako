@@ -1,7 +1,7 @@
 //! Host-side dispatch for the `__kobako_dispatch` import.
 //!
 //! When the guest invokes the wasm import declared in
-//! `wasm/kobako-wasm/src/abi.rs`, wasmtime calls back into the host
+//! `wasm/kobako-core/src/abi.rs`, wasmtime calls back into the host
 //! through the closure built in `super::Runtime::build`.
 //! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
 //!
