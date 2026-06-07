@@ -19,18 +19,18 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "beni"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e2f6557ca21f0674d7c78c8ed74efde1de9ae9c7a2a61fc895ed9112baf41ce"
+checksum = "4c8cfcb2623eb8f94fb0fcb4ea0ef20a1e10d8241dcdd1fc092f27804a0af05d"
 dependencies = [
  "beni-sys",
 ]
 
 [[package]]
 name = "beni-sys"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d303a6e091f0dca9a2036cf9de6db44fae15c98bb305076503dfbe2cf7053602"
+checksum = "7a93e8f55f70dadf37051e417c9183a24dc04aa942af6b549fc6a04ff6ce85fc"
 dependencies = [
  "bindgen",
  "cc",
