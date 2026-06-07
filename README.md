@@ -335,7 +335,7 @@ bin/setup         # install dependencies
 bundle exec rake  # default: compile + test + rubocop + steep
 ```
 
-Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain; the first compile walks the full vendor / mruby / wasm chain. See [`CLAUDE.md`](CLAUDE.md) for the rake task map and pipeline layout. `bin/console` opens an IRB session with the gem preloaded; `bundle exec rake install` installs the local checkout as a gem.
+Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain; the first compile walks the full chain — the [beni](https://github.com/elct9620/beni) gem vendors wasi-sdk + mruby and builds `libmruby.a` (`rake beni:build`), then `rake wasm:build` produces the Guest Binary. See [`CLAUDE.md`](CLAUDE.md) for the rake task map and pipeline layout. `bin/console` opens an IRB session with the gem preloaded; `bundle exec rake install` installs the local checkout as a gem.
 
 ## Contributing
 
