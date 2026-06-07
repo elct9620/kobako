@@ -16,6 +16,10 @@
           "type": "toml",
           "path": "/wasm/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='kobako-core')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/wasm/kobako-core/README.md"
         }
       ]
     },
@@ -32,6 +36,10 @@
           "type": "toml",
           "path": "/wasm/kobako/Cargo.toml",
           "jsonpath": "$.dependencies['kobako-core'].version"
+        },
+        {
+          "type": "generic",
+          "path": "/wasm/kobako/README.md"
         }
       ]
     },
@@ -43,6 +51,10 @@
           "type": "toml",
           "path": "/wasm/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='kobako-io')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/wasm/kobako-io/README.md"
         }
       ]
     }
