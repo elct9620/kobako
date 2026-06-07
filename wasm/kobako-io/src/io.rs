@@ -13,7 +13,11 @@
 //! the gem ships no Ruby boot source and needs no mrbc pipeline.
 //! Composite methods route their output through `self.write(...)`
 //! funcalls, preserving the mrblib dispatch shape (a subclass
-//! overriding `#write` redirects them all).
+//! overriding `#write` redirects them all). Per-argument loops
+//! bracket each iteration in `Mrb::arena_scope`: the mrblib
+//! predecessors ran under the VM, which restores the GC arena every
+//! instruction, so without the scope a long argument list would
+//! accumulate arena slots in the C frame until overflow.
 //!
 //! ## Scope restriction
 //!
@@ -176,7 +180,7 @@ fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
 fn io_print(mrb: &Mrb, self_: Value) -> Value {
     let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     for val in argv {
-        let _scope = ArenaScope::enter(mrb);
+        let _scope = mrb.arena_scope();
         let s = val.obj_as_string(mrb);
         write_one(mrb, self_, s);
     }
@@ -215,7 +219,7 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) {
         }
         return;
     }
-    let _scope = ArenaScope::enter(mrb);
+    let _scope = mrb.arena_scope();
     let s = val.obj_as_string(mrb);
     // SAFETY: `obj_as_string` returns a String-tagged Value; the
     // slice is dropped before the next mruby call below.
@@ -270,7 +274,7 @@ fn io_putc(mrb: &Mrb, self_: Value) -> Value {
 fn io_p(mrb: &Mrb, self_: Value) -> Value {
     let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     for &val in &argv {
-        let _scope = ArenaScope::enter(mrb);
+        let _scope = mrb.arena_scope();
         let insp = val.call(mrb, c"inspect", &[]);
         let nl = mrb.str_new(b"\n");
         self_.call(mrb, c"write", &[insp, nl]);
@@ -353,35 +357,6 @@ fn collection_len(mrb: &Mrb, col: Value) -> usize {
     match i32::from_value(len_val) {
         Some(len) if len > 0 => len as usize,
         _ => 0,
-    }
-}
-
-/// RAII guard restoring the GC arena index on drop. The mrblib
-/// predecessors of the multi-argument loops ran under the VM, which
-/// restores the arena every instruction; a C-frame loop accumulates
-/// arena slots per allocation instead, so each iteration runs inside
-/// one of these scopes to keep long argument lists from overflowing
-/// the fixed-size arena. A divergent raise long-jumps past `Drop`,
-/// which is fine — the whole frame is abandoned with it.
-struct ArenaScope<'mrb> {
-    mrb: &'mrb Mrb,
-    idx: core::ffi::c_int,
-}
-
-impl<'mrb> ArenaScope<'mrb> {
-    fn enter(mrb: &'mrb Mrb) -> Self {
-        // SAFETY: `mrb` is live for this bridge frame; the shim only
-        // reads the arena index.
-        let idx = unsafe { sys::mrb_gc_arena_save_func(mrb.as_ptr()) };
-        Self { mrb, idx }
-    }
-}
-
-impl Drop for ArenaScope<'_> {
-    fn drop(&mut self) {
-        // SAFETY: same liveness argument as `enter`; restoring to a
-        // previously saved index is the documented pairing.
-        unsafe { sys::mrb_gc_arena_restore_func(self.mrb.as_ptr(), self.idx) };
     }
 }
 

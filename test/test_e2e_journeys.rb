@@ -650,6 +650,22 @@ class TestE2EJourneys < Minitest::Test
                     "Kernel#p must write Hash inspect form to stdout (mruby 4.0 shorthand)"
   end
 
+  # SPEC.md B-04: the IO write loops run in C frames, where mruby's GC
+  # arena (100 slots) is not restored per instruction the way it is
+  # under the VM; each iteration allocates at least a coerced String
+  # and a newline, so 150 arguments overflow the arena unless the loop
+  # brackets every iteration in an arena scope. Witness: dropping the
+  # scope makes mruby raise its arena-overflow error mid-loop, which
+  # surfaces as SandboxError instead of the full output.
+  def test_puts_long_argument_list_does_not_overflow_gc_arena
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.eval("puts(*(1..150).to_a); 1")
+
+    assert_equal (1..150).map { |i| "#{i}\n" }.join, sandbox.stdout,
+                 "Kernel#puts with 150 arguments must write every line; a long argument " \
+                 "list must not abort the guest mid-loop"
+  end
+
   # Reassigning $stdout = $stderr at script time must redirect subsequent
   # Kernel#puts output to the stderr capture channel. This is the whole
   # reason Kernel delegators route through the assignable global instead
