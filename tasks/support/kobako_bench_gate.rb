@@ -85,7 +85,10 @@ module KobakoBench
     def enforce(regressions, missing, dropped)
       report(regressions, missing, dropped)
       problems = regressions.size + missing.size
-      abort "gate: #{problems} gated issue(s) need review or a re-bless before release." unless problems.zero?
+      return if problems.zero?
+
+      abort "gate: #{problems} gated issue(s) — arbitrate real-vs-noise with " \
+            "`rake bench:confirm[<last release>]` before a re-bless or release."
     end
 
     # Print dropped-case NOTEs (non-blocking), then the unanchored cases

@@ -26,6 +26,7 @@
 # Release-gate benchmark roster lives in tasks/support/kobako_bench.rb.
 
 require_relative "support/kobako_bench"
+require_relative "support/kobako_bench_confirm"
 require_relative "support/kobako_bench_gate"
 
 namespace :bench do
@@ -65,6 +66,9 @@ namespace :bench do
 
   desc "Re-bless the anchor (benchmark/baseline.json) from a run; document the reason in the benchmark README."
   task(:bless, %i[run]) { |_t, args| KobakoBench::Gate.bless!(args[:run]) }
+
+  desc "Stage-2 arbiter: paired alternation against a released Guest Binary (version or wasm path)."
+  task(:confirm, %i[baseline]) { |_t, args| KobakoBench::Confirm.confirm!(args[:baseline]) }
 
   desc "Run the release-gate unit tests (comparator + runner)."
   task :gate_test do
