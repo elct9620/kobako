@@ -20,12 +20,6 @@ categories = ["wasm"]
 
 [dependencies]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus
-# every `Mrb` / `Value` seam the bridges use. The raw FFI surface is
-# reached through its `beni::sys` re-export.
+# every `Mrb` / `Value` seam the bridges use; the gem's only
+# dependency.
 beni = "0.3.0"
-
-# Direct dependency on the FFI layer so cargo forwards its
-# `links = "mruby"` metadata (`DEP_MRUBY_LINKED`) to this crate's
-# build script — see build.rs. Code never names this path; call
-# sites go through the `beni::sys` re-export.
-beni-sys = "0.3.0"

@@ -109,7 +109,9 @@ fn io_initialize(mrb: &Mrb, self_: Value) -> Value {
         unsafe { raise_argument_error(mrb, c"kobako IO only supports mode \"w\"") };
     }
 
-    let fd_val = fd.into_value(mrb);
+    // `fd` carries mruby's own `mrb_int` width, which follows the
+    // target; `Value::from_int` takes it as-is on every width.
+    let fd_val = Value::from_int(mrb, fd);
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
     self_.iv_set(mrb, sym, fd_val);
     Value::zeroed()

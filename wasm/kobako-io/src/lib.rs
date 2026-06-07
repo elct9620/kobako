@@ -10,16 +10,12 @@
 //! Pure Rust over `beni`: the entire Ruby-level surface is defined
 //! through the typed wrapper — no mrblib, no mrbc / RITE pipeline.
 //! The gem is kobako-free; output goes straight to wasi-libc
-//! `write(2)`, so any guest shell can compose it.
-//!
-//! The mruby-touching internals are gated on the `mruby_linked` cfg
-//! mirrored from `beni-sys` (see `build.rs`); placeholder-mode builds
-//! (host targets without a discovered `libmruby.a`) compile only this
-//! public surface.
+//! `write(2)`, so any guest shell can compose it. Placeholder-mode
+//! builds (host targets without a discovered `libmruby.a`) compile
+//! the whole crate; `init` is unreachable there, as beni's
+//! `Mrb::open` returns `Err` and no `&Mrb` exists to call it with.
 
-#[cfg(mruby_linked)]
 mod io;
-#[cfg(mruby_linked)]
 mod kernel;
 
 use beni::{Error, Gem, Mrb};
@@ -33,16 +29,8 @@ pub struct KobakoIo;
 
 impl Gem for KobakoIo {
     fn init(mrb: &Mrb) -> Result<(), Error> {
-        #[cfg(mruby_linked)]
-        {
-            io::init(mrb)?;
-            kernel::init(mrb)?;
-            Ok(())
-        }
-        #[cfg(not(mruby_linked))]
-        {
-            let _ = mrb;
-            panic!("kobako-io placeholder mode: mruby is not linked; install needs a discovered libmruby.a")
-        }
+        io::init(mrb)?;
+        kernel::init(mrb)?;
+        Ok(())
     }
 }
