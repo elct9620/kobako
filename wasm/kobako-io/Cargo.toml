@@ -15,6 +15,7 @@ edition = "2021"
 description = "Sandbox IO / Kernel capability gem for kobako mruby guests — $stdout / $stderr over wasi-libc, built on beni."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi", "io"]
 categories = ["wasm"]
 

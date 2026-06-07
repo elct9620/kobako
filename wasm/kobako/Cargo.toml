@@ -15,6 +15,7 @@ edition = "2021"
 description = "Assembled mruby implementation of the kobako Guest ABI — the MrbGuest harness and the KobakoBridge gem, built on beni."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm"]
 
