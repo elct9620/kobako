@@ -56,7 +56,7 @@ impl Kobako {
         let keys_ary = hash.keys(self.mrb());
         let keys_len = self.collection_len(keys_ary.as_value());
         for i in 0..keys_len {
-            let key_val = keys_ary.entry(i as beni::sys::mrb_int);
+            let key_val = keys_ary.entry(i as isize);
             let val = hash.get(self.mrb(), key_val);
             out.push((key_val.to_string(self.mrb()), self.to_codec_value(val)));
         }
@@ -114,7 +114,7 @@ impl Kobako {
         let len = self.collection_len(val);
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
-            let elem = ary.entry(i as beni::sys::mrb_int);
+            let elem = ary.entry(i as isize);
             items.push(convert(self, elem, depth + 1));
         }
         items
@@ -140,7 +140,7 @@ impl Kobako {
         let len = self.collection_len(keys_ary.as_value());
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
-            let key = keys_ary.entry(i as beni::sys::mrb_int);
+            let key = keys_ary.entry(i as isize);
             let v = hash.get(self.mrb(), key);
             pairs.push((convert(self, key, depth + 1), convert(self, v, depth + 1)));
         }

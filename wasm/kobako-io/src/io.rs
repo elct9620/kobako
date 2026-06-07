@@ -212,7 +212,7 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) {
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
         let len = collection_len(mrb, val);
         for i in 0..len {
-            puts_one(mrb, self_, ary.entry(i as i32));
+            puts_one(mrb, self_, ary.entry(i as isize));
         }
         return;
     }

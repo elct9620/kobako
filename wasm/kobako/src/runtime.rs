@@ -306,7 +306,7 @@ impl Kobako {
         let len = self.collection_len(bt_val);
         let mut lines = Vec::with_capacity(len);
         for i in 0..len {
-            lines.push(bt_ary.entry(i as beni::sys::mrb_int).to_string(self.mrb()));
+            lines.push(bt_ary.entry(i as isize).to_string(self.mrb()));
         }
         lines
     }
@@ -337,11 +337,7 @@ impl Kobako {
         let len = self.collection_len(consts);
         let mut names = Vec::with_capacity(len);
         for i in 0..len {
-            names.push(
-                consts_ary
-                    .entry(i as beni::sys::mrb_int)
-                    .to_string(self.mrb()),
-            );
+            names.push(consts_ary.entry(i as isize).to_string(self.mrb()));
         }
         names
     }
