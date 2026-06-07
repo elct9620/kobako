@@ -152,9 +152,9 @@ def sample_during_payload(runner, sandbox, before)
   during = sample_rss_kb
   # `payload_bytesize` reads `result` *after* the rss sample, which
   # is what keeps the 512 KiB String alive across `sample_rss_kb`.
-  # Do not drop this field: rubocop's auto-correct previously
-  # stripped the unused `result =` assignment and silently broke
-  # the during-payload measurement.
+  # Do not drop this field: without a later read the `result =`
+  # assignment is dead code and the payload becomes collectable
+  # mid-measurement.
   record(runner, "8c-rss-while-holding-return-value",
          sandbox: sandbox,
          rss_kb: during,

@@ -14,9 +14,7 @@ magnus = { version = "0.8.2" }
 # wasmtime — host-side embedder for kobako.wasm. We disable default-features
 # and opt back in only what kobako needs: a Cranelift-backed runtime that can
 # compile a pre-built wasm32-wasip1 module on the host triple, plus the `wat`
-# feature
-# so test fixtures can be expressed as text. WASI integration is layered on
-# later via `wasmtime-wasi` once stdin/stdout wiring is needed (item #16).
+# feature so test fixtures can be expressed as text.
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
 wasmtime = { version = "45.0.0", default-features = false, features = [

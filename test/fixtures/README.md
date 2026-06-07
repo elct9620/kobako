@@ -4,7 +4,7 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and predates the `__kobako_abi_version` export — the frozen witness for the `docs/behavior.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). Built once from `wasm/test-guest/` before that crate was removed in 2026-05-12. Regeneration is intentionally manual — the source crate is gone and bringing it back would violate the "no parallel fixture-driven wasm crates" convention.
+Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits the `__kobako_abi_version` export — the frozen witness for the `docs/behavior.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). It deliberately has no in-repo source: a buildable fixture crate would violate the "no parallel fixture-driven wasm crates" convention, so any replacement is hand-authored (the `.wat` fixtures below show the text-format route).
 
 ## `minimal_abi_ok.wat` / `minimal_abi_mismatch.wat`
 
