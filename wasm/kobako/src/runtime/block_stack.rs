@@ -9,13 +9,12 @@
 //! drop guard so any bridge exit path — normal return, mruby raise,
 //! Rust panic — preserves the LIFO invariant.
 //!
-//! No reader exists in S3; the stack is established here so the wire-
-//! level `block_given` bit (B-23) lines up with a real reference the
-//! S4+ yield export can dereference.
+//! The wire-level `block_given` bit (B-23) is the observable shadow of
+//! a push; the yield flow's read is the matching dereference.
 //!
 //! ## Cross-Sandbox isolation
 //!
-//! Same argument as `super::mrb_slot`: each `Kobako::Sandbox` owns
+//! Same argument as `crate::flows::mrb_slot`: each `Kobako::Sandbox` owns
 //! its own `wasmtime::Instance` and therefore its own copy of this
 //! module-level static. The single-threaded wasm execution model
 //! inside any one Instance licenses the `UnsafeCell` interior
@@ -26,7 +25,7 @@ use beni::Value;
 use core::cell::UnsafeCell;
 
 /// Single-threaded interior-mutability stack of guest-supplied block
-/// `mrb_value`s. Modelled after the sibling `super::mrb_slot::MrbSlot`
+/// `mrb_value`s. Modelled after `crate::flows::mrb_slot::MrbSlot`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
 pub(crate) struct BlockStack(UnsafeCell<Vec<Value>>);
@@ -66,7 +65,7 @@ impl BlockStack {
     }
 }
 
-// SAFETY: identical argument to `super::mrb_slot::MrbSlot` — wasm32
+// SAFETY: identical argument to `crate::flows::mrb_slot::MrbSlot` — wasm32
 // is single-threaded inside any one Instance; the inner `Value` is
 // `!Send + !Sync` but the surrounding Instance gives the same
 // guarantee operationally. `static` requires `Sync` regardless.
