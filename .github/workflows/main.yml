@@ -57,4 +57,9 @@ jobs:
       - name: cargo clippy (ext, host target)
         run: cargo clippy --manifest-path ext/kobako/Cargo.toml -- -D warnings
       - name: cargo clippy (kobako-wasm, wasm32-wasip1)
+        # beni-sys requires the Stage B archive paths explicitly on
+        # cross targets; "Run the default task" above built them.
+        env:
+          MRUBY_LIB_DIR: ${{ github.workspace }}/vendor/mruby/build/wasi/lib
+          WASI_SDK_PATH: ${{ github.workspace }}/vendor/wasi-sdk
         run: cargo clippy --manifest-path wasm/kobako-wasm/Cargo.toml --target wasm32-wasip1 -- -D warnings
