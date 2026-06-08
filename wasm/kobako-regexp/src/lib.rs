@@ -12,6 +12,8 @@
 //! as beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it
 //! with.
 
+pub mod translate;
+
 use beni::{Error, Gem, Mrb};
 
 /// The sandbox Regexp surface as an installable `beni::Gem`.
