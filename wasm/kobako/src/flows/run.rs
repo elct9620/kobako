@@ -188,7 +188,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()));
     // SAFETY: the cached `object_class` pointer was produced by the
     // same `mrb_state` and is GC-stable for the VM's lifetime.
-    let object_value = unsafe { mrb.object_class().as_value(mrb) };
+    let object_value = unsafe { mrb.object_class().to_value(mrb) };
 
     if !object_value.const_defined(mrb, target_sym) {
         // Compute the snippet-contributed constants by subtracting the

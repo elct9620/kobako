@@ -321,9 +321,9 @@ impl Kobako {
     /// envelope serialising cleanly under guest-class shenanigans.
     pub fn top_level_constants(&self) -> Vec<String> {
         // SAFETY: `mrb->object_class` lives until `mrb_close`; the
-        // shim behind `RClass::as_value` reuses mruby's own boxing
+        // shim behind `RClass::to_value` reuses mruby's own boxing
         // logic.
-        let object_value = unsafe { self.mrb().object_class().as_value(self.mrb()) };
+        let object_value = unsafe { self.mrb().object_class().to_value(self.mrb()) };
         let consts = object_value.call(self.mrb(), c"constants", &[]);
         if consts.classname(self.mrb()) != "Array" {
             return Vec::new();

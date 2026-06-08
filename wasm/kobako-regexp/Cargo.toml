@@ -1,0 +1,36 @@
+# kobako-regexp — sandbox Regexp / MatchData capability gem.
+#
+# Backs guest `Regexp` and `MatchData` with the pure-Rust `fancy-regex`
+# engine, defined entirely through the `beni` typed wrapper — no mrblib,
+# no C mrbgem. A Guest Binary shell composes it as an optional capability
+# gem the same way it composes `kobako-io` (docs/behavior.md B-41). The
+# Ruby-visible surface tracks the curated regexp engine's coverage, not
+# the full CRuby API; match offsets are byte-based.
+
+[package]
+name = "kobako-regexp"
+version = "0.3.0"
+edition = "2021"
+description = "Sandbox Regexp / MatchData capability gem for kobako mruby guests — pure-Rust fancy-regex over beni."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
+keywords = ["wasm", "mruby", "sandbox", "regexp"]
+categories = ["wasm"]
+
+[dependencies]
+# Typed mruby wrapper — the `Gem` trait this crate implements plus the
+# CDATA / class-definition seams the Regexp and MatchData surfaces use.
+beni = "0.5.0"
+
+# Pure-Rust regexp engine — the `regex` crate plus the backtracking
+# layer (backreferences, look-around) Ruby patterns reach for. `std`
+# only by default; `unicode` is opt-in.
+fancy-regex = { version = "0.18", default-features = false, features = ["std"] }
+
+[features]
+# Opt-in Unicode property classes (`\p{...}`) and Unicode case folding,
+# at the cost of the engine's Unicode tables. Default OFF keeps the gem
+# minimal; ASCII `\d` / `\w` / `\s` are rewritten to explicit classes
+# regardless of this flag.
+unicode = ["fancy-regex/unicode"]

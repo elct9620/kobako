@@ -25,7 +25,7 @@
 # implementation, IO capability, bundled product) in its own crate.
 
 [workspace]
-members = ["kobako", "kobako-core", "kobako-io", "kobako-wasm"]
+members = ["kobako", "kobako-core", "kobako-io", "kobako-regexp", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

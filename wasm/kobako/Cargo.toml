@@ -28,10 +28,10 @@ kobako-core = { path = "../kobako-core", version = "0.3.0" }
 # Typed mruby wrapper — `Mrb` / `Value` seams, the `Gem` trait, and
 # the `beni::sys` re-export the yield machinery's raw shims go
 # through.
-beni = "0.4.0"
+beni = "0.5.0"
 
 # Direct dependency on the FFI layer so cargo forwards its
 # `links = "mruby"` metadata (`DEP_MRUBY_LINKED`) to this crate's
 # build script — see build.rs. Code never names this path; call
 # sites go through the `beni::sys` re-export.
-beni-sys = "0.4.0"
+beni-sys = "0.5.0"
