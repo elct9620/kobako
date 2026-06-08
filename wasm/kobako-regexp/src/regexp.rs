@@ -66,6 +66,13 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
+/// Fancy-mode backtracking ceiling. A pattern that exceeds it fails with
+/// `RegexpError` instead of burning the invocation's wall-clock budget;
+/// non-fancy patterns delegate to the linear engine and never backtrack.
+/// The host fuel / epoch / memory caps (docs/behavior.md B-01) remain the
+/// ultimate compute bound.
+const BACKTRACK_LIMIT: usize = 1_000_000;
+
 /// `Regexp.new` / `Regexp.compile` / literal compilation. The flags
 /// argument is an Integer option mask, a letter String (`"im"`), or nil.
 fn rx_compile(mrb: &Mrb, _self: Value) -> Value {
@@ -76,7 +83,10 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Value {
     let source = args[0].to_string(mrb);
     let options = parse_options(mrb, args.get(1).copied());
     let pattern = translate::build_pattern(&source, options);
-    match fancy_regex::Regex::new(&pattern) {
+    match fancy_regex::RegexBuilder::new(&pattern)
+        .backtrack_limit(BACKTRACK_LIMIT)
+        .build()
+    {
         Ok(regex) => {
             let cls = mrb
                 .class_get(c"Regexp")
@@ -106,18 +116,29 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> i64 {
     }
 }
 
+/// Clamp a user-supplied byte position into `subject`: never past the end,
+/// and snapped down to a UTF-8 char boundary so the engine never receives a
+/// mid-codepoint offset.
+fn clamp_pos(subject: &str, pos: usize) -> usize {
+    let mut p = pos.min(subject.len());
+    while p > 0 && !subject.is_char_boundary(p) {
+        p -= 1;
+    }
+    p
+}
+
 fn rx_match(mrb: &Mrb, self_: Value) -> Value {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
         return Value::nil();
     }
     let subject = args[0].to_string(mrb);
-    let pos = args
+    let raw = args
         .get(1)
         .and_then(|v| i32::from_value(*v))
         .unwrap_or(0)
         .max(0) as usize;
-    do_match(mrb, self_, &subject, pos)
+    do_match(mrb, self_, &subject, clamp_pos(&subject, raw))
 }
 
 fn rx_match_p(mrb: &Mrb, self_: Value) -> Value {
@@ -126,17 +147,19 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Value {
         return Value::false_();
     }
     let subject = args[0].to_string(mrb);
-    let pos = args
+    let raw = args
         .get(1)
         .and_then(|v| i32::from_value(*v))
         .unwrap_or(0)
         .max(0) as usize;
+    let pos = clamp_pos(&subject, raw);
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Value::false_();
     };
     match state.regex.find_from_pos(&subject, pos) {
         Ok(Some(_)) => Value::true_(),
-        _ => Value::false_(),
+        Ok(None) => Value::false_(),
+        Err(error) => unsafe { raise_regexp_error(mrb, &state.source, &error.to_string()) },
     }
 }
 
@@ -287,7 +310,8 @@ pub(crate) fn match_spans(mrb: &Mrb, regexp: Value, subject: &str) -> Vec<MatchS
                     whole.1 + subject[whole.1..].chars().next().map_or(1, char::len_utf8)
                 };
             }
-            _ => break,
+            Ok(None) => break,
+            Err(error) => unsafe { raise_regexp_error(mrb, &state.source, &error.to_string()) },
         }
     }
     spans

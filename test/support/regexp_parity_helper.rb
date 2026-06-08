@@ -60,4 +60,13 @@ module RegexpParityHelper
 
     assert_raises(error_class, "Rust gem: #{message}") { eval_on(RUST_WASM, code) }
   end
+
+  # The Rust gem alone must raise +error_class+ for +code+ — for engine
+  # behaviours (e.g. a backtracking limit) the C gem does not share. Skips
+  # until the feature build exists.
+  def assert_rust_raises(error_class, code, message)
+    skip "data/kobako+regexp.wasm missing — run `bundle exec rake wasm:build:regexp`" unless File.exist?(RUST_WASM)
+
+    assert_raises(error_class, "Rust gem: #{message}") { eval_on(RUST_WASM, code) }
+  end
 end

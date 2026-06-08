@@ -29,8 +29,9 @@ beni = "0.5.0"
 fancy-regex = { version = "0.18", default-features = false, features = ["std"] }
 
 [features]
-# Opt-in Unicode property classes (`\p{...}`) and Unicode case folding,
-# at the cost of the engine's Unicode tables. Default OFF keeps the gem
-# minimal; ASCII `\d` / `\w` / `\s` are rewritten to explicit classes
-# regardless of this flag.
+# Unicode property classes (`\p{...}`) and case-insensitive matching.
+# fancy-regex's `unicode` feature is coarse: with it OFF the engine rejects
+# every `(?i)` pattern — even ASCII — so a guest that uses `/i` needs it ON.
+# ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either way. The
+# kobako-wasm shell turns this on through its `regexp-unicode` feature.
 unicode = ["fancy-regex/unicode"]

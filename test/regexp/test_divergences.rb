@@ -35,4 +35,13 @@ class TestRegexpDivergences < Minitest::Test
     assert_parity_raises(Kobako::SandboxError, 'Regexp.new("(")',
                          "an invalid pattern surfaces a guest RegexpError as SandboxError")
   end
+
+  # A fancy pattern (backreference) that blows past the engine's backtracking
+  # limit raises rather than running unbounded. The C gem's Onigmo engine
+  # treats this case differently, so it is asserted on the Rust gem only.
+  def test_catastrophic_backtracking_raises_rather_than_hanging
+    assert_rust_raises(Kobako::SandboxError,
+                       '/(a+)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!")',
+                       "a fancy pattern past the backtrack limit raises, not hangs")
+  end
 end

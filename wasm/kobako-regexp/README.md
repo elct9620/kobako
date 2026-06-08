@@ -11,7 +11,18 @@ it composes `kobako-io`.
 
 The Ruby-visible surface tracks the curated regexp engine's coverage, not
 the full CRuby `Regexp` / `MatchData` API: there are no `Encoding`
-objects, and match offsets and substring slices are byte-based. The
-`unicode` cargo feature (default off) adds Unicode property classes
-(`\p{...}`) and Unicode case folding at the cost of the engine's Unicode
-tables.
+objects, and match offsets and substring slices are byte-based.
+
+## Limitations
+
+- The `unicode` cargo feature gates Unicode property classes (`\p{...}`)
+  **and** case-insensitive matching. fancy-regex's flag is coarse, so with
+  `unicode` off every `(?i)` pattern is rejected — a guest using `/i` needs
+  it on. ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either
+  way.
+- Subjects are matched as UTF-8. A string that is not valid UTF-8 is treated
+  as empty (it never matches and never crashes); byte-oriented matching is
+  out of scope.
+- A fancy pattern (backreferences, look-around) that exceeds the engine's
+  backtracking limit raises `RegexpError` rather than running unbounded; the
+  host sandbox's wall-clock and memory caps remain the ultimate bound.
