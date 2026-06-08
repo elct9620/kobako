@@ -29,10 +29,11 @@
 //! returned value is then used to drive the Frame 1 preamble through
 //! `Kobako::install_groups`.
 //!
-//! C-bridges that receive a raw `*mut mrb_state` from mruby — the
-//! `beni::sys::mrb_func_t` ABI mandates the raw pointer at
-//! the bridge entry — use `Kobako::resolve_raw` to obtain the same
-//! handle without repeating registration.
+//! C-bridges enter on a raw `*mut mrb_state` — the
+//! `beni::sys::mrb_func_t` ABI mandates it — but `beni::method!`
+//! hands each body a borrowed `&Mrb`, which it passes to
+//! `Kobako::resolve_raw` to obtain the same handle without repeating
+//! registration.
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
@@ -97,9 +98,9 @@ impl std::error::Error for InstallGroupsError {}
 ///     return a fully populated handle. Takes an `Mrb` borrow so the
 ///     pipeline below it stays in safe Rust.
 ///   * `Kobako::resolve_raw` — re-resolve class handles produced by
-///     a prior init. Used by C-bridges, which mruby invokes with a
-///     raw `*mut mrb_state` per the `beni::sys::mrb_func_t`
-///     ABI; the raw entry is mandated by mruby, not by kobako.
+///     a prior init, taking the `&Mrb` that `beni::method!` hands a
+///     C-bridge body. Stays `unsafe`: the returned token keeps a raw
+///     pointer the caller must keep live past the borrow.
 ///
 /// ## Placeholder mode
 ///
@@ -135,48 +136,43 @@ impl Kobako {
         G::init_gems(mrb)?;
 
         // SAFETY: `KobakoBridge::init` just registered every entity
-        // `resolve_raw` looks up, satisfying its init precondition.
-        Ok(unsafe { Self::resolve_raw(mrb.as_ptr()) })
+        // `resolve_raw` looks up, satisfying its init precondition; the
+        // invocation VM behind `mrb` outlives the returned token.
+        Ok(unsafe { Self::resolve_raw(mrb) })
     }
 
-    /// Resolve the class handles produced by a prior init, from a
-    /// raw `*mut mrb_state`. C-bridge re-entry point — mruby invokes
-    /// bridges with a raw `*mut mrb_state` per the
-    /// `beni::sys::mrb_func_t` ABI, and this is how those
-    /// bridge bodies recover the `Kobako` handle.
+    /// Resolve the class handles produced by a prior init, from the
+    /// `&Mrb` that `beni::method!` hands a C-bridge body — the way
+    /// those bodies recover the `Kobako` handle.
     ///
     /// # Safety
     ///
-    /// `mrb` must be a live mruby state on which `Kobako::init`
-    /// has already run. Calling this against a fresh state without
-    /// prior init would surface as a NULL `mrb_class_get_under`
-    /// return value and later UB; the C-bridge entry points uphold
-    /// the init precondition by construction (they are invoked
-    /// through registrations done at init time).
-    pub unsafe fn resolve_raw(mrb: *mut sys::mrb_state) -> Self {
+    /// `Kobako::init` must already have run on the state behind `mrb`,
+    /// and that state must outlive the returned token, which keeps a
+    /// raw pointer to it with no lifetime binding. The C-bridge entry
+    /// points uphold both by construction — they run on the live
+    /// invocation VM through registrations done at init time. (Missing
+    /// init does not corrupt: each `expect` below panics instead.)
+    pub unsafe fn resolve_raw(mrb: &Mrb) -> Self {
         use beni::Module;
 
-        // SAFETY: `mrb` is live by the function's safety contract.
         // `mrb_define_module` is idempotent (returns the existing
         // module if already registered); each `class_get` returns the
         // already-registered class produced by `init`, so every
         // `expect` below is the init precondition restated.
         const INITIALIZED: &str = "Kobako::init registered this entity";
-        let mrb_ref = unsafe { Mrb::borrow_raw(&mrb) };
-        let kobako_mod = mrb_ref.define_module(c"Kobako").expect(INITIALIZED);
+        let kobako_mod = mrb.define_module(c"Kobako").expect(INITIALIZED);
         let transport_mod = kobako_mod
-            .define_module(mrb_ref, c"Transport")
+            .define_module(mrb, c"Transport")
             .expect(INITIALIZED);
-        let member_class = kobako_mod.class_get(mrb_ref, c"Member").expect(INITIALIZED);
-        let handle_class = kobako_mod.class_get(mrb_ref, c"Handle").expect(INITIALIZED);
+        let member_class = kobako_mod.class_get(mrb, c"Member").expect(INITIALIZED);
+        let handle_class = kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED);
         let service_error_class = kobako_mod
-            .class_get(mrb_ref, c"ServiceError")
+            .class_get(mrb, c"ServiceError")
             .expect(INITIALIZED);
-        let transport_error_class = transport_mod
-            .class_get(mrb_ref, c"Error")
-            .expect(INITIALIZED);
+        let transport_error_class = transport_mod.class_get(mrb, c"Error").expect(INITIALIZED);
         Self {
-            mrb,
+            mrb: mrb.as_ptr(),
             member_class,
             handle_class,
             service_error_class,

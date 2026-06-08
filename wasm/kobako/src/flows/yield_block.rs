@@ -72,8 +72,9 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
         );
     };
     // SAFETY: MRB is `Some` only after `Kobako::init` ran for the
-    // current invocation; `resolve_raw`'s precondition is satisfied.
-    let kobako = unsafe { Kobako::resolve_raw(mrb.as_ptr()) };
+    // current invocation, satisfying `resolve_raw`'s precondition; the
+    // active VM behind `mrb` outlives the returned token.
+    let kobako = unsafe { Kobako::resolve_raw(mrb) };
     let Some(block) = BLOCK_STACK.last().and_then(Proc::from_value) else {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };

@@ -115,7 +115,7 @@ pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
     // (the shim was registered by it).
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
@@ -188,7 +188,7 @@ pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
 /// `super::Kobako::set_handle_id`.
 pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Value {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
     let id_val = mrb.get_args::<beni::format::O>();
     kobako.set_handle_id(self_, id_val);
     Value::zeroed()
@@ -206,7 +206,7 @@ pub(crate) fn handle_method_missing(mrb: &Mrb, self_: Value) -> Value {
     use kobako_core::transport::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb.as_ptr()) };
+    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
     let handle_id = kobako.extract_handle_id(self_);
     let target = Target::Handle(handle_id);
 
