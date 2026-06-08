@@ -14,12 +14,11 @@
 //! 2. Resolve the active `mrb_state` via the per-invocation `MRB`
 //!    slot and read the topmost block off `BLOCK_STACK`
 //!    ({docs/behavior.md B-23 / B-28}[link:../../../../docs/behavior.md]).
-//! 3. Convert codec args → `mrb_value` args via the standard runtime
-//!    converter, then invoke `mrb_yield_argv` inside
-//!    `mrb_protect_error` so any guest-side raise (or `break` /
-//!    Proc-`return` RBreak) lands as `Err(exc)` instead of
-//!    long-jumping past the Rust frame
-//!    ({docs/behavior.md E-21}[link:../../../../docs/behavior.md]).
+//! 3. Convert codec args → `Value` args via the standard runtime
+//!    converter, then yield to the block through beni's protected
+//!    `Proc::call` so any guest-side raise (or `break` / Proc-`return`
+//!    RBreak) lands as `Err` instead of long-jumping past the Rust
+//!    frame ({docs/behavior.md E-21}[link:../../../../docs/behavior.md]).
 //! 4. Encode the outcome as a `YieldResponse`:
 //!     * normal return of a wire-representable value → `tag 0x01` ok
 //!       carrying the value through the standard codec
@@ -56,7 +55,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     use super::mrb_slot::MRB;
     use crate::runtime::block_stack::BLOCK_STACK;
     use crate::runtime::Kobako;
-    use beni::sys;
+    use beni::{sys, FromValue, Proc};
 
     // Step 1: decode positional args off the request buffer.
     let args_codec = match decode_yield_args(req) {
@@ -75,38 +74,27 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // SAFETY: MRB is `Some` only after `Kobako::init` ran for the
     // current invocation; `resolve_raw`'s precondition is satisfied.
     let kobako = unsafe { Kobako::resolve_raw(mrb.as_ptr()) };
-    let Some(block) = BLOCK_STACK.last() else {
+    let Some(block) = BLOCK_STACK.last().and_then(Proc::from_value) else {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 3: convert codec args → mrb_value args.
-    let mrb_args: Vec<sys::mrb_value> = args_codec
+    // Step 3: convert codec args → Value args.
+    let args: Vec<beni::Value> = args_codec
         .into_iter()
-        .map(|v| kobako.to_mrb_value(v).as_raw())
+        .map(|v| kobako.to_mrb_value(v))
         .collect();
 
-    // Step 4: protected yield. `mrb_yield_argv` raises via `MRB_THROW`
-    // for break / return / raise; `mrb.protect` installs a local
-    // `c_jmp` that catches it and surfaces the exception value as
-    // `Err`. Snapshot the current callinfo index *before* the
-    // protected call so step 5's classification can place any RBreak
-    // destination relative to this yielder's frame.
-    let mrb_ptr = mrb.as_ptr();
-    let block_raw = block.as_raw();
-    let argc = mrb_args.len() as i32;
-    let argv_ptr = mrb_args.as_ptr();
-    // SAFETY: `mrb_ptr` is live by the outer `&Mrb` borrow; the shim
-    // reads only the public `mrb_context.ci` / `cibase` fields.
-    let enter_idx = unsafe { sys::mrb_current_ci_index_func(mrb_ptr) };
-    let result = mrb.protect(|_inner| {
-        // SAFETY: `mrb_ptr` is live by the outer `&Mrb` borrow;
-        // `block_raw` was pushed onto BLOCK_STACK by the still-active
-        // bridge frame, which roots it via mruby's call frame argv;
-        // `argv_ptr` / `argc` point into the outer `mrb_args` Vec
-        // which outlives this closure.
-        let raw = unsafe { sys::mrb_yield_argv(mrb_ptr, block_raw, argc, argv_ptr) };
-        beni::Value::from_raw(raw)
-    });
+    // Step 4: protected yield via beni's `Proc::call`, which folds the
+    // `mrb_yield_argv` + protect machinery — a guest-side raise / break /
+    // Proc-`return` surfaces as `Err` instead of long-jumping past the
+    // Rust frame. Snapshot the current callinfo index *before* the call
+    // so step 5's classification can place any RBreak destination
+    // relative to this yielder's frame.
+    // SAFETY: `mrb` is live by the outer `&Mrb` borrow; the shim reads
+    // the VM-internal `mrb_context.ci` / `cibase` frame indices, which
+    // carry no MRB_API accessor and so stay on the unsafe `sys` seam.
+    let enter_idx = unsafe { sys::mrb_current_ci_index_func(mrb.as_ptr()) };
+    let result = block.call(mrb, &args);
 
     // Step 5: encode the outcome. Extract any exception fields
     // immediately on the Err path before any other mruby allocation
@@ -115,7 +103,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
         Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, mrb, exc, enter_idx),
-        // A Rust panic inside the protected closure can only surface
+        // A Rust panic inside the protected yield can only surface
         // here under unwinding panics; the guest builds with
         // `panic = "abort"`, so this arm is unreachable in production.
         Err(beni::Error::Panic(_)) => std::process::abort(),
@@ -123,8 +111,8 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     write_yield_buffer(&bytes)
 }
 
-/// Classify the value `mrb_protect_error` surfaced on its `Err` path
-/// into a YieldResponse. mruby's vm.c already raises
+/// Classify the value the protected `Proc::call` surfaced on its `Err`
+/// path into a YieldResponse. mruby's vm.c already raises
 /// `E_LOCALJUMP_ERROR` directly for the orphan-block / orphan-Proc
 /// shapes (vm.c:2756 / 2776), so any RBreak we see here is either a
 /// real `break` from a non-lambda block or a non-orphan Proc `return`
@@ -139,18 +127,16 @@ fn classify_protected_error(
     enter_idx: usize,
 ) -> Vec<u8> {
     use beni::sys;
-    // SAFETY: `mrb_break_p_func` only reads the value's type tag,
-    // safe on any mrb_value.
-    if !unsafe { sys::mrb_break_p_func(exc.as_raw()) } {
+    // A non-break exception is a plain raise — tag 0x04.
+    let Some(brk) = exc.as_break() else {
         return encode_error_response_from_exception(kobako, mrb, exc);
-    }
-    // SAFETY: `mrb_break_p_func` returned non-zero, so `exc` is a
-    // valid RBreak-tagged value and the cast inside the shim is sound.
+    };
+    // SAFETY: `exc` is RBreak-tagged (`as_break` returned `Some`); the
+    // shim reads `RBreak.ci_break_index`, a VM-internal field with no
+    // MRB_API accessor, so it stays on the unsafe `sys` seam.
     let brk_idx = unsafe { sys::mrb_break_ci_index_func(exc.as_raw()) };
     if brk_idx >= enter_idx {
-        // SAFETY: same gate as `mrb_break_ci_index_func` above.
-        let brk_val_raw = unsafe { sys::mrb_break_value_func(exc.as_raw()) };
-        encode_break_response(kobako, beni::Value::from_raw(brk_val_raw))
+        encode_break_response(kobako, brk.value())
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
