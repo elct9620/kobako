@@ -8,9 +8,8 @@
 
 use crate::matchdata::{self, MatchState};
 use crate::translate;
-use beni::{format, DataType, FromValue, Module, Mrb, Object, Value};
+use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Value};
 use core::ffi::CStr;
-use std::ffi::CString;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
 /// report without an engine getter.
@@ -75,10 +74,13 @@ const BACKTRACK_LIMIT: usize = 1_000_000;
 
 /// `Regexp.new` / `Regexp.compile` / literal compilation. The flags
 /// argument is an Integer option mask, a letter String (`"im"`), or nil.
-fn rx_compile(mrb: &Mrb, _self: Value) -> Value {
+fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        unsafe { raise_argument_error(mrb, c"wrong number of arguments (given 0, expected 1..3)") };
+        return Err(argument_error(
+            mrb,
+            "wrong number of arguments (given 0, expected 1..3)",
+        ));
     }
     let source = args[0].to_string(mrb);
     let options = parse_options(mrb, args.get(1).copied());
@@ -90,7 +92,7 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Value {
 /// path shared by `Regexp.new` / `Regexp.compile` and the String-method
 /// coercion of a non-`Regexp` pattern, so both build through the engine
 /// directly instead of re-dispatching to Ruby `Regexp.new`.
-fn compile(mrb: &Mrb, source: String, options: i64) -> Value {
+fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
     let pattern = translate::build_pattern(&source, options);
     match fancy_regex::RegexBuilder::new(&pattern)
         .backtrack_limit(BACKTRACK_LIMIT)
@@ -100,7 +102,7 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Value {
             let cls = mrb
                 .class_get(c"Regexp")
                 .expect("Regexp is defined at gem init");
-            cls.data_wrap(
+            Ok(cls.data_wrap(
                 mrb,
                 RegexpState {
                     regex,
@@ -108,9 +110,9 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Value {
                     options,
                 },
                 &REGEXP_TYPE,
-            )
+            ))
         }
-        Err(error) => unsafe { raise_regexp_error(mrb, &source, &error.to_string()) },
+        Err(error) => Err(regexp_error(mrb, &source, &error.to_string())),
     }
 }
 
@@ -136,10 +138,10 @@ fn clamp_pos(subject: &str, pos: usize) -> usize {
     p
 }
 
-fn rx_match(mrb: &Mrb, self_: Value) -> Value {
+fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        return Value::nil();
+        return Ok(Value::nil());
     }
     let subject = args[0].to_string(mrb);
     let raw = args
@@ -150,10 +152,10 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Value {
     do_match(mrb, self_, &subject, clamp_pos(&subject, raw))
 }
 
-fn rx_match_p(mrb: &Mrb, self_: Value) -> Value {
+fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        return Value::false_();
+        return Ok(Value::false_());
     }
     let subject = args[0].to_string(mrb);
     let raw = args
@@ -163,39 +165,39 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Value {
         .max(0) as usize;
     let pos = clamp_pos(&subject, raw);
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
-        return Value::false_();
+        return Ok(Value::false_());
     };
     match state.regex.find_from_pos(&subject, pos) {
-        Ok(Some(_)) => Value::true_(),
-        Ok(None) => Value::false_(),
-        Err(error) => unsafe { raise_regexp_error(mrb, &state.source, &error.to_string()) },
+        Ok(Some(_)) => Ok(Value::true_()),
+        Ok(None) => Ok(Value::false_()),
+        Err(error) => Err(regexp_error(mrb, &state.source, &error.to_string())),
     }
 }
 
-fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Value {
+fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let arg = mrb.get_args::<format::O>();
     if arg.is_nil() {
-        return Value::nil();
+        return Ok(Value::nil());
     }
     let subject = arg.to_string(mrb);
-    let md = do_match(mrb, self_, &subject, 0);
+    let md = do_match(mrb, self_, &subject, 0)?;
     if md.is_nil() {
-        Value::nil()
+        Ok(Value::nil())
     } else {
-        md.call(mrb, c"begin", &[Value::from_int(mrb, 0)])
+        Ok(md.call(mrb, c"begin", &[Value::from_int(mrb, 0)]))
     }
 }
 
-fn rx_eqq(mrb: &Mrb, self_: Value) -> Value {
+fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let arg = mrb.get_args::<format::O>();
     if arg.is_nil() {
-        return Value::false_();
+        return Ok(Value::false_());
     }
     let subject = arg.to_string(mrb);
-    if do_match(mrb, self_, &subject, 0).is_nil() {
-        Value::false_()
+    if do_match(mrb, self_, &subject, 0)?.is_nil() {
+        Ok(Value::false_())
     } else {
-        Value::true_()
+        Ok(Value::true_())
     }
 }
 
@@ -250,20 +252,23 @@ fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
     }
 }
 
-fn rx_escape(mrb: &Mrb, _self: Value) -> Value {
+fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        unsafe { raise_argument_error(mrb, c"wrong number of arguments (given 0, expected 1)") };
+        return Err(argument_error(
+            mrb,
+            "wrong number of arguments (given 0, expected 1)",
+        ));
     }
-    mrb.str_new(escape_str(&args[0].to_string(mrb)).as_bytes())
+    Ok(mrb.str_new(escape_str(&args[0].to_string(mrb)).as_bytes()))
 }
 
 /// Run the pattern against `subject` from byte `pos`, building a
 /// `MatchData` and refreshing the match globals on a hit, clearing them on
 /// a miss, and raising `RegexpError` on an engine error.
-fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Value {
+fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Result<Value, Error> {
     let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
-        return Value::nil();
+        return Ok(Value::nil());
     };
     match state.regex.captures_from_pos(subject, pos) {
         Ok(Some(captures)) => {
@@ -277,13 +282,13 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Value {
                 .enumerate()
                 .filter_map(|(i, name)| name.map(|n| (n.to_string(), i)))
                 .collect();
-            finalize(mrb, regexp, subject, groups, names)
+            Ok(finalize(mrb, regexp, subject, groups, names))
         }
         Ok(None) => {
             clear_globals(mrb);
-            Value::nil()
+            Ok(Value::nil())
         }
-        Err(error) => unsafe { raise_regexp_error(mrb, subject, &error.to_string()) },
+        Err(error) => Err(regexp_error(mrb, subject, &error.to_string())),
     }
 }
 
@@ -296,9 +301,13 @@ pub(crate) struct MatchSpan {
 /// Collect non-overlapping matches of `regexp` over `subject` as owned byte
 /// spans, so the String methods can build results after the engine borrow
 /// is released. A zero-width match advances by one character.
-pub(crate) fn match_spans(mrb: &Mrb, regexp: Value, subject: &str) -> Vec<MatchSpan> {
+pub(crate) fn match_spans(
+    mrb: &Mrb,
+    regexp: Value,
+    subject: &str,
+) -> Result<Vec<MatchSpan>, Error> {
     let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let count = state.regex.captures_len();
     let mut spans = Vec::new();
@@ -320,10 +329,10 @@ pub(crate) fn match_spans(mrb: &Mrb, regexp: Value, subject: &str) -> Vec<MatchS
                 };
             }
             Ok(None) => break,
-            Err(error) => unsafe { raise_regexp_error(mrb, &state.source, &error.to_string()) },
+            Err(error) => return Err(regexp_error(mrb, &state.source, &error.to_string())),
         }
     }
-    spans
+    Ok(spans)
 }
 
 /// True when `value` is a `Regexp` carrier.
@@ -333,9 +342,9 @@ pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
 
 /// Coerce a String method's pattern argument to a `Regexp`: a `Regexp`
 /// passes through; anything else compiles as a literal (escaped) pattern.
-pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Value {
+pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
-        return arg;
+        return Ok(arg);
     }
     compile(mrb, escape_str(&arg.to_string(mrb)), 0)
 }
@@ -458,32 +467,23 @@ fn escape_str(source: &str) -> String {
     out
 }
 
-/// Raise `RegexpError` with a message naming the offending source. Diverges.
-///
-/// # Safety
-/// Only callable from a bridge frame mruby may unwind from.
-unsafe fn raise_regexp_error(mrb: &Mrb, source: &str, detail: &str) -> ! {
+/// Build a `RegexpError` naming the offending `source`. The lookup cannot
+/// miss while the regexp engine that defines the class is installed.
+fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
     let message = format!(
         "{source:?} is an invalid regular expression: {}",
         detail.lines().next().unwrap_or(detail)
     );
-    let c_message = CString::new(message)
-        .unwrap_or_else(|_| CString::new("invalid regular expression").expect("no NUL"));
     let cls = mrb
         .class_get(c"RegexpError")
-        .expect("RegexpError is an mruby core class");
-    // SAFETY: bridge frame — caller upholds the unwind contract.
-    unsafe { cls.raise(mrb, &c_message) }
+        .expect("RegexpError is provided by the regexp engine");
+    Error::Exception(cls.exc_new(mrb, &message))
 }
 
-/// Raise `ArgumentError` with a static message. Diverges.
-///
-/// # Safety
-/// Only callable from a bridge frame mruby may unwind from.
-unsafe fn raise_argument_error(mrb: &Mrb, message: &CStr) -> ! {
+/// Build an `ArgumentError` carrying a static `message`.
+fn argument_error(mrb: &Mrb, message: &str) -> Error {
     let cls = mrb
         .class_get(c"ArgumentError")
         .expect("ArgumentError is an mruby core class");
-    // SAFETY: bridge frame — caller upholds the unwind contract.
-    unsafe { cls.raise(mrb, message) }
+    Error::Exception(cls.exc_new(mrb, message))
 }

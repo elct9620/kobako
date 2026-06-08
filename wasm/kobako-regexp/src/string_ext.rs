@@ -7,7 +7,7 @@
 //! delegating to it whenever the argument is not a `Regexp`.
 
 use crate::regexp;
-use beni::{format, FromValue, Module, Mrb, Proc, Value};
+use beni::{format, Error, FromValue, Module, Mrb, Proc, Value};
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.class_get(c"String")?;
@@ -44,48 +44,48 @@ fn alias(mrb: &Mrb, cls_val: Value, new_name: &core::ffi::CStr, old_name: &core:
     );
 }
 
-fn str_eqtilde(mrb: &Mrb, self_: Value) -> Value {
+fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let arg = mrb.get_args::<format::O>();
     if arg.is_nil() {
-        return Value::nil();
+        return Ok(Value::nil());
     }
-    regexp::coerce_regexp(mrb, arg).call(mrb, c"=~", &[self_])
+    Ok(regexp::coerce_regexp(mrb, arg)?.call(mrb, c"=~", &[self_]))
 }
 
-fn str_match(mrb: &Mrb, self_: Value) -> Value {
+fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        return Value::nil();
+        return Ok(Value::nil());
     }
-    let re = regexp::coerce_regexp(mrb, args[0]);
+    let re = regexp::coerce_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
-    re.call(mrb, c"match", &forwarded)
+    Ok(re.call(mrb, c"match", &forwarded))
 }
 
-fn str_match_p(mrb: &Mrb, self_: Value) -> Value {
+fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if args.is_empty() {
-        return Value::false_();
+        return Ok(Value::false_());
     }
-    let re = regexp::coerce_regexp(mrb, args[0]);
+    let re = regexp::coerce_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
-    re.call(mrb, c"match?", &forwarded)
+    Ok(re.call(mrb, c"match?", &forwarded))
 }
 
-fn str_scan(mrb: &Mrb, self_: Value) -> Value {
+fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (args, block) = mrb.get_args::<format::RestBlock>();
     let args = args.to_vec();
     let result = mrb.ary_new();
     if args.is_empty() {
-        return result.as_value();
+        return Ok(result.as_value());
     }
-    let re = regexp::coerce_regexp(mrb, args[0]);
+    let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = self_.to_string(mrb);
-    let spans = regexp::match_spans(mrb, re, &subject);
+    let spans = regexp::match_spans(mrb, re, &subject)?;
     let block = Proc::from_value(block);
     for span in &spans {
         let item = scan_item(mrb, &subject, span);
@@ -97,9 +97,9 @@ fn str_scan(mrb: &Mrb, self_: Value) -> Value {
         }
     }
     if block.is_some() {
-        self_
+        Ok(self_)
     } else {
-        result.as_value()
+        Ok(result.as_value())
     }
 }
 
@@ -116,15 +116,15 @@ fn scan_item(mrb: &Mrb, subject: &str, span: &regexp::MatchSpan) -> Value {
     tuple.as_value()
 }
 
-fn str_gsub(mrb: &Mrb, self_: Value) -> Value {
+fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (args, block) = mrb.get_args::<format::RestBlock>();
     let args = args.to_vec();
     if args.is_empty() {
-        return self_;
+        return Ok(self_);
     }
-    let re = regexp::coerce_regexp(mrb, args[0]);
+    let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = self_.to_string(mrb);
-    let spans = regexp::match_spans(mrb, re, &subject);
+    let spans = regexp::match_spans(mrb, re, &subject)?;
     let block = Proc::from_value(block);
     let replacement = args.get(1).copied();
     let mut out = String::with_capacity(subject.len());
@@ -136,29 +136,29 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Value {
         last = end;
     }
     out.push_str(&subject[last..]);
-    mrb.str_new(out.as_bytes())
+    Ok(mrb.str_new(out.as_bytes()))
 }
 
-fn str_sub(mrb: &Mrb, self_: Value) -> Value {
+fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (args, block) = mrb.get_args::<format::RestBlock>();
     let args = args.to_vec();
     if args.is_empty() {
-        return self_;
+        return Ok(self_);
     }
-    let re = regexp::coerce_regexp(mrb, args[0]);
+    let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = self_.to_string(mrb);
-    let spans = regexp::match_spans(mrb, re, &subject);
+    let spans = regexp::match_spans(mrb, re, &subject)?;
     let block = Proc::from_value(block);
     let replacement = args.get(1).copied();
     let Some(span) = spans.first() else {
-        return mrb.str_new(subject.as_bytes());
+        return Ok(mrb.str_new(subject.as_bytes()));
     };
     let (start, end) = span.whole;
     let mut out = String::with_capacity(subject.len());
     out.push_str(&subject[..start]);
     out.push_str(&substitution(mrb, re, &subject, span, block, replacement));
     out.push_str(&subject[end..]);
-    mrb.str_new(out.as_bytes())
+    Ok(mrb.str_new(out.as_bytes()))
 }
 
 /// The replacement text for one match: a block's result (with `$1..$9`
@@ -185,13 +185,13 @@ fn substitution(
     }
 }
 
-fn str_split(mrb: &Mrb, self_: Value) -> Value {
+fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.call(mrb, c"__kobako_split", &args);
+        return Ok(self_.call(mrb, c"__kobako_split", &args));
     }
     let subject = self_.to_string(mrb);
-    let spans = regexp::match_spans(mrb, args[0], &subject);
+    let spans = regexp::match_spans(mrb, args[0], &subject)?;
     let mut segments: Vec<(usize, usize)> = Vec::new();
     let mut last = 0;
     for span in &spans {
@@ -206,7 +206,7 @@ fn str_split(mrb: &Mrb, self_: Value) -> Value {
     for (start, end) in segments {
         result.push(mrb, mrb.str_new(&subject.as_bytes()[start..end]));
     }
-    result.as_value()
+    Ok(result.as_value())
 }
 
 fn str_index(mrb: &Mrb, self_: Value) -> Value {
