@@ -1,0 +1,684 @@
+{
+  "env": {
+    "ruby_version": "3.4.7",
+    "ruby_platform": "arm64-darwin24",
+    "ruby_engine": "ruby",
+    "host_os": "darwin24",
+    "host_cpu": "arm64",
+    "processors": 16,
+    "yjit_enabled": false,
+    "git_sha": "5e2cc6e",
+    "captured_at": "2026-06-08T07:25:36Z",
+    "load_avg": 4.35,
+    "power_source": "ac",
+    "cpu_probe_spread_pct": 3.95
+  },
+  "suites": {
+    "cold_start": [
+      {
+        "label": "1c-sandbox-new-cold",
+        "seconds": 0.6124480000000001,
+        "mode": "one_shot",
+        "rounds": 1
+      },
+      {
+        "label": "1c-sandbox-new-warm",
+        "seconds": 0.00010699999999996823,
+        "mode": "one_shot",
+        "rounds": 9
+      },
+      {
+        "label": "1a-sandbox-new",
+        "ips": 7877.680546206364,
+        "ips_mean": 7899.147399253918,
+        "ips_sd": 84,
+        "iterations": 24576,
+        "cycles": 3
+      },
+      {
+        "label": "1b-sandbox-new+eval-nil",
+        "ips": 3769.289310439073,
+        "ips_mean": 3773.099582617144,
+        "ips_sd": 29,
+        "iterations": 12288,
+        "cycles": 3,
+        "wall_time": 0.0001235,
+        "memory_peak": 131072
+      }
+    ],
+    "transport_roundtrip": [
+      {
+        "label": "2a-empty-call",
+        "ips": 8092.031048427722,
+        "ips_mean": 8071.474015348497,
+        "ips_sd": 65,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.000114833,
+        "wall_time_sd": 0.000008841123789637461,
+        "memory_peak": 0
+      },
+      {
+        "label": "2b-primitive-arg",
+        "ips": 8019.940202887255,
+        "ips_mean": 8030.962989002517,
+        "ips_sd": 25,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.0001155205,
+        "wall_time_sd": 0.000005894133821438492,
+        "memory_peak": 0
+      },
+      {
+        "label": "2c-kwargs",
+        "ips": 7756.540083189649,
+        "ips_mean": 7760.134011817358,
+        "ips_sd": 31,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.0001195205,
+        "wall_time_sd": 0.0000059653073443421435,
+        "memory_peak": 0
+      },
+      {
+        "label": "2d-1000-calls-in-one-eval",
+        "ips": 141.83099622631553,
+        "ips_mean": 141.4559314392383,
+        "ips_sd": 2,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.007245563,
+        "wall_time_sd": 0.0005424188268092577,
+        "memory_peak": 0
+      },
+      {
+        "label": "2e-handle-chain",
+        "ips": 7090.430688270312,
+        "ips_mean": 7113.173330925513,
+        "ips_sd": 49,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.00013025,
+        "wall_time_sd": 0.00001987539137732852,
+        "memory_peak": 0
+      }
+    ],
+    "codec": [
+      {
+        "label": "3a-host-encode-64B",
+        "ips": 1808268.4562369531,
+        "ips_mean": 1802100.190235084,
+        "ips_sd": 14247,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3a-host-decode-64B",
+        "ips": 1671410.3545013994,
+        "ips_mean": 1671061.2122132122,
+        "ips_sd": 11143,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-encode-1KiB",
+        "ips": 1516600.400058431,
+        "ips_mean": 1507138.4392540033,
+        "ips_sd": 33726,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-decode-1KiB",
+        "ips": 1519080.93934258,
+        "ips_mean": 1504339.585252355,
+        "ips_sd": 36772,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-encode-64KiB",
+        "ips": 132911.0267843058,
+        "ips_mean": 130798.29537135814,
+        "ips_sd": 8044,
+        "iterations": 524288,
+        "cycles": 4
+      },
+      {
+        "label": "3a-host-decode-64KiB",
+        "ips": 322529.9093021338,
+        "ips_mean": 322490.2078358942,
+        "ips_sd": 2485,
+        "iterations": 1048576,
+        "cycles": 4
+      },
+      {
+        "label": "3a-host-encode-1MiB",
+        "ips": 14458.601186776228,
+        "ips_mean": 14282.023526134484,
+        "ips_sd": 596,
+        "iterations": 49152,
+        "cycles": 6
+      },
+      {
+        "label": "3a-host-decode-1MiB",
+        "ips": 26155.978007522408,
+        "ips_mean": 26109.300832770437,
+        "ips_sd": 137,
+        "iterations": 81920,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-encode-depth-1",
+        "ips": 1463577.905972105,
+        "ips_mean": 1460016.612791658,
+        "ips_sd": 9838,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-decode-depth-1",
+        "ips": 1212974.357513443,
+        "ips_mean": 1213974.0000497526,
+        "ips_sd": 3146,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3b-host-encode-depth-4",
+        "ips": 1413066.65121412,
+        "ips_mean": 1415369.357253953,
+        "ips_sd": 10251,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-decode-depth-4",
+        "ips": 879656.9300604421,
+        "ips_mean": 878091.9793163695,
+        "ips_sd": 10383,
+        "iterations": 3145728,
+        "cycles": 6
+      },
+      {
+        "label": "3b-host-encode-depth-16",
+        "ips": 1299967.2969765167,
+        "ips_mean": 1306809.4609779173,
+        "ips_sd": 15416,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3b-host-decode-depth-16",
+        "ips": 358795.165222012,
+        "ips_mean": 357340.8488529477,
+        "ips_sd": 4796,
+        "iterations": 1310720,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-encode-depth-64",
+        "ips": 828717.3002450035,
+        "ips_mean": 828988.6294857514,
+        "ips_sd": 5743,
+        "iterations": 2621440,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-decode-depth-64",
+        "ips": 108362.47592119519,
+        "ips_mean": 107964.25468796545,
+        "ips_sd": 769,
+        "iterations": 393216,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-encode-nil",
+        "ips": 1748911.1677322257,
+        "ips_mean": 1750400.8600134996,
+        "ips_sd": 9200,
+        "iterations": 6291456,
+        "cycles": 6
+      },
+      {
+        "label": "3c-host-decode-nil",
+        "ips": 1672247.3311367717,
+        "ips_mean": 1666670.9160713248,
+        "ips_sd": 28663,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-bool",
+        "ips": 1668522.0368973336,
+        "ips_mean": 1683403.5611566603,
+        "ips_sd": 52672,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-bool",
+        "ips": 1706525.011758457,
+        "ips_mean": 1689937.231666139,
+        "ips_sd": 53141,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-int",
+        "ips": 1722140.4235156532,
+        "ips_mean": 1727762.9553201746,
+        "ips_sd": 10455,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-decode-int",
+        "ips": 1682494.500398693,
+        "ips_mean": 1677296.3292587763,
+        "ips_sd": 45456,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-float",
+        "ips": 1711971.9965518336,
+        "ips_mean": 1701881.5459705957,
+        "ips_sd": 31589,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-float",
+        "ips": 1672727.504761765,
+        "ips_mean": 1673150.4817869882,
+        "ips_sd": 31743,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-str",
+        "ips": 1711505.3463323293,
+        "ips_mean": 1698791.9085577745,
+        "ips_sd": 44933,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-str",
+        "ips": 1575155.0630392036,
+        "ips_mean": 1579556.5340976077,
+        "ips_sd": 8561,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-bin",
+        "ips": 1825380.2599912428,
+        "ips_mean": 1824363.5256917153,
+        "ips_sd": 7330,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-decode-bin",
+        "ips": 1735222.7162831193,
+        "ips_mean": 1733688.8330556776,
+        "ips_sd": 14824,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-encode-array",
+        "ips": 1777723.525961219,
+        "ips_mean": 1762542.2744987623,
+        "ips_sd": 29544,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-decode-array",
+        "ips": 1210400.0401124014,
+        "ips_mean": 1211944.2720938954,
+        "ips_sd": 7027,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-map",
+        "ips": 1763932.7550430768,
+        "ips_mean": 1764420.0001040883,
+        "ips_sd": 1599,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-decode-map",
+        "ips": 1076769.9431902815,
+        "ips_mean": 1070363.4410360963,
+        "ips_sd": 19084,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-symbol",
+        "ips": 1605730.9029878173,
+        "ips_mean": 1606306.9193945664,
+        "ips_sd": 5244,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-symbol",
+        "ips": 1335444.404679473,
+        "ips_mean": 1335475.3216243384,
+        "ips_sd": 11261,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-handle",
+        "ips": 1505214.3967592474,
+        "ips_mean": 1501084.7556175191,
+        "ips_sd": 15287,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-handle",
+        "ips": 954608.1883696521,
+        "ips_mean": 956534.8938409231,
+        "ips_sd": 3397,
+        "iterations": 3145728,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-encode-exception",
+        "ips": 777769.2065771418,
+        "ips_mean": 778508.3304832643,
+        "ips_sd": 3713,
+        "iterations": 2621440,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-exception",
+        "ips": 348754.83860013366,
+        "ips_mean": 348040.3500329962,
+        "ips_sd": 7884,
+        "iterations": 1048576,
+        "cycles": 4
+      },
+      {
+        "label": "3a-guest-return-64B",
+        "ips": 8813.336336648024,
+        "ips_mean": 8768.301451588235,
+        "ips_sd": 189,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000107125,
+        "wall_time_sd": 0.000002857811926423613,
+        "memory_peak": 0
+      },
+      {
+        "label": "3a-guest-return-1KiB",
+        "ips": 8616.503029118563,
+        "ips_mean": 8631.325560834106,
+        "ips_sd": 51,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000108583,
+        "wall_time_sd": 0.0000022727000057101187,
+        "memory_peak": 0
+      },
+      {
+        "label": "3a-guest-return-64KiB",
+        "ips": 7757.215811008549,
+        "ips_mean": 7404.132541617706,
+        "ips_sd": 784,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.000111334,
+        "wall_time_sd": 0.000002841717186776882,
+        "memory_peak": 0
+      },
+      {
+        "label": "3a-guest-return-512KiB",
+        "ips": 3821.640230683105,
+        "ips_mean": 3782.3623997843983,
+        "ips_sd": 101,
+        "iterations": 12288,
+        "cycles": 6,
+        "wall_time": 0.000159125,
+        "wall_time_sd": 0.000004283029714706671,
+        "memory_peak": 0
+      },
+      {
+        "label": "3b-guest-return-depth-1",
+        "ips": 8840.60273852674,
+        "ips_mean": 8833.089465793204,
+        "ips_sd": 50,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.00010475,
+        "wall_time_sd": 0.0000032156363856628744,
+        "memory_peak": 0
+      },
+      {
+        "label": "3b-guest-return-depth-4",
+        "ips": 8679.809509363113,
+        "ips_mean": 8660.739697136178,
+        "ips_sd": 61,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000105959,
+        "wall_time_sd": 0.0000024556395833246694,
+        "memory_peak": 0
+      },
+      {
+        "label": "3b-guest-return-depth-16",
+        "ips": 8048.052532405139,
+        "ips_mean": 8033.687172200654,
+        "ips_sd": 73,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.000111,
+        "wall_time_sd": 0.000002337823612382479,
+        "memory_peak": 0
+      },
+      {
+        "label": "3b-guest-return-depth-64",
+        "ips": 6489.782078948441,
+        "ips_mean": 6476.285926301246,
+        "ips_sd": 37,
+        "iterations": 20480,
+        "cycles": 5,
+        "wall_time": 0.00013083350000000002,
+        "wall_time_sd": 0.000003273179196137163,
+        "memory_peak": 0
+      }
+    ],
+    "mruby_eval": [
+      {
+        "label": "4a-arith-100k-sum",
+        "ips": 27.331738981892727,
+        "ips_mean": 27.323367320154063,
+        "ips_sd": 0,
+        "iterations": 96,
+        "cycles": 3,
+        "wall_time": 0.036519833,
+        "wall_time_sd": 0.00017519265885467696,
+        "memory_peak": 0
+      },
+      {
+        "label": "4b-string-concat-1000",
+        "ips": 1981.2324658991977,
+        "ips_mean": 1978.5007392196985,
+        "ips_sd": 5,
+        "iterations": 6144,
+        "cycles": 3,
+        "wall_time": 0.000503958,
+        "wall_time_sd": 0.000005194209238163606,
+        "memory_peak": 0
+      },
+      {
+        "label": "4c-exception-raise-rescue-100",
+        "ips": 3723.649904181467,
+        "ips_mean": 3725.131399848182,
+        "ips_sd": 20,
+        "iterations": 12288,
+        "cycles": 3,
+        "wall_time": 0.000256854,
+        "wall_time_sd": 0.000005245234564994121,
+        "memory_peak": 0
+      },
+      {
+        "label": "4d-regexp-match-1000",
+        "ips": 360.91463663932024,
+        "ips_mean": 360.87315072760896,
+        "ips_sd": 2,
+        "iterations": 1280,
+        "cycles": 5,
+        "wall_time": 0.002725666,
+        "wall_time_sd": 0.00002846454518858311,
+        "memory_peak": 0
+      },
+      {
+        "label": "4e-stdout-puts-1000",
+        "ips": 350.0629703116511,
+        "ips_mean": 350.38676548354016,
+        "ips_sd": 1,
+        "iterations": 1280,
+        "cycles": 5,
+        "wall_time": 0.002813917,
+        "wall_time_sd": 0.00004080732175833333,
+        "memory_peak": 0
+      },
+      {
+        "label": "4f-stdout-cap-saturation",
+        "ips": 165.48791287704495,
+        "ips_mean": 165.74263523819974,
+        "ips_sd": 1,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.005781833,
+        "wall_time_sd": 0.00008626760523561337,
+        "memory_peak": 0
+      }
+    ],
+    "catalog_handles": [
+      {
+        "label": "5a-alloc-0-from-empty",
+        "ips": 1809396.4456607834,
+        "ips_mean": 1814954.5209514436,
+        "ips_sd": 17344,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "5a-alloc-100-from-empty",
+        "ips": 22583.917780424334,
+        "ips_mean": 22825.486740363103,
+        "ips_sd": 623,
+        "iterations": 81920,
+        "cycles": 5
+      },
+      {
+        "label": "5a-alloc-10_000-from-empty",
+        "ips": 237.69576242308585,
+        "ips_mean": 234.93393720637096,
+        "ips_sd": 7,
+        "iterations": 768,
+        "cycles": 3
+      },
+      {
+        "label": "5a-alloc-100_000-from-empty",
+        "ips": 20.239070028212364,
+        "ips_mean": 20.326125311294607,
+        "ips_sd": 0,
+        "iterations": 64,
+        "cycles": 4
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000",
+        "seconds": 0.00038600000000243995,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-10000",
+        "seconds": 0.00034299999999731767,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-100000",
+        "seconds": 0.0004440000000016653,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000000",
+        "seconds": 0.0004460000000001685,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5c-warm-eval-nil-under-gc-pressure",
+        "ips": 8782.283432757442,
+        "ips_mean": 8837.928323510569,
+        "ips_sd": 160,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000104917,
+        "wall_time_sd": 0.0000014646105387271918,
+        "memory_peak": 0
+      }
+    ],
+    "yield_roundtrip": [
+      {
+        "label": "6a-single-yield",
+        "ips": 7497.979517848432,
+        "ips_mean": 7488.79554701056,
+        "ips_sd": 71,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.0001248125,
+        "wall_time_sd": 0.00002779345955669694,
+        "memory_peak": 0
+      },
+      {
+        "label": "6b-block-no-yield",
+        "ips": 7893.103940000067,
+        "ips_mean": 7876.396305179554,
+        "ips_sd": 151,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.000116708,
+        "wall_time_sd": 0.000005765685264112063,
+        "memory_peak": 0
+      },
+      {
+        "label": "6c-1000-yields-in-one-call",
+        "ips": 235.40727757920402,
+        "ips_mean": 234.82623339963104,
+        "ips_sd": 2,
+        "iterations": 768,
+        "cycles": 3,
+        "wall_time": 0.0040212295,
+        "wall_time_sd": 0.00014705804426460694,
+        "memory_peak": 65536
+      },
+      {
+        "label": "6d-yield-break",
+        "ips": 3808.5072158008456,
+        "ips_mean": 3810.9564802470795,
+        "ips_sd": 6,
+        "iterations": 12288,
+        "cycles": 3,
+        "wall_time": 0.000248833,
+        "wall_time_sd": 0.000008133051081968533,
+        "memory_peak": 0
+      }
+    ]
+  }
+}
