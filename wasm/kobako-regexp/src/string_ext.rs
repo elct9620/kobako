@@ -11,12 +11,11 @@ use beni::{format, Error, FromValue, Module, Mrb, Proc, Value};
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.class_get(c"String")?;
-    // SAFETY: `cls` is the live String class; reifying it as a value is
-    // GC-stable for the VM lifetime.
-    let cls_val = unsafe { cls.to_value(mrb) };
-    alias(mrb, cls_val, c"__kobako_aref", c"[]");
-    alias(mrb, cls_val, c"__kobako_index", c"index");
-    alias(mrb, cls_val, c"__kobako_split", c"split");
+    // Preserve each core method under a private name before overriding it,
+    // so the non-Regexp dispatch path can delegate back to the original.
+    cls.alias_method(mrb, c"__kobako_aref", c"[]")?;
+    cls.alias_method(mrb, c"__kobako_index", c"index")?;
+    cls.alias_method(mrb, c"__kobako_split", c"split")?;
 
     cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, -1))?;
     cls.define_method(mrb, c"match", beni::method!(str_match, -1))?;
@@ -29,19 +28,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"[]", beni::method!(str_aref, -1))?;
     cls.define_method(mrb, c"slice", beni::method!(str_aref, -1))?;
     Ok(())
-}
-
-/// `alias_method(new, old)` on the class via funcall (it is private, which
-/// funcall bypasses); names ride as Strings, which `alias_method` accepts.
-fn alias(mrb: &Mrb, cls_val: Value, new_name: &core::ffi::CStr, old_name: &core::ffi::CStr) {
-    cls_val.call(
-        mrb,
-        c"alias_method",
-        &[
-            mrb.str_new(new_name.to_bytes()),
-            mrb.str_new(old_name.to_bytes()),
-        ],
-    );
 }
 
 fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
