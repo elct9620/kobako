@@ -12,7 +12,9 @@
 //! as beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it
 //! with.
 
-pub mod translate;
+mod matchdata;
+mod regexp;
+mod translate;
 
 use beni::{Error, Gem, Mrb};
 
@@ -23,7 +25,9 @@ use beni::{Error, Gem, Mrb};
 pub struct KobakoRegexp;
 
 impl Gem for KobakoRegexp {
-    fn init(_mrb: &Mrb) -> Result<(), Error> {
+    fn init(mrb: &Mrb) -> Result<(), Error> {
+        matchdata::init(mrb)?;
+        regexp::init(mrb)?;
         Ok(())
     }
 }
