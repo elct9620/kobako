@@ -245,18 +245,7 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Value {
                 .enumerate()
                 .filter_map(|(i, name)| name.map(|n| (n.to_string(), i)))
                 .collect();
-            let md = matchdata::build(
-                mrb,
-                regexp,
-                MatchState {
-                    subject: subject.to_owned(),
-                    groups,
-                    names,
-                },
-            );
-            set_globals(mrb, subject, &captures);
-            mrb.gv_set(mrb.intern_cstr(c"$~"), md);
-            md
+            finalize(mrb, regexp, subject, groups, names)
         }
         Ok(None) => {
             clear_globals(mrb);
@@ -266,32 +255,112 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Value {
     }
 }
 
-/// Set `$&` / `` $` `` / `$'` / `$1..$9` from a successful match.
-fn set_globals(mrb: &Mrb, subject: &str, captures: &fancy_regex::Captures) {
-    let whole = captures.get(0);
+/// Byte spans of one match: the whole match plus each numbered group.
+pub(crate) struct MatchSpan {
+    pub whole: (usize, usize),
+    pub groups: Vec<Option<(usize, usize)>>,
+}
+
+/// Collect non-overlapping matches of `regexp` over `subject` as owned byte
+/// spans, so the String methods can build results after the engine borrow
+/// is released. A zero-width match advances by one character.
+pub(crate) fn match_spans(mrb: &Mrb, regexp: Value, subject: &str) -> Vec<MatchSpan> {
+    let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
+        return Vec::new();
+    };
+    let count = state.regex.captures_len();
+    let mut spans = Vec::new();
+    let mut pos = 0;
+    while pos <= subject.len() {
+        match state.regex.captures_from_pos(subject, pos) {
+            Ok(Some(captures)) => {
+                let Some(whole) = captures.get(0).map(|m| (m.start(), m.end())) else {
+                    break;
+                };
+                let groups = (1..count)
+                    .map(|i| captures.get(i).map(|m| (m.start(), m.end())))
+                    .collect();
+                spans.push(MatchSpan { whole, groups });
+                pos = if whole.1 > whole.0 {
+                    whole.1
+                } else {
+                    whole.1 + subject[whole.1..].chars().next().map_or(1, char::len_utf8)
+                };
+            }
+            _ => break,
+        }
+    }
+    spans
+}
+
+/// True when `value` is a `Regexp` carrier.
+pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
+    value.data_get(mrb, &REGEXP_TYPE).is_some()
+}
+
+/// Coerce a String method's pattern argument to a `Regexp`: a `Regexp`
+/// passes through; anything else compiles as a literal (escaped) pattern.
+pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Value {
+    if is_regexp(mrb, arg) {
+        return arg;
+    }
+    let cls = mrb
+        .class_get(c"Regexp")
+        .expect("Regexp is defined at gem init");
+    let escaped = mrb.str_new(escape_str(&arg.to_string(mrb)).as_bytes());
+    // SAFETY: `cls` is the live Regexp class; reifying it as a value is
+    // GC-stable for the VM lifetime.
+    unsafe { cls.to_value(mrb) }.call(mrb, c"new", &[escaped])
+}
+
+/// Build a `MatchData`, bind `$~`, and refresh `$&` / `` $` `` / `$'` /
+/// `$1..$9` from a match's byte spans (`groups[0]` is the whole match);
+/// returns the `MatchData`.
+pub(crate) fn finalize(
+    mrb: &Mrb,
+    regexp: Value,
+    subject: &str,
+    groups: Vec<Option<(usize, usize)>>,
+    names: Vec<(String, usize)>,
+) -> Value {
+    let md = matchdata::build(
+        mrb,
+        regexp,
+        MatchState {
+            subject: subject.to_owned(),
+            groups: groups.clone(),
+            names,
+        },
+    );
+    mrb.gv_set(mrb.intern_cstr(c"$~"), md);
+    let whole = groups.first().copied().flatten();
     set_global(
         mrb,
         c"$&",
-        whole.map(|m| mrb.str_new(m.as_str().as_bytes())),
+        whole.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
     );
-    if let Some(m) = whole {
-        set_global(
-            mrb,
-            c"$`",
-            Some(mrb.str_new(&subject.as_bytes()[..m.start()])),
-        );
-        set_global(
-            mrb,
-            c"$'",
-            Some(mrb.str_new(&subject.as_bytes()[m.end()..])),
-        );
+    if let Some((s, e)) = whole {
+        set_global(mrb, c"$`", Some(mrb.str_new(&subject.as_bytes()[..s])));
+        set_global(mrb, c"$'", Some(mrb.str_new(&subject.as_bytes()[e..])));
     }
     for (i, name) in NUMBERED.iter().enumerate() {
-        let value = captures
+        let value = groups
             .get(i + 1)
-            .map(|m| mrb.str_new(m.as_str().as_bytes()));
+            .copied()
+            .flatten()
+            .map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]));
         set_global(mrb, name, value);
     }
+    md
+}
+
+/// Refresh the match globals for a gsub/scan block from owned spans, so
+/// `$1` is fresh on each iteration.
+pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &MatchSpan) {
+    let mut groups = Vec::with_capacity(span.groups.len() + 1);
+    groups.push(Some(span.whole));
+    groups.extend(span.groups.iter().copied());
+    finalize(mrb, regexp, subject, groups, Vec::new());
 }
 
 /// Reset every match global to nil after a failed match.
