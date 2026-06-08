@@ -28,14 +28,22 @@ module KobakoWasm
   # set for any future build.rs steps (e.g. bindgen C compilation) that need
   # the wasi-sdk toolchain; they do not affect the Rust+mruby link step.
   class GuestBuilder
-    # Build +data/kobako.wasm+ if its mtime is older than any input source.
+    # +features+ lists cargo features to enable; +output+ is the wasm path
+    # the built artefact is copied to. The defaults build the bundled
+    # +data/kobako.wasm+ with no extra features.
+    def initialize(features: [], output: DATA_WASM)
+      @features = features
+      @output = output
+    end
+
+    # Build the configured Guest Binary if its mtime is older than any input source.
     # Short-circuits to a no-op (with a diagnostic +puts+) when the artefact
     # is already up to date. Raises with a Stage B hint when +libmruby.a+ is
     # missing, and raises again if cargo succeeds but the expected output
     # file is absent.
     def build
       if up_to_date?
-        puts "[wasm:build] #{DATA_WASM} is up to date — skipping"
+        puts "[wasm:build] #{@output} is up to date — skipping"
         return
       end
 
@@ -50,12 +58,12 @@ module KobakoWasm
     # file the build would consume — lets a second +wasm:build+ skip the
     # cargo invocation when nothing under the crate has changed.
     def up_to_date?
-      return false unless File.exist?(DATA_WASM)
+      return false unless File.exist?(@output)
 
       src_mtime = newest_source_mtime
       return false if src_mtime.nil?
 
-      File.mtime(DATA_WASM) >= src_mtime
+      File.mtime(@output) >= src_mtime
     end
 
     def newest_source_mtime
@@ -88,6 +96,7 @@ module KobakoWasm
 
     def run_cargo_release_build
       args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
+      args += ["--features", @features.join(",")] unless @features.empty?
       env  = cargo_build_env
       puts "[wasm:build] env=#{env.inspect}"
       puts "[wasm:build] ==> #{args.join(" ")}"
@@ -97,8 +106,8 @@ module KobakoWasm
 
     def copy_wasm_into_data_dir
       FileUtils.mkdir_p(DATA_DIR)
-      FileUtils.cp(CRATE_WASM_OUTPUT, DATA_WASM)
-      puts "[wasm:build] Guest Binary ready at #{DATA_WASM} (#{File.size(DATA_WASM)} bytes)"
+      FileUtils.cp(CRATE_WASM_OUTPUT, @output)
+      puts "[wasm:build] Guest Binary ready at #{@output} (#{File.size(@output)} bytes)"
     end
 
     # Build the env hash threaded into +cargo build+. +MRUBY_LIB_DIR+ wires

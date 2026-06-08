@@ -75,3 +75,15 @@ namespace :wasm do
     puts "[wasm:clean] removed #{KobakoWasm::DATA_WASM} and #{KobakoWasm::CRATE_TARGET_DIR}"
   end
 end
+
+# `wasm:build:regexp` lives in its own namespace block so the primary `wasm:`
+# block stays within Metrics/BlockLength. rake merges the two declarations.
+namespace :wasm do
+  namespace :build do
+    desc "Build the regexp-enabled Guest Binary variant (data/kobako+regexp.wasm)"
+    task regexp: ["beni:build"] do
+      abort "cargo not on PATH; install Rust toolchain to run wasm:build:regexp" unless KobakoWasm.cargo_available?
+      KobakoWasm::GuestBuilder.new(features: ["regexp-unicode"], output: KobakoWasm::DATA_WASM_REGEXP).build
+    end
+  end
+end

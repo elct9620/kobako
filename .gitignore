@@ -20,6 +20,10 @@ target/
 # bundled into the released gem at publish time, but not tracked in git.
 /data/kobako.wasm
 
+# Regexp-enabled guest variant built by `rake wasm:build:regexp` for parity
+# testing; never tracked or shipped.
+/data/kobako+regexp.wasm
+
 # rbs collection install destination. Regenerable from rbs_collection.lock.yaml
 # via `bundle exec rbs collection install`; the lockfile is committed.
 /.gem_rbs_collection/

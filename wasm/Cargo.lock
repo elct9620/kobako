@@ -190,6 +190,7 @@ dependencies = [
  "kobako",
  "kobako-core",
  "kobako-io",
+ "kobako-regexp",
 ]
 
 [[package]]
