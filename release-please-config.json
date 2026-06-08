@@ -6,7 +6,8 @@
     ".": {
       "component": "kobako",
       "include-component-in-tag": false,
-      "release-type": "ruby"
+      "release-type": "ruby",
+      "exclude-paths": ["wasm"]
     },
     "wasm/kobako-core": {
       "component": "kobako-core",
