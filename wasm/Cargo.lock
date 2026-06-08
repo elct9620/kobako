@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "beni",
  "beni-sys",
@@ -136,14 +136,14 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rmp",
 ]
 
 [[package]]
 name = "kobako-io"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "beni",
 ]
