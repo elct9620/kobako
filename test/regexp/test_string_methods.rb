@@ -67,4 +67,29 @@ class TestRegexpStringMethods < Minitest::Test
     assert_parity(%w[1 2], 'r = []; "a1b2".scan(/\d/){|m| r << m }; r',
                   "String#scan with a block yields each match to the block")
   end
+
+  # Overriding []/index/split must preserve their core behaviour for a
+  # non-Regexp argument: the override aliases the core method and delegates
+  # to it. These pin that delegation so a regression in the alias wiring
+  # cannot pass unnoticed.
+
+  def test_split_on_string_delegates_to_core
+    assert_parity(%w[a b c], '"a,b,c".split(",")',
+                  "String#split with a String argument delegates to the core method")
+  end
+
+  def test_index_of_string_delegates_to_core
+    assert_parity(2, '"hello".index("l")',
+                  "String#index with a String argument delegates to the core method")
+  end
+
+  def test_aref_with_string_delegates_to_core
+    assert_parity("ell", '"hello"["ell"]',
+                  "String#[] with a String argument delegates to the core method")
+  end
+
+  def test_aref_with_integer_range_delegates_to_core
+    assert_parity("ell", '"hello"[1, 3]',
+                  "String#[] with Integer arguments delegates to the core method")
+  end
 end
