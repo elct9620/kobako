@@ -82,6 +82,15 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Value {
     }
     let source = args[0].to_string(mrb);
     let options = parse_options(mrb, args.get(1).copied());
+    compile(mrb, source, options)
+}
+
+/// Build a `Regexp` carrier from an owned `source` and MRI `options`,
+/// raising `RegexpError` on an invalid pattern. The canonical construction
+/// path shared by `Regexp.new` / `Regexp.compile` and the String-method
+/// coercion of a non-`Regexp` pattern, so both build through the engine
+/// directly instead of re-dispatching to Ruby `Regexp.new`.
+fn compile(mrb: &Mrb, source: String, options: i64) -> Value {
     let pattern = translate::build_pattern(&source, options);
     match fancy_regex::RegexBuilder::new(&pattern)
         .backtrack_limit(BACKTRACK_LIMIT)
@@ -328,13 +337,7 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Value {
     if is_regexp(mrb, arg) {
         return arg;
     }
-    let cls = mrb
-        .class_get(c"Regexp")
-        .expect("Regexp is defined at gem init");
-    let escaped = mrb.str_new(escape_str(&arg.to_string(mrb)).as_bytes());
-    // SAFETY: `cls` is the live Regexp class; reifying it as a value is
-    // GC-stable for the VM lifetime.
-    unsafe { cls.to_value(mrb) }.call(mrb, c"new", &[escaped])
+    compile(mrb, escape_str(&arg.to_string(mrb)), 0)
 }
 
 /// Build a `MatchData`, bind `$~`, and refresh `$&` / `` $` `` / `$'` /
