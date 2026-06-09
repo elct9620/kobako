@@ -7,7 +7,7 @@
 //! byte-based, mirroring the curated regexp engine. The originating
 //! `Regexp` is held as the `@regexp` ivar so the mruby GC keeps it alive.
 
-use beni::{format, DataType, FromValue, IntoValue, Module, Mrb, Value};
+use beni::{format, DataType, Error, FromValue, IntoValue, Module, Mrb, Object, Value};
 
 /// Owned snapshot of one successful match.
 pub(crate) struct MatchState {
@@ -37,6 +37,7 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.define_class(c"MatchData", mrb.object_class())?;
     cls.set_instance_data_tt(mrb);
+    cls.define_singleton_method(mrb, c"new", beni::method!(md_new_forbidden, -1))?;
     cls.define_method(mrb, c"[]", beni::method!(md_aref, -1))?;
     cls.define_method(mrb, c"begin", beni::method!(md_begin, -1))?;
     cls.define_method(mrb, c"end", beni::method!(md_end, -1))?;
@@ -53,6 +54,19 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"to_a", beni::method!(md_to_a, 0))?;
     cls.define_method(mrb, c"to_s", beni::method!(md_to_s, 0))?;
     Ok(())
+}
+
+/// `MatchData.new` is forbidden — a `MatchData` only ever arises from a
+/// match, never direct construction. The C gem undefined the constructor;
+/// raising `NoMethodError` matches that observable behaviour while following
+/// the gem's raising-bridge pattern for non-constructible types.
+fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    let cls = mrb
+        .class_get(c"NoMethodError")
+        .expect("NoMethodError is an mruby core class");
+    Err(Error::Exception(
+        cls.exc_new(mrb, "undefined method 'new' for MatchData"),
+    ))
 }
 
 /// Borrow the snapshot, or return `nil` from the calling bridge when the

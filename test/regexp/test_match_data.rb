@@ -72,4 +72,16 @@ class TestRegexpMatchData < Minitest::Test
     assert_equal %w[2], eval_regexp('/\d/.match("a1b2c3", 3).to_a'),
                  "Regexp#match starts searching at the given byte position"
   end
+
+  # The C gem undefined MatchData.new; a MatchData only ever arises from a
+  # match, never direct construction. Resolve the error inside the guest (a
+  # returned MatchData would surface a host codec error regardless, so this
+  # asserts the guest-visible NoMethodError rather than the wire failure).
+  def test_new_is_not_constructible
+    assert_equal "NoMethodError",
+                 eval_regexp("begin; MatchData.new; 'constructed'; " \
+                             "rescue NoMethodError; 'NoMethodError'; " \
+                             "rescue => e; e.class.to_s; end"),
+                 "MatchData.new raises NoMethodError instead of constructing"
+  end
 end
