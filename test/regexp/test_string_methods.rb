@@ -42,6 +42,21 @@ class TestRegexpStringMethods < Minitest::Test
                  "String#split divides the string on each match"
   end
 
+  def test_split_includes_capturing_groups
+    assert_equal %w[a 1 b 2], eval_regexp('"a1b2".split(/(\d)/)'),
+                 "String#split on a Regexp with a group interleaves each captured substring"
+  end
+
+  def test_split_with_positive_limit_caps_fields
+    assert_equal ["a", "b,c,d"], eval_regexp('"a,b,c,d".split(/,/, 2)'),
+                 "String#split with a positive limit stops splitting and keeps the remainder as the last field"
+  end
+
+  def test_split_on_pattern_with_negative_limit_keeps_trailing_empties
+    assert_equal ["a", "b", "", ""], eval_regexp('"a,b,,".split(/,/, -1)'),
+                 "String#split on a Regexp with a -1 limit keeps trailing empty fields"
+  end
+
   def test_index_returns_byte_offset
     assert_equal 2, eval_regexp('"hello".index(/l/)'),
                  "String#index returns the byte offset of the first match"

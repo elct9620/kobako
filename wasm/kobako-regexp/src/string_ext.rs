@@ -171,26 +171,44 @@ fn substitution(
     }
 }
 
+/// `String#split` on a `Regexp`: the text between matches, with each match's
+/// capture groups interleaved (a non-participating group is `nil`). A
+/// positive +limit+ caps the field count (the remainder stays unsplit as the
+/// last field); an omitted or `0` limit drops trailing empty fields; a
+/// negative limit keeps them. A non-`Regexp` argument delegates to the core
+/// method, which handles its own limit.
 fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return Ok(self_.call(mrb, c"__kobako_split", &args));
     }
     let subject = self_.to_string(mrb);
+    let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     let spans = regexp::match_spans(mrb, args[0], &subject)?;
-    let mut segments: Vec<(usize, usize)> = Vec::new();
+
+    let mut fields: Vec<Option<(usize, usize)>> = Vec::new();
     let mut last = 0;
-    for span in &spans {
-        segments.push((last, span.whole.0));
+    for (splits, span) in spans.iter().enumerate() {
+        if limit > 0 && splits >= (limit - 1) as usize {
+            break;
+        }
+        fields.push(Some((last, span.whole.0)));
+        fields.extend(span.groups.iter().copied());
         last = span.whole.1;
     }
-    segments.push((last, subject.len()));
-    while segments.last().is_some_and(|(s, e)| s == e) {
-        segments.pop();
+    fields.push(Some((last, subject.len())));
+    if limit == 0 {
+        while matches!(fields.last().copied(), Some(Some((s, e))) if s == e) {
+            fields.pop();
+        }
     }
+
     let result = mrb.ary_new();
-    for (start, end) in segments {
-        result.push(mrb, mrb.str_new(&subject.as_bytes()[start..end]));
+    for field in fields {
+        match field {
+            Some((start, end)) => result.push(mrb, mrb.str_new(&subject.as_bytes()[start..end])),
+            None => result.push(mrb, Value::nil()),
+        }
     }
     Ok(result.as_value())
 }
