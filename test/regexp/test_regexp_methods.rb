@@ -61,6 +61,8 @@ class TestRegexpMethods < Minitest::Test
   def test_escape_quotes_metacharacters
     assert_equal 'a\.b\*c\+d', eval_regexp('Regexp.escape("a.b*c+d")'),
                  "Regexp.escape backslash-quotes regexp metacharacters"
+    assert_equal "a/b\\v", eval_regexp('Regexp.escape("a/b\v")'),
+                 "Regexp.escape leaves a slash unescaped (MRI) while still quoting a vertical tab"
   end
 
   def test_compile_is_new_and_matches

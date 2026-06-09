@@ -661,7 +661,7 @@ fn escape_str(source: &str) -> String {
     for c in source.chars() {
         match c {
             '.' | '\\' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|'
-            | '/' | '-' | '#' | ' ' => {
+            | '-' | '#' | ' ' => {
                 out.push('\\');
                 out.push(c);
             }
