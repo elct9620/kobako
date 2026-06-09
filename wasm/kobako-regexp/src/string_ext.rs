@@ -209,11 +209,12 @@ fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Value {
 }
 
 /// `String#split` on a `Regexp`: the text between matches, with each match's
-/// capture groups interleaved (a non-participating group is `nil`). A
-/// positive +limit+ caps the field count (the remainder stays unsplit as the
-/// last field); an omitted or `0` limit drops trailing empty fields; a
-/// negative limit keeps them. A non-`Regexp` argument delegates to the core
-/// method, which handles its own limit.
+/// participating capture groups interleaved (a non-participating group is
+/// omitted, unlike `scan`). A zero-width match at the current field start emits
+/// no empty field. A positive +limit+ caps the field count (the remainder
+/// stays unsplit as the last field); an omitted or `0` limit drops trailing
+/// empty fields; a negative limit keeps them. A non-`Regexp` argument delegates
+/// to the core method, which handles its own limit.
 fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
@@ -223,29 +224,33 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     let spans = regexp::match_spans(mrb, args[0], &subject)?;
 
-    let mut fields: Vec<Option<(usize, usize)>> = Vec::new();
+    let mut fields: Vec<(usize, usize)> = Vec::new();
     let mut last = 0;
-    for (splits, span) in spans.iter().enumerate() {
+    let mut splits = 0;
+    for span in &spans {
+        // A zero-width match at the field start would yield an empty leading
+        // field; the C gem and MRI skip it.
+        if span.whole.0 == span.whole.1 && span.whole.0 == last {
+            continue;
+        }
         if limit > 0 && splits >= (limit - 1) as usize {
             break;
         }
-        fields.push(Some((last, span.whole.0)));
-        fields.extend(span.groups.iter().copied());
+        fields.push((last, span.whole.0));
+        fields.extend(span.groups.iter().flatten().copied());
         last = span.whole.1;
+        splits += 1;
     }
-    fields.push(Some((last, subject.len())));
+    fields.push((last, subject.len()));
     if limit == 0 {
-        while matches!(fields.last().copied(), Some(Some((s, e))) if s == e) {
+        while matches!(fields.last(), Some(&(s, e)) if s == e) {
             fields.pop();
         }
     }
 
     let result = mrb.ary_new();
-    for field in fields {
-        match field {
-            Some((start, end)) => result.push(mrb, mrb.str_new(&subject.as_bytes()[start..end])),
-            None => result.push(mrb, Value::nil()),
-        }
+    for (start, end) in fields {
+        result.push(mrb, mrb.str_new(&subject.as_bytes()[start..end]));
     }
     Ok(result.as_value())
 }
