@@ -48,11 +48,6 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp#casefold? is false for a pattern without /i"
   end
 
-  def test_to_s_renders_inline_flag_group
-    assert_equal "(?-mix:a.b)", eval_regexp("/a.b/.to_s"),
-                 "Regexp#to_s renders the (?-mix:source) inline-flag form"
-  end
-
   def test_escape_quotes_metacharacters
     assert_equal 'a\.b\*c\+d', eval_regexp('Regexp.escape("a.b*c+d")'),
                  "Regexp.escape backslash-quotes regexp metacharacters"

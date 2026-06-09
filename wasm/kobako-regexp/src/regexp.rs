@@ -339,8 +339,17 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Value::nil();
     };
-    let (on, off) = on_off_flags(state.options);
-    mrb.str_new(format!("(?{on}-{off}:{})", state.source).as_bytes())
+    let (options, body) = match lift_inline_group(&state.source) {
+        Some((enabled, disabled, inner)) => ((state.options | enabled) & !disabled, inner),
+        None => (state.options, state.source.as_str()),
+    };
+    let (on, off) = on_off_flags(options);
+    let rendered = if off.is_empty() {
+        format!("(?{on}:{body})")
+    } else {
+        format!("(?{on}-{off}:{body})")
+    };
+    mrb.str_new(rendered.as_bytes())
 }
 
 fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
@@ -660,6 +669,75 @@ fn on_off_flags(options: i64) -> (String, String) {
         }
     }
     (on, off)
+}
+
+/// If `source` is a single inline-flag group spanning the whole string —
+/// `(?flags-flags:body)`, including the flag-less `(?:body)` — return its
+/// enabled and disabled flag bits and the `body`. Mirrors the lift MRI's
+/// `Regexp#to_s` applies; a group that does not span the whole source, or a
+/// non-flag group such as `(?<name>…)`, yields `None`.
+fn lift_inline_group(source: &str) -> Option<(i64, i64, &str)> {
+    let bytes = source.as_bytes();
+    if !source.starts_with("(?") {
+        return None;
+    }
+    let mut i = 2;
+    let mut enabled = 0;
+    let mut disabled = 0;
+    let mut in_disable = false;
+    loop {
+        match bytes.get(i)? {
+            b':' => {
+                i += 1;
+                break;
+            }
+            b'-' if !in_disable => {
+                in_disable = true;
+                i += 1;
+            }
+            b'i' | b'm' | b'x' => {
+                let bit = match bytes[i] {
+                    b'i' => translate::IGNORECASE,
+                    b'm' => translate::MULTILINE,
+                    _ => translate::EXTENDED,
+                };
+                if in_disable {
+                    disabled |= bit;
+                } else {
+                    enabled |= bit;
+                }
+                i += 1;
+            }
+            _ => return None,
+        }
+    }
+    let body_start = i;
+    let mut depth = 1;
+    let mut in_class = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => {
+                i += 2;
+                continue;
+            }
+            b'[' if !in_class => in_class = true,
+            b']' if in_class => in_class = false,
+            b'(' if !in_class => depth += 1,
+            b')' if !in_class => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if depth == 0 && i == bytes.len() - 1 {
+        Some((enabled, disabled, &source[body_start..i]))
+    } else {
+        None
+    }
 }
 
 /// Render a pattern source for `Regexp#inspect`: escape `/` to `\/`, render a
