@@ -73,3 +73,109 @@ The guest sees exactly these constructs.
 | The full CRuby `Regexp` / `MatchData` API | only the curated Surface above |
 | `Encoding` objects; character-based offsets | byte-based offsets and slices |
 | Onigmo engine-intrinsic surface — option constants beyond `IGNORECASE` / `EXTENDED` / `MULTILINE`, `Regexp.version`, and the `set_global_variables` toggle family | the MRI-aligned `Regexp#options` bits and always-on match globals |
+
+## Behavior
+
+Each behavior carries an `RX-xx` anchor. Match offsets, substring slices, and
+position arguments are byte-based throughout.
+
+### RX-01 — Pattern compilation and options
+
+A regexp literal `/pattern/imx`, `Regexp.new(source[, options])`, and
+`Regexp.compile` build a compiled pattern. `options` is an Integer mask
+(`IGNORECASE | EXTENDED | MULTILINE`), a letter String (`"imx"`), or omitted.
+A pattern that fails to compile raises `RegexpError`.
+
+| Member | Result |
+|--------|--------|
+| `#source` | the pattern String |
+| `#options` | the MRI option bits as an Integer (`IGNORECASE` 1, `EXTENDED` 2, `MULTILINE` 4) |
+| `#casefold?` | whether `IGNORECASE` is set |
+| `#inspect` | `/source/flags` |
+| `#to_s` | `(?enabled-disabled:source)` |
+| `#named_captures` | a Hash mapping each capture name to its group numbers |
+| `#names` | the capture names in declaration order |
+| `#==` | true when another `Regexp` has equal source and options |
+| `#dup` / `#clone` | an independent copy with the same pattern and options |
+| `Regexp.escape` / `Regexp.quote` | the argument with the regexp metacharacters and whitespace MRI's `Regexp.escape` escapes backslash-escaped |
+
+### RX-02 — Matching and match globals
+
+`#match` returns a `MatchData` on a hit and `nil` on a miss; given a block, it
+yields the `MatchData` on a hit and returns the block's result, and does not
+call the block on a miss. `#match?` returns a boolean, `#=~` the match's start
+index or `nil`, and `#===` a boolean. An optional position argument starts the
+search at that byte offset; a position outside the subject yields no match, and
+a negative position counts back from the end.
+
+A successful match refreshes the match globals; a miss clears them.
+
+| Global | Value after a hit |
+|--------|-------------------|
+| `$~` | the `MatchData` |
+| `$1`..`$9` | the numbered captures |
+| `$&` | the whole match |
+| `` $` `` / `$'` | the text before / after the match |
+| `$+` | the last capture group that participated, `nil` when the pattern has no groups |
+
+`Regexp.last_match` reads the most recent match (`$~`); `Regexp.last_match=`
+overwrites it, letting a caller save and restore the match around an inner one.
+
+### RX-03 — MatchData accessors
+
+A `MatchData` is an immutable snapshot of one match; `MatchData.new` raises
+`NoMethodError`, as a `MatchData` only arises from matching.
+
+| Member | Result |
+|--------|--------|
+| `#[]` | a group by Integer index or capture name (Symbol/String); a start+length or a Range returns that slice of the group list; a negative index counts from the end; an undefined name raises `IndexError` |
+| `#begin` / `#end` / `#offset` | byte offsets for a group; a non-participating group is `nil`; an index past the group count or an undefined name raises `IndexError` |
+| `#captures` | the groups, excluding the whole match |
+| `#named_captures` | each capture name mapped to its captured String (`symbolize_names: true` keys by Symbol) |
+| `#names` | the capture names |
+| `#pre_match` / `#post_match` | the text before / after the match |
+| `#to_a` | the whole match followed by each capture |
+| `#to_s` | the whole match |
+| `#size` / `#length` | the whole match plus the group count |
+| `#string` | the matched subject |
+| `#regexp` | the originating `Regexp` |
+| `#dup` / `#clone` | a copy carrying the same snapshot |
+
+### RX-04 — Substitution
+
+`String#gsub` and `String#sub` replace matches with a replacement String, a
+Hash keyed by the whole match, or a block's result. A String replacement
+expands `\0`..`\9` and `\k<name>` backreferences (an undefined name raises
+`IndexError`, a malformed `\k` raises `RegexpError`); a `\\` is a literal
+backslash and any other `\x` stays its two literal characters. A replacement
+argument takes precedence over a block. An exception raised in a block
+propagates.
+
+`gsub` with neither a block nor a replacement returns an Enumerator over the
+matches (`to_enum`); `sub` with neither raises `ArgumentError`.
+
+### RX-05 — Scan and split
+
+`String#scan` collects each non-overlapping match — the whole match for a
+group-less pattern, otherwise an Array of the groups. Given a block it yields
+each and returns the receiver, propagating any exception the block raises.
+
+`String#split` divides the subject on the pattern, interleaving each match's
+participating capture groups between the fields. A positive limit caps the
+field count, leaving the remainder as the last field; an omitted or `0` limit
+drops trailing empty fields; a negative limit keeps them. A non-`Regexp`
+argument delegates to the core method.
+
+### RX-06 — String matching, position, and slicing
+
+| Member | Behavior |
+|--------|----------|
+| `#=~` | matches a `Regexp` operand and returns the index or `nil`; a `String` operand raises `TypeError`; any other receiver falls through to `Kernel#=~` (`nil`) |
+| `#match` / `#match?` | coerce a String pattern to a `Regexp` and forward; `#match` forwards a block |
+| `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (a negative `pos` counts from the end), or `nil` |
+| `#[]` / `#slice` | with a `Regexp` (and optional group) returns the matched substring or that capture |
+| `#[]=` | overwrites the matched region — the whole match, or capture group `n` — and raises `IndexError` on no match |
+| `#slice!` | removes and returns the matched (or indexed) portion, leaving `$~` unchanged for the `Regexp` form |
+
+A non-`Regexp` argument to `#index` / `#[]` / `#[]=` / `#slice!` delegates to
+the core String method.
