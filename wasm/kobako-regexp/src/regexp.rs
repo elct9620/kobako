@@ -325,7 +325,14 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Value::nil();
     };
-    mrb.str_new(format!("/{}/{}", state.source, enabled_flags(state.options)).as_bytes())
+    mrb.str_new(
+        format!(
+            "/{}/{}",
+            inspect_source(&state.source),
+            enabled_flags(state.options)
+        )
+        .as_bytes(),
+    )
 }
 
 fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
@@ -653,6 +660,23 @@ fn on_off_flags(options: i64) -> (String, String) {
         }
     }
     (on, off)
+}
+
+/// Render a pattern source for `Regexp#inspect`: escape `/` to `\/`, render a
+/// non-whitespace control character as `\xHH` (uppercase hex), and pass
+/// printable characters, multibyte UTF-8, and the whitespace controls through
+/// literally — matching MRI.
+fn inspect_source(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    for c in source.chars() {
+        match c {
+            '/' => out.push_str("\\/"),
+            '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r' => out.push(c),
+            c if c.is_control() => out.push_str(&format!("\\x{:02X}", u32::from(c))),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Backslash-escape the regexp metacharacters in `source`, mirroring

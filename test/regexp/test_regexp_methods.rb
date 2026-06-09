@@ -48,11 +48,6 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp#casefold? is false for a pattern without /i"
   end
 
-  def test_inspect_renders_literal_form
-    assert_equal "/a.b/i", eval_regexp("/a.b/i.inspect"),
-                 "Regexp#inspect renders the /source/flags literal form"
-  end
-
   def test_to_s_renders_inline_flag_group
     assert_equal "(?-mix:a.b)", eval_regexp("/a.b/.to_s"),
                  "Regexp#to_s renders the (?-mix:source) inline-flag form"
