@@ -447,6 +447,14 @@ pub(crate) fn finalize(
         set_global(mrb, c"$`", Some(mrb.str_new(&subject.as_bytes()[..s])));
         set_global(mrb, c"$'", Some(mrb.str_new(&subject.as_bytes()[e..])));
     }
+    // $+ is the last capture group that participated (MRI semantics): the
+    // highest-numbered non-nil group, nil when the pattern has no groups.
+    let last_group = groups.iter().skip(1).rev().find_map(|group| *group);
+    set_global(
+        mrb,
+        c"$+",
+        last_group.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
+    );
     for (i, name) in NUMBERED.iter().enumerate() {
         let value = groups
             .get(i + 1)
@@ -470,7 +478,7 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
 /// Reset every match global to nil after a failed match.
 fn clear_globals(mrb: &Mrb) {
     mrb.gv_set(mrb.intern_cstr(c"$~"), Value::nil());
-    for name in [c"$&", c"$`", c"$'"].iter().chain(NUMBERED.iter()) {
+    for name in [c"$&", c"$`", c"$'", c"$+"].iter().chain(NUMBERED.iter()) {
         set_global(mrb, name, None);
     }
 }

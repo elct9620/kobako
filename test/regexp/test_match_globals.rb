@@ -28,6 +28,18 @@ class TestRegexpMatchGlobals < Minitest::Test
                  "$` and $' hold the text before and after the match"
   end
 
+  # $+ holds the last capture group that participated (MRI semantics): the
+  # highest-numbered non-nil group, or nil when the pattern has no groups.
+  def test_last_group_global_is_highest_capture
+    assert_equal "b", eval_regexp('"a1b" =~ /(\d)(\w)/; $+'),
+                 "$+ holds the last capture group that matched"
+  end
+
+  def test_last_group_global_is_nil_without_groups
+    assert_nil eval_regexp('"abc" =~ /b/; $+'),
+               "$+ is nil when the pattern has no capture groups"
+  end
+
   # $1 inside a gsub block refreshes to each iteration's capture rather than
   # staying pinned to the first match.
   def test_dollar1_refreshes_per_gsub_iteration
