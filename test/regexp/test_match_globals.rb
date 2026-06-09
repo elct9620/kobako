@@ -2,30 +2,36 @@
 
 require "test_helper"
 
-# Match backref globals parity (SPEC.md B-41). The curated regexp engine
-# sets $~ / $1..$9 / $& / $` / $' after each successful match within an
-# invocation. Expected values are the C-gem (Onigmo) oracle harvested from
-# data/kobako.wasm.
+# Match backref globals contract (SPEC.md B-41). kobako-regexp sets
+# $~ / $1..$9 / $& / $` / $' after each successful match within an
+# invocation, and refreshes them on every iteration of a gsub block.
 class TestRegexpMatchGlobals < Minitest::Test
-  include RegexpParityHelper
+  include RegexpGuestHelper
 
   def test_numbered_group_global
-    assert_parity("12", '"a12" =~ /(\d+)/; $1',
-                  "$1 holds the first capture after a successful match")
+    assert_equal "12", eval_regexp('"a12" =~ /(\d+)/; $1'),
+                 "$1 holds the first capture after a successful match"
   end
 
   def test_match_data_global
-    assert_parity("12", '"a12" =~ /(\d+)/; $~[0]',
-                  "$~ holds the MatchData after a successful match")
+    assert_equal "12", eval_regexp('"a12" =~ /(\d+)/; $~[0]'),
+                 "$~ holds the MatchData after a successful match"
   end
 
   def test_whole_match_global
-    assert_parity("12", '"a12" =~ /\d+/; $&',
-                  "$& holds the whole matched substring")
+    assert_equal "12", eval_regexp('"a12" =~ /\d+/; $&'),
+                 "$& holds the whole matched substring"
   end
 
   def test_pre_and_post_match_globals
-    assert_parity(%w[xa y], '"xa12y" =~ /\d+/; [$`, $\']',
-                  "$` and $' hold the text before and after the match")
+    assert_equal %w[xa y], eval_regexp('"xa12y" =~ /\d+/; [$`, $\']'),
+                 "$` and $' hold the text before and after the match"
+  end
+
+  # $1 inside a gsub block refreshes to each iteration's capture rather than
+  # staying pinned to the first match.
+  def test_dollar1_refreshes_per_gsub_iteration
+    assert_equal "a1!b2!", eval_regexp('"a1b2".gsub(/(\d)/){ $1 + "!" }'),
+                 "$1 inside a gsub block refreshes to each iteration's capture"
   end
 end
