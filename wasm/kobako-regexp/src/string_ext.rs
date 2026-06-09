@@ -124,7 +124,7 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     for span in &spans {
         let (start, end) = span.whole;
         out.push_str(&subject[last..start]);
-        out.push_str(&substitution(mrb, re, &subject, span, block, replacement));
+        out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
         last = end;
     }
     out.push_str(&subject[last..]);
@@ -148,13 +148,15 @@ fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (start, end) = span.whole;
     let mut out = String::with_capacity(subject.len());
     out.push_str(&subject[..start]);
-    out.push_str(&substitution(mrb, re, &subject, span, block, replacement));
+    out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
     out.push_str(&subject[end..]);
     Ok(mrb.str_new(out.as_bytes()))
 }
 
-/// The replacement text for one match: a block's result (with `$1..$9`
-/// refreshed first) or the literal replacement String.
+/// The replacement text for one match. A replacement argument wins over a
+/// block (as MRI does): a Hash is keyed by the whole match, a String expands
+/// its backreferences. With only a block, its result is used after `$1..$9`
+/// refresh to this match.
 fn substitution(
     mrb: &Mrb,
     re: Value,
@@ -162,19 +164,25 @@ fn substitution(
     span: &regexp::MatchSpan,
     block: Option<Proc>,
     replacement: Option<Value>,
-) -> String {
+) -> Result<String, Error> {
     let (start, end) = span.whole;
+    if let Some(rep) = replacement {
+        if rep.is_hash() {
+            let matched = mrb.str_new(&subject.as_bytes()[start..end]);
+            let value = rep.call(mrb, c"[]", &[matched]).call(mrb, c"to_s", &[]);
+            return Ok(value.to_string(mrb));
+        }
+        return regexp::expand_replacement(mrb, re, subject, span, &rep.to_string(mrb));
+    }
     if let Some(b) = block {
         regexp::set_span_globals(mrb, re, subject, span);
         let matched = mrb.str_new(&subject.as_bytes()[start..end]);
-        b.call(mrb, &[matched])
+        return Ok(b
+            .call(mrb, &[matched])
             .map(|v| v.to_string(mrb))
-            .unwrap_or_default()
-    } else if let Some(rep) = replacement {
-        rep.to_string(mrb)
-    } else {
-        String::new()
+            .unwrap_or_default());
     }
+    Ok(String::new())
 }
 
 /// `String#split` on a `Regexp`: the text between matches, with each match's

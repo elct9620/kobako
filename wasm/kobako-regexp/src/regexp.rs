@@ -428,6 +428,94 @@ pub(crate) fn match_spans(
     Ok(spans)
 }
 
+/// Expand the backreferences in a gsub/sub replacement string against one
+/// match's spans, mirroring the curated regexp engine: `\0`..`\9` insert a
+/// numbered group (`\0` the whole match; an out-of-range number inserts
+/// nothing), `\k<name>` inserts a named group (an undefined name raises
+/// `IndexError`), `\\` is a literal backslash, and any other `\x` stays the
+/// two literal characters. A trailing backslash is literal.
+pub(crate) fn expand_replacement(
+    mrb: &Mrb,
+    regexp: Value,
+    subject: &str,
+    span: &MatchSpan,
+    replacement: &str,
+) -> Result<String, Error> {
+    let state = regexp.data_get(mrb, &REGEXP_TYPE);
+    let mut out = String::with_capacity(replacement.len());
+    let mut chars = replacement.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            None => out.push('\\'),
+            Some('\\') => out.push('\\'),
+            Some('k') => {
+                let name = read_group_name(mrb, &mut chars, replacement)?;
+                let index = state.and_then(|s| name_to_index(s, &name)).ok_or_else(|| {
+                    index_error(mrb, &format!("undefined group name reference: {name}"))
+                })?;
+                push_group(&mut out, subject, span, index);
+            }
+            Some(digit) if digit.is_ascii_digit() => {
+                push_group(
+                    &mut out,
+                    subject,
+                    span,
+                    digit.to_digit(10).unwrap_or(0) as usize,
+                );
+            }
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Read the `<name>` body following a `\k` in a replacement string, consuming
+/// up to and including the closing `>`. A `\k` not followed by `<…>` is an
+/// invalid replace expression.
+fn read_group_name(
+    mrb: &Mrb,
+    chars: &mut core::str::Chars,
+    replacement: &str,
+) -> Result<String, Error> {
+    if chars.next() != Some('<') {
+        return Err(replace_expression_error(mrb, replacement));
+    }
+    let mut name = String::new();
+    loop {
+        match chars.next() {
+            Some('>') => return Ok(name),
+            Some(c) => name.push(c),
+            None => return Err(replace_expression_error(mrb, replacement)),
+        }
+    }
+}
+
+/// Append group `index`'s matched substring to `out` (`0` is the whole match);
+/// a group that did not participate or sits past the pattern appends nothing.
+fn push_group(out: &mut String, subject: &str, span: &MatchSpan, index: usize) {
+    let range = if index == 0 {
+        Some(span.whole)
+    } else {
+        span.groups.get(index - 1).copied().flatten()
+    };
+    if let Some((start, end)) = range {
+        out.push_str(&subject[start..end]);
+    }
+}
+
+/// The group number a capture name resolves to, or `None` when the pattern
+/// has no such name.
+fn name_to_index(state: &RegexpState, name: &str) -> Option<usize> {
+    state.regex.capture_names().position(|n| n == Some(name))
+}
+
 /// True when `value` is a `Regexp` carrier.
 pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
     value.data_get(mrb, &REGEXP_TYPE).is_some()
@@ -587,4 +675,23 @@ fn argument_error(mrb: &Mrb, message: &str) -> Error {
         .class_get(c"ArgumentError")
         .expect("ArgumentError is an mruby core class");
     Error::Exception(cls.exc_new(mrb, message))
+}
+
+/// Build an `IndexError` carrying `message` — raised for an undefined named
+/// backreference in a replacement string.
+fn index_error(mrb: &Mrb, message: &str) -> Error {
+    let cls = mrb
+        .class_get(c"IndexError")
+        .expect("IndexError is an mruby core class");
+    Error::Exception(cls.exc_new(mrb, message))
+}
+
+/// Build a `RegexpError` naming a malformed replacement expression (a `\k`
+/// not followed by `<name>`).
+fn replace_expression_error(mrb: &Mrb, replacement: &str) -> Error {
+    let message = format!("invalid replace expression: {replacement:?}");
+    let cls = mrb
+        .class_get(c"RegexpError")
+        .expect("RegexpError is defined at gem init");
+    Error::Exception(cls.exc_new(mrb, &message))
 }
