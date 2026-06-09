@@ -92,7 +92,7 @@ A pattern that fails to compile raises `RegexpError`.
 | `#options` | the MRI option bits as an Integer (`IGNORECASE` 1, `EXTENDED` 2, `MULTILINE` 4) |
 | `#casefold?` | whether `IGNORECASE` is set |
 | `#inspect` | `/source/flags`, the source rendered as a regexp literal: `/` escapes to `\/`, and a non-printable character escapes to `\xHH` (uppercase hex); printable characters — including multibyte UTF-8 — and the whitespace controls (tab, newline, vertical tab, form feed, carriage return) pass through literally |
-| `#to_s` | `(?enabled-disabled:source)` |
+| `#to_s` | `(?enabled-disabled:source)` with the flag letters in `m`, `i`, `x` order; the `-disabled` block is omitted when `m`, `i`, and `x` are all enabled. When the whole source is a single inline-flag group `(?flags:inner)` (including the flag-less `(?:inner)`), its enabled and disabled flags combine with the outer options and `inner` becomes the body; a source that is not one whole-span group is wrapped verbatim |
 | `#named_captures` | a Hash mapping each capture name to its group numbers |
 | `#names` | the capture names in declaration order |
 | `#==` | true when another `Regexp` has equal source and options |
