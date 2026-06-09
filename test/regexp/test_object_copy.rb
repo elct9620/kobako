@@ -23,4 +23,14 @@ class TestObjectCopy < Minitest::Test
                  eval_regexp('c = /a(b)c/i.clone; [c.source, c.options, c.match("abc")[1]]'),
                  "Regexp#clone carries the source, options, and a working compiled pattern into the copy"
   end
+
+  # MatchData wraps an owned snapshot (subject, positional and named groups)
+  # plus the @regexp ivar; the named capture exercises every MatchState field,
+  # so positional [1], named [:g], the subject slice, and #regexp must all
+  # survive a dup.
+  def test_matchdata_dup_copies_the_match_snapshot
+    assert_equal ["b", "b", "x", "a(?<g>b)c"],
+                 eval_regexp('d = /a(?<g>b)c/.match("xabcx").dup; [d[1], d[:g], d.pre_match, d.regexp.source]'),
+                 "MatchData#dup carries the positional and named groups, subject, and originating regexp into the copy"
+  end
 end

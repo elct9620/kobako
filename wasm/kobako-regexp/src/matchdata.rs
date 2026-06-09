@@ -53,7 +53,31 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"regexp", beni::method!(md_regexp, 0))?;
     cls.define_method(mrb, c"to_a", beni::method!(md_to_a, 0))?;
     cls.define_method(mrb, c"to_s", beni::method!(md_to_s, 0))?;
+    cls.define_method(
+        mrb,
+        c"initialize_copy",
+        beni::method!(md_initialize_copy, -1),
+    )?;
     Ok(())
+}
+
+/// `initialize_copy` — restore the owned match snapshot into the bare copy
+/// mruby's `dup` / `clone` allocate (SPEC.md B-41). Only the CDATA payload
+/// needs cloning; the `@regexp` ivar rides along on mruby's own ivar copy.
+fn md_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
+    let other = mrb.get_args::<format::O>();
+    if let Some(state) = other.data_get(mrb, &MATCH_TYPE) {
+        self_.data_reinit(
+            mrb,
+            MatchState {
+                subject: state.subject.clone(),
+                groups: state.groups.clone(),
+                names: state.names.clone(),
+            },
+            &MATCH_TYPE,
+        );
+    }
+    self_
 }
 
 /// `MatchData.new` is forbidden — a `MatchData` only ever arises from a
