@@ -104,7 +104,10 @@ A pattern that fails to compile raises `RegexpError`.
 `#match` returns a `MatchData` on a hit and `nil` on a miss; given a block, it
 yields the `MatchData` on a hit and returns the block's result, and does not
 call the block on a miss. `#match?` returns a boolean, `#=~` the match's start
-index or `nil`, and `#===` a boolean. An optional position argument starts the
+index or `nil`, and `#===` a boolean. The subject must be a `String` or
+`Symbol`; `nil` is no match (`#match` / `#=~` return `nil`, `#match?` / `#===`
+return `false`), and any other operand raises `TypeError` — except `#===`,
+which rescues it to `false`. An optional position argument starts the
 search at that byte offset; a position outside the subject yields no match, and
 a negative position counts back from the end.
 
@@ -172,7 +175,7 @@ argument delegates to the core method.
 | Member | Behavior |
 |--------|----------|
 | `#=~` | matches a `Regexp` operand and returns the index or `nil`; a `String` operand raises `TypeError`; any other receiver falls through to `Kernel#=~` (`nil`) |
-| `#match` / `#match?` | coerce a String pattern to a `Regexp` and forward; `#match` forwards a block |
+| `#match` / `#match?` | coerce a String pattern to a `Regexp` (regex semantics — the pattern is not escaped) and forward; a non-`String`/`Regexp` pattern raises `TypeError`; `#match` forwards a block |
 | `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (a negative `pos` counts from the end), or `nil` |
 | `#[]` / `#slice` | with a `Regexp` (and optional group) returns the matched substring or that capture |
 | `#[]=` | overwrites the matched region — the whole match, or capture group `n` — and raises `IndexError` on no match |
