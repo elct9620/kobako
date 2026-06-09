@@ -33,12 +33,15 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
+/// `String#=~` (MRI semantics): a `Regexp` operand matches; a `String`
+/// operand is a type error (a literal is not a pattern); any other operand is
+/// dispatched to its own `=~`, which falls through to `Kernel#=~` (nil).
 fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let arg = mrb.get_args::<format::O>();
-    if arg.is_nil() {
-        return Ok(Value::nil());
+    if arg.is_string() {
+        return Err(type_error(mrb, "type mismatch: String given"));
     }
-    Ok(regexp::coerce_regexp(mrb, arg)?.call(mrb, c"=~", &[self_]))
+    Ok(arg.call(mrb, c"=~", &[self_]))
 }
 
 fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
@@ -351,5 +354,13 @@ fn argument_error(mrb: &Mrb, message: &str) -> Error {
     let cls = mrb
         .class_get(c"ArgumentError")
         .expect("ArgumentError is an mruby core class");
+    Error::Exception(cls.exc_new(mrb, message))
+}
+
+/// Build a `TypeError` carrying `message`.
+fn type_error(mrb: &Mrb, message: &str) -> Error {
+    let cls = mrb
+        .class_get(c"TypeError")
+        .expect("TypeError is an mruby core class");
     Error::Exception(cls.exc_new(mrb, message))
 }
