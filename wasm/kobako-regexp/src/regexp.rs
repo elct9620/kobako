@@ -6,7 +6,9 @@
 //! successful match refreshes the `$~` / `$1..$9` / `$&` / `` $` `` / `$'`
 //! globals, mirroring the curated regexp engine's always-on behaviour.
 
-use crate::errors::{argument_error, index_error, regexp_error, replace_expression_error};
+use crate::errors::{
+    argument_error, index_error, regexp_error, replace_expression_error, type_error,
+};
 use crate::matchdata::{self, MatchState};
 use crate::translate;
 use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
@@ -188,10 +190,13 @@ fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
 fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (args, block) = mrb.get_args::<format::RestBlock>();
     let args = args.to_vec();
-    if args.is_empty() {
+    let Some(&arg) = args.first() else {
+        return Ok(Value::nil());
+    };
+    if arg.is_nil() {
         return Ok(Value::nil());
     }
-    let subject = args[0].to_string(mrb);
+    let subject = subject_string(mrb, arg)?;
     let Some(pos) = match_pos(&subject, &args) else {
         return Ok(Value::nil());
     };
@@ -211,10 +216,13 @@ pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Value) -> Result<Value, E
 
 fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    if args.is_empty() {
+    let Some(&arg) = args.first() else {
+        return Ok(Value::false_());
+    };
+    if arg.is_nil() {
         return Ok(Value::false_());
     }
-    let subject = args[0].to_string(mrb);
+    let subject = subject_string(mrb, arg)?;
     let Some(pos) = match_pos(&subject, &args) else {
         return Ok(Value::false_());
     };
@@ -233,7 +241,7 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(Value::nil());
     }
-    let subject = arg.to_string(mrb);
+    let subject = subject_string(mrb, arg)?;
     let md = do_match(mrb, self_, &subject, 0)?;
     if md.is_nil() {
         Ok(Value::nil())
@@ -247,7 +255,9 @@ fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(Value::false_());
     }
-    let subject = arg.to_string(mrb);
+    let Ok(subject) = subject_string(mrb, arg) else {
+        return Ok(Value::false_());
+    };
     if do_match(mrb, self_, &subject, 0)?.is_nil() {
         Ok(Value::false_())
     } else {
@@ -565,6 +575,40 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
         return Ok(arg);
     }
     compile(mrb, escape_str(&arg.to_string(mrb)), 0)
+}
+
+/// Coerce a match subject like the C `reg_operand`: a `String` or `Symbol`
+/// yields its characters; any other operand raises `TypeError`. Callers handle
+/// `nil` as a no-match before reaching this.
+fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
+    if arg.is_string() || arg.is_symbol() {
+        Ok(arg.to_string(mrb))
+    } else {
+        Err(type_error(
+            mrb,
+            &format!(
+                "no implicit conversion of {} into String",
+                arg.classname(mrb)
+            ),
+        ))
+    }
+}
+
+/// Require a `Regexp` operand for `String#match` / `#match?`, mirroring the C
+/// string-ext that forwards to the pattern's own `#match` — a String is not
+/// coerced, so a non-`Regexp` raises `TypeError`.
+pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
+    if is_regexp(mrb, arg) {
+        Ok(arg)
+    } else {
+        Err(type_error(
+            mrb,
+            &format!(
+                "wrong argument type {} (expected Regexp)",
+                arg.classname(mrb)
+            ),
+        ))
+    }
 }
 
 /// Build a `MatchData`, bind `$~`, and refresh `$&` / `` $` `` / `$'` /

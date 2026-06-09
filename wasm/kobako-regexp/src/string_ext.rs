@@ -52,7 +52,7 @@ fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(Value::nil());
     }
-    let re = regexp::coerce_regexp(mrb, args[0])?;
+    let re = regexp::require_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
@@ -65,7 +65,7 @@ fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(Value::false_());
     }
-    let re = regexp::coerce_regexp(mrb, args[0])?;
+    let re = regexp::require_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
