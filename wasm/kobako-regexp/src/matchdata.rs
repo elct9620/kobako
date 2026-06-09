@@ -145,35 +145,50 @@ fn md_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let array = to_a(mrb, state).as_value();
     if let [arg] = args.as_slice() {
         if let Some(index) = numeric_index(mrb, state, *arg)? {
-            return Ok(array.call(mrb, c"[]", &[Value::from_int(mrb, index)]));
+            return Ok(array.call(mrb, c"[]", &[index.into_value(mrb)]));
         }
     }
     Ok(array.call(mrb, c"[]", &args))
 }
 
-fn md_begin(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    let n = i32::from_value(mrb.get_args::<format::O>()).unwrap_or(0);
-    match state.groups.get(n as usize).copied().flatten() {
+/// The byte span the begin/end/offset argument names, or `None` when the
+/// group is valid but did not participate (reported as `nil`). An index past
+/// the group count, a negative index, or an undefined capture name raises
+/// IndexError, mirroring the curated engine's bounds check.
+fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, usize)>, Error> {
+    let index = numeric_index(mrb, state, arg)?.unwrap_or(0);
+    if index < 0 || index as usize >= state.groups.len() {
+        return Err(index_error(mrb, &format!("index {index} out of matches")));
+    }
+    Ok(state.groups[index as usize])
+}
+
+fn md_begin(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
+    Ok(match group_at(mrb, state, mrb.get_args::<format::O>())? {
         Some((begin, _)) => (begin as i32).into_value(mrb),
         None => Value::nil(),
-    }
+    })
 }
 
-fn md_end(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    let n = i32::from_value(mrb.get_args::<format::O>()).unwrap_or(0);
-    match state.groups.get(n as usize).copied().flatten() {
+fn md_end(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
+    Ok(match group_at(mrb, state, mrb.get_args::<format::O>())? {
         Some((_, end)) => (end as i32).into_value(mrb),
         None => Value::nil(),
-    }
+    })
 }
 
-fn md_offset(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    let n = i32::from_value(mrb.get_args::<format::O>()).unwrap_or(0);
+fn md_offset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
     let pair = mrb.ary_new();
-    match state.groups.get(n as usize).copied().flatten() {
+    match group_at(mrb, state, mrb.get_args::<format::O>())? {
         Some((begin, end)) => {
             pair.push(mrb, (begin as i32).into_value(mrb));
             pair.push(mrb, (end as i32).into_value(mrb));
@@ -183,7 +198,7 @@ fn md_offset(mrb: &Mrb, self_: Value) -> Value {
             pair.push(mrb, Value::nil());
         }
     }
-    pair.as_value()
+    Ok(pair.as_value())
 }
 
 fn md_captures(mrb: &Mrb, self_: Value) -> Value {
