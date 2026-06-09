@@ -271,7 +271,7 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-41 / E-42; subsequent anchors take the next integer above it (B-42, E-43). E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-41 / E-42; subsequent anchors take the next integer above it (B-42, E-43). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 
