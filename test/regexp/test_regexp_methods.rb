@@ -107,4 +107,11 @@ class TestRegexpMethods < Minitest::Test
       eval_regexp('/(a+)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!")')
     end
   end
+
+  # The gem provides RegexpError as a StandardError subclass, so guest code
+  # can rescue a bad pattern with a bare rescue or rescue StandardError.
+  def test_regexp_error_is_a_standard_error
+    assert_equal true, eval_regexp("RegexpError.ancestors.include?(StandardError)"),
+                 "RegexpError is a StandardError subclass guest code can rescue"
+  end
 end

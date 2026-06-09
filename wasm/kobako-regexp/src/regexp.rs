@@ -28,6 +28,10 @@ const NUMBERED: [&CStr; 9] = [
 
 /// Define the `Regexp` class, its option constants, and its methods.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
+    // RegexpError is the guest exception a bad pattern or a blown
+    // backtracking limit raises; the gem owns it as a StandardError subclass.
+    mrb.define_class(c"RegexpError", mrb.class_get(c"StandardError")?)?;
+
     let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
     cls.set_instance_data_tt(mrb);
 
@@ -467,8 +471,8 @@ fn escape_str(source: &str) -> String {
     out
 }
 
-/// Build a `RegexpError` naming the offending `source`. The lookup cannot
-/// miss while the regexp engine that defines the class is installed.
+/// Build a `RegexpError` naming the offending `source`. The class is defined
+/// at gem init, so the lookup cannot miss.
 fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
     let message = format!(
         "{source:?} is an invalid regular expression: {}",
@@ -476,7 +480,7 @@ fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
     );
     let cls = mrb
         .class_get(c"RegexpError")
-        .expect("RegexpError is provided by the regexp engine");
+        .expect("RegexpError is defined at gem init");
     Error::Exception(cls.exc_new(mrb, &message))
 }
 
