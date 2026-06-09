@@ -45,7 +45,8 @@ fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let args = args.to_vec();
     if args.is_empty() {
         return Ok(Value::nil());
     }
@@ -53,7 +54,8 @@ fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
-    Ok(re.call(mrb, c"match", &forwarded))
+    let md = re.call(mrb, c"match", &forwarded);
+    regexp::yield_match(mrb, md, block)
 }
 
 fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {

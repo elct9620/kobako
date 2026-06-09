@@ -8,7 +8,7 @@
 
 use crate::matchdata::{self, MatchState};
 use crate::translate;
-use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Value};
+use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
 use core::ffi::CStr;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
@@ -172,7 +172,8 @@ fn clamp_pos(subject: &str, pos: usize) -> usize {
 }
 
 fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let args = args.to_vec();
     if args.is_empty() {
         return Ok(Value::nil());
     }
@@ -182,7 +183,18 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         .and_then(|v| i32::from_value(*v))
         .unwrap_or(0)
         .max(0) as usize;
-    do_match(mrb, self_, &subject, clamp_pos(&subject, raw))
+    let md = do_match(mrb, self_, &subject, clamp_pos(&subject, raw))?;
+    yield_match(mrb, md, block)
+}
+
+/// On a hit, yield the `MatchData` to a given block and return its result
+/// (mirroring `Regexp#match`'s block form); on a miss, or with no block,
+/// return the `MatchData`/`nil` directly. The block is never called on a miss.
+pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Value) -> Result<Value, Error> {
+    match Proc::from_value(block) {
+        Some(b) if !md.is_nil() => b.call(mrb, &[md]),
+        _ => Ok(md),
+    }
 }
 
 fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
