@@ -160,15 +160,28 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> i64 {
     }
 }
 
-/// Clamp a user-supplied byte position into `subject`: never past the end,
-/// and snapped down to a UTF-8 char boundary so the engine never receives a
-/// mid-codepoint offset.
-fn clamp_pos(subject: &str, pos: usize) -> usize {
-    let mut p = pos.min(subject.len());
+/// Resolve a `pos` argument to a byte offset, MRI-style: a negative `pos`
+/// counts back from the end of `subject`. A position outside `0..=len` yields
+/// `None`, so the caller reports no match; a valid offset is snapped down to a
+/// UTF-8 char boundary so the engine never receives a mid-codepoint offset.
+fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
+    let len = subject.len() as i64;
+    let pos = if pos < 0 { pos + len } else { pos };
+    if pos < 0 || pos > len {
+        return None;
+    }
+    let mut p = pos as usize;
     while p > 0 && !subject.is_char_boundary(p) {
         p -= 1;
     }
-    p
+    Some(p)
+}
+
+/// Read the optional `pos` argument (the second positional) as a byte offset
+/// in `subject`, or `None` when it is out of range.
+fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
+    let raw = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
+    resolve_pos(subject, i64::from(raw))
 }
 
 fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
@@ -178,12 +191,10 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::nil());
     }
     let subject = args[0].to_string(mrb);
-    let raw = args
-        .get(1)
-        .and_then(|v| i32::from_value(*v))
-        .unwrap_or(0)
-        .max(0) as usize;
-    let md = do_match(mrb, self_, &subject, clamp_pos(&subject, raw))?;
+    let Some(pos) = match_pos(&subject, &args) else {
+        return Ok(Value::nil());
+    };
+    let md = do_match(mrb, self_, &subject, pos)?;
     yield_match(mrb, md, block)
 }
 
@@ -203,12 +214,9 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::false_());
     }
     let subject = args[0].to_string(mrb);
-    let raw = args
-        .get(1)
-        .and_then(|v| i32::from_value(*v))
-        .unwrap_or(0)
-        .max(0) as usize;
-    let pos = clamp_pos(&subject, raw);
+    let Some(pos) = match_pos(&subject, &args) else {
+        return Ok(Value::false_());
+    };
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Ok(Value::false_());
     };
