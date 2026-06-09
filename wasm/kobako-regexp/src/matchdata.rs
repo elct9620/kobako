@@ -181,18 +181,7 @@ fn symbolize_names_requested(mrb: &Mrb) -> bool {
         return false;
     };
     let key = mrb.str_new(b"symbolize_names").call(mrb, c"to_sym", &[]);
-    truthy(mrb, options.call(mrb, c"[]", &[key]))
-}
-
-/// mruby truthiness read into Rust — false only for `nil` / `false`. beni 0.5
-/// has no `bool` `FromValue`, so normalise through `!value` and read the
-/// resulting boolean's name (see tmp/2026-06-09-beni-gap-data-reinit.md).
-fn truthy(mrb: &Mrb, value: Value) -> bool {
-    value
-        .call(mrb, c"!", &[])
-        .call(mrb, c"to_s", &[])
-        .to_string(mrb)
-        == "false"
+    options.call(mrb, c"[]", &[key]).to_bool()
 }
 
 fn md_names(mrb: &Mrb, self_: Value) -> Value {

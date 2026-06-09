@@ -49,7 +49,7 @@ kobako-regexp = { path = "../kobako-regexp", features = ["unicode"] }
 # in its `init_gems` hook. Archive discovery happens in `beni-sys`
 # via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
 # `rake wasm:build`).
-beni = "0.5.0"
+beni = "0.6.0"
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so all members share the same wasm size hygiene tuning.

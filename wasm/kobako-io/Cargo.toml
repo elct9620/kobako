@@ -23,4 +23,4 @@ categories = ["wasm"]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus
 # every `Mrb` / `Value` seam the bridges use; the gem's only
 # dependency.
-beni = "0.5.0"
+beni = "0.6.0"
