@@ -179,3 +179,18 @@ argument delegates to the core method.
 
 A non-`Regexp` argument to `#index` / `#[]` / `#[]=` / `#slice!` delegates to
 the core String method.
+
+### RX-07 — Divergences from the originating C engine
+
+The curated subset follows MRI where it disagrees with the original C
+`mruby-onig-regexp` engine. For a reader familiar with that engine, the
+contract departs from it at these points.
+
+| Behavior | This contract (MRI) | C `mruby-onig-regexp` |
+|----------|---------------------|-----------------------|
+| A negative match position (RX-02) | counts from the end of the subject | matches nothing |
+| `String#=~` with a String operand (RX-06) | raises `TypeError` | compiles the String as a pattern and matches |
+| `Regexp.escape` of a vertical tab (RX-01) | escapes it to `\v` | leaves it literal |
+| `$+` for a group-less match (RX-02) | `nil` | the whole match |
+| `Regexp#options` (RX-01) | the MRI option bits (`1` / `2` / `4`) | the Onigmo internal option mask |
+| `MatchData#begin` / `#end` / `#offset` of a non-participating group (RX-03) | `nil` | a raw offset rather than `nil` |
