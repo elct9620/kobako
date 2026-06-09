@@ -152,7 +152,8 @@ argument takes precedence over a block. An exception raised in a block
 propagates.
 
 `gsub` with neither a block nor a replacement returns an Enumerator over the
-matches (`to_enum`); `sub` with neither raises `ArgumentError`.
+matches (`to_enum`), which requires the guest to compose Enumerator support;
+`sub` with neither raises `ArgumentError`.
 
 ### RX-05 — Scan and split
 
@@ -161,7 +162,7 @@ group-less pattern, otherwise an Array of the groups. Given a block it yields
 each and returns the receiver, propagating any exception the block raises.
 
 `String#split` divides the subject on the pattern, interleaving each match's
-participating capture groups between the fields. A positive limit caps the
+capture groups between the fields (a non-participating group as `nil`). A positive limit caps the
 field count, leaving the remainder as the last field; an omitted or `0` limit
 drops trailing empty fields; a negative limit keeps them. A non-`Regexp`
 argument delegates to the core method.
