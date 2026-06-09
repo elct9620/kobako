@@ -91,7 +91,7 @@ A pattern that fails to compile raises `RegexpError`.
 | `#source` | the pattern String |
 | `#options` | the MRI option bits as an Integer (`IGNORECASE` 1, `EXTENDED` 2, `MULTILINE` 4) |
 | `#casefold?` | whether `IGNORECASE` is set |
-| `#inspect` | `/source/flags` |
+| `#inspect` | `/source/flags`, the source rendered as a regexp literal: `/` escapes to `\/`, and a non-printable character escapes to `\xHH` (uppercase hex); printable characters — including multibyte UTF-8 — and the whitespace controls (tab, newline, vertical tab, form feed, carriage return) pass through literally |
 | `#to_s` | `(?enabled-disabled:source)` |
 | `#named_captures` | a Hash mapping each capture name to its group numbers |
 | `#names` | the capture names in declaration order |
