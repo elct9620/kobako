@@ -30,13 +30,14 @@ no match, or a `Symbol`). A bare `Regexp` or `MatchData` in a returned
 position is a non-wire value governed by the ordinary return-value semantics
 (B-06).
 
-Coverage is a curated subset of the CRuby `Regexp` / `MatchData` API, not its
-full surface. There are no `Encoding` objects; match offsets and substring
-slices are byte-based. The matching engine is an implementation choice below
-this contract.
-
-Where the curated subset and the original C `mruby-onig-regexp` engine
-disagree, behavior follows MRI.
+The baseline is the C `mruby-onig-regexp` gem: the surface is exactly what that
+gem exposes — its native `Regexp` / `MatchData` methods and the `String`
+integration its mrblib (string-ext) defines — reproduced here over fancy-regex.
+Nothing outside that surface is added, and a capability the C gem does not
+support is not added even when MRI has it. Within that boundary, where the C
+gem's behavior differs from MRI the behavior follows MRI. There are no
+`Encoding` objects; match offsets and substring slices are byte-based, and the
+matching engine is an implementation choice below this contract.
 
 ## Scope
 
@@ -175,7 +176,7 @@ argument delegates to the core method.
 | Member | Behavior |
 |--------|----------|
 | `#=~` | matches a `Regexp` operand and returns the index or `nil`; a `String` operand raises `TypeError`; any other receiver falls through to `Kernel#=~` (`nil`) |
-| `#match` / `#match?` | coerce a String pattern to a `Regexp` (regex semantics — the pattern is not escaped) and forward; a non-`String`/`Regexp` pattern raises `TypeError`; `#match` forwards a block |
+| `#match` / `#match?` | forward `self` to the pattern's `#match` / `#match?`; the pattern is a `Regexp` and a non-`Regexp` raises `TypeError` (a String is not coerced, mirroring the C string-ext); `#match` forwards a block |
 | `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (a negative `pos` counts from the end), or `nil` |
 | `#[]` / `#slice` | with a `Regexp` (and optional group) returns the matched substring or that capture |
 | `#[]=` | overwrites the matched region — the whole match, or capture group `n` — and raises `IndexError` on no match |
