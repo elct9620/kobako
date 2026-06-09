@@ -874,17 +874,13 @@ class TestE2EJourneys < Minitest::Test
                  "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"
   end
 
-  # ── Regexp named captures — the mruby-onig-regexp mrbgem ─────────────
+  # ── Regexp named captures ───────────────────────────────────────────
   #
-  # mruby-onig-regexp brings the Onigmo engine (mruby 4.0 ships no built-in
-  # Regexp). A pattern with named groups builds a name table, which Onigmo
-  # walks via st_foreach to renumber group ids at compile time. Onigmo's
-  # frozen-6.2.0 callbacks take three params while st_foreach calls them
-  # with four (the ANYARGS cast hides the mismatch); on native this is
-  # benign UB, but wasm32 type-checks call_indirect and hard-traps. The
-  # symptom is broad — merely constructing /(?<x>..)/ traps — so these
-  # journeys exercise both the construction+match path and the
-  # named-capture lookup path through the public #eval API.
+  # kobako-regexp backs Regexp (mruby 4.0 ships no built-in Regexp). A
+  # named-group pattern must compile, match, and expose its captures both
+  # by Symbol index and as a name→value Hash; these journeys exercise the
+  # construction+match path and the named-capture lookup path through the
+  # public #eval API.
 
   # A named-capture pattern must compile, match, and yield the captured
   # substring by Symbol index — the exact path that hard-trapped before.
@@ -897,9 +893,8 @@ class TestE2EJourneys < Minitest::Test
                  "a named-capture Regexp through #eval must compile, match, and return the captured substring by name"
   end
 
-  # MatchData#named_captures walks the name table through a second
-  # st_foreach callback (i_names), so it pins the same fix from the
-  # name→value enumeration angle rather than single-name lookup.
+  # MatchData#named_captures returns the name→value Hash, pinning the
+  # enumeration angle rather than single-name lookup.
   def test_named_captures_returns_name_to_value_hash
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -1154,12 +1149,12 @@ class TestE2EJourneys < Minitest::Test
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
 
-  # ── Regexp — mruby-onig-regexp brings Onigmo-backed Regexp into the
-  #    guest. These journeys cover the surface a guest script needs:
-  #    literal compilation, +=~+ index return, +String#match+ → MatchData,
-  #    and runtime +Regexp.new+. Regexp objects do NOT cross the
-  #    host↔guest wire — guests use them internally and project to wire-
-  #    compatible types (String / Integer / Array) before returning.
+  # ── Regexp — kobako-regexp backs the guest's Regexp surface. These
+  #    journeys cover what a guest script needs: literal compilation,
+  #    +=~+ index return, +String#match+ → MatchData, and runtime
+  #    +Regexp.new+. Regexp objects do NOT cross the host↔guest wire —
+  #    guests use them internally and project to wire-compatible types
+  #    (String / Integer / Array) before returning.
 
   def test_regexp_literal_eq_tilde_returns_match_index
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -1207,11 +1202,11 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # An invalid pattern compiled at runtime is a guest-side Ruby error
-  # (Onigmo's RegexpError), so it must surface to the host as
-  # +Kobako::SandboxError+ — the same shape +raise "..."+ takes
-  # (see test_j01_script_ruby_error_raises_sandbox_error). Onigmo's
-  # error text mentions "invalid regular expression"; pin the substring
-  # so a future encoding-related rewording surfaces here.
+  # (RegexpError), so it must surface to the host as +Kobako::SandboxError+
+  # — the same shape +raise "..."+ takes (see
+  # test_j01_script_ruby_error_raises_sandbox_error). The diagnostic
+  # mentions "invalid regular expression"; pin the substring so a future
+  # rewording surfaces here.
   def test_regexp_invalid_pattern_raises_sandbox_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -1221,15 +1216,12 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "sandbox", err.origin
     assert_match(/invalid regular expression/i, err.message,
-                 "Regexp: invalid pattern must surface Onigmo's diagnostic")
+                 "Regexp: invalid pattern must surface the guest RegexpError diagnostic")
   end
 
-  # Onigmo's encoding tables (unicode.o, utf_8.o, etc.) are vendored
-  # by mruby-onig-regexp's bundled Onigmo source and linked into
-  # libmruby.a. A literal pattern matching a multibyte UTF-8 string
-  # proves those tables made it through the autotools + libtool +
-  # llvm-ar pipeline intact — a regression here would mean the build
-  # silently dropped encoding objects.
+  # kobako-regexp matches against UTF-8 bytes directly. A literal pattern
+  # matching a multibyte string proves multibyte literals compile and the
+  # captured substrings round-trip through the host wire intact.
   def test_regexp_matches_utf8_string_literal
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -1237,7 +1229,7 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal %w[漢字 漢字], result,
                  "Regexp: UTF-8 string match must round-trip multibyte " \
-                 "captures (proves Onigmo's encoding tables are linked)"
+                 "captures across the host wire"
   end
 
   # SPEC.md B-01 / E-19: a wall-clock `timeout` cap interrupts an

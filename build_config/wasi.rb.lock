@@ -2,10 +2,3 @@
 mruby:
   version: 4.0.0
   release_no: 40000
-builds:
-  wasi:
-    https://github.com/mattn/mruby-onig-regexp.git:
-      url: https://github.com/mattn/mruby-onig-regexp.git
-      branch: master
-      commit: c97d7c1e7073bc5558986da4e2d07171f0761cc8
-      version: 0.0.0

@@ -32,9 +32,6 @@ module KobakoWasm
 
   DATA_DIR  = File.join(ROOT, "data").freeze
   DATA_WASM = File.join(DATA_DIR, "kobako.wasm").freeze
-  # The regexp-enabled variant built by `rake wasm:build:regexp` to validate
-  # the Rust regexp gem against the bundled C gem; never shipped in the gem.
-  DATA_WASM_REGEXP = File.join(DATA_DIR, "kobako+regexp.wasm").freeze
 
   # Stage B output (produced by `rake beni:build` against
   # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`

@@ -13,9 +13,6 @@ impl kobako::MrbGuest for KobakoGuest {
     // gem set.
     fn init_gems(mrb: &Mrb) -> Result<(), Error> {
         mrb.init_gem::<kobako_io::KobakoIo>()?;
-        // The Rust regexp gem is composed only in the feature-built
-        // variant; the default binary keeps the C Onigmo mrbgem.
-        #[cfg(feature = "regexp")]
         mrb.init_gem::<kobako_regexp::KobakoRegexp>()?;
         Ok(())
     }

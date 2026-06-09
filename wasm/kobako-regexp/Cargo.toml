@@ -33,5 +33,5 @@ fancy-regex = { version = "0.18", default-features = false, features = ["std"] }
 # fancy-regex's `unicode` feature is coarse: with it OFF the engine rejects
 # every `(?i)` pattern — even ASCII — so a guest that uses `/i` needs it ON.
 # ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either way. The
-# kobako-wasm shell turns this on through its `regexp-unicode` feature.
+# kobako-wasm shell enables it so `/i` patterns work on the bundled guest.
 unicode = ["fancy-regex/unicode"]

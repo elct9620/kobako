@@ -77,6 +77,11 @@ class TestRegexpStringMethods < Minitest::Test
                  "String#split with a String argument delegates to the core method"
   end
 
+  def test_split_with_negative_limit_keeps_trailing_empties
+    assert_equal ["a", "b", "c", "", ""], eval_regexp('"a,b,c,,".split(",", -1)'),
+                 "String#split with a -1 limit keeps trailing empty fields via the core method"
+  end
+
   def test_index_of_string_delegates_to_core
     assert_equal 2, eval_regexp('"hello".index("l")'),
                  "String#index with a String argument delegates to the core method"

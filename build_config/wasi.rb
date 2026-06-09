@@ -25,7 +25,7 @@
 # gem stages into `vendor/mruby/tasks/toolchains/` during
 # `beni:vendor:setup`; the CrossBuild block below activates it with
 # `conf.toolchain :wasi` and keeps only the kobako-specific pieces
-# (rules #1, #4, #5 plus the autotools environment for mruby-onig-regexp).
+# (rules #1, #4, #5).
 #
 # This file is loaded by mruby's own rake when beni's Builder sets
 # `MRUBY_CONFIG=$PWD/build_config/wasi.rb` (`rake beni:build`). The
@@ -89,10 +89,6 @@ unless defined?(KobakoBuildConfig)
   end
 end
 
-# Onigmo concern (mruby-onig-regexp pin, pre-extract, config aux fetch,
-# regparse patch) — needs the core constants above at load time.
-require_relative "onigmo"
-
 # Explicit host build short-circuits mruby's auto-host-creation
 # (vendor/mruby/lib/mruby/build.rb:573). +:gcc+ forces a bare +gcc+ so
 # +Toolchain.guess+ cannot pick +:clang+ on macOS and resolve through
@@ -109,36 +105,9 @@ MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # into vendor/mruby/tasks/toolchains/ during beni:vendor:setup.
   conf.toolchain :wasi
 
-  # ---- Bare-tool PATH for autotools-driven mrbgems ---------------------
-  wasi_sdk_bin = File.join(KobakoBuildConfig::WASI_SDK, "bin")
-  ENV["PATH"] = "#{wasi_sdk_bin}:#{ENV.fetch("PATH", "")}"
-
-  # ---- pkg-config sysroot isolation ------------------------------------
-  # Anchor pkg-config to the wasm32-wasi sysroot pkgconfig dir (empty
-  # today) per the standard autotools cross-compile convention, so
-  # +spec.search_package+ in mrbgems cannot match a host package and
-  # link host libraries into the wasm output.
-  ENV["PKG_CONFIG_LIBDIR"] =
-    File.join(KobakoBuildConfig::WASI_SYSROOT, "lib", KobakoBuildConfig::WASI_TARGET, "pkgconfig")
-  ENV["PKG_CONFIG_PATH"] = ""
-
-  # Cross-compile signal: third-party mrbgems (mruby-onig-regexp ships
-  # its own Onigmo source and runs `./configure --host=<value>` against
-  # it). Without this attribute, mruby-onig-regexp falls back to
-  # `build.name` ("wasi"), which autotools does not recognise as a
-  # canonical triple.
-  conf.host_target = KobakoBuildConfig::WASI_TARGET
-
   # mrbgem allowlist (rule #1) — anything not enumerated is omitted by
   # construction. Bumping the list is a security-review-bearing change.
   KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
-
-  # mruby-onig-regexp, fetched by mruby's own build system into
-  # `build/repos/wasi/`; `checksum_hash` pins a content-addressed
-  # detached checkout. Same strict-allowlist contract; see
-  # KobakoBuildConfig::Onigmo::GEM_COMMIT for the security rationale.
-  conf.gem github: "mattn/mruby-onig-regexp",
-           checksum_hash: KobakoBuildConfig::Onigmo::GEM_COMMIT
 
   # ---- `-D` flags (rule #4) --------------------------------------------
   # MRB_WORDBOX_NO_INLINE_FLOAT — pin mrb_value layout to the wasm32
@@ -153,9 +122,4 @@ MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # mruby's default computed-goto path is rewritten by LLVM
   # IndirectBrExpandPass into a switch+br_table on the wasm32 backend —
   # the produced code is structurally equivalent to switch dispatch.
-
-  # Pre-extract Onigmo and overwrite its pre-wasm config.sub/config.guess
-  # so mrbgem.rake's file rule skips its own extraction and ./configure
-  # sees the wasm-aware aux scripts.
-  KobakoBuildConfig::Onigmo.pre_extract_and_patch!
 end
