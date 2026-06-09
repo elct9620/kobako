@@ -113,27 +113,42 @@ fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
     }
 }
 
-/// Resolve a `[]` argument to a group index: an Integer is the index
-/// directly, a Symbol or String names a capture.
-fn resolve_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Option<usize> {
+/// The numeric group index a single `MatchData#[]` argument resolves to: an
+/// Integer is used as-is (a negative index counts from the end via `Array#[]`),
+/// a Symbol or String names a capture (an undefined name raises IndexError).
+/// Any other argument (e.g. a Range) yields `None` so the caller delegates the
+/// whole argument list to `Array#[]` on the group list.
+fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32>, Error> {
     if let Some(n) = i32::from_value(arg) {
-        return usize::try_from(n).ok();
+        return Ok(Some(n));
     }
-    let name = arg.to_string(mrb);
-    state
-        .names
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, i)| *i)
+    if arg.is_symbol() || arg.is_string() {
+        let name = arg.to_string(mrb);
+        return state
+            .names
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, i)| Some(*i as i32))
+            .ok_or_else(|| index_error(mrb, &format!("undefined group name reference: {name}")));
+    }
+    Ok(None)
 }
 
-fn md_aref(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    let arg = mrb.get_args::<format::O>();
-    match resolve_index(mrb, state, arg) {
-        Some(index) => group_str(mrb, state, index),
-        None => Value::nil(),
+/// `MatchData#[]`: a single Integer or capture name selects one group; a
+/// start+length or a Range slices the group list, mirroring `Array#[]` over
+/// `#to_a` (the whole match followed by the captures).
+fn md_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
+    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let array = to_a(mrb, state).as_value();
+    if let [arg] = args.as_slice() {
+        if let Some(index) = numeric_index(mrb, state, *arg)? {
+            return Ok(array.call(mrb, c"[]", &[Value::from_int(mrb, index)]));
+        }
     }
+    Ok(array.call(mrb, c"[]", &args))
 }
 
 fn md_begin(mrb: &Mrb, self_: Value) -> Value {
@@ -249,11 +264,27 @@ fn md_regexp(mrb: &Mrb, self_: Value) -> Value {
 
 fn md_to_a(mrb: &Mrb, self_: Value) -> Value {
     let state = state_or_nil!(mrb, self_);
+    to_a(mrb, state).as_value()
+}
+
+/// The whole match followed by each capture, as an Array of Strings (a group
+/// that did not participate is `nil`). Shared by `#to_a` and the slicing form
+/// of `#[]`.
+fn to_a(mrb: &Mrb, state: &MatchState) -> beni::Array {
     let all = mrb.ary_new();
     for index in 0..state.groups.len() {
         all.push(mrb, group_str(mrb, state, index));
     }
-    all.as_value()
+    all
+}
+
+/// Build an `IndexError` carrying `message` — raised for an undefined named
+/// capture in `#[]`.
+fn index_error(mrb: &Mrb, message: &str) -> Error {
+    let cls = mrb
+        .class_get(c"IndexError")
+        .expect("IndexError is an mruby core class");
+    Error::Exception(cls.exc_new(mrb, message))
 }
 
 fn md_to_s(mrb: &Mrb, self_: Value) -> Value {
