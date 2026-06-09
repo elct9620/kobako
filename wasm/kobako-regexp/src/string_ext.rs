@@ -216,13 +216,27 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(result.as_value())
 }
 
+/// `String#index(re, pos)`: the byte index of the first match at or after
+/// `pos` (a negative `pos` counts from the end), or `nil`. A non-`Regexp`
+/// argument delegates to the core method, which handles its own `pos`.
 fn str_index(mrb: &Mrb, self_: Value) -> Value {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.call(mrb, c"__kobako_index", &args);
     }
-    // `str.index(re)` is the byte index of the first match, or nil.
-    args[0].call(mrb, c"=~", &[self_])
+    let subject = self_.to_string(mrb);
+    let size = subject.len() as i64;
+    let pos = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0) as i64;
+    let start = if pos < 0 { size + pos } else { pos };
+    if start < 0 || start > size {
+        return Value::nil();
+    }
+    let start = start as usize;
+    let tail = mrb.str_new(&subject.as_bytes()[start..]);
+    match i32::from_value(args[0].call(mrb, c"=~", &[tail])) {
+        Some(offset) => Value::from_int(mrb, (offset as i64 + start as i64) as _),
+        None => Value::nil(),
+    }
 }
 
 fn str_aref(mrb: &Mrb, self_: Value) -> Value {

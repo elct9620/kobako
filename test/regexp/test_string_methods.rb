@@ -62,6 +62,21 @@ class TestRegexpStringMethods < Minitest::Test
                  "String#index returns the byte offset of the first match"
   end
 
+  def test_index_with_regexp_starts_at_position
+    assert_equal 3, eval_regexp('"hello".index(/l/, 3)'),
+                 "String#index with a Regexp searches from the given position"
+  end
+
+  def test_index_with_regexp_and_negative_position
+    assert_equal 3, eval_regexp('"hello".index(/l/, -2)'),
+                 "String#index with a Regexp resolves a negative position from the end"
+  end
+
+  def test_index_with_regexp_returns_nil_when_unmatched_from_position
+    assert_nil eval_regexp('"hello".index(/h/, 1)'),
+               "String#index returns nil when the Regexp does not match from the position"
+  end
+
   def test_slice_returns_matched_substring
     assert_equal "ll", eval_regexp('"hello"[/l+/]'),
                  "String#[] with a Regexp returns the matched substring"
