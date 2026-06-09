@@ -6,6 +6,7 @@
 //! successful match refreshes the `$~` / `$1..$9` / `$&` / `` $` `` / `$'`
 //! globals, mirroring the curated regexp engine's always-on behaviour.
 
+use crate::errors::{argument_error, index_error, regexp_error, replace_expression_error};
 use crate::matchdata::{self, MatchState};
 use crate::translate;
 use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
@@ -674,44 +675,4 @@ fn escape_str(source: &str) -> String {
         }
     }
     out
-}
-
-/// Build a `RegexpError` naming the offending `source`. The class is defined
-/// at gem init, so the lookup cannot miss.
-fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
-    let message = format!(
-        "{source:?} is an invalid regular expression: {}",
-        detail.lines().next().unwrap_or(detail)
-    );
-    let cls = mrb
-        .class_get(c"RegexpError")
-        .expect("RegexpError is defined at gem init");
-    Error::Exception(cls.exc_new(mrb, &message))
-}
-
-/// Build an `ArgumentError` carrying a static `message`.
-fn argument_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"ArgumentError")
-        .expect("ArgumentError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
-}
-
-/// Build an `IndexError` carrying `message` — raised for an undefined named
-/// backreference in a replacement string.
-fn index_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"IndexError")
-        .expect("IndexError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
-}
-
-/// Build a `RegexpError` naming a malformed replacement expression (a `\k`
-/// not followed by `<name>`).
-fn replace_expression_error(mrb: &Mrb, replacement: &str) -> Error {
-    let message = format!("invalid replace expression: {replacement:?}");
-    let cls = mrb
-        .class_get(c"RegexpError")
-        .expect("RegexpError is defined at gem init");
-    Error::Exception(cls.exc_new(mrb, &message))
 }

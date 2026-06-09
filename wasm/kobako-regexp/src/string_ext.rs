@@ -6,8 +6,10 @@
 //! `split` keep their non-regexp behaviour by aliasing the core method and
 //! delegating to it whenever the argument is not a `Regexp`.
 
+use crate::errors::{argument_error, index_error, type_error};
 use crate::regexp;
 use beni::{format, Error, FromValue, Module, Mrb, Proc, Value};
+use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.class_get(c"String")?;
@@ -85,7 +87,7 @@ fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         let item = scan_item(mrb, &subject, span);
         match block {
             Some(b) => {
-                let _ = b.call(mrb, &[item]);
+                b.call(mrb, &[item])?;
             }
             None => result.push(mrb, item),
         }
@@ -116,11 +118,16 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(self_);
     }
+    let block = Proc::from_value(block);
+    let replacement = args.get(1).copied();
+    // With neither a block nor a replacement, gsub yields an Enumerator over
+    // the matches (as MRI does); the guest must provide Enumerator for it.
+    if block.is_none() && replacement.is_none() {
+        return Ok(enum_for(mrb, self_, c"gsub", args[0]));
+    }
     let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = self_.to_string(mrb);
     let spans = regexp::match_spans(mrb, re, &subject)?;
-    let block = Proc::from_value(block);
-    let replacement = args.get(1).copied();
     let mut out = String::with_capacity(subject.len());
     let mut last = 0;
     for span in &spans {
@@ -139,11 +146,19 @@ fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(self_);
     }
+    let block = Proc::from_value(block);
+    let replacement = args.get(1).copied();
+    // Unlike gsub, sub has no Enumerator form: a block or a replacement is
+    // required.
+    if block.is_none() && replacement.is_none() {
+        return Err(argument_error(
+            mrb,
+            "wrong number of arguments (given 1, expected 2)",
+        ));
+    }
     let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = self_.to_string(mrb);
     let spans = regexp::match_spans(mrb, re, &subject)?;
-    let block = Proc::from_value(block);
-    let replacement = args.get(1).copied();
     let Some(span) = spans.first() else {
         return Ok(mrb.str_new(subject.as_bytes()));
     };
@@ -179,12 +194,18 @@ fn substitution(
     if let Some(b) = block {
         regexp::set_span_globals(mrb, re, subject, span);
         let matched = mrb.str_new(&subject.as_bytes()[start..end]);
-        return Ok(b
-            .call(mrb, &[matched])
-            .map(|v| v.to_string(mrb))
-            .unwrap_or_default());
+        return Ok(b.call(mrb, &[matched])?.to_string(mrb));
     }
     Ok(String::new())
+}
+
+/// `self.to_enum(method, pattern)` — the Enumerator a block-less,
+/// replacement-less gsub returns. The guest must provide Enumerator
+/// (mruby-enumerator); without it `to_enum` is undefined and the call raises
+/// NoMethodError, as it would on any receiver.
+fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Value {
+    let symbol = mrb.str_new(method.to_bytes()).call(mrb, c"to_sym", &[]);
+    self_.call(mrb, c"to_enum", &[symbol, pattern])
 }
 
 /// `String#split` on a `Regexp`: the text between matches, with each match's
@@ -349,28 +370,4 @@ fn span_str(mrb: &Mrb, subject: &str, group: Option<(usize, usize)>) -> Value {
         Some((start, end)) => mrb.str_new(&subject.as_bytes()[start..end]),
         None => Value::nil(),
     }
-}
-
-/// Build an `IndexError` carrying `message`.
-fn index_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"IndexError")
-        .expect("IndexError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
-}
-
-/// Build an `ArgumentError` carrying `message`.
-fn argument_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"ArgumentError")
-        .expect("ArgumentError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
-}
-
-/// Build a `TypeError` carrying `message`.
-fn type_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"TypeError")
-        .expect("TypeError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
 }

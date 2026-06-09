@@ -7,6 +7,7 @@
 //! byte-based, mirroring the curated regexp engine. The originating
 //! `Regexp` is held as the `@regexp` ivar so the mruby GC keeps it alive.
 
+use crate::errors::index_error;
 use beni::{format, DataType, Error, FromValue, IntoValue, Module, Mrb, Object, Value};
 
 /// Owned snapshot of one successful match.
@@ -291,15 +292,6 @@ fn to_a(mrb: &Mrb, state: &MatchState) -> beni::Array {
         all.push(mrb, group_str(mrb, state, index));
     }
     all
-}
-
-/// Build an `IndexError` carrying `message` — raised for an undefined named
-/// capture in `#[]`.
-fn index_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"IndexError")
-        .expect("IndexError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, message))
 }
 
 fn md_to_s(mrb: &Mrb, self_: Value) -> Value {

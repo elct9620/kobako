@@ -12,6 +12,7 @@
 //! as beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it
 //! with.
 
+mod errors;
 mod kernel_ext;
 mod matchdata;
 mod regexp;
