@@ -108,6 +108,29 @@ class TestRegexpMethods < Minitest::Test
     end
   end
 
+  # #named_captures maps each capture name to the list of group numbers that
+  # carry it, mirroring the C gem (name => [index]); #names is its key list.
+  def test_named_captures_maps_names_to_group_numbers
+    assert_equal({ "a" => [1], "b" => [2] },
+                 eval_regexp("/(?<a>.)(?<b>.)/.named_captures"),
+                 "Regexp#named_captures maps each name to its group numbers")
+  end
+
+  def test_named_captures_is_empty_without_named_groups
+    assert_equal({}, eval_regexp("/(.)(.)/.named_captures"),
+                 "Regexp#named_captures is empty when no group is named")
+  end
+
+  def test_names_lists_capture_names_in_declaration_order
+    assert_equal %w[year month], eval_regexp("/(?<year>\\d+)-(?<month>\\d+)/.names"),
+                 "Regexp#names lists the capture names in declaration order"
+  end
+
+  def test_names_is_empty_without_named_groups
+    assert_equal [], eval_regexp("/(.)(.)/.names"),
+                 "Regexp#names is empty when no group is named"
+  end
+
   # The gem provides RegexpError as a StandardError subclass, so guest code
   # can rescue a bad pattern with a bare rescue or rescue StandardError.
   def test_regexp_error_is_a_standard_error

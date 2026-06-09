@@ -63,6 +63,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"source", beni::method!(rx_source, 0))?;
     cls.define_method(mrb, c"options", beni::method!(rx_options, 0))?;
     cls.define_method(mrb, c"casefold?", beni::method!(rx_casefold, 0))?;
+    cls.define_method(mrb, c"named_captures", beni::method!(rx_named_captures, 0))?;
+    cls.define_method(mrb, c"names", beni::method!(rx_names, 0))?;
     cls.define_method(mrb, c"inspect", beni::method!(rx_inspect, 0))?;
     cls.define_method(mrb, c"to_s", beni::method!(rx_to_s, 0))?;
     cls.define_method(mrb, c"==", beni::method!(rx_eq, -1))?;
@@ -224,6 +226,51 @@ fn rx_casefold(mrb: &Mrb, self_: Value) -> Value {
         Some(state) if state.options & translate::IGNORECASE != 0 => Value::true_(),
         _ => Value::false_(),
     }
+}
+
+/// `Regexp#named_captures` — a Hash mapping each capture name to the list of
+/// group numbers carrying it (`{name => [index]}`), mirroring the C gem. Names
+/// are listed in declaration order; a same-named group appends its index.
+fn rx_named_captures(mrb: &Mrb, self_: Value) -> Value {
+    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+        return Value::nil();
+    };
+    let map = mrb.hash_new();
+    for (name, indexes) in named_groups(state) {
+        let array = mrb.ary_new();
+        for index in indexes {
+            array.push(mrb, Value::from_int(mrb, index as _));
+        }
+        map.set(mrb, mrb.str_new(name.as_bytes()), array.as_value());
+    }
+    map.as_value()
+}
+
+/// `Regexp#names` — the capture names in declaration order (the keys of
+/// `#named_captures`).
+fn rx_names(mrb: &Mrb, self_: Value) -> Value {
+    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+        return Value::nil();
+    };
+    let names = mrb.ary_new();
+    for (name, _) in named_groups(state) {
+        names.push(mrb, mrb.str_new(name.as_bytes()));
+    }
+    names.as_value()
+}
+
+/// Capture names paired with their group numbers, in declaration order; a
+/// name shared by several groups collects every index.
+fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
+    let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
+    for (index, name) in state.regex.capture_names().enumerate() {
+        let Some(name) = name else { continue };
+        match groups.iter_mut().find(|(existing, _)| *existing == name) {
+            Some((_, indexes)) => indexes.push(index),
+            None => groups.push((name, vec![index])),
+        }
+    }
+    groups
 }
 
 fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
