@@ -29,6 +29,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"[]", beni::method!(str_aref, -1))?;
     cls.define_method(mrb, c"slice", beni::method!(str_aref, -1))?;
     cls.define_method(mrb, c"[]=", beni::method!(str_aset, -1))?;
+    cls.define_method(mrb, c"slice!", beni::method!(str_slice_bang, -1))?;
     Ok(())
 }
 
@@ -272,6 +273,47 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let len = Value::from_int(mrb, (e - b) as _);
     self_.call(mrb, c"__kobako_aset", &[begin, len, replacement]);
     Ok(self_)
+}
+
+/// `String#slice!` — slice the matched (or indexed) portion out in place and
+/// return it. The C gem implements every form here, as the core has no
+/// `slice!`: a `Regexp` form saves and restores `$~` around the inner delete
+/// so the visible match stays the slice's own; an Integer / Range / String
+/// form deletes through the core `[]=`. Returns `nil`, leaving the string
+/// untouched, when nothing matched.
+fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let Some(&nth) = args.first() else {
+        return Err(argument_error(
+            mrb,
+            "wrong number of arguments (given 0, expected 1..2)",
+        ));
+    };
+    let result = self_.call(mrb, c"slice", &args);
+    let regexp_form = regexp::is_regexp(mrb, nth);
+    let saved = regexp_form.then(|| mrb.gv_get(mrb.intern_cstr(c"$~")));
+    if !result.is_nil() && slice_bang_should_delete(mrb, self_, &args, regexp_form) {
+        let empty = mrb.str_new(b"");
+        match args.get(1) {
+            Some(&len) => self_.call(mrb, c"[]=", &[nth, len, empty]),
+            None => self_.call(mrb, c"[]=", &[nth, empty]),
+        };
+    }
+    if let Some(last_match) = saved {
+        mrb.gv_set(mrb.intern_cstr(c"$~"), last_match);
+    }
+    Ok(result)
+}
+
+/// Whether `slice!`'s in-place delete runs: always for the 1-arg or `Regexp`
+/// forms; the non-`Regexp` 2-arg form skips a start index sitting at the end
+/// of the string (the C gem's `nth != self.size` guard against an empty tail).
+fn slice_bang_should_delete(mrb: &Mrb, self_: Value, args: &[Value], regexp_form: bool) -> bool {
+    if regexp_form || args.len() < 2 {
+        return true;
+    }
+    let size = self_.call(mrb, c"size", &[]);
+    i32::from_value(args[0]) != i32::from_value(size)
 }
 
 /// String value of a byte-range group, or `nil` for an absent group.

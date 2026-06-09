@@ -34,4 +34,34 @@ class TestRegexpStringMutation < Minitest::Test
       eval_regexp('s = "abc"; s[/\d/] = "x"')
     end
   end
+
+  def test_slice_bang_removes_regexp_match
+    assert_equal %w[ll heo], eval_regexp('s = "hello"; r = s.slice!(/l+/); [r, s]'),
+                 "String#slice! with a Regexp returns and removes the matched substring"
+  end
+
+  def test_slice_bang_returns_nil_when_regexp_does_not_match
+    assert_equal [nil, "abc"], eval_regexp('s = "abc"; r = s.slice!(/\d/); [r, s]'),
+                 "String#slice! returns nil and leaves the string when the Regexp misses"
+  end
+
+  def test_slice_bang_restores_last_match_to_its_own_match
+    assert_equal "ll", eval_regexp('s = "hello"; s.slice!(/l+/); $~[0]'),
+                 "String#slice! restores $~ to its own match after the inner delete"
+  end
+
+  def test_slice_bang_with_integer_delegates_to_core
+    assert_equal %w[h ello], eval_regexp('s = "hello"; r = s.slice!(0); [r, s]'),
+                 "String#slice! with an Integer removes that character via the core path"
+  end
+
+  def test_slice_bang_with_integer_length_delegates_to_core
+    assert_equal %w[el hlo], eval_regexp('s = "hello"; r = s.slice!(1, 2); [r, s]'),
+                 "String#slice! with Integer start and length removes that range"
+  end
+
+  def test_slice_bang_with_string_delegates_to_core
+    assert_equal %w[ll heo], eval_regexp('s = "hello"; r = s.slice!("ll"); [r, s]'),
+                 "String#slice! with a String removes its first occurrence"
+  end
 end
