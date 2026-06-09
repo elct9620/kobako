@@ -12,6 +12,7 @@
 //! as beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it
 //! with.
 
+mod kernel_ext;
 mod matchdata;
 mod regexp;
 mod string_ext;
@@ -30,6 +31,7 @@ impl Gem for KobakoRegexp {
         matchdata::init(mrb)?;
         regexp::init(mrb)?;
         string_ext::init(mrb)?;
+        kernel_ext::init(mrb)?;
         Ok(())
     }
 }
