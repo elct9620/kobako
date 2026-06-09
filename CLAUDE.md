@@ -95,6 +95,8 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │    · KobakoBridge gem · codec convert
        │                                         │  wasm/kobako-io  — IO / Kernel gem
        │                                         │    ::IO · $stdout/$stderr · delegators
+       │                                         │  wasm/kobako-regexp  — Regexp / MatchData gem
+       │                                         │    Regexp · MatchData · String integ
        │                                         │  wasm/kobako-core  — contract crate
        │                                         │    Guest trait · abi(primitives) · transport
        │                                         │    · outcome · codec  (mirrors lib/)
@@ -102,18 +104,18 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │       │  (codec::{Encode,Decode} trait)
        │                                         │  beni / beni-sys  — typed wrapper + FFI
        │                                         │    (crates.io) → libmruby.a (mruby C API)
-       ▼                                         │       ▲  kobako-wasm → kobako · kobako-io
-ext/  — Rust native ext (magnus + wasmtime)      │       │    · kobako-core; kobako → core ·
-  Runtime (Exports, Config) · Invocation ·       │       │    beni; kobako-io → beni
+       ▼                                         │       ▲  kobako-wasm → kobako · kobako-io ·
+ext/  — Rust native ext (magnus + wasmtime)      │       │    kobako-regexp · kobako-core; kobako →
+  Runtime (Exports, Config) · Invocation ·       │       │    core · beni; kobako-io/-regexp → beni
   dispatch · guest_mem · cache · Snapshot        │       │
        └─────────── drives the ABI ─── wasm ─────┼───────┘
                     (alloc / eval / run / take_outcome / dispatch / yield)
 ```
 
 - **`lib/` ↔ `wasm/kobako-core` are wire-symmetric peers.** Each independently implements the same SPEC wire (MessagePack `Codec` + `Transport` / `Outcome` envelopes) so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Asymmetry that stays: success/failure is a value on the guest (`Outcome` enum) but a return-or-raise on the host (`Outcome.decode` is a module function) — Rust vs Ruby error models.
-- **Three publishable guest crates, one shell.** `wasm/kobako-core` is the ABI contract (plain rlib, mruby-free): the `Guest` trait + `export_guest!` macro plus the wire tiers and ABI primitives behind them; it defines no `#[no_mangle]` symbol. `wasm/kobako` is the assembled mruby implementation: the `MrbGuest` harness (required `init_gems` hook + provided flows) and the built-in `KobakoBridge` gem. `wasm/kobako-io` is the IO / Kernel capability gem (`beni::Gem`, kobako-free, pure Rust over wasi-libc). **`wasm/kobako-wasm` is the unpublished cdylib-only shell** composing the three into `data/kobako.wasm`, the same path any third-party guest takes. Published-crate internals follow the beni placeholder rule: compile on every target, fail at runtime in placeholder mode. `kobako-io` is gate-free (pure typed-beni; beni's own placeholder semantics cover it); `kobako` still mirrors the `mruby_linked` cfg in its build.rs for its raw `beni::sys` yield machinery.
+- **Four publishable guest crates, one shell.** `wasm/kobako-core` is the ABI contract (plain rlib, mruby-free): the `Guest` trait + `export_guest!` macro plus the wire tiers and ABI primitives behind them; it defines no `#[no_mangle]` symbol. `wasm/kobako` is the assembled mruby implementation: the `MrbGuest` harness (required `init_gems` hook + provided flows) and the built-in `KobakoBridge` gem. `wasm/kobako-io` is the IO / Kernel capability gem (`beni::Gem`, kobako-free, pure Rust over wasi-libc); `wasm/kobako-regexp` is the Regexp / MatchData capability gem (`beni::Gem`, kobako-free, pure Rust over `fancy-regex`). **`wasm/kobako-wasm` is the unpublished cdylib-only shell** composing the four into `data/kobako.wasm`, the same path any third-party guest takes. Published-crate internals follow the beni placeholder rule: compile on every target, fail at runtime in placeholder mode. `kobako-io` and `kobako-regexp` are gate-free (pure typed-beni; beni's own placeholder semantics cover them); `kobako` still mirrors the `mruby_linked` cfg in its build.rs for its raw `beni::sys` yield machinery.
 - **`ext/` is the host's wasmtime driver, not a wire endpoint.** It drives the ABI exports and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes itself. Internal layering mirrors the guest's `abi.rs` (packed-u64, `__kobako_alloc`, linear-memory I/O via `guest_mem`), not the codec.
-- **The typed mruby wrapper is the published `beni` crate** (extracted from this repository, developed at [elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by `kobako` / `kobako-io` and the shell. Owns `Mrb` / `Ccontext` RAII, the `Value` / `RClass` / `RModule` / `Array` / `Hash` newtypes, the `Module` / `Object` definition traits (`Result<_, Error>`-based), `IntoValue` / `FromValue`, the `Format` + ZST + GAT `mrb_get_args` dispatch, `protect`, `MethodDef` / `method!`, the `Gem` trait, and the typed `mrb_func_t`. Its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by `rake wasm:build`) and parses the `libmruby.flags.mak` sidecar to keep bindgen's ABI view aligned with the archive.
+- **The typed mruby wrapper is the published `beni` crate** (extracted from this repository, developed at [elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by `kobako` / `kobako-io` / `kobako-regexp` and the shell. Owns `Mrb` / `Ccontext` RAII, the `Value` / `RClass` / `RModule` / `Array` / `Hash` newtypes, the `Module` / `Object` definition traits (`Result<_, Error>`-based), `IntoValue` / `FromValue`, the `Format` + ZST + GAT `mrb_get_args` dispatch, `protect`, `MethodDef` / `method!`, the `Gem` trait, and the typed `mrb_func_t`. Its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by `rake wasm:build`) and parses the `libmruby.flags.mak` sidecar to keep bindgen's ABI view aligned with the archive.
 
 ### `lib/` tier stack
 
@@ -162,7 +164,7 @@ Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; the `
 ```
 kobako-wasm  (unpublished leaf shell, cdylib-only)
 Shell           guest — KobakoGuest (impl kobako::MrbGuest; init_gems
-                  wires kobako-io) + Guest forwarding + export_guest!
+                  wires kobako-io + kobako-regexp) + Guest forwarding + export_guest!
                   emits __kobako_{eval,run,alloc,take_outcome,yield_to_block,abi_version}
 ────────────────────────────────────────────────────────────────────
 kobako  (assembled mruby implementation — publishable rlib)
@@ -181,6 +183,12 @@ kobako-io  (IO / Kernel capability gem — publishable rlib, kobako-free)
                 $stdout/$stderr, private Kernel delegators; pure Rust
                 over wasi-libc write(2)
 ────────────────────────────────────────────────────────────────────
+kobako-regexp  (Regexp / MatchData capability gem — publishable rlib, kobako-free)
+                KobakoRegexp (impl beni::Gem) — Regexp · MatchData ·
+                RegexpError · String integ (=~/match/scan/gsub/sub/
+                split/[]/index); pure Rust over fancy-regex, translate
+                Ruby pattern/flags → regex dialect
+────────────────────────────────────────────────────────────────────
 kobako-core  (contract crate — publishable rlib, mruby-free)
 Contract        Guest trait (eval / run / yield_to_block) + export_guest! macro
       │
@@ -193,7 +201,7 @@ Outcome ────┤   outcome::{Outcome, Panic}
 Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
 
 (mruby)         beni (typed wrapper) → beni-sys (bindgen FFI) — crates.io;
-                consumed by kobako and kobako-io
+                consumed by kobako, kobako-io, and kobako-regexp
 ```
 
 The typed mruby wrapper tiers (`beni` / `beni-sys`) live in the [elct9620/beni](https://github.com/elct9620/beni) repository; see its `CLAUDE.md` for their internal layering. Wrapper-tier changes (new mruby capability, FFI shim, `Format` shape) are beni contributions, released through beni's own gate and consumed here by bumping the `beni` dependency in the guest crates' `Cargo.toml`s.
@@ -208,6 +216,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior.md`. |
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `ext/kobako/src/runtime.rs`; guest `wasm/kobako/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
+| Guest Regexp / MatchData | `wasm/kobako-regexp/src/{regexp,matchdata,string_ext,translate}.rs` | Pure-Rust `beni::Gem` over `fancy-regex`; self-defines `RegexpError`; byte-based offsets; `translate.rs` rewrites Ruby `\d\w\s`→ASCII + flag mapping. SPEC B-41. |
 | Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
 | Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-13..B-21 in `docs/behavior.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Namespaces` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job. |
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live at `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`). |

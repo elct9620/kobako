@@ -1,4 +1,4 @@
-//! Pattern and flag translation from Ruby / Onigmo regexp syntax to the
+//! Pattern and flag translation from Ruby regexp syntax to the
 //! `fancy-regex` (regex-crate) dialect.
 //!
 //! These are pure string transforms with no mruby dependency, so they are
@@ -9,7 +9,7 @@
 //! shorthand classes are rewritten to explicit ASCII ranges.
 
 /// MRI `Regexp` option bits. The Rust gem exposes these rather than
-/// Onigmo's internal mask, so `Regexp#options` reads back as MRI does.
+/// the engine's internal mask, so `Regexp#options` reads back as MRI does.
 pub const IGNORECASE: i64 = 1;
 pub const EXTENDED: i64 = 2;
 pub const MULTILINE: i64 = 4;
