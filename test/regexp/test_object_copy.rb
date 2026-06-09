@@ -1,0 +1,26 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# dup / clone parity for the CDATA-backed Regexp and MatchData (SPEC.md B-41).
+# Both copy methods allocate a bare instance and run initialize_copy on it;
+# without a copy body the bare instance carries no payload, so every accessor
+# fails. These scenarios pin that the copy owns an independent snapshot — the
+# behaviour the C Onigmo gem provides.
+class TestObjectCopy < Minitest::Test
+  include RegexpGuestHelper
+
+  def test_regexp_dup_copies_the_compiled_pattern
+    assert_equal ["a(b)c", 1, "b"],
+                 eval_regexp('d = /a(b)c/i.dup; [d.source, d.options, d.match("abc")[1]]'),
+                 "Regexp#dup carries the source, options, and a working compiled pattern into the copy"
+  end
+
+  # clone is a distinct mruby core method from dup; pin that it also routes
+  # through initialize_copy so the deeper copy stays a working matcher.
+  def test_regexp_clone_copies_the_compiled_pattern
+    assert_equal ["a(b)c", 1, "b"],
+                 eval_regexp('c = /a(b)c/i.clone; [c.source, c.options, c.match("abc")[1]]'),
+                 "Regexp#clone carries the source, options, and a working compiled pattern into the copy"
+  end
+end

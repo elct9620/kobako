@@ -70,7 +70,32 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"inspect", beni::method!(rx_inspect, 0))?;
     cls.define_method(mrb, c"to_s", beni::method!(rx_to_s, 0))?;
     cls.define_method(mrb, c"==", beni::method!(rx_eq, -1))?;
+    cls.define_method(
+        mrb,
+        c"initialize_copy",
+        beni::method!(rx_initialize_copy, -1),
+    )?;
     Ok(())
+}
+
+/// `initialize_copy` — the body mruby's `dup` / `clone` run on the freshly
+/// allocated bare copy (SPEC.md B-41). The compiled pattern is `Clone`, so
+/// install a clone of `other`'s state instead of recompiling; without this the
+/// copy would carry no payload and every accessor would fail.
+fn rx_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
+    let other = mrb.get_args::<format::O>();
+    if let Some(state) = other.data_get(mrb, &REGEXP_TYPE) {
+        self_.data_reinit(
+            mrb,
+            RegexpState {
+                regex: state.regex.clone(),
+                source: state.source.clone(),
+                options: state.options,
+            },
+            &REGEXP_TYPE,
+        );
+    }
+    self_
 }
 
 /// Fancy-mode backtracking ceiling. A pattern that exceeds it fails with
