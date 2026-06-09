@@ -162,11 +162,13 @@ matches (`to_enum`), which requires the guest to compose Enumerator support;
 ### RX-05 — Scan and split
 
 `String#scan` collects each non-overlapping match — the whole match for a
-group-less pattern, otherwise an Array of the groups. Given a block it yields
-each and returns the receiver, propagating any exception the block raises.
+group-less pattern, otherwise an Array of the groups (a non-participating group
+is `nil`). Given a block it yields each and returns the receiver, propagating
+any exception the block raises.
 
 `String#split` divides the subject on the pattern, interleaving each match's
-capture groups between the fields (a non-participating group as `nil`). A positive limit caps the
+capture groups between the fields (a non-participating group is omitted, unlike
+`scan`). A positive limit caps the
 field count, leaving the remainder as the last field; an omitted or `0` limit
 drops trailing empty fields; a negative limit keeps them. A non-`Regexp`
 argument delegates to the core method.
