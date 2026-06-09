@@ -14,6 +14,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // Preserve each core method under a private name before overriding it,
     // so the non-Regexp dispatch path can delegate back to the original.
     cls.alias_method(mrb, c"__kobako_aref", c"[]")?;
+    cls.alias_method(mrb, c"__kobako_aset", c"[]=")?;
     cls.alias_method(mrb, c"__kobako_index", c"index")?;
     cls.alias_method(mrb, c"__kobako_split", c"split")?;
 
@@ -27,6 +28,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"index", beni::method!(str_index, -1))?;
     cls.define_method(mrb, c"[]", beni::method!(str_aref, -1))?;
     cls.define_method(mrb, c"slice", beni::method!(str_aref, -1))?;
+    cls.define_method(mrb, c"[]=", beni::method!(str_aset, -1))?;
     Ok(())
 }
 
@@ -238,10 +240,60 @@ fn str_aref(mrb: &Mrb, self_: Value) -> Value {
     md.call(mrb, c"[]", &[group])
 }
 
+/// `String#[]=` on a `Regexp`: match the pattern and overwrite the matched
+/// region in place — the whole match for the 2-arg form, capture group `n`
+/// for the 3-arg form — then return the receiver. A non-`Regexp` first
+/// argument delegates to the core method. A non-matching pattern raises
+/// `IndexError`, as `str[regexp] = x` does in MRI.
+fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
+        return Ok(self_.call(mrb, c"__kobako_aset", &args));
+    }
+    let (group, replacement) = match args.len() {
+        2 => (Value::from_int(mrb, 0), args[1]),
+        3 => (args[1], args[2]),
+        n => {
+            return Err(argument_error(
+                mrb,
+                &format!("wrong number of arguments ({n} for 2..3)"),
+            ))
+        }
+    };
+    let md = args[0].call(mrb, c"match", &[self_]);
+    if md.is_nil() {
+        return Err(index_error(mrb, "regexp not matched"));
+    }
+    let begin = md.call(mrb, c"begin", &[group]);
+    let end = md.call(mrb, c"end", &[group]);
+    let (Some(b), Some(e)) = (i32::from_value(begin), i32::from_value(end)) else {
+        return Err(index_error(mrb, "regexp not matched"));
+    };
+    let len = Value::from_int(mrb, (e - b) as _);
+    self_.call(mrb, c"__kobako_aset", &[begin, len, replacement]);
+    Ok(self_)
+}
+
 /// String value of a byte-range group, or `nil` for an absent group.
 fn span_str(mrb: &Mrb, subject: &str, group: Option<(usize, usize)>) -> Value {
     match group {
         Some((start, end)) => mrb.str_new(&subject.as_bytes()[start..end]),
         None => Value::nil(),
     }
+}
+
+/// Build an `IndexError` carrying `message`.
+fn index_error(mrb: &Mrb, message: &str) -> Error {
+    let cls = mrb
+        .class_get(c"IndexError")
+        .expect("IndexError is an mruby core class");
+    Error::Exception(cls.exc_new(mrb, message))
+}
+
+/// Build an `ArgumentError` carrying `message`.
+fn argument_error(mrb: &Mrb, message: &str) -> Error {
+    let cls = mrb
+        .class_get(c"ArgumentError")
+        .expect("ArgumentError is an mruby core class");
+    Error::Exception(cls.exc_new(mrb, message))
 }
