@@ -43,7 +43,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"end", beni::method!(md_end, -1))?;
     cls.define_method(mrb, c"offset", beni::method!(md_offset, -1))?;
     cls.define_method(mrb, c"captures", beni::method!(md_captures, 0))?;
-    cls.define_method(mrb, c"named_captures", beni::method!(md_named_captures, 0))?;
+    cls.define_method(mrb, c"named_captures", beni::method!(md_named_captures, -1))?;
     cls.define_method(mrb, c"names", beni::method!(md_names, 0))?;
     cls.define_method(mrb, c"size", beni::method!(md_size, 0))?;
     cls.define_method(mrb, c"length", beni::method!(md_size, 0))?;
@@ -158,12 +158,41 @@ fn md_captures(mrb: &Mrb, self_: Value) -> Value {
 
 fn md_named_captures(mrb: &Mrb, self_: Value) -> Value {
     let state = state_or_nil!(mrb, self_);
+    let symbolize = symbolize_names_requested(mrb);
     let map = mrb.hash_new();
     for (name, index) in &state.names {
         let key = mrb.str_new(name.as_bytes());
+        let key = if symbolize {
+            key.call(mrb, c"to_sym", &[])
+        } else {
+            key
+        };
         map.set(mrb, key, group_str(mrb, state, *index));
     }
     map.as_value()
+}
+
+/// Read the optional `symbolize_names:` keyword. mruby passes it as a trailing
+/// option Hash; a truthy value (Ruby semantics: anything but nil/false) turns
+/// the keys into Symbols, mirroring the C gem and MRI.
+fn symbolize_names_requested(mrb: &Mrb) -> bool {
+    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let Some(options) = args.last().copied().filter(|arg| arg.is_hash()) else {
+        return false;
+    };
+    let key = mrb.str_new(b"symbolize_names").call(mrb, c"to_sym", &[]);
+    truthy(mrb, options.call(mrb, c"[]", &[key]))
+}
+
+/// mruby truthiness read into Rust — false only for `nil` / `false`. beni 0.5
+/// has no `bool` `FromValue`, so normalise through `!value` and read the
+/// resulting boolean's name (see tmp/2026-06-09-beni-gap-data-reinit.md).
+fn truthy(mrb: &Mrb, value: Value) -> bool {
+    value
+        .call(mrb, c"!", &[])
+        .call(mrb, c"to_s", &[])
+        .to_string(mrb)
+        == "false"
 }
 
 fn md_names(mrb: &Mrb, self_: Value) -> Value {

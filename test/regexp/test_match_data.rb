@@ -63,6 +63,13 @@ class TestRegexpMatchData < Minitest::Test
                  "MatchData#names lists the named-capture names in order"
   end
 
+  def test_named_captures_symbolize_names_uses_symbol_keys
+    assert_equal({ a: "1", b: "2" },
+                 eval_regexp('/(?<a>\d)(?<b>\d)/.match("12")' \
+                             ".named_captures(symbolize_names: true)"),
+                 "MatchData#named_captures(symbolize_names: true) keys by Symbol")
+  end
+
   def test_size_counts_full_match_plus_groups
     assert_equal 3, eval_regexp('/(\d)(\d)/.match("12").size'),
                  "MatchData#size counts the full match plus each group"
