@@ -34,4 +34,23 @@ class TestRegexpMatchGlobals < Minitest::Test
     assert_equal "a1!b2!", eval_regexp('"a1b2".gsub(/(\d)/){ $1 + "!" }'),
                  "$1 inside a gsub block refreshes to each iteration's capture"
   end
+
+  # Regexp.last_match tracks $~ in lock-step (MRI keeps them equal); the
+  # writer lets a caller save and restore the match around an inner match.
+  def test_last_match_returns_the_most_recent_match
+    assert_equal "12", eval_regexp('"ab12" =~ /\d+/; Regexp.last_match[0]'),
+                 "Regexp.last_match returns the MatchData of the most recent match"
+  end
+
+  def test_last_match_is_nil_before_any_match
+    assert_nil eval_regexp("Regexp.last_match"),
+               "Regexp.last_match is nil before any match has run"
+  end
+
+  def test_last_match_assignment_round_trips_saved_match
+    assert_equal "x",
+                 eval_regexp('"x" =~ /x/; m = Regexp.last_match; "yy" =~ /y/; ' \
+                             "Regexp.last_match = m; Regexp.last_match[0]"),
+                 "Regexp.last_match= restores a previously saved match"
+  end
 end

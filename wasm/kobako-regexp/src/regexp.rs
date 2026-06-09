@@ -55,6 +55,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, -1))?;
     cls.define_singleton_method(mrb, c"escape", beni::method!(rx_escape, -1))?;
     cls.define_singleton_method(mrb, c"quote", beni::method!(rx_escape, -1))?;
+    cls.define_singleton_method(mrb, c"last_match", beni::method!(rx_last_match, 0))?;
+    cls.define_singleton_method(mrb, c"last_match=", beni::method!(rx_set_last_match, -1))?;
 
     cls.define_method(mrb, c"match", beni::method!(rx_match, -1))?;
     cls.define_method(mrb, c"match?", beni::method!(rx_match_p, -1))?;
@@ -301,6 +303,21 @@ fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
     } else {
         Value::false_()
     }
+}
+
+/// `Regexp.last_match` — the most recent match's `MatchData`, read straight
+/// from `$~`. MRI keeps the two in lock-step and the gem refreshes `$~` on
+/// every match, so no separate state is needed.
+fn rx_last_match(mrb: &Mrb, _self: Value) -> Value {
+    mrb.gv_get(mrb.intern_cstr(c"$~"))
+}
+
+/// `Regexp.last_match=` — overwrite `$~`, letting a caller save and restore
+/// the match state around an inner match (`String#slice!` relies on this).
+fn rx_set_last_match(mrb: &Mrb, _self: Value) -> Value {
+    let value = mrb.get_args::<format::O>();
+    mrb.gv_set(mrb.intern_cstr(c"$~"), value);
+    value
 }
 
 fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
