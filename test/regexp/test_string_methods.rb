@@ -77,6 +77,13 @@ class TestRegexpStringMethods < Minitest::Test
                "String#index returns nil when the Regexp does not match from the position"
   end
 
+  # Byte layout: x=0, 漢=1..3, 字=4..6 — a position on byte 2 sits inside 漢
+  # and snaps down to 1, matching Regexp#match's position handling.
+  def test_index_with_position_inside_a_multibyte_char_snaps_down
+    assert_equal 4, eval_regexp('"x漢字".index(/字/, 2)'),
+                 "String#index with a position inside a multibyte char snaps down to the char boundary"
+  end
+
   def test_slice_returns_matched_substring
     assert_equal "ll", eval_regexp('"hello"[/l+/]'),
                  "String#[] with a Regexp returns the matched substring"

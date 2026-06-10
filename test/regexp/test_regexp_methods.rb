@@ -100,6 +100,18 @@ class TestRegexpMethods < Minitest::Test
     end
   end
 
+  # The RegexpError diagnostic quotes the pattern; quoting the subject instead
+  # would mislabel user data as the invalid expression.
+  def test_match_time_engine_error_names_the_pattern
+    message = eval_regexp('begin; /(a+)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"); "matched"; ' \
+                          "rescue RegexpError => e; e.message; end")
+
+    assert_includes message, "(a+)+",
+                    "a match-time engine error through Regexp#match must name the pattern source"
+    refute_includes message, "aaaaaaaa",
+                    "a match-time engine error through Regexp#match must not embed the subject"
+  end
+
   # #named_captures maps each capture name to the list of group numbers that
   # carry it, mirroring the C gem (name => [index]); #names is its key list.
   def test_named_captures_maps_names_to_group_numbers

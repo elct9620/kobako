@@ -169,7 +169,7 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> i64 {
 /// counts back from the end of `subject`. A position outside `0..=len` yields
 /// `None`, so the caller reports no match; a valid offset is snapped down to a
 /// UTF-8 char boundary so the engine never receives a mid-codepoint offset.
-fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
+pub(crate) fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
     let len = subject.len() as i64;
     let pos = if pos < 0 { pos + len } else { pos };
     if pos < 0 || pos > len {
@@ -430,7 +430,7 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Result<Value
             globals::clear_globals(mrb);
             Ok(Value::nil())
         }
-        Err(error) => Err(regexp_error(mrb, subject, &error.to_string())),
+        Err(error) => Err(regexp_error(mrb, &state.source, &error.to_string())),
     }
 }
 
