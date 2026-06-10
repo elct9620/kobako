@@ -27,7 +27,7 @@ compiler-checked contract:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-core = "0.3.0" # x-release-please-version
+kobako-core = "0.4.0" # x-release-please-version
 ```
 
 ```rust
