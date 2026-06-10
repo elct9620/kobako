@@ -11,10 +11,6 @@
 #   4c — exception raise/rescue 100 times (exercises the
 #        setjmp/longjmp path enforced by SPEC's invariant on
 #        mruby exception unwind)
-#   4d — Regexp match in a hot loop (the kobako-regexp capability
-#        gem's fancy-regex engine, composed into the guest shell;
-#        verifies the guest Regexp execution path that has no other
-#        regression guard)
 #   4e — stdout puts loop, well below stdout_limit (exercises the
 #        full B-04 IO path: mrblib IO#write → kobako_io_fwrite C
 #        bridge → WASI pipe → host capture buffer; baseline cost
@@ -71,17 +67,6 @@ EXCEPTION_SCRIPT = <<~RUBY
   count
 RUBY
 
-# 1000 fancy-regex matches against a short subject. Pattern is forced to
-# re-evaluate alternation on every iteration so the loop measures
-# Regexp#=~ throughput, not literal-string fast paths.
-REGEXP_SCRIPT = <<~RUBY
-  hits = 0
-  1000.times do
-    hits += 1 if /foo|bar|baz/ =~ "the quick brown bar jumps"
-  end
-  hits
-RUBY
-
 # 1000 puts of 64 bytes each ≈ 65 KiB — comfortably below the 1 MiB
 # stdout_limit so every write succeeds. Exercises the full IO path
 # without crossing the cap.
@@ -100,7 +85,6 @@ RUBY
 runner.case_with_usage("4a-arith-100k-sum", sandbox) { sandbox.eval(ARITH_SCRIPT) }
 runner.case_with_usage("4b-string-concat-1000", sandbox) { sandbox.eval(STRING_SCRIPT) }
 runner.case_with_usage("4c-exception-raise-rescue-100", sandbox) { sandbox.eval(EXCEPTION_SCRIPT) }
-runner.case_with_usage("4d-regexp-match-1000", sandbox) { sandbox.eval(REGEXP_SCRIPT) }
 runner.case_with_usage("4e-stdout-puts-1000", sandbox) { sandbox.eval(STDOUT_LOOP_SCRIPT) }
 runner.case_with_usage("4f-stdout-cap-saturation", sandbox) { sandbox.eval(STDOUT_NEAR_CAP_SCRIPT) }
 

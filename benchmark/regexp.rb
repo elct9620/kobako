@@ -3,6 +3,9 @@
 # Characterization benchmark (not in release gate) — the standalone regexp
 # capability profile (SPEC.md B-41). Two groups:
 #
+#   Since Regexp lives in the opt-in variant binaries, the gated suite no
+#   longer covers it; this characterization is the sole regexp perf guard.
+#
 #   Compile (10a–10e) decomposes the literal-in-a-hot-loop cost. mruby
 #   recompiles a `/.../` literal on every evaluation, so 10a re-evaluates the
 #   literal each iteration while 10b/10c hoist it out; 10d isolates compilation
@@ -14,8 +17,7 @@
 #   throughput rather than compilation: a capturing match, scan over repeated
 #   matches, a gsub with a block, and a split on a delimiter pattern.
 #
-#   10a — literal-in-loop `=~`: the literal recompiles every iteration (the same
-#         shape as the gated mruby_eval #4d, decomposed here, not duplicated).
+#   10a — literal-in-loop `=~`: the literal recompiles every iteration.
 #   10b — hoisted `=~`: the same match, compiled once. 10a − 10b is compile cost.
 #   10c — hoisted `match?`: drops the MatchData build and global refresh `=~` does.
 #   10d — compile-only: `Regexp.compile` 1000 times with no match.
@@ -33,9 +35,11 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("regexp")
 
-# memory_limit: nil keeps the per-invocation delta cap out of the hot loop so
-# the cases measure VM work, matching mruby_eval's #4 setup.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+# Regexp lives only in the variant binaries — drive the unicode variant,
+# the fullest surface. memory_limit: nil keeps the per-invocation delta cap
+# out of the hot loop so the cases measure VM work, matching mruby_eval's #4.
+REGEXP_WASM = File.expand_path("../data/kobako+regexp-unicode.wasm", __dir__)
+sandbox = Kobako::Sandbox.new(wasm_path: REGEXP_WASM, memory_limit: nil)
 sandbox.eval("nil") # warm
 
 SUBJECT = '"the quick brown bar jumps"'
