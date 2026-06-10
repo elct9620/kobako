@@ -45,10 +45,10 @@ const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// Errors raised by the codec when bytes do not conform to the kobako
 /// codec (docs/wire-codec.md). The byte-level variants cover a value that
-/// is the wrong msgpack family or truncated; +Malformed+ covers a value
+/// is the wrong msgpack family or truncated; `Malformed` covers a value
 /// that decoded cleanly but whose higher structure is wrong (a message
 /// with the wrong arity, a missing required field, a field of the wrong
-/// type). The host raises both through a single +Codec::Error+, so per
+/// type). The host raises both through a single `Codec::Error`, so per
 /// SPEC the host need not distinguish the two when reporting a
 /// wire-contract violation.
 #[derive(Debug, Clone, PartialEq, Eq)]

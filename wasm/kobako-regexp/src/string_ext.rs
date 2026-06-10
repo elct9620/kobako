@@ -211,7 +211,7 @@ fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Value {
 /// `String#split` on a `Regexp`: the text between matches, with each match's
 /// participating capture groups interleaved (a non-participating group is
 /// omitted, unlike `scan`). A zero-width match at the current field start emits
-/// no empty field. A positive +limit+ caps the field count (the remainder
+/// no empty field. A positive `limit` caps the field count (the remainder
 /// stays unsplit as the last field); an omitted or `0` limit drops trailing
 /// empty fields; a negative limit keeps them. A non-`Regexp` argument delegates
 /// to the core method, which handles its own limit.

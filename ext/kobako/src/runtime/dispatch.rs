@@ -180,9 +180,9 @@ fn try_handle(
     write_response(caller, &resp_bytes)
 }
 
-/// Invoke the Ruby-side dispatch +Proc+ with the request bytes and return
+/// Invoke the Ruby-side dispatch `Proc` with the request bytes and return
 /// the encoded Response bytes. The Proc is contracted to fold every
-/// dispatch failure into a +Response.err+ envelope (see
+/// dispatch failure into a `Response.err` envelope (see
 /// `Kobako::Transport::Dispatcher.dispatch`), so reaching the error
 /// branch is itself a wire-layer fault rather than a normal control path.
 fn invoke_on_dispatch(

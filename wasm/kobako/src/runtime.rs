@@ -239,7 +239,7 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // VM access. The +mrb+ accessor synthesises a borrowed `Mrb`
+    // VM access. The `mrb` accessor synthesises a borrowed `Mrb`
     // reference over the raw pointer so callers can use the safe
     // builder / accessor methods (`hash_get`, `intern_cstr`, etc.)
     // without each method re-implementing the same FFI dispatch.
@@ -265,9 +265,8 @@ impl Kobako {
     /// Used wherever a collection length is needed without a direct
     /// FFI binding for `mrb_ary_len`. Returns 0 when `.length` does
     /// not yield a Fixnum — the mruby core implementations always do,
-    /// so non-Fixnum here signals a user-overridden +length+ returning
-    /// nonsense; preserving the previous +.unwrap_or(0)+ semantics so
-    /// callers see "empty collection" rather than a panic.
+    /// so non-Fixnum here signals a user-overridden `length` returning
+    /// nonsense, and callers see "empty collection" rather than a panic.
     pub fn collection_len(&self, col: Value) -> usize {
         use beni::FromValue;
         let len_val = col.call(self.mrb(), c"length", &[]);
@@ -350,11 +349,10 @@ impl Kobako {
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
     /// missing, not a Fixnum, or carries a negative payload — the
     /// resolver downstream treats id 0 as undefined per
-    /// docs/behavior.md B-19. The previous +.to_s.parse.unwrap_or(0)+
-    /// path was lossy at the upper boundary (Fixnum > i32::MAX would
-    /// silently truncate) and round-tripped through the mruby string
-    /// machinery on every dispatch; the direct unbox is both faster
-    /// and tighter on the wire-violation surface.
+    /// docs/behavior.md B-19. The id is unboxed directly rather than
+    /// round-tripped through the mruby string machinery, which would
+    /// silently truncate above `i32::MAX` and cost a string allocation
+    /// on every dispatch.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
         use beni::FromValue;

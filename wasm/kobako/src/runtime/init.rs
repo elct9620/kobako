@@ -134,8 +134,7 @@ impl Gem for KobakoBridge {
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call
         // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the
-        // snippet-replay path of
-        // {docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md]).
+        // snippet-replay path of docs/behavior.md E-37 / E-38).
         kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
 
         Ok(())

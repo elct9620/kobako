@@ -82,7 +82,7 @@ impl Invocation {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Register the Ruby-side dispatch +Proc+. From this point on, every
+    /// Register the Ruby-side dispatch `Proc`. From this point on, every
     /// `__kobako_dispatch` host import invocation calls the Proc with the
     /// request bytes and expects encoded Response bytes back.
     pub(super) fn bind_on_dispatch(&mut self, proc_value: Opaque<Value>) {
@@ -325,9 +325,9 @@ pub(crate) struct MemoryLimitTrap {
 }
 
 impl MemoryLimitTrap {
-    /// Construct a trap with the given +desired+ / +limit+ pair. Used
+    /// Construct a trap with the given `desired` / `limit` pair. Used
     /// internally by `MemoryLimiter::memory_growing` in production and
-    /// by the sibling-module +classify_trap+ unit tests to materialise
+    /// by the sibling-module `classify_trap` unit tests to materialise
     /// a representative error for downcast routing.
     #[cfg(test)]
     pub(super) fn new(desired: usize, limit: usize) -> Self {

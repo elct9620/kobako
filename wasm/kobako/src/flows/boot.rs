@@ -194,8 +194,8 @@ fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
 /// apart: a successful parse (whose top-level execution may still have
 /// raised — E-36, natural mruby class preserved) from a structural
 /// failure on the RITE header / IREP body
-/// ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md]),
-/// which gets promoted to +Kobako::BytecodeError+.
+/// (docs/behavior.md E-37 / E-38), which gets promoted to
+/// `Kobako::BytecodeError`.
 #[cfg(mruby_linked)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BytecodeLoad {

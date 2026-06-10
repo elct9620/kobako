@@ -71,9 +71,9 @@ use self::invocation::{Invocation, StoreCell};
 /// the guest-side mirror is `kobako_core::abi::ABI_VERSION`.
 const ABI_VERSION: u32 = 1;
 
-/// Copy the bytes of +s+ into a fresh `Vec<u8>`. Single safe entry to
-/// what would otherwise be an inline +unsafe { rstring.as_slice() }
-/// .to_vec()+ duplicated at every host-↔-guest boundary. The borrow
+/// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
+/// what would otherwise be an inline `unsafe { rstring.as_slice() }
+/// .to_vec()` duplicated at every host-↔-guest boundary. The borrow
 /// does not outlive this call, so no Ruby allocation can move the
 /// underlying RString between the borrow and the copy — the safety
 /// invariant the inline form relied on is established once here.
@@ -92,12 +92,12 @@ pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
 // verb prefix and lets the subclass identity flow through unchanged.
 // ---------------------------------------------------------------------------
 
-/// Resolve `Kobako::<name>` as an +ExceptionClass+ — the shared body of
+/// Resolve `Kobako::<name>` as an `ExceptionClass` — the shared body of
 /// every error-class `Lazy` below, which differ only in the constant
 /// name. The constants are guaranteed present by the time any of these
 /// lazies first resolve (`lib/kobako/errors.rb` loads the hierarchy before
 /// the ext raises into it), so a missing constant is a build / wiring bug
-/// and the +unwrap+ is the correct fail-fast.
+/// and the `unwrap` is the correct fail-fast.
 fn kobako_error_class(ruby: &Ruby, name: &str) -> ExceptionClass {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
     kobako.const_get(name).unwrap()
@@ -121,8 +121,8 @@ pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
 pub(crate) static SANDBOX_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "SandboxError"));
 
-/// Build a +MagnusError+ in +class+ carrying +msg+ — the shared body of
-/// the named +*_err+ constructors below, which differ only in which
+/// Build a `MagnusError` in `class` carrying `msg` — the shared body of
+/// the named `*_err` constructors below, which differ only in which
 /// error-class `Lazy` they target.
 fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(class), msg.into())
@@ -414,9 +414,9 @@ impl Runtime {
         Ok(())
     }
 
-    /// Register the Ruby-side dispatch +Proc+ on the active Invocation.
-    /// Bound to Ruby as +Kobako::Runtime#on_dispatch=+. From this point on,
-    /// every +__kobako_dispatch+ host import invocation calls the Proc
+    /// Register the Ruby-side dispatch `Proc` on the active Invocation.
+    /// Bound to Ruby as `Kobako::Runtime#on_dispatch=`. From this point on,
+    /// every `__kobako_dispatch` host import invocation calls the Proc
     /// with the request bytes and writes the returned Response bytes back
     /// into guest memory (docs/behavior.md B-12).
     pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
@@ -440,14 +440,14 @@ impl Runtime {
     /// export with `args_bytes` as the yield-arguments payload, and
     /// return the YieldResponse bytes the guest produced (B-24).
     ///
-    /// Bound to Ruby as +Kobako::Runtime#yield_to_active_invocation+.
+    /// Bound to Ruby as `Kobako::Runtime#yield_to_active_invocation`.
     /// Recovers the dispatcher's `&mut Caller` from the per-thread
     /// Invocation slot (SPEC.md Single-Invocation Slot) — the host is
     /// already inside a `__kobako_dispatch` callback, so the Caller
     /// parked on the Rust stack is the same one the Sandbox-level
     /// `#eval` / `#run` is driving. Invoked from the host-side yield
     /// proxy that the dispatcher hands to Service methods (B-23 / B-24);
-    /// raises +Kobako::TrapError+ when called outside an active dispatch
+    /// raises `Kobako::TrapError` when called outside an active dispatch
     /// frame, or when any of the underlying allocation / write / call /
     /// read steps fails.
     pub(crate) fn yield_to_active_invocation(
@@ -482,8 +482,8 @@ impl Runtime {
     /// and return a `Snapshot` bundling every per-invocation observable.
     ///
     /// Rebuilds the WASI context with fresh stdin / stdout / stderr pipes
-    /// (the three-frame stdin protocol carries +preamble+, +source+, then
-    /// +snippets+ — docs/wire-codec.md § Invocation channels), then
+    /// (the three-frame stdin protocol carries `preamble`, `source`, then
+    /// `snippets` — docs/wire-codec.md § Invocation channels), then
     /// invokes `__kobako_eval`. Per-invocation caps (docs/behavior.md
     /// B-01) are primed here: the wall-clock deadline is stamped into
     /// `Invocation` and the epoch deadline is set to fire at the next
@@ -517,10 +517,10 @@ impl Runtime {
     ///
     /// Rebuilds the WASI context with the two-frame stdin protocol
     /// (preamble + snippets; no user source frame — docs/wire-codec.md
-    /// § Invocation channels), copies +envelope+ bytes into guest linear
+    /// § Invocation channels), copies `envelope` bytes into guest linear
     /// memory via `__kobako_alloc`, and calls `__kobako_run(env_ptr,
     /// env_len)`. Per-invocation cap semantics match `Runtime::eval`.
-    /// Raises +Kobako::TrapError+ ("alloc returned 0") when guest
+    /// Raises `Kobako::TrapError` ("alloc returned 0") when guest
     /// allocation fails (docs/behavior.md E-31).
     pub(crate) fn run(
         &self,
@@ -646,7 +646,7 @@ impl Runtime {
     /// The mruby image's declared initial allocation and the high-water
     /// mark left by prior invocations on the same Sandbox are folded
     /// into the baseline rather than the budget — only `memory.grow`
-    /// past +baseline+ counts against `memory_limit`.
+    /// past `baseline` counts against `memory_limit`.
     ///
     /// Also stamps the wall-clock entry instant for the
     /// docs/behavior.md B-35 `wall_time` measurement. The bracket
@@ -686,11 +686,11 @@ impl Runtime {
         store_ref.data_mut().disarm_memory_cap();
     }
 
-    /// Allocate a +len+-byte buffer in guest linear memory via
-    /// `__kobako_alloc`, copy +envelope+ into it, and return +(ptr, len)+
-    /// as +i32+ values matching the `__kobako_run(env_ptr, env_len)` ABI.
-    /// Raises +Kobako::TrapError+ when the allocation hook is missing or
-    /// itself traps, and +Kobako::SandboxError+ when the hook runs but
+    /// Allocate a `len`-byte buffer in guest linear memory via
+    /// `__kobako_alloc`, copy `envelope` into it, and return `(ptr, len)`
+    /// as `i32` values matching the `__kobako_run(env_ptr, env_len)` ABI.
+    /// Raises `Kobako::TrapError` when the allocation hook is missing or
+    /// itself traps, and `Kobako::SandboxError` when the hook runs but
     /// cannot reserve the buffer (`__kobako_alloc` returns 0,
     /// docs/behavior.md E-31) — an intact runtime, not an engine fault.
     fn write_envelope(&self, ruby: &Ruby, envelope: RString) -> Result<(i32, i32), MagnusError> {
@@ -726,10 +726,10 @@ impl Runtime {
     }
 
     /// Rebuild the WASI context with fresh stdin (carrying every frame in
-    /// +frames+, each prefixed by its 4-byte big-endian u32 length —
+    /// `frames`, each prefixed by its 4-byte big-endian u32 length —
     /// docs/wire-codec.md § Invocation channels) plus fresh stdout / stderr
-    /// pipes. Called at the top of every guest invocation: +#eval+ passes
-    /// three frames (preamble, source, snippets), +#run+ passes two
+    /// pipes. Called at the top of every guest invocation: `#eval` passes
+    /// three frames (preamble, source, snippets), `#run` passes two
     /// (preamble, snippets — the invocation envelope arrives via linear
     /// memory instead). Each output pipe is sized at `cap + 1` so
     /// `capture::clip_capture` can distinguish "wrote exactly cap
@@ -762,10 +762,10 @@ impl Runtime {
             .install_wasi(wasi, stdout_pipe, stderr_pipe);
     }
 
-    /// Invoke `__kobako_take_outcome`, decode the packed +(ptr<<32)|len+
+    /// Invoke `__kobako_take_outcome`, decode the packed `(ptr<<32)|len`
     /// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Raises
-    /// `Kobako::TrapError` when the export is missing, +len+ exceeds the
-    /// 16 MiB single-dispatch cap, the +ptr+/+len+ arithmetic overflows,
+    /// `Kobako::TrapError` when the export is missing, `len` exceeds the
+    /// 16 MiB single-dispatch cap, the `ptr`/`len` arithmetic overflows,
     /// the slice falls outside live memory, or the `memory` export itself
     /// is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
@@ -812,10 +812,10 @@ const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required
 const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-/// Return the cached +TypedFunc+ for an ABI export, or raise
-/// +Kobako::TrapError+ when the option is +None+. Both run-path
-/// methods (+#eval+, +#run+) plus the +build_snapshot+ readout that
-/// drains +OUTCOME_BUFFER+ share the same "missing export → Ruby
+/// Return the cached `TypedFunc` for an ABI export, or raise
+/// `Kobako::TrapError` when the option is `None`. Both run-path
+/// methods (`#eval`, `#run`) plus the `build_snapshot` readout that
+/// drains `OUTCOME_BUFFER` share the same "missing export → Ruby
 /// error" boilerplate; this helper collapses those sites onto one
 /// safe entry. The user-facing message is intentionally export-
 /// agnostic (see `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol

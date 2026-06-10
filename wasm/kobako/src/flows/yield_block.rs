@@ -13,21 +13,21 @@
 //!    out of the request buffer.
 //! 2. Resolve the active `mrb_state` via the per-invocation `MRB`
 //!    slot and read the topmost block off `BLOCK_STACK`
-//!    ({docs/behavior.md B-23 / B-28}[link:../../../../docs/behavior.md]).
+//!    (docs/behavior.md B-23 / B-28).
 //! 3. Convert codec args → `Value` args via the standard runtime
 //!    converter, then yield to the block through beni's protected
 //!    `Proc::call` so any guest-side raise (or `break` / Proc-`return`
 //!    RBreak) lands as `Err` instead of long-jumping past the Rust
-//!    frame ({docs/behavior.md E-21}[link:../../../../docs/behavior.md]).
+//!    frame (docs/behavior.md E-21).
 //! 4. Encode the outcome as a `YieldResponse`:
 //!     * normal return of a wire-representable value → `tag 0x01` ok
 //!       carrying the value through the standard codec
 //!     * a real `break` from a non-lambda block → `tag 0x02` break
-//!       ({docs/behavior.md B-25}[link:../../../../docs/behavior.md])
+//!       (docs/behavior.md B-25)
 //!     * a raised exception, a return value with no wire representation
-//!       ({docs/behavior.md E-22}[link:../../../../docs/behavior.md]),
+//!       (docs/behavior.md E-22),
 //!       or an RBreak aimed past the yielder's frame (a non-orphan Proc
-//!       `return`, {docs/behavior.md E-21}[link:../../../../docs/behavior.md])
+//!       `return`, docs/behavior.md E-21)
 //!       → `tag 0x04` error with `{class, message, backtrace}`
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
