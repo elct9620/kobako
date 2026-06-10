@@ -230,7 +230,7 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let mut splits = 0;
     for span in &spans {
         // A zero-width match at the field start would yield an empty leading
-        // field; the C gem and MRI skip it.
+        // field; MRI skips it.
         if span.whole.0 == span.whole.1 && span.whole.0 == last {
             continue;
         }
@@ -329,7 +329,7 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// `String#slice!` — slice the matched (or indexed) portion out in place and
-/// return it. The C gem implements every form here, as the core has no
+/// return it. This gem implements every form, as the core String has no
 /// `slice!`: a `Regexp` form saves and restores `$~` around the inner delete
 /// so the visible match stays the slice's own; an Integer / Range / String
 /// form deletes through the core `[]=`. Returns `nil`, leaving the string
@@ -360,7 +360,7 @@ fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// Whether `slice!`'s in-place delete runs: always for the 1-arg or `Regexp`
 /// forms; the non-`Regexp` 2-arg form skips a start index sitting at the end
-/// of the string (the C gem's `nth != self.size` guard against an empty tail).
+/// of the string (the `nth != self.size` guard against an empty tail).
 fn slice_bang_should_delete(mrb: &Mrb, self_: Value, args: &[Value], regexp_form: bool) -> bool {
     if regexp_form || args.len() < 2 {
         return true;

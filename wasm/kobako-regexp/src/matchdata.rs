@@ -82,9 +82,8 @@ fn md_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
 }
 
 /// `MatchData.new` is forbidden — a `MatchData` only ever arises from a
-/// match, never direct construction. The C gem undefined the constructor;
-/// raising `NoMethodError` matches that observable behaviour while following
-/// the gem's raising-bridge pattern for non-constructible types.
+/// match, never direct construction. Raising `NoMethodError` follows the
+/// raising-bridge pattern for non-constructible types.
 fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let cls = mrb
         .class_get(c"NoMethodError")
@@ -229,7 +228,7 @@ fn md_named_captures(mrb: &Mrb, self_: Value) -> Value {
 
 /// Read the optional `symbolize_names:` keyword. mruby passes it as a trailing
 /// option Hash; a truthy value (Ruby semantics: anything but nil/false) turns
-/// the keys into Symbols, mirroring the C gem and MRI.
+/// the keys into Symbols, as in MRI.
 fn symbolize_names_requested(mrb: &Mrb) -> bool {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     let Some(options) = args.last().copied().filter(|arg| arg.is_hash()) else {

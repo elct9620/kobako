@@ -289,8 +289,8 @@ fn rx_casefold(mrb: &Mrb, self_: Value) -> Value {
 }
 
 /// `Regexp#named_captures` — a Hash mapping each capture name to the list of
-/// group numbers carrying it (`{name => [index]}`), mirroring the C gem. Names
-/// are listed in declaration order; a same-named group appends its index.
+/// group numbers carrying it (`{name => [index]}`). Names are listed in
+/// declaration order; a same-named group appends its index.
 fn rx_named_captures(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Value::nil();

@@ -4,7 +4,7 @@ require "test_helper"
 
 # String#split edge cases (docs/regexp.md RX-05). A non-participating capture
 # group is omitted (unlike scan, which keeps it as nil), and a zero-width match
-# at the start does not emit a leading empty field — matching the C gem and MRI.
+# at the start does not emit a leading empty field, as in MRI.
 class TestStringSplit < Minitest::Test
   include RegexpGuestHelper
 

@@ -80,7 +80,7 @@ class TestRegexpMatchData < Minitest::Test
                  "Regexp#match starts searching at the given byte position"
   end
 
-  # The C gem undefined MatchData.new; a MatchData only ever arises from a
+  # MatchData.new is not constructible — a MatchData only ever arises from a
   # match, never direct construction. Resolve the error inside the guest (a
   # returned MatchData would surface a host codec error regardless, so this
   # asserts the guest-visible NoMethodError rather than the wire failure).

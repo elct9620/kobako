@@ -113,7 +113,7 @@ class TestRegexpMethods < Minitest::Test
   end
 
   # #named_captures maps each capture name to the list of group numbers that
-  # carry it, mirroring the C gem (name => [index]); #names is its key list.
+  # carry it (name => [index]); #names is its key list.
   def test_named_captures_maps_names_to_group_numbers
     assert_equal({ "a" => [1], "b" => [2] },
                  eval_regexp("/(?<a>.)(?<b>.)/.named_captures"),

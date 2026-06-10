@@ -2,11 +2,11 @@
 
 require "test_helper"
 
-# The match-family operand contract (docs/regexp.md RX-02 / RX-06), reproducing
-# the C gem's surface. A Regexp match takes a String or Symbol subject, treats
-# nil as no match, and raises TypeError on anything else (=== rescues to false).
-# String#match / #match? mirror the C string-ext: the pattern must be a Regexp
-# (a String is not coerced) — anything else is a TypeError.
+# The match-family operand contract (docs/regexp.md RX-02 / RX-06). A Regexp
+# match takes a String or Symbol subject, treats nil as no match, and raises
+# TypeError on anything else (=== rescues to false). For String#match /
+# #match? the pattern must be a Regexp (a String is not coerced) — anything
+# else is a TypeError.
 class TestMatchOperand < Minitest::Test
   include RegexpGuestHelper
 
