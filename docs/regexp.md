@@ -192,3 +192,20 @@ argument delegates to the core method.
 
 A non-`Regexp` argument to `#index` / `#[]` / `#[]=` / `#slice!` delegates to
 the core String method.
+
+### RX-08 — Compiled-pattern memoization
+
+Within one Sandbox invocation, compiling the same `(source, options)` more than
+once — through a literal, `Regexp.new`, or `Regexp.compile` — reuses the compiled
+pattern built the first time instead of rebuilding it. The memoization is
+invocation-scoped: it holds only for the running invocation and is gone once the
+invocation ends.
+
+The memoization changes no result. Each construction still returns a distinct
+`Regexp` object — `/x/.equal?(/x/)` is `false` — and `#source`, `#options`,
+`#==`, and every match behave exactly as without it; only the internal compiled
+pattern is shared.
+
+The cache is bounded to a fixed capacity (default 64, configurable at build
+time). When it is full, the least-recently-used entry is dropped and recompiles
+the next time that pattern is used.
