@@ -27,9 +27,8 @@ module Kobako
   #                       when the wasm runtime cannot be built from the
   #                       configured +wasm_path+ before any invocation runs
   #                       ({docs/behavior.md E-40 / E-41}[link:../../docs/behavior.md]).
-  #                       Not an invocation
-  #                       outcome, so it never passes through the two-step
-  #                       attribution decision.
+  #                       Not an invocation outcome, so it never passes
+  #                       through the two-step attribution decision.
   #
   # Subclasses pinned by docs/behavior.md Error Classes:
   #

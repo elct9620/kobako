@@ -87,10 +87,11 @@ A regexp literal `/pattern/imx`, `Regexp.new(source[, options])`, and
 (`IGNORECASE | EXTENDED | MULTILINE`), a letter String (`"imx"`), or omitted.
 A pattern that fails to compile raises `RegexpError`.
 
-The shorthand classes `\d` / `\w` / `\s` and their negations `\D` / `\W` /
-`\S` match ASCII characters only, as in MRI — except the negated forms
-inside a character class (`[\D]`, `[\W]`, `[\S]`), which match by Unicode
-category: a non-ASCII digit such as `５` matches `\D` but not `[\D]`.
+The shorthand classes `\d` / `\w` / `\s` match their ASCII sets only, as in
+MRI, and the negations `\D` / `\W` / `\S` complement those ASCII sets —
+except the negated forms inside a character class (`[\D]`, `[\W]`, `[\S]`),
+which match by Unicode category: a non-ASCII digit such as `５` matches
+`\D` but not `[\D]`.
 
 | Member | Result |
 |--------|--------|
@@ -114,8 +115,9 @@ index or `nil`, and `#===` a boolean. The subject must be a `String` or
 `Symbol`; `nil` is no match (`#match` / `#=~` return `nil`, `#match?` / `#===`
 return `false`), and any other operand raises `TypeError` — except `#===`,
 which rescues it to `false`. An optional position argument starts the
-search at that byte offset; a position outside the subject yields no match, and
-a negative position counts back from the end.
+search at that byte offset; a position outside the subject yields no match,
+a negative position counts back from the end, and a position inside a
+multibyte character snaps down to its char boundary.
 
 A successful match refreshes the match globals; a miss clears them.
 
@@ -184,7 +186,7 @@ argument delegates to the core method.
 |--------|----------|
 | `#=~` | matches a `Regexp` operand and returns the index or `nil`; a `String` operand raises `TypeError`; any other receiver falls through to `Kernel#=~` (`nil`) |
 | `#match` / `#match?` | forward `self` to the pattern's `#match` / `#match?`; the pattern is a `Regexp` and a non-`Regexp` raises `TypeError` (a String is not coerced, mirroring the C string-ext); `#match` forwards a block |
-| `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (a negative `pos` counts from the end), or `nil` |
+| `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (handled as the RX-02 position argument), or `nil` |
 | `#[]` / `#slice` | with a `Regexp` (and optional group) returns the matched substring or that capture |
 | `#[]=` | overwrites the matched region — the whole match, or capture group `n` — and raises `IndexError` on no match |
 | `#slice!` | removes and returns the matched (or indexed) portion, leaving `$~` unchanged for the `Regexp` form |

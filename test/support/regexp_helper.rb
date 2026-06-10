@@ -22,10 +22,10 @@ module RegexpGuestHelper
 
   # Evaluate +code+ expecting it to raise +expected+ (a guest exception
   # class name): returns that name on the expected raise, the actual class
-  # name on any other raise, and +fallthrough+ when nothing raises — so an
+  # name on any other raise, and +"no-error"+ when nothing raises — so an
   # assertion failure names what really happened.
-  def guard_error(code, expected, fallthrough: "no-error")
-    eval_regexp("begin; #{code}; #{fallthrough.inspect}; " \
+  def guard_error(code, expected)
+    eval_regexp("begin; #{code}; 'no-error'; " \
                 "rescue #{expected}; #{expected.inspect}; " \
                 "rescue => e; e.class.to_s; end")
   end
