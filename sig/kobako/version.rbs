@@ -1,2 +1,3 @@
 module Kobako
+  VERSION: String
 end
