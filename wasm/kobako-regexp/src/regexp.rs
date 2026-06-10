@@ -5,14 +5,21 @@
 //! `Regexp.new` are singleton methods that build the carrier directly. Each
 //! successful match refreshes the `$~` / `$1..$9` / `$&` / `` $` `` / `$'`
 //! globals, mirroring the curated regexp engine's always-on behaviour.
+//!
+//! This file owns the class surface; the helpers fan out per responsibility:
+//! `globals` (match-global refresh), `render` (inspect / to_s / escape
+//! text), `replace` (owned match spans + replacement expansion).
 
-use crate::errors::{
-    argument_error, index_error, regexp_error, replace_expression_error, type_error,
-};
-use crate::matchdata::{self, MatchState};
+mod globals;
+mod render;
+mod replace;
+
+pub(crate) use globals::set_span_globals;
+pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
+
+use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
 use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
-use core::ffi::CStr;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
 /// report without an engine getter.
@@ -23,11 +30,6 @@ pub(crate) struct RegexpState {
 }
 
 static REGEXP_TYPE: DataType<RegexpState> = DataType::new(c"Kobako::Regexp");
-
-/// `$1`..`$9` global names, indexed by capture group minus one.
-const NUMBERED: [&CStr; 9] = [
-    c"$1", c"$2", c"$3", c"$4", c"$5", c"$6", c"$7", c"$8", c"$9",
-];
 
 /// Define the `Regexp` class, its option constants, and its methods.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -338,8 +340,8 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
     mrb.str_new(
         format!(
             "/{}/{}",
-            inspect_source(&state.source),
-            enabled_flags(state.options)
+            render::inspect_source(&state.source),
+            render::enabled_flags(state.options)
         )
         .as_bytes(),
     )
@@ -349,11 +351,11 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
         return Value::nil();
     };
-    let (options, body) = match lift_inline_group(&state.source) {
+    let (options, body) = match render::lift_inline_group(&state.source) {
         Some((enabled, disabled, inner)) => ((state.options | enabled) & !disabled, inner),
         None => (state.options, state.source.as_str()),
     };
-    let (on, off) = on_off_flags(options);
+    let (on, off) = render::on_off_flags(options);
     let rendered = if off.is_empty() {
         format!("(?{on}:{body})")
     } else {
@@ -400,7 +402,7 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
             "wrong number of arguments (given 0, expected 1)",
         ));
     }
-    Ok(mrb.str_new(escape_str(&args[0].to_string(mrb)).as_bytes()))
+    Ok(mrb.str_new(render::escape_str(&args[0].to_string(mrb)).as_bytes()))
 }
 
 /// Run the pattern against `subject` from byte `pos`, building a
@@ -422,145 +424,14 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Result<Value
                 .enumerate()
                 .filter_map(|(i, name)| name.map(|n| (n.to_string(), i)))
                 .collect();
-            Ok(finalize(mrb, regexp, subject, groups, names))
+            Ok(globals::finalize(mrb, regexp, subject, groups, names))
         }
         Ok(None) => {
-            clear_globals(mrb);
+            globals::clear_globals(mrb);
             Ok(Value::nil())
         }
         Err(error) => Err(regexp_error(mrb, subject, &error.to_string())),
     }
-}
-
-/// Byte spans of one match: the whole match plus each numbered group.
-pub(crate) struct MatchSpan {
-    pub whole: (usize, usize),
-    pub groups: Vec<Option<(usize, usize)>>,
-}
-
-/// Collect non-overlapping matches of `regexp` over `subject` as owned byte
-/// spans, so the String methods can build results after the engine borrow
-/// is released. A zero-width match advances by one character.
-pub(crate) fn match_spans(
-    mrb: &Mrb,
-    regexp: Value,
-    subject: &str,
-) -> Result<Vec<MatchSpan>, Error> {
-    let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
-        return Ok(Vec::new());
-    };
-    let count = state.regex.captures_len();
-    let mut spans = Vec::new();
-    let mut pos = 0;
-    while pos <= subject.len() {
-        match state.regex.captures_from_pos(subject, pos) {
-            Ok(Some(captures)) => {
-                let Some(whole) = captures.get(0).map(|m| (m.start(), m.end())) else {
-                    break;
-                };
-                let groups = (1..count)
-                    .map(|i| captures.get(i).map(|m| (m.start(), m.end())))
-                    .collect();
-                spans.push(MatchSpan { whole, groups });
-                pos = if whole.1 > whole.0 {
-                    whole.1
-                } else {
-                    whole.1 + subject[whole.1..].chars().next().map_or(1, char::len_utf8)
-                };
-            }
-            Ok(None) => break,
-            Err(error) => return Err(regexp_error(mrb, &state.source, &error.to_string())),
-        }
-    }
-    Ok(spans)
-}
-
-/// Expand the backreferences in a gsub/sub replacement string against one
-/// match's spans, mirroring the curated regexp engine: `\0`..`\9` insert a
-/// numbered group (`\0` the whole match; an out-of-range number inserts
-/// nothing), `\k<name>` inserts a named group (an undefined name raises
-/// `IndexError`), `\\` is a literal backslash, and any other `\x` stays the
-/// two literal characters. A trailing backslash is literal.
-pub(crate) fn expand_replacement(
-    mrb: &Mrb,
-    regexp: Value,
-    subject: &str,
-    span: &MatchSpan,
-    replacement: &str,
-) -> Result<String, Error> {
-    let state = regexp.data_get(mrb, &REGEXP_TYPE);
-    let mut out = String::with_capacity(replacement.len());
-    let mut chars = replacement.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            None => out.push('\\'),
-            Some('\\') => out.push('\\'),
-            Some('k') => {
-                let name = read_group_name(mrb, &mut chars, replacement)?;
-                let index = state.and_then(|s| name_to_index(s, &name)).ok_or_else(|| {
-                    index_error(mrb, &format!("undefined group name reference: {name}"))
-                })?;
-                push_group(&mut out, subject, span, index);
-            }
-            Some(digit) if digit.is_ascii_digit() => {
-                push_group(
-                    &mut out,
-                    subject,
-                    span,
-                    digit.to_digit(10).unwrap_or(0) as usize,
-                );
-            }
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Read the `<name>` body following a `\k` in a replacement string, consuming
-/// up to and including the closing `>`. A `\k` not followed by `<…>` is an
-/// invalid replace expression.
-fn read_group_name(
-    mrb: &Mrb,
-    chars: &mut core::str::Chars,
-    replacement: &str,
-) -> Result<String, Error> {
-    if chars.next() != Some('<') {
-        return Err(replace_expression_error(mrb, replacement));
-    }
-    let mut name = String::new();
-    loop {
-        match chars.next() {
-            Some('>') => return Ok(name),
-            Some(c) => name.push(c),
-            None => return Err(replace_expression_error(mrb, replacement)),
-        }
-    }
-}
-
-/// Append group `index`'s matched substring to `out` (`0` is the whole match);
-/// a group that did not participate or sits past the pattern appends nothing.
-fn push_group(out: &mut String, subject: &str, span: &MatchSpan, index: usize) {
-    let range = if index == 0 {
-        Some(span.whole)
-    } else {
-        span.groups.get(index - 1).copied().flatten()
-    };
-    if let Some((start, end)) = range {
-        out.push_str(&subject[start..end]);
-    }
-}
-
-/// The group number a capture name resolves to, or `None` when the pattern
-/// has no such name.
-fn name_to_index(state: &RegexpState, name: &str) -> Option<usize> {
-    state.regex.capture_names().position(|n| n == Some(name))
 }
 
 /// True when `value` is a `Regexp` carrier.
@@ -574,7 +445,7 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         return Ok(arg);
     }
-    compile(mrb, escape_str(&arg.to_string(mrb)), 0)
+    compile(mrb, render::escape_str(&arg.to_string(mrb)), 0)
 }
 
 /// Coerce a match subject like the C `reg_operand`: a `String` or `Symbol`
@@ -609,216 +480,4 @@ pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
             ),
         ))
     }
-}
-
-/// Build a `MatchData`, bind `$~`, and refresh `$&` / `` $` `` / `$'` /
-/// `$1..$9` from a match's byte spans (`groups[0]` is the whole match);
-/// returns the `MatchData`.
-pub(crate) fn finalize(
-    mrb: &Mrb,
-    regexp: Value,
-    subject: &str,
-    groups: Vec<Option<(usize, usize)>>,
-    names: Vec<(String, usize)>,
-) -> Value {
-    let md = matchdata::build(
-        mrb,
-        regexp,
-        MatchState {
-            subject: subject.to_owned(),
-            groups: groups.clone(),
-            names,
-        },
-    );
-    mrb.gv_set(mrb.intern_cstr(c"$~"), md);
-    let whole = groups.first().copied().flatten();
-    set_global(
-        mrb,
-        c"$&",
-        whole.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
-    );
-    if let Some((s, e)) = whole {
-        set_global(mrb, c"$`", Some(mrb.str_new(&subject.as_bytes()[..s])));
-        set_global(mrb, c"$'", Some(mrb.str_new(&subject.as_bytes()[e..])));
-    }
-    // $+ is the last capture group that participated (MRI semantics): the
-    // highest-numbered non-nil group, nil when the pattern has no groups.
-    let last_group = groups.iter().skip(1).rev().find_map(|group| *group);
-    set_global(
-        mrb,
-        c"$+",
-        last_group.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
-    );
-    for (i, name) in NUMBERED.iter().enumerate() {
-        let value = groups
-            .get(i + 1)
-            .copied()
-            .flatten()
-            .map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]));
-        set_global(mrb, name, value);
-    }
-    md
-}
-
-/// Refresh the match globals for a gsub/scan block from owned spans, so
-/// `$1` is fresh on each iteration.
-pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &MatchSpan) {
-    let mut groups = Vec::with_capacity(span.groups.len() + 1);
-    groups.push(Some(span.whole));
-    groups.extend(span.groups.iter().copied());
-    finalize(mrb, regexp, subject, groups, Vec::new());
-}
-
-/// Reset every match global to nil after a failed match.
-fn clear_globals(mrb: &Mrb) {
-    mrb.gv_set(mrb.intern_cstr(c"$~"), Value::nil());
-    for name in [c"$&", c"$`", c"$'", c"$+"].iter().chain(NUMBERED.iter()) {
-        set_global(mrb, name, None);
-    }
-}
-
-fn set_global(mrb: &Mrb, name: &CStr, value: Option<Value>) {
-    mrb.gv_set(mrb.intern_cstr(name), value.unwrap_or_else(Value::nil));
-}
-
-/// Enabled option letters in MRI's `m`, `i`, `x` order — the form
-/// `Regexp#inspect` appends after the pattern.
-fn enabled_flags(options: i64) -> String {
-    let mut flags = String::new();
-    for (bit, letter) in [
-        (translate::MULTILINE, 'm'),
-        (translate::IGNORECASE, 'i'),
-        (translate::EXTENDED, 'x'),
-    ] {
-        if options & bit != 0 {
-            flags.push(letter);
-        }
-    }
-    flags
-}
-
-/// Enabled and disabled option letters for `Regexp#to_s`'s `(?on-off:…)`.
-fn on_off_flags(options: i64) -> (String, String) {
-    let mut on = String::new();
-    let mut off = String::new();
-    for (bit, letter) in [
-        (translate::MULTILINE, 'm'),
-        (translate::IGNORECASE, 'i'),
-        (translate::EXTENDED, 'x'),
-    ] {
-        if options & bit != 0 {
-            on.push(letter);
-        } else {
-            off.push(letter);
-        }
-    }
-    (on, off)
-}
-
-/// If `source` is a single inline-flag group spanning the whole string —
-/// `(?flags-flags:body)`, including the flag-less `(?:body)` — return its
-/// enabled and disabled flag bits and the `body`. Mirrors the lift MRI's
-/// `Regexp#to_s` applies; a group that does not span the whole source, or a
-/// non-flag group such as `(?<name>…)`, yields `None`.
-fn lift_inline_group(source: &str) -> Option<(i64, i64, &str)> {
-    let bytes = source.as_bytes();
-    if !source.starts_with("(?") {
-        return None;
-    }
-    let mut i = 2;
-    let mut enabled = 0;
-    let mut disabled = 0;
-    let mut in_disable = false;
-    loop {
-        match bytes.get(i)? {
-            b':' => {
-                i += 1;
-                break;
-            }
-            b'-' if !in_disable => {
-                in_disable = true;
-                i += 1;
-            }
-            b'i' | b'm' | b'x' => {
-                let bit = match bytes[i] {
-                    b'i' => translate::IGNORECASE,
-                    b'm' => translate::MULTILINE,
-                    _ => translate::EXTENDED,
-                };
-                if in_disable {
-                    disabled |= bit;
-                } else {
-                    enabled |= bit;
-                }
-                i += 1;
-            }
-            _ => return None,
-        }
-    }
-    let body_start = i;
-    let mut depth = 1;
-    let mut in_class = false;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\\' => {
-                i += 2;
-                continue;
-            }
-            b'[' if !in_class => in_class = true,
-            b']' if in_class => in_class = false,
-            b'(' if !in_class => depth += 1,
-            b')' if !in_class => {
-                depth -= 1;
-                if depth == 0 {
-                    break;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    if depth == 0 && i == bytes.len() - 1 {
-        Some((enabled, disabled, &source[body_start..i]))
-    } else {
-        None
-    }
-}
-
-/// Render a pattern source for `Regexp#inspect`: escape `/` to `\/`, render a
-/// non-whitespace control character as `\xHH` (uppercase hex), and pass
-/// printable characters, multibyte UTF-8, and the whitespace controls through
-/// literally — matching MRI.
-fn inspect_source(source: &str) -> String {
-    let mut out = String::with_capacity(source.len());
-    for c in source.chars() {
-        match c {
-            '/' => out.push_str("\\/"),
-            '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r' => out.push(c),
-            c if c.is_control() => out.push_str(&format!("\\x{:02X}", u32::from(c))),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Backslash-escape the regexp metacharacters in `source`, mirroring
-/// `Regexp.escape`.
-fn escape_str(source: &str) -> String {
-    let mut out = String::with_capacity(source.len());
-    for c in source.chars() {
-        match c {
-            '.' | '\\' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|'
-            | '-' | '#' | ' ' => {
-                out.push('\\');
-                out.push(c);
-            }
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{0c}' => out.push_str("\\f"),
-            '\u{0b}' => out.push_str("\\v"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
