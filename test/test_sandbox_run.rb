@@ -142,15 +142,6 @@ class TestSandboxRun < Minitest::Test
     refute_includes available, :Kobako
   end
 
-  private
-
-  def run_missing_against_sandbox_with_preloads
-    sandbox = Kobako::Sandbox.new
-    sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
-    sandbox.preload(code: "Helper = Module.new", name: :Helper)
-    assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
-  end
-
   # E-28: entrypoint constant is defined but does not respond to #call.
   def test_e28_entrypoint_without_call_raises_sandbox_error
     sandbox = Kobako::Sandbox.new
@@ -167,5 +158,14 @@ class TestSandboxRun < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Worker) }
     assert_match(/boom from worker/, err.message)
+  end
+
+  private
+
+  def run_missing_against_sandbox_with_preloads
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
+    sandbox.preload(code: "Helper = Module.new", name: :Helper)
+    assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
   end
 end
