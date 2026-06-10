@@ -57,7 +57,7 @@ For "N-ops-in-one-invocation" cases (e.g. `2d-1000-calls-in-one-eval`) the per-o
 
 ## Latest baseline
 
-The anchor is `499c3a1`, captured **2026-06-10** — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. The per-suite figures below carry over from the previous `e8aee88` (2026-06-05, the 0.8.0 release line) capture except where [What changed vs previous baseline](#what-changed-vs-previous-baseline) records a shift (`4d-regexp-match-1000`, `1a-sandbox-new`, `3c-host-decode-symbol`); the characterization suites (#7-#9) still show the `711665d` numbers.
+The anchor is `870fdc4`, captured **2026-06-10** — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. The per-suite figures below carry over from the previous `499c3a1` (2026-06-10) capture except where [What changed vs previous baseline](#what-changed-vs-previous-baseline) records a shift (`4d-regexp-match-1000` left the gated roster); the characterization suites (#7-#9) still show the `711665d` numbers.
 
 ### Lifecycle & construction
 
@@ -172,7 +172,6 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 | 100 000-iteration integer XOR loop                            | **36.80 ms**                                     | 36.80 ms                  |
 | 1 000 single-character String appends                         | 522 µs                                           | 504 µs                    |
 | 100 cycles of `raise` / `rescue`                              | 274 µs → 2.7 µs per cycle                        | 267 µs                    |
-| 1 000 fancy-regex `Regexp =~` matches                         | 2.74 ms → 2.7 µs per match                       | 2.73 ms                   |
 | 1 000 `puts` of 64 B (below 1 MiB stdout cap)                 | 3.88 ms → 3.9 µs per write                       | 3.84 ms                   |
 | 2 048 `puts` of ~1 KiB against the 1 MiB stdout cap           | 8.24 ms (first ~1 024 land, rest silently dropped) | 7.90 ms                 |
 
@@ -264,21 +263,15 @@ Budget ~140 MB up front per worker process plus ~570 KB per concurrent tenant; *
 
 Diff against the immediately previous baseline only; pre-history lives in `benchmark/results/<date>-<sha>.json` and release-tagged `benchmark/<semver>` annotated tags.
 
-**Previous baseline:** `e8aee88`, 2026-06-05 (the 0.8.0 release line). **This baseline:** `499c3a1`, 2026-06-10.
+**Previous baseline:** `499c3a1`, 2026-06-10. **This baseline:** `870fdc4`, 2026-06-10 (the 0.9.0 release line).
 
 ### Roster / schema
 
-No roster or schema changes — the six gated suites are unchanged. This refresh accepts the regexp engine swap (the curated C `mruby-onig-regexp` dropped in favour of the pure-Rust `fancy-regex` capability gem) and the post-migration guest architecture (the `beni` wrapper and guest-crate split) accumulated since the previous baseline.
+`4d-regexp-match-1000` left the gated `mruby_eval` suite. Regexp is now an opt-in capability gem: the default Guest Binary the gate measures is pure mruby + `kobako-io`, so regexp coverage moved to the non-gated #10 characterization suite ([`regexp.rb`](regexp.rb)) run against the `+regexp` variant binaries. The other five gated suites are unchanged.
 
-### Metric deltas vs `e8aee88`
+### Metric deltas vs `499c3a1`
 
-| Case                                | Previous | Current | Status                                                                                                                                                                                                                       |
-|-------------------------------------|----------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `4d-regexp-match-1000` `wall_time`  | 2.73 ms  | 6.09 ms | **accepted** — `fancy-regex` replaces Onigmo. The recompile-per-iteration cost is removed by the RX-08 per-invocation compile cache; the residual ~2.2× is `fancy-regex`'s per-match `MatchData` / globals construction. `match?` / `scan` / `gsub` are unaffected. |
-| `1a-sandbox-new` `ips`              | 7893     | ~7000   | **accepted** — Module-compile drift since the pre-migration anchor; the guest wasm changed (Onigmo C dropped, `fancy-regex` + `lru` added). Regexp-unrelated, noisy ±4 % between runs but consistently below the anchor.       |
-| `3c-host-decode-symbol` `ips`       | 1.366 M  | 1.28 M  | noise — host-only msgpack path with unchanged code; the blessed run sits inside the ±6.6 % band (a noisier capture flagged it once).                                                                                          |
-
-Two-run arbitration separated the real shifts (`4d`, `1a` — both stable below the anchor) from noise (`3c` — back in-band on the second run). The `4d` shift is the deliberate cost of the regexp engine swap, bounded by the RX-08 compile cache; everything else moved within host-load variance.
+No metric shift past the noise band — every retained gated case stayed in-band against the previous anchor and the gate reports clean. The default binary is smaller now that regexp is excluded (≈899 KB vs the previous regexp-bearing default), but cold-start and `sandbox-new` held within host-load variance, so no metric delta is accepted. This re-bless is the roster drop above plus a same-line refresh onto the 0.9.0 default.
 
 ## Running
 
