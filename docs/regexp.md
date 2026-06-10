@@ -87,6 +87,11 @@ A regexp literal `/pattern/imx`, `Regexp.new(source[, options])`, and
 (`IGNORECASE | EXTENDED | MULTILINE`), a letter String (`"imx"`), or omitted.
 A pattern that fails to compile raises `RegexpError`.
 
+The shorthand classes `\d` / `\w` / `\s` and their negations `\D` / `\W` /
+`\S` match ASCII characters only, as in MRI — except the negated forms
+inside a character class (`[\D]`, `[\W]`, `[\S]`), which match by Unicode
+category: a non-ASCII digit such as `５` matches `\D` but not `[\D]`.
+
 | Member | Result |
 |--------|--------|
 | `#source` | the pattern String |
