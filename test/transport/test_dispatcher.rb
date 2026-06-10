@@ -37,7 +37,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "HI", resp.payload
   end
 
@@ -48,7 +48,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal [%w[x value]], capture
   end
 
@@ -57,7 +57,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -67,7 +67,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/boom/, resp.payload.message)
   end
@@ -79,7 +79,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -99,7 +99,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal 5, resp.payload
   end
 
@@ -113,7 +113,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -127,7 +127,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "argument", resp.payload.type
   end
 
@@ -142,7 +142,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(bad_request_bytes))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed request/, resp.payload.message)
   end
@@ -156,7 +156,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(bad_request_bytes))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed request/, resp.payload.message)
   end
@@ -172,7 +172,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "k=v", resp.payload
   end
 
@@ -185,7 +185,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "ok", resp.payload
     assert_equal({ a: 1, b: 2 }, obj.captured)
   end
@@ -201,7 +201,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_kind_of Kobako::Handle, resp.payload
     bound = @handler.fetch(resp.payload.id)
     assert_equal "hi,Alice", bound.greet
@@ -213,7 +213,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "plain", resp.payload
     assert_equal 0, @handler.size
   end
@@ -234,7 +234,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "wrapped:hello,Alice", resp.payload
   end
 
@@ -248,7 +248,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "done", resp.payload
     assert_equal ["kw_ok"], capture
   end
@@ -259,7 +259,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -276,7 +276,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_equal "row:42", resp.payload
   end
 
@@ -288,7 +288,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.ok?
+    assert_predicate resp, :ok?
     assert_kind_of Kobako::Handle, resp.payload
     refute_equal parent_id, resp.payload.id
     assert_equal "leaf", @handler.fetch(resp.payload.id).kind
@@ -299,7 +299,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -314,7 +314,7 @@ class TestTransportDispatchUnit < Minitest::Test
     req = encode_request_with_target(Kobako::Handle.restore(handle_id), "tag", [], {})
     resp = decode_response(dispatch(req))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -339,7 +339,7 @@ class TestTransportDispatchUnit < Minitest::Test
     req = encode_request_with_target(Kobako::Handle.restore(handle_id_in_a), "ping", [], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
     assert_equal 0, table_b.size
   end
@@ -357,7 +357,7 @@ class TestTransportDispatchUnit < Minitest::Test
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
   end
 
@@ -380,7 +380,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(bad_request_bytes))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     # Kobako::Codec::Error rescues to type="runtime" with the
     # "Sandbox received a malformed request" prefix; the
     # dispatcher's contract pins this taxonomy and the guest
@@ -413,7 +413,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
     resp = decode_response(dispatch(req, server: registry, handler: exhausted))
 
-    assert resp.error?
+    assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Kobako::HandlerExhaustedError/, resp.payload.message)
   end
