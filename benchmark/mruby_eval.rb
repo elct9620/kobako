@@ -11,9 +11,10 @@
 #   4c — exception raise/rescue 100 times (exercises the
 #        setjmp/longjmp path enforced by SPEC's invariant on
 #        mruby exception unwind)
-#   4d — Regexp match in a hot loop (mruby-onig-regexp / Onigmo
-#        engine added to build_config/wasi.rb; verifies the guest
-#        Regexp execution path that has no other regression guard)
+#   4d — Regexp match in a hot loop (the kobako-regexp capability
+#        gem's fancy-regex engine, composed into the guest shell;
+#        verifies the guest Regexp execution path that has no other
+#        regression guard)
 #   4e — stdout puts loop, well below stdout_limit (exercises the
 #        full B-04 IO path: mrblib IO#write → kobako_io_fwrite C
 #        bridge → WASI pipe → host capture buffer; baseline cost
@@ -70,7 +71,7 @@ EXCEPTION_SCRIPT = <<~RUBY
   count
 RUBY
 
-# 1000 Onigmo matches against a short subject. Pattern is forced to
+# 1000 fancy-regex matches against a short subject. Pattern is forced to
 # re-evaluate alternation on every iteration so the loop measures
 # Regexp#=~ throughput, not literal-string fast paths.
 REGEXP_SCRIPT = <<~RUBY

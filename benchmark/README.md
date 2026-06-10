@@ -172,7 +172,7 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 | 100 000-iteration integer XOR loop                            | **36.80 ms**                                     | 36.80 ms                  |
 | 1 000 single-character String appends                         | 522 µs                                           | 504 µs                    |
 | 100 cycles of `raise` / `rescue`                              | 274 µs → 2.7 µs per cycle                        | 267 µs                    |
-| 1 000 Onigmo `Regexp =~` matches                              | 2.74 ms → 2.7 µs per match                       | 2.73 ms                   |
+| 1 000 fancy-regex `Regexp =~` matches                         | 2.74 ms → 2.7 µs per match                       | 2.73 ms                   |
 | 1 000 `puts` of 64 B (below 1 MiB stdout cap)                 | 3.88 ms → 3.9 µs per write                       | 3.84 ms                   |
 | 2 048 `puts` of ~1 KiB against the 1 MiB stdout cap           | 8.24 ms (first ~1 024 land, rest silently dropped) | 7.90 ms                 |
 
