@@ -1,6 +1,6 @@
 //! Top-level `::IO` class — a minimal write-only IO surface backing
 //! `$stdout` / `$stderr` (and indirectly the Kernel delegators in
-//! `crate::kernel`).
+//! `crate::kernel_ext`).
 //!
 //! ## Shape vs. mruby-io
 //!
@@ -71,7 +71,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // Construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr` to
     // them. Guests can reassign either global at script time, which is
     // the whole point of routing through the Kernel delegators that
-    // `crate::kernel::init` registers afterwards.
+    // `crate::kernel_ext::init` registers afterwards.
     let mode_str = mrb.str_new_cstr(c"w");
     let stdout_val = io.obj_new(mrb, &[1i32.into_value(mrb), mode_str]);
     let stderr_val = io.obj_new(mrb, &[2i32.into_value(mrb), mode_str]);

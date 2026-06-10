@@ -16,7 +16,7 @@
 //! `Mrb::open` returns `Err` and no `&Mrb` exists to call it with.
 
 mod io;
-mod kernel;
+mod kernel_ext;
 
 use beni::{Error, Gem, Mrb};
 
@@ -30,7 +30,7 @@ pub struct KobakoIo;
 impl Gem for KobakoIo {
     fn init(mrb: &Mrb) -> Result<(), Error> {
         io::init(mrb)?;
-        kernel::init(mrb)?;
+        kernel_ext::init(mrb)?;
         Ok(())
     }
 }
