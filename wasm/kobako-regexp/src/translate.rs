@@ -2,7 +2,7 @@
 //! `fancy-regex` (regex-crate) dialect.
 //!
 //! These are pure string transforms with no mruby dependency, so they are
-//! unit-tested directly on the host. Two Ruby↔regex-crate mismatches drive
+//! unit-tested directly on the host. Three Ruby↔regex-crate mismatches drive
 //! the work: Ruby's `^` / `$` always match per line (regex needs the `m`
 //! flag), Ruby `/m` means DOTALL (regex spells that `s`), and Ruby's
 //! `\d` / `\w` / `\s` are ASCII while the regex crate's are Unicode — so the

@@ -117,7 +117,7 @@ module Kobako
         end
       end
 
-      # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — An Kobako::Handle arriving as a positional or keyword
+      # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — A Kobako::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # transport call's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+.

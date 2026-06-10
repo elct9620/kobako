@@ -59,7 +59,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
       end
     end
     assert_coverage_complete
-    puts "\nfuzz coverage (seed=#{@seed}, iterations=#{@iterations}): #{@generator.coverage.inspect}"
   end
 
   private

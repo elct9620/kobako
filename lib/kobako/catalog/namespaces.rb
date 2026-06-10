@@ -28,7 +28,7 @@ module Kobako
     # installs ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
     # The registry holds an injected +Catalog::Handles+ reference so
     # dispatch target resolution and host→guest auto-wrap share the same
-    # Sandbox-owned allocator (docs/behavior.md B-19).
+    # Sandbox-owned allocator ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
     class Namespaces
       # Build a fresh registry. +handler+ is an internal seam that injects
       # a pre-configured +Catalog::Handles+; tests pass one whose +next_id+
@@ -40,7 +40,8 @@ module Kobako
         @sealed = false
       end
 
-      # Declare or retrieve the Namespace named +name+ (idempotent — docs/behavior.md B-10).
+      # Declare or retrieve the Namespace named +name+ (idempotent —
+      # {docs/behavior.md B-10}[link:../../../docs/behavior.md]).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
       # +Namespace::NAME_PATTERN+). Returns the +Kobako::Namespace+ for that
       # name, creating it if it does not exist. Raises +ArgumentError+ when
