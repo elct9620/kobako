@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
+require_relative "../errors"
 require_relative "request"
 require_relative "response"
 require_relative "yield"

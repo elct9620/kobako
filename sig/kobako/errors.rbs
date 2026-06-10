@@ -52,4 +52,9 @@ module Kobako
 
   class BytecodeError < SandboxError
   end
+
+  module Transport
+    class Error < Kobako::SandboxError
+    end
+  end
 end

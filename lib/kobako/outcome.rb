@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "outcome/panic"
-require_relative "transport/error"
+require_relative "errors"
 
 module Kobako
   # Host-facing boundary for the OUTCOME_BUFFER produced by
