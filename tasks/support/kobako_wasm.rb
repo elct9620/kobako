@@ -33,6 +33,14 @@ module KobakoWasm
   DATA_DIR  = File.join(ROOT, "data").freeze
   DATA_WASM = File.join(DATA_DIR, "kobako.wasm").freeze
 
+  # Regexp-capability Guest Binary variants. `+` separates the base
+  # binary from an appended capability; the capability token itself uses
+  # `-` (`regexp`, `regexp-unicode`). Built by `wasm:build:regexp` /
+  # `wasm:build:regexp_unicode` and shipped as downloadable Release
+  # assets — never bundled into the gem.
+  DATA_WASM_REGEXP         = File.join(DATA_DIR, "kobako+regexp.wasm").freeze
+  DATA_WASM_REGEXP_UNICODE = File.join(DATA_DIR, "kobako+regexp-unicode.wasm").freeze
+
   # Stage B output (produced by `rake beni:build` against
   # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`
   # default (`BENI_VENDOR_DIR` or `vendor/` at the project root) so the
@@ -44,6 +52,12 @@ module KobakoWasm
 
   def self.cargo_available?
     system("which cargo > /dev/null 2>&1")
+  end
+
+  # Shared guard for the Stage C build tasks: abort with an install hint
+  # when cargo is absent, so each task body stays a single build call.
+  def self.ensure_cargo!
+    abort "cargo not on PATH; install the Rust toolchain to build the Guest Binary" unless cargo_available?
   end
 
   # Returns WASM_TARGET if the toolchain has it provisioned, otherwise nil

@@ -17,6 +17,11 @@ class TestRegexpUtf8 < Minitest::Test
                  "=~ on a multibyte string reports the byte offset, not the char index"
   end
 
+  def test_multibyte_capture_round_trips_as_array
+    assert_equal %w[漢字 漢字], eval_regexp('"abc漢字def".match(/(漢字)/).to_a'),
+                 "a multibyte capture group must round-trip through the host wire as an Array of substrings"
+  end
+
   # docs/regexp.md RX-01: the shorthand classes are ASCII, but a negated
   # shorthand inside a character class keeps the engine's Unicode category
   # semantics. The fullwidth digit ５ (Unicode Nd, not ASCII 0-9) tells the

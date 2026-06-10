@@ -51,10 +51,12 @@ end
 # is self-contained; see tasks/wasm.rake for the Guest Binary flow.
 Dir.glob("tasks/*.rake").each { |t| load t }
 
-# data/kobako.wasm is gitignored and required by Layer 4 journey tests
-# (test/test_e2e_journeys.rb). The wasm:build task is idempotent (mtime
-# short-circuit), so this only does real work on a clean clone or when
-# the wasm crate source changes.
-task test: "wasm:build"
+# The journey tests (test/test_e2e_journeys.rb) drive the pure
+# data/kobako.wasm; the focused regexp suite (test/regexp/) drives the
+# regexp variants — the full surface on the unicode binary and the
+# Unicode-gate rejection on the no-unicode one. All three are gitignored
+# and mtime-idempotent, so this only does real work on a clean clone or
+# when the wasm sources change.
+task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode"]
 
 task default: %i[compile test rubocop steep]

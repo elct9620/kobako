@@ -40,16 +40,26 @@ kobako = { path = "../kobako" }
 # member), wired by `KobakoGuest::init_gems`.
 kobako-io = { path = "../kobako-io" }
 
-# `kobako-regexp` — Regexp / MatchData capability gem, composed into the
-# guest the same way `kobako-io` is. `unicode` enables `\p{...}` classes
-# and Unicode case folding, which `/i` patterns need.
-kobako-regexp = { path = "../kobako-regexp", features = ["unicode"] }
+# `kobako-regexp` — Regexp / MatchData capability gem. Optional: the
+# default Guest Binary ships without it (pure mruby + `kobako-io`); the
+# `regexp` / `regexp-unicode` features below compose it into the named
+# variant binaries instead.
+kobako-regexp = { path = "../kobako-regexp", optional = true }
 
 # `beni` — typed mruby wrapper; the shell only names `Mrb` / `Error`
 # in its `init_gems` hook. Archive discovery happens in `beni-sys`
 # via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
 # `rake wasm:build`).
 beni = "0.6.0"
+
+# Guest Binary variants. The default (no feature) is the pure binary;
+# `regexp` adds the kobako-regexp capability gem, and `regexp-unicode`
+# also turns on its coarse Unicode support (`\p{...}` classes and the
+# case folding `/i` patterns need). `rake wasm:build:regexp` /
+# `wasm:build:regexp_unicode` select these.
+[features]
+regexp = ["dep:kobako-regexp"]
+regexp-unicode = ["regexp", "kobako-regexp/unicode"]
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so all members share the same wasm size hygiene tuning.

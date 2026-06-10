@@ -61,17 +61,37 @@ namespace :wasm do
     # host libmruby.a.
     sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
+end
 
+# Stage C artifact tasks. A second `namespace :wasm` block (rake reopens
+# the namespace) keeps the build/clean group separate from the check/test
+# signal group above. The pure default and the two regexp variants share
+# one GuestBuilder, parameterised by cargo features and output path.
+namespace :wasm do
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
   task build: ["beni:build"] do
-    abort "cargo not on PATH; install Rust toolchain to run wasm:build" unless KobakoWasm.cargo_available?
+    KobakoWasm.ensure_cargo!
     KobakoWasm::GuestBuilder.new.build
   end
 
-  desc "Remove data/kobako.wasm and the wasm crate target/ cache"
+  desc "Build the regexp variant Guest Binary (data/kobako+regexp.wasm; no Unicode)"
+  task "build:regexp" => ["beni:build"] do
+    KobakoWasm.ensure_cargo!
+    KobakoWasm::GuestBuilder.new(features: ["regexp"], output: KobakoWasm::DATA_WASM_REGEXP).build
+  end
+
+  desc "Build the regexp+unicode variant Guest Binary (data/kobako+regexp-unicode.wasm)"
+  task "build:regexp_unicode" => ["beni:build"] do
+    KobakoWasm.ensure_cargo!
+    KobakoWasm::GuestBuilder.new(features: ["regexp-unicode"], output: KobakoWasm::DATA_WASM_REGEXP_UNICODE).build
+  end
+
+  desc "Remove every Guest Binary variant and the wasm crate target/ cache"
   task :clean do
-    FileUtils.rm_f(KobakoWasm::DATA_WASM)
+    [KobakoWasm::DATA_WASM, KobakoWasm::DATA_WASM_REGEXP, KobakoWasm::DATA_WASM_REGEXP_UNICODE].each do |wasm|
+      FileUtils.rm_f(wasm)
+    end
     FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)
-    puts "[wasm:clean] removed #{KobakoWasm::DATA_WASM} and #{KobakoWasm::CRATE_TARGET_DIR}"
+    puts "[wasm:clean] removed the Guest Binary variants and #{KobakoWasm::CRATE_TARGET_DIR}"
   end
 end

@@ -874,35 +874,9 @@ class TestE2EJourneys < Minitest::Test
                  "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"
   end
 
-  # ── Regexp named captures ───────────────────────────────────────────
-  #
-  # kobako-regexp backs Regexp (mruby 4.0 ships no built-in Regexp). A
-  # named-group pattern must compile, match, and expose its captures both
-  # by Symbol index and as a name→value Hash; these journeys exercise the
-  # construction+match path and the named-capture lookup path through the
-  # public #eval API.
-
-  # A named-capture pattern must compile, match, and yield the captured
-  # substring by Symbol index — the exact path that hard-trapped before.
-  def test_named_capture_lookup_returns_captured_substring
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('/(?<num>\d+)/.match("abc123")[:num]')
-
-    assert_equal "123", result,
-                 "a named-capture Regexp through #eval must compile, match, and return the captured substring by name"
-  end
-
-  # MatchData#named_captures returns the name→value Hash, pinning the
-  # enumeration angle rather than single-name lookup.
-  def test_named_captures_returns_name_to_value_hash
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('/(?<area>\d+)-(?<line>\d+)/.match("555-1234").named_captures')
-
-    assert_equal({ "area" => "555", "line" => "1234" }, result,
-                 "MatchData#named_captures through #eval must return every named group as a name→value Hash")
-  end
+  # Regexp coverage lives in test/regexp/ against the regexp variant
+  # Guest Binaries — the pure data/kobako.wasm this suite drives ships
+  # without kobako-regexp, so its named-capture journeys moved there.
 
   # Reassigning $stdout inside a #run must not bleed into the next
   # #run — each invocation rebuilds the mruby state and reinstalls
@@ -1149,57 +1123,10 @@ class TestE2EJourneys < Minitest::Test
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
 
-  # ── Regexp — kobako-regexp backs the guest's Regexp surface; the method
-  #    surface itself is pinned by the focused suite under test/regexp/.
-  #    These journeys keep only the wire-facing contracts: nil (not 0)
-  #    round-trip, host-side error attribution, and multibyte captures
-  #    crossing the wire. Regexp objects do NOT cross the host↔guest wire —
-  #    guests use them internally and project to wire-compatible types
-  #    (String / Integer / Array) before returning.
-
-  # +=~+ on a non-matching pattern must return +nil+, NOT 0 / -1 / false.
-  # This is the contract guest scripts rely on to write idiomatic
-  # +str =~ /pat/ or default+ conditionals; nil also has to round-trip
-  # through the host wire as Ruby +nil+, not as +Integer 0+ (a likely
-  # bug if the codec sees an unset +int+ field).
-  def test_regexp_no_match_returns_nil
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('"abc" =~ /\\d+/')
-
-    assert_nil result, "Regexp: =~ must return nil when no match"
-  end
-
-  # An invalid pattern compiled at runtime is a guest-side Ruby error
-  # (RegexpError), so it must surface to the host as +Kobako::SandboxError+
-  # — the same shape +raise "..."+ takes (see
-  # test_j01_script_ruby_error_raises_sandbox_error). The diagnostic
-  # mentions "invalid regular expression"; pin the substring so a future
-  # rewording surfaces here.
-  def test_regexp_invalid_pattern_raises_sandbox_error
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('Regexp.new("(unclosed")')
-    end
-
-    assert_equal "sandbox", err.origin
-    assert_match(/invalid regular expression/i, err.message,
-                 "Regexp: invalid pattern must surface the guest RegexpError diagnostic")
-  end
-
-  # kobako-regexp matches against UTF-8 bytes directly. A literal pattern
-  # matching a multibyte string proves multibyte literals compile and the
-  # captured substrings round-trip through the host wire intact.
-  def test_regexp_matches_utf8_string_literal
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('"abc漢字def".match(/(漢字)/).to_a')
-
-    assert_equal %w[漢字 漢字], result,
-                 "Regexp: UTF-8 string match must round-trip multibyte " \
-                 "captures across the host wire"
-  end
+  # Regexp lives in the kobako-regexp variant binaries, not the pure
+  # data/kobako.wasm this suite drives; its full surface — including the
+  # wire-facing contracts (=~ nil round-trip, invalid-pattern attribution,
+  # multibyte capture) — is pinned in test/regexp/ against those variants.
 
   # SPEC.md B-01 / E-19: a wall-clock `timeout` cap interrupts an
   # infinite loop at the next guest safepoint after the deadline. The
