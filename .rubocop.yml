@@ -17,9 +17,7 @@ Style/StringLiteralsInInterpolation:
 Metrics/ClassLength:
   Exclude:
     - "test/test_e2e_journeys.rb"
-    - "test/catalog/test_handler.rb"
     - "test/transport/test_dispatcher.rb"
-    - "test/test_namespace_binding.rb"
     - "test/test_codec.rb"
     - "test/transport/test_envelope.rb"
     # WireValueGenerator owns ten generation concerns (ints / floats /
@@ -50,19 +48,6 @@ Metrics/BlockLength:
 Layout/LineLength:
   Exclude:
     - "*.gemspec"
-
-# The `__kobako_run` dispatch wrapper in wasm/kobako-wasm/src/abi/dispatch_wrapper.rb
-# reads three guest-side globals (`$__kobako_run_target__`, `_args__`,
-# `_kwargs__`) that the host's `Instance#run` path stashes via mruby's
-# C API before evaluating the wrapper. The names are part of the
-# Rust ↔ mruby wire ABI; renaming them would break the dispatch flow.
-# Listed by exact identifier so any other accidental global still gets
-# flagged.
-Style/GlobalVars:
-  AllowedVariables:
-    - $__kobako_run_target__
-    - $__kobako_run_args__
-    - $__kobako_run_kwargs__
 
 # ruby/rbs upstream documents `class X < Data.define(...)` as the
 # Steep-friendly form for typed Value Objects — the assignment form
