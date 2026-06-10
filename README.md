@@ -322,6 +322,8 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 
 Construct one Sandbox at boot so the ~600 ms JIT cost lands off the request hot path. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 7-8k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
 
+Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#10` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4× `match?` (~1.2 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
+
 ```bash
 bundle exec rake bench  # six gated regression benchmarks (~5-8 min)
 ```

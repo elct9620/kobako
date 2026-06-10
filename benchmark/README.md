@@ -259,6 +259,24 @@ External RSS sampling (`ps -o rss=`) only — never reaches inside the Sandbox's
 
 Budget ~140 MB up front per worker process plus ~570 KB per concurrent tenant; **1 000 tenants ≈ 705 MB** in one Ruby process. First-Sandbox RSS swings ~30 % run-to-run with host process load and allocator state, so treat it as a range.
 
+#### Regexp engine ([`regexp.rb`](regexp.rb))
+
+Regexp is an opt-in capability gem, excluded from the gated default binary, so this suite runs against the `+regexp-unicode` variant and never blocks release. Each row is a 1 000-iteration loop over a 25-byte subject, captured 2026-06-10 on `870fdc4`.
+
+| Scenario                                                   | Throughput | Per op           |
+|------------------------------------------------------------|------------|------------------|
+| `=~` literal in a loop (recompiles each iteration)         | 166 i/s    | 6.0 µs / match   |
+| `=~` hoisted (compiled once)                               | 196 i/s    | 5.1 µs / match   |
+| `match?` hoisted                                           | 824 i/s    | 1.2 µs / match   |
+| `Regexp.compile` ×1 000, no match                          | 767 i/s    | 1.3 µs / compile |
+| empty 1 000-loop (overhead only)                           | 2.44k i/s  | 0.4 µs           |
+| capturing `match`                                          | 172 i/s    | 5.8 µs / match   |
+| `scan` every word of a sentence                            | 233 i/s    | 4.3 µs / scan    |
+| `gsub` upcasing every word (block)                         | 23 i/s     | 43 µs / gsub     |
+| `split` on a delimiter pattern                             | 334 i/s    | 3.0 µs / split   |
+
+`=~` costs ~4× `match?` because it eagerly builds the `MatchData` and refreshes the match globals every call, which `match?` skips — reach for `match?` for boolean tests. The literal-in-loop vs hoisted gap stays small because the RX-08 per-invocation compile cache absorbs mruby's recompile-per-literal.
+
 ## What changed vs previous baseline
 
 Diff against the immediately previous baseline only; pre-history lives in `benchmark/results/<date>-<sha>.json` and release-tagged `benchmark/<semver>` annotated tags.
