@@ -465,9 +465,9 @@ fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     }
 }
 
-/// Require a `Regexp` operand for `String#match` / `#match?`, mirroring the C
-/// string-ext that forwards to the pattern's own `#match` — a String is not
-/// coerced, so a non-`Regexp` raises `TypeError`.
+/// Require a `Regexp` operand for `String#match` / `#match?` before
+/// forwarding to the pattern's own `#match` — a String is not coerced, so a
+/// non-`Regexp` raises `TypeError`.
 pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         Ok(arg)
