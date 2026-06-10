@@ -2,9 +2,9 @@
 //! take a regexp pattern, routed through the engine.
 //!
 //! `=~` / `match` / `match?` / `gsub` / `sub` / `scan` are defined outright
-//! (a String pattern compiles through `Regexp`). `[]` / `slice` / `index` /
-//! `split` keep their non-regexp behaviour by aliasing the core method and
-//! delegating to it whenever the argument is not a `Regexp`.
+//! (a String pattern compiles through `Regexp`). `[]` / `[]=` / `slice` /
+//! `slice!` / `index` / `split` keep their non-regexp behaviour by delegating
+//! back to the preserved core methods whenever the argument is not a `Regexp`.
 
 use crate::errors::{argument_error, index_error, type_error};
 use crate::regexp;
@@ -13,8 +13,9 @@ use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.class_get(c"String")?;
-    // Preserve each core method under a private name before overriding it,
-    // so the non-Regexp dispatch path can delegate back to the original.
+    // Preserve each core method under a `__kobako_`-prefixed public alias
+    // before overriding it, so the non-Regexp dispatch path can delegate
+    // back to the original.
     cls.alias_method(mrb, c"__kobako_aref", c"[]")?;
     cls.alias_method(mrb, c"__kobako_aset", c"[]=")?;
     cls.alias_method(mrb, c"__kobako_index", c"index")?;
