@@ -138,6 +138,8 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 
 **Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. `Kobako::Handle` (0x01) and `Kobako::Fault` (0x02) are consumed almost entirely by Transport, yet sit at the root because `Codec` — below Transport — must register them; nesting them under `Transport` would force `Codec` to depend upward. When unsure, put the type at the **lowest tier that needs it**.
 
+**Accepted lateral edge:** `Outcome` requires `transport/error.rb`. The `Kobako::Transport::Error` name is SPEC-pinned (SPEC.md "Wire-level error class"), so the class stays at its namespace path; the file itself depends only on root `errors.rb`, so the edge cannot close into a cycle. Do not relocate the definition to "fix" this.
+
 ### `ext/` tier stack (Rust native ext, host)
 
 `runtime.rs` (module root) owns the `Kobako::Runtime` magnus class and drives the tiers below it; `Kobako::Snapshot` (`src/snapshot.rs`) is the ext's **root** value object — pure per-invocation carrier (`return_bytes` + capture + usage).
