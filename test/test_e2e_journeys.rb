@@ -1149,44 +1149,13 @@ class TestE2EJourneys < Minitest::Test
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
 
-  # ── Regexp — kobako-regexp backs the guest's Regexp surface. These
-  #    journeys cover what a guest script needs: literal compilation,
-  #    +=~+ index return, +String#match+ → MatchData, and runtime
-  #    +Regexp.new+. Regexp objects do NOT cross the host↔guest wire —
+  # ── Regexp — kobako-regexp backs the guest's Regexp surface; the method
+  #    surface itself is pinned by the focused suite under test/regexp/.
+  #    These journeys keep only the wire-facing contracts: nil (not 0)
+  #    round-trip, host-side error attribution, and multibyte captures
+  #    crossing the wire. Regexp objects do NOT cross the host↔guest wire —
   #    guests use them internally and project to wire-compatible types
   #    (String / Integer / Array) before returning.
-
-  def test_regexp_literal_eq_tilde_returns_match_index
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('"hello-2026-mruby" =~ /\\d{4}/')
-
-    assert_equal 6, result,
-                 "Regexp: =~ must return the byte index of the first match"
-  end
-
-  def test_regexp_string_match_returns_capture_groups
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval('"abc123def".match(/(\\d+)/).to_a')
-
-    assert_equal %w[123 123], result,
-                 "Regexp: String#match must yield MatchData populated " \
-                 "with the captured groups (full match + group 1)"
-  end
-
-  def test_regexp_runtime_compilation
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    result = sandbox.eval(<<~RUBY)
-      pattern = Regexp.new("a(b+)c")
-      pattern.match("xxabbbcxx")[1]
-    RUBY
-
-    assert_equal "bbb", result,
-                 "Regexp.new: dynamic Regexp construction must round-trip " \
-                 "through the host and yield captures inside the guest"
-  end
 
   # +=~+ on a non-matching pattern must return +nil+, NOT 0 / -1 / false.
   # This is the contract guest scripts rely on to write idiomatic
