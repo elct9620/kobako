@@ -5,9 +5,11 @@ mruby guests, built on [beni](https://crates.io/crates/beni).
 
 Backs guest `Regexp` and `MatchData` with the pure-Rust
 [`fancy-regex`](https://crates.io/crates/fancy-regex) engine, defined
-entirely through the `beni` typed wrapper — no mrblib, no C mrbgem. A
-Guest Binary shell composes it as an optional capability gem the same way
-it composes `kobako-io`.
+entirely through the `beni` typed wrapper — no mrblib, no C mrbgem.
+
+Unlike the always-present `kobako-io`, a guest shell composes this gem
+only when it needs `Regexp` / `MatchData`; it is meant to ship as its own
+Guest Binary variant rather than as part of the default guest.
 
 The Ruby-visible surface tracks the curated regexp engine's coverage, not
 the full CRuby `Regexp` / `MatchData` API: there are no `Encoding`
