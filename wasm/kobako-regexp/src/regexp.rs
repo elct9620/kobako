@@ -20,11 +20,12 @@ pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
 use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
+use std::rc::Rc;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
 /// report without an engine getter.
 pub(crate) struct RegexpState {
-    regex: fancy_regex::Regex,
+    regex: Rc<fancy_regex::Regex>,
     source: String,
     options: i64,
 }
@@ -84,9 +85,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 }
 
 /// `initialize_copy` — the body mruby's `dup` / `clone` run on the freshly
-/// allocated bare copy (SPEC.md B-41). The compiled pattern is `Clone`, so
-/// install a clone of `other`'s state instead of recompiling; without this the
-/// copy would carry no payload and every accessor would fail.
+/// allocated bare copy (SPEC.md B-41). The copy reuses `other`'s compiled
+/// pattern instead of recompiling; without this the copy would carry no payload
+/// and every accessor would fail.
 fn rx_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
     let other = mrb.get_args::<format::O>();
     if let Some(state) = other.data_get(mrb, &REGEXP_TYPE) {
@@ -143,7 +144,7 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
             Ok(cls.data_wrap(
                 mrb,
                 RegexpState {
-                    regex,
+                    regex: Rc::new(regex),
                     source,
                     options,
                 },
