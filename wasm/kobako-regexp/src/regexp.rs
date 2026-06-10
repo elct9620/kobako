@@ -2,9 +2,12 @@
 //! `fancy_regex::Regex` plus the source and MRI option bits (SPEC.md B-41).
 //!
 //! `Regexp.compile` is the entry a `/.../ ` literal compiles to, so it and
-//! `Regexp.new` are singleton methods that build the carrier directly. Each
-//! successful match refreshes the `$~` / `$1..$9` / `$&` / `` $` `` / `$'`
-//! globals, mirroring the curated regexp engine's always-on behaviour.
+//! `Regexp.new` are singleton methods that build the carrier directly —
+//! through a bounded per-invocation cache (RX-08) that lets an identical
+//! pattern reuse its compiled engine instead of rebuilding it every time the
+//! literal is evaluated. Each successful match refreshes the `$~` / `$1..$9` /
+//! `$&` / `` $` `` / `$'` globals, mirroring the curated regexp engine's
+//! always-on behaviour.
 //!
 //! This file owns the class surface; the helpers fan out per responsibility:
 //! `globals` (match-global refresh), `render` (inspect / to_s / escape
@@ -20,6 +23,9 @@ pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
 use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
+use lru::LruCache;
+use std::cell::RefCell;
+use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
@@ -31,6 +37,37 @@ pub(crate) struct RegexpState {
 }
 
 static REGEXP_TYPE: DataType<RegexpState> = DataType::new(c"Kobako::Regexp");
+
+/// Per-invocation memoization of compiled patterns (docs/regexp.md RX-08),
+/// keyed by `(source, options)`. Bounded so it cannot grow without limit within
+/// an invocation; rooted on an interpreter global, it is freed with the
+/// interpreter when the invocation ends.
+struct CompileCache {
+    entries: RefCell<LruCache<(String, i64), Rc<fancy_regex::Regex>>>,
+}
+
+static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
+
+/// The interpreter global the compile cache hangs from, keeping it reachable
+/// for the GC until the interpreter closes.
+const COMPILE_CACHE_GVAR: &core::ffi::CStr = c"$__kobako_regexp_compile_cache";
+
+impl CompileCache {
+    fn new() -> Self {
+        Self {
+            entries: RefCell::new(LruCache::new(cache_capacity())),
+        }
+    }
+}
+
+/// Compiled-pattern cache capacity — 64 by default, overridable at build time
+/// with `KOBAKO_REGEXP_CACHE_CAP` to trade guest memory for fewer recompiles.
+fn cache_capacity() -> NonZeroUsize {
+    option_env!("KOBAKO_REGEXP_CACHE_CAP")
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .and_then(NonZeroUsize::new)
+        .unwrap_or(NonZeroUsize::new(64).expect("64 is non-zero"))
+}
 
 /// Define the `Regexp` class, its option constants, and its methods.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -81,6 +118,13 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
         c"initialize_copy",
         beni::method!(rx_initialize_copy, -1),
     )?;
+
+    // Install the per-invocation compile cache (RX-08), rooted on an interpreter
+    // global so the GC keeps it alive for the invocation and frees it at close.
+    let cache = mrb
+        .object_class()
+        .data_wrap(mrb, CompileCache::new(), &COMPILE_CACHE_TYPE);
+    mrb.gv_set(mrb.intern_cstr(COMPILE_CACHE_GVAR), cache);
     Ok(())
 }
 
@@ -129,30 +173,71 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 /// Build a `Regexp` carrier from an owned `source` and MRI `options`,
 /// raising `RegexpError` on an invalid pattern. The canonical construction
 /// path shared by `Regexp.new` / `Regexp.compile` and the String-method
-/// coercion of a non-`Regexp` pattern, so both build through the engine
-/// directly instead of re-dispatching to Ruby `Regexp.new`.
+/// coercion of a non-`Regexp` pattern. It consults the per-invocation compile
+/// cache (RX-08) first, so an identical pattern reuses its compiled engine
+/// instead of rebuilding it.
 fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
+    if let Some(regex) = cache_get(mrb, &source, options) {
+        return Ok(wrap_regexp(mrb, regex, source, options));
+    }
     let pattern = translate::build_pattern(&source, options);
     match fancy_regex::RegexBuilder::new(&pattern)
         .backtrack_limit(BACKTRACK_LIMIT)
         .build()
     {
         Ok(regex) => {
-            let cls = mrb
-                .class_get(c"Regexp")
-                .expect("Regexp is defined at gem init");
-            Ok(cls.data_wrap(
-                mrb,
-                RegexpState {
-                    regex: Rc::new(regex),
-                    source,
-                    options,
-                },
-                &REGEXP_TYPE,
-            ))
+            let regex = Rc::new(regex);
+            cache_put(mrb, source.clone(), options, &regex);
+            Ok(wrap_regexp(mrb, regex, source, options))
         }
         Err(error) => Err(regexp_error(mrb, &source, &error.to_string())),
     }
+}
+
+/// Wrap a compiled pattern — freshly built or shared from the cache — as a new
+/// `Regexp` object carrying its own `source` and `options`.
+fn wrap_regexp(mrb: &Mrb, regex: Rc<fancy_regex::Regex>, source: String, options: i64) -> Value {
+    let cls = mrb
+        .class_get(c"Regexp")
+        .expect("Regexp is defined at gem init");
+    cls.data_wrap(
+        mrb,
+        RegexpState {
+            regex,
+            source,
+            options,
+        },
+        &REGEXP_TYPE,
+    )
+}
+
+/// Run `f` against the per-invocation compile cache when it is installed.
+fn with_compile_cache<R>(mrb: &Mrb, f: impl FnOnce(&CompileCache) -> R) -> Option<R> {
+    let value = mrb.gv_get(mrb.intern_cstr(COMPILE_CACHE_GVAR));
+    value.data_get(mrb, &COMPILE_CACHE_TYPE).map(f)
+}
+
+/// The engine cached for `(source, options)`, if present.
+fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Rc<fancy_regex::Regex>> {
+    with_compile_cache(mrb, |cache| {
+        cache
+            .entries
+            .borrow_mut()
+            .get(&(source.to_string(), options))
+            .cloned()
+    })
+    .flatten()
+}
+
+/// Remember `regex` for `(source, options)`, evicting the least-recently-used
+/// entry when the cache is full.
+fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Rc<fancy_regex::Regex>) {
+    with_compile_cache(mrb, |cache| {
+        cache
+            .entries
+            .borrow_mut()
+            .put((source, options), Rc::clone(regex));
+    });
 }
 
 /// Resolve the optional flags argument to the MRI option mask.

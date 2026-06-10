@@ -28,6 +28,11 @@ beni = "0.6.0"
 # only by default; `unicode` is opt-in.
 fancy-regex = { version = "0.18", default-features = false, features = ["std"] }
 
+# Bounded LRU for the per-invocation compiled-pattern cache (docs/regexp.md
+# RX-08). Its default hashbrown backend keeps the hot-path lookup fast; the
+# cache exists for speed, so the small size cost over std HashMap is worth it.
+lru = "0.18"
+
 [features]
 # Unicode property classes (`\p{...}`) and case-insensitive matching.
 # fancy-regex's `unicode` feature is coarse: with it OFF the engine rejects
