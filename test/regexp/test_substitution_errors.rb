@@ -33,9 +33,7 @@ class TestRegexpSubstitutionErrors < Minitest::Test
   end
 
   def test_sub_without_block_or_replacement_raises_argument_error
-    assert_equal "ArgumentError",
-                 eval_regexp('begin; "aa".sub(/a/); "substituted"; ' \
-                             'rescue ArgumentError; "ArgumentError"; rescue => e; e.class.to_s; end'),
+    assert_equal "ArgumentError", guard_error('"aa".sub(/a/)', "ArgumentError"),
                  "sub with neither a block nor a replacement raises ArgumentError"
   end
 end

@@ -10,23 +10,17 @@ class TestRegexpMatchDataBounds < Minitest::Test
   include RegexpGuestHelper
 
   def test_begin_out_of_range_raises_index_error
-    assert_equal "IndexError",
-                 eval_regexp('begin; /(\d)/.match("a1").begin(5); "got"; ' \
-                             'rescue IndexError; "IndexError"; rescue => e; e.class.to_s; end'),
+    assert_equal "IndexError", guard_error('/(\d)/.match("a1").begin(5)', "IndexError"),
                  "MatchData#begin raises IndexError for an index past the group count"
   end
 
   def test_end_out_of_range_raises_index_error
-    assert_equal "IndexError",
-                 eval_regexp('begin; /(\d)/.match("a1").end(5); "got"; ' \
-                             'rescue IndexError; "IndexError"; rescue => e; e.class.to_s; end'),
+    assert_equal "IndexError", guard_error('/(\d)/.match("a1").end(5)', "IndexError"),
                  "MatchData#end raises IndexError for an index past the group count"
   end
 
   def test_offset_out_of_range_raises_index_error
-    assert_equal "IndexError",
-                 eval_regexp('begin; /(\d)/.match("a1").offset(2); "got"; ' \
-                             'rescue IndexError; "IndexError"; rescue => e; e.class.to_s; end'),
+    assert_equal "IndexError", guard_error('/(\d)/.match("a1").offset(2)', "IndexError"),
                  "MatchData#offset raises IndexError for an index past the group count"
   end
 

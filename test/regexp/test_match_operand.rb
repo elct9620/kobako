@@ -10,22 +10,18 @@ require "test_helper"
 class TestMatchOperand < Minitest::Test
   include RegexpGuestHelper
 
-  def guard(code)
-    eval_regexp("begin; #{code}; rescue TypeError; 'TypeError'; rescue => e; e.class.to_s; end")
-  end
-
   def test_match_predicate_raises_type_error_on_integer_subject
-    assert_equal "TypeError", guard("/2/.match?(123)"),
+    assert_equal "TypeError", guard_error("/2/.match?(123)", "TypeError"),
                  "a non-String/Symbol subject through Regexp#match? must raise TypeError"
   end
 
   def test_match_raises_type_error_on_integer_subject
-    assert_equal "TypeError", guard("/2/.match(123)"),
+    assert_equal "TypeError", guard_error("/2/.match(123)", "TypeError"),
                  "a non-String/Symbol subject through Regexp#match must raise TypeError"
   end
 
   def test_match_operator_raises_type_error_on_integer_subject
-    assert_equal "TypeError", guard("/2/ =~ 123"),
+    assert_equal "TypeError", guard_error("/2/ =~ 123", "TypeError"),
                  "a non-String/Symbol subject through Regexp#=~ must raise TypeError"
   end
 
@@ -55,12 +51,12 @@ class TestMatchOperand < Minitest::Test
   end
 
   def test_string_match_raises_type_error_on_string_pattern
-    assert_equal "TypeError", guard('"axc".match?(".")'),
+    assert_equal "TypeError", guard_error('"axc".match?(".")', "TypeError"),
                  "a String pattern through String#match? must raise TypeError (not coerced, mirroring C)"
   end
 
   def test_string_match_raises_type_error_on_integer_pattern
-    assert_equal "TypeError", guard('"s".match?(123)'),
+    assert_equal "TypeError", guard_error('"s".match?(123)', "TypeError"),
                  "a non-Regexp pattern through String#match? must raise TypeError"
   end
 end

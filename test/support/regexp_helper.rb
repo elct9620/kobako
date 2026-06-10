@@ -19,4 +19,14 @@ module RegexpGuestHelper
   def eval_regexp(code)
     Kobako::Sandbox.new(wasm_path: REGEXP_WASM).eval(code)
   end
+
+  # Evaluate +code+ expecting it to raise +expected+ (a guest exception
+  # class name): returns that name on the expected raise, the actual class
+  # name on any other raise, and +fallthrough+ when nothing raises — so an
+  # assertion failure names what really happened.
+  def guard_error(code, expected, fallthrough: "no-error")
+    eval_regexp("begin; #{code}; #{fallthrough.inspect}; " \
+                "rescue #{expected}; #{expected.inspect}; " \
+                "rescue => e; e.class.to_s; end")
+  end
 end

@@ -85,10 +85,7 @@ class TestRegexpMatchData < Minitest::Test
   # returned MatchData would surface a host codec error regardless, so this
   # asserts the guest-visible NoMethodError rather than the wire failure).
   def test_new_is_not_constructible
-    assert_equal "NoMethodError",
-                 eval_regexp("begin; MatchData.new; 'constructed'; " \
-                             "rescue NoMethodError; 'NoMethodError'; " \
-                             "rescue => e; e.class.to_s; end"),
+    assert_equal "NoMethodError", guard_error("MatchData.new", "NoMethodError"),
                  "MatchData.new raises NoMethodError instead of constructing"
   end
 end

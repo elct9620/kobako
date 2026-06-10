@@ -35,16 +35,12 @@ class TestRegexpStringSubstitution < Minitest::Test
   end
 
   def test_gsub_undefined_named_backreference_raises_index_error
-    assert_equal "IndexError",
-                 eval_regexp('begin; "a1".gsub(/\d/, \'\k<x>\'); "expanded"; ' \
-                             'rescue IndexError; "IndexError"; rescue => e; e.class.to_s; end'),
+    assert_equal "IndexError", guard_error('"a1".gsub(/\d/, \'\k<x>\')', "IndexError"),
                  "an undefined \\k<name> backreference raises IndexError"
   end
 
   def test_gsub_malformed_named_backreference_raises_regexp_error
-    assert_equal "RegexpError",
-                 eval_regexp('begin; "a1".gsub(/\d/, \'\k\'); "expanded"; ' \
-                             'rescue RegexpError; "RegexpError"; rescue => e; e.class.to_s; end'),
+    assert_equal "RegexpError", guard_error('"a1".gsub(/\d/, \'\k\')', "RegexpError"),
                  "a \\k not followed by <name> raises RegexpError"
   end
 

@@ -24,9 +24,7 @@ class TestRegexpMatchDataAref < Minitest::Test
   end
 
   def test_aref_with_undefined_name_raises_index_error
-    assert_equal "IndexError",
-                 eval_regexp('begin; /(\d)/.match("a1")[:nope]; "got"; ' \
-                             'rescue IndexError; "IndexError"; rescue => e; e.class.to_s; end'),
+    assert_equal "IndexError", guard_error('/(\d)/.match("a1")[:nope]', "IndexError"),
                  "MatchData#[] with an undefined capture name raises IndexError"
   end
 end

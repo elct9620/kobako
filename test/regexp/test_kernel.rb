@@ -26,9 +26,7 @@ class TestRegexpKernel < Minitest::Test
   # MRI's String#=~ rejects a String operand (a literal is not a pattern) and
   # dispatches any other operand to its own =~ (which falls to Kernel#=~).
   def test_string_match_operator_with_string_raises_type_error
-    assert_equal "TypeError",
-                 eval_regexp('begin; "x" =~ "y"; "no-error"; ' \
-                             "rescue TypeError; 'TypeError'; rescue => e; e.class.to_s; end"),
+    assert_equal "TypeError", guard_error('"x" =~ "y"', "TypeError"),
                  "String#=~ with a String operand raises TypeError"
   end
 
