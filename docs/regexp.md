@@ -30,14 +30,13 @@ no match, or a `Symbol`). A bare `Regexp` or `MatchData` in a returned
 position is a non-wire value governed by the ordinary return-value semantics
 (B-06).
 
-The baseline is the C `mruby-onig-regexp` gem: the surface is exactly what that
-gem exposes — its native `Regexp` / `MatchData` methods and the `String`
-integration its mrblib (string-ext) defines — reproduced here over fancy-regex.
-Nothing outside that surface is added, and a capability the C gem does not
-support is not added even when MRI has it. Within that boundary, where the C
-gem's behavior differs from MRI the behavior follows MRI. There are no
-`Encoding` objects; match offsets and substring slices are byte-based, and the
-matching engine is an implementation choice below this contract.
+The surface is a curated subset of MRI's `Regexp` / `MatchData` API and the
+`String` integration around it — exactly the constructs catalogued under
+Surface below — implemented over fancy-regex. Nothing outside that set is
+added even when MRI has it; within the set the behavior follows MRI except
+where a behavior below states otherwise. There are
+no `Encoding` objects; match offsets and substring slices are byte-based, and
+the matching engine is an implementation choice below this contract.
 
 ## Scope
 
@@ -73,7 +72,7 @@ The guest sees exactly these constructs.
 |----------|--------------|
 | The full CRuby `Regexp` / `MatchData` API | only the curated Surface above |
 | `Encoding` objects; character-based offsets | byte-based offsets and slices |
-| Onigmo engine-intrinsic surface — option constants beyond `IGNORECASE` / `EXTENDED` / `MULTILINE`, `Regexp.version`, and the `set_global_variables` toggle family | the MRI-aligned `Regexp#options` bits and always-on match globals |
+| Engine-intrinsic surface — option constants beyond `IGNORECASE` / `EXTENDED` / `MULTILINE`, `Regexp.version`, and the `set_global_variables` toggle family | the MRI-aligned `Regexp#options` bits and always-on match globals |
 
 ## Behavior
 
@@ -185,7 +184,7 @@ argument delegates to the core method.
 | Member | Behavior |
 |--------|----------|
 | `#=~` | matches a `Regexp` operand and returns the index or `nil`; a `String` operand raises `TypeError`; any other receiver falls through to `Kernel#=~` (`nil`) |
-| `#match` / `#match?` | forward `self` to the pattern's `#match` / `#match?`; the pattern is a `Regexp` and a non-`Regexp` raises `TypeError` (a String is not coerced, mirroring the C string-ext); `#match` forwards a block |
+| `#match` / `#match?` | forward `self` to the pattern's `#match` / `#match?`; the pattern is a `Regexp` and a non-`Regexp` raises `TypeError` (a String is not coerced into a pattern); `#match` forwards a block |
 | `#index(pattern[, pos])` | the byte offset of the first match at or after `pos` (handled as the RX-02 position argument), or `nil` |
 | `#[]` / `#slice` | with a `Regexp` (and optional group) returns the matched substring or that capture |
 | `#[]=` | overwrites the matched region — the whole match, or capture group `n` — and raises `IndexError` on no match |
@@ -193,18 +192,3 @@ argument delegates to the core method.
 
 A non-`Regexp` argument to `#index` / `#[]` / `#[]=` / `#slice!` delegates to
 the core String method.
-
-### RX-07 — Divergences from the originating C engine
-
-The curated subset follows MRI where it disagrees with the original C
-`mruby-onig-regexp` engine. For a reader familiar with that engine, the
-contract departs from it at these points.
-
-| Behavior | This contract (MRI) | C `mruby-onig-regexp` |
-|----------|---------------------|-----------------------|
-| A negative match position (RX-02) | counts from the end of the subject | matches nothing |
-| `String#=~` with a String operand (RX-06) | raises `TypeError` | compiles the String as a pattern and matches |
-| `Regexp.escape` of a vertical tab (RX-01) | escapes it to `\v` | leaves it literal |
-| `$+` for a group-less match (RX-02) | `nil` | the whole match |
-| `Regexp#options` (RX-01) | the MRI option bits (`1` / `2` / `4`) | the Onigmo internal option mask |
-| `MatchData#begin` / `#end` / `#offset` of a non-participating group (RX-03) | `nil` | a raw offset rather than `nil` |
