@@ -1,7 +1,8 @@
 name: Release Crate
 
-# Publishes the guest crates (`kobako-core`, `kobako-io`, `kobako`)
-# from the `wasm/` sub-workspace to crates.io. Split from
+# Publishes the guest crates (`kobako-core`, `kobako-io`,
+# `kobako-regexp`, `kobako`) from the `wasm/` sub-workspace to
+# crates.io. Split from
 # `release.yml` by release type: that workflow ships the Ruby gem
 # family, this one ships crates. The manual-recovery shape mirrors
 # the gem's — `workflow_dispatch` defaults `push` to false, so a bare
@@ -54,6 +55,7 @@ jobs:
         run: |
           cargo publish -p kobako-core --dry-run
           cargo publish -p kobako-io --dry-run
+          cargo publish -p kobako-regexp --dry-run
           cargo publish -p kobako --dry-run
       # Trusted Publishing: exchange the workflow's OIDC token for a
       # short-lived crates.io token (the crates.io counterpart of the
@@ -65,16 +67,17 @@ jobs:
         id: auth
       # Dependency order: kobako depends on kobako-core, so it goes
       # last — `cargo publish` waits for each crate to land in the
-      # index before returning. The already-published check makes a
-      # re-run after a partial failure resume instead of dying on
-      # "version already uploaded".
+      # index before returning. kobako-io and kobako-regexp depend only
+      # on the already-published beni, so their order is free. The
+      # already-published check makes a re-run after a partial failure
+      # resume instead of dying on "version already uploaded".
       - name: Publish to crates.io
         if: ${{ inputs.push }}
         working-directory: wasm
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
-          for crate in kobako-core kobako-io kobako; do
+          for crate in kobako-core kobako-io kobako-regexp kobako; do
             version="$(cargo metadata --no-deps --format-version 1 \
               | jq -r ".packages[] | select(.name == \"$crate\") | .version")"
             if curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \

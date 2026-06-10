@@ -19,6 +19,7 @@ jobs:
       core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
       rs_release_created: ${{ steps.release.outputs['wasm/kobako--release_created'] }}
       io_release_created: ${{ steps.release.outputs['wasm/kobako-io--release_created'] }}
+      regexp_release_created: ${{ steps.release.outputs['wasm/kobako-regexp--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -42,7 +43,7 @@ jobs:
   # together; the OR keeps the chain alive if one output ever drops.
   release-crate:
     needs: release-please
-    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created }}
+    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.regexp_release_created }}
     uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 

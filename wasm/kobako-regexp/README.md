@@ -28,3 +28,23 @@ objects, and match offsets and substring slices are byte-based.
 - A fancy pattern (backreferences, look-around) that exceeds the engine's
   backtracking limit raises `RegexpError` rather than running unbounded; the
   host sandbox's wall-clock and memory caps remain the ultimate bound.
+
+## Usage
+
+```toml
+[dependencies]
+kobako-regexp = { version = "0.3.0", features = ["unicode"] } # x-release-please-version
+beni = "0.3"
+```
+
+```rust
+mrb.init_gem::<kobako_regexp::KobakoRegexp>()?;
+```
+
+In a kobako guest shell the call lives in the `MrbGuest::init_gems`
+hook; the in-repo `kobako-wasm` shell composes it under its `regexp` /
+`regexp-unicode` features into the `kobako+regexp` Guest Binary variants.
+
+## License
+
+Apache-2.0
