@@ -472,11 +472,12 @@ fn rx_last_match(mrb: &Mrb, _self: Value) -> Value {
     mrb.gv_get(mrb.intern_cstr(c"$~"))
 }
 
-/// `Regexp.last_match=` — overwrite `$~`, letting a caller save and restore
-/// the match state around an inner match (`String#slice!` relies on this).
+/// `Regexp.last_match=` — overwrite `$~` and refresh its derived views (the
+/// numbered and special globals) so a caller can save and restore the whole
+/// match set around an inner match (`String#slice!` relies on this).
 fn rx_set_last_match(mrb: &Mrb, _self: Value) -> Value {
     let value = mrb.get_args::<format::O>();
-    mrb.gv_set(mrb.intern_cstr(c"$~"), value);
+    globals::set_last_match(mrb, value);
     value
 }
 

@@ -65,4 +65,19 @@ class TestRegexpMatchGlobals < Minitest::Test
                              "Regexp.last_match = m; Regexp.last_match[0]"),
                  "Regexp.last_match= restores a previously saved match"
   end
+
+  # The numbered globals are views of $~, so a saved-then-restored match must
+  # carry $1 with it — not leave it pinned to the intervening match.
+  def test_last_match_assignment_refreshes_numbered_globals
+    assert_equal "x",
+                 eval_regexp('"x" =~ /(x)/; m = Regexp.last_match; "yy" =~ /(y)/; ' \
+                             "Regexp.last_match = m; $1"),
+                 "$1 follows Regexp.last_match= so the numbered globals stay views of $~"
+  end
+
+  # Clearing $~ to nil clears its views too; $1 must not survive the reset.
+  def test_last_match_assignment_to_nil_clears_numbered_globals
+    assert_nil eval_regexp('"a1" =~ /(\d)/; Regexp.last_match = nil; $1'),
+               "Regexp.last_match = nil clears the numbered globals along with $~"
+  end
 end

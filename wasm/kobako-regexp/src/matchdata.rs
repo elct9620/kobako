@@ -23,6 +23,13 @@ pub(crate) struct MatchState {
 
 static MATCH_TYPE: DataType<MatchState> = DataType::new(c"Kobako::MatchData");
 
+/// Borrow the match snapshot a `MatchData` value carries, if it is one, so
+/// `Regexp.last_match=` can refresh the derived match globals from an assigned
+/// match.
+pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&MatchState> {
+    value.data_get(mrb, &MATCH_TYPE)
+}
+
 /// Wrap `state` as a fresh `MatchData`, recording `regexp` as the
 /// `@regexp` ivar so the GC keeps the originating pattern reachable.
 pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {

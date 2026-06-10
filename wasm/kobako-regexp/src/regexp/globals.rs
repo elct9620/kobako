@@ -12,9 +12,8 @@ const NUMBERED: [&CStr; 9] = [
     c"$1", c"$2", c"$3", c"$4", c"$5", c"$6", c"$7", c"$8", c"$9",
 ];
 
-/// Build a `MatchData`, bind `$~`, and refresh `$&` / `` $` `` / `$'` /
-/// `$1..$9` from a match's byte spans (`groups[0]` is the whole match);
-/// returns the `MatchData`.
+/// Build a `MatchData`, bind `$~`, and refresh the derived globals from a
+/// match's byte spans (`groups[0]` is the whole match); returns the `MatchData`.
 pub(super) fn finalize(
     mrb: &Mrb,
     regexp: Value,
@@ -32,16 +31,31 @@ pub(super) fn finalize(
         },
     );
     mrb.gv_set(mrb.intern_cstr(c"$~"), md);
+    set_derived(mrb, subject, &groups);
+    md
+}
+
+/// Set `$&` / `` $` `` / `$'` / `$+` / `$1..$9` from a match's byte spans
+/// (`groups[0]` is the whole match); does not touch `$~`. The derived globals
+/// are views of `$~`, so both `finalize` and `Regexp.last_match=` refresh them
+/// from this one routine.
+fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
     let whole = groups.first().copied().flatten();
     set_global(
         mrb,
         c"$&",
         whole.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
     );
-    if let Some((s, e)) = whole {
-        set_global(mrb, c"$`", Some(mrb.str_new(&subject.as_bytes()[..s])));
-        set_global(mrb, c"$'", Some(mrb.str_new(&subject.as_bytes()[e..])));
-    }
+    set_global(
+        mrb,
+        c"$`",
+        whole.map(|(s, _)| mrb.str_new(&subject.as_bytes()[..s])),
+    );
+    set_global(
+        mrb,
+        c"$'",
+        whole.map(|(_, e)| mrb.str_new(&subject.as_bytes()[e..])),
+    );
     // $+ is the last capture group that participated (MRI semantics): the
     // highest-numbered non-nil group, nil when the pattern has no groups.
     let last_group = groups.iter().skip(1).rev().find_map(|group| *group);
@@ -58,7 +72,18 @@ pub(super) fn finalize(
             .map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]));
         set_global(mrb, name, value);
     }
-    md
+}
+
+/// Set `$~` to `value` and refresh its derived views (`Regexp.last_match=`).
+/// A `MatchData` refreshes `$&` / `` $` `` / `$'` / `$+` / `$1..$9` from its
+/// own spans; `nil` or any non-`MatchData` leaves no captures to view, so the
+/// derived globals clear.
+pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
+    mrb.gv_set(mrb.intern_cstr(c"$~"), value);
+    match matchdata::state_of(mrb, value) {
+        Some(state) => set_derived(mrb, &state.subject, &state.groups),
+        None => clear_derived(mrb),
+    }
 }
 
 /// Refresh the match globals for a gsub/scan block from owned spans, so
@@ -73,6 +98,13 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
 /// Reset every match global to nil after a failed match.
 pub(super) fn clear_globals(mrb: &Mrb) {
     mrb.gv_set(mrb.intern_cstr(c"$~"), Value::nil());
+    clear_derived(mrb);
+}
+
+/// Reset the derived globals (`$&` / `` $` `` / `$'` / `$+` / `$1..$9`) to
+/// nil, leaving `$~` untouched — the clear half shared by a failed match and a
+/// `Regexp.last_match=` to a non-`MatchData`.
+fn clear_derived(mrb: &Mrb) {
     for name in [c"$&", c"$`", c"$'", c"$+"].iter().chain(NUMBERED.iter()) {
         set_global(mrb, name, None);
     }
