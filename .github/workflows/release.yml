@@ -81,12 +81,15 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: wasm/kobako-wasm
-      - name: Build Guest Binary (chains beni:build + wasm:build)
-        run: bundle exec rake wasm:build
+      - name: Build Guest Binary variants (pure default + regexp variants)
+        run: bundle exec rake wasm:build wasm:build:regexp wasm:build:regexp_unicode
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kobako-wasm
-          path: data/kobako.wasm
+          path: |
+            data/kobako.wasm
+            data/kobako+regexp.wasm
+            data/kobako+regexp-unicode.wasm
           retention-days: 7
           if-no-files-found: error
 
@@ -204,10 +207,11 @@ jobs:
           pattern: '*-gem*'
           merge-multiple: true
           path: pkg/
-      # The Guest Binary asset feeds `rake bench:confirm[<version>]`
-      # (paired regression arbitration against the released build); the
-      # .gem files are the RubyGems release backup.
-      - name: Attach the Guest Binary and gem backups to the release
+      # The pure Guest Binary feeds `rake bench:confirm[<version>]` (paired
+      # regression arbitration against the released build); the regexp
+      # variants are downloadables for guests that opt the capability in,
+      # and the .gem files are the RubyGems release backup.
+      - name: Attach the Guest Binary variants and gem backups to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -215,4 +219,10 @@ jobs:
         run: |
           version="${TAG#v}"
           cp wasm/kobako.wasm "kobako-${version}.wasm"
-          gh release upload "$TAG" "kobako-${version}.wasm" pkg/*.gem --clobber
+          cp "wasm/kobako+regexp.wasm" "kobako+regexp-${version}.wasm"
+          cp "wasm/kobako+regexp-unicode.wasm" "kobako+regexp-unicode-${version}.wasm"
+          gh release upload "$TAG" \
+            "kobako-${version}.wasm" \
+            "kobako+regexp-${version}.wasm" \
+            "kobako+regexp-unicode-${version}.wasm" \
+            pkg/*.gem --clobber
