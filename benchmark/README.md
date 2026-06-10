@@ -57,7 +57,7 @@ For "N-ops-in-one-invocation" cases (e.g. `2d-1000-calls-in-one-eval`) the per-o
 
 ## Latest baseline
 
-Captured on **2026-06-05** at commit `e8aee88` (the 0.8.0 release line) — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. The characterization suites (#7-#9) were not re-captured; their sections still show the `711665d` numbers.
+The anchor is `499c3a1`, captured **2026-06-10** — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. The per-suite figures below carry over from the previous `e8aee88` (2026-06-05, the 0.8.0 release line) capture except where [What changed vs previous baseline](#what-changed-vs-previous-baseline) records a shift (`4d-regexp-match-1000`, `1a-sandbox-new`, `3c-host-decode-symbol`); the characterization suites (#7-#9) still show the `711665d` numbers.
 
 ### Lifecycle & construction
 
@@ -264,24 +264,21 @@ Budget ~140 MB up front per worker process plus ~570 KB per concurrent tenant; *
 
 Diff against the immediately previous baseline only; pre-history lives in `benchmark/results/<date>-<sha>.json` and release-tagged `benchmark/<semver>` annotated tags.
 
-**Previous baseline:** `711665d`, 2026-05-27. **This baseline:** `e8aee88`, 2026-06-05 (the 0.8.0 release line).
+**Previous baseline:** `e8aee88`, 2026-06-05 (the 0.8.0 release line). **This baseline:** `499c3a1`, 2026-06-10.
 
 ### Roster / schema
 
-No roster or schema changes — this refresh is dependency-driven: wasmtime + wasmtime-wasi 44.0.1 → 45.0.0 ([`e8aee88`](https://github.com/elct9620/kobako/commit/e8aee88)) and msgpack 1.8.0 → 1.8.1.
+No roster or schema changes — the six gated suites are unchanged. This refresh accepts the regexp engine swap (the curated C `mruby-onig-regexp` dropped in favour of the pure-Rust `fancy-regex` capability gem) and the post-migration guest architecture (the `beni` wrapper and guest-crate split) accumulated since the previous baseline.
 
-### Metric deltas vs `711665d`
+### Metric deltas vs `e8aee88`
 
-| Case                                  | Previous | Current  | Status                                                                                              |
-|---------------------------------------|----------|----------|-----------------------------------------------------------------------------------------------------|
-| `3a-guest-return-512KiB` `wall_time`  | 333 µs   | 168 µs   | wasmtime 45 DRC large-array tracing ([#13192](https://github.com/bytecodealliance/wasmtime/pull/13192)) |
-| `3a-guest-return-64KiB` `wall_time`   | 143 µs   | 120 µs   | same                                                                                                  |
-| `4a-arith-100k` `wall_time`           | 42.71 ms | 36.80 ms | wasmtime 45 DRC optimizations ([#12969](https://github.com/bytecodealliance/wasmtime/pull/12969), [#12974](https://github.com/bytecodealliance/wasmtime/pull/12974)) |
-| `4b`..`4f` `wall_time`                | —        | -9..-11 % | DRC + WASI stdin read ([#13256](https://github.com/bytecodealliance/wasmtime/pull/13256))            |
-| host-side pure-Ruby rows (`3a/3b/3c-host-*`, `5a`/`5b`, `1c`) | — | -5..-14 % ips | captured under concurrent host workload; these paths never enter wasmtime — expect recovery at the next quiet capture |
-| `1b` `wall_time`                      | 257 µs   | 161 µs   | previous single-sample anomaly cleared                                                                |
+| Case                                | Previous | Current | Status                                                                                                                                                                                                                       |
+|-------------------------------------|----------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `4d-regexp-match-1000` `wall_time`  | 2.73 ms  | 6.09 ms | **accepted** — `fancy-regex` replaces Onigmo. The recompile-per-iteration cost is removed by the RX-08 per-invocation compile cache; the residual ~2.2× is `fancy-regex`'s per-match `MatchData` / globals construction. `match?` / `scan` / `gsub` are unaffected. |
+| `1a-sandbox-new` `ips`              | 7893     | ~7000   | **accepted** — Module-compile drift since the pre-migration anchor; the guest wasm changed (Onigmo C dropped, `fancy-regex` + `lru` added). Regexp-unrelated, noisy ±4 % between runs but consistently below the anchor.       |
+| `3c-host-decode-symbol` `ips`       | 1.366 M  | 1.28 M  | noise — host-only msgpack path with unchanged code; the blessed run sits inside the ±6.6 % band (a noisier capture flagged it once).                                                                                          |
 
-The guest-side wins land exactly where wasmtime 45's release notes point (DRC collector, stdin reads); everything else moved within the documented host-load variance. No gated case regressed past the anchor.
+Two-run arbitration separated the real shifts (`4d`, `1a` — both stable below the anchor) from noise (`3c` — back in-band on the second run). The `4d` shift is the deliberate cost of the regexp engine swap, bounded by the RX-08 compile cache; everything else moved within host-load variance.
 
 ## Running
 
