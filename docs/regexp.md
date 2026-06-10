@@ -38,6 +38,15 @@ where a behavior below states otherwise. There are
 no `Encoding` objects; match offsets and substring slices are byte-based, and
 the matching engine is an implementation choice below this contract.
 
+### Availability
+
+The capability is opt-in: the default Guest Binary ships without it, and a
+guest selects a regexp variant (`kobako+regexp` or `kobako+regexp-unicode`).
+The two differ by one behavior — case-insensitive matching (`IGNORECASE` /
+`/i`) needs the `-unicode` variant; on the plain `regexp` variant a
+case-insensitive pattern raises `RegexpError` at compile. The ASCII shorthand
+classes work on both.
+
 ## Scope
 
 ### Surface

@@ -42,6 +42,8 @@ Apply these in order — earlier principles override later ones on conflict.
 
 The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm.rake` — including the non-obvious linker choice). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/`, host-side `wasmtime` via `rb_sys`, not the guest).
 
+The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp is opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
+
 CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep`) is the canonical gate.
 
 ## Common Commands
@@ -51,7 +53,8 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (
 | Default CI task (compile + test + rubocop + steep) | `bundle exec rake` |
 | Run steep type check only | `bundle exec rake steep` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
-| Build Guest Binary (full chain) | `bundle exec rake wasm:build` |
+| Build Guest Binary (pure default, full chain) | `bundle exec rake wasm:build` |
+| Build regexp variants | `bundle exec rake wasm:build:regexp wasm:build:regexp_unicode` |
 | Run all Ruby tests | `bundle exec rake test` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
