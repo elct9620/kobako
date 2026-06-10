@@ -118,18 +118,22 @@ search at that byte offset; a position outside the subject yields no match,
 a negative position counts back from the end, and a position inside a
 multibyte character snaps down to its char boundary.
 
-A successful match refreshes the match globals; a miss clears them.
+A successful match sets `$~` to the `MatchData`; a miss sets `$~` to `nil`. The
+numbered and special globals are views of `$~`, so they refresh with each match,
+clear on a miss, and follow an explicit `Regexp.last_match=` — each always
+reflects the current `$~`.
 
-| Global | Value after a hit |
+| Global | Value, read from `$~` |
 |--------|-------------------|
-| `$~` | the `MatchData` |
-| `$1`..`$9` | the numbered captures |
-| `$&` | the whole match |
-| `` $` `` / `$'` | the text before / after the match |
-| `$+` | the last capture group that participated, `nil` when the pattern has no groups |
+| `$~` | the `MatchData`, or `nil` for no match |
+| `$1`..`$9` | its numbered captures |
+| `$&` | its whole match |
+| `` $` `` / `$'` | the text before / after its match |
+| `$+` | its last participating capture, `nil` when the pattern has no groups |
 
-`Regexp.last_match` reads the most recent match (`$~`); `Regexp.last_match=`
-overwrites it, letting a caller save and restore the match around an inner one.
+`Regexp.last_match` reads `$~`; `Regexp.last_match=` overwrites it, and because
+the other globals are views of `$~`, they reflect the overwrite too — so a
+caller can save and restore the whole match set around an inner match.
 
 ### RX-03 — MatchData accessors
 
