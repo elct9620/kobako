@@ -288,7 +288,7 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(pos) = match_pos(&subject, &args) else {
         return Ok(Value::nil());
     };
-    let md = do_match(mrb, self_, &subject, pos)?;
+    let md = do_match(mrb, self_, subject, pos)?;
     yield_match(mrb, md, block)
 }
 
@@ -330,7 +330,7 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::nil());
     }
     let subject = subject_string(mrb, arg)?;
-    let md = do_match(mrb, self_, &subject, 0)?;
+    let md = do_match(mrb, self_, subject, 0)?;
     if md.is_nil() {
         Ok(Value::nil())
     } else {
@@ -346,7 +346,7 @@ fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Ok(subject) = subject_string(mrb, arg) else {
         return Ok(Value::false_());
     };
-    if do_match(mrb, self_, &subject, 0)?.is_nil() {
+    if do_match(mrb, self_, subject, 0)?.is_nil() {
         Ok(Value::false_())
     } else {
         Ok(Value::true_())
@@ -495,22 +495,24 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 /// Run the pattern against `subject` from byte `pos`, building a
 /// `MatchData` and refreshing the match globals on a hit, clearing them on
 /// a miss, and raising `RegexpError` on an engine error.
-fn do_match(mrb: &Mrb, regexp: Value, subject: &str, pos: usize) -> Result<Value, Error> {
+fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Value, Error> {
     let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
         return Ok(Value::nil());
     };
-    match state.regex.captures_from_pos(subject, pos) {
+    match state.regex.captures_from_pos(&subject, pos) {
         Ok(Some(captures)) => {
             let count = state.regex.captures_len();
-            let groups = (0..count)
+            let groups: Vec<Option<(usize, usize)>> = (0..count)
                 .map(|i| captures.get(i).map(|m| (m.start(), m.end())))
                 .collect();
-            let names = state
+            let names: Vec<(String, usize)> = state
                 .regex
                 .capture_names()
                 .enumerate()
                 .filter_map(|(i, name)| name.map(|n| (n.to_string(), i)))
                 .collect();
+            // `captures` (and its borrow of `subject`) ends here, so the match
+            // can take ownership of `subject` instead of cloning it.
             Ok(globals::finalize(mrb, regexp, subject, groups, names))
         }
         Ok(None) => {

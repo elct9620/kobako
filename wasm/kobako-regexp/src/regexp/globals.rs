@@ -17,21 +17,24 @@ const NUMBERED: [&CStr; 9] = [
 pub(super) fn finalize(
     mrb: &Mrb,
     regexp: Value,
-    subject: &str,
+    subject: String,
     groups: Vec<Option<(usize, usize)>>,
     names: Vec<(String, usize)>,
 ) -> Value {
+    // Set the derived globals from borrows first, then hand the subject and
+    // group spans to the `MatchData` by move — the match owns them outright, so
+    // neither is cloned.
+    set_derived(mrb, &subject, &groups);
     let md = matchdata::build(
         mrb,
         regexp,
         MatchState {
-            subject: subject.to_owned(),
-            groups: groups.clone(),
+            subject,
+            groups,
             names,
         },
     );
     mrb.gv_set(mrb.intern_cstr(c"$~"), md);
-    set_derived(mrb, subject, &groups);
     md
 }
 
@@ -92,7 +95,9 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
     let mut groups = Vec::with_capacity(span.groups.len() + 1);
     groups.push(Some(span.whole));
     groups.extend(span.groups.iter().copied());
-    finalize(mrb, regexp, subject, groups, Vec::new());
+    // A gsub/scan block reuses one subject across iterations, so each match's
+    // `MatchData` takes its own owned copy.
+    finalize(mrb, regexp, subject.to_owned(), groups, Vec::new());
 }
 
 /// Reset every match global to nil after a failed match.
