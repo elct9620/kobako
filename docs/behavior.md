@@ -538,7 +538,7 @@ Raised when the Wasm execution engine crashes, when the wire layer detects a str
 | E-02 | Guest exited without writing any outcome bytes (`len == 0`) | Step 2: zero-length outcome bytes; wire violation fallback | `Kobako::TrapError` |
 | E-03 | Outcome first byte is an unknown tag (not `0x01` or `0x02`) | Step 2: unrecognized tag; wire violation fallback | `Kobako::TrapError` |
 | E-19 | Absolute wall-clock time since invocation entry (`Sandbox#eval` or `Sandbox#run`) reached the configured `timeout` and a guest wasm safepoint was hit thereafter (B-01) | Wasm engine reports a wall-clock interrupt at the first guest wasm safepoint after the absolute deadline; Step 1 fires | `Kobako::TimeoutError` |
-| E-20 | Cumulative guest `memory.grow` since invocation entry would push past the configured `memory_limit` (B-01) — the mruby image's initial allocation and prior invocations' watermark are folded into the per-invocation baseline rather than the budget | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
+| E-20 | Cumulative guest `memory.grow` since invocation entry would push past the configured `memory_limit` (B-01) | Wasm engine reports a memory-cap trap; Step 1 fires | `Kobako::MemoryLimitError` |
 
 **Cross-references:** E-02 and E-03 are the wire-violation fallback paths invoked by any malformed Guest Binary output. B-21 (Handle counter exhaustion) raises `Kobako::HandlerExhaustedError` (a `SandboxError` subclass), not `TrapError`. E-19 fires only at guest wasm safepoints — a Service callback running on the host cannot itself trigger E-19 — but the wall-clock time consumed by host callbacks counts against the `timeout` budget (B-01 Notes).
 
@@ -557,15 +557,9 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-08 | Outcome tag is `0x02` (panic) and the panic envelope is malformed or missing required fields | Step 2 attribution table |
 | E-09 | Outcome tag is `0x01` (result) and the result envelope is malformed or fails MessagePack parse | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as a dispatch argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
-| E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid Namespace Name |
-| E-17 | Host App calls `namespace.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
-| E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
-| E-45 | Host App calls `namespace.bind(name, obj)` after the first invocation (`#eval` or `#run`) has sealed Service registration on the owning Sandbox | B-08, B-33 — bind-after-seal |
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire-codec.md`](wire-codec.md) § Type Mapping, or that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth) | B-24 — yield round-trip |
 | E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
-
-`sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). Calling `namespace.bind` after the first invocation has sealed Service registration raises `ArgumentError` (B-08 / B-33, E-45); the existing bindings and the Frame 1 preamble are unchanged. All four are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
 ---
 
@@ -584,11 +578,11 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; error `type="undefined"` returned; mruby script does not rescue it | B-42 — reflection rejection |
 | E-44 | A bound Service method returns a `Binding`, `Method`, or `UnboundMethod` — directly, or extracted by the guest from a returned container Handle; the host refuses to mint a Capability Handle and the dispatch reports `type="runtime"`; the mruby script does not rescue it | B-43 — reflective gadget not wire-representable |
 
-A Handle ID from invocation N presented as a dispatch target in invocation N+1 produces `type="undefined"` because `Catalog::Handles` is fully reset at the start of each invocation; this reaches the host as `Kobako::ServiceError` if the guest does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any dispatch reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
+A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any dispatch reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
 When the guest wraps a Service call in `begin/rescue`, the dispatch failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
 
-The ServiceError taxonomy covers E-11, E-12, E-13, E-15, E-43, and E-44. E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
+E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
@@ -605,7 +599,20 @@ Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from
 | E-41 | The Guest Binary artifact is present but the wasm runtime cannot be constructed from it: the file cannot be read, its bytes are not a valid Wasm module, or engine / linker / instantiation setup fails | construction: read / compile / instantiate | `Kobako::SetupError` |
 | E-42 | The Guest Binary does not export `__kobako_abi_version`, or the export's reported value differs from the ABI version the Host Gem implements (→ [`docs/wire-codec.md`](wire-codec.md) § ABI Version) | construction: ABI version probe (B-40) | `Kobako::SetupError` |
 
-E-39 is a Host App programming error detected before any engine work; it raises `ArgumentError` and does not engage the attribution pipeline, mirroring the E-16..E-18 treatment. E-40, E-41, and E-42 are environment / artifact faults surfaced during construction; all raise `Kobako::SetupError`, with E-40 raised as the `Kobako::ModuleNotBuiltError` subclass. E-42's actionable remedy is rebuilding the Guest Binary against the Host Gem's ABI version.
+E-42's actionable remedy is rebuilding the Guest Binary against the Host Gem's ABI version.
+
+---
+
+### Registration errors (`define` / `bind`)
+
+These error scenarios cover Namespace declaration and Member binding (B-07..B-11) and the sealing rule (B-33). All are Host App programming errors detected at setup time, before or between guest executions; they raise `ArgumentError` synchronously and do not engage the attribution pipeline.
+
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-16 | `sandbox.define(name)` with `name` not matching the `/\A[A-Z]\w*\z/` constant pattern (B-07) | host pre-flight | `ArgumentError` |
+| E-17 | `namespace.bind(name, obj)` with `name` not matching the `/\A[A-Z]\w*\z/` constant pattern (B-08) | host pre-flight | `ArgumentError` |
+| E-18 | `sandbox.define` after the first invocation (`#eval` or `#run`) has sealed Service registration (B-07, B-33) | host pre-flight | `ArgumentError` |
+| E-45 | `namespace.bind` after the first invocation has sealed Service registration (B-08, B-33); the existing bindings and the Frame 1 preamble of subsequent invocations are unchanged | host pre-flight | `ArgumentError` |
 
 ---
 
@@ -624,9 +631,7 @@ These error scenarios are specific to the `#run(target, *args, **kwargs)` entryp
 | E-30 | `#run` `kwargs` contains a key that is not a Symbol | host pre-flight | `ArgumentError` |
 | E-31 | Host's `__kobako_alloc` returns 0 when reserving guest memory for the invocation envelope | host pre-call | `Kobako::SandboxError` |
 
-`#run` entrypoint runtime exceptions reuse E-04 (the entrypoint's `#call` raises an unrescued Ruby exception); unrepresentable return values reuse E-06 (the entrypoint returns an object with no wire representation); timeout / memory caps reuse E-19 / E-20; unrescued Service-call faults inside the entrypoint reuse E-11, E-12, E-13, E-15.
-
-E-24, E-25, E-29, and E-30 are Host App programming errors detected before the invocation crosses into the guest; they raise standard Ruby exceptions (`TypeError` / `ArgumentError`) and do not go through the attribution pipeline, mirroring the E-16..E-18 treatment.
+`#run` entrypoint runtime exceptions reuse E-04 (the entrypoint's `#call` raises an unrescued Ruby exception); unrepresentable return values reuse E-06 (the entrypoint returns an object with no wire representation); `Catalog::Handles` cap exhaustion during host-side auto-wrap reuses E-07 (B-34); timeout / memory caps reuse E-19 / E-20; unrescued Service-call faults inside the entrypoint reuse E-11, E-12, E-13, E-15.
 
 ---
 
@@ -646,8 +651,6 @@ These error scenarios are specific to the `#preload` setup verb (B-32) — cover
 
 E-33 is scoped to `code:` form snippets: duplicate `code:` form names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two `code:` snippets with the same `name:` are never permitted on a single Sandbox. The host does not extract names from `binary:` form bytecode, so cross-form name collisions are not detected at preload — users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
 
-E-32 and E-36 surface as `Kobako::SandboxError` because they originate in user-supplied snippet content. The backtrace filename `(snippet:Name)` is the locator that ties the failure back to the specific `#preload` call when one is available — always for the `code:` form (the host writes the name into the compile ccontext) and for `binary:` payloads carrying `debug_info`. For stripped `binary:` payloads the snippet frame is omitted from the backtrace per B-32; the failure's class, message, and `origin` attribution remain unchanged.
+The backtrace filename `(snippet:Name)` is the locator that ties a replay failure back to the specific `#preload` call; stripped `binary:` payloads omit the frame per B-32.
 
-E-37 and E-38 surface as `Kobako::BytecodeError` because they originate in the structural content of supplied bytecode (version mismatch or corrupt body). Both are detected during the first invocation's snippet replay against a fresh `mrb_state`. The snippet table is sealed by this first invocation per B-33; subsequent invocations on the same Sandbox replay the same bytecode against a new fresh `mrb_state` and raise the same `Kobako::BytecodeError` deterministically. Bytecode that loads structurally but lacks a `debug_info` section is not a structural failure — see B-32 for its observable effect on backtrace attribution.
-
-E-33, E-34, and E-35 are Host App programming errors detected before the snippet is registered (E-33 / E-34) or before the invocation reaches the guest (E-35); all three raise `ArgumentError` and do not engage the attribution pipeline.
+Subsequent invocations on the same Sandbox replay the same bytecode against a new fresh `mrb_state` and raise the same `Kobako::BytecodeError` deterministically (B-33 seals the table). Bytecode that loads structurally but lacks `debug_info` is not a structural failure — see B-32 for its observable effect on backtrace attribution.
