@@ -9,12 +9,12 @@ require "test_helper"
 # Sandbox-side decomposition.
 #
 # Sandbox-level usage of the same fields is covered through
-# +test/test_sandbox_usage.rb+ and the +test/e2e/+ journeys; this
+# +test/sandbox/test_usage.rb+ and the +test/e2e/+ journeys; this
 # file deliberately stays at the Runtime seam so a regression in the
 # Snapshot magnus wrap or the Ruby helper layer surfaces here, not via
 # indirect Sandbox assertions.
 class TestSnapshot < Minitest::Test
-  KOBAKO_WASM = File.expand_path("../data/kobako.wasm", __dir__)
+  KOBAKO_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Snapshot)

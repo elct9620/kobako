@@ -12,7 +12,7 @@ require "test_helper"
 # Replay-side behaviour (B-32 Result, E-32, E-36) is exercised
 # end-to-end in test/e2e/test_preload.rb.
 class TestSandboxPreload < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)

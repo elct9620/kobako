@@ -31,7 +31,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   Handle   = Kobako::Handle
   Exc      = Kobako::Fault
 
-  CRATE_DIR = File.expand_path("../wasm/kobako-wasm", __dir__)
+  CRATE_DIR = File.expand_path("../../wasm/kobako-wasm", __dir__)
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")
 
   def setup

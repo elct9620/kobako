@@ -3,7 +3,7 @@
 # Layer 3 unit tests for the Kobako::Catalog::Namespaces registry. Pure
 # Ruby — does NOT require the native extension. Behavioural coverage that
 # needs a real Sandbox wiring (seal! triggered by the first invocation)
-# lives in test/test_sandbox_preload.rb; this file pins the registry
+# lives in test/sandbox/test_preload.rb; this file pins the registry
 # contract. The Kobako::Namespace entity is covered in
 # test/test_namespace.rb.
 #
@@ -63,7 +63,7 @@ module Kobako
 
     # B-07 Notes: define raises once Namespaces#seal! has fired. This is the
     # mechanism Sandbox's first invocation rides on; the Sandbox-surface
-    # observable lives in test_sandbox_preload.rb.
+    # observable lives in test/sandbox/test_preload.rb.
     def test_define_after_seal_raises
       @namespaces.define(:Early)
       @namespaces.seal!

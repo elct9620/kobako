@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Layer 4 — End-to-end coverage for `Kobako::Sandbox#usage`
-# ({docs/behavior.md B-35}[link:../docs/behavior.md]).
+# ({docs/behavior.md B-35}[link:../../docs/behavior.md]).
 #
 # Drives the real mruby Guest Binary (`data/kobako.wasm`) so the
 # `wall_time` and `memory_peak` readers exercise the same wasmtime path
@@ -15,7 +15,7 @@ require "test_helper"
 # the record from any rescue branch. `memory_peak` never exceeds the
 # configured `memory_limit` even on the E-20 trap.
 class TestSandboxUsage < Minitest::Test
-  REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
+  REAL_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)

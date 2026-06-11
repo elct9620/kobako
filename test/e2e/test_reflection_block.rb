@@ -8,7 +8,7 @@ require "test_helper"
 # B-44}[link:../../docs/behavior.md]); the callable allowlist still forwards.
 #
 # B-44 is non-authoritative opacity — the host's B-42 guard is the real
-# boundary and is covered host-side in test_dispatch_method_allowlist.rb.
+# boundary and is covered host-side in test/transport/test_dispatcher_allowlist.rb.
 # This file pins the guest-observable behaviour end to end.
 class TestE2EReflectionBlock < Minitest::Test
   include E2eGuestHelper

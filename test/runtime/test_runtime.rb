@@ -13,14 +13,14 @@ require "test_helper"
 # (test/e2e/), which drive +Sandbox#eval+ end-to-end and would fail
 # fast if any SPEC Wire ABI export went missing.
 class TestRuntime < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
   end
 
   def test_default_path_resolves_under_project_data_dir
-    expected = File.expand_path("../data/kobako.wasm", __dir__)
+    expected = File.expand_path("../../data/kobako.wasm", __dir__)
     assert_equal expected, Kobako::Runtime.default_path
     assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
   end
@@ -60,7 +60,7 @@ class TestRuntime < Minitest::Test
     # the WtModule::new compile path and trips +setup_err+. Pick a small
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
-    non_wasm = File.expand_path("fixtures/snippet_answers.rb", __dir__)
+    non_wasm = File.expand_path("../fixtures/snippet_answers.rb", __dir__)
     skip "snippet_answers.rb fixture missing" unless File.exist?(non_wasm)
 
     err = assert_raises(Kobako::SetupError) do

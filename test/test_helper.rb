@@ -28,7 +28,8 @@ rescue LoadError => e
 end
 
 # stringio is not part of the kobako load graph; tests that capture IO
-# (test/codec/test_utils.rb / test_run_auto_wrap) need it explicitly. msgpack is
+# (test/codec/test_utils.rb / test/sandbox/test_run_auto_wrap.rb) need it
+# explicitly. msgpack is
 # intentionally not required here — kobako's codec already pulls it in, so
 # the few tests using MessagePack directly get it through that graph.
 require "stringio"

@@ -41,7 +41,7 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
   # --- Panic with origin "sandbox" explicitly raises SandboxError (not ServiceError) ---
   #
   # Belt-and-suspenders: pin the canonical "sandbox" origin path at unit
-  # level, independent of the fixture-driven test in test_sandbox_errors.rb.
+  # level, independent of the fixture-driven test in test/outcome/test_decoding.rb.
   def test_panic_with_sandbox_origin_raises_sandbox_error_not_service_error
     panic = Kobako::Outcome::Panic.new(
       origin: "sandbox", klass: "RuntimeError", message: "box-side error"

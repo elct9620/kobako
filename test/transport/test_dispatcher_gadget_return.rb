@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Regression: a Service returning a reflective gadget must not mint a
-# Capability Handle ({docs/behavior.md B-43}[link:../docs/behavior.md]).
+# Capability Handle ({docs/behavior.md B-43}[link:../../docs/behavior.md]).
 # Otherwise the guest would receive a callable proxy onto host reflection
 # (a returned Binding -> Binding#eval), the second hop of the B-42 escape.
 class TestDispatchGadgetReturn < Minitest::Test

@@ -106,7 +106,7 @@ class TestE2ELifecycle < Minitest::Test
     sandbox = Kobako::Sandbox.new
     # B-31 (mruby C API limitation): kwargs land as a trailing positional
     # Hash, so entrypoints take a Hash parameter and unpack it themselves.
-    # See test_sandbox_run.rb:test_b31_passes_keyword_args_as_trailing_positional_hash.
+    # See test/sandbox/test_run.rb:test_b31_passes_keyword_args_as_trailing_positional_hash.
     sandbox.preload(
       code: "class Worker; def self.call(req, opts = {}); req * (opts[:multiplier] || 1); end; end",
       name: :Worker

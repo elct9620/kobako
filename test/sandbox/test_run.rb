@@ -12,7 +12,7 @@ require "test_helper"
 # (B-31 result / E-04 reuse) drive the real data/kobako.wasm and are
 # guarded by `defined?(Kobako::Runtime)`.
 class TestSandboxRun < Minitest::Test
-  FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
