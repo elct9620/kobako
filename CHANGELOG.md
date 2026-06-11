@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.2](https://github.com/elct9620/kobako/compare/v0.9.1...v0.9.2) (2026-06-11)
+
+
+### Bug Fixes
+
+* **catalog:** never mint a Capability Handle for a reflective gadget ([6c2d29d](https://github.com/elct9620/kobako/commit/6c2d29d0fbcced5187df5538c2c6c437705fd6d8))
+* **ext:** cap stdin frames at 16 MiB like the run envelope ([a94099a](https://github.com/elct9620/kobako/commit/a94099a03830929c55fcb266e227073db9c5a624))
+* **ext:** deny guest ambient clock and entropy at the WASI layer ([1275b35](https://github.com/elct9620/kobako/commit/1275b35264813628a2aeb396a3546faf1f6d9d0c))
+* **transport:** reject reflective gadget methods in guest dispatch ([948fb9e](https://github.com/elct9620/kobako/commit/948fb9ea7d6c0d6bd91f6e261d3263743974388b))
+* **wasm:** mirror the reflection rejection in the guest proxy ([f6ead3b](https://github.com/elct9620/kobako/commit/f6ead3b91f1ac92c3c075397d177edb4b82cd15d))
+
 ## [0.9.1](https://github.com/elct9620/kobako/compare/v0.9.0...v0.9.1) (2026-06-11)
 
 

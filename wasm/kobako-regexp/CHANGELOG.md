@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.4.0...kobako-regexp-v0.4.1) (2026-06-11)
+
+
+### Miscellaneous Chores
+
+* **kobako-regexp:** Synchronize kobako guest crates versions
+
 ## [0.4.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.3.0...kobako-regexp-v0.4.0) (2026-06-10)
 
 
