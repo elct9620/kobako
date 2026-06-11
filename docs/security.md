@@ -6,7 +6,11 @@ reach. The first job is the gem's, the second is yours — this document draws t
 ## Shared responsibility
 
 The guest runs in a Wasm cell with no access to host memory, files, sockets, or `ENV`,
-and its only path outward is a Service you injected. **The real authorization gate is your
+and its only path outward is a Service you injected. Ambient wall-clock time and host
+entropy are denied at the WASI layer too — the guest's `wasi:clocks` is frozen at the
+Unix epoch and `wasi:random` is a constant stream — so the no-ambient-authority guarantee
+holds even if a future guest gem reaches for libc time or randomness, not only because the
+mrbgem allowlist omits those gems. **The real authorization gate is your
 host-side allowlist:** guest code can name any `<Namespace>::<Member>` path, but a forged
 name only ever resolves to something you bound.
 

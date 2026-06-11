@@ -31,6 +31,7 @@
 // `timeout_err` / `memory_limit_err` / `setup_err` constructors shared by
 // every submodule, and the Ruby init() that registers the class.
 
+mod ambient;
 mod cache;
 mod capture;
 mod config;
@@ -754,6 +755,11 @@ impl Runtime {
         builder.stdin(stdin_pipe);
         builder.stdout(stdout_pipe.clone());
         builder.stderr(stderr_pipe.clone());
+        // Deny the preview1 ambient-authority imports the guest never legitimately
+        // reaches but the WASI layer would otherwise grant (see `ambient`).
+        builder.wall_clock(ambient::FrozenWallClock);
+        builder.monotonic_clock(ambient::FrozenMonotonicClock);
+        builder.secure_random(ambient::deterministic_rng());
         let wasi = builder.build_p1();
 
         self.store
