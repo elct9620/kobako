@@ -391,6 +391,26 @@ class TestTransportDispatchUnit < Minitest::Test
     assert_equal 0, @handler.size
   end
 
+  # ---------- Over-deep wire violation (docs/wire-codec.md § Structural Nesting Depth) ----------
+
+  # A guest request nested beyond the codec's depth bound must come back as a
+  # Response.error with type="runtime" — the same containment as any other
+  # malformed request, never a host crash or a wasm trap. The dispatcher
+  # rescues only StandardError; this holds because the codec maps the nesting
+  # overflow into the Kobako::Codec::Error taxonomy before it can become a
+  # Ruby SystemStackError that would escape the rescue.
+  def test_over_deep_request_is_contained_as_runtime_error
+    # 1000 nested single-element arrays terminated by nil — a misbehaving
+    # guest emitting a request far past the ecosystem nesting bound.
+    over_deep_request = ("\x91".b * 1000) + "\xc0".b
+
+    resp = decode_response(dispatch(over_deep_request))
+
+    assert_predicate resp, :error?
+    assert_equal "runtime", resp.payload.type
+    assert_match(/Sandbox received a malformed request/, resp.payload.message)
+  end
+
   # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------
 
   # SPEC B-21 / E-07: when the per-#run Catalog::Handles counter reaches
