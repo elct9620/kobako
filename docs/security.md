@@ -34,6 +34,7 @@ These hold without any host effort — do not re-implement them.
 | The guest cannot fabricate a `Kobako::Handle` or a Member proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
 | Each invocation gets a fresh `mrb_state`; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
+| Guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
 | Per-invocation `timeout`, linear-memory cap, and stdout / stderr clipping, all with clean errors. | B-01, B-35 |
 | Only the type allowlist serializes; an unrepresentable, over-deep, cyclic, or NUL-bearing value becomes a controlled `Kobako::SandboxError`, never a host crash. | B-06, E-06, [`wire-codec.md`](wire-codec.md) § Structural Nesting Depth |
 

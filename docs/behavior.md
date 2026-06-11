@@ -496,6 +496,17 @@ This behavior refines the value-return semantics of B-06 (`#eval`) and B-31 (`#r
 
 ---
 
+## B-45 — Guest ambient time and randomness are denied (deterministic guest execution)
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code. The Guest Binary links no mrbgem exposing time, sleep, or randomness (the strict allowlist, → [`SPEC.md`](../SPEC.md) Goals), and reaches the host only through injected Services (B-08) and the stdout / stderr write surface (B-04). |
+| **Operation** | Guest code — or a Rust capability gem linked into the Guest Binary — reaches for ambient wall-clock time or entropy through the WASI layer (`wasi:clocks/wall-clock`, `wasi:clocks/monotonic-clock`, or `wasi:random`), whether via libc (`time`, `gettimeofday`, `getrandom`) or a Rust `SystemTime` / `Instant` / RNG. |
+| **Result / Final State** | The host denies every ambient source: `wasi:clocks` reads the Unix epoch and never advances, and `wasi:random` yields a constant byte stream. Guest code observes no real wall-clock time and no host entropy through any ambient path; the only time or randomness available to it is a value a Service injects (B-12) or a snippet embeds (B-32). Given identical source, snippets, and Service responses, guest execution is reproducible. |
+| **Notes** | The denial is a property of the host's WASI context, layered behind the mrbgem allowlist: a future Guest Binary gem that reaches libc time or randomness obtains the frozen, deterministic values rather than ambient ones, so the no-ambient-nondeterminism guarantee does not rest on the allowlist alone. The per-invocation wall-clock `timeout` (B-01) is unaffected — it is measured on the host clock and enforced by the engine, never the guest's frozen `wasi:clocks`. A Host App that needs real time or randomness inside the guest injects it explicitly as a Service value, the same mediation every host capability takes. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
