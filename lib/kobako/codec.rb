@@ -1,6 +1,10 @@
 # frozen_string_literal: true
 
 require_relative "codec/error"
+require_relative "codec/utils"
+require_relative "codec/factory"
+require_relative "codec/encoder"
+require_relative "codec/decoder"
 
 module Kobako
   # Host-side MessagePack codec for the kobako wire contract — the
@@ -17,15 +21,10 @@ module Kobako
   # {Decoder} are thin wrappers that register the three kobako-specific
   # ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception
   # envelope) on a single +MessagePack::Factory+ instance. The Rust side
-  # mirrors this layer as the +codec+ module in the +kobako-wasm+ crate;
+  # mirrors this layer as the +codec+ module in the +kobako-core+ crate;
   # the ext-code constants live as module-private values on {Factory}
   # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ /
   # +codec::EXT_ERRENV+ on that side.
   module Codec
   end
 end
-
-require_relative "codec/utils"
-require_relative "codec/factory"
-require_relative "codec/encoder"
-require_relative "codec/decoder"
