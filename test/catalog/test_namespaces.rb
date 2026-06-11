@@ -116,8 +116,16 @@ module Kobako
       err = assert_raises(KeyError) { @namespaces.lookup("Ghost::Member") }
       assert_match(/Ghost/, err.message)
     end
+  end
 
-    # ---------- to_preamble / encode (Frame 1 wire shape) ----------
+  # Frame 1 wire shape: the preamble emitted by Namespaces#encode
+  # (docs/behavior.md B-02), including the B-33 sealing snapshot — every
+  # invocation after the seal ships the bindings that existed at that
+  # moment (B-07 Notes).
+  class CatalogNamespacesPreambleTest < Minitest::Test
+    def setup
+      @namespaces = Kobako::Catalog::Namespaces.new
+    end
 
     def test_encoded_preamble_decodes_to_two_level_array_of_namespace_descriptors
       @namespaces.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
@@ -140,6 +148,32 @@ module Kobako
       @namespaces.define(:Empty)
       decoded = MessagePack.unpack(@namespaces.encode)
       assert_equal [["Empty", []]], decoded
+    end
+
+    def test_encoded_preamble_before_seal_reflects_new_bindings
+      namespace = @namespaces.define(:MyService).bind(:KV, :kv)
+      first = MessagePack.unpack(@namespaces.encode)
+      namespace.bind(:Logger, :log)
+
+      assert_equal [["MyService", %w[KV]]], first
+      assert_equal [["MyService", %w[KV Logger]]], MessagePack.unpack(@namespaces.encode),
+                   "binding a member on an unsealed registry must surface in the next Frame 1 encode (B-08)"
+    end
+
+    # B-33 seals Service registration (B-07 / B-08) at the first
+    # invocation; B-07 Notes pin every later invocation to the bindings
+    # that existed at that moment. A bind reaching the Namespace entity
+    # after the seal must therefore be invisible on the wire.
+    def test_encoded_preamble_after_seal_excludes_members_bound_later
+      namespace = @namespaces.define(:MyService).bind(:KV, :kv)
+      @namespaces.seal!
+      sealed_bytes = @namespaces.encode
+
+      namespace.bind(:Late, :late)
+
+      assert_equal sealed_bytes, @namespaces.encode,
+                   "a member bound after the seal must not alter the Frame 1 preamble (B-07 / B-33)"
+      assert_equal [["MyService", %w[KV]]], MessagePack.unpack(@namespaces.encode)
     end
   end
 end

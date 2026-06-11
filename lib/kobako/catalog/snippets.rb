@@ -31,6 +31,7 @@ module Kobako
 
       def initialize
         @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
+        @encoded = nil # : String?
       end
 
       # Serialize the registered snippets to wire bytes. Each entry
@@ -42,8 +43,14 @@ module Kobako
       # carriers — this collection-tier method reads their attributes
       # externally via +entry_payload+ rather than asking each entry to
       # self-encode.
+      #
+      # The bytes are memoized — the table is replayed verbatim on every
+      # invocation after B-33 seals it, so Frame 3 never changes between
+      # encodes; {#register} drops the memo while the table is still open.
       def encode
-        Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) })
+        return @encoded if @encoded
+
+        @encoded = Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
       end
 
       # Register one preloaded snippet in either of two forms
@@ -68,6 +75,7 @@ module Kobako
       # missing keywords, wrong types, malformed +name+ (E-34), or
       # duplicate +code:+ +name+ (E-33).
       def register(code: nil, name: nil, binary: nil)
+        @encoded = nil
         if binary
           raise ArgumentError, "cannot combine binary: with code: / name:" if code || name
 

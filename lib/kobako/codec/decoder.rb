@@ -64,7 +64,11 @@ module Kobako
           case value
           when String then Utils.assert_utf8!(value, "str payload") if value.encoding == Encoding::UTF_8
           when Array  then value.each { |v| validate_utf8!(v) }
-          when Hash   then value.each { |pair| validate_utf8!(pair) }
+          when Hash
+            value.each do |key, val|
+              validate_utf8!(key)
+              validate_utf8!(val)
+            end
           end
         end
       end

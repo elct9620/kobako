@@ -143,6 +143,16 @@ class TestCatalogSnippetsEncoding < Minitest::Test
     assert_equal(%w[Alpha Beta Gamma], decoded.map { |e| e["name"] })
   end
 
+  def test_encode_after_register_reflects_the_newly_registered_entry
+    @table.register(code: "A", name: :Alpha)
+    first = MessagePack.unpack(@table.encode)
+    @table.register(code: "B", name: :Beta)
+
+    assert_equal(%w[Alpha], first.map { |e| e["name"] })
+    assert_equal %w[Alpha Beta], MessagePack.unpack(@table.encode).map { |e| e["name"] },
+                 "a snippet registered after a prior encode must appear in the next Frame 3 encode"
+  end
+
   def test_encode_preserves_insertion_order_across_mixed_entry_kinds
     @table.register(code: "A", name: :Alpha)
     @table.register(binary: "RITE\x00first")

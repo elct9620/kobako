@@ -37,6 +37,7 @@ module Kobako
         @namespaces = {} # : Hash[String, Kobako::Namespace]
         @handler = handler
         @sealed = false
+        @encoded = nil # : String?
       end
 
       # Declare or retrieve the Namespace named +name+ (idempotent —
@@ -80,8 +81,18 @@ module Kobako
       # Arrays, so none of the kobako ext types actually fire. Structure:
       # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
       # +String+ of msgpack bytes.
+      #
+      # Once sealed, the bytes are computed once and reused for every
+      # subsequent invocation: B-33 seals Service registration (B-07 /
+      # B-08) at the first invocation, so the preamble is exactly the
+      # bindings that existed at that moment — a bind reaching a
+      # +Kobako::Namespace+ after the seal never alters Frame 1.
       def encode
-        Codec::Encoder.encode(@namespaces.values.map(&:to_preamble))
+        return @encoded if @encoded
+
+        bytes = Codec::Encoder.encode(@namespaces.values.map(&:to_preamble)).freeze
+        @encoded = bytes if @sealed
+        bytes
       end
 
       # Mark the registry as sealed. Called by +Sandbox+ on the first
