@@ -7,8 +7,7 @@
       "component": "kobako",
       "include-component-in-tag": false,
       "release-type": "ruby",
-      "exclude-paths": ["wasm"],
-      "release-as": "0.9.1"
+      "exclude-paths": ["wasm"]
     },
     "wasm/kobako-core": {
       "component": "kobako-core",
