@@ -18,7 +18,7 @@
 //! initial allocation and prior invocations' watermark are outside the
 //! budget.
 //!
-//! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
+//! [SPEC.md Single-Invocation Slot]: ../../../../SPEC.md
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};
