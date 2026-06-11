@@ -26,7 +26,7 @@ These hold without any host effort — do not re-implement them.
 
 | Guarantee | Anchor |
 |-----------|--------|
-| Only **public** methods of a bound object are reachable; `send` / `public_send` do not bypass this. | B-08, B-12 |
+| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface — the `send` family, `eval` / `instance_eval`, `binding`, `method`, `define_method`, `instance_variable_get`, and the `Proc` / `Method` / `Binding` gadget methods — is rejected host-side, leaving for a bound lambda only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). Reflective objects (`Binding` / `Method` / `UnboundMethod`) never cross as Handles. | B-12, B-42, B-43 |
 | The guest cannot fabricate a `Kobako::Handle` or a Member proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
 | Each invocation gets a fresh `mrb_state`; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
@@ -70,9 +70,10 @@ end
 sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # reachable: only #color
 ```
 
-> **Gotcha:** a method named after an `Object` built-in (`send`, `class`, `tap`,
-> `instance_eval`, …) resolves inside the guest and never dispatches, so it is silently
-> uncallable. Rename it, and never reuse member / method names across trust layers.
+> **Gotcha:** a Service method named after Ruby's reflection / eval surface (`send`, `eval`,
+> `binding`, `instance_eval`, `method`, …) is rejected rather than dispatched — the guest
+> proxy raises and the host refuses it (B-42, B-44) — so it is never reachable. Rename it,
+> and never reuse member / method names across trust layers.
 
 ### Untrusted input — validate at the boundary
 

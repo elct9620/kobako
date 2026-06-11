@@ -138,7 +138,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `<Namespace>::<Member>` (e.g., `MyService::KV`). The guest holds a reference to the constant `<Namespace>::<Member>` and calls a method on it. |
 | **Operation** | Guest code executes `<Namespace>::<Member>.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
 | **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `<Namespace>::<Member>` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
-| **Notes** | Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in `Catalog::Namespaces`, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). |
+| **Notes** | Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in `Catalog::Namespaces`, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). A method name that resolves to Ruby's ambient reflection / eval surface rather than the bound object's own Service behaviour is rejected before dispatch (B-42). |
 
 ---
 
@@ -463,6 +463,39 @@ This behavior refines the value-return semantics of B-06 (`#eval`) and B-31 (`#r
 
 ---
 
+## B-42 — Host rejects ambient reflection / eval methods at guest→host dispatch
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code dispatches to a target resolved through `Catalog::Namespaces` or `Catalog::Handles` (B-12, B-16, B-17). The target is a bound Service object — a plain object, a `Proc` / lambda bound as a Member, or a host object received earlier as a Capability Handle. |
+| **Operation** | Guest code invokes a method whose name resolves, on the target, to Ruby's ambient reflection / metaprogramming surface — the `send` family, `eval` / `instance_eval` / `instance_exec` / `class_eval` / `module_eval`, `binding`, `method` / `public_method`, `define_method`, `const_get` / `const_set`, `instance_variable_get` / `instance_variable_set`, or any other method whose resolved owner is a core meta module (`BasicObject`, `Kernel`, `Object`, `Module`, `Class`) or a callable gadget type (`Proc`, `Method`, `UnboundMethod`, `Binding`). |
+| **Result / Final State** | The host rejects the call before it reaches the target: the dispatch returns error `type="undefined"` and no method runs on the host. Only methods the bound object itself exposes as Service behaviour are reachable. For a `Proc` or `Method` target the callable allowlist — `call`, `[]`, `yield`, `arity`, `lambda?` — is the sole exception: these invoke or describe the callable and stay reachable, while every other `Proc` / `Method` / `UnboundMethod` / `Binding` method (notably `Proc#binding`, `Method#receiver`, `Method#unbind`, `Binding#eval`) is rejected. Unrescued in the guest, the rejection reaches the Host App as `Kobako::ServiceError` per E-43. |
+| **Notes** | This is the host-authoritative enforcement point: the decision rests on the resolved method's owner, so it holds regardless of what the guest sends — a guest that forges a dispatch Request directly is bound identically to one going through the guest proxy (B-44 is the non-authoritative guest-side mirror). The contract is least-privilege: a bound object's reachable surface is its own Service methods plus, for callables, the invocation allowlist. A method name with no concrete public method on the target is allowed only when the target opts in via `respond_to?` (dynamic `method_missing` Services), since the ambient methods above are all concretely defined and never reach that branch. Reflective objects never become reachable Handles in the first place — B-43 keeps `Binding` / `Method` / `UnboundMethod` off the wire entirely. |
+
+---
+
+## B-43 — Reflective gadget objects are not wire-representable
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A guest-initiated Service dispatch (B-12, B-16, B-17) returns a `Binding`, `Method`, or `UnboundMethod` instance — directly or nested in an Array / Hash. |
+| **Operation** | The host wire layer evaluates the return value for wire representation and Capability Handle wrapping (B-13, B-14). |
+| **Result / Final State** | The host refuses to mint a Capability Handle for a `Binding`, `Method`, or `UnboundMethod`: these types are neither wire-representable nor Handle-wrappable. The dispatch reports error `type="runtime"` (E-44) instead of returning a Handle, so the guest never receives a callable proxy onto a host reflection object. A `Proc` is excluded — it stays Handle-wrappable, and any reflective method on the resulting Handle (e.g. `#binding`) is rejected by B-42. |
+| **Notes** | Defense in depth behind B-42, closing the second hop of a `Proc#binding` → `Binding#eval` escalation: even were a reflective method reachable, its gadget result cannot cross back as a Handle. The three blocked types are the ones whose reachable surface is wholly reflection (`Binding#eval`, `Method#receiver` / `#unbind`, `UnboundMethod#bind`); a `Proc`'s legitimate use is invocation (B-42 callable allowlist), so it stays wrappable. The host→guest `#run` argument direction (B-34) needs no separate block: a gadget handed in as an argument arrives as an opaque Handle the guest can only dispatch against, where B-42 rejects every reflective method. |
+
+---
+
+## B-44 — Guest proxy mirrors the reflection rejection
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code holds a Member constant (B-08) or a Capability Handle (B-14); the guest proxy forwards method calls to the host via the Transport (B-12). |
+| **Operation** | Guest code invokes a reflection / eval method by name on a Member or Handle proxy — a name in the recognized denylist: the `send` family (`send`, `__send__`, `public_send`), `eval` / `instance_eval` / `instance_exec` / `class_eval` / `module_eval`, `binding`, `method` / `public_method` / `instance_method`, `define_method` / `define_singleton_method`, `const_get` / `const_set`, `instance_variable_get` / `instance_variable_set`, `singleton_class`, and the non-allowlisted callable methods `curry` / `to_proc` / `receiver` / `unbind`. |
+| **Result / Final State** | The guest proxy rejects the call before emitting a Transport Request: it raises `NoMethodError` inside the guest and sends no wire Request. Unrescued, the exception reaches the invocation top level and is attributed as `Kobako::SandboxError` per E-04, identical to any other uncaught guest exception. The callable allowlist (B-42) is preserved — `call`, `[]`, `yield`, `arity`, `lambda?` forward normally. |
+| **Notes** | This is the guest-side mirror of B-42, parallel to how B-39 mirrors the host's Handle-forgery enforcement (E-29): opacity and fail-fast UX, not the security boundary. B-42 is authoritative and complete — it decides on the resolved method's owner, so a name the guest denylist misses, a guest binary that bypasses this proxy, or a forged Request is still rejected host-side. The guest enforces on method name because it cannot resolve the bound object's method owner; its denylist is therefore a best-effort recognized set, not the exhaustive contract. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
@@ -539,12 +572,14 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | E-12 | The dispatch `target` path (e.g., `"<Namespace>::<Member>"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
 | E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); error `type="undefined"` | B-18 — stale Handle cross-invocation |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |
+| E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; error `type="undefined"` returned; mruby script does not rescue it | B-42 — reflection rejection |
+| E-44 | A bound Service method returns a `Binding`, `Method`, or `UnboundMethod` (directly or nested in an Array / Hash); the host refuses to mint a Capability Handle and the dispatch reports `type="runtime"`; the mruby script does not rescue it | B-43 — reflective gadget not wire-representable |
 
 A Handle ID from invocation N presented as a dispatch target in invocation N+1 produces `type="undefined"` because `Catalog::Handles` is fully reset at the start of each invocation; this reaches the host as `Kobako::ServiceError` if the guest does not rescue the error response (B-18). A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any dispatch reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
 When the guest wraps a Service call in `begin/rescue`, the dispatch failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
 
-The ServiceError taxonomy covers E-11, E-12, E-13, and E-15. E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
+The ServiceError taxonomy covers E-11, E-12, E-13, E-15, E-43, and E-44. E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
