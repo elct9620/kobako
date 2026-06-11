@@ -9,3 +9,9 @@ members = ["./ext/kobako"]
 # dependency graphs separate.
 exclude = ["wasm", "vendor"]
 resolver = "2"
+
+# Strip the local-symbol table from the shipped ext (~22% of the binary).
+# Guest wasm backtraces and Rust panic locations don't depend on it; for
+# native-crash debugging rebuild with `RB_SYS_CARGO_PROFILE=dev`.
+[profile.release]
+strip = true
