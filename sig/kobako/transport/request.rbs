@@ -1,8 +1,5 @@
 module Kobako
   module Transport
-    STATUS_OK: Integer
-    STATUS_ERROR: Integer
-
     class Request < Data
       attr_reader target: String | Kobako::Handle
       attr_reader method_name: String

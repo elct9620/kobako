@@ -1,5 +1,8 @@
 module Kobako
   module Transport
+    STATUS_OK: Integer
+    STATUS_ERROR: Integer
+
     class Response < Data
       attr_reader status: Integer
       attr_reader payload: untyped

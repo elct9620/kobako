@@ -2,12 +2,19 @@
 
 require_relative "../codec"
 require_relative "../fault"
-require_relative "request"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the Response value object and its +#encode+ / +.decode+ codec.
+  # owns the Response value object and its +#encode+ / +.decode+ codec,
+  # plus the +STATUS_OK+ / +STATUS_ERROR+ status bytes.
   module Transport
+    # ---------------- Response status bytes (docs/wire-contract.md § Response Shape) ---
+
+    # Response variant marker for the success branch.
+    STATUS_OK    = 0
+    # Response variant marker for the fault branch.
+    STATUS_ERROR = 1
+
     # Value object for a single host-side Transport Response
     # ({docs/wire-codec.md Envelope Encoding → Response}[link:../../../docs/wire-codec.md]).
     #
