@@ -281,3 +281,52 @@ pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
     // `mrb` pointer goes unused.
     Value::true_()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::REFLECTION_DENYLIST;
+
+    // The escape vectors that motivated B-44 must stay refused guest-side:
+    // the `send` family pivots into the private `Kernel#eval` / `#system`
+    // surface, the `eval` family runs guest-authored strings, and the gadget
+    // reflectors (`binding` reaches `Binding#eval`) hand back host internals.
+    #[test]
+    fn denylist_covers_the_reflection_escape_vectors() {
+        for name in [
+            "send",
+            "__send__",
+            "public_send",
+            "eval",
+            "instance_eval",
+            "instance_exec",
+            "class_eval",
+            "module_eval",
+            "binding",
+            "method",
+            "public_method",
+            "instance_method",
+            "define_method",
+            "define_singleton_method",
+            "instance_variable_get",
+            "instance_variable_set",
+        ] {
+            assert!(
+                REFLECTION_DENYLIST.contains(&name),
+                "{name} is a reflection escape vector and must stay on the guest denylist"
+            );
+        }
+    }
+
+    // The callable allowlist is expressed by absence from the denylist: a
+    // bound lambda / Method stays invocable. Denying any of these would make
+    // Service callables unreachable end to end.
+    #[test]
+    fn denylist_keeps_the_callable_allowlist_forwardable() {
+        for name in ["call", "[]", "yield", "arity", "lambda?"] {
+            assert!(
+                !REFLECTION_DENYLIST.contains(&name),
+                "{name} is the callable allowlist and must stay forwardable, not denied"
+            );
+        }
+    }
+}
