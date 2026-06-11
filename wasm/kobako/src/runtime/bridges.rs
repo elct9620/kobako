@@ -48,6 +48,50 @@
 
 use beni::{Module, Mrb, Value};
 
+/// Ambient reflection / eval method names the guest proxy refuses to
+/// forward (`docs/behavior.md` B-44) — non-authoritative opacity mirroring
+/// the host's B-42 enforcement, which stays the complete authority. The
+/// callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`) is
+/// absent so a bound lambda stays invocable.
+const REFLECTION_DENYLIST: &[&str] = &[
+    "send",
+    "__send__",
+    "public_send",
+    "eval",
+    "instance_eval",
+    "instance_exec",
+    "class_eval",
+    "module_eval",
+    "binding",
+    "method",
+    "public_method",
+    "instance_method",
+    "define_method",
+    "define_singleton_method",
+    "const_get",
+    "const_set",
+    "instance_variable_get",
+    "instance_variable_set",
+    "singleton_class",
+    "curry",
+    "to_proc",
+    "receiver",
+    "unbind",
+];
+
+/// Raise `NoMethodError` for a reflection method the guest proxy refuses
+/// to forward (B-44), naming the method without leaking host detail.
+fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
+    let nomethod = mrb
+        .class_get(c"NoMethodError")
+        .expect("NoMethodError is an mruby core class");
+    let message = std::ffi::CString::new(format!("{method_name} is not a Kobako Service method"))
+        .unwrap_or_default();
+    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`, the same
+    // exit path the Service / transport raises in the dispatch body take.
+    unsafe { nomethod.raise(mrb, &message) }
+}
+
 /// Full guest→host dispatch from the active mruby call frame — the
 /// shared body of the two `method_missing` bridges. The caller supplies
 /// the `Target` it derived from its `self_` receiver (a class name for
@@ -87,6 +131,13 @@ fn forward_to_dispatch(
         Some(name) => name,
         None => unsafe { kobako.raise_transport_error(sym_err_msg) },
     };
+
+    // Guest-side mirror of the host's B-42 reflection rejection (B-44):
+    // refuse to forward an ambient reflection / eval name. Non-authoritative
+    // — the host re-checks on the resolved method owner.
+    if REFLECTION_DENYLIST.contains(&method_name) {
+        return raise_reflection_blocked(kobako.mrb(), method_name);
+    }
 
     let (args, kwargs) = kobako.unpack_args_kwargs(rest);
 
