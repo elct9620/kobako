@@ -92,6 +92,33 @@ class TestRuntime < Minitest::Test
     end
   end
 
+  # docs/behavior.md B-01 Notes: writing a new artifact opportunistically
+  # removes cache entries unused for the retention window, so the cache
+  # directory does not grow without bound across Guest Binary rebuilds.
+  def test_storing_an_artifact_prunes_entries_unused_past_the_retention_window
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+
+    with_private_cache_root do |dir|
+      stale = plant_stale_artifact(dir)
+      wasm_path = File.join(dir, "prune_probe.wat")
+      FileUtils.cp(FIXTURE_PATH, wasm_path)
+
+      Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil)
+
+      refute_path_exists stale,
+                         "writing a new artifact must prune cache entries unused past the retention window (B-01)"
+    end
+  end
+
+  # Plant an empty cache entry whose mtime sits past the 30-day
+  # retention window, so the next artifact write must remove it.
+  def plant_stale_artifact(dir)
+    stale = File.join(dir, "kobako", "stale.cwasm")
+    FileUtils.mkdir_p(File.dirname(stale))
+    FileUtils.touch(stale, mtime: Time.now - (40 * 86_400))
+    stale
+  end
+
   # Redirect the compiled-artifact cache root (B-01: XDG_CACHE_HOME) to
   # a private tmpdir for the block, so the test owns every cache entry
   # and never touches the developer's real cache.
@@ -106,12 +133,14 @@ class TestRuntime < Minitest::Test
   end
 
   # Copy the fixture to a fresh path under +dir+ and plant garbage bytes
-  # at the cache entry its content hashes to, so the artifact-load path
-  # is forced onto the corrupt-entry branch.
+  # at the cache entry its content hashes to (the entry name carries the
+  # gem version per B-01), so the artifact-load path is forced onto the
+  # corrupt-entry branch.
   def plant_corrupt_artifact(dir)
     wasm_path = File.join(dir, "corrupt_probe.wat")
     FileUtils.cp(FIXTURE_PATH, wasm_path)
-    entry = File.join(dir, "kobako", "#{Digest::SHA256.hexdigest(File.binread(wasm_path))}.cwasm")
+    digest = Digest::SHA256.hexdigest(File.binread(wasm_path))
+    entry = File.join(dir, "kobako", "#{digest}-#{Kobako::VERSION}.cwasm")
     FileUtils.mkdir_p(File.dirname(entry))
     File.write(entry, "not a serialized wasmtime artifact")
     wasm_path

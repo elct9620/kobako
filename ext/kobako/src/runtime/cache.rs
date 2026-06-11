@@ -25,7 +25,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use magnus::{Error as MagnusError, Ruby};
 use sha2::{Digest, Sha256};
@@ -152,30 +152,39 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
     Ok(module)
 }
 
+/// Retention window for unused cache entries. A hit refreshes the
+/// artifact's mtime, so only entries no process has loaded for the
+/// whole window are removed by `prune_stale`.
+const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
 /// Compute the disk-cache location for a Guest Binary's compiled
 /// artifact: `$XDG_CACHE_HOME/kobako` (falling back to
-/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>.cwasm`. Content
-/// addressing makes a rebuilt Guest Binary a new cache entry rather
-/// than an invalidation problem; wasmtime itself rejects an artifact
-/// produced by an incompatible wasmtime version or Config at
-/// deserialize time. Returns `None` when no home directory is
-/// available — the caller then just compiles in-process.
+/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>-<gem version>.cwasm`.
+/// Content addressing makes a rebuilt Guest Binary a new cache entry
+/// rather than an invalidation problem; the gem-version segment keeps
+/// two installed kobako versions (each pinning its own wasmtime) from
+/// sharing a key and recompile-thrashing each other's entry. wasmtime
+/// itself rejects an artifact produced by an incompatible wasmtime
+/// version or Config at deserialize time. Returns `None` when no home
+/// directory is available — the caller then just compiles in-process.
 fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
     let digest = Sha256::digest(wasm_bytes);
-    let mut name = String::with_capacity(70);
+    let mut name = String::with_capacity(80);
     for byte in digest {
         let _ = write!(name, "{:02x}", byte);
     }
-    name.push_str(".cwasm");
+    let _ = write!(name, "-{}.cwasm", env!("CARGO_PKG_VERSION"));
     Some(base.join("kobako").join(name))
 }
 
 /// Best-effort load of a previously serialized compiled artifact.
 /// Any failure — absent file, truncated bytes, wasmtime version or
-/// Config mismatch — returns `None` and the caller recompiles.
+/// Config mismatch — returns `None` and the caller recompiles. A hit
+/// refreshes the file's mtime so `prune_stale`'s retention window
+/// measures time since last use, not since creation.
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
     if !artifact.exists() {
         return None;
@@ -186,24 +195,84 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
     // being constructed — an attacker who can plant a file there can
     // already replace the Guest Binary or the gem itself, so the
     // artifact carries exactly the trust of `data/kobako.wasm`.
-    unsafe { WtModule::deserialize_file(engine, artifact) }.ok()
+    let module = unsafe { WtModule::deserialize_file(engine, artifact) }.ok()?;
+    let _ = fs::File::options()
+        .append(true)
+        .open(artifact)
+        .and_then(|f| f.set_modified(SystemTime::now()));
+    Some(module)
 }
 
 /// Best-effort write of a freshly compiled artifact. The temp-file +
 /// rename pair keeps concurrent processes from observing a partial
 /// write; every failure is swallowed because the cache is purely an
-/// optimisation.
+/// optimisation. A successful write also triggers `prune_stale` so the
+/// cache directory cannot grow without bound across Guest Binary
+/// rebuilds.
 fn store_artifact(module: &WtModule, artifact: &Path) {
     let Ok(bytes) = module.serialize() else {
         return;
     };
     let Some(dir) = artifact.parent() else { return };
-    if fs::create_dir_all(dir).is_err() {
+    if create_cache_dir(dir).is_err() {
         return;
     }
     let tmp = artifact.with_extension(format!("tmp{}", std::process::id()));
     if fs::write(&tmp, bytes).is_err() {
         return;
     }
-    let _ = fs::rename(&tmp, artifact);
+    if fs::rename(&tmp, artifact).is_ok() {
+        prune_stale(dir, artifact);
+    }
+}
+
+/// Create the cache directory owner-only (`0700`) on Unix so no other
+/// local user can plant an artifact the unsafe deserialize would
+/// trust; elsewhere fall back to default permissions.
+#[cfg(unix)]
+fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+#[cfg(not(unix))]
+fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dir)
+}
+
+/// Remove every cache entry (`.cwasm` artifacts and crash-leftover
+/// `.tmp*` files) whose mtime sits past `ARTIFACT_TTL`, except the
+/// just-written `keep`. Live temp files are seconds old and never
+/// qualify; foreign file names are left untouched.
+fn prune_stale(dir: &Path, keep: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == keep || !cache_entry_name(&path) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|mtime| mtime.elapsed().ok())
+            .is_some_and(|age| age > ARTIFACT_TTL);
+        if stale {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// Returns whether `path` carries a file name this cache wrote — a
+/// `.cwasm` artifact or a `.tmp*` leftover.
+fn cache_entry_name(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    name.ends_with(".cwasm") || name.contains(".tmp")
 }
