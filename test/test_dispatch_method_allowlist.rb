@@ -12,12 +12,19 @@ class TestDispatchMethodAllowlist < Minitest::Test
     def color = "blue"
   end
 
+  # A Service that defines its own public method named +tap+ — a name that is
+  # rejected when its owner is +Kernel+. The guard decides on the resolved
+  # owner, so this +tap+ (owned by the Service) stays reachable.
+  class Tappable
+    def tap = "tapped"
+  end
+
   def setup
     @handler    = Kobako::Catalog::Handles.new
     @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
-    @namespaces.define(:Cfg).bind(:Theme, Service.new)
-    @namespaces.define(:Cfg).bind(:Fn, ->(x) { x * 2 })
-    @namespaces.define(:Cfg).bind(:Meth, "abc".method(:upcase))
+    cfg = @namespaces.define(:Cfg)
+    { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new }
+      .each { |name, service| cfg.bind(name, service) }
     @namespaces.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
@@ -72,5 +79,22 @@ class TestDispatchMethodAllowlist < Minitest::Test
     assert_equal Kobako::Transport::STATUS_OK, resp.status,
                  "a genuine public Service method must remain callable"
     assert_equal "blue", resp.payload
+  end
+
+  def test_rejection_decides_on_owner_not_method_name
+    # The guard is owner-based, not a static name list: a Service that defines
+    # its own public method named `tap` (owned by the Service, not Kernel) stays
+    # reachable, while the same name on a plain Service is rejected as Kernel
+    # reflection surface. This pins the B-42 mechanism, not just the denylist.
+    own = dispatch("Cfg::Own", "tap", [])
+    assert_equal Kobako::Transport::STATUS_OK, own.status,
+                 "a Service's own `tap` (owner = the Service) must stay reachable, not be rejected by name"
+    assert_equal "tapped", own.payload
+
+    inherited = dispatch("Cfg::Theme", "tap", [])
+    assert_equal Kobako::Transport::STATUS_ERROR, inherited.status,
+                 "`tap` owned by Kernel must be rejected as ambient reflection surface"
+    assert_equal "undefined", inherited.payload.type,
+                 "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault (E-43)"
   end
 end
