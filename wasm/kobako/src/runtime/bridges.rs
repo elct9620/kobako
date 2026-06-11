@@ -49,10 +49,12 @@
 use beni::{Module, Mrb, Value};
 
 /// Ambient reflection / eval method names the guest proxy refuses to
-/// forward (`docs/behavior.md` B-44) — non-authoritative opacity mirroring
-/// the host's B-42 enforcement, which stays the complete authority. The
-/// callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`) is
-/// absent so a bound lambda stays invocable.
+/// forward (`docs/behavior.md` B-44). This is a best-effort opacity mirror,
+/// not a security boundary: the host's owner-based B-42 guard re-checks every
+/// dispatch and stays the complete authority, so this hand-maintained name
+/// list may lag it (a name only the host rejects is still caught) without
+/// weakening the sandbox. The callable allowlist (`call` / `[]` / `yield` /
+/// `arity` / `lambda?`) is absent so a bound lambda stays invocable.
 const REFLECTION_DENYLIST: &[&str] = &[
     "send",
     "__send__",
