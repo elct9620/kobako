@@ -124,6 +124,10 @@ sandbox.define(:Search).bind(:Docs, ->(q) { index.query(q).map(&:title) })  # =>
 #                                            index.query(q)                 # => a Handle whose every method dispatches back
 ```
 
+The same applies to failures: an exception a Service raises crosses to the guest as
+`<class>: <message>` fault text (B-12), so keep secrets and internal detail out of
+raisable messages — rescue internal errors and re-raise a clean, guest-safe one.
+
 ### Availability — bound work volume under abuse
 
 Caps limit the *rate* of dispatch, not its total *volume*: tens of thousands of Handles
