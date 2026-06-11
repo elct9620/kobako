@@ -16,7 +16,10 @@
 //   * `cache`       — process-wide Engine + per-path Module cache and the
 //                     process-singleton epoch ticker thread.
 //   * `config`      — per-Runtime caps (timeout / stdout / stderr limits).
-//   * `exports`     — cached `__kobako_eval` / `_run` / `_take_outcome` handles.
+//   * `exports`     — cached `__kobako_eval` / `_run` / `_take_outcome` /
+//                     `_alloc` / `memory` handles.
+//   * `instance_pre`— host-import Linker wiring + per-path `InstancePre`
+//                     cache.
 //   * `invocation`  — Invocation (per-Store context), StoreCell wrapper, the
 //                     `MemoryLimiter` memory cap, and the trap marker
 //                     types (`TimeoutTrap` / `MemoryLimitTrap`).
@@ -38,6 +41,7 @@ mod config;
 mod dispatch;
 mod exports;
 mod guest_mem;
+mod instance_pre;
 mod invocation;
 mod trap;
 
@@ -54,14 +58,12 @@ use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData
 
 use crate::snapshot::Snapshot;
 use wasmtime::{
-    AsContextMut, Caller, Extern, Instance as WtInstance, Linker, Memory, Module as WtModule,
-    ResourceLimiter, Store as WtStore, TypedFunc,
+    AsContextMut, Instance as WtInstance, Memory, ResourceLimiter, Store as WtStore, TypedFunc,
 };
-use wasmtime_wasi::p1;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use self::cache::{cached_module, shared_engine};
+use self::cache::shared_engine;
 use self::config::Config;
 use self::exports::Exports;
 use self::invocation::{Invocation, StoreCell};
@@ -200,11 +202,10 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime", free_immediately, size, mark)]
 pub(crate) struct Runtime {
-    inner: WtInstance,
     store: StoreCell,
     // Cached host-driven ABI export handles (`__kobako_eval` / `_run` /
-    // `_take_outcome`); see `Exports`. `__kobako_alloc` is not among them
-    // — only `dispatch.rs` calls it, via `Caller::get_export`.
+    // `_take_outcome` / `_alloc` / `memory`); see `Exports`. The
+    // dispatch path resolves its own copies via `Caller::get_export`.
     exports: Exports,
     // Wall-clock + per-channel capture caps forwarded from the Sandbox;
     // see `Config`. Distinct from the per-invocation `memory_limit`,
@@ -285,17 +286,15 @@ impl Runtime {
             }
         };
 
-        let engine = shared_engine()?;
-        let module = cached_module(Path::new(&path))?;
+        let instance_pre = instance_pre::cached_instance_pre(Path::new(&path))?;
 
-        let mut store = WtStore::new(engine, Invocation::new(memory_limit));
+        let mut store = WtStore::new(shared_engine()?, Invocation::new(memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
 
         let store_cell = StoreCell::new(store);
         Self::build(
-            engine,
-            &module,
+            &instance_pre,
             store_cell,
             timeout,
             stdout_limit_bytes,
@@ -303,56 +302,23 @@ impl Runtime {
         )
     }
 
-    /// Build an `Runtime` from an engine, module, and store cell. The
-    /// store cell is moved in and ends up owned by the returned Runtime.
-    /// Wires the WASI p1 imports plus the `__kobako_dispatch` host import.
+    /// Build a `Runtime` from a pre-linked `InstancePre` and a store
+    /// cell. The store cell is moved in and ends up owned by the
+    /// returned Runtime. Import wiring and type-checking already
+    /// happened in `instance_pre::cached_instance_pre`; only the
+    /// per-Runtime `instantiate` runs here.
     fn build(
-        engine: &wasmtime::Engine,
-        module: &WtModule,
+        instance_pre: &wasmtime::InstancePre<Invocation>,
         store_cell: StoreCell,
         timeout: Option<Duration>,
         stdout_limit_bytes: Option<usize>,
         stderr_limit_bytes: Option<usize>,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let mut linker: Linker<Invocation> = Linker::new(engine);
-
-        // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
-        // to the MemoryOutputPipes set up before each run via
-        // `Runtime::eval`. The closure pulls a `&mut WasiP1Ctx` out of
-        // Invocation; the panic semantics live inside `Invocation::wasi_mut`
-        // so the wiring stays honest about its precondition.
-        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
-            .map_err(|e| setup_err(&ruby, format!("failed to set up the WASI runtime: {}", e)))?;
-
-        // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
-        // § ABI Signatures:
-        //   (req_ptr: i32, req_len: i32) -> i64
-        // Decodes the Request bytes, dispatches via the Ruby-side
-        // dispatch Proc (bound per-Sandbox through `Runtime#on_dispatch=`),
-        // allocates a guest buffer through `__kobako_alloc`, writes
-        // the Response bytes there, and returns the packed
-        // `(ptr<<32)|len`. The dispatcher returns 0 on any wire-layer
-        // fault (including no Proc bound); see `dispatch::handle`.
-        linker
-            .func_wrap(
-                "env",
-                "__kobako_dispatch",
-                |mut caller: Caller<'_, Invocation>, req_ptr: i32, req_len: i32| -> i64 {
-                    dispatch::handle(&mut caller, req_ptr, req_len)
-                },
-            )
-            .map_err(|e| {
-                setup_err(
-                    &ruby,
-                    format!("failed to set up the host callback bridge: {}", e),
-                )
-            })?;
-
         let instance = {
             let mut store_ref = store_cell.borrow_mut();
-            linker
-                .instantiate(store_ref.as_context_mut(), module)
+            instance_pre
+                .instantiate(store_ref.as_context_mut())
                 .map_err(|e| trap::instantiate_err(&ruby, e))?
         };
 
@@ -361,7 +327,6 @@ impl Runtime {
         let exports = Exports::resolve(&instance, &store_cell);
 
         Ok(Self {
-            inner: instance,
             store: store_cell,
             exports,
             config: Config {
@@ -667,9 +632,9 @@ impl Runtime {
                 store_ref.set_epoch_deadline(u64::MAX);
             }
         }
-        let baseline = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
-            Some(Extern::Memory(m)) => m.data_size(store_ref.as_context_mut()),
-            _ => 0,
+        let baseline = match self.exports.memory {
+            Some(m) => m.data_size(store_ref.as_context_mut()),
+            None => 0,
         };
         store_ref.data_mut().arm_memory_cap(baseline);
         store_ref.data_mut().start_wall_clock();
@@ -687,6 +652,16 @@ impl Runtime {
         store_ref.data_mut().disarm_memory_cap();
     }
 
+    /// Return the cached `memory` export handle, or raise
+    /// `Kobako::TrapError` when the loaded module exports no linear
+    /// memory — the "not a Kobako-shaped runtime" failure mode
+    /// (`SANDBOX_RUNTIME_NOT_KOBAKO`).
+    fn require_memory(&self, ruby: &Ruby) -> Result<Memory, MagnusError> {
+        self.exports
+            .memory
+            .ok_or_else(|| trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO))
+    }
+
     /// Allocate a `len`-byte buffer in guest linear memory via
     /// `__kobako_alloc`, copy `envelope` into it, and return `(ptr, len)`
     /// as `i32` values matching the `__kobako_run(env_ptr, env_len)` ABI.
@@ -699,11 +674,10 @@ impl Runtime {
         let len_i32 =
             guest_mem::checked_payload_len(bytes.len()).map_err(|msg| trap_err(ruby, msg))?;
 
+        let alloc = require_export(ruby, self.exports.alloc.as_ref())?;
+        let memory = self.require_memory(ruby)?;
+
         let mut store_ref = self.store.borrow_mut();
-        let alloc: TypedFunc<u32, u32> = self
-            .inner
-            .get_typed_func(store_ref.as_context_mut(), "__kobako_alloc")
-            .map_err(|_| trap_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))?;
         let ptr = alloc
             .call(store_ref.as_context_mut(), bytes.len() as u32)
             .map_err(|e| trap_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
@@ -713,11 +687,6 @@ impl Runtime {
                 "could not allocate input buffer (out of memory)",
             ));
         }
-
-        let memory: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
-            Some(Extern::Memory(m)) => m,
-            _ => return Err(trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
-        };
         let data = memory.data_mut(store_ref.as_context_mut());
         let range = guest_mem::guest_buffer_range(ptr as usize, bytes.len(), data.len())
             .map_err(|msg| trap_err(ruby, msg))?;
@@ -787,6 +756,7 @@ impl Runtime {
     /// is absent.
     fn fetch_outcome_bytes(&self, ruby: &Ruby) -> Result<Vec<u8>, MagnusError> {
         let take = require_export(ruby, self.exports.take_outcome.as_ref())?;
+        let mem = self.require_memory(ruby)?;
 
         let mut store_ref = self.store.borrow_mut();
         let packed = take
@@ -797,10 +767,6 @@ impl Runtime {
             return Err(trap_err(ruby, "result payload exceeds the 16 MiB limit"));
         }
 
-        let mem: Memory = match self.inner.get_export(store_ref.as_context_mut(), "memory") {
-            Some(Extern::Memory(m)) => m,
-            _ => return Err(trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO)),
-        };
         let data = mem.data(store_ref.as_context_mut());
         let range = guest_mem::guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
             trap_err(

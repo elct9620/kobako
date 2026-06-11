@@ -137,15 +137,18 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 ```
 Runtime          runtime.rs — Kobako::Runtime class (#from_path / #eval / #run / #usage)
       │
-Run mechanics    runtime/{dispatch, guest_mem, trap, capture, ambient}
+Run mechanics    runtime/{dispatch, guest_mem, trap, capture, ambient, instance_pre}
       │            dispatch (__kobako_dispatch) · guest_mem (Caller alloc/write/read)
       │            · trap (error→Kobako::*) · capture (stdout/stderr clip)
       │            · ambient (frozen WASI clocks + constant RNG, B-45)
+      │            · instance_pre (Linker wiring + per-path InstancePre cache)
       │
 Per-Store state  runtime/{invocation, exports, config}
       │            Invocation + StoreCell + MemoryLimiter · Exports (cached handles) · Config (caps)
       │
 Process cache    runtime/cache — shared Engine + per-path Module + epoch ticker
+                   (Invocation-free; the InstancePre cache sits above because
+                   its type and linker wiring depend on Invocation + dispatch)
 ```
 
 In `runtime.rs`, reference siblings as bare `dispatch::` / `trap::` (not `super::`, not `use self::dispatch;`).
