@@ -42,6 +42,17 @@ module Kobako
       # ({docs/behavior.md E-12}[link:../../../docs/behavior.md]).
       class UndefinedTargetError < StandardError; end
 
+      # Modules whose instance methods are ambient Ruby reflection /
+      # metaprogramming surface (+send+, +public_send+, +instance_eval+,
+      # +method+, +tap+, +instance_variable_get+, ...) rather than Service
+      # behaviour. A guest-supplied method name resolving to one of these is
+      # rejected: the security contract is that only methods the bound object
+      # itself defines are reachable, and +public_send(:send, ...)+ would
+      # otherwise let a guest pivot through +send+ into the private
+      # +Kernel#eval+ / +#system+ surface (host RCE).
+      META_OWNERS = [BasicObject, Kernel, Object, Module, Class].freeze
+      private_constant :META_OWNERS
+
       # Dispatch a single transport request and return the encoded
       # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
       # Invoked from the +Runtime#on_dispatch+ Proc that
@@ -109,12 +120,31 @@ module Kobako
       # so the same call site handles both cases without an explicit
       # conditional.
       def invoke(target, method, args, kwargs, yielder = nil)
+        name = method.to_sym
+        reject_meta_method!(target, name)
         block = yielder&.to_proc
         if kwargs.empty?
-          target.public_send(method.to_sym, *args, &block)
+          target.public_send(name, *args, &block)
         else
-          target.public_send(method.to_sym, *args, **kwargs, &block)
+          target.public_send(name, *args, **kwargs, &block)
         end
+      end
+
+      # Guard the +public_send+ below against ambient reflection methods
+      # (see {META_OWNERS}). A concretely-defined public method whose owner
+      # is a meta module is rejected; a name with no concrete public method
+      # is allowed only when the target opts into it via +respond_to?+
+      # (dynamic +method_missing+ Services), since the dangerous meta methods
+      # are all concretely defined and therefore never reach that branch.
+      def reject_meta_method!(target, name)
+        owner = target.public_method(name).owner
+        return unless META_OWNERS.include?(owner)
+
+        raise UndefinedTargetError, "method #{name.inspect} is not a Service method"
+      rescue NameError
+        return if target.respond_to?(name)
+
+        raise UndefinedTargetError, "no public method #{name.inspect} on target"
       end
 
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — A Kobako::Handle arriving as a positional or keyword

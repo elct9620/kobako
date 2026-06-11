@@ -6,6 +6,8 @@ module Kobako
 
       BREAK_THROW: Symbol
 
+      META_OWNERS: Array[Module]
+
       def self?.dispatch: (String request_bytes, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler, ^(String) -> String yield_to_guest) -> String
 
       def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handles handler) -> [Array[untyped], Hash[Symbol, untyped]]
@@ -13,6 +15,8 @@ module Kobako
       def self?.encode_caught_error: (StandardError error) -> String
 
       def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
+
+      def self?.reject_meta_method!: (untyped target, Symbol name) -> void
 
       def self?.resolve_arg: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
