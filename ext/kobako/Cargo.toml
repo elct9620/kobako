@@ -32,3 +32,7 @@ wasmtime = { version = "45.0.0", default-features = false, features = [
 # `p2` (component-model) and `p0`/`p3` (async) because kobako runs
 # synchronous sandboxes only.
 wasmtime-wasi = { version = "45.0.0", default-features = false, features = ["p1"] }
+# sha2 keys the on-disk compiled-module cache by Guest Binary content
+# (see runtime/cache.rs); a collision would load the wrong artifact, so
+# the hash must be cryptographic.
+sha2 = "0.10"

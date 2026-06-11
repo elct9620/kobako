@@ -1,5 +1,5 @@
 //! Process-wide caches for the wasmtime `Engine` and compiled
-//! `Module`.
+//! `Module`, plus the on-disk compiled-artifact cache.
 //!
 //! SPEC.md "Code Organization" pins `ext/` as private and forbids
 //! exposing wasm engine types to the Host App or downstream gems. To
@@ -9,12 +9,18 @@
 //! Ruby callers, who construct a `Runtime` via
 //! `Kobako::Runtime.from_path(...)` and never see Engine or Module.
 //!
+//! Across processes, the Cranelift compile cost is amortised by a
+//! best-effort `.cwasm` disk cache keyed by the SHA-256 of the Guest
+//! Binary bytes (docs/behavior.md B-01); every cache failure falls
+//! back to in-process compilation.
+//!
 //! Concurrency: under Ruby's GVL only one thread can execute Rust code
 //! at a time, so the Mutex is held briefly during HashMap insert/lookup
 //! and serves to satisfy `Sync` bounds rather than to arbitrate real
 //! contention.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -22,6 +28,7 @@ use std::thread;
 use std::time::Duration;
 
 use magnus::{Error as MagnusError, Ruby};
+use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
 use super::{setup_err, MODULE_NOT_BUILT_ERROR};
@@ -124,11 +131,79 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
             ),
         )
     })?;
-    let module = WtModule::new(shared_engine()?, &bytes)
-        .map_err(|e| setup_err(&ruby, format!("failed to compile Sandbox runtime: {}", e)))?;
+    let engine = shared_engine()?;
+    let artifact = artifact_path(&bytes);
+    let module = match artifact.as_deref().and_then(|p| load_artifact(engine, p)) {
+        Some(module) => module,
+        None => {
+            let module = WtModule::new(engine, &bytes).map_err(|e| {
+                setup_err(&ruby, format!("failed to compile Sandbox runtime: {}", e))
+            })?;
+            if let Some(p) = artifact.as_deref() {
+                store_artifact(&module, p);
+            }
+            module
+        }
+    };
     cache
         .lock()
         .expect("module cache mutex poisoned")
         .insert(path.to_path_buf(), module.clone());
     Ok(module)
+}
+
+/// Compute the disk-cache location for a Guest Binary's compiled
+/// artifact: `$XDG_CACHE_HOME/kobako` (falling back to
+/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>.cwasm`. Content
+/// addressing makes a rebuilt Guest Binary a new cache entry rather
+/// than an invalidation problem; wasmtime itself rejects an artifact
+/// produced by an incompatible wasmtime version or Config at
+/// deserialize time. Returns `None` when no home directory is
+/// available — the caller then just compiles in-process.
+fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
+    let digest = Sha256::digest(wasm_bytes);
+    let mut name = String::with_capacity(70);
+    for byte in digest {
+        let _ = write!(name, "{:02x}", byte);
+    }
+    name.push_str(".cwasm");
+    Some(base.join("kobako").join(name))
+}
+
+/// Best-effort load of a previously serialized compiled artifact.
+/// Any failure — absent file, truncated bytes, wasmtime version or
+/// Config mismatch — returns `None` and the caller recompiles.
+fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
+    if !artifact.exists() {
+        return None;
+    }
+    // SAFETY: `Module::deserialize_file` trusts the artifact bytes.
+    // Only files this module wrote into the user-owned cache directory
+    // are loaded, addressed by the content hash of the Guest Binary
+    // being constructed — an attacker who can plant a file there can
+    // already replace the Guest Binary or the gem itself, so the
+    // artifact carries exactly the trust of `data/kobako.wasm`.
+    unsafe { WtModule::deserialize_file(engine, artifact) }.ok()
+}
+
+/// Best-effort write of a freshly compiled artifact. The temp-file +
+/// rename pair keeps concurrent processes from observing a partial
+/// write; every failure is swallowed because the cache is purely an
+/// optimisation.
+fn store_artifact(module: &WtModule, artifact: &Path) {
+    let Ok(bytes) = module.serialize() else {
+        return;
+    };
+    let Some(dir) = artifact.parent() else { return };
+    if fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let tmp = artifact.with_extension(format!("tmp{}", std::process::id()));
+    if fs::write(&tmp, bytes).is_err() {
+        return;
+    }
+    let _ = fs::rename(&tmp, artifact);
 }

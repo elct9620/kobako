@@ -881,6 +881,7 @@ name = "kobako"
 version = "0.9.2"
 dependencies = [
  "magnus",
+ "sha2",
  "wasmtime",
  "wasmtime-wasi",
 ]
