@@ -8,6 +8,10 @@ module Kobako
 
       META_OWNERS: Array[Module]
 
+      GADGET_OWNERS: Array[Module]
+
+      CALLABLE_ALLOW: Array[Symbol]
+
       def self?.dispatch: (String request_bytes, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler, ^(String) -> String yield_to_guest) -> String
 
       def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handles handler) -> [Array[untyped], Hash[Symbol, untyped]]

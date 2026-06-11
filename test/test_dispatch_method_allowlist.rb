@@ -3,8 +3,10 @@
 require "test_helper"
 
 # Regression: a guest-supplied method name must not reach Ruby's ambient
-# reflection surface. Before the fix, method="send" let a guest pivot
-# `public_send(:send, :eval, code)` into host RCE (see Dispatcher#invoke).
+# reflection surface ({docs/behavior.md B-42}[link:../docs/behavior.md]).
+# Before the guard, method="send" let a guest pivot
+# `public_send(:send, :eval, code)` into host RCE; a bound lambda's own
+# `Proc#binding` reached `Binding#eval` for the same effect.
 class TestDispatchMethodAllowlist < Minitest::Test
   class Service
     def color = "blue"
@@ -14,12 +16,14 @@ class TestDispatchMethodAllowlist < Minitest::Test
     @handler    = Kobako::Catalog::Handles.new
     @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
     @namespaces.define(:Cfg).bind(:Theme, Service.new)
+    @namespaces.define(:Cfg).bind(:Fn, ->(x) { x * 2 })
+    @namespaces.define(:Cfg).bind(:Meth, "abc".method(:upcase))
     @namespaces.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 
-  def dispatch(method, args)
-    req = Kobako::Transport::Request.new(target: "Cfg::Theme", method_name: method, args: args)
+  def dispatch(target, method, args)
+    req = Kobako::Transport::Request.new(target: target, method_name: method, args: args)
     bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @namespaces, @handler, @yield)
     Kobako::Transport::Response.decode(bytes)
   end
@@ -27,14 +31,44 @@ class TestDispatchMethodAllowlist < Minitest::Test
   def test_meta_methods_are_rejected_not_dispatched
     %w[send __send__ public_send instance_eval instance_exec eval method tap
        instance_variable_get class].each do |meta|
-      resp = dispatch(meta, [:eval, "1"])
+      resp = dispatch("Cfg::Theme", meta, [:eval, "1"])
       assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
                    "method #{meta.inspect} through guest dispatch must be rejected, not invoked on the host"
     end
   end
 
+  def test_gadget_reflection_methods_are_rejected
+    # A Proc / Method bound as a Service exposes reflection on its own type:
+    # Proc#binding -> Binding#eval was the reproduced host RCE, and
+    # Method#receiver / #unbind hand back the underlying object. None are
+    # Service behaviour, so all are rejected.
+    { "Cfg::Fn" => %w[binding curry to_proc],
+      "Cfg::Meth" => %w[receiver unbind owner to_proc] }.each do |target, methods|
+      methods.each do |meth|
+        resp = dispatch(target, meth, [])
+        assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+                     "#{target}.#{meth} through guest dispatch must be rejected, not invoked on the host"
+        assert_equal "undefined", resp.payload.type,
+                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault (E-43)"
+      end
+    end
+  end
+
+  def test_callable_allowlist_still_dispatches
+    # A bound lambda / Method stays invocable, and the harmless describers
+    # (#arity / #lambda?) remain reachable to aid guest-side debugging.
+    [["Cfg::Fn", "call", [21], 42],
+     ["Cfg::Fn", "arity", [], 1],
+     ["Cfg::Meth", "call", [], "ABC"]].each do |target, meth, args, want|
+      resp = dispatch(target, meth, args)
+      assert_equal Kobako::Transport::STATUS_OK, resp.status,
+                   "#{target}.#{meth} (callable allowlist) must stay reachable, not be rejected"
+      assert_equal want, resp.payload, "#{target}.#{meth} must return #{want.inspect}"
+    end
+  end
+
   def test_real_service_method_still_dispatches
-    resp = dispatch("color", [])
+    resp = dispatch("Cfg::Theme", "color", [])
     assert_equal Kobako::Transport::STATUS_OK, resp.status,
                  "a genuine public Service method must remain callable"
     assert_equal "blue", resp.payload

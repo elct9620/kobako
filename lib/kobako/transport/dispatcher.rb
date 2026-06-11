@@ -46,12 +46,27 @@ module Kobako
       # metaprogramming surface (+send+, +public_send+, +instance_eval+,
       # +method+, +tap+, +instance_variable_get+, ...) rather than Service
       # behaviour. A guest-supplied method name resolving to one of these is
-      # rejected: the security contract is that only methods the bound object
-      # itself defines are reachable, and +public_send(:send, ...)+ would
-      # otherwise let a guest pivot through +send+ into the private
-      # +Kernel#eval+ / +#system+ surface (host RCE).
+      # rejected ({docs/behavior.md B-42}[link:../../../docs/behavior.md]):
+      # only methods the bound object itself exposes as Service behaviour are
+      # reachable, and +public_send(:send, ...)+ would otherwise let a guest
+      # pivot through +send+ into the private +Kernel#eval+ / +#system+
+      # surface (host RCE).
       META_OWNERS = [BasicObject, Kernel, Object, Module, Class].freeze
       private_constant :META_OWNERS
+
+      # Callable gadget types whose own public methods are reflection surface
+      # (+Proc#binding+ reaches +Binding#eval+, +Method#receiver+ / +#unbind+
+      # hand back the underlying object) rather than Service behaviour. Only
+      # {CALLABLE_ALLOW} is reachable on a target of these types; a bound
+      # lambda stays invocable, its reflective surface does not (B-42).
+      GADGET_OWNERS = [Proc, Method, UnboundMethod, Binding].freeze
+      private_constant :GADGET_OWNERS
+
+      # The sole methods reachable on a {GADGET_OWNERS} target: invoking it
+      # (+call+ / +[]+ / +yield+) and the harmless +arity+ / +lambda?+
+      # describers that aid guest-side debugging.
+      CALLABLE_ALLOW = %i[call [] yield arity lambda?].freeze
+      private_constant :CALLABLE_ALLOW
 
       # Dispatch a single transport request and return the encoded
       # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
@@ -131,14 +146,18 @@ module Kobako
       end
 
       # Guard the +public_send+ below against ambient reflection methods
-      # (see {META_OWNERS}). A concretely-defined public method whose owner
-      # is a meta module is rejected; a name with no concrete public method
-      # is allowed only when the target opts into it via +respond_to?+
-      # (dynamic +method_missing+ Services), since the dangerous meta methods
-      # are all concretely defined and therefore never reach that branch.
+      # ({docs/behavior.md B-42}[link:../../../docs/behavior.md]). A public
+      # method whose owner is a {META_OWNERS} or {GADGET_OWNERS} module is
+      # rejected, except {CALLABLE_ALLOW} on a gadget target (a bound lambda
+      # stays invocable). A name with no concrete public method is allowed
+      # only when the target opts into it via +respond_to?+ (dynamic
+      # +method_missing+ Services), since the dangerous methods are all
+      # concretely defined and therefore never reach that branch.
       def reject_meta_method!(target, name)
         owner = target.public_method(name).owner
-        return unless META_OWNERS.include?(owner)
+        gadget = GADGET_OWNERS.include?(owner)
+        return unless META_OWNERS.include?(owner) || gadget
+        return if gadget && CALLABLE_ALLOW.include?(name)
 
         raise UndefinedTargetError, "method #{name.inspect} is not a Service method"
       rescue NameError
