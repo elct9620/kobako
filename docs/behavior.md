@@ -15,7 +15,7 @@ The governing summary of this document — including the four-outcome guarantee 
 | **Initial State** | No `Kobako::Sandbox` instance exists. No Guest Binary is running. |
 | **Operation** | `Kobako::Sandbox.new` — optionally with the following keyword arguments: `timeout:` (Numeric seconds, default `60.0`), `memory_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stdout_limit:` (Integer bytes, default `1 << 20` = 1 MiB), `stderr_limit:` (Integer bytes, default `1 << 20` = 1 MiB). Each of the four caps accepts `nil` to disable that bound. |
 | **Result / Final State** | A Sandbox instance is returned. No invocation entry point runs. The stdout and stderr buffers are empty. The snippet table (B-32) is empty. The Sandbox is ready to accept setup calls (`#define`, `#preload`) and invocations (`#eval`, `#run`). |
-| **Notes** | `timeout` is measured as absolute wall-clock time from the invocation entry point (`Sandbox#eval` or `Sandbox#run`); the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. Time spent inside a Service callback executing on the host does not itself trigger a trap — no trap fires while host code runs — but the wall-clock time it consumes counts against the deadline, so a long-running callback can cause the next guest wasm safepoint to trap immediately on return. The Host App is responsible for keeping Service handler execution bounded. `memory_limit` bounds the per-invocation linear-memory delta — measured as the cumulative `memory.grow` past the linear-memory size observed when the invocation entered, so the Guest Binary's declared initial allocation and any high-water mark left by prior invocations on the same Sandbox sit outside the budget (B-02 Result, E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Service declarations / bindings (B-07 / B-08) and snippet preloads (B-32) are permitted at any point before the first invocation; both sets are sealed simultaneously by B-33. Construction performs the one-time wasm runtime setup from `wasm_path` (engine, module compile, instance wiring) plus the ABI version probe (B-40), and runs no invocation entry point; setup failures raise `Kobako::SetupError` (E-40 / E-41 / E-42, with `Kobako::ModuleNotBuiltError` for an artifact that has not been built yet) or, for an invalid cap argument, `ArgumentError` (E-39) — see the Error Scenarios subsection. The module compile is additionally amortised across processes by a best-effort compiled-artifact disk cache at `$XDG_CACHE_HOME/kobako` (falling back to `~/.cache/kobako`, created owner-only), keyed by the SHA-256 of the Guest Binary bytes plus the gem version; any read, write, or wasmtime-compatibility failure falls back to in-process compilation with no observable difference beyond construction latency, and a cache entry carries exactly the trust of the Guest Binary file itself (same-user filesystem). A cache hit refreshes the entry's mtime; writing a new artifact opportunistically removes entries unused for 30 days, so the directory stays bounded across Guest Binary rebuilds. |
+| **Notes** | `timeout` is absolute wall-clock time from the invocation entry point (`Sandbox#eval` or `Sandbox#run`); the deadline expires at `entry_time + timeout` and is checked at guest wasm safepoints. No trap fires while host code runs, but the wall-clock time a Service callback consumes counts against the deadline — the Host App is responsible for keeping handler execution bounded. `memory_limit` bounds the per-invocation linear-memory delta: cumulative `memory.grow` past the linear-memory size observed at invocation entry, so the Guest Binary's initial allocation and prior invocations' watermark sit outside the budget (E-20). `stdout_limit` / `stderr_limit` bound per-channel output capture (B-04). Setup calls (B-07 / B-08 / B-32) are permitted at any point before the first invocation; B-33 seals both sets. Construction performs the one-time wasm runtime setup from `wasm_path` plus the ABI version probe (B-40); setup failures raise `Kobako::SetupError` (E-40..E-42) or, for an invalid cap argument, `ArgumentError` (E-39). The module compile is amortised across processes by a best-effort disk cache at `$XDG_CACHE_HOME/kobako` (fallback `~/.cache/kobako`, owner-only); any cache failure falls back to in-process compilation with no observable difference beyond construction latency, an entry carries exactly the trust of the Guest Binary file itself, and the directory stays bounded across Guest Binary rebuilds. |
 
 ---
 
@@ -26,7 +26,7 @@ The governing summary of this document — including the four-outcome guarantee 
 | **Initial State** | A Sandbox instance with zero prior invocations (no `#eval` and no `#run` call). Zero or more Members have been bound. Zero or more snippets have been preloaded (B-32). The stdout and stderr buffers are empty. |
 | **Operation** | `sandbox.eval(code)` where `code` is a String of mruby source. |
 | **Result / Final State** | The Catalog::Handles counter is reset and no Handles from any prior invocation are reachable. Service bindings registered on this Sandbox remain active. Preloaded snippets (B-32) replay in insertion order before `code` executes; each snippet contributes its top-level side effects to the fresh `mrb_state`. `code` then loads with backtrace filename `(eval)`. `#eval` blocks until execution completes, up to the configured `timeout`. On success, `#eval` returns a single deserialized Ruby value — the last mruby expression of `code`. The stdout and stderr buffers contain any output written during execution, bounded by `stdout_limit` / `stderr_limit` (B-04). Per-invocation cap exhaustion surfaces as `Kobako::TimeoutError` (wall-clock `timeout` exceeded; E-19) or `Kobako::MemoryLimitError` (per-invocation `memory.grow` delta exceeds `memory_limit`; E-20), both subclasses of `Kobako::TrapError`. If `code` is `nil`, not a String, or fails compilation, `#eval` raises `Kobako::SandboxError`. |
-| **Notes** | The return value semantics are detailed in B-06. Error outcomes are covered in the Error Scenarios subsection. A `code` argument that is `nil`, not a String, or fails mruby compilation results in `Kobako::SandboxError`. The first `#eval` (or first `#run`, B-31) seals the snippet table (B-33) and Service registration (B-07). |
+| **Notes** | The return value semantics are detailed in B-06. The first invocation (`#eval` or `#run`) seals the snippet table and Service registration (B-33). |
 
 ---
 
@@ -37,7 +37,7 @@ The governing summary of this document — including the four-outcome guarantee 
 | **Initial State** | A Sandbox instance that has completed one or more prior invocations (any combination of `#eval` and `#run`). Members bound before the first invocation remain registered. Snippets preloaded before the first invocation remain registered. |
 | **Operation** | `sandbox.eval(code)` or `sandbox.run(target, *args, **kwargs)` — any invocation after the first. |
 | **Result / Final State** | Each invocation executes in a fully isolated context, independent of all prior invocations. All capability state (Handles issued in prior invocations) is fully discarded before the new invocation begins. All Service bindings and all preloaded snippets remain active across invocations and are visible to the new invocation. `#eval` returns the last expression of its source; `#run` returns the entrypoint's `#call` return value (B-31). The stdout and stderr buffers are cleared at the start of this invocation and contain only output from this invocation; the per-channel truncation predicates (B-04) reset together with the buffers. Per-invocation cap enforcement (B-02 Result) applies identically to every invocation, regardless of verb. |
-| **Notes** | A Handle issued during invocation N is not reachable during invocation N+1. This isolation guarantee is unconditional — it holds whether the previous invocation succeeded or raised an error, and applies uniformly across `#eval`/`#run` boundaries. Service bindings and preloaded snippets are never cleared between invocations; only capability state is reset. |
+| **Notes** | Isolation is unconditional — it holds whether the previous invocation succeeded or raised an error, and applies uniformly across `#eval` / `#run` boundaries; stale-Handle presentation is covered by B-18. |
 
 ---
 
@@ -48,7 +48,7 @@ The governing summary of this document — including the four-outcome guarantee 
 | **Initial State** | A Sandbox instance on which `#eval` or `#run` has been called and has returned (either with a value or by raising an error). |
 | **Operation** | `sandbox.stdout`, `sandbox.stderr`, `sandbox.stdout_truncated?`, or `sandbox.stderr_truncated?` — any combination, any order, any number of times. |
 | **Result / Final State** | Each byte reader returns the content (as a UTF-8 String) the guest wrote to its respective output channel during the most recent invocation, up to the configured `stdout_limit` / `stderr_limit`. The buffers do not change between successive reads. The content contains no kobako protocol bytes and no truncation sentinels. When a channel's cap was reached, the host buffer ends at the cap boundary and subsequent guest writes on that channel fail or are dropped — the guest may rescue the failure or ignore it, but no further bytes reach the buffer; this does not cause the invocation to raise an error. Each truncation predicate returns `true` iff its channel hit its cap during the most recent invocation, otherwise `false`. |
-| **Notes** | The buffers and the truncation predicates remain accessible after an error-raising invocation; the Host App reads them after catching the error. Per-channel byte caps are set at construction time (B-01). Truncation predicates reset together with the buffers at the start of the next invocation (B-03). |
+| **Notes** | Per-channel caps are set at construction (B-01). The buffers and predicates remain readable after an error-raising invocation and reset at the start of the next one (B-03). |
 
 ---
 
@@ -59,7 +59,6 @@ The governing summary of this document — including the four-outcome guarantee 
 | **Initial State** | A Sandbox instance on which neither `#eval` nor `#run` has ever been called. |
 | **Operation** | `sandbox.stdout` or `sandbox.stderr`. |
 | **Result / Final State** | Each reader returns an empty String (`""`). No error is raised. |
-| **Notes** | Reading either buffer before any invocation is always safe and returns an empty String. |
 
 ---
 
@@ -71,8 +70,8 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | A Sandbox instance, either fresh (per B-02) or post-invocation (per B-03), with zero or more Members bound and zero or more snippets preloaded. |
 | **Operation** | `sandbox.eval(code)` — same invocation as B-02 / B-03. |
-| **Result / Final State** | When the guest completes without raising `Kobako::TrapError`, `#eval` returns the deserialized Ruby value of the last mruby expression of `code`. If the last expression evaluates to `nil` (including a `code` with no explicit return expression), `#eval` returns Ruby `nil`. If the last expression is, or contains, a Capability Handle the guest received earlier in this invocation, that Handle is restored to its original host object per B-37. If the last expression produces an object that has no wire representation and is not a Capability Handle, `#eval` raises `Kobako::SandboxError`. All other error outcomes are covered in the Error Scenarios subsection. |
-| **Notes** | Exactly one value is returned per `#eval` call. There is no mechanism to return multiple values or stream values. The unrepresentable-value case is attributed to the guest code (`Kobako::SandboxError`), not to the Wasm engine or a Service call. A returned Capability Handle is not an unrepresentable value — it has a wire form (`ext 0x01`) and is restored to its host object (B-37). |
+| **Result / Final State** | When the guest completes without raising `Kobako::TrapError`, `#eval` returns the deserialized Ruby value of the last mruby expression of `code`. If the last expression evaluates to `nil` (including a `code` with no explicit return expression), `#eval` returns Ruby `nil`. If the last expression is, or contains, a Capability Handle the guest received earlier in this invocation, that Handle is restored to its original host object per B-37. If the last expression produces an object that has no wire representation and is not a Capability Handle, `#eval` raises `Kobako::SandboxError`. |
+| **Notes** | Exactly one value is returned per `#eval` call; there is no mechanism to return multiple values or stream values. |
 
 ---
 
@@ -83,7 +82,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No Namespace named `Name` exists on this Sandbox. |
 | **Operation** | `sandbox.define(:Name)` where `:Name` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
 | **Result / Final State** | A `Kobako::Namespace` instance is created and associated with this Sandbox under the name `Name`. The namespace has no members yet. The method returns the new `Kobako::Namespace` instance. The Sandbox's `Catalog::Namespaces` now tracks one additional namespace entry. |
-| **Notes** | `Name` must conform to Ruby constant naming (`/\A[A-Z]\w*\z/`); a non-conforming name raises `ArgumentError` (error scenarios covered in the Error Scenarios subsection). Declarations are design-time operations: they must be made before the first invocation. Calling `sandbox.define` after `#eval` or `#run` has been invoked raises `ArgumentError`; the Sandbox remains usable for subsequent invocations with the bindings and preloaded snippets that existed at the time of the first invocation. A namespace may have zero members at declaration time; members are added via B-08. Snippet registration is governed by the sibling sealing rule B-33. |
+| **Notes** | Declarations are design-time operations sealed by the first invocation (B-33): a non-conforming name raises `ArgumentError` (E-16), and `define` after the seal raises `ArgumentError` (E-18) while the Sandbox remains usable with the registrations that existed at sealing. A namespace may have zero members at declaration time; members are added via B-08. |
 
 ---
 
@@ -94,7 +93,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `Kobako::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. The owning Sandbox has not yet run its first invocation (B-33). |
 | **Operation** | `namespace.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
 | **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `<Namespace>::<Member>`. The method returns the `Kobako::Namespace` instance (`self`) to allow chaining. |
-| **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). Binding is a design-time operation sealed by the first invocation alongside declaration and preload (B-33): `bind` after the seal raises `ArgumentError` (E-45), the existing bindings are preserved unchanged, and the Frame 1 preamble of every subsequent invocation continues to carry exactly the bindings that existed at the moment of sealing. |
+| **Notes** | The bound object must remain valid for the lifetime of the Sandbox; the Host App manages its lifecycle. A non-conforming `MemberName` raises `ArgumentError` (E-17). Binding is sealed by the first invocation alongside declaration and preload (B-33): after the seal `bind` raises `ArgumentError` (E-45) and every subsequent invocation's Frame 1 preamble carries exactly the bindings that existed at sealing. |
 
 ---
 
@@ -127,7 +126,6 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `Kobako::Namespace` instance with a member already bound under the name `MemberName`. |
 | **Operation** | `namespace.bind(:MemberName, new_object)` — same member name as an already-bound member. |
 | **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten. The namespace's member registry is unchanged. |
-| **Notes** | Duplicate binding raises `ArgumentError`; the existing binding is preserved. Error scenarios are covered in full in the Error Scenarios subsection. |
 
 ---
 
@@ -138,7 +136,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `<Namespace>::<Member>` (e.g., `MyService::KV`). The guest holds a reference to the constant `<Namespace>::<Member>` and calls a method on it. |
 | **Operation** | Guest code executes `<Namespace>::<Member>.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
 | **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `<Namespace>::<Member>` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. |
-| **Notes** | Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. If the target path is not found in `Catalog::Namespaces`, a `ServiceError` is returned to the guest (covered in the Error Scenarios subsection). A method name that resolves to Ruby's ambient reflection / eval surface rather than the bound object's own Service behaviour is rejected before dispatch (B-42). |
+| **Notes** | Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping); the host passes them to `public_send` without further conversion. An unresolved target path surfaces per E-12; a method name that resolves to Ruby's ambient reflection / eval surface is rejected before dispatch (B-42). |
 
 ---
 
@@ -149,7 +147,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated Transport dispatch (B-12) has been dispatched. The bound Ruby object's method returns a value that is **wire-representable**: `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array, or Hash. |
 | **Operation** | The Host Gem's wire codec serializes the return value and delivers it to the guest as the dispatch response. |
 | **Result / Final State** | The guest receives the return value as the synchronous result of the method call, deserialized to the corresponding mruby type. The value is indistinguishable from a locally computed mruby value. No entry is added to the Catalog::Handles. |
-| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or another `Kobako::Handle`. The wire codec is the same codec used for `#run` return values (B-06). Values that are not wire-representable cause a `Kobako::SandboxError` (see the Error Scenarios subsection). Collections (Array, Hash) whose elements are all wire-representable are transmitted in full by value. |
+| **Notes** | A value is **wire-representable** if its type is one of `nil`, Boolean, Integer, Float, String, binary String, Symbol, Array of wire-representable values, or Hash with wire-representable keys and values; or it is another `Kobako::Handle`. Collections whose elements are all wire-representable are transmitted in full by value; a return value that is not wire-representable takes the Handle allocation path (B-14). |
 
 ---
 
@@ -160,7 +158,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A guest-initiated Transport dispatch (B-12) has been dispatched. The bound Ruby object's method returns a Ruby object that is not wire-representable — for example, a session object, a connection, or any stateful host resource. |
 | **Operation** | A return value is routed through the Handle allocation path if and only if its type is not wire-representable per the definition in B-13. The wire layer then automatically registers the object in the Sandbox's Catalog::Handles. |
 | **Result / Final State** | The host-side object is stored in `Catalog::Handles` under a new opaque u32 Handle ID. The guest receives a Capability Handle (an opaque integer token) as the dispatch response value, not the object itself. The guest can pass this Handle as the `target` in subsequent dispatch requests to invoke methods on the same host-side object. The Host App has no API to create or inspect Handles directly — Handle allocation is an internal wire-layer operation. |
-| **Notes** | Handle lifecycle (per-invocation scope, ID limits) is specified in the Handle lifecycle behaviors (B-15–B-21). The guest cannot dereference a Handle to a Ruby value; it can only use it as a target in further dispatch requests. The host→guest symmetric direction — `#run` arguments containing non-wire-representable objects — is governed by B-34, which routes through the same `Catalog::Handles` allocator and lifecycle rules. |
+| **Notes** | Handle lifecycle (per-invocation scope, ID limits) is specified in B-15..B-21. The host→guest symmetric direction — `#run` arguments containing non-wire-representable objects — is governed by B-34, which routes through the same `Catalog::Handles` allocator and lifecycle rules. |
 
 ---
 
@@ -170,8 +168,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | An invocation (`#eval` or `#run`) has just begun. The Catalog::Handles counter is reset to 1. No entries exist in the table. |
 | **Operation** | The Host Gem's wire layer allocates a new Handle, either for a stateful return value from a Service method (B-14) or for a non-wire-representable argument supplied to `#run` (B-34). |
-| **Result / Final State** | The first Handle issued in this invocation receives ID 1, the second ID 2, and so on. Each ID is unique within the invocation. The counter never wraps or reuses an ID during a single invocation. IDs are assigned in allocation order. The counter never wraps or reuses an ID; when the cap is reached, allocation fails (see B-21). ID 0 is reserved as the invalid sentinel; allocation never returns 0. |
-| **Notes** | Counter and IDs are reset at the start of every invocation — IDs from invocation N are not carried into invocation N+1 (see B-18). |
+| **Result / Final State** | The first Handle issued in this invocation receives ID 1, the second ID 2, and so on. IDs are assigned in allocation order and are unique within the invocation; the counter never wraps or reuses an ID — when the cap is reached, allocation fails (see B-21). ID 0 is reserved as the invalid sentinel; allocation never returns 0. |
 
 ---
 
@@ -182,7 +179,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | An invocation is in progress. The guest holds a `Kobako::Handle` (mruby object) obtained from a prior dispatch response (B-14) or from a `#run` argument auto-wrapped by the host (B-34) in the same invocation. The Handle's internal ID resolves to a live entry in `Catalog::Handles`. |
 | **Operation** | Guest code invokes a method on a Member and passes the `Kobako::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
 | **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the Catalog::Handles, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. |
-| **Notes** | The guest never sees or manipulates the raw integer ID; it holds a `Kobako::Handle` mruby proxy object and calls methods on it or passes it as an argument. If the ID is not found, the error path is covered in the Error Scenarios subsection. |
+| **Notes** | The guest holds a `Kobako::Handle` mruby proxy, never the raw integer ID. An ID with no live entry surfaces per E-13. |
 
 ---
 
@@ -193,7 +190,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | An invocation is in progress. Service A has been called via Transport dispatch and returned a stateful object; the guest holds `handle_a` (a `Kobako::Handle` proxy). |
 | **Operation** | Guest code calls a method directly on `handle_a` (e.g., `handle_a.find(id)`), using the Handle as the dispatch target. The wire layer encodes `handle_a` as the `target` field of the Request. |
 | **Result / Final State** | The Host Gem resolves `handle_a`'s ID against `Catalog::Handles` and invokes `public_send(:find, id)` on the host-side Ruby object that `handle_a` represents. If that call returns another stateful object, a new Handle `handle_b` is allocated and returned to the guest. Each step in the chain is an independent, synchronous dispatch; there is no implicit multi-hop traversal within a single wire call. |
-| **Notes** | Chain depth is unbounded within a single invocation as long as each step produces a Handle that survives to the next call. Each intermediate Handle is a first-class entry in the Catalog::Handles and follows the same lifecycle rules as any other Handle. Every host object reachable by the guest must have entered through an explicit allocation path — either Service-returned (B-14) or `#run` argument auto-wrapped (B-34); there is no implicit intermediate binding path. |
+| **Notes** | Chain depth is unbounded within a single invocation as long as each step produces a Handle that survives to the next call. Every host object reachable by the guest must have entered through an explicit allocation path — either Service-returned (B-14) or `#run` argument auto-wrapped (B-34); there is no implicit intermediate binding path. |
 
 ---
 
@@ -203,7 +200,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 |-------|-------|
 | **Initial State** | Invocation N has completed. The guest code attempts to retain a Handle ID from invocation N and presents it as the `target` in a new invocation (N+1, of either verb). At the start of invocation N+1 the Catalog::Handles has been fully reset: all entries from invocation N (both Service-returned via B-14 and host-injected via B-34) are cleared and the counter restarted. |
 | **Operation** | Guest code in invocation N+1 calls a method using the stale Handle ID as the dispatch target. |
-| **Result / Final State** | The `Catalog::Handles` lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path (the Error Scenarios subsection) is triggered. Invocation N+1 is not interrupted for other dispatch requests that do not reference stale IDs. |
+| **Result / Final State** | The `Catalog::Handles` lookup for that ID returns `:undefined` — the ID does not exist in the fresh table. The stale Handle is invalid; the Host Gem treats this as an unrecognized target. The error path is E-13. Invocation N+1 is not interrupted for other dispatch requests that do not reference stale IDs. |
 | **Notes** | This outcome is unconditional: no Handle survives the invocation boundary regardless of how it was allocated (B-14 service return or B-34 host-injected argument), even when invocation N and N+1 execute the same source (or dispatch the same entrypoint) with the same Service bindings. The Catalog::Handles is reset before the Guest Binary is instantiated for invocation N+1. |
 
 ---
@@ -215,7 +212,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A `Kobako::Sandbox` instance exists with zero or more completed invocations. The Catalog::Handles is owned by this Sandbox instance. |
 | **Operation** | The Sandbox instance is garbage-collected or goes out of scope; Ruby reclaims it. |
 | **Result / Final State** | The Catalog::Handles and all its entries are destroyed as part of Sandbox teardown. Every Handle that was issued during any invocation on this Sandbox is permanently invalid. No Handle entry is shared with, transferred to, or reachable from any other Sandbox instance. |
-| **Notes** | Handles are not reference-counted and there is no explicit `release` API for individual entries. Validity is scoped to the owning Sandbox and the specific invocation in which the Handle was issued (B-18). A Handle that was valid in a prior invocation on this Sandbox is already invalid by the time the Sandbox is collected (per B-18); Sandbox teardown simply removes the ownership root. This applies uniformly to all Catalog::Handles entries regardless of allocation source — Service-returned (B-14) or host-injected via `#run` (B-34). |
+| **Notes** | Handles are not reference-counted and there is no explicit `release` API for individual entries. Validity is scoped to the owning Sandbox and the issuing invocation (B-18), uniformly across allocation sources (B-14 / B-34). |
 
 ---
 
@@ -226,7 +223,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | An invocation is in progress (or about to begin via `#run`). Either the guest mruby has access to an arbitrary integer value (e.g., `42` or any computed integer), or the Host App holds an arbitrary integer it intends to present as a Handle. |
 | **Operation** | Code on either side of the boundary attempts to use a raw integer as a Handle — for example, by constructing a `Kobako::Handle`-like object from an integer literal, or by any means other than receiving a Handle from a Service dispatch response (B-14) or from a `#run` host-side auto-wrap (B-34). |
 | **Result / Final State** | No valid `Kobako::Handle` object is produced from a bare integer on either side. Neither the guest mruby API nor the Host App API exposes a public constructor that converts an integer to a Handle. A raw integer presented as a dispatch target does not carry the Handle wire encoding (`ext 0x01`); the host-side wire decoder rejects the malformed encoding before the value reaches `Catalog::Handles`. A `Kobako::Handle` instance fabricated on the host side through any non-public path and passed to `#run` raises `ArgumentError` at host pre-flight (E-29). |
-| **Notes** | The `Kobako::Handle` class holds the u32 ID internally but does not expose it as a readable integer attribute. Handle allocation is exclusively internal to the Host Gem: the only legitimate paths to obtain a Handle instance are receiving one through a Service return value (B-14) or through `#run` host-side auto-wrap (B-34). This rule applies symmetrically and each side has its own enforcement point — the Host App side is enforced at host pre-flight (E-29), and the guest side is enforced by blocking construction of the `Kobako::Handle` proxy (B-39); guest code that received no Handle from a Service call has no path to fabricate one. Handle ID unguessability is not a security property: IDs are issued as a per-invocation sequence and the capability boundary rests on Catalog::Handles membership plus per-invocation isolation (B-18), not on ID secrecy — every ID live within an invocation already references an object that invocation was handed (B-14 / B-34), so a guessed or forged ID grants no reference the guest does not already hold. |
+| **Notes** | The `Kobako::Handle` class holds the u32 ID internally but does not expose it as a readable integer attribute. Each side has its own enforcement point: host pre-flight rejection (E-29) and blocked guest construction (B-39). Handle ID unguessability is not a security property: the capability boundary rests on `Catalog::Handles` membership plus per-invocation isolation (B-18), not on ID secrecy — a guessed or forged ID grants no reference the invocation was not already handed (B-14 / B-34). |
 
 ---
 
@@ -237,7 +234,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | An invocation is in progress. The Catalog::Handles counter has reached `0x7fff_ffff` (2³¹ − 1), the maximum valid Handle ID. |
 | **Operation** | The Host Gem's wire layer attempts to allocate one additional Handle for a new stateful return value. |
 | **Result / Final State** | The allocation fails immediately with a `Kobako::HandlerExhaustedError` (a `Kobako::SandboxError` subclass). The counter is not incremented, no new entry is written to the Catalog::Handles, and no ID is silently truncated or wrapped. The error is raised to the Host App; the current invocation terminates. |
-| **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. The error path is covered in detail in the Error Scenarios subsection. |
+| **Notes** | The fail-fast guard makes the violation visible rather than allowing silent semantic corruption. |
 
 ---
 
