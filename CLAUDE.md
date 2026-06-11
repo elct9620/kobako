@@ -137,9 +137,10 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 ```
 Runtime          runtime.rs — Kobako::Runtime class (#from_path / #eval / #run / #usage)
       │
-Run mechanics    runtime/{dispatch, guest_mem, trap, capture}
+Run mechanics    runtime/{dispatch, guest_mem, trap, capture, ambient}
       │            dispatch (__kobako_dispatch) · guest_mem (Caller alloc/write/read)
       │            · trap (error→Kobako::*) · capture (stdout/stderr clip)
+      │            · ambient (frozen WASI clocks + constant RNG, B-45)
       │
 Per-Store state  runtime/{invocation, exports, config}
       │            Invocation + StoreCell + MemoryLimiter · Exports (cached handles) · Config (caps)
