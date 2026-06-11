@@ -2,6 +2,10 @@
 
 require "test_helper"
 
+require "digest"
+require "fileutils"
+require "tmpdir"
+
 # Wrapper-layer tests for the sole Ruby-visible wasmtime class,
 # +Kobako::Runtime+. The native ext keeps Engine, Module, and Store as
 # internal Rust types — they are not reachable from Ruby (SPEC.md "Code
@@ -71,6 +75,46 @@ class TestRuntime < Minitest::Test
     refute_kind_of Kobako::TrapError, err,
                    "a construction failure must not be attributed as an invocation TrapError"
     assert_match(/failed to compile Sandbox runtime/, err.message)
+  end
+
+  # docs/behavior.md B-01 Notes: the compiled-artifact disk cache is
+  # best-effort — a corrupt cache entry falls back to in-process
+  # compilation rather than failing construction.
+  def test_from_path_falls_back_to_compile_when_cached_artifact_is_corrupt
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+
+    with_private_cache_root do |dir|
+      wasm_path = plant_corrupt_artifact(dir)
+
+      assert_instance_of Kobako::Runtime,
+                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil),
+                         "a corrupt compiled-artifact cache entry must fall back to compilation (B-01)"
+    end
+  end
+
+  # Redirect the compiled-artifact cache root (B-01: XDG_CACHE_HOME) to
+  # a private tmpdir for the block, so the test owns every cache entry
+  # and never touches the developer's real cache.
+  def with_private_cache_root
+    original = ENV.fetch("XDG_CACHE_HOME", nil)
+    Dir.mktmpdir do |dir|
+      ENV["XDG_CACHE_HOME"] = dir
+      yield dir
+    end
+  ensure
+    ENV["XDG_CACHE_HOME"] = original
+  end
+
+  # Copy the fixture to a fresh path under +dir+ and plant garbage bytes
+  # at the cache entry its content hashes to, so the artifact-load path
+  # is forced onto the corrupt-entry branch.
+  def plant_corrupt_artifact(dir)
+    wasm_path = File.join(dir, "corrupt_probe.wat")
+    FileUtils.cp(FIXTURE_PATH, wasm_path)
+    entry = File.join(dir, "kobako", "#{Digest::SHA256.hexdigest(File.binread(wasm_path))}.cwasm")
+    FileUtils.mkdir_p(File.dirname(entry))
+    File.write(entry, "not a serialized wasmtime artifact")
+    wasm_path
   end
 
   # docs/behavior.md E-39: an invalid timeout argument is a Host App

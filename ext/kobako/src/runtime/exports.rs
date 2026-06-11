@@ -21,6 +21,10 @@ use super::invocation::StoreCell;
 /// `kobako.wasm` always does, and the run-path methods raise a Ruby
 /// `Kobako::TrapError` (via `require_export` / `require_memory`) when a
 /// handle is `None`.
+///
+/// The handles are indices into the owning Store, not borrows of the
+/// `Instance` — they stay valid for the Store's lifetime, which is why
+/// `Runtime` keeps no `Instance` field.
 pub(crate) struct Exports {
     pub(crate) eval: Option<TypedFunc<(), ()>>,
     pub(crate) run: Option<TypedFunc<(i32, i32), ()>>,
