@@ -71,6 +71,16 @@ module Kobako
       assert_match(/after first Sandbox invocation/, err.message)
     end
 
+    # B-33 / E-45: seal! propagates to every declared Namespace, so a Host
+    # App holding the Namespace reference cannot bind past the seal.
+    def test_seal_propagates_bind_rejection_to_declared_namespaces
+      namespace = @namespaces.define(:Early)
+      @namespaces.seal!
+
+      err = assert_raises(ArgumentError) { namespace.bind(:Late, :late) }
+      assert_match(/after first Sandbox invocation/, err.message)
+    end
+
     # ---------- B-08: bind accepts class / instance / module uniformly ----------
 
     def test_namespace_bind_accepts_class_instance_and_module
@@ -162,17 +172,17 @@ module Kobako
 
     # B-33 seals Service registration (B-07 / B-08) at the first
     # invocation; B-07 Notes pin every later invocation to the bindings
-    # that existed at that moment. A bind reaching the Namespace entity
-    # after the seal must therefore be invisible on the wire.
+    # that existed at that moment. Binding past the seal raises (E-45),
+    # so the sealed Frame 1 preamble is stable by construction.
     def test_encoded_preamble_after_seal_excludes_members_bound_later
       namespace = @namespaces.define(:MyService).bind(:KV, :kv)
       @namespaces.seal!
       sealed_bytes = @namespaces.encode
 
-      namespace.bind(:Late, :late)
+      assert_raises(ArgumentError) { namespace.bind(:Late, :late) }
 
       assert_equal sealed_bytes, @namespaces.encode,
-                   "a member bound after the seal must not alter the Frame 1 preamble (B-07 / B-33)"
+                   "a bind rejected after the seal must not alter the Frame 1 preamble (B-07 / B-33 / E-45)"
       assert_equal [["MyService", %w[KV]]], MessagePack.unpack(@namespaces.encode)
     end
   end

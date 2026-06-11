@@ -86,7 +86,8 @@ module Kobako
       # subsequent invocation: B-33 seals Service registration (B-07 /
       # B-08) at the first invocation, so the preamble is exactly the
       # bindings that existed at that moment — a bind reaching a
-      # +Kobako::Namespace+ after the seal never alters Frame 1.
+      # +Kobako::Namespace+ after the seal raises +ArgumentError+ (E-45)
+      # and never alters Frame 1.
       def encode
         return @encoded if @encoded
 
@@ -95,10 +96,17 @@ module Kobako
         bytes
       end
 
-      # Mark the registry as sealed. Called by +Sandbox+ on the first
-      # invocation. After sealing, #define raises ArgumentError. Idempotent.
+      # Mark the registry as sealed and propagate the seal to every
+      # declared +Kobako::Namespace+
+      # ({docs/behavior.md B-33}[link:../../../docs/behavior.md]). Called
+      # by +Sandbox+ on the first invocation. After sealing, #define
+      # raises ArgumentError (E-18) and +Namespace#bind+ raises
+      # ArgumentError (E-45). Idempotent.
       def seal!
+        return self if @sealed
+
         @sealed = true
+        @namespaces.each_value(&:seal!)
         self
       end
 

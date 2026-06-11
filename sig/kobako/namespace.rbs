@@ -8,6 +8,8 @@ module Kobako
 
     def bind: (Symbol | String member, untyped object) -> self
 
+    def seal!: () -> self
+
     def fetch: (Symbol | String member) -> untyped
 
     def to_preamble: () -> [String, Array[String]]

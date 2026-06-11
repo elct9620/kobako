@@ -68,5 +68,18 @@ module Kobako
       err = assert_raises(KeyError) { namespace.fetch("Unknown") }
       assert_match(/Unknown/, err.message)
     end
+
+    # ---------- bind after seal (B-33 / E-45) ----------
+
+    def test_bind_after_seal_raises_and_preserves_bindings
+      namespace = Namespace.new("Logger")
+      namespace.bind(:Info, :first)
+      assert_same namespace, namespace.seal!, "seal! must return self"
+
+      err = assert_raises(ArgumentError) { namespace.bind(:Late, :late) }
+      assert_match(/after first Sandbox invocation/, err.message)
+      assert_equal ["Logger", %w[Info]], namespace.to_preamble,
+                   "a bind rejected by the seal must leave the member table unchanged (E-45)"
+    end
   end
 end

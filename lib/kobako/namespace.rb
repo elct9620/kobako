@@ -18,19 +18,33 @@ module Kobako
     def initialize(name)
       @name = name
       @members = {} # : Hash[String, untyped]
+      @sealed = false
     end
 
     # Bind +object+ under +member+ inside this Namespace. +member+ is a
     # constant-form name as a +Symbol+ or +String+. +object+ is any Ruby
     # object that responds to the methods guest code will invoke. Returns
     # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
-    # match the constant pattern, or a Member of the same name is already
-    # bound ({docs/behavior.md B-11}[link:../../docs/behavior.md]).
+    # match the constant pattern, when a Member of the same name is
+    # already bound ({docs/behavior.md B-11}[link:../../docs/behavior.md]),
+    # or when the owning Sandbox's first invocation has sealed Service
+    # registration ({docs/behavior.md E-45}[link:../../docs/behavior.md]).
     def bind(member, object)
+      raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
+
       member_str = validate_member_name!(member)
       raise ArgumentError, "Member #{@name}::#{member_str} is already bound" if @members.key?(member_str)
 
       @members[member_str] = object
+      self
+    end
+
+    # Mark this Namespace as sealed ({docs/behavior.md B-33}[link:../../docs/behavior.md]).
+    # Called by +Kobako::Catalog::Namespaces#seal!+ on the owning
+    # Sandbox's first invocation; afterwards {#bind} raises
+    # +ArgumentError+ (E-45). Idempotent; returns +self+.
+    def seal!
+      @sealed = true
       self
     end
 
