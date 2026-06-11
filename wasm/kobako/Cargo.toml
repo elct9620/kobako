@@ -10,7 +10,7 @@
 
 [package]
 name = "kobako"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Assembled mruby implementation of the kobako Guest ABI — the MrbGuest harness and the KobakoBridge gem, built on beni."
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ categories = ["wasm"]
 # Guest ABI contract crate — the wire tiers (`codec`, `transport`,
 # `outcome`) and ABI primitives the provided flows implement the
 # contract with.
-kobako-core = { path = "../kobako-core", version = "0.4.0" }
+kobako-core = { path = "../kobako-core", version = "0.4.1" }
 
 # Typed mruby wrapper — `Mrb` / `Value` seams, the `Gem` trait, and
 # the `beni::sys` re-export the yield machinery's raw shims go
