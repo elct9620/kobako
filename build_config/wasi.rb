@@ -54,11 +54,6 @@ unless defined?(KobakoBuildConfig)
     WASI_SDK     = (ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")).freeze
     WASI_SYSROOT = File.join(WASI_SDK, "share", "wasi-sysroot").freeze
 
-    # Cross-compile target. `wasm32-wasi` is the LLVM triple (same ABI
-    # as Rust's `wasm32-wasip1` target); the LLVM-triple form is what
-    # autotools' `--host=` and pkg-config paths expect.
-    WASI_TARGET = "wasm32-wasi"
-
     # mruby `CrossBuild` name — controls the build subdirectory layout
     # (`vendor/mruby/build/<name>/`). The `target :wasi` declaration in
     # the Rakefile's `Beni::Tasks` block and the Stage C paths in
