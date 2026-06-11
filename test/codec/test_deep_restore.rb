@@ -4,7 +4,7 @@ require "test_helper"
 
 # Coverage for Codec::Utils.deep_restore — the guest→host Handle
 # restoration walk introduced for SPEC B-37. The symmetric inverse of
-# deep_wrap (test_codec_utils.rb): a value decoded off a guest→host wire
+# deep_wrap (test_utils.rb): a value decoded off a guest→host wire
 # (the #eval / #run result or a yield-block result) carries Kobako::Handle
 # tokens where the guest returned a Handle it held; the walk resolves each
 # back to the host object before the Host App or a Service yield site sees

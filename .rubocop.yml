@@ -13,7 +13,6 @@ Style/StringLiteralsInInterpolation:
 Metrics/ClassLength:
   Exclude:
     - "test/transport/test_dispatcher.rb"
-    - "test/test_codec.rb"
     - "test/transport/test_envelope.rb"
     # WireValueGenerator owns ten generation concerns (ints / floats /
     # strings / binary / arrays / maps / symbols / handles / exceptions /

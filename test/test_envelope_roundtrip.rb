@@ -8,7 +8,7 @@
 # asserts byte-identical round-trip — proving the host and guest
 # envelope modules agree on the SPEC framing (field order, tag bytes,
 # optional-field handling), not just the underlying msgpack codec
-# already covered by test_codec_roundtrip_fuzz.rb.
+# already covered by test/codec/test_roundtrip_fuzz.rb.
 #
 # Transport envelopes (Request / Response) round-trip the production
 # +#encode+ output. Outcome-path payloads (Result / Panic / Outcome)
@@ -19,7 +19,7 @@
 #
 # This test does NOT need fuzz scale: a handful of representative
 # envelopes per variant is enough; the codec fuzz in
-# test_codec_roundtrip_fuzz.rb already covers byte-level wire shapes
+# test/codec/test_roundtrip_fuzz.rb already covers byte-level wire shapes
 # underneath.
 
 require "test_helper"

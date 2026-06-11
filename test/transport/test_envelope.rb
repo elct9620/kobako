@@ -2,7 +2,7 @@
 
 # Unit + integration tests for the host-side envelope encoders/decoders
 # (SPEC.md F-05 / F-09). Builds on top of the byte-level wire codec covered by
-# test/test_codec.rb. No native extension dependency.
+# test/codec/. No native extension dependency.
 
 require "test_helper"
 
