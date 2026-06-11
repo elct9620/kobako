@@ -3,11 +3,10 @@
 # Regression benchmark support module
 # ===================================
 #
-# Pure-Ruby data backing +tasks/benchmark.rake+. Owns the SPEC.md
+# Pure-Ruby data backing +tasks/bench/+. Owns the SPEC.md
 # #1..#6 benchmark roster that +rake bench+ runs as the release gate.
 
-# Release-gate benchmark roster. See sibling +tasks/benchmark.rake+ for
-# the rake DSL.
+# Release-gate benchmark roster. See +tasks/bench/+ for the rake DSL.
 module KobakoBench
   RELEASE_BENCHES = %w[
     benchmark/cold_start.rb

@@ -3,15 +3,15 @@
 # wasm Rust crate (kobako-wasm) support module
 # ============================================
 #
-# Pure-Ruby helpers backing +tasks/wasm.rake+. Owns crate paths,
+# Pure-Ruby helpers backing +tasks/wasm/+. Owns crate paths,
 # wasm32-wasip1 target detection, and the Stage C orchestrator. The
 # .rake wrapper is the rake DSL surface that glues these helpers to
 # +rake wasm:check+ / +rake wasm:test+ / +rake wasm:build+.
 
 require "open3"
 
-# Stage C build helpers for the kobako-wasm crate. See sibling
-# +tasks/wasm.rake+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
+# Stage C build helpers for the kobako-wasm crate. See
+# +tasks/wasm/+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
 # the orchestrator class.
 module KobakoWasm
   ROOT = File.expand_path("../..", __dir__)
