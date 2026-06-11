@@ -47,9 +47,9 @@ Beni::Tasks.new do
   end
 end
 
-# Load tasks/*.rake (Stage C + bench/coverage wrappers). Each .rake file
-# is self-contained; see tasks/wasm.rake for the Guest Binary flow.
-Dir.glob("tasks/*.rake").each { |t| load t }
+# Load tasks/**/*.rake (Stage C + bench/coverage wrappers). Each .rake file
+# is self-contained; see tasks/wasm/ for the Guest Binary flow.
+Dir.glob("tasks/**/*.rake").each { |t| load t }
 
 # The journey tests (test/test_e2e_journeys.rb) drive the pure
 # data/kobako.wasm; the focused regexp suite (test/regexp/) drives the

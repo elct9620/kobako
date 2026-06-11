@@ -40,7 +40,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 ## Build Pipeline
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm.rake` — including the non-obvious linker choice). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/`, host-side `wasmtime` via `rb_sys`, not the guest).
+The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm/build.rake` — including the non-obvious linker choice). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/`, host-side `wasmtime` via `rb_sys`, not the guest).
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp is opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
 
@@ -215,7 +215,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/runtime/test_runtime.rb`) covers only `from_path`. |
 | mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
-| Regression benchmarks | `tasks/benchmark.rake`, `benchmark/` | #1..#5 gated (+10% regression blocks release); #6/#7 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
-| Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/wasi.rb`, `tasks/wasm.rake` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
+| Regression benchmarks | `tasks/bench/`, `benchmark/` | #1..#5 gated (+10% regression blocks release); #6/#7 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
+| Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/wasi.rb`, `tasks/wasm/` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
 
 `test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent.

@@ -23,11 +23,10 @@
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
 # instances within one invocation share the same file.
 #
-# Release-gate benchmark roster lives in tasks/support/kobako_bench.rb.
+# Release-gate benchmark roster lives in tasks/support/kobako_bench.rb;
+# the anchored gate / bless / confirm tasks in tasks/bench/gate.rake.
 
-require_relative "support/kobako_bench"
-require_relative "support/kobako_bench_confirm"
-require_relative "support/kobako_bench_gate"
+require_relative "../support/kobako_bench"
 
 namespace :bench do
   desc "Run all six regression benchmarks (SPEC.md #1..#6; <=1 MiB payloads)."
@@ -57,22 +56,6 @@ namespace :bench do
   desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
   task :preload_dispatch do
     sh "bundle exec ruby benchmark/preload_dispatch.rb"
-  end
-end
-
-namespace :bench do
-  desc "Anchored release gate: compare a run against benchmark/baseline.json (or args [current,baseline])."
-  task(:gate, %i[current baseline]) { |_t, args| KobakoBench::Gate.gate!(args[:current], args[:baseline]) }
-
-  desc "Re-bless the anchor (benchmark/baseline.json) from a run; document the reason in the benchmark README."
-  task(:bless, %i[run]) { |_t, args| KobakoBench::Gate.bless!(args[:run]) }
-
-  desc "Stage-2 arbiter: paired alternation against a released Guest Binary (version or wasm path)."
-  task(:confirm, %i[baseline]) { |_t, args| KobakoBench::Confirm.confirm!(args[:baseline]) }
-
-  desc "Run the release-gate unit tests (comparator + runner)."
-  task :gate_test do
-    Dir["tasks/support/kobako_bench_*_test.rb"].each { |file| sh "bundle exec ruby #{file}" }
   end
 end
 
