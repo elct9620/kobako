@@ -91,10 +91,10 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. |
+| **Initial State** | A `Kobako::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. The owning Sandbox has not yet run its first invocation (B-33). |
 | **Operation** | `namespace.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
 | **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `<Namespace>::<Member>`. The method returns the `Kobako::Namespace` instance (`self`) to allow chaining. |
-| **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). |
+| **Notes** | `bind` accepts any Ruby object — class, instance, or module — uniformly; the Host App is responsible for ensuring `object` responds to the methods guest code will call. The bound object must remain valid for the lifetime of the Sandbox; the Host App is responsible for managing its lifecycle. A `MemberName` not matching the constant-name pattern raises `ArgumentError` (see the Error Scenarios subsection). Binding is a design-time operation sealed by the first invocation alongside declaration and preload (B-33): `bind` after the seal raises `ArgumentError` (E-45), the existing bindings are preserved unchanged, and the Frame 1 preamble of every subsequent invocation continues to carry exactly the bindings that existed at the moment of sealing. |
 
 ---
 
@@ -369,7 +369,7 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 | **Initial State** | A Sandbox instance with zero or more snippets preloaded via B-32 and zero or more Namespaces / Members registered via B-07 / B-08. No invocation has yet been called. |
 | **Operation** | The first invocation — `sandbox.eval(...)` or `sandbox.run(...)` — is called. |
 | **Result / Final State** | The snippet table becomes immutable. The snippet set replayed on every subsequent invocation is exactly the set registered at the moment of sealing, in insertion order. Any further call to `sandbox.preload(...)` raises `ArgumentError` (E-35); the existing snippet table is preserved unchanged. Service registration (B-07 / B-08) is sealed simultaneously by the same first invocation. |
-| **Notes** | The first invocation seals both the Service registry (B-07) and the snippet table together. After the seal, `#define` raises `ArgumentError` (E-18) and `#preload` raises `ArgumentError` (E-35). The two registries are stored and validated independently; the sealing boundary is the only event they share. |
+| **Notes** | The first invocation seals both the Service registry (B-07 / B-08) and the snippet table together. After the seal, `#define` raises `ArgumentError` (E-18), `namespace.bind` raises `ArgumentError` (E-45), and `#preload` raises `ArgumentError` (E-35). The two registries are stored and validated independently; the sealing boundary is the only event they share. |
 
 ---
 
@@ -563,11 +563,12 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-16 | Host App calls `sandbox.define(name)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-07 — invalid Namespace Name |
 | E-17 | Host App calls `namespace.bind(name, obj)` with `name` not matching `/\A[A-Z]\w*\z/` constant pattern | B-08 — invalid MemberName |
 | E-18 | Host App calls `sandbox.define` after `#run` has already been invoked on this Sandbox | B-07 — define-after-run |
+| E-45 | Host App calls `namespace.bind(name, obj)` after the first invocation (`#eval` or `#run`) has sealed Service registration on the owning Sandbox | B-08, B-33 — bind-after-seal |
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire-codec.md`](wire-codec.md) § Type Mapping, or that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth) | B-24 — yield round-trip |
 | E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
 
-`sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). All three are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
+`sandbox.define(:Name)` where `:Name` does not match `/\A[A-Z]\w*\z/` raises `ArgumentError` (B-07, E-16). `namespace.bind(:MemberName, obj)` when `MemberName` does not match the constant-name pattern raises `ArgumentError` (B-08, E-17). Calling `sandbox.define` after `#run` raises `ArgumentError` (B-07, E-18). Calling `namespace.bind` after the first invocation has sealed Service registration raises `ArgumentError` (B-08 / B-33, E-45); the existing bindings and the Frame 1 preamble are unchanged. All four are Host App programming errors detected at setup time before or between guest executions; they do not go through the attribution pipeline and are not classified as `SandboxError`.
 
 ---
 

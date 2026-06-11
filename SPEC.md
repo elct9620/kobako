@@ -258,21 +258,51 @@ The `Worker` snippet replays into a fresh `mrb_state` before every invocation, s
 
 ## Behavior
 
-The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-35 and the Error Scenarios subsection covering E-01..E-41 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
+The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-45 and the Error Scenarios subsection covering E-01..E-45 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
 - **`stdout` / `stderr` never participate in attribution.** They are captured separately and remain readable after error-raising invocations.
-- **Setup-time errors split by trigger:** API-misuse cases — invalid `Sandbox.new` cap argument (E-39), invalid Namespace / MemberName patterns (E-16, E-17), `define`-after-first-invocation (E-18), invalid `#run` target (E-24, E-25), invalid `#run` arguments — forged Handle in args / kwargs (E-29) or non-Symbol kwargs key (E-30), invalid `#preload` `name:` / duplicates / post-seal calls (E-33, E-34, E-35) — are Host App programming errors that raise `ArgumentError` or `TypeError` and bypass the attribution pipeline. Content-failure cases — `#preload(code:)` compile error at preload (E-32), preloaded snippet replay failure (E-36), `#preload(binary:)` bytecode structural failure surfaced during first invocation's replay (E-37, E-38) — raise `Kobako::SandboxError` (or its `Kobako::BytecodeError` subclass for bytecode structural failures) with backtrace attribution to the snippet's canonical name when one is available.
+- **Setup-time errors split by trigger:** API-misuse cases — invalid `Sandbox.new` cap argument (E-39), invalid Namespace / MemberName patterns (E-16, E-17), `define`-after-first-invocation (E-18), `bind`-after-first-invocation (E-45), invalid `#run` target (E-24, E-25), invalid `#run` arguments — forged Handle in args / kwargs (E-29) or non-Symbol kwargs key (E-30), invalid `#preload` `name:` / duplicates / post-seal calls (E-33, E-34, E-35) — are Host App programming errors that raise `ArgumentError` or `TypeError` and bypass the attribution pipeline. Content-failure cases — `#preload(code:)` compile error at preload (E-32), preloaded snippet replay failure (E-36), `#preload(binary:)` bytecode structural failure surfaced during first invocation's replay (E-37, E-38) — raise `Kobako::SandboxError` (or its `Kobako::BytecodeError` subclass for bytecode structural failures) with backtrace attribution to the snippet's canonical name when one is available.
 - **Construction-time setup failures are a separate class:** `Kobako::Sandbox.new` builds the wasm runtime from `wasm_path` before any invocation runs. An absent or unconstructable artifact (E-40, E-41) raises `Kobako::SetupError` — with the `Kobako::ModuleNotBuiltError` subclass for the unbuilt-artifact case (E-40) — rather than a `TrapError`: no Sandbox is produced, so the four-outcome guarantee and the `TrapError` discard-and-recreate recovery contract apply only after construction succeeds.
 - **Snippet replay is uniform across verbs:** preloaded snippets (B-32) replay into the fresh `mrb_state` before every invocation, whether the invocation is `#eval` (then user source loads) or `#run` (then entrypoint resolution happens). B-33 seals the snippet table on the first invocation, parallel to B-07's Service-registration sealing.
-- **Anchor groupings:** B-01..B-06 cover Sandbox construction, `#eval` invocation lifecycle, and output capture; B-07..B-11 cover Namespace / Member registration; B-12..B-21 cover guest-initiated Transport dispatch and `Catalog::Handles` lifecycle; B-22 covers per-Thread isolation; B-23..B-30 cover Block / Yield re-entry; B-31 covers `#run` entrypoint dispatch; B-32..B-33 cover `#preload` registration (both `code:` and `binary:` forms) and snippet-table sealing; B-34 covers `#run` host→guest auto-wrap of non-wire-representable arguments into Capability Handles; B-35 covers per-last-invocation usage observability via `#usage`; B-36 covers guest-side `respond_to?` probing on Member / Handle proxies; B-37 covers guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object; B-38 covers the guest's inability to construct a Member proxy (`<Namespace>::<Member>.new` / `.allocate` raise `NoMethodError`, attributed via E-04); B-39 extends the same construction block to the `Kobako::Handle` proxy; B-40 covers the host's ABI-version validation of the Guest Binary at construction; B-41 covers guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary; B-42..B-44 cover the host-authoritative rejection of Ruby's ambient reflection / eval surface at guest→host dispatch (with a callable allowlist for `Proc` / `Method` targets), the non-wire-representability of reflective gadget objects (`Binding` / `Method` / `UnboundMethod`), and the non-authoritative guest-side mirror of that rejection; B-45 covers the host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects. Errors split across the invocation-outcome classes and the construction-time `SetupError` — `TrapError` (E-01..E-03, E-19, E-20), `SandboxError` (E-04..E-10, E-16..E-18, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38 — with E-37 and E-38 raised as the `Kobako::BytecodeError` subclass), `ServiceError` (E-11, E-12, E-13, E-15, E-43, E-44), `SetupError` (E-40, E-41, E-42 — with E-40 raised as the `Kobako::ModuleNotBuiltError` subclass), and setup-time `TypeError` / `ArgumentError` (E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39).
+**Anchor groupings.** The behavior anchors group as follows:
+
+| Anchors | Cover |
+|---------|-------|
+| B-01..B-06 | Sandbox construction, `#eval` invocation lifecycle, and output capture |
+| B-07..B-11 | Namespace / Member registration |
+| B-12..B-21 | Guest-initiated Transport dispatch and `Catalog::Handles` lifecycle |
+| B-22 | Per-Thread isolation |
+| B-23..B-30 | Block / Yield re-entry |
+| B-31 | `#run` entrypoint dispatch |
+| B-32..B-33 | `#preload` registration (both `code:` and `binary:` forms) and snippet-table sealing |
+| B-34 | `#run` host→guest auto-wrap of non-wire-representable arguments into Capability Handles |
+| B-35 | Per-last-invocation usage observability via `#usage` |
+| B-36 | Guest-side `respond_to?` probing on Member / Handle proxies |
+| B-37 | Guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object |
+| B-38 | The guest's inability to construct a Member proxy (`<Namespace>::<Member>.new` / `.allocate` raise `NoMethodError`, attributed via E-04) |
+| B-39 | The same construction block extended to the `Kobako::Handle` proxy |
+| B-40 | The host's ABI-version validation of the Guest Binary at construction |
+| B-41 | Guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary |
+| B-42..B-44 | Host-authoritative rejection of Ruby's ambient reflection / eval surface at guest→host dispatch (with a callable allowlist for `Proc` / `Method` targets), the non-wire-representability of reflective gadget objects (`Binding` / `Method` / `UnboundMethod`), and the non-authoritative guest-side mirror of that rejection |
+| B-45 | The host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects |
+
+Errors split across the invocation-outcome classes and the construction-time `SetupError`:
+
+| Error class | Anchors |
+|-------------|---------|
+| `Kobako::TrapError` | E-01..E-03, E-19, E-20 |
+| `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
+| `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44 |
+| `Kobako::SetupError` | E-40, E-41, E-42 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
+| Setup-time `TypeError` / `ArgumentError` | E-16, E-17, E-18, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45 |
 
 ---
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-45 / E-44; subsequent anchors take the next integer above it (B-46, E-45). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-45 / E-45; subsequent anchors take the next integer above it (B-46, E-46). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 
