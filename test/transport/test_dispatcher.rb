@@ -8,7 +8,7 @@ require "test_helper"
 # argument resolution, cross-Sandbox invalidity,
 # and Catalog::Handles exhaustion are all observable through this seam.
 # Live-Sandbox elevation of these paths lives in
-# +test/test_e2e_journeys.rb+ via real mruby.
+# +test/e2e/+ via real mruby.
 class TestTransportDispatchUnit < Minitest::Test
   # Stub +yield_to_guest+ lambda for tests that never trip a guest
   # block. Dispatch only builds the Yielder when +block_given+ is

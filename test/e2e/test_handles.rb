@@ -1,0 +1,169 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# E2E (Layer 4) — Capability Handle behaviour through real mruby: chaining a
+# Service-returned Handle as the next dispatch target (B-17), respond_to?
+# probing (B-36), host-object restoration on every return path (B-37), and
+# the non-constructibility of Member / Handle proxies (B-38 / B-39).
+class TestE2EHandles < Minitest::Test
+  include E2eGuestHelper
+
+  # Stateful object handed to B-17 chain tests — Factory::Make returns a
+  # Greeter, the guest then routes greet() to it directly.
+  class Greeter
+    def initialize(name) = (@name = name)
+    def greet = "hi,#{@name}"
+  end
+
+  # SPEC.md B-17: Service A returns stateful object → guest uses Handle as
+  # next transport target → chain works.
+  def test_handle_chain_b17_service_returns_handle_used_as_target
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+
+    result = sandbox.eval(<<~RUBY)
+      g = Factory::Make.call("Bob")
+      g.greet
+    RUBY
+
+    assert_equal "hi,Bob", result,
+                 "B-17: Handle target from first transport call routes second call to the stateful object"
+  end
+
+  # SPEC.md B-36: a guest may probe a Member constant or a Handle instance
+  # with respond_to? before dispatching; both answer true because every
+  # method forwards to the host. KV::Lookup exercises the Member
+  # (class-level) registration; the Greeter Handle exercises the Handle
+  # (instance-level) registration — one assertion pins both paths.
+  def test_b36_respond_to_probe_succeeds_on_member_and_handle
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:KV).bind(:Lookup, ->(key) { "value:#{key}" })
+    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+
+    result = sandbox.eval(<<~RUBY)
+      handle = Factory::Make.call("Bob")
+      [KV::Lookup.respond_to?(:lookup_anything), handle.respond_to?(:greet)]
+    RUBY
+
+    assert_equal [true, true], result,
+                 "B-36: respond_to? on a Member constant and on a Handle instance must both " \
+                 "report true so guest-side capability probing succeeds before dispatch"
+  end
+
+  # SPEC.md B-38: a Member is a dispatch target, not a constructible type.
+  # The bound object (a Greeter instance) is reached by calling methods on
+  # the constant; a guest `Models::User.new` / `.allocate` must raise
+  # NoMethodError rather than yield an inert empty instance that silently
+  # masks the mistake. Unrescued, it reaches the host as SandboxError
+  # (E-04) carrying the guest exception class. The `.new(1, 2)` case pins
+  # that arguments do not change the outcome — the raise must fire ahead
+  # of any arity check (the reason the bridge registers `mrb_args_any()`);
+  # `.allocate` covers mruby's other construction entry.
+  def test_b38_member_proxy_is_not_constructible
+    ["Models::User.new", "Models::User.new(1, 2)", "Models::User.allocate"].each do |code|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.define(:Models).bind(:User, Greeter.new("bound"))
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
+
+      assert_equal "NoMethodError", err.klass,
+                   "B-38: constructing a Member (#{code}) through the guest must raise " \
+                   "NoMethodError, not produce an empty instance"
+      assert_match(/Models::User/, err.message,
+                   "B-38: the error must name the offending Member so the author can locate it")
+    end
+  end
+
+  # SPEC.md B-39: a Handle is a host-issued capability reference the wire
+  # decoder constructs (B-14 / B-34); guest code has no path to fabricate
+  # one. `Kobako::Handle.new(1)` / `.allocate` must raise NoMethodError
+  # rather than mint a proxy from a bare id that would dispatch against an
+  # arbitrary Catalog::Handles entry. Unrescued, it reaches the host as
+  # SandboxError (E-04). The `.new(1)` case pins that an integer argument
+  # does not change the outcome — the raise fires ahead of any arity check
+  # (the reason the bridge registers `mrb_args_any()`); `.allocate` covers
+  # mruby's other construction entry.
+  def test_b39_handle_proxy_is_not_constructible
+    ["Kobako::Handle.new(1)", "Kobako::Handle.allocate"].each do |code|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
+
+      assert_equal "NoMethodError", err.klass,
+                   "B-39: fabricating a Handle (#{code}) through the guest must raise " \
+                   "NoMethodError, not mint a proxy from a bare id"
+      assert_match(/Kobako::Handle/, err.message,
+                   "B-39: the error must name Kobako::Handle so the author can locate it")
+    end
+  end
+
+  # SPEC.md B-37: a Handle the guest received (here from Source::Get) and
+  # then returns as the #eval result is restored on the host to the very
+  # object Catalog::Handles holds — Source binds a fixed instance so the
+  # test can pin identity, not just equality.
+  def test_b37_returned_handle_is_restored_to_the_original_host_object
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+
+    result = sandbox.eval("Source::Get.call")
+
+    assert_same greeter, result,
+                "B-37: a Capability Handle returned as the #eval result must arrive at the " \
+                "Host App as the original host object, never a Kobako::Handle"
+  end
+
+  # SPEC.md B-37: the restoration walks nested Array / Hash, so a Handle in
+  # any leaf position resolves to its host object while the surrounding
+  # structure is preserved.
+  def test_b37_returned_handle_is_restored_inside_nested_containers
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+
+    result = sandbox.eval("g = Source::Get.call; { list: [g], pair: g }")
+
+    assert_same greeter, result[:list][0],
+                "B-37: a Handle nested in an Array leaf must be restored to its host object"
+    assert_same greeter, result[:pair],
+                "B-37: a Handle in a Hash value must be restored to its host object"
+  end
+
+  # SPEC.md B-37 (yield path): a guest block that returns a Handle hands the
+  # original host object back to the Service's yield expression, not a
+  # Kobako::Handle token. Sink::Run captures its block's return value so the
+  # test observes what the yield site received.
+  def test_b37_returned_handle_is_restored_on_the_yield_block_result
+    greeter = Greeter.new("Bob")
+    captured = nil
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.define(:Sink).bind(:Run, ->(&blk) { captured = blk.call })
+
+    sandbox.eval("Sink::Run.call { Source::Get.call }")
+
+    assert_same greeter, captured,
+                "B-37: a Handle returned from a guest block must reach the Service yield site " \
+                "as the original host object"
+  end
+
+  # SPEC.md B-25 / B-37: a Handle broken out of a guest block is NOT restored
+  # — the break value returns to the guest Member call, not to host code — so
+  # it rides back as a Handle the guest can still route through to the
+  # original host object on a later call.
+  def test_b37_broken_handle_returns_to_guest_and_still_routes_to_host_object
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+
+    result = sandbox.eval(
+      "h = Source::Get.call; found = Probe::Each.call([1, 2, 3]) { |x| break h if x == 2 }; found.greet"
+    )
+
+    assert_equal "hi,Bob", result,
+                 "B-25/B-37: a Handle broken out of a guest block returns to the guest and still " \
+                 "routes a later call to the original host object"
+  end
+end

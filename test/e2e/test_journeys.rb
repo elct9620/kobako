@@ -1,0 +1,121 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# E2E (Layer 4) — the J-01 and J-05 journeys (SPEC.md L146-158, L208-220):
+# an LLM agent author runs model-generated code with curated capabilities,
+# and the Host App developer routes failures through the three-class error
+# taxonomy. Sandbox reuse / isolation journeys live in test_lifecycle.rb.
+class TestE2EJourneys < Minitest::Test
+  include E2eGuestHelper
+
+  # ── J-01 — LLM agent author runs model-generated code with curated capabilities ──
+  #
+  # SPEC.md L146-158: The Host App declares Service namespaces; generated
+  # scripts that exceed declared capabilities receive ServiceError; scripts
+  # with Ruby errors raise SandboxError; Wasm-level failures raise TrapError.
+
+  # SPEC.md L152-156: model-generated script calls a curated Member
+  # and the Host App receives a deserialized return value.
+  def test_j01_curated_capability_call_returns_deserialized_result
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:KV).bind(:Lookup, ->(key) { "value:#{key}" })
+
+    result = sandbox.eval(<<~RUBY)
+      KV::Lookup.call("user_42")
+    RUBY
+
+    assert_equal "value:user_42", result,
+                 "J-01: model-generated script must receive deserialized Service result (SPEC.md L156)"
+  end
+
+  # SPEC.md L157: scripts with Ruby errors raise SandboxError.
+  def test_j01_script_ruby_error_raises_sandbox_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.eval(<<~RUBY)
+        raise "model produced bad code"
+      RUBY
+    end
+
+    assert_equal "sandbox", err.origin
+    refute_kind_of Kobako::ServiceError, err
+    refute_kind_of Kobako::TrapError, err
+  end
+
+  # SPEC.md "Panic Envelope" L876 — the +backtrace+ field is an array of
+  # str carrying the mruby backtrace. The guest must populate it from the
+  # mruby Exception object so the Host App can see where the failure
+  # originated inside the user script; an empty array hides which line the
+  # author needs to fix and forces blind debugging. The host-side decoder
+  # already pins the Array-of-String type invariant via +Outcome::Panic+,
+  # so this E2E only asserts the non-empty contract.
+  def test_j01_script_ruby_error_exposes_mruby_backtrace
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.eval(<<~RUBY)
+        def boom
+          raise "model produced bad code"
+        end
+        boom
+      RUBY
+    end
+    refute_empty err.backtrace_lines, "SPEC L876: guest must populate Panic.backtrace"
+  end
+
+  # SPEC.md L157: Service capability call that errors → ServiceError.
+  def test_j01_capability_error_raises_service_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval(<<~RUBY)
+        Log::Sink.call("secret")
+      RUBY
+    end
+
+    assert_equal "service", err.origin
+    refute_kind_of Kobako::SandboxError, err
+  end
+
+  # SPEC.md L876 again — an unrescued Service call equally flows through
+  # the Panic envelope, so its backtrace must also reach the Host App.
+  # Otherwise an LLM-generated script that calls a misbehaving capability
+  # would surface as ServiceError with no debugging context at all.
+  def test_j01_unrescued_service_error_exposes_mruby_backtrace
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval(<<~RUBY)
+        Log::Sink.call("secret")
+      RUBY
+    end
+
+    refute_empty err.backtrace_lines,
+                 "guest must populate Panic.backtrace for service-origin panics too"
+  end
+
+  # ── J-05 — Host App developer distinguishes and handles the three error classes ──
+  #
+  # SPEC.md L208-220: The three-class taxonomy lets the developer route
+  # each failure class through existing error-handling infrastructure.
+
+  def test_j05_developer_distinguishes_three_error_classes
+    sandbox_a = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox_b = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox_b.define(:Svc).bind(:Call, ->(_) { raise "service exploded" })
+
+    # SPEC.md L215: SandboxError — script-level fault.
+    assert_raises(Kobako::SandboxError) do
+      sandbox_a.eval('raise "script-level fault"')
+    end
+
+    # SPEC.md L216: ServiceError — capability-level fault.
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox_b.eval('Svc::Call.call("x")')
+    end
+    assert_equal "service", err.origin
+  end
+end

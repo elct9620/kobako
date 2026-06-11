@@ -9,7 +9,7 @@ require "test_helper"
 # Sandbox-side decomposition.
 #
 # Sandbox-level usage of the same fields is covered through
-# +test/test_sandbox_usage.rb+ and +test/test_e2e_journeys.rb+; this
+# +test/test_sandbox_usage.rb+ and the +test/e2e/+ journeys; this
 # file deliberately stays at the Runtime seam so a regression in the
 # Snapshot magnus wrap or the Ruby helper layer surfaces here, not via
 # indirect Sandbox assertions.

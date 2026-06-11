@@ -10,13 +10,8 @@ Style/StringLiterals:
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
 
-# E2E test files spin up servers and orchestrate multi-step assertions; the
-# default Metrics cops fight that shape without improving the tests. Each
-# entry below is the specific test class that exceeds the limit today —
-# new tests are expected to stay inside the cop's defaults.
 Metrics/ClassLength:
   Exclude:
-    - "test/test_e2e_journeys.rb"
     - "test/transport/test_dispatcher.rb"
     - "test/test_codec.rb"
     - "test/transport/test_envelope.rb"
@@ -31,7 +26,6 @@ Metrics/ClassLength:
 # AbcSize budget penalises that shape without improving the tests.
 Metrics/AbcSize:
   Exclude:
-    - "test/test_e2e_journeys.rb"
     - "test/transport/test_dispatcher.rb"
 
 # MessagePack format names embed bit-width suffixes (int_8, fixarray_16, map_32)

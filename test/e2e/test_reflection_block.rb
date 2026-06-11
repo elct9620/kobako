@@ -5,23 +5,13 @@ require "test_helper"
 # E2E (Layer 4) — guest-side reflection mirror through real mruby
 # (`data/kobako.wasm`). The guest proxy refuses to forward an ambient
 # reflection / eval method name to the host ({docs/behavior.md
-# B-44}[link:../docs/behavior.md]); the callable allowlist still forwards.
+# B-44}[link:../../docs/behavior.md]); the callable allowlist still forwards.
 #
 # B-44 is non-authoritative opacity — the host's B-42 guard is the real
 # boundary and is covered host-side in test_dispatch_method_allowlist.rb.
 # This file pins the guest-observable behaviour end to end.
-#
-# Build prerequisite: `bundle exec rake wasm:build` produces data/kobako.wasm;
-# when it is missing every test here `skip`s with a pointer at the build step.
 class TestE2EReflectionBlock < Minitest::Test
-  REAL_WASM = File.expand_path("../data/kobako.wasm", __dir__)
-
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    return if File.exist?(REAL_WASM)
-
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`"
-  end
+  include E2eGuestHelper
 
   def sandbox_with_fn
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

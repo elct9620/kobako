@@ -10,7 +10,7 @@ require "test_helper"
 # chain-returns-self and post-seal rejection (E-35).
 #
 # Replay-side behaviour (B-32 Result, E-32, E-36) is exercised
-# end-to-end in test/test_e2e_journeys.rb.
+# end-to-end in test/e2e/test_preload.rb.
 class TestSandboxPreload < Minitest::Test
   FIXTURE_PATH = File.expand_path("fixtures/minimal_abi_ok.wat", __dir__)
 

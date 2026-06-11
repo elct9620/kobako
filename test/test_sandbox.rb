@@ -66,7 +66,7 @@ class TestSandbox < Minitest::Test
     # adds the verb prefix. The user-facing message attributes the
     # failure to the public verb (`Sandbox#eval`) rather than the
     # underlying ABI symbol. Real fixture-based E2E coverage lives in
-    # test/test_e2e_journeys.rb.
+    # test/e2e/.
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::TrapError) { sandbox.eval("nil") }
     assert_match(/Sandbox#eval failed/, err.message)
