@@ -507,7 +507,7 @@ impl Runtime {
             rstring_to_vec(preamble),
             rstring_to_vec(source),
             rstring_to_vec(snippets),
-        ]);
+        ])?;
         self.call_with_caps(eval, ())
             .map_err(|e| trap::call_err(&ruby, e))?;
         self.build_snapshot(&ruby)
@@ -531,7 +531,7 @@ impl Runtime {
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let run = require_export(&ruby, self.exports.run.as_ref())?;
-        self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)]);
+        self.refresh_wasi(&[rstring_to_vec(preamble), rstring_to_vec(snippets)])?;
         let (env_ptr, env_len) = self.write_envelope(&ruby, envelope)?;
         self.call_with_caps(run, (env_ptr, env_len))
             .map_err(|e| trap::call_err(&ruby, e))?;
@@ -736,8 +736,18 @@ impl Runtime {
     /// `capture::clip_capture` can distinguish "wrote exactly cap
     /// bytes" from "exceeded cap"; uncapped channels fall back
     /// to `usize::MAX` and rely on `memory_limit` (docs/behavior.md E-20)
-    /// for the real ceiling.
-    fn refresh_wasi(&self, frames: &[Vec<u8>]) {
+    /// for the real ceiling. Raises `Kobako::TrapError` when any frame
+    /// exceeds the 16 MiB cap that keeps its `u32` length prefix from
+    /// wrapping.
+    fn refresh_wasi(&self, frames: &[Vec<u8>]) -> Result<(), MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        // Every frame carries the same 16 MiB cap as the `#run` envelope
+        // (`write_envelope`): the length prefix is a `u32`, so a frame past
+        // the cap would silently wrap and corrupt the stdin frame stream.
+        for frame in frames {
+            guest_mem::checked_payload_len(frame.len()).map_err(|msg| trap_err(&ruby, msg))?;
+        }
+
         let total: usize = frames.iter().map(|f| 4 + f.len()).sum();
         let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
         for frame in frames {
@@ -766,6 +776,7 @@ impl Runtime {
             .borrow_mut()
             .data_mut()
             .install_wasi(wasi, stdout_pipe, stderr_pipe);
+        Ok(())
     }
 
     /// Invoke `__kobako_take_outcome`, decode the packed `(ptr<<32)|len`
