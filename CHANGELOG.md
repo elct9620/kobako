@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/elct9620/kobako/compare/v0.9.0...v0.9.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* **transport:** block ambient reflection in guest dispatch (GHSA-7pwq-q9jf-539h) ([dd08166](https://github.com/elct9620/kobako/commit/dd081665f368f7ba54e476c3ad045ee1aa8ed703))
+
 ## [0.9.0](https://github.com/elct9620/kobako/compare/v0.8.0...v0.9.0) (2026-06-10)
 
 
