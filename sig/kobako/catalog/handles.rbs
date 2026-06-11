@@ -1,6 +1,8 @@
 module Kobako
   module Catalog
     class Handles
+      UNWRAPPABLE_TYPES: Array[Module]
+
       def initialize: (?next_id: Integer) -> void
 
       def alloc: (untyped object) -> Kobako::Handle
@@ -12,6 +14,10 @@ module Kobako
       def size: () -> Integer
 
       private
+
+      def reject_unwrappable!: (untyped object) -> void
+
+      def ensure_capacity!: () -> void
 
       def require_bound!: (Integer id) -> void
     end

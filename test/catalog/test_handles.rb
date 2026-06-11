@@ -96,6 +96,27 @@ module Kobako
       assert_equal (2**31) - 1, Kobako::Handle::MAX_ID
     end
 
+    # ---------- Reflective gadget refusal (SPEC B-43) ----------
+
+    def test_alloc_refuses_reflective_gadgets
+      # SPEC B-43: a Binding / Method / UnboundMethod must never be minted as a
+      # Capability Handle — wrapping one would hand the guest a callable proxy
+      # onto host reflection (a returned Binding reaches Binding#eval). The rule
+      # lives here so it holds on both the Service-return and #run auto-wrap paths.
+      table = Table.new
+      [binding, "abc".method(:upcase), String.instance_method(:upcase)].each do |gadget|
+        assert_raises(Kobako::SandboxError) { table.alloc(gadget) }
+      end
+      assert_equal 0, table.size, "a refused gadget must leave no Handle entry"
+    end
+
+    def test_alloc_still_wraps_a_proc
+      # A Proc is excluded from the refusal (its reflective #binding is blocked
+      # at dispatch, B-42); only Binding / Method / UnboundMethod are unwrappable.
+      table = Table.new
+      assert_equal 1, table.alloc(-> { 1 }).id
+    end
+
     # ---------- Cross-run Handle invalidity (SPEC B-19) ----------
 
     def test_handle_from_prior_run_is_invalid_after_reset
