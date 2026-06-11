@@ -3,7 +3,6 @@
 require_relative "handles"
 require_relative "../codec"
 require_relative "../errors"
-require_relative "../transport/request"
 require_relative "../namespace"
 
 module Kobako
