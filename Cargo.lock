@@ -880,6 +880,7 @@ dependencies = [
 name = "kobako"
 version = "0.9.2"
 dependencies = [
+ "libc",
  "magnus",
  "sha2",
  "wasmtime",

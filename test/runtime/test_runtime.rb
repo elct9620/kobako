@@ -84,11 +84,31 @@ class TestRuntime < Minitest::Test
     skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
 
     with_private_cache_root do |dir|
-      wasm_path = plant_corrupt_artifact(dir)
+      wasm_path, = plant_corrupt_artifact(dir)
 
       assert_instance_of Kobako::Runtime,
                          Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil),
                          "a corrupt compiled-artifact cache entry must fall back to compilation (B-01)"
+    end
+  end
+
+  # The unsafe artifact deserialize trusts only a cache directory the
+  # current user exclusively owns; a directory writable by group or
+  # other could carry another local user's planted artifact, so both
+  # disk-cache tiers must skip it — construction still succeeds via
+  # in-process compilation and never writes into the lax directory.
+  def test_group_writable_cache_directory_is_not_trusted
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+
+    with_private_cache_root do |dir|
+      wasm_path, entry = plant_corrupt_artifact(dir)
+      File.chmod(0o777, File.dirname(entry))
+
+      assert_instance_of Kobako::Runtime,
+                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil),
+                         "construction over a group-writable cache directory must fall back to compilation (B-01)"
+      assert_equal "not a serialized wasmtime artifact", File.binread(entry),
+                   "an artifact in a group-writable cache directory must be neither loaded nor overwritten (B-01)"
     end
   end
 
@@ -135,7 +155,7 @@ class TestRuntime < Minitest::Test
   # Copy the fixture to a fresh path under +dir+ and plant garbage bytes
   # at the cache entry its content hashes to (the entry name carries the
   # gem version per B-01), so the artifact-load path is forced onto the
-  # corrupt-entry branch.
+  # corrupt-entry branch. Returns the wasm path and the planted entry.
   def plant_corrupt_artifact(dir)
     wasm_path = File.join(dir, "corrupt_probe.wat")
     FileUtils.cp(FIXTURE_PATH, wasm_path)
@@ -143,7 +163,7 @@ class TestRuntime < Minitest::Test
     entry = File.join(dir, "kobako", "#{digest}-#{Kobako::VERSION}.cwasm")
     FileUtils.mkdir_p(File.dirname(entry))
     File.write(entry, "not a serialized wasmtime artifact")
-    wasm_path
+    [wasm_path, entry]
   end
 
   # docs/behavior.md E-39: an invalid timeout argument is a Host App

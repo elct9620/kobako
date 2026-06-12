@@ -186,15 +186,15 @@ fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
 /// refreshes the file's mtime so `prune_stale`'s retention window
 /// measures time since last use, not since creation.
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
-    if !artifact.exists() {
+    if !artifact.exists() || !artifact.parent().is_some_and(dir_is_private) {
         return None;
     }
     // SAFETY: `Module::deserialize_file` trusts the artifact bytes.
-    // Only files this module wrote into the user-owned cache directory
-    // are loaded, addressed by the content hash of the Guest Binary
-    // being constructed — an attacker who can plant a file there can
-    // already replace the Guest Binary or the gem itself, so the
-    // artifact carries exactly the trust of `data/kobako.wasm`.
+    // `dir_is_private` just verified the cache directory is owned by
+    // the current user and writable by no one else, so only files this
+    // module wrote are loaded, addressed by the content hash of the
+    // Guest Binary being constructed — the artifact carries exactly
+    // the trust of `data/kobako.wasm`.
     let module = unsafe { WtModule::deserialize_file(engine, artifact) }.ok()?;
     let _ = fs::File::options()
         .append(true)
@@ -214,7 +214,7 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
         return;
     };
     let Some(dir) = artifact.parent() else { return };
-    if create_cache_dir(dir).is_err() {
+    if create_cache_dir(dir).is_err() || !dir_is_private(dir) {
         return;
     }
     let tmp = artifact.with_extension(format!("tmp{}", std::process::id()));
@@ -241,6 +241,26 @@ fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dir)
+}
+
+/// Returns whether the cache directory upholds the trust the unsafe
+/// deserialize relies on: owned by the current effective user and
+/// writable by no one else. A pre-existing directory another user owns
+/// or can write to — e.g. under a shared `XDG_CACHE_HOME` — fails here
+/// and both disk-cache tiers are skipped.
+#[cfg(unix)]
+fn dir_is_private(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(meta) = fs::metadata(dir) else {
+        return false;
+    };
+    // SAFETY: `geteuid` reads process state and has no preconditions.
+    meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0
+}
+
+#[cfg(not(unix))]
+fn dir_is_private(_dir: &Path) -> bool {
+    true
 }
 
 /// Remove every cache entry (`.cwasm` artifacts and crash-leftover

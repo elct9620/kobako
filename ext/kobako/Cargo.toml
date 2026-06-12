@@ -36,3 +36,9 @@ wasmtime-wasi = { version = "45.0.0", default-features = false, features = ["p1"
 # (see runtime/cache.rs); a collision would load the wrong artifact, so
 # the hash must be cryptographic.
 sha2 = "0.10"
+
+# libc supplies geteuid for the cache-directory ownership check gating
+# the unsafe artifact deserialize (see runtime/cache.rs); std exposes a
+# file's owner but not the process's effective uid.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
