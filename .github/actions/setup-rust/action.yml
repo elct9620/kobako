@@ -1,0 +1,28 @@
+name: Setup Rust toolchain
+description: >-
+  Install the Rust toolchain pinned by rust-toolchain.toml.
+  dtolnay/rust-toolchain does not read rust-toolchain.toml, so the channel
+  is sourced from it here to keep a single version of truth.
+
+inputs:
+  targets:
+    description: 'Comma-separated extra compilation targets (e.g. wasm32-wasip1)'
+    required: false
+    default: ''
+  components:
+    description: 'Comma-separated toolchain components (e.g. clippy, rustfmt)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Read Rust channel from rust-toolchain.toml
+      id: rust
+      shell: bash
+      run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+    - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      with:
+        toolchain: ${{ steps.rust.outputs.channel }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
