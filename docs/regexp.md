@@ -47,6 +47,12 @@ The two differ by one behavior — case-insensitive matching (`IGNORECASE` /
 case-insensitive pattern raises `RegexpError` at compile. The ASCII shorthand
 classes work on both.
 
+The variant binaries ship as GitHub Release assets
+(`kobako+regexp{,-unicode}-<version>.wasm`) — or build locally via
+`rake wasm:build:regexp` / `rake wasm:build:regexp_unicode` — and a Host App
+opts in per Sandbox by pointing `Kobako::Sandbox.new(wasm_path:)` at the
+downloaded file.
+
 ## Scope
 
 ### Surface

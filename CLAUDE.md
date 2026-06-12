@@ -63,10 +63,10 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (
 | Clean Stage B / Stage C | `rake beni:clean` / `rake wasm:clean` |
 | Clean vendor toolchains | `rake beni:vendor:clean` (keeps tarball cache) or `rake beni:vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
-| SPEC regression benchmarks (#1..#5, ≤1 MiB payloads) | `bundle exec rake bench` |
+| SPEC regression benchmarks (#1..#6, ≤1 MiB payloads) | `bundle exec rake bench` |
 | Regression benchmarks + 16 MiB codec sweep | `bundle exec rake bench:full` |
-| Concurrent characterization (#6, not gated) | `bundle exec rake bench:concurrent` |
-| Memory characterization (#7, not gated) | `bundle exec rake bench:memory` |
+| Concurrent characterization (#7, not gated) | `bundle exec rake bench:concurrent` |
+| Memory characterization (#8, not gated) | `bundle exec rake bench:memory` |
 
 ## Layering
 
@@ -218,7 +218,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/runtime/test_runtime.rb`) covers only `from_path`. |
 | mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
-| Regression benchmarks | `tasks/bench/`, `benchmark/` | #1..#5 gated (+10% regression blocks release); #6/#7 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
+| Regression benchmarks | `tasks/bench/`, `benchmark/` | #1..#6 gated (+10% regression blocks release); #7..#10 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
 | Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/wasi.rb`, `tasks/wasm/` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
 
 `test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent.

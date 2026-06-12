@@ -200,6 +200,25 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
 For workloads that must be isolated from each other (one Sandbox per tenant, per student submission, per agent session), construct a fresh `Kobako::Sandbox` per scope — wasmtime's Engine and the compiled Module are cached at process scope, so additional Sandboxes amortize cold-start cost automatically.
 
+### Pooling
+
+For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior.md`](docs/behavior.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
+
+```ruby
+pool = Kobako::Pool.new(slots: 4, timeout: 5.0) do |sandbox|
+  sandbox.define(:KV).bind(:Lookup, ->(key) { redis.get(key) })
+end
+
+pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))) }
+```
+
+| Option | Meaning | Default |
+|--------|---------|---------|
+| `slots:` | Upper bound on constructed Sandboxes | required |
+| `checkout_timeout:` | Seconds `#with` waits for a free Sandbox; `nil` waits indefinitely | 5.0 |
+
+Sandboxes construct lazily on first demand. `#with` yields a Sandbox with empty output buffers and returns the block's value; at block exit the Sandbox returns to the pool, except a block that raises `Kobako::TrapError` discards its Sandbox and the slot refills by a fresh construction on next demand. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
+
 ### Service Blocks
 
 A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior.md`](docs/behavior.md) B-23..B-30.

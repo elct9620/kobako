@@ -11,8 +11,10 @@ contract over mruby:
 
 - `MrbGuest` — the harness trait: one required `init_gems` hook
   naming the shell-chosen `beni::Gem` set, plus provided `eval` /
-  `run` / `yield_to_block` flows (fresh `mrb_state` boot per
+  `run` / `yield_to_block` flows (canonical boot-state acquisition per
   invocation, frame reading, codec conversion, block-yield re-entry)
+  and the build-time `bake_boot` hook behind the wizer
+  pre-initialization entry
 - `KobakoBridge` — the single built-in gem, installed by the provided
   flows themselves: the `Kobako` module, Namespace / Handle dispatch
   to the host, and the block machinery
@@ -63,13 +65,23 @@ impl kobako_core::Guest for MyGuest {
 }
 
 kobako_core::export_guest!(MyGuest);
+
+// Build-time pre-initialization entry: ABI v2 hosts expect the
+// canonical boot state baked into the artifact, so expose bake_boot
+// and run kobako-baker over the linked module.
+#[export_name = "wizer.initialize"]
+pub extern "C" fn wizer_initialize() {
+    <MyGuest as kobako::MrbGuest>::bake_boot();
+}
 ```
 
 Any provided flow stays overridable by implementing it in the `Guest`
 impl instead of forwarding. Capability gems are separate crates wired
 through `init_gems` — the in-repo `kobako-wasm` shell composing this
 crate with [kobako-io](https://crates.io/crates/kobako-io) into the
-bundled `kobako.wasm` is the worked example.
+bundled `kobako.wasm` is the worked example. Bake the linked module
+with [kobako-baker](https://crates.io/crates/kobako-baker) to produce
+the shippable artifact.
 
 ## Building
 
