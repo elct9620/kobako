@@ -30,13 +30,6 @@ module Kobako
     #     +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap raises
     #     immediately — no silent truncation, no wrap, no ID reuse.
     class Handles
-      # Reflective gadget types that are never minted as a Capability Handle
-      # ({docs/behavior.md B-43}[link:../../../docs/behavior.md]): wrapping a
-      # +Binding+ / +Method+ / +UnboundMethod+ would hand the guest a callable
-      # proxy onto host reflection (a returned +Binding+ reaches +Binding#eval+).
-      UNWRAPPABLE_TYPES = [Binding, Method, UnboundMethod].freeze
-      private_constant :UNWRAPPABLE_TYPES
-
       # Build a fresh, empty table. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1 per
       # B-15); tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
@@ -97,13 +90,16 @@ module Kobako
       private
 
       # Refuse to mint a Capability Handle for a reflective gadget
-      # ({UNWRAPPABLE_TYPES}, B-43). Raising here keeps the rule at the single
-      # mint point, so it holds on both the Service-return (B-14) and the
-      # +#run+ host→guest auto-wrap (B-34) paths.
+      # ({docs/behavior.md B-43}[link:../../../docs/behavior.md]): a +Binding+ /
+      # +Method+ / +UnboundMethod+ would hand the guest a callable proxy onto
+      # host reflection (a returned +Binding+ reaches +Binding#eval+). Raising
+      # here keeps the rule at the single mint point, so it holds on both the
+      # Service-return (B-14) and the +#run+ host→guest auto-wrap (B-34) paths.
       def reject_unwrappable!(object)
-        return unless UNWRAPPABLE_TYPES.any? { |type| object.is_a?(type) }
-
-        raise SandboxError, "a #{object.class} cannot cross as a Capability Handle"
+        case object
+        when Binding, Method, UnboundMethod
+          raise SandboxError, "a #{object.class} cannot cross as a Capability Handle"
+        end
       end
 
       # Guard {#alloc} against issuing an ID past the B-21 cap. Returns +nil+

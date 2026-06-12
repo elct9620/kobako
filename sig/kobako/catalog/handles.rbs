@@ -1,8 +1,6 @@
 module Kobako
   module Catalog
     class Handles
-      UNWRAPPABLE_TYPES: Array[Module]
-
       def initialize: (?next_id: Integer) -> void
 
       def alloc: (untyped object) -> Kobako::Handle
