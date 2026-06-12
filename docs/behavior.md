@@ -2,7 +2,7 @@
 
 The behaviors below specify observable outcomes for the Sandbox object and its execution contract. Each behavior uses the form **Initial State → Operation → Result / Final State**. Error attribution (TrapError, SandboxError, ServiceError) is covered in the Error Scenarios subsection; where an error branch is noted below, refer to that subsection for full semantics.
 
-The Sandbox exposes two synchronous invocation verbs — `#eval` (one-shot mruby source execution, B-02 / B-03 / B-06) and `#run` (entrypoint dispatch into a preloaded constant, B-31) — plus the setup verb `#preload` (snippet registration, B-32 / B-33). The four-outcome guarantee, per-invocation isolation, and two-step attribution decision apply uniformly to both invocation verbs.
+The Sandbox exposes two synchronous invocation verbs — `#eval` (one-shot mruby source execution, B-02 / B-03 / B-06) and `#run` (entrypoint dispatch into a preloaded constant, B-31) — plus the setup verb `#preload` (snippet registration, B-32 / B-33). The four-outcome guarantee, per-invocation isolation, and two-step attribution decision apply uniformly to both invocation verbs. `Kobako::Pool` (B-46..B-48) hands out exclusively-held warm Sandboxes; a pooled Sandbox satisfies every anchor in this document identically.
 
 The governing summary of this document — including the four-outcome guarantee for every Sandbox invocation and the two-step attribution decision — lives in `SPEC.md` § Behavior; this document is the per-anchor reference.
 
@@ -504,6 +504,39 @@ This behavior refines the value-return semantics of B-06 (`#eval`) and B-31 (`#r
 
 ---
 
+## B-46 — Construct a Kobako::Pool
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | No `Kobako::Pool` instance exists. The Guest Binary is resolvable per B-01. |
+| **Operation** | `Kobako::Pool.new(slots: n) { \|sandbox\| ... }` — `slots:` (positive Integer) is the number of pooled Sandboxes; `checkout_timeout:` (Numeric seconds, default `5.0`, `nil` to wait indefinitely) bounds the B-47 checkout wait; every other keyword argument is forwarded verbatim to `Kobako::Sandbox.new`; the optional block is the per-Sandbox setup hook. |
+| **Result / Final State** | A Pool managing up to `slots` Sandboxes is returned. No Sandbox is constructed yet: a checkout (B-47) receives an idle constructed Sandbox when one exists, and constructs a new one — with the forwarded keyword arguments — only when no idle Sandbox exists and fewer than `slots` have been constructed. The setup block runs exactly once per pooled Sandbox immediately after its construction, before that Sandbox is first handed to any checkout caller. No invocation entry point runs. |
+| **Notes** | The setup block is the pooled Sandbox's setup window (B-07 / B-08 / B-32); its registrations seal at that Sandbox's first invocation (B-33) exactly as on a directly constructed Sandbox. Sandbox construction and setup-block errors surface unchanged — original class and message — at the `#with` call whose checkout triggered the creation (E-39..E-42, or the block's own exception). Invalid `slots:` / `checkout_timeout:` raise `ArgumentError` at `Pool.new` (E-47). Pool construction signals the runtime to provision instance resources for slot reuse; provisioning is not observable — a pooled Sandbox satisfies every behavior anchor identically (B-47). |
+
+---
+
+## B-47 — Check out a Sandbox via Pool#with
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Pool (B-46). Any number of threads call `#with` concurrently. |
+| **Operation** | `pool.with { \|sandbox\| ... }` |
+| **Result / Final State** | The calling thread holds exclusive use of one pooled Sandbox for the duration of the block; `#with` returns the block's return value. When all `slots` Sandboxes are held, the call blocks until one is returned, or raises `Kobako::PoolTimeoutError` once the wait exceeds `checkout_timeout` (E-46). At block exit — normal return or raised exception — the Sandbox returns to the pool. At checkout, `#stdout` / `#stderr` read as empty and both truncation predicates are false; Service bindings and snippets registered by the setup block remain active. Every B-xx / E-xx behavior holds for a pooled Sandbox exactly as for a directly constructed one — in particular per-invocation isolation (B-03) guarantees that no guest-observable state crosses from one checkout holder to the next. |
+| **Notes** | Checkouts are independent: a nested `#with` on the same thread checks out a second Sandbox and counts against `slots` like any other holder. Per-checkout exclusivity is what extends B-22's one-thread-at-a-time contract to pooled Sandboxes. A Sandbox that raised `Kobako::TrapError` during a checkout is discarded at checkin — the pool applies the discard-and-recreate recovery contract itself, refilling the slot by a fresh construction + setup-block run on next demand. |
+
+---
+
+## B-48 — Pool teardown follows Pool reachability
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Pool holding constructed Sandboxes; zero or more are checked out. |
+| **Operation** | The Host App drops its last reference to the Pool. |
+| **Result / Final State** | The Pool and the pooled Sandboxes it holds become unreachable and are reclaimed by Ruby garbage collection like ordinary objects, releasing every runtime resource they held. A Sandbox held by an in-flight `#with` block remains valid until that block exits. |
+| **Notes** | The Pool has no explicit teardown verb; reachability is the lifecycle. This mirrors B-19 — discarding the owning object is the resource-release path. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
@@ -598,8 +631,19 @@ Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from
 | E-40 | The Guest Binary artifact is absent at the resolved `wasm_path` — the common state on a fresh clone before `rake compile` | construction: artifact lookup | `Kobako::ModuleNotBuiltError` |
 | E-41 | The Guest Binary artifact is present but the wasm runtime cannot be constructed from it: the file cannot be read, its bytes are not a valid Wasm module, or engine / linker / instantiation setup fails | construction: read / compile / instantiate | `Kobako::SetupError` |
 | E-42 | The Guest Binary does not export `__kobako_abi_version`, or the export's reported value differs from the ABI version the Host Gem implements (→ [`docs/wire-codec.md`](wire-codec.md) § ABI Version) | construction: ABI version probe (B-40) | `Kobako::SetupError` |
+| E-47 | `Pool.new` argument is invalid: `slots` is not a positive Integer, or `checkout_timeout` is non-Numeric, non-positive, or non-finite (`nil` is valid and waits indefinitely) | host pre-flight (`Pool.new`, before any engine work) | `ArgumentError` |
 
 E-42's actionable remedy is rebuilding the Guest Binary against the Host Gem's ABI version.
+
+---
+
+### `Kobako::PoolTimeoutError`
+
+Raised by `Kobako::Pool#with` when the checkout wait exceeds the configured `checkout_timeout` (B-47). Checkout is a pool verb, not an invocation: `PoolTimeoutError` is not one of the four invocation outcomes and does not pass through the two-step attribution decision. No Sandbox state is touched — every pooled Sandbox is exactly as the other holders left it, and retrying `#with` succeeds as soon as a holder returns its Sandbox.
+
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-46 | `Pool#with` waited `checkout_timeout` seconds while all `slots` Sandboxes were held by other callers (B-47) | pool checkout, before any Sandbox is touched | `Kobako::PoolTimeoutError` |
 
 ---
 

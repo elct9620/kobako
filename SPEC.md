@@ -36,7 +36,7 @@ The following are explicitly outside the scope of kobako:
 - A general-purpose wasmtime Ruby gem
 - mruby upstream development or distribution
 - Multi-tenant billing, SLA management, or deployment/operations tooling
-- Multi-tenant quota / billing logic, cross-Sandbox fairness scheduling, or cross-invocation aggregate resource metrics (the in-Sandbox per-invocation wall-clock timeout and linear memory cap from B-01, together with the per-invocation usage observability that mirrors those caps from B-35, are in scope; cross-Sandbox or cross-invocation aggregation is not)
+- Multi-tenant quota / billing logic, cross-Sandbox fairness scheduling, or cross-invocation aggregate resource metrics (the in-Sandbox per-invocation wall-clock timeout and linear memory cap from B-01, the per-invocation usage observability that mirrors those caps from B-35, and the bounded warm-pool checkout from B-46..B-48 are in scope; fairness ordering among waiting checkouts and cross-Sandbox or cross-invocation aggregation are not)
 - Async or yield-resume execution models and interpreter state snapshot/resume
 
 ### Core Abstractions
@@ -56,6 +56,7 @@ These five roles describe the system. All design and behavior content in later l
 - **Sandbox** (`Kobako::Sandbox`): the runtime unit that instantiates the Guest Binary, injects Services, optionally registers preloaded snippets (mruby source or RITE bytecode), executes either a one-shot mruby source (`#eval`) or an entrypoint dispatch into a preloaded constant (`#run`), and returns a structured outcome or raises a typed error.
 - **Handle**: an opaque integer token the guest holds to reference a Ruby object the wire codec cannot transmit directly. A Handle enters the guest in one of two symmetric ways: as a Service method's return value (guest→host return path) or as a `#run` argument that the host auto-wraps (host→guest argument path). The guest can use it as a dispatch target, pass it as an argument, or invoke methods on it — which dispatch back to the host as further Transport requests — but cannot dereference it to a Ruby value. Handle lifecycle is fully managed by the Host Gem.
 - **Namespace / Member**: `Namespace` is a declared grouping visible to guest as a Ruby module; `Member` is a named binding within a Namespace visible to guest as a module constant.
+- **Pool** (`Kobako::Pool`): a bounded set of warm, identically set-up Sandboxes handed out one exclusive holder at a time via `#with`. Construction forwards Sandbox keywords and runs a per-Sandbox setup block; checkout blocks when all slots are held.
 - **Block / Yield**: A guest-side mruby block passed to a Service method call. The block lives inside the Guest Binary; the Host Gem represents it on the host side as a Yielder that the Service method can invoke via `yield` or `block.call`. Each yield is a synchronous round-trip into the guest that executes the block body and returns its result. Blocks are scoped to the dispatch call they were passed to and are not reusable beyond it.
 - **Three-layer error taxonomy**: `Kobako::TrapError` (Wasm trap), `Kobako::SandboxError` (wire or runtime fault), `Kobako::ServiceError` (guest application error) — each with distinct attribution and handling semantics.
 
@@ -108,7 +109,8 @@ These five roles describe the system. All design and behavior content in later l
   |-----------------------|---------|
   | `Kobako::Sandbox` | `#define`, `#preload`, `#eval`, `#run`; output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage` (B-35); configuration readers `#wasm_path`, `#options` (the `Kobako::SandboxOptions` value object), and the four per-invocation cap readers `#timeout` / `#memory_limit` / `#stdout_limit` / `#stderr_limit` that forward to it |
   | `Kobako::Namespace` | `#bind` |
-  | Error classes | `Kobako::TrapError`, `Kobako::TimeoutError`, `Kobako::MemoryLimitError`, `Kobako::SandboxError`, `Kobako::BytecodeError`, `Kobako::HandlerExhaustedError`, `Kobako::ServiceError`, `Kobako::SetupError`, `Kobako::ModuleNotBuiltError` |
+  | `Kobako::Pool` | `.new(slots:, checkout_timeout:, **sandbox_keywords)` — the splat forwards every `Kobako::Sandbox.new` keyword verbatim — with a per-Sandbox setup block; checkout verb `#with` (B-46..B-48) |
+  | Error classes | `Kobako::TrapError`, `Kobako::TimeoutError`, `Kobako::MemoryLimitError`, `Kobako::SandboxError`, `Kobako::BytecodeError`, `Kobako::HandlerExhaustedError`, `Kobako::ServiceError`, `Kobako::SetupError`, `Kobako::ModuleNotBuiltError`, `Kobako::PoolTimeoutError` |
   | `Kobako::Handle` | Named publicly so Host Apps can pattern-match on it inside a `rescue` block; its constructor is internal to the Host Gem — Handles enter Host App code only as fields on raised error instances, never via direct construction |
 
 #### Control — what kobako controls / depends on
@@ -148,6 +150,7 @@ The following features constitute the complete observable surface of the `kobako
 | F-12 | Guest block reception and host-initiated yield re-entry | Host Gem + Guest Binary + Wire Spec |
 | F-13 | Snippet preloading — source or bytecode (`#preload`) | Host Gem + Guest Binary |
 | F-14 | Synchronous entrypoint dispatch (`#run`) | Host Gem + Guest Binary |
+| F-15 | Warm Sandbox pool checkout (`Kobako::Pool`) | Host Gem |
 
 ---
 
@@ -265,9 +268,24 @@ The `Worker` snippet replays into a fresh `mrb_state` before every invocation, s
 
 ---
 
+#### J-08 — Host App serves concurrent requests from a warm Sandbox pool
+
+**Context**
+A Host App developer runs the J-07 worker pattern inside a multi-threaded web server. Each request needs an exclusively-held, already-set-up Sandbox, and the request rate makes per-request `Sandbox.new` plus `define` / `preload` setup an unacceptable cost. The number of concurrently live Sandboxes must stay bounded.
+
+**Action**
+1. At boot, the developer creates `Kobako::Pool.new(slots: 5) { |sandbox| ... }`, performing all `define` / `bind` / `preload` setup inside the block.
+2. Each request handler wraps its work in `pool.with { |sandbox| sandbox.run(:Worker, request) }`.
+3. The handler reads the return value, `#stdout` / `#stderr`, and `#usage` from the checked-out Sandbox exactly as it would from a directly constructed one.
+
+**Outcome**
+Each request holds one pooled Sandbox exclusively for the duration of its block; concurrent requests beyond `slots` wait for a checkin, and a wait past `checkout_timeout` raises `Kobako::PoolTimeoutError` (E-46) so the handler can shed load explicitly. Setup cost is paid once per pooled Sandbox, not once per request; per-invocation isolation (B-03) plus the empty-buffer checkout guarantee (B-47) ensure no request observes another request's state or output. A request whose invocation raised `Kobako::TrapError` simply lets the error propagate — the pool discards that Sandbox at checkin and refills the slot on demand (B-47), so the next checkout never receives an unrecoverable Sandbox.
+
+---
+
 ## Behavior
 
-The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-45 and the Error Scenarios subsection covering E-01..E-45 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
+The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-48 and the Error Scenarios subsection covering E-01..E-47 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
@@ -275,6 +293,7 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 - **Setup-time errors split by trigger:** API-misuse cases are Host App programming errors that raise `ArgumentError` or `TypeError` and bypass the attribution pipeline; content-failure cases — snippet compile, replay, or bytecode structural failures — raise `Kobako::SandboxError` (or its `Kobako::BytecodeError` subclass) with backtrace attribution to the snippet's canonical name when one is available. The per-anchor assignment lives in the error-class table below.
 - **Construction-time setup failures are a separate class:** `Kobako::Sandbox.new` builds the wasm runtime from `wasm_path` before any invocation runs. An absent or unconstructable artifact (E-40, E-41) raises `Kobako::SetupError` — with the `Kobako::ModuleNotBuiltError` subclass for the unbuilt-artifact case (E-40) — rather than a `TrapError`: no Sandbox is produced, so the four-outcome guarantee and the `TrapError` discard-and-recreate recovery contract apply only after construction succeeds.
 - **Snippet replay is uniform across verbs:** preloaded snippets (B-32) replay into the fresh `mrb_state` before every invocation, whether the invocation is `#eval` (then user source loads) or `#run` (then entrypoint resolution happens). B-33 seals the snippet table on the first invocation, parallel to B-07's Service-registration sealing.
+- **Pool checkout is a pool verb, outside the invocation outcomes:** `Kobako::Pool` hands out exclusively-held warm Sandboxes (B-46..B-48); a pooled Sandbox satisfies every behavior anchor identically to a directly constructed one. The checkout-wait bound raises `Kobako::PoolTimeoutError` (E-46) without touching any Sandbox state, and the pool itself applies the `TrapError` discard-and-recreate recovery contract at checkin (B-47).
 
 **Anchor groupings.** The behavior anchors group as follows:
 
@@ -297,8 +316,9 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 | B-41 | Guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary |
 | B-42..B-44 | Host-authoritative rejection of Ruby's ambient reflection / eval surface at guest→host dispatch (with a callable allowlist for `Proc` / `Method` targets), the non-wire-representability of reflective gadget objects (`Binding` / `Method` / `UnboundMethod`), and the non-authoritative guest-side mirror of that rejection |
 | B-45 | The host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects |
+| B-46..B-48 | `Kobako::Pool` — construction with forwarded Sandbox keywords and per-Sandbox setup block, `#with` checkout / checkin with blocking wait, and reachability-tied teardown |
 
-Errors split across the invocation-outcome classes and the construction-time `SetupError`:
+Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError`:
 
 | Error class | Anchors |
 |-------------|---------|
@@ -306,13 +326,14 @@ Errors split across the invocation-outcome classes and the construction-time `Se
 | `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
 | `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44 |
 | `Kobako::SetupError` | E-40, E-41, E-42 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
-| Setup-time `TypeError` / `ArgumentError` | E-16, E-17, E-18, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45 |
+| `Kobako::PoolTimeoutError` | E-46 |
+| Setup-time `TypeError` / `ArgumentError` | E-16, E-17, E-18, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45, E-47 |
 
 ---
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-45 / E-45; subsequent anchors take the next integer above it (B-46, E-46). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-48 / E-47; subsequent anchors take the next integer above it (B-49, E-48). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 
@@ -343,6 +364,7 @@ These are sub-components and runtime concepts internal to kobako. They are not e
 | Term | Definition | Public? |
 |------|-----------|---------|
 | **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns one `Runtime`, the three `Catalog` registries (`Namespaces`, `Snippets`, `Handles`), and the output buffers for a single logical execution context. Exposes two invocation verbs — `#eval(code)` for one-shot mruby source execution (B-02 / B-03 / B-06) and `#run(target, *args, **kwargs)` for entrypoint dispatch into a preloaded constant (B-31) — plus the setup verb `#preload` accepting either `code:` plus `name:` for mruby source or `binary:` for RITE bytecode (B-32). Enforces three configurable per-invocation caps — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Exposes per-last-invocation usage observability via `#usage` (B-35) that mirrors the timeout / memory-cap accounting. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
+| **Pool** | The bounded warm-Sandbox checkout unit instantiated by `Kobako::Pool`. Owns up to `slots` Sandboxes, each constructed lazily with the forwarded `Sandbox.new` keywords and set up once by the per-Sandbox block (B-46); hands them out one exclusive holder at a time via `#with`, blocking up to `checkout_timeout` when all slots are held (B-47, E-46); releases everything with its own reachability (B-48). Maps to the Ruby class `Kobako::Pool`. | Yes — `Kobako::Pool` is stable public API |
 | **Runtime** | The magnus-wrapped wasmtime Store + ABI exports that drive `data/kobako.wasm`. Holds at most one active Invocation per OS thread (Single-Invocation Slot invariant; see `### Implementation Standards` § Invariants for the per-thread statics and per-invocation state it licenses). Returns a Snapshot from each invocation entry point. Receives a dispatch Proc from the Sandbox at construction; the Proc bridges Runtime to the Transport / Catalog layers without Runtime knowing either name. Maps to Ruby class `Kobako::Runtime`. | No |
 | **Catalog::Namespaces** | The host-side registry of `Kobako::Namespace` entities. Routes incoming Transport Requests to the resolved Service object. Receives the Sandbox's `Catalog::Handles` by injection so dispatch can resolve Handle targets and arguments without re-owning the table. Maps to Ruby class `Kobako::Catalog::Namespaces`. | No |
 | **Catalog::Snippets** | The host-side table of `Kobako::Snippet::Source` / `Kobako::Snippet::Binary` entries, holding source (`code:`) and bytecode (`binary:`) preloads in insertion order. Sealed by the first invocation simultaneously with `Catalog::Namespaces` (B-33). Maps to Ruby class `Kobako::Catalog::Snippets`. | No |
