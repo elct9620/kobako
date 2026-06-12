@@ -3,11 +3,12 @@
 //!
 //! Each flow implements one `kobako_core::Guest` entry (docs/wire-codec.md
 //! § ABI Signatures) for the trait's provided methods: read the stdin
-//! invocation frames, boot a fresh mruby VM with the built-in
-//! `KobakoBridge` plus the shell-chosen gems, run the entry-specific
-//! body, and write the Outcome envelope through `kobako_core::abi`.
-//! The `#[no_mangle]` exports themselves are emitted by
-//! `kobako_core::export_guest!` in the leaf shell crate.
+//! invocation frames, acquire the VM in canonical boot state
+//! (docs/behavior.md B-49 — the baked image, or a lazy boot with the
+//! built-in `KobakoBridge` plus the shell-chosen gems), run the
+//! entry-specific body, and write the Outcome envelope through
+//! `kobako_core::abi`. The `#[no_mangle]` exports themselves are
+//! emitted by `kobako_core::export_guest!` in the leaf shell crate.
 //!
 //! ## Module layout
 //!
@@ -17,12 +18,13 @@
 //! * `run` — `__kobako_run` body + invocation-envelope parser.
 //! * `yield_block` — `__kobako_yield_to_block` body (host-initiated
 //!   re-entry into a guest block, docs/behavior.md B-24).
-//! * `boot` — shared mruby boot / preamble install / snippet replay
-//!   / pending-exception extraction helpers used by both entry points.
+//! * `boot` — canonical-boot-state acquisition / preamble install /
+//!   snippet replay / pending-exception extraction helpers used by
+//!   both entry points, plus the build-time `bake_boot` body.
 //! * `snippets` — Frame 3 snippet decoding (mruby source / RITE
 //!   bytecode kinds); the channel reader and the Frame 1 preamble
 //!   parser live in `kobako_core::frames`.
-//! * `mrb_slot` — per-invocation static carrying the live VM across the
+//! * `mrb_slot` — module-level static carrying the live VM across the
 //!   dispatch re-entry boundary (the block stack lives beside its
 //!   bridge writers in `crate::runtime::block_stack`).
 
@@ -37,6 +39,8 @@ mod run;
 mod snippets;
 mod yield_block;
 
+#[cfg(mruby_linked)]
+pub(crate) use boot::bake_boot;
 #[cfg(mruby_linked)]
 pub(crate) use eval::eval;
 #[cfg(mruby_linked)]

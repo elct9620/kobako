@@ -1,12 +1,14 @@
-//! Cached wasmtime export handles for the host-driven ABI surface.
+//! Per-invocation wasmtime export handles for the host-driven ABI
+//! surface.
 //!
-//! `Runtime::from_path` resolves the ABI exports the run path drives
+//! `Runtime::instantiate` resolves the ABI exports the run path drives
 //! (`__kobako_eval` / `__kobako_run` / `__kobako_take_outcome` /
-//! `__kobako_alloc`) plus the `memory` export once at construction and
-//! stores their typed handles here, so each `#eval` / `#run` calls a
-//! cached handle rather than re-resolving the export by name. Distinct
+//! `__kobako_alloc`) plus the `memory` export against each fresh
+//! per-invocation instance (docs/behavior.md B-49) and bundles their
+//! typed handles here, so the invocation body passes one struct around
+//! rather than re-resolving exports by name at every step. Distinct
 //! from `super::cache` (the process-wide Engine / Module cache): this
-//! caches *which guest function to call*, per `Runtime`.
+//! carries *which guest function to call*, per invocation.
 //!
 //! `super::dispatch` does not reach this struct — a host import runs
 //! against a `Caller`, so the dispatch path resolves `__kobako_alloc`
@@ -14,9 +16,7 @@
 
 use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 
-use super::invocation::StoreCell;
-
-/// The cached host-driven export handles. Each is `Option` because test
+/// The resolved host-driven export handles. Each is `Option` because test
 /// fixtures (a minimal "ping" module) need not provide them; real
 /// `kobako.wasm` always does, and the run-path methods raise a Ruby
 /// `Kobako::TrapError` (via `require_export` / `require_memory`) when a
@@ -24,7 +24,7 @@ use super::invocation::StoreCell;
 ///
 /// The handles are indices into the owning Store, not borrows of the
 /// `Instance` — they stay valid for the Store's lifetime, which is why
-/// `Runtime` keeps no `Instance` field.
+/// no `Instance` field is kept.
 pub(crate) struct Exports {
     pub(crate) eval: Option<TypedFunc<(), ()>>,
     pub(crate) run: Option<TypedFunc<(i32, i32), ()>>,
@@ -42,9 +42,7 @@ impl Exports {
     /// `(env_ptr, env_len) -> ()`, `__kobako_take_outcome` is `() -> u64`,
     /// `__kobako_alloc` is `(len) -> ptr`
     /// (docs/wire-codec.md § ABI Signatures).
-    pub(crate) fn resolve(instance: &WtInstance, store: &StoreCell) -> Self {
-        let mut store_ref = store.borrow_mut();
-        let mut ctx = store_ref.as_context_mut();
+    pub(crate) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
         Self {
             eval: instance
                 .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")

@@ -2,29 +2,28 @@
 //! [SPEC.md Single-Invocation Slot] (one `Invocation` per OS thread
 //! for the lifetime of one `Runtime::eval` / `Runtime::run` call).
 //!
-//! Owned by `StoreCell` (a `RefCell` shim wrapping `wasmtime::Store`)
-//! and threaded through every host import — the `__kobako_dispatch`
-//! dispatcher reads the bound dispatch Proc, while the run-path methods
-//! on `crate::runtime::Runtime` install fresh WASI context + pipes
-//! before every invocation (docs/behavior.md B-03 / B-04).
+//! Owned as the data of each per-invocation `wasmtime::Store`
+//! (docs/behavior.md B-49) and threaded through every host import —
+//! the `__kobako_dispatch` dispatcher reads the bound dispatch Proc,
+//! while the run-path methods on `crate::runtime::Runtime` install the
+//! invocation's WASI context + pipes at Store creation
+//! (docs/behavior.md B-03 / B-04).
 //!
 //! The slot also carries the per-invocation wall-clock deadline
 //! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
 //! delta cap `MemoryLimiter` (docs/behavior.md B-01, E-20). Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
-//! callbacks installed in `crate::runtime::Runtime::from_path`. The
+//! callbacks installed in `crate::runtime::Runtime::new_store`. The
 //! memory cap measures only the `memory.grow` delta past the linear-
-//! memory size captured at invocation entry — the mruby image's
-//! initial allocation and prior invocations' watermark are outside the
-//! budget.
+//! memory size captured at invocation entry — the image's initial
+//! allocation is outside the budget.
 //!
 //! [SPEC.md Single-Invocation Slot]: ../../../../SPEC.md
 
-use std::cell::{Ref, RefCell, RefMut};
 use std::time::{Duration, Instant};
 
 use magnus::{value::Opaque, Value};
-use wasmtime::{ResourceLimiter, Store as WtStore};
+use wasmtime::ResourceLimiter;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
@@ -361,62 +360,6 @@ impl std::fmt::Display for TimeoutTrap {
 }
 
 impl std::error::Error for TimeoutTrap {}
-
-/// Interior-mutability wrapper around `wasmtime::Store<Invocation>`.
-///
-/// Magnus requires `Send + Sync` for wrapped types. `wasmtime::Store` is not
-/// `Sync`, so we wrap it in a `RefCell`. `RefCell` alone is sufficient
-/// because magnus enforces single-threaded GVL access from Ruby; `Send` and
-/// `Sync` are asserted via the unsafe impls below.
-pub(super) struct StoreCell {
-    inner: RefCell<WtStore<Invocation>>,
-}
-
-impl StoreCell {
-    /// Wrap a freshly-built `wasmtime::Store<Invocation>` so it can be owned
-    /// by the magnus-wrapped `Runtime`.
-    pub(super) fn new(store: WtStore<Invocation>) -> Self {
-        Self {
-            inner: RefCell::new(store),
-        }
-    }
-
-    /// Immutable borrow of the wrapped Store. Panics if a `borrow_mut()`
-    /// is currently live — matches `RefCell::borrow` semantics.
-    pub(super) fn borrow(&self) -> Ref<'_, WtStore<Invocation>> {
-        self.inner.borrow()
-    }
-
-    /// Mutable borrow of the wrapped Store. Panics if any other borrow is
-    /// currently live — matches `RefCell::borrow_mut` semantics.
-    pub(super) fn borrow_mut(&self) -> RefMut<'_, WtStore<Invocation>> {
-        self.inner.borrow_mut()
-    }
-}
-
-// SAFETY: magnus requires `Send + Sync` on `#[magnus::wrap]` types. Both
-// claims hold under the GVL invariant:
-//
-//   * Send — `wasmtime::Store<Invocation>` is itself `Send` (verified
-//     upstream by wasmtime; see `wasmtime::Store`'s trait impls).
-//     `RefCell<T>: Send` whenever `T: Send`. The remaining stored state
-//     (`Invocation`) holds `Opaque<Value>` for the Ruby Server handle —
-//     `Opaque<Value>` is documented as `Send` by magnus precisely so
-//     wrapped objects can satisfy this bound.
-//
-//   * Sync — `RefCell` is *not* `Sync` in the general Rust sense
-//     (concurrent `borrow_mut` is UB). We assert `Sync` here because the
-//     GVL serialises every call into Ruby C and every entry into magnus-
-//     wrapped methods onto a single OS thread at a time: by the time the
-//     `Sync` bound matters, magnus has already established that only one
-//     thread can be inside the wrapper. Cross-thread mutation cannot
-//     occur. If a future magnus release adopts a thread model that
-//     permits concurrent access to wrapped objects, this assertion would
-//     have to revert and `StoreCell` would need to switch to
-//     `Mutex<wasmtime::Store<…>>` — but as of magnus 0.8 the contract
-//     holds.
-unsafe impl Send for StoreCell {}
-unsafe impl Sync for StoreCell {}
 
 #[cfg(test)]
 mod tests {

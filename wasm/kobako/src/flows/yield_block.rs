@@ -11,7 +11,7 @@
 //!
 //! 1. Decode the yield arguments (msgpack array of positional args)
 //!    out of the request buffer.
-//! 2. Resolve the active `mrb_state` via the per-invocation `MRB`
+//! 2. Resolve the active `mrb_state` via the module-level `MRB`
 //!    slot and read the topmost block off `BLOCK_STACK`
 //!    (docs/behavior.md B-23 / B-28).
 //! 3. Convert codec args → `Value` args via the standard runtime

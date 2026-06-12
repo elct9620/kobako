@@ -257,11 +257,13 @@ The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` c
 
 ### ABI Version
 
-The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `1`.
+The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `2`.
 
 `__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it once at Sandbox construction and compares the returned value against the version it implements by equality; an absent export or a non-equal value fails construction with `Kobako::SetupError` (B-40, E-42).
 
 Any change to the Wire Contract, this codec document, or the ABI surface (function set, names, signatures) increments the version. There is no compatibility range and no negotiation: a host implements exactly one ABI version and loads only Guest Binaries reporting that version.
+
+Version `2` carries the per-invocation instance discipline (docs/behavior.md B-49): the host drives every invocation entry (`__kobako_eval` / `__kobako_run`) on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
 
 ### Invocation channels
 

@@ -179,7 +179,8 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
    ──────────────── invocation N ───────────────────
 
-     1. allocate fresh mrb_state
+     1. start from the canonical boot state
+        (mruby pre-initialized into the artifact at build time)
 
      2. replay snippets (in insertion order):
           :Adder     → defines Adder
@@ -189,7 +190,7 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
      4. return value to host
 
-     5. discard mrb_state; reset per-invocation state:
+     5. discard the instance; reset per-invocation state:
           · Handles invalidated
           · stdout / stderr buffers cleared
           · memory delta zeroed
@@ -248,7 +249,7 @@ This is deliberate, not a leak. Handle IDs run to 2³¹ − 1 per invocation and
 
 ### Snippets & Entrypoints
 
-`Sandbox#preload` registers named mruby snippets that replay against the fresh `mrb_state` before every invocation; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets ([`docs/behavior.md`](docs/behavior.md) B-31..B-33).
+`Sandbox#preload` registers named mruby snippets that replay into every invocation's canonical boot state; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets ([`docs/behavior.md`](docs/behavior.md) B-31..B-33).
 
 ```ruby
 sandbox = Kobako::Sandbox.new
@@ -262,7 +263,7 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
 ```
    per-invocation replay (every #eval / #run, snippets in insertion order):
 
-      fresh mrb_state
+      canonical boot state
             │
             ├──▶ replay :Adder            (defines Adder)
             │
@@ -271,7 +272,7 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
             └──▶ eval(source)  -or-  run(:Target, *args, **kwargs)
                        │
                        ▼
-                  return value, then mrb_state discarded
+                  return value, then instance discarded
 ```
 
 `#preload` accepts two payload forms:

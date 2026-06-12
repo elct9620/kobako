@@ -1,0 +1,39 @@
+# kobako-baker — build-time bake of the canonical boot state.
+#
+# Host-side tool crate (lib + thin CLI) that runs wizer over a linked
+# kobako Guest Binary, executing its `wizer.initialize` export (the
+# `MrbGuest::bake_boot` body) against a deterministic linker and
+# snapshotting the booted state into the artifact's data segments
+# (docs/behavior.md B-49). Stage C consumes the CLI; third-party guest
+# shells built on `kobako` / `kobako-core` consume the published crate
+# to bake their own artifacts.
+#
+# Deliberately NOT a member of the wasm/ sub-workspace: it depends on
+# host-only crates (wizer, wasmtime) that must never enter the
+# wasm32-wasip1 dependency graph that `rake wasm:check` / `wasm:build`
+# compile. The empty `[workspace]` table below keeps it standalone,
+# mirroring how the repository root excludes `wasm/` itself.
+
+[package]
+name = "kobako-baker"
+version = "0.4.1"
+edition = "2021"
+description = "Build-time pre-initializer for kobako Guest Binaries — bakes the canonical boot state via wizer."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+keywords = ["wasm", "mruby", "sandbox", "wasi", "wizer"]
+categories = ["wasm", "development-tools::build-utils"]
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+# The wizer maintained inside the wasmtime project, version-locked to
+# the same wasmtime major the kobako host ext drives — the only wizer
+# lineage whose engine accepts the Guest Binary's exception-handling
+# (setjmp/longjmp) instructions.
+wasmtime-wizer = { version = "45", features = ["wasmtime"] }
+wasmtime = "45"
+# wasmtime-wizer's entry points are async-colored; the bake is fully
+# synchronous, so a minimal executor drives them to completion.
+pollster = "0.4"

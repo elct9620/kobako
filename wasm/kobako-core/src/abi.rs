@@ -35,8 +35,11 @@ pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
 /// The Guest ABI version this crate implements, reported through the
 /// `__kobako_abi_version` export `crate::export_guest!` emits. The host
 /// accepts a Guest Binary only on equality (docs/wire-codec.md § ABI
-/// Version; docs/behavior.md B-40 / E-42).
-pub const ABI_VERSION: u32 = 1;
+/// Version; docs/behavior.md B-40 / E-42). Version 2 carries the
+/// per-invocation instance discipline: the host drives every invocation
+/// on a fresh instance of the module, so an entry flow may leave its VM
+/// state dirty at exit (docs/behavior.md B-49).
+pub const ABI_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Host import declaration.

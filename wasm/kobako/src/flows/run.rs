@@ -116,14 +116,10 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use super::mrb_slot::{MrbScope, MRB};
+    use super::mrb_slot::MRB;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::{Decoder, Encode};
     use kobako_core::outcome::{Outcome, Panic};
-
-    // See `eval_body` for the MRB scope-guard rationale — declared
-    // early so every `return write_panic(...)` clears the slot.
-    let _mrb_scope = MrbScope;
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -134,11 +130,15 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::open_with_preamble::<G>(&preamble) {
+    let kobako = match boot::acquire_vm::<G>() {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
-    let mrb = MRB.as_ref().expect("MRB installed by open_with_preamble");
+    let mrb = MRB.as_ref().expect("MRB live after acquire_vm");
+
+    if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
+        return write_panic(panic);
+    }
 
     // Baseline snapshot of top-level constants taken after kobako
     // install + preamble materialisation but before snippet replay.

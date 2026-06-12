@@ -10,3 +10,12 @@
 //! third-party guest takes.
 
 mod guest;
+
+/// Build-time wizer pre-initialization entry: bakes the canonical boot
+/// state (docs/behavior.md B-49) into the artifact's memory image.
+/// Stage C runs wizer over the linked module and this function is
+/// consumed there — it is never called at Sandbox runtime.
+#[export_name = "wizer.initialize"]
+pub extern "C" fn wizer_initialize() {
+    <guest::KobakoGuest as kobako::MrbGuest>::bake_boot();
+}

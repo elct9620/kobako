@@ -23,6 +23,10 @@
 #
 # The split keeps each reason-to-change (ABI contract, assembled
 # implementation, IO capability, bundled product) in its own crate.
+#
+# `kobako-baker/` sits beside the members but is NOT one: it is the
+# host-side bake tool (publishable) carrying its own empty `[workspace]`
+# table, which keeps wizer/wasmtime out of this wasm32 dependency graph.
 
 [workspace]
 members = ["kobako", "kobako-core", "kobako-io", "kobako-regexp", "kobako-wasm"]

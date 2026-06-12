@@ -4,11 +4,13 @@
 //! `MrbGuest` is the harness: one required `init_gems` hook naming
 //! the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
-//! contract over mruby (fresh `mrb_state` boot per invocation, frame
-//! reading, codec conversion, block-yield re-entry). The crate ships
+//! contract over mruby (canonical-boot-state acquisition per
+//! invocation — docs/behavior.md B-49 — frame reading, codec
+//! conversion, block-yield re-entry) and the build-time `bake_boot`
+//! hook the wizer pre-initialization entry calls. The crate ships
 //! exactly one built-in gem — the wire-tied `KobakoBridge` (Namespace
-//! / Handle dispatch + block machinery) — which the provided flows
-//! install themselves; IO-style capabilities are separate gems (the
+//! / Handle dispatch + block machinery) — which the boot path
+//! installs itself; IO-style capabilities are separate gems (the
 //! sibling `kobako-io` crate is the worked example).
 //!
 //! A shell implements `MrbGuest`, forwards `kobako_core::Guest` to it
@@ -40,7 +42,8 @@ use beni::{Error, Mrb};
 /// them in its own `Guest` impl.
 pub trait MrbGuest {
     /// Install the shell-chosen gem set onto the freshly booted VM,
-    /// via `Mrb::init_gem`. Runs once per invocation, after
+    /// via `Mrb::init_gem`. Runs once per boot — at the build-time
+    /// bake, or on a non-baked artifact's first entry — after
     /// `KobakoBridge`; an `Err` aborts the boot and surfaces to the
     /// host as a `Kobako::BootError` Panic.
     fn init_gems(mrb: &Mrb) -> Result<(), Error>;
@@ -86,6 +89,27 @@ pub trait MrbGuest {
         Self: Sized,
     {
         flows::yield_to_block(req)
+    }
+
+    /// Bake the canonical boot state (docs/behavior.md B-49) into the
+    /// running instance — boot the VM and install the Kobako runtime
+    /// plus the shell gem set, leaving preamble installation and
+    /// snippet replay to the invocation entries. Called from the
+    /// shell's build-time wizer pre-initialization export; panics on
+    /// failure so a bake aborts instead of shipping a half-booted
+    /// image.
+    fn bake_boot()
+    where
+        Self: Sized,
+    {
+        #[cfg(mruby_linked)]
+        {
+            flows::bake_boot::<Self>()
+        }
+        #[cfg(not(mruby_linked))]
+        {
+            not_linked()
+        }
     }
 }
 

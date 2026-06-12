@@ -1,9 +1,11 @@
 //! Boot helpers shared by `__kobako_eval` and `__kobako_run`.
 //!
-//! Both entry points open a fresh mruby VM, install the Kobako runtime,
-//! materialise the Frame 1 preamble namespaces, and replay any
-//! preloaded Frame 3 snippets before running the entry-specific body.
-//! When any of those steps fails, the failure surfaces as a Panic with
+//! Both entry points acquire a VM in the canonical boot state
+//! (docs/behavior.md B-49) — reusing the slot a build-time
+//! pre-initialized image baked, or booting lazily — then materialise
+//! the Frame 1 preamble namespaces and replay any preloaded Frame 3
+//! snippets before running the entry-specific body. When any of those
+//! steps fails, the failure surfaces as a Panic with
 //! `origin = "sandbox"` and `class = "Kobako::BootError"` — this module
 //! centralises both the orchestration and the Panic-construction
 //! shape.
@@ -90,48 +92,74 @@ pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
         .ok_or_else(|| boot_panic("failed to decode the preloaded snippets"))
 }
 
-/// Open an mruby VM, install it into `super::mrb_slot::MRB`, wire
-/// the Kobako runtime, then materialise the Group / Member proxy
-/// classes from `preamble`. Returns the live `Kobako` handle so the
-/// entry-specific body can keep driving the same VM through
-/// `super::mrb_slot::MRB`. On any `Err`, the slot is cleared so the
-/// caller's `super::mrb_slot::MrbScope` does not observe a half-set
-/// state.
+/// Open an mruby VM into the empty `super::mrb_slot::MRB` slot and
+/// install the Kobako runtime plus the shell gem set — producing the
+/// canonical boot state (docs/behavior.md B-49). On `Err` the slot is
+/// cleared so no caller observes a half-set state.
 #[cfg(mruby_linked)]
-pub(super) fn open_with_preamble<G: crate::MrbGuest>(
-    preamble: &[(String, Vec<String>)],
-) -> Result<Kobako, Panic> {
+pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
     let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the Sandbox interpreter"))?;
     super::mrb_slot::MRB.install(mrb);
-
-    let result: Result<Kobako, Panic> = (|| {
-        let mrb = super::mrb_slot::MRB
-            .as_ref()
-            .expect("MRB just installed above");
-        let kobako = Kobako::init::<G>(mrb).map_err(|e| {
-            boot_panic(format!(
-                "Sandbox boot registration failed: {}",
-                e.message(mrb)
-            ))
-        })?;
-        kobako.install_groups(preamble).map_err(|err| match err {
-            InstallGroupsError::NulInGroupName => {
-                boot_panic("namespace name contains an invalid character")
-            }
-            InstallGroupsError::NulInMemberName => {
-                boot_panic("member name contains an invalid character")
-            }
-            InstallGroupsError::Rejected(ref msg) => {
-                boot_panic(format!("namespace registration rejected: {msg}"))
-            }
-        })?;
-        Ok(kobako)
-    })();
-
-    if result.is_err() {
+    let mrb = super::mrb_slot::MRB
+        .as_ref()
+        .expect("MRB just installed above");
+    if let Err(e) = Kobako::init::<G>(mrb) {
+        let panic = boot_panic(format!(
+            "Sandbox boot registration failed: {}",
+            e.message(mrb)
+        ));
         super::mrb_slot::MRB.clear();
+        return Err(panic);
     }
-    result
+    Ok(())
+}
+
+/// Hand the entry flow a VM in the canonical boot state (B-49): reuse
+/// the slot the Guest Binary's pre-initialized image baked, or boot
+/// lazily when the artifact carries none. Returns the `Kobako` token
+/// for the live VM.
+#[cfg(mruby_linked)]
+pub(super) fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
+    if super::mrb_slot::MRB.as_ref().is_none() {
+        boot_vm::<G>()?;
+    }
+    let mrb = super::mrb_slot::MRB
+        .as_ref()
+        .expect("slot populated by the baked image or boot_vm above");
+    // SAFETY: the slot only ever holds a VM that passed `Kobako::init`
+    // — baked at build time (`bake_boot`) or booted by `boot_vm` above.
+    Ok(unsafe { Kobako::resolve_raw(mrb) })
+}
+
+/// Bake the canonical boot state (B-49) into the running instance —
+/// the body behind `MrbGuest::bake_boot`, called by the build-time
+/// wizer pre-initialization entry. Panics on failure so a bake aborts
+/// loudly instead of shipping a half-booted image.
+#[cfg(mruby_linked)]
+pub(crate) fn bake_boot<G: crate::MrbGuest>() {
+    if let Err(panic) = boot_vm::<G>() {
+        panic!("canonical boot state bake failed: {}", panic.message);
+    }
+}
+
+/// Materialise the Group / Member proxy classes from the Frame 1
+/// `preamble` onto the invocation's VM (docs/behavior.md B-08).
+#[cfg(mruby_linked)]
+pub(super) fn install_preamble(
+    kobako: &Kobako,
+    preamble: &[(String, Vec<String>)],
+) -> Result<(), Panic> {
+    kobako.install_groups(preamble).map_err(|err| match err {
+        InstallGroupsError::NulInGroupName => {
+            boot_panic("namespace name contains an invalid character")
+        }
+        InstallGroupsError::NulInMemberName => {
+            boot_panic("member name contains an invalid character")
+        }
+        InstallGroupsError::Rejected(ref msg) => {
+            boot_panic(format!("namespace registration rejected: {msg}"))
+        }
+    })
 }
 
 /// Replay every snippet in `snippets` against `mrb` in insertion order

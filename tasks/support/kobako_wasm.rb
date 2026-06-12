@@ -79,4 +79,5 @@ module KobakoWasm
   end
 end
 
+require_relative "kobako_wasm/baker"
 require_relative "kobako_wasm/guest_builder"

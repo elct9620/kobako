@@ -8,4 +8,4 @@
 (module
   (func (export "__kobako_eval"))
   (func (export "__kobako_run") (param i32 i32))
-  (func (export "__kobako_abi_version") (result i32) (i32.const 1)))
+  (func (export "__kobako_abi_version") (result i32) (i32.const 2)))

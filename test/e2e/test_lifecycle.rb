@@ -27,8 +27,8 @@ class TestE2ELifecycle < Minitest::Test
   end
 
   # B-03: one long-lived Sandbox runs #run twice; each invocation executes
-  # against a fresh mrb_state, so guest runtime state mutated by one
-  # invocation cannot survive into the next. This is the isolation
+  # against the canonical boot state (B-49), so guest runtime state mutated
+  # by one invocation cannot survive into the next. This is the isolation
   # invariant the serverless example's Object Pool depends on when it
   # reuses a single preloaded Sandbox across many requests. The Probe
   # returns the global it observed at entry and then sets it: a leak would

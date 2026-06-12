@@ -49,7 +49,7 @@ module KobakoWasm
 
       ensure_libmruby_present
       run_cargo_release_build
-      copy_wasm_into_data_dir
+      bake_into_data_dir
     end
 
     private
@@ -104,9 +104,13 @@ module KobakoWasm
       raise "[wasm:build] cargo built but #{CRATE_WASM_OUTPUT} is missing" unless File.exist?(CRATE_WASM_OUTPUT)
     end
 
-    def copy_wasm_into_data_dir
+    # Bake the canonical boot state (docs/behavior.md B-49) into the
+    # linked module and place the result as the shipped artifact — the
+    # bake output IS the Guest Binary; the raw cargo output never lands
+    # in data/.
+    def bake_into_data_dir
       FileUtils.mkdir_p(DATA_DIR)
-      FileUtils.cp(CRATE_WASM_OUTPUT, @output)
+      Baker.new.bake(CRATE_WASM_OUTPUT, @output)
       puts "[wasm:build] Guest Binary ready at #{@output} (#{File.size(@output)} bytes)"
     end
 

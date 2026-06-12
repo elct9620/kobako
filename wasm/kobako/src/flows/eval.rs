@@ -25,19 +25,12 @@ pub(crate) fn eval<G: crate::MrbGuest>() {
 
 fn eval_body<G: crate::MrbGuest>() {
     use super::boot;
-    use super::mrb_slot::{MrbScope, MRB};
+    use super::mrb_slot::MRB;
     use beni::Ccontext;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_core::codec::Encode;
     use kobako_core::frames;
     use kobako_core::outcome::{Outcome, Panic};
-
-    // Declare the MRB cleanup scope early. Any `return write_panic(...)`
-    // below drops `_mrb_scope` first, which calls `MRB.clear()` and
-    // runs `mrb_close` if the slot was already installed. Calling
-    // `clear` on an empty slot is a no-op, so this guard is safe to
-    // declare before the install actually succeeds.
-    let _mrb_scope = MrbScope;
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -54,11 +47,15 @@ fn eval_body<G: crate::MrbGuest>() {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::open_with_preamble::<G>(&preamble) {
+    let kobako = match boot::acquire_vm::<G>() {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
-    let mrb = MRB.as_ref().expect("MRB installed by open_with_preamble");
+    let mrb = MRB.as_ref().expect("MRB live after acquire_vm");
+
+    if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
+        return write_panic(panic);
+    }
 
     if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
         return write_panic(panic);
@@ -97,6 +94,6 @@ fn eval_body<G: crate::MrbGuest>() {
             details: None,
         }),
     }
-    // `_mrb_scope` drops here — `MRB.clear()` runs and the held `Mrb`
-    // drops, which closes the underlying `mrb_state`.
+    // The VM stays in the slot — the host discards the whole instance
+    // after draining the outcome (ABI v2 per-invocation discipline).
 }

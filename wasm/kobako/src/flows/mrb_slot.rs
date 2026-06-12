@@ -1,34 +1,31 @@
-//! Per-invocation static slot owning the active `Mrb` state.
+//! Module-level static slot owning the live `Mrb` state.
 //!
-//! Each `__kobako_eval` / `__kobako_run` invocation opens a fresh
-//! `mrb_state` via `Mrb::open()`. Previously the value lived as a stack
-//! local in `eval_body` / `run_body` and dropped automatically at
-//! function return. The block / yield mechanism (docs/behavior.md B-23
-//! → B-30) needs the *same* `mrb_state` to be
-//! reachable from `__kobako_yield_to_block` while the original dispatch
-//! frame is still on the wasm call stack, so the slot is lifted from
-//! stack-let into a module-level static here.
+//! The slot carries the VM in canonical boot state (docs/behavior.md
+//! B-49): populated at build time by the wizer bake
+//! (`super::boot::bake_boot`) or lazily by the first entry on a
+//! non-baked artifact. The block / yield mechanism (docs/behavior.md
+//! B-23 → B-30) needs the *same* `mrb_state` to be reachable from
+//! `__kobako_yield_to_block` while the original dispatch frame is
+//! still on the wasm call stack, which is why the slot is a
+//! module-level static rather than a stack local.
 //!
 //! ## Lifecycle contract
 //!
-//! 1. `__kobako_eval` / `__kobako_run` install a freshly opened `Mrb`
-//!    via `MRB.install`.
-//! 2. The function body borrows the live VM via `MRB.as_ref`.
-//! 3. Every exit path (success, panic outcome, boot error) clears the
-//!    slot via `MRB.clear`, which drops the held `Mrb` and runs the
-//!    existing `mrb_close` glue automatically.
+//! 1. The bake (or the first entry's `boot_vm`) installs an opened,
+//!    Kobako-initialised `Mrb` via `MRB.install`.
+//! 2. Entry bodies borrow the live VM via `MRB.as_ref`.
+//! 3. The slot is cleared only when a lazy boot fails mid-way; on
+//!    every other path the VM stays installed — the host discards the
+//!    whole instance after each invocation (ABI v2 per-invocation
+//!    discipline), so `mrb_close` never needs to run.
 //!
-//! Step 3 is enforced structurally by `MrbScope` — a drop-guard that
-//! the entry-point body declares immediately, so any early `return`
-//! along the panic / error paths still clears the slot.
+//! ## Cross-invocation isolation
 //!
-//! ## Cross-Sandbox isolation
-//!
-//! Each `Kobako::Sandbox` owns its own `wasmtime::Instance`, and
-//! `MRB` is a module-level static inside that Instance's wasm linear
-//! memory — two Sandboxes on two OS Threads see *different* memory
+//! The host drives every invocation on a fresh instance of the module
+//! (ABI v2), and `MRB` is a module-level static inside that instance's
+//! wasm linear memory — two invocations see *different* memory
 //! locations for this static, with no aliasing. The single-threaded
-//! wasm execution model inside any one Instance is what licenses the
+//! wasm execution model inside any one instance is what licenses the
 //! `UnsafeCell` interior mutability here.
 
 use beni::Mrb;
@@ -38,9 +35,8 @@ use core::cell::UnsafeCell;
 /// Single-threaded interior-mutability slot for the active `Mrb` — an
 /// `UnsafeCell<Option<Mrb>>` that the single-threaded wasm execution
 /// model permits us to mutate from `&self`. `install` / `clear` /
-/// `as_ref` are the only entry points; aliasing rules are documented at
-/// the call sites in the `MrbScope` doc and the lifecycle section
-/// above.
+/// `as_ref` are the only entry points; aliasing rules live in the
+/// lifecycle section above.
 pub(super) struct MrbSlot(UnsafeCell<Option<Mrb>>);
 
 impl MrbSlot {
@@ -54,8 +50,8 @@ impl MrbSlot {
     /// # Safety contract
     ///
     /// No outstanding `&Mrb` borrow from `Self::as_ref` may be live.
-    /// Frame-shaped use (install at entry, borrow inside body, clear at
-    /// exit via `MrbScope`) satisfies this naturally.
+    /// Boot-shaped use (install once per instance, before any entry
+    /// body borrows) satisfies this naturally.
     pub(super) fn install(&self, mrb: Mrb) {
         // SAFETY: see type doc — single-threaded wasm execution + the
         // lifecycle contract documented in this module's header.
@@ -90,19 +86,7 @@ impl MrbSlot {
 // guarantee operationally. `static` requires `Sync` regardless.
 unsafe impl Sync for MrbSlot {}
 
-/// The active per-invocation `Mrb` slot. Installed by
-/// `super::boot::open_with_preamble`; cleared by `MrbScope`'s drop.
+/// The live `Mrb` slot. Installed by `super::boot::boot_vm` (directly
+/// at the bake, or lazily on a non-baked artifact's first entry);
+/// cleared only by `boot_vm`'s failure path.
 pub(super) static MRB: MrbSlot = MrbSlot::new();
-
-/// Drop-guard that clears `MRB` when the enclosing scope returns.
-/// Declare it once at the top of every entry-point body so panic-outcome
-/// `return` branches still clear the slot. Calling `clear` on an empty
-/// slot is a no-op, so the guard is safe to declare before the install
-/// even succeeds.
-pub(super) struct MrbScope;
-
-impl Drop for MrbScope {
-    fn drop(&mut self) {
-        MRB.clear();
-    }
-}
