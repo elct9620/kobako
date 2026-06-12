@@ -1,0 +1,47 @@
+# kobako-baker
+
+Build-time pre-initializer for
+[kobako](https://github.com/elct9620/kobako) Guest Binaries — bakes
+the canonical boot state
+([docs/behavior.md B-49](https://github.com/elct9620/kobako/blob/main/docs/behavior.md)
+in the kobako repository) into a linked guest artifact via
+[wasmtime-wizer](https://crates.io/crates/wasmtime-wizer).
+
+`bake` executes the module's `wizer.initialize` export (the
+`MrbGuest::bake_boot` body) against a deterministic linker — the WASI
+surface wasi-libc's reactor `_initialize` touches answers constants
+(mirroring kobako's B-45 ambient denial), `env::__kobako_dispatch`
+traps, and any other import called during boot aborts the bake — then
+snapshots the booted interpreter into the artifact's data segments.
+Identical inputs produce identical baked bytes, so a double-bake
+byte-identity check gates reproducibility.
+
+A host that implements kobako ABI v2 instantiates the baked module
+afresh per invocation; instantiation rides wasmtime's copy-on-write
+image mapping, so every invocation receives the booted mruby VM
+without paying boot.
+
+## Usage
+
+As the CLI (what kobako's own Stage C runs):
+
+```console
+$ kobako-baker input.wasm output.wasm
+```
+
+As a library, for third-party guest shells built on
+[kobako](https://crates.io/crates/kobako-rs) /
+[kobako-core](https://crates.io/crates/kobako-core):
+
+```toml
+[dependencies]
+kobako-baker = "0.4.1" # x-release-please-version
+```
+
+```rust
+let baked = kobako_baker::bake(&linked_wasm_bytes)?;
+```
+
+## License
+
+Apache-2.0

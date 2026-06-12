@@ -1,7 +1,8 @@
 name: Release Crate
 
 # Publishes the guest crates (`kobako-core`, `kobako-io`,
-# `kobako-regexp`, `kobako`) from the `wasm/` sub-workspace to
+# `kobako-regexp`, `kobako`) from the `wasm/` sub-workspace plus the
+# standalone `kobako-baker` (host-side bake tool beside them) to
 # crates.io. Split from
 # `release.yml` by release type: that workflow ships the Ruby gem
 # family, this one ships crates. The manual-recovery shape mirrors
@@ -57,6 +58,7 @@ jobs:
           cargo publish -p kobako-io --dry-run
           cargo publish -p kobako-regexp --dry-run
           cargo publish -p kobako --dry-run
+          cargo publish --manifest-path kobako-baker/Cargo.toml --dry-run
       # Trusted Publishing: exchange the workflow's OIDC token for a
       # short-lived crates.io token (the crates.io counterpart of the
       # rubygems OIDC flow in release.yml). Requires each guest
@@ -87,3 +89,14 @@ jobs:
             fi
             cargo publish -p "$crate"
           done
+          # kobako-baker lives beside the workspace members but is a
+          # standalone host-side crate — publish via its own manifest.
+          version="$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path kobako-baker/Cargo.toml \
+            | jq -r '.packages[] | select(.name == "kobako-baker") | .version')"
+          if curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
+            "https://crates.io/api/v1/crates/kobako-baker/$version" >/dev/null 2>&1; then
+            echo "kobako-baker $version already on crates.io; skipping"
+          else
+            cargo publish --manifest-path kobako-baker/Cargo.toml
+          fi

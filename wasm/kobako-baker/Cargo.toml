@@ -21,6 +21,7 @@ edition = "2021"
 description = "Build-time pre-initializer for kobako Guest Binaries — bakes the canonical boot state via wizer."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi", "wizer"]
 categories = ["wasm", "development-tools::build-utils"]
 

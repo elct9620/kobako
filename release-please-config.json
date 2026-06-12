@@ -73,13 +73,28 @@
           "path": "/wasm/kobako-regexp/README.md"
         }
       ]
+    },
+    "wasm/kobako-baker": {
+      "component": "kobako-baker",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/wasm/kobako-baker/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-baker')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/wasm/kobako-baker/README.md"
+        }
+      ]
     }
   },
   "plugins": [
     {
       "type": "linked-versions",
       "groupName": "kobako guest crates",
-      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-regexp"]
+      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-regexp", "kobako-baker"]
     }
   ],
   "extra-files": [
