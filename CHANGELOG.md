@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.10.0](https://github.com/elct9620/kobako/compare/v0.9.2...v0.10.0) (2026-06-12)
+
+
+### Features
+
+* **catalog:** reject member binding after the seal (E-45) ([5193ed6](https://github.com/elct9620/kobako/commit/5193ed64100fa8ac05a2ba18cfa00634b4f40e6f))
+* **guest:** bake the canonical boot state and instantiate per invocation (B-49) ([ee9ae6e](https://github.com/elct9620/kobako/commit/ee9ae6e09eab30f54dba0eeec00a5a2c80da819f))
+* **pool:** add Kobako::Pool warm-Sandbox checkout (B-46..B-48) ([abf9bf8](https://github.com/elct9620/kobako/commit/abf9bf8d3c725c0ca0b8f2ab8b2ddd6f71ee6de4))
+
+
+### Bug Fixes
+
+* **ext:** give the ABI probe a WASI context ([18e21ea](https://github.com/elct9620/kobako/commit/18e21eac8b160ade2724578aeacd86170403ee2c))
+* **ext:** trust the artifact disk cache only in an exclusively writable directory ([17679cc](https://github.com/elct9620/kobako/commit/17679cc0d38d2a1b605e2faaeed762477a718c18))
+
+
+### Performance Improvements
+
+* **bench:** re-bless the anchor onto the post-0.9.2 performance round ([195224d](https://github.com/elct9620/kobako/commit/195224d5d48e53dc2be17752e6d6af6382a0c1ec))
+* **catalog:** drop the alloc-path block iteration from the gadget refusal ([542fe59](https://github.com/elct9620/kobako/commit/542fe59464bde57283d8e91984b82e82592bc3ab))
+* **ext:** amortise module compilation across processes via .cwasm cache ([2e688bc](https://github.com/elct9620/kobako/commit/2e688bc4a1cdf1d0d4d5a0bce2efb314a5b8d1f7))
+* **ext:** bound and harden the compiled-artifact cache ([949f222](https://github.com/elct9620/kobako/commit/949f2227af7cdf7d1913dcae58df683912a7dbd5))
+* **ext:** cache ABI export handles and per-path InstancePre ([47573d0](https://github.com/elct9620/kobako/commit/47573d022233c788ce94413d1a2901ee9d62fc2e))
+* **lib:** cache sealed frame encodings and cut decode-walk allocations ([e599573](https://github.com/elct9620/kobako/commit/e599573e37531b363baca83a1aa5833930100320))
+
 ## [0.9.2](https://github.com/elct9620/kobako/compare/v0.9.1...v0.9.2) (2026-06-11)
 
 
