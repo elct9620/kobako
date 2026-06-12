@@ -2,7 +2,7 @@
 //!
 //! When the guest invokes the wasm import declared in
 //! `wasm/kobako-core/src/abi.rs`, wasmtime calls back into the host
-//! through the closure built in `super::Runtime::build`.
+//! through the closure registered by `instance_pre::build_linker`.
 //! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
 //!
 //!   1. Reads the Request bytes from guest linear memory.
@@ -129,7 +129,7 @@ pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
 }
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
-/// from the wasmtime closure built in `super::Runtime::build`.
+/// from the wasmtime closure registered by `instance_pre::build_linker`.
 ///
 /// Returns the packed `(ptr<<32)|len` u64 on success, 0 on any
 /// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to

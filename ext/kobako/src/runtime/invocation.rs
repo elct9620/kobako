@@ -133,14 +133,14 @@ impl Invocation {
     }
 
     /// Return the current per-run deadline. Read from the epoch-deadline
-    /// callback installed by `crate::runtime::Runtime::from_path`.
+    /// callback installed by `crate::runtime::Runtime::new_store`.
     pub(super) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
 
     /// Mutable handle to the embedded `MemoryLimiter`. Required by
     /// the wasmtime `ResourceLimiter` callback wiring in
-    /// `crate::runtime::Runtime::from_path`
+    /// `crate::runtime::Runtime::new_store`
     /// (`store.limiter(|state| state.limiter_mut())`); kept private to
     /// the wasm submodule so the only public surface for arming the
     /// cap goes through `Invocation::arm_memory_cap` /
