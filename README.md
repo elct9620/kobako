@@ -205,7 +205,7 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior.md`](docs/behavior.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
 ```ruby
-pool = Kobako::Pool.new(slots: 4, timeout: 5.0) do |sandbox|
+pool = Kobako::Pool.new(slots: 4) do |sandbox|
   sandbox.define(:KV).bind(:Lookup, ->(key) { redis.get(key) })
 end
 
