@@ -1,0 +1,8 @@
+# Changelog
+
+## [0.5.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.4.1...kobako-baker-v0.5.0) (2026-06-12)
+
+
+### Features
+
+* **guest:** bake the canonical boot state and instantiate per invocation (B-49) ([ee9ae6e](https://github.com/elct9620/kobako/commit/ee9ae6e09eab30f54dba0eeec00a5a2c80da819f))
