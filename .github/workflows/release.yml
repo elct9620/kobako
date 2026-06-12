@@ -69,14 +69,9 @@ jobs:
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
-      # dtolnay/rust-toolchain does not read rust-toolchain.toml, so source
-      # the channel from it here to keep a single version of truth.
-      - name: Read Rust channel from rust-toolchain.toml
-        id: rust
-        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ steps.rust.outputs.channel }}
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -198,31 +193,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: kobako-wasm
-          path: wasm/
+          path: data/
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: '*-gem*'
           merge-multiple: true
           path: pkg/
-      # The pure Guest Binary feeds `rake bench:confirm[<version>]` (paired
-      # regression arbitration against the released build); the regexp
-      # variants are downloadables for guests that opt the capability in,
-      # and the .gem files are the RubyGems release backup.
       - name: Attach the Guest Binary variants and gem backups to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          version="${TAG#v}"
-          cp wasm/kobako.wasm "kobako-${version}.wasm"
-          cp "wasm/kobako+regexp.wasm" "kobako+regexp-${version}.wasm"
-          cp "wasm/kobako+regexp-unicode.wasm" "kobako+regexp-unicode-${version}.wasm"
-          gh release upload "$TAG" \
-            "kobako-${version}.wasm" \
-            "kobako+regexp-${version}.wasm" \
-            "kobako+regexp-unicode-${version}.wasm" \
-            pkg/*.gem --clobber
+        run: .github/scripts/upload-release-assets.sh

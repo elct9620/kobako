@@ -38,27 +38,12 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-      # dtolnay/rust-toolchain does not read rust-toolchain.toml, so source
-      # the channel from it here to keep a single version of truth.
-      - name: Read Rust channel from rust-toolchain.toml
-        id: rust
-        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: ${{ steps.rust.outputs.channel }}
-      # Rehearsal caveat: after a release PR bumps the linked versions
-      # but before kobako-core publishes, the kobako dry-run fails —
-      # its kobako-core requirement resolves against the registry, not
-      # the workspace path.
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
       - name: Dry-run publish
         if: ${{ !inputs.push }}
         working-directory: wasm
-        run: |
-          cargo publish -p kobako-core --dry-run
-          cargo publish -p kobako-io --dry-run
-          cargo publish -p kobako-regexp --dry-run
-          cargo publish -p kobako --dry-run
-          cargo publish --manifest-path kobako-baker/Cargo.toml --dry-run
+        run: '"$GITHUB_WORKSPACE/.github/scripts/publish-crates.sh" --dry-run'
       # Trusted Publishing: exchange the workflow's OIDC token for a
       # short-lived crates.io token (the crates.io counterpart of the
       # rubygems OIDC flow in release.yml). Requires each guest
@@ -67,36 +52,9 @@ jobs:
       - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
         if: ${{ inputs.push }}
         id: auth
-      # Dependency order: kobako depends on kobako-core, so it goes
-      # last — `cargo publish` waits for each crate to land in the
-      # index before returning. kobako-io and kobako-regexp depend only
-      # on the already-published beni, so their order is free. The
-      # already-published check makes a re-run after a partial failure
-      # resume instead of dying on "version already uploaded".
       - name: Publish to crates.io
         if: ${{ inputs.push }}
         working-directory: wasm
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: |
-          for crate in kobako-core kobako-io kobako-regexp kobako; do
-            version="$(cargo metadata --no-deps --format-version 1 \
-              | jq -r ".packages[] | select(.name == \"$crate\") | .version")"
-            if curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
-              "https://crates.io/api/v1/crates/$crate/$version" >/dev/null 2>&1; then
-              echo "$crate $version already on crates.io; skipping"
-              continue
-            fi
-            cargo publish -p "$crate"
-          done
-          # kobako-baker lives beside the workspace members but is a
-          # standalone host-side crate — publish via its own manifest.
-          version="$(cargo metadata --no-deps --format-version 1 \
-            --manifest-path kobako-baker/Cargo.toml \
-            | jq -r '.packages[] | select(.name == "kobako-baker") | .version')"
-          if curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
-            "https://crates.io/api/v1/crates/kobako-baker/$version" >/dev/null 2>&1; then
-            echo "kobako-baker $version already on crates.io; skipping"
-          else
-            cargo publish --manifest-path kobako-baker/Cargo.toml
-          fi
+        run: '"$GITHUB_WORKSPACE/.github/scripts/publish-crates.sh"'
