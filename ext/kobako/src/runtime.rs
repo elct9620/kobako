@@ -321,9 +321,13 @@ impl Runtime {
     /// (docs/behavior.md B-40). An absent export or a non-equal value is
     /// E-42 — a deterministic artifact fault raised as
     /// `Kobako::SetupError`. The probe Store drops here; invocation
-    /// instances are created per `#eval` / `#run`.
+    /// instances are created per `#eval` / `#run`. The frameless WASI
+    /// context keeps a third-party guest whose start section touches
+    /// WASI on the E-41 `SetupError` path instead of panicking in
+    /// `Invocation::wasi_mut`.
     fn probe_abi_version(&self, ruby: &Ruby) -> Result<(), MagnusError> {
         let mut store = self.new_store()?;
+        install_wasi_frames(&mut store, &self.config, &[])?;
         let instance = self
             .instance_pre
             .instantiate(store.as_context_mut())
