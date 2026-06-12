@@ -332,15 +332,16 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 
 | Phase                                                        | Cost                  |
 |--------------------------------------------------------------|-----------------------|
-| First `Sandbox.new` in a fresh process (Engine + Module JIT) | ~600 ms one-time      |
-| Subsequent `Sandbox.new` (Engine cache warm)                 | ~125 µs               |
-| Warm `#eval("nil")` on a reused Sandbox                      | ~135 µs               |
-| Warm `#run(:Entrypoint, ...)` dispatch                       | ~165 µs               |
-| Service call amortized inside one invocation                 | ~6.7 µs               |
-| Snippet replay per invocation                                | ~7-9 µs each          |
-| Per additional Sandbox (RSS)                                 | ~570 KB               |
+| First `Sandbox.new` ever for a Guest Binary (Module JIT, then disk-cached) | ~500 ms once per machine |
+| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~5 ms one-time        |
+| Subsequent `Sandbox.new` (caches warm)                       | ~30 µs                |
+| Warm `#eval("nil")` on a reused Sandbox                      | ~73 µs                |
+| Warm `#run(:Entrypoint, ...)` dispatch                       | ~104 µs               |
+| Service call amortized inside one invocation                 | ~6.8 µs               |
+| Snippet replay per invocation                                | ~8 µs each            |
+| Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-Construct one Sandbox at boot so the ~600 ms JIT cost lands off the request hot path. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 7-8k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~32 MB total. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
 
 Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#10` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4× `match?` (~1.2 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
 
