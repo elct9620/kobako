@@ -42,6 +42,21 @@ class TestCodecMalformed < Minitest::Test
     assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
   end
 
+  # The validation walk must cover both halves of every map entry — a
+  # regression skipping keys or values stays green on the top-level
+  # fixstr case above.
+  def test_invalid_utf8_in_map_key_rejected
+    # fixmap1 { fixstr2 <invalid> => fixint 1 }
+    bytes = "\x81\xa2\xff\xfe\x01".b
+    assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+  end
+
+  def test_invalid_utf8_in_map_value_rejected
+    # fixmap1 { fixstr1 "a" => fixstr2 <invalid> }
+    bytes = "\x81\xa1a\xa2\xff\xfe".b
+    assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+  end
+
   def test_unsupported_ruby_type_at_encode
     # SPEC's 12-entry mapping is closed; types outside it (Object,
     # Range, Time, ...) raise UnsupportedType.
