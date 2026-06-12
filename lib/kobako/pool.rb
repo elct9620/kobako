@@ -17,6 +17,8 @@ module Kobako
   # the Pool releases everything with its own reachability — there is no
   # teardown verb (B-48).
   class Pool
+    # The +#with+ wait bound applied when +checkout_timeout+ is not given
+    # ({docs/behavior.md B-46}[link:../../docs/behavior.md]).
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
 
     # Build a Pool of up to +slots+ Sandboxes
@@ -170,8 +172,9 @@ module Kobako
       end
 
       seconds = checkout_timeout.to_f
-      raise ArgumentError, "checkout_timeout must be > 0 and finite (got #{checkout_timeout})" unless
-        seconds.positive? && seconds.finite?
+      unless seconds.positive? && seconds.finite?
+        raise ArgumentError, "checkout_timeout must be > 0 and finite (got #{checkout_timeout})"
+      end
 
       seconds
     end
