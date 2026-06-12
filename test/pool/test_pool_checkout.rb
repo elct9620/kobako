@@ -6,9 +6,7 @@ require "test_helper"
 # thread (docs/behavior.md B-46 / B-47), driving the real
 # data/kobako.wasm.
 class TestPoolCheckout < Minitest::Test
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-  end
+  include E2eGuestHelper
 
   # B-47
   def test_with_returns_block_value
@@ -49,6 +47,21 @@ class TestPoolCheckout < Minitest::Test
       assert_equal "", sandbox.stderr, "a pooled Sandbox at checkout must read empty stderr (B-47)"
       refute_predicate sandbox, :stdout_truncated?,
                        "a pooled Sandbox at checkout must read stdout_truncated? false (B-47)"
+      refute_predicate sandbox, :stderr_truncated?,
+                       "a pooled Sandbox at checkout must read stderr_truncated? false (B-47)"
+    end
+  end
+
+  # B-47: no guest-observable state crosses from one checkout holder to
+  # the next. The B-49 canonical-boot e2e pins this on a directly
+  # constructed Sandbox; this is the Pool-composition witness on the
+  # same global probe.
+  def test_checkout_isolates_guest_global_state
+    pool = Kobako::Pool.new(slots: 1)
+    pool.with { |sandbox| sandbox.eval("$leak = 1") }
+    pool.with do |sandbox|
+      assert_nil sandbox.eval("$leak"),
+                 "a guest global set in one checkout must read nil in the next checkout (B-47)"
     end
   end
 

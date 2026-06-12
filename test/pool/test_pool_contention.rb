@@ -6,9 +6,7 @@ require "test_helper"
 # checkout wait, its E-46 timeout bound, and checkout independence
 # (docs/behavior.md B-47 + E-46), driving the real data/kobako.wasm.
 class TestPoolContention < Minitest::Test
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-  end
+  include E2eGuestHelper
 
   # E-46: all slots held past checkout_timeout raises PoolTimeoutError.
   def test_e46_exhausted_pool_times_out
@@ -26,6 +24,7 @@ class TestPoolContention < Minitest::Test
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 5.0)
     release, holder = hold_one_slot(pool)
     waiter = Thread.new { pool.with { |sandbox| sandbox.eval("3") } }
+    Thread.pass until waiter.stop?
     release << true
     assert_equal 3, waiter.value, "a blocked checkout must receive the checked-in Sandbox and proceed (B-47)"
     holder.join

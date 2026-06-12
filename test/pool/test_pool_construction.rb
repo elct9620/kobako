@@ -34,6 +34,14 @@ class TestPoolConstruction < Minitest::Test
                        "checkout_timeout: nil through Pool.new must construct a Pool (E-47)"
   end
 
+  # B-46: the default checkout wait bound is 5.0 seconds. Pinned on the
+  # public constant — the keyword default consumes it, and a timed
+  # behavioral witness would cost the suite a 5-second wait.
+  def test_checkout_timeout_defaults_to_five_seconds
+    assert_in_delta 5.0, Kobako::Pool::DEFAULT_CHECKOUT_TIMEOUT_SECONDS, 0.0,
+                    "Pool.new without checkout_timeout: must bound the wait at 5.0 seconds (B-46)"
+  end
+
   # B-46: Pool.new constructs no Sandbox — construction is checkout-driven.
   def test_construction_is_lazy
     setup_runs = 0
