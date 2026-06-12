@@ -21,7 +21,7 @@ module Kobako
   #                       call that failed and was not rescued inside the
   #                       script).
   #
-  # A fourth branch sits outside the invocation taxonomy:
+  # Two further branches sit outside the invocation taxonomy:
   #
   #   * {SetupError}    — construction layer. Raised by `Kobako::Sandbox.new`
   #                       when the wasm runtime cannot be built from the
@@ -29,6 +29,9 @@ module Kobako
   #                       ({docs/behavior.md E-40 / E-41}[link:../../docs/behavior.md]).
   #                       Not an invocation outcome, so it never passes
   #                       through the two-step attribution decision.
+  #   * {PoolTimeoutError} — pool checkout layer. Raised by `Kobako::Pool#with`
+  #                       when the checkout wait exceeds +checkout_timeout+
+  #                       ({docs/behavior.md E-46}[link:../../docs/behavior.md]).
   #
   # Subclasses pinned by docs/behavior.md Error Classes:
   #
@@ -137,4 +140,11 @@ module Kobako
   # snippet failures while callers wanting bytecode-specific handling
   # can `rescue Kobako::BytecodeError` directly.
   class BytecodeError < SandboxError; end
+
+  # Pool checkout layer. Raised by +Kobako::Pool#with+ when the checkout
+  # wait exceeded the configured +checkout_timeout+ while every slot was
+  # held ({docs/behavior.md E-46}[link:../../docs/behavior.md]). No
+  # Sandbox state is touched — retrying succeeds as soon as a holder
+  # returns its Sandbox.
+  class PoolTimeoutError < Error; end
 end

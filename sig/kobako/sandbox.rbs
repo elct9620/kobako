@@ -38,11 +38,11 @@ module Kobako
 
     def eval: (String code) -> untyped
 
+    def reset_invocation_state!: () -> void
+
     private
 
     def install_dispatch_proc!: () -> void
-
-    def reset_invocation_state!: () -> void
 
     def begin_invocation!: () -> void
 

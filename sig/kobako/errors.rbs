@@ -52,4 +52,7 @@ module Kobako
 
   class BytecodeError < SandboxError
   end
+
+  class PoolTimeoutError < Error
+  end
 end

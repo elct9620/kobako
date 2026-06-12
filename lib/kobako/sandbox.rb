@@ -206,6 +206,22 @@ module Kobako
       end
     end
 
+    # Reset all per-invocation observable state to its pre-invocation
+    # sentinels — both per-channel captures
+    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]) and the
+    # per-last-invocation usage record
+    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Shared by
+    # +#initialize+ (first-time setup) and +#begin_invocation!+
+    # (between-invocation reset) so both paths agree on what
+    # "pre-invocation state" means; +Kobako::Pool+ calls it at checkout
+    # so a pooled Sandbox hands over empty output buffers
+    # ({docs/behavior.md B-47}[link:../../docs/behavior.md]).
+    def reset_invocation_state!
+      @stdout_capture = Capture::EMPTY
+      @stderr_capture = Capture::EMPTY
+      @usage = Usage::EMPTY
+    end
+
     private
 
     # Configure the +Runtime+'s host↔guest dispatch wiring
@@ -235,20 +251,6 @@ module Kobako
       @services.seal!
       @handler.reset!
       reset_invocation_state!
-    end
-
-    # Reset all per-invocation observable state to its pre-invocation
-    # sentinels — both per-channel captures
-    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]) and the
-    # per-last-invocation usage record
-    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Shared by
-    # +#initialize+ (first-time setup) and +#begin_invocation!+
-    # (between-invocation reset) so both paths agree on what
-    # "pre-invocation state" means.
-    def reset_invocation_state!
-      @stdout_capture = Capture::EMPTY
-      @stderr_capture = Capture::EMPTY
-      @usage = Usage::EMPTY
     end
 
     # Read the per-last-invocation +wall_time+ and +memory_peak+ from

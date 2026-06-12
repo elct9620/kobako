@@ -112,7 +112,7 @@ ext/  — Rust native ext (magnus + wasmtime)      │       │    kobako-regex
 Dependencies point downward — a tier may use the tiers below it, never above. The non-obvious tier is the **root** of dependency-free value objects: they live at `Kobako::*`, *not* under the layer that consumes them, so a lower layer can use them without an upward dependency.
 
 ```
-Orchestration   Kobako::Sandbox, Kobako::Runtime (+ ext), Kobako::Snapshot
+Orchestration   Kobako::Pool, Kobako::Sandbox, Kobako::Runtime (+ ext), Kobako::Snapshot
       │
 Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
       │

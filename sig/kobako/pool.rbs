@@ -1,0 +1,44 @@
+module Kobako
+  class Pool
+    DEFAULT_CHECKOUT_TIMEOUT_SECONDS: Float
+
+    @slots: Integer
+    @checkout_timeout: Float?
+    @sandbox_options: Hash[Symbol, untyped]
+    @setup: ^(Kobako::Sandbox) -> void | nil
+    @idle: Array[Kobako::Sandbox]
+    @constructed: Integer
+    @mutex: Thread::Mutex
+    @slot_freed: Thread::ConditionVariable
+
+    def initialize: (
+      slots: Integer,
+      ?checkout_timeout: (Float | Integer)?,
+      **untyped sandbox_options
+    ) ?{ (Kobako::Sandbox) -> void } -> void
+
+    def with: [T] () { (Kobako::Sandbox) -> T } -> T
+
+    private
+
+    def checkout: () -> Kobako::Sandbox
+
+    def acquire: () -> Kobako::Sandbox
+
+    def claim_or_wait: (Float? deadline) -> [Symbol, Kobako::Sandbox?]
+
+    def await_slot!: (Float? deadline) -> void
+
+    def construct_slot: () -> Kobako::Sandbox
+
+    def checkin: (Kobako::Sandbox sandbox) -> void
+
+    def release_capacity!: () -> void
+
+    def monotonic_now: () -> Float
+
+    def validate_slots!: (untyped slots) -> void
+
+    def normalize_checkout_timeout: ((Float | Integer)? checkout_timeout) -> Float?
+  end
+end
