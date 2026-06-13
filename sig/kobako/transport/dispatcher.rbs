@@ -22,6 +22,8 @@ module Kobako
 
       def self?.reject_meta_method!: (untyped target, Symbol name) -> void
 
+      def self?.reject_unexposed!: (untyped target, Symbol name) -> void
+
       def self?.resolve_arg: (untyped value, Kobako::Catalog::Handles handler) -> untyped
 
       def self?.resolve_target: (String | Kobako::Handle target, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler) -> untyped

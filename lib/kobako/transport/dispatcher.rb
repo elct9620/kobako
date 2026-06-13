@@ -99,9 +99,8 @@ module Kobako
       # round-trip back to the host-side Ruby object before the call
       # reaches +public_send+.
       def resolve_call_args(request, handler)
-        args = request.args.map { |v| resolve_arg(v, handler) }
-        kwargs = request.kwargs.transform_values { |v| resolve_arg(v, handler) }
-        [args, kwargs]
+        [request.args.map { |v| resolve_arg(v, handler) },
+         request.kwargs.transform_values { |v| resolve_arg(v, handler) }]
       end
 
       # Map an error caught at the dispatch boundary to a +Response.error+
@@ -137,6 +136,7 @@ module Kobako
       def invoke(target, method, args, kwargs, yielder = nil)
         name = method.to_sym
         reject_meta_method!(target, name)
+        reject_unexposed!(target, name)
         block = yielder&.to_proc
         if kwargs.empty?
           target.public_send(name, *args, &block)
@@ -166,17 +166,27 @@ module Kobako
         raise UndefinedTargetError, "no public method #{name.inspect} on target"
       end
 
+      # Consult the target's opt-in narrowing predicate
+      # ({docs/behavior.md B-50}[link:../../../docs/behavior.md]). A bound object
+      # may define a private +respond_to_guest?(name)+ to restrict which of its
+      # methods the guest reaches; a falsy answer rejects the dispatch (E-48).
+      # The predicate composes beneath {#reject_meta_method!} — it only narrows,
+      # never re-opening the reflection surface the floor rejects — and is
+      # consulted with the private surface included so the guest's +public_send+
+      # dispatch can never reach +respond_to_guest?+ itself.
+      def reject_unexposed!(target, name)
+        return unless target.respond_to?(:respond_to_guest?, true)
+        return if target.__send__(:respond_to_guest?, name)
+
+        raise UndefinedTargetError, "method #{name.inspect} is not exposed to the guest"
+      end
+
       # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — A Kobako::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
       # transport call's Handle wrap (B-14). Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+.
       def resolve_arg(value, handler)
-        case value
-        when Kobako::Handle
-          require_live_object!(value.id, handler)
-        else
-          value
-        end
+        value.is_a?(Kobako::Handle) ? require_live_object!(value.id, handler) : value
       end
 
       # Resolve a Request target to the Ruby object the registry (or
