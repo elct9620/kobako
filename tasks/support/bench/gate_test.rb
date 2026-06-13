@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 
-require_relative "kobako_bench_gate"
+require_relative "gate"
 
 # Unit coverage for the release-gate runner ({SPEC.md Regression
 # benchmarks}): path resolution defaulting to the committed anchor, and

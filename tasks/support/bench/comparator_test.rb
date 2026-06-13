@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 
-require_relative "kobako_bench_comparator"
+require_relative "comparator"
 
 # Unit coverage for the pure release-gate judgment
 # ({SPEC.md Regression benchmarks}): regression direction, the quadrature

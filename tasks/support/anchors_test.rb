@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 
-require_relative "kobako_anchors"
+require_relative "anchors"
 
 # Unit coverage for the append-only anchor invariant (N-8): the checker
 # that keeps +B-xx+ / +E-xx+ / +RX-xx+ allocations unique, contiguous, and

@@ -3,7 +3,7 @@
 require "fileutils"
 require "json"
 
-require_relative "kobako_bench_comparator"
+require_relative "comparator"
 
 module KobakoBench
   # Release-gate runner: resolves the run and the committed anchor

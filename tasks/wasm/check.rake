@@ -14,9 +14,9 @@
 # Neither requires wasi-sdk; they run with plain host cargo so feedback is
 # fast in lanes without a vendored toolchain. The Stage C artifact tasks
 # (build / variants / clean) live in tasks/wasm/build.rake; shared helpers
-# (paths, target detection, cargo env) in tasks/support/kobako_wasm.rb.
+# (paths, target detection, cargo env) in tasks/support/wasm.rb.
 
-require_relative "../support/kobako_wasm"
+require_relative "../support/wasm"
 
 namespace :wasm do
   desc "cargo check the wasm sub-workspace (wasm32-wasip1 if available, host otherwise)"

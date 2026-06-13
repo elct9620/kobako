@@ -5,8 +5,8 @@
 # that anchor, and the stage-2 paired-alternation arbiter. The benchmark
 # runs themselves live in tasks/bench/run.rake.
 
-require_relative "../support/kobako_bench_confirm"
-require_relative "../support/kobako_bench_gate"
+require_relative "../support/bench/confirm"
+require_relative "../support/bench/gate"
 
 namespace :bench do
   desc "Anchored release gate: compare a run against benchmark/baseline.json (or args [current,baseline])."
@@ -20,6 +20,6 @@ namespace :bench do
 
   desc "Run the release-gate unit tests (comparator + runner)."
   task :gate_test do
-    Dir["tasks/support/kobako_bench_*_test.rb"].each { |file| sh "bundle exec ruby #{file}" }
+    Dir["tasks/support/bench/*_test.rb"].each { |file| sh "bundle exec ruby #{file}" }
   end
 end

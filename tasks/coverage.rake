@@ -13,7 +13,7 @@
 # after every minitest test completes, so the recorded counts reflect
 # the full run.
 
-require_relative "support/kobako_coverage"
+require_relative "support/coverage"
 
 desc "Print per-file line coverage for lib/kobako/ from the full test suite " \
      "(stdlib Coverage; not in release gate)."

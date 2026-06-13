@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "kobako_bench"
+require_relative "../bench"
 
 module KobakoBench
   # Pure release-gate judgment over two parsed results payloads: which

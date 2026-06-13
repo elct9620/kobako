@@ -15,9 +15,9 @@
 # parameterised by cargo features and output path. The compile-only signal
 # tasks (check / test) live in tasks/wasm/check.rake; shared helpers
 # (paths, target detection, mtime idempotency, cargo env) in
-# tasks/support/kobako_wasm.rb.
+# tasks/support/wasm.rb.
 
-require_relative "../support/kobako_wasm"
+require_relative "../support/wasm"
 
 namespace :wasm do
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"

@@ -8,7 +8,7 @@
 # ID. Part of the release gate (+rake default+); +rake anchors:test+ runs
 # the checker's own unit coverage.
 
-require_relative "support/kobako_anchors"
+require_relative "support/anchors"
 
 # Anchor definitions live in the behavior spec (+B+ / +E+) and the regexp
 # spec (+RX+). Anchors are cited only where traceability belongs — the spec
@@ -24,7 +24,7 @@ ANCHOR_REF_GLOBS = FileList[
 namespace :anchors do
   desc "Run the anchor checker's unit coverage."
   task :test do
-    sh "bundle exec ruby tasks/support/kobako_anchors_test.rb"
+    sh "bundle exec ruby tasks/support/anchors_test.rb"
   end
 end
 

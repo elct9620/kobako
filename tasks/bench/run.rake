@@ -23,10 +23,10 @@
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
 # instances within one invocation share the same file.
 #
-# Release-gate benchmark roster lives in tasks/support/kobako_bench.rb;
+# Release-gate benchmark roster lives in tasks/support/bench.rb;
 # the anchored gate / bless / confirm tasks in tasks/bench/gate.rake.
 
-require_relative "../support/kobako_bench"
+require_relative "../support/bench"
 
 namespace :bench do
   desc "Run all six regression benchmarks (SPEC.md #1..#6; <=1 MiB payloads)."

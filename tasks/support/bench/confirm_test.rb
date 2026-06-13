@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require_relative "kobako_bench_confirm"
+require_relative "confirm"
 
 # Verdict math only — the IO shell (arm running, wasm resolution) is
 # exercised manually via `rake bench:confirm`.

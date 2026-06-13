@@ -5,7 +5,7 @@ require "json"
 require "open3"
 require "tmpdir"
 
-require_relative "kobako_bench_baseline_wasm"
+require_relative "baseline_wasm"
 
 module KobakoBench
   # Stage-2 arbiter behind the release gate: judges a suspected
