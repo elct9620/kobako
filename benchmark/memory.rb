@@ -7,7 +7,7 @@
 #     consumes in total — Engine + compiled Module + every Sandbox
 #     instance + every retained capture buffer. The right granularity
 #     for capacity planning ("how many tenants fit in one process?").
-#   - Per-invocation `Sandbox#usage` (docs/behavior.md B-35). The
+#   - Per-invocation `Sandbox#usage`. The
 #     guest's `memory.grow` delta and the guest export's wall-clock
 #     time are sampled directly off `sandbox.usage` after the
 #     measured invocation, so the JSON now attributes growth to the
@@ -27,7 +27,7 @@
 #        sample. Bounded sub-linear RSS drift is allocator page
 #        retention and expected; `memory_peak` per nil-returning
 #        eval should stay ~0 because the script doesn't grow linear
-#        memory. A B-15 / B-19 per-invocation reset violation *at
+#        memory. A per-invocation reset violation *at
 #        the linear-memory layer* would now surface as nonzero
 #        `memory_peak` per call — a signal RSS drift cannot isolate.
 #   8c — Large-payload retention. Measure RSS before, while holding

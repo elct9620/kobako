@@ -16,7 +16,7 @@
 #   9a — Preload registration cost (host-side trial-compile path).
 #        Steady-state cost of `Sandbox.new + N #preload(code:,
 #        name:)`. Each #preload trial-compiles the source against a
-#        fresh host mrb_state to catch E-32 (compile error) early,
+#        fresh host mrb_state to catch a compile error early,
 #        so registration is non-trivial. The 1 / 8 / 64 waypoints
 #        characterize linearity — a regression that adds per-snippet
 #        O(N) work would show as super-linear growth in the delta
@@ -28,7 +28,7 @@
 #        snippet defining `Noop`; `sandbox.run(:Noop)` cost in
 #        steady state. Isolates the #run-specific entry path: host
 #        pre-flight (Invocation envelope construction, target / args
-#        / kwargs validation per E-24 / E-25 / E-29 / E-30) plus
+#        / kwargs validation) plus
 #        guest-side constant resolution.
 #
 #   9c — Run dispatch with one positional Integer arg.
@@ -45,14 +45,14 @@
 #   9e — Per-invocation snippet replay overhead. Same #run(:Noop)
 #        dispatch, but with 0 / 8 / 64 additional helper snippets
 #        preloaded alongside `Noop`. Every snippet is replayed
-#        against the fresh mrb_state on every invocation per B-32,
+#        against the fresh mrb_state on every invocation,
 #        so the slope between waypoints characterizes per-snippet
 #        replay cost on the steady-state #run path. A regression
 #        that makes replay super-linear in snippet count would show
 #        here.
 #
 #   9f — #run dispatch with a non-wire-representable positional
-#        arg (B-34 host→guest auto-wrap). The args walker routes
+#        arg via host→guest auto-wrap. The args walker routes
 #        the StringIO through Codec::Utils.deep_wrap, which routes
 #        non-wire-representable leaves through Catalog::Handles#alloc;
 #        the guest receives a +Kobako::Handle+ proxy. The entrypoint
@@ -88,8 +88,8 @@ ECHO_SNIPPET_CODE = <<~RUBY
   end
 RUBY
 
-# Entrypoints accept kwargs as a trailing Hash argument (SPEC B-31 /
-# docs/behavior.md). `name:` becomes opts[:name] inside the call.
+# Entrypoints accept kwargs as a trailing Hash argument. `name:` becomes
+# opts[:name] inside the call.
 GREET_SNIPPET_CODE = <<~RUBY
   module Greet
     def self.call(opts)
@@ -161,7 +161,7 @@ Kobako::Sandbox.new.eval("nil")
 end
 
 # Shared dispatch sandbox for 9b / 9c / 9d. One warm-up #run seals
-# the Service / snippet tables (B-07 / B-33) so the first measured
+# the Service / snippet tables so the first measured
 # iteration does not pay seal cost.
 dispatch_sandbox = Kobako::Sandbox.new(memory_limit: nil)
 dispatch_sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
@@ -189,8 +189,9 @@ end
 
 # 9f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
 # already sealed by 9b's warm-up #run; subsequent #preload would
-# raise E-35. The same +autowrap_arg+ is reused across iterations,
-# but B-15 / B-19 reset the Catalog::Handles at the start of every
+# raise (preload after seal is rejected). The same +autowrap_arg+ is
+# reused across iterations, but the per-invocation reset clears the
+# Catalog::Handles at the start of every
 # invocation, so each measured #run still pays for one fresh
 # Catalog::Handles#alloc.
 autowrap_sandbox = Kobako::Sandbox.new(memory_limit: nil)

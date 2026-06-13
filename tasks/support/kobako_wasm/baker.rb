@@ -5,8 +5,8 @@ require "tmpdir"
 
 module KobakoWasm
   # Stage C bake step: runs the +kobako-baker+ tool over a linked Guest
-  # Binary so the shipped artifact embeds the canonical boot state
-  # (docs/behavior.md B-49). The bake runs twice and the outputs must be
+  # Binary so the shipped artifact embeds the canonical boot state.
+  # The bake runs twice and the outputs must be
   # byte-identical — the F-10 reproducibility gate; a divergence aborts
   # the build instead of shipping a nondeterministic image.
   class Baker

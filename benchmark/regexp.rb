@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Characterization benchmark (not in release gate) — the standalone regexp
-# capability profile (SPEC.md B-41). Two groups:
+# capability profile. Two groups:
 #
 #   Since Regexp lives in the opt-in variant binaries, the gated suite no
 #   longer covers it; this characterization is the sole regexp perf guard.

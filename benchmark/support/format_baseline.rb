@@ -39,7 +39,7 @@ module Kobako
 
       # Time per op derived from an ips number. Routes through
       # {format_seconds} so the magnitude bucket is identical to the
-      # one B-35 +wall_time+ rendering uses — readers can compare
+      # one the +wall_time+ usage rendering uses — readers can compare
       # ips-derived per-op cost against the guest export portion
       # without mental unit-juggling.
       def time_per_op(ips)
@@ -78,7 +78,7 @@ module Kobako
 
       # Seconds → ns / µs / ms. Single definition of the magnitude
       # buckets shared by {time_per_op} (ips-derived per-op cost) and
-      # the B-35 +wall_time+ rendering in {BaselineFormatter#format_usage}:
+      # the +wall_time+ rendering in {BaselineFormatter#format_usage}:
       # +< 1 µs+ renders as ns; +1 µs..1 ms+ as µs; +>= 1 ms+ as ms.
       def format_seconds(seconds)
         return format("%.0f ns", seconds * 1_000_000_000) if seconds < 0.000_001
@@ -87,7 +87,7 @@ module Kobako
         format("%.2f ms", seconds * 1000)
       end
 
-      # Per-invocation +memory_peak+ ({SPEC.md B-35}) → B / KiB / MiB.
+      # Per-invocation +memory_peak+ from {Kobako::Sandbox#usage} → B / KiB / MiB.
       # +0+ is common for cases that don't grow guest linear memory
       # (nil-returning evals, Transport round-trips); the B form preserves
       # that signal instead of rounding it away.
@@ -156,7 +156,7 @@ module Kobako
         [value, meta_parts.join(" | ")]
       end
 
-      # Render the B-35 +wall_time+ / +memory_peak+ pair that
+      # Render the +wall_time+ / +memory_peak+ usage pair that
       # {Runner#case_with_usage} and the memory suite's +record+
       # helper fold into ips and memory rows.
       def format_usage(entry)

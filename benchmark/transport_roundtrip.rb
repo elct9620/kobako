@@ -9,7 +9,7 @@
 #   2c — Kwargs: Symbol-keyed kwargs (ext 0x00 on the wire)
 #   2d — 1000 sequential calls inside one #eval (per-call cost
 #        dominates over per-invocation setup/teardown)
-#   2e — Handle chain (SPEC.md B-17): one Service returns a stateful
+#   2e — Handle chain: one Service returns a stateful
 #        host object → guest holds it as a Handle → second call uses
 #        the Handle as target. Exercises Catalog::Handles#alloc on the
 #        return path and Catalog::Handles#fetch on the call path within

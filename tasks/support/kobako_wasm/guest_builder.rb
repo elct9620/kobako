@@ -107,7 +107,7 @@ module KobakoWasm
       raise "[wasm:build] cargo built but #{CRATE_WASM_OUTPUT} is missing" unless File.exist?(CRATE_WASM_OUTPUT)
     end
 
-    # Bake the canonical boot state (docs/behavior.md B-49) into the
+    # Bake the canonical boot state into the
     # linked module and place the result as the shipped artifact — the
     # bake output IS the Guest Binary; the raw cargo output never lands
     # in data/.

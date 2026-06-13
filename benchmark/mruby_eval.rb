@@ -12,7 +12,7 @@
 #        setjmp/longjmp path enforced by SPEC's invariant on
 #        mruby exception unwind)
 #   4e — stdout puts loop, well below stdout_limit (exercises the
-#        full B-04 IO path: mrblib IO#write → kobako_io_fwrite C
+#        full guest IO path: mrblib IO#write → kobako_io_fwrite C
 #        bridge → WASI pipe → host capture buffer; baseline cost
 #        per buffered write)
 #   4f — stdout cap saturation (2048 puts of 1023 bytes ≈ 2 MiB

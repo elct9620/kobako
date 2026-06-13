@@ -29,7 +29,7 @@
 #        from the retained 1 M-entry table, so a regression specific
 #        to "invocation becomes more GC-sensitive when the process
 #        already holds a large Catalog::Handles" is detectable here even
-#        though 1b would miss it. The B-15 / B-19 per-invocation
+#        though 1b would miss it. The per-invocation Catalog::Handles
 #        reset itself is constant-time and not what this case
 #        isolates.
 

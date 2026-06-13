@@ -4,7 +4,7 @@ require_relative "stats"
 
 module Kobako
   module Bench
-    # Samples {Kobako::Sandbox#usage} ({docs/behavior.md B-35}) across
+    # Samples {Kobako::Sandbox#usage} across
     # repeated block invocations and reduces to the median +wall_time+ /
     # +memory_peak+, so a single GC-inflated invocation does not become
     # the recorded per-invocation budget. Drives {Runner#case_with_usage};

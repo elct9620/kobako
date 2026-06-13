@@ -101,7 +101,7 @@ One guest→host Service call wrapped in one `#eval`. Each row bundles `#eval` s
 | One Service call with one Integer arg                      | **79.4 µs**                            | 37.4 µs                            |
 | One Service call with one Symbol-keyed keyword arg         | 79.7 µs                                | 42.8 µs                            |
 | 1 000 sequential Service calls inside one `#eval`          | 6.77 ms total → **6.8 µs per call**    | 6.62 ms / 6.6 µs per call          |
-| Handle chain — one call returns object, second targets the Handle ([B-17](../docs/behavior.md)) | 94.4 µs | 56.4 µs |
+| Handle chain — one call returns object, second targets the Handle ([B-17](../docs/behavior/dispatch.md)) | 94.4 µs | 56.4 µs |
 
 #### Wire codec — host side ([`codec.rb`](codec.rb))
 
@@ -142,7 +142,7 @@ Note: mruby caps a single String at 1 MiB ([SPEC Invariant](../SPEC.md)); the la
 
 #### Yield round-trip latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
 
-Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block ([B-23..B-30](../docs/behavior.md)). The cost lives on a different path (`YieldResponse` codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
+Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block ([B-23..B-30](../docs/behavior/yield.md)). The cost lives on a different path (`YieldResponse` codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
 
 | Case                            | What it isolates                                                                          |
 |---------------------------------|--------------------------------------------------------------------------------------------|
@@ -194,7 +194,7 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 | 1 000 allocs against a 1 M-entry table                              | 0.527 ms                 |
 | Warm `#eval("nil")` under sustained heap pressure (1 M-entry table) | 60.5 µs (`wall_time` = 23.4 µs) |
 
-Per-alloc cost holds 429-527 ns across four orders of magnitude — the gentle climb is allocator state, not lookup curve. ([B-21](../docs/behavior.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
+Per-alloc cost holds 429-527 ns across four orders of magnitude — the gentle climb is allocator state, not lookup curve. ([B-21](../docs/behavior/dispatch.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
 
 ### Setup-once dispatch (characterization only)
 

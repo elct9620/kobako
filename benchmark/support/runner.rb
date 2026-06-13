@@ -31,7 +31,7 @@ module Kobako
     # wall-clock helper and bypass this runner.
     #
     # For sandbox-driven cases the runner can also fold the last
-    # invocation's {Kobako::Sandbox#usage} ({docs/behavior.md B-35}) —
+    # invocation's {Kobako::Sandbox#usage} —
     # +wall_time+ (guest export seconds) and +memory_peak+
     # (per-invocation +memory.grow+ delta) — into the same result
     # row via {#case_with_usage} or the lower-level
@@ -69,7 +69,7 @@ module Kobako
         emit_case(label, samples, iterations)
       end
 
-      # Sample +sandbox.usage+ ({docs/behavior.md B-35}) and merge
+      # Sample +sandbox.usage+ and merge
       # +wall_time+ / +memory_peak+ into the most recently recorded
       # entry. Called right after +#case+ or +#one_shot+ on the same
       # +sandbox+, while +sandbox.usage+ still reflects the last
