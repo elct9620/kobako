@@ -17,7 +17,7 @@ use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
 use super::{memory_limit_err, setup_err, timeout_err, trap_err};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from `Invocation` (docs/behavior.md B-01) and trap with
+/// wall-clock deadline from `Invocation` and trap with
 /// `TimeoutTrap` once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under normal
@@ -41,9 +41,9 @@ pub(super) fn epoch_deadline_callback(
 /// without the magnus surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrapClass {
-    /// docs/behavior.md E-19 wall-clock cap path.
+    /// Wall-clock cap path.
     Timeout,
-    /// docs/behavior.md E-20 linear-memory cap path.
+    /// Linear-memory cap path.
     MemoryLimit,
     /// Any other wasmtime error — surfaces as the base
     /// `Kobako::TrapError`.
@@ -117,8 +117,8 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
 }
 
 /// Map an instantiation error to `Kobako::SetupError`. Instantiation runs
-/// during `from_path` construction, before any invocation — docs/behavior.md
-/// E-41 classifies every such failure as a construction setup fault, not a
+/// during `from_path` construction, before any invocation — every such
+/// failure is a construction setup fault, not a
 /// per-invocation cap outcome. The memory cap is dormant during
 /// instantiation (see `Invocation::arm_memory_cap` /
 /// `Invocation::disarm_memory_cap`) and the epoch deadline is not yet

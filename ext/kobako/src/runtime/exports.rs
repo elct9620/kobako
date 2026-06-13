@@ -4,7 +4,7 @@
 //! `Runtime::instantiate` resolves the ABI exports the run path drives
 //! (`__kobako_eval` / `__kobako_run` / `__kobako_take_outcome` /
 //! `__kobako_alloc`) plus the `memory` export against each fresh
-//! per-invocation instance (docs/behavior.md B-49) and bundles their
+//! per-invocation instance and bundles their
 //! typed handles here, so the invocation body passes one struct around
 //! rather than re-resolving exports by name at every step. Distinct
 //! from `super::cache` (the process-wide Engine / Module cache): this

@@ -3,8 +3,8 @@
 //! Every successful `Kobako::Runtime#eval` / `#run` returns one of these.
 //! It carries every observable the host needs to surface after a guest
 //! invocation: the OUTCOME_BUFFER bytes (`return_bytes`), the captured
-//! stdout / stderr byte slices with their truncation flags (B-04), and
-//! the wall-clock + memory-peak figures from `Kobako::Usage` (B-35).
+//! stdout / stderr byte slices with their truncation flags, and
+//! the wall-clock + memory-peak figures from `Kobako::Usage`.
 //!
 //! Ruby callers see the seven raw readers registered below; the helper
 //! methods that pack them into `Kobako::Capture` / `Kobako::Usage`

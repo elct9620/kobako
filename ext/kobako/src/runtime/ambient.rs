@@ -11,7 +11,7 @@
 //!
 //! The host wall-clock cap is unaffected: the per-invocation timeout runs on
 //! wasmtime epoch interruption against a host `Instant`, never the guest's
-//! frozen `wasi:clocks/monotonic-clock` (docs/behavior.md B-01).
+//! frozen `wasi:clocks/monotonic-clock`.
 
 use std::time::Duration;
 

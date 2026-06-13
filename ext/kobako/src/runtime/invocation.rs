@@ -3,15 +3,14 @@
 //! for the lifetime of one `Runtime::eval` / `Runtime::run` call).
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
-//! (docs/behavior.md B-49) and threaded through every host import —
+//! and threaded through every host import —
 //! the `__kobako_dispatch` dispatcher reads the bound dispatch Proc,
 //! while the run-path methods on `crate::runtime::Runtime` install the
-//! invocation's WASI context + pipes at Store creation
-//! (docs/behavior.md B-03 / B-04).
+//! invocation's WASI context + pipes at Store creation.
 //!
 //! The slot also carries the per-invocation wall-clock deadline
-//! (docs/behavior.md B-01, E-19) and the per-invocation linear-memory
-//! delta cap `MemoryLimiter` (docs/behavior.md B-01, E-20). Both are
+//! and the per-invocation linear-memory
+//! delta cap `MemoryLimiter`. Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
 //! callbacks installed in `crate::runtime::Runtime::new_store`. The
 //! memory cap measures only the `memory.grow` delta past the linear-
@@ -52,7 +51,7 @@ impl Invocation {
     /// Build a fresh per-Store host state. `memory_limit` carries the
     /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
     /// it is read from the wasmtime `ResourceLimiter` callback every
-    /// time the guest grows linear memory (docs/behavior.md B-01, E-20).
+    /// time the guest grows linear memory.
     pub(super) fn new(memory_limit: Option<usize>) -> Self {
         Self {
             wasi: None,
@@ -69,7 +68,7 @@ impl Invocation {
     /// Install a freshly-built WASI context plus the matching stdout/stderr
     /// pipe clones. Called from `crate::runtime::Runtime::eval` /
     /// `crate::runtime::Runtime::run` at the top of every guest
-    /// invocation (docs/behavior.md B-03 / B-04).
+    /// invocation.
     pub(super) fn install_wasi(
         &mut self,
         wasi: WasiP1Ctx,
@@ -127,7 +126,7 @@ impl Invocation {
 
     /// Replace the per-run wall-clock deadline. `Some(at)` makes the
     /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
-    /// disables the cap. Called at the top of every `#run` (docs/behavior.md B-01).
+    /// disables the cap. Called at the top of every `#run`.
     pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
     }
@@ -149,7 +148,7 @@ impl Invocation {
         &mut self.limiter
     }
 
-    /// Arm the docs/behavior.md E-20 memory cap for one guest run with
+    /// Arm the memory cap for one guest run with
     /// the current linear-memory size as the baseline. The limiter
     /// charges only the `memory.grow` delta past `baseline` against
     /// the cap, so the mruby image's initial allocation and the
@@ -162,23 +161,23 @@ impl Invocation {
         self.limiter.activate(baseline);
     }
 
-    /// Disarm the docs/behavior.md E-20 memory cap. See
+    /// Disarm the memory cap. See
     /// `Invocation::arm_memory_cap`.
     pub(super) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }
 
-    /// Stamp the wall-clock entry instant for the docs/behavior.md
-    /// B-35 `wall_time` measurement. Called at the top of every
+    /// Stamp the wall-clock entry instant for the `wall_time`
+    /// measurement. Called at the top of every
     /// invocation immediately before the guest export call so the
-    /// bracket matches the `timeout` deadline accounting (B-01) and
+    /// bracket matches the `timeout` deadline accounting and
     /// excludes post-run host bookkeeping such as `OUTCOME_BUFFER`
     /// decoding.
     pub(super) fn start_wall_clock(&mut self) {
         self.wall_entry = Some(Instant::now());
     }
 
-    /// Close the docs/behavior.md B-35 `wall_time` measurement
+    /// Close the `wall_time` measurement
     /// started by `Invocation::start_wall_clock`. Idempotent — a
     /// stop with no matching start (e.g. if the guest export call
     /// never executed because of a host-side allocation failure)
@@ -190,13 +189,13 @@ impl Invocation {
     }
 
     /// Return the wall-clock duration the most recent invocation
-    /// spent inside the guest export call (docs/behavior.md B-35).
+    /// spent inside the guest export call.
     /// Zero before the first invocation.
     pub(super) fn wall_time(&self) -> Duration {
         self.wall_time
     }
 
-    /// Return the docs/behavior.md B-35 `memory_peak` — the high-
+    /// Return the `memory_peak` — the high-
     /// water mark of the per-invocation `memory.grow` delta past the
     /// linear-memory size captured at invocation entry. Zero before
     /// the first invocation.
@@ -206,7 +205,7 @@ impl Invocation {
 }
 
 /// Resource limiter that enforces the per-invocation `memory_limit`
-/// cap from docs/behavior.md B-01 / E-20.
+/// cap.
 ///
 /// `max_memory` is the byte cap on per-invocation growth (`None` disables
 /// the cap). `baseline` is the linear-memory size captured at invocation
@@ -249,9 +248,9 @@ impl MemoryLimiter {
     /// the cap is dormant by default — the module's declared initial
     /// memory is allocated during `Linker::instantiate` and the
     /// per-invocation budget excludes anything that existed before
-    /// arming (docs/behavior.md B-01 Notes, E-20). Also clears the
+    /// arming. Also clears the
     /// per-invocation `MemoryLimiter::peak` high-water so the
-    /// docs/behavior.md B-35 `memory_peak` accounting restarts from
+    /// `memory_peak` accounting restarts from
     /// zero for the new invocation.
     fn activate(&mut self, baseline: usize) {
         self.baseline = baseline;
@@ -270,9 +269,9 @@ impl MemoryLimiter {
     /// Return the high-water mark of the per-invocation
     /// `memory.grow` delta past `baseline` observed since the last
     /// `MemoryLimiter::activate`. Read after the guest export
-    /// returns to populate `Kobako::Usage#memory_peak`
-    /// (docs/behavior.md B-35). Pinned to the last accepted grow —
-    /// rejected `desired` values that trip the docs/behavior.md E-20
+    /// returns to populate `Kobako::Usage#memory_peak`.
+    /// Pinned to the last accepted grow —
+    /// rejected `desired` values that trip the memory
     /// cap never update the peak, so the reported value never exceeds
     /// `memory_limit`.
     pub(super) fn peak(&self) -> usize {
@@ -312,8 +311,9 @@ impl ResourceLimiter for MemoryLimiter {
     }
 }
 
-/// Marker error returned from `MemoryLimiter::memory_growing` on
-/// docs/behavior.md E-20. Downcast from the wasmtime trap error to surface as
+/// Marker error returned from `MemoryLimiter::memory_growing` when the
+/// per-invocation memory cap is exceeded. Downcast from the wasmtime
+/// trap error to surface as
 /// `Kobako::MemoryLimitError` on the Ruby side. Callers use the
 /// `Display` impl below — no field is read directly — so the inner
 /// state stays private.
@@ -347,9 +347,9 @@ impl std::fmt::Display for MemoryLimitTrap {
 
 impl std::error::Error for MemoryLimitTrap {}
 
-/// Marker error returned from the epoch-deadline callback on
-/// docs/behavior.md E-19. Downcast from the wasmtime trap error to
-/// surface as `Kobako::TimeoutError` on the Ruby side.
+/// Marker error returned from the epoch-deadline callback when the
+/// wall-clock deadline is exceeded. Downcast from the wasmtime trap
+/// error to surface as `Kobako::TimeoutError` on the Ruby side.
 #[derive(Debug)]
 pub(crate) struct TimeoutTrap;
 

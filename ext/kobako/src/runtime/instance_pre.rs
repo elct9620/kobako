@@ -29,7 +29,7 @@ static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocatio
 /// Look up `path` in the per-path `InstancePre` cache, wiring the
 /// Linker and resolving the Module's imports on a miss. Compilation
 /// faults surface through `cached_module`; import-resolution faults
-/// raise `Kobako::SetupError` (docs/behavior.md E-41).
+/// raise `Kobako::SetupError`.
 pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, MagnusError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 

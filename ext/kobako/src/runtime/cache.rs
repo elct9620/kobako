@@ -11,7 +11,7 @@
 //!
 //! Across processes, the Cranelift compile cost is amortised by a
 //! best-effort `.cwasm` disk cache keyed by the SHA-256 of the Guest
-//! Binary bytes (docs/behavior.md B-01); every cache failure falls
+//! Binary bytes; every cache failure falls
 //! back to in-process compilation.
 //!
 //! Concurrency: under Ruby's GVL only one thread can execute Rust code
@@ -37,7 +37,7 @@ static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
 
 /// Ticker cadence for the process-singleton epoch ticker. Bounds the
-/// granularity of the docs/behavior.md B-01 wall-clock timeout: the
+/// granularity of the wall-clock timeout: the
 /// `epoch_deadline_callback` fires once per tick (`Continue(1)`), so the
 /// trap can lag the deadline by at most one tick under nominal
 /// scheduling. 10 ms keeps the lag small enough that it does not skew
@@ -57,7 +57,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 ///
 /// Also enables `epoch_interruption(true)` so every Store can install an
 /// `epoch_deadline_callback` for the per-run wall-clock cap
-/// (docs/behavior.md B-01, E-19). The first call spawns the process-singleton ticker
+/// cap. The first call spawns the process-singleton ticker
 /// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
 /// cadence; subsequent calls reuse the same engine and ticker.
 pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {

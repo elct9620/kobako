@@ -13,11 +13,10 @@ use std::time::Duration;
 /// Wall-clock and output caps for one `Runtime`. `None` on any field
 /// disables that cap.
 pub(crate) struct Config {
-    /// Wall-clock cap for one guest `#eval` / `#run` (docs/behavior.md
-    /// B-01, E-19). Stamped into a per-run `Instant` deadline by
-    /// `Runtime::prime_caps`.
+    /// Wall-clock cap for one guest `#eval` / `#run`. Stamped into a
+    /// per-run `Instant` deadline by `Runtime::prime_caps`.
     pub(crate) timeout: Option<Duration>,
-    /// Byte cap for guest stdout capture (docs/behavior.md B-01 / B-04).
+    /// Byte cap for guest stdout capture.
     /// Sizes the per-run `MemoryOutputPipe` and computes the truncation
     /// flag in `Runtime::build_snapshot`.
     pub(crate) stdout_limit_bytes: Option<usize>,

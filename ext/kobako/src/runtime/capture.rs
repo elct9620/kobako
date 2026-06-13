@@ -1,6 +1,6 @@
 //! Per-channel stdout / stderr capture sizing and clipping.
 //!
-//! Two pure helpers shared by the run path (docs/behavior.md B-04): one
+//! Two pure helpers shared by the run path: one
 //! sizes the per-run `MemoryOutputPipe`, the other clips a captured
 //! snapshot back to the configured cap and reports whether the cap was
 //! exceeded. Kept channel-agnostic (a function of `cap`, not of which

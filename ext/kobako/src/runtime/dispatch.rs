@@ -3,7 +3,7 @@
 //! When the guest invokes the wasm import declared in
 //! `wasm/kobako-core/src/abi.rs`, wasmtime calls back into the host
 //! through the closure registered by `instance_pre::build_linker`.
-//! That closure delegates here. The dispatcher (docs/behavior.md B-12 / B-13):
+//! That closure delegates here. The dispatcher:
 //!
 //!   1. Reads the Request bytes from guest linear memory.
 //!   2. Invokes the Ruby-side dispatch Proc bound via
@@ -55,8 +55,8 @@ use wasmtime::Caller;
 use super::invocation::Invocation;
 
 // ============================================================
-// Active-caller pointer for the per-thread Invocation slot (B-24, B-28,
-// SPEC.md Single-Invocation Slot).
+// Active-caller pointer for the per-thread Invocation slot
+// (SPEC.md Single-Invocation Slot).
 // ============================================================
 //
 // `Runtime#yield_to_active_invocation` (whose body is the
@@ -73,8 +73,8 @@ use super::invocation::Invocation;
 // The pointer is therefore erased to `NonNull<()>` and parked in a
 // per-thread slot — the materialised form of the SPEC.md
 // "Single-Invocation Slot" invariant. The single-threaded wasm
-// execution per Sandbox (B-22) plus the LIFO re-entry shape of nested
-// dispatch frames (B-28) ensures no aliasing across threads or across
+// execution per Sandbox plus the LIFO re-entry shape of nested
+// dispatch frames ensures no aliasing across threads or across
 // frames; the recovery invariant lives at `current_caller`. The
 // pointer is set on entry to `handle` and restored to the outer
 // frame's value on every exit through a drop guard.
@@ -85,7 +85,7 @@ thread_local! {
 
 /// RAII guard that saves the previous `ACTIVE_CALLER` value on
 /// installation and restores it on drop. Nested `__kobako_dispatch`
-/// frames stack within one Invocation (B-28) — the inner frame's `set`
+/// frames stack within one Invocation — the inner frame's `set`
 /// swaps in its own pointer while remembering the outer's; drop
 /// restores the outer so its continuation (e.g. iterating over another
 /// guest block) still finds a live caller.

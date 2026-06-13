@@ -7,8 +7,8 @@
 // constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
 // stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
 // instantiates a fresh instance from the InstancePre and discards the
-// whole Store afterwards — the docs/behavior.md B-49 per-invocation
-// instance discipline (ABI v2). The underlying wasmtime Engine and
+// whole Store afterwards — the per-invocation instance discipline
+// (ABI v2). The underlying wasmtime Engine and
 // compiled Module live in a process-scope cache (see the `cache`
 // submodule) and never surface to Ruby (SPEC.md "Code Organization":
 // `ext/` "exposes no Wasm engine types to the Host App or downstream
@@ -74,9 +74,10 @@ use self::invocation::Invocation;
 
 /// The wire ABI version this host implements (docs/wire-codec.md § ABI
 /// Version). A Guest Binary is accepted only when its
-/// `__kobako_abi_version` export reports the same value (B-40 / E-42);
-/// the guest-side mirror is `kobako_core::abi::ABI_VERSION`. Version 2
-/// carries the per-invocation instance discipline (B-49): the host
+/// `__kobako_abi_version` export reports the same value; a mismatch
+/// is a deterministic artifact fault. The guest-side mirror is
+/// `kobako_core::abi::ABI_VERSION`. Version 2
+/// carries the per-invocation instance discipline: the host
 /// drives every invocation on a fresh instance, so the guest may leave
 /// its VM state dirty at exit.
 const ABI_VERSION: u32 = 2;
@@ -149,22 +150,22 @@ pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// Construct a `Kobako::SetupError` magnus error. Used for every
 /// construction-time failure on the `Runtime.from_path` path before any
 /// invocation runs — unreadable artifact, bytes that are not a valid Wasm
-/// module, or engine / linker / instantiation setup failure (docs/behavior.md
-/// E-41). The `ModuleNotBuiltError` subclass (artifact absent, E-40) is
+/// module, or engine / linker / instantiation setup failure. The
+/// `ModuleNotBuiltError` subclass (artifact absent) is
 /// raised through `MODULE_NOT_BUILT_ERROR` directly.
 pub(crate) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &SETUP_ERROR, msg)
 }
 
 /// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
-/// docs/behavior.md E-19 wall-clock cap path with the verb prefix added
+/// wall-clock cap path with the verb prefix added
 /// by `Kobako::Sandbox#invoke!`.
 pub(crate) fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TIMEOUT_ERROR, msg)
 }
 
 /// Construct a `Kobako::MemoryLimitError` magnus error. Surfaces the
-/// docs/behavior.md E-20 linear-memory cap path with the verb prefix
+/// linear-memory cap path with the verb prefix
 /// added by `Kobako::Sandbox#invoke!`.
 pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &MEMORY_LIMIT_ERROR, msg)
@@ -173,8 +174,8 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 /// Construct a `Kobako::SandboxError` magnus error. Used for the
 /// host-side pre-call faults the SPEC attributes to the sandbox / wire
 /// layer rather than the Wasm engine — currently the `#run` invocation
-/// envelope reservation failure (`__kobako_alloc` returns 0,
-/// docs/behavior.md E-31). The runtime is intact, so this must not be a
+/// envelope reservation failure (`__kobako_alloc` returns 0).
+/// The runtime is intact, so this must not be a
 /// `TrapError`: no discard-and-recreate recovery is owed to the caller.
 pub(crate) fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &SANDBOX_ERROR, msg)
@@ -212,10 +213,9 @@ pub(crate) struct Runtime {
     // Pre-linked instantiation template (import wiring + type checks
     // done once in `instance_pre::cached_instance_pre`). Every
     // invocation instantiates a fresh instance from it and discards the
-    // whole Store afterwards — the docs/behavior.md B-49 per-invocation
-    // instance discipline.
+    // whole Store afterwards — the per-invocation instance discipline.
     instance_pre: WtInstancePre<Invocation>,
-    // Per-invocation linear-memory cap (docs/behavior.md B-01 / E-20),
+    // Per-invocation linear-memory cap,
     // threaded into each fresh `Invocation`; lives apart from `Config`
     // because the wasmtime `ResourceLimiter` callback consumes it from
     // inside the wasm engine.
@@ -223,7 +223,7 @@ pub(crate) struct Runtime {
     // Wall-clock + per-channel capture caps forwarded from the Sandbox;
     // see `Config`.
     config: Config,
-    // The host-side dispatch Proc (docs/behavior.md B-12), held here only
+    // The host-side dispatch Proc, held here only
     // to give `DataTypeFunctions::mark` a read path so it can pin the
     // Proc across GC. The copy the `__kobako_dispatch` import actually
     // calls is bound onto each per-invocation `Invocation` by
@@ -231,7 +231,7 @@ pub(crate) struct Runtime {
     // pinned Proc. `Cell` is sound under the GVL (see the `unsafe impl
     // Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
-    // docs/behavior.md B-35 usage of the most recent invocation —
+    // Usage of the most recent invocation —
     // `(wall_time_seconds, memory_peak_bytes)` — captured by
     // `build_snapshot` before the per-invocation Store is discarded so
     // `#usage` reads survive the teardown. `(0.0, 0)` before the first
@@ -245,7 +245,7 @@ impl DataTypeFunctions for Runtime {
     /// copy on `Invocation` for the duration of a guest invocation.
     /// `gc::Marker::mark` maps to `rb_gc_mark`, which pins: required because
     /// the Invocation copy is a cached `VALUE` that compaction would
-    /// otherwise leave dangling (docs/behavior.md B-12 / B-13). Without
+    /// otherwise leave dangling. Without
     /// this the Proc has no GC root at all — sweep collects it (SIGSEGV on
     /// the next dispatch) and compaction relocates it (dispatch lands on
     /// the wrong receiver).
@@ -270,10 +270,10 @@ impl Runtime {
     /// Ruby-facing constructor for `Kobako::Runtime` — Engine and Module
     /// are never visible to Ruby.
     ///
-    /// `timeout_seconds` is the docs/behavior.md B-01 wall-clock cap in seconds
+    /// `timeout_seconds` is the wall-clock cap in seconds
     /// (`None` disables); `memory_limit` is the linear-memory cap in
     /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
-    /// are the per-channel output caps (docs/behavior.md B-01 / B-04; `None`
+    /// are the per-channel output caps (`None`
     /// disables). All four are validated by the caller
     /// (`Kobako::Sandbox`); this method only refuses non-finite or
     /// non-positive timeouts as a defence in depth.
@@ -289,7 +289,7 @@ impl Runtime {
             None => None,
             Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
             Some(secs) => {
-                // docs/behavior.md E-39: an invalid cap argument is a Host App
+                // An invalid cap argument is a Host App
                 // programming error and raises `ArgumentError`, outside the
                 // construction-failure `SetupError` branch. `SandboxOptions`
                 // is the primary guard (it never lets a bad timeout reach
@@ -318,12 +318,12 @@ impl Runtime {
 
     /// Instantiate a throwaway probe instance at construction and require
     /// the guest's `__kobako_abi_version` export to equal `ABI_VERSION`
-    /// (docs/behavior.md B-40). An absent export or a non-equal value is
-    /// E-42 — a deterministic artifact fault raised as
+    /// An absent export or a non-equal value is
+    /// a deterministic artifact fault raised as
     /// `Kobako::SetupError`. The probe Store drops here; invocation
     /// instances are created per `#eval` / `#run`. The frameless WASI
     /// context keeps a third-party guest whose start section touches
-    /// WASI on the E-41 `SetupError` path instead of panicking in
+    /// WASI on the `SetupError` path instead of panicking in
     /// `Invocation::wasi_mut`.
     fn probe_abi_version(&self, ruby: &Ruby) -> Result<(), MagnusError> {
         let mut store = self.new_store()?;
@@ -362,7 +362,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// Register the Ruby-side dispatch `Proc` (docs/behavior.md B-12).
+    /// Register the Ruby-side dispatch `Proc`.
     /// Bound to Ruby as `Kobako::Runtime#on_dispatch=`. The handle is
     /// pinned by `DataTypeFunctions::mark` and copied onto every
     /// per-invocation `Invocation` by `Runtime::new_store`, where the
@@ -374,7 +374,7 @@ impl Runtime {
 
     /// Synchronously re-enter the guest's `__kobako_yield_to_block`
     /// export with `args_bytes` as the yield-arguments payload, and
-    /// return the YieldResponse bytes the guest produced (B-24).
+    /// return the YieldResponse bytes the guest produced.
     ///
     /// Bound to Ruby as `Kobako::Runtime#yield_to_active_invocation`.
     /// Recovers the dispatcher's `&mut Caller` from the per-thread
@@ -382,7 +382,7 @@ impl Runtime {
     /// already inside a `__kobako_dispatch` callback, so the Caller
     /// parked on the Rust stack is the same one the Sandbox-level
     /// `#eval` / `#run` is driving. Invoked from the host-side yield
-    /// proxy that the dispatcher hands to Service methods (B-23 / B-24);
+    /// proxy that the dispatcher hands to Service methods;
     /// raises `Kobako::TrapError` when called outside an active dispatch
     /// frame, or when any of the underlying allocation / write / call /
     /// read steps fails.
@@ -417,10 +417,10 @@ impl Runtime {
     /// Execute one guest invocation (`__kobako_eval` — one-shot source)
     /// and return a `Snapshot` bundling every per-invocation observable.
     ///
-    /// Builds a fresh Store + instance (B-49) whose WASI context carries
+    /// Builds a fresh Store + instance whose WASI context carries
     /// the three-frame stdin protocol (`preamble`, `source`, `snippets`
     /// — docs/wire-codec.md § Invocation channels), then invokes
-    /// `__kobako_eval`. Per-invocation caps (docs/behavior.md B-01) are
+    /// `__kobako_eval`. Per-invocation caps are
     /// primed here: the wall-clock deadline is stamped into `Invocation`
     /// and the epoch deadline is set to fire at the next ticker tick;
     /// the memory-cap limiter is already wired.
@@ -429,7 +429,7 @@ impl Runtime {
     /// `Kobako::TimeoutError` / `Kobako::MemoryLimitError`; everything
     /// else raises `Kobako::TrapError`. On success the Snapshot carries
     /// the OUTCOME_BUFFER bytes, the per-channel stdout / stderr captures
-    /// with their truncation flags, and the B-35 usage figures.
+    /// with their truncation flags, and the usage figures.
     pub(crate) fn eval(
         &self,
         preamble: RString,
@@ -457,14 +457,13 @@ impl Runtime {
     /// Execute one entrypoint dispatch (`__kobako_run`) and return a
     /// `Snapshot` bundling every per-invocation observable.
     ///
-    /// Builds a fresh Store + instance (B-49) whose WASI context carries
+    /// Builds a fresh Store + instance whose WASI context carries
     /// the two-frame stdin protocol (preamble + snippets; no user source
     /// frame — docs/wire-codec.md § Invocation channels), copies
     /// `envelope` bytes into guest linear memory via `__kobako_alloc`,
     /// and calls `__kobako_run(env_ptr, env_len)`. Per-invocation cap
     /// semantics match `Runtime::eval`. Raises `Kobako::TrapError`
-    /// ("alloc returned 0") when guest allocation fails
-    /// (docs/behavior.md E-31).
+    /// ("alloc returned 0") when guest allocation fails.
     pub(crate) fn run(
         &self,
         preamble: RString,
@@ -486,7 +485,7 @@ impl Runtime {
         self.build_snapshot(&ruby, &mut store, &exports)
     }
 
-    /// Return the docs/behavior.md B-35 per-last-invocation usage as a
+    /// Return the per-last-invocation usage as a
     /// Ruby 2-tuple `[wall_time, memory_peak]`. The element order
     /// matches the `Kobako::Usage` field order declared in
     /// `lib/kobako/usage.rb`; reorder both sides together if the field
@@ -520,7 +519,7 @@ impl Runtime {
 
     /// Build the per-invocation Store: a fresh `Invocation` wired with
     /// the memory limiter, the epoch-deadline callback, and the
-    /// registered dispatch Proc (docs/behavior.md B-12).
+    /// registered dispatch Proc.
     fn new_store(&self) -> Result<WtStore<Invocation>, MagnusError> {
         let mut store = WtStore::new(shared_engine()?, Invocation::new(self.memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
@@ -532,10 +531,10 @@ impl Runtime {
     }
 
     /// Instantiate the per-invocation instance from the pre-linked
-    /// template (B-49) and resolve its host-driven export handles. An
+    /// template and resolve its host-driven export handles. An
     /// instantiation failure at invocation time is an engine fault —
     /// `Kobako::TrapError` — unlike the construction-time probe, whose
-    /// failure is E-41 `SetupError`.
+    /// failure is `SetupError`.
     fn instantiate(
         &self,
         ruby: &Ruby,
@@ -557,7 +556,7 @@ impl Runtime {
     /// `Runtime::prime_caps` before, `disarm_caps` after — the shared
     /// bracket for both run-path exports (`__kobako_eval` /
     /// `__kobako_run`). Disarm runs whether the call returns or traps, so
-    /// the docs/behavior.md B-35 `wall_time` bracket and the E-20 memory
+    /// the `wall_time` bracket and the memory
     /// cap always close — that close-on-trap guarantee is the reason this
     /// bracket lives in one place rather than inline at each call site.
     /// The wasmtime trap is returned unmapped; each caller wraps it
@@ -576,7 +575,7 @@ impl Runtime {
         self.prime_caps(store, exports);
         let result = export.call(store.as_context_mut(), params);
         disarm_caps(store);
-        // Stash the B-35 usage figures on every outcome — including the
+        // Stash the usage figures on every outcome — including the
         // trap paths, where `build_snapshot` never runs and the Store is
         // about to be discarded with the error.
         let data = store.data();
@@ -592,10 +591,10 @@ impl Runtime {
     /// effectively never fires.
     ///
     /// Also captures the current linear-memory size as the baseline
-    /// for the docs/behavior.md E-20 per-invocation memory delta cap —
+    /// for the per-invocation memory delta cap —
     /// the pre-initialized image's allocation is folded into the
     /// baseline rather than the budget — and stamps the wall-clock
-    /// entry instant for the docs/behavior.md B-35 `wall_time`
+    /// entry instant for the `wall_time`
     /// measurement. The bracket closes in `disarm_caps` so it matches
     /// the `timeout` deadline window and excludes `OUTCOME_BUFFER`
     /// decoding and stdout / stderr capture readout.
@@ -623,7 +622,7 @@ impl Runtime {
     /// Called from the run-path methods after the guest export returns
     /// successfully: drains OUTCOME_BUFFER via `__kobako_take_outcome`
     /// and snapshots the per-channel stdout / stderr pipes (clipped to
-    /// their caps). The B-35 usage figures were already stashed by
+    /// their caps). The usage figures were already stashed by
     /// `call_with_caps`.
     fn build_snapshot(
         &self,
@@ -660,7 +659,7 @@ impl Runtime {
 /// Drop the memory cap as soon as the guest call returns so that
 /// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
 /// which can grow guest memory transiently) is not attributed to
-/// the user script. Also closes the docs/behavior.md B-35
+/// the user script. Also closes the
 /// `wall_time` bracket opened by `Runtime::prime_caps`. Paired
 /// with `Runtime::prime_caps`.
 fn disarm_caps(store: &mut WtStore<Invocation>) {
@@ -683,8 +682,8 @@ fn require_memory(ruby: &Ruby, exports: &Exports) -> Result<Memory, MagnusError>
 /// as `i32` values matching the `__kobako_run(env_ptr, env_len)` ABI.
 /// Raises `Kobako::TrapError` when the allocation hook is missing or
 /// itself traps, and `Kobako::SandboxError` when the hook runs but
-/// cannot reserve the buffer (`__kobako_alloc` returns 0,
-/// docs/behavior.md E-31) — an intact runtime, not an engine fault.
+/// cannot reserve the buffer (`__kobako_alloc` returns 0) — an
+/// intact runtime, not an engine fault.
 fn write_envelope(
     ruby: &Ruby,
     store: &mut WtStore<Invocation>,
@@ -723,7 +722,7 @@ fn write_envelope(
 /// instead). Each output pipe is sized at `cap + 1` so
 /// `capture::clip_capture` can distinguish "wrote exactly cap bytes"
 /// from "exceeded cap"; uncapped channels fall back to `usize::MAX` and
-/// rely on `memory_limit` (docs/behavior.md E-20) for the real ceiling.
+/// rely on `memory_limit` for the real ceiling.
 /// Raises `Kobako::TrapError` when any frame exceeds the 16 MiB cap that
 /// keeps its `u32` length prefix from wrapping.
 fn install_wasi_frames(
