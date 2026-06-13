@@ -1,4 +1,4 @@
-//! `__kobako_run` — entrypoint dispatch entry (docs/behavior.md B-31).
+//! `__kobako_run` — entrypoint dispatch entry.
 //!
 //! `(env_ptr, env_len)` locate the host-supplied invocation envelope on
 //! linear memory. Frames read from stdin: Frame 1 preamble + Frame 2
@@ -10,14 +10,13 @@
 //!
 //! 1. Read preamble + snippets; init mrb; install kobako runtime +
 //!    namespaces; replay snippets. Any failure writes a Panic envelope
-//!    with the snippet's backtrace attribution (docs/behavior.md E-36)
+//!    with the snippet's backtrace attribution
 //!    and returns.
 //! 2. Decode the invocation envelope from `(env_ptr, env_len)` via
-//!    `parse_invocation`. Decode failure writes a Panic envelope
-//!    (E-26).
+//!    `parse_invocation`. Decode failure writes a Panic envelope.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
-//!    `sys::mrb_const_defined` (E-27) and confirm the constant
-//!    responds to `:call` via `sys::mrb_respond_to` (E-28). Each
+//!    `sys::mrb_const_defined` and confirm the constant
+//!    responds to `:call` via `sys::mrb_respond_to`. Each
 //!    failure writes a Panic envelope directly with the SPEC-mandated
 //!    `Kobako::SandboxError` class string.
 //! 4. Invoke `target.call(*args, **kwargs)` through `mrb_funcall_argv`
@@ -142,10 +141,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
 
     // Baseline snapshot of top-level constants taken after kobako
     // install + preamble materialisation but before snippet replay.
-    // Used to compute the E-27 `details:` payload — subtracting this
+    // Used to compute the `details:` payload — subtracting this
     // baseline from a post-replay snapshot yields exactly the
-    // constants the preloaded snippets contributed
-    // (docs/behavior.md B-31 / E-27).
+    // constants the preloaded snippets contributed.
     let baseline_constants = kobako.top_level_constants();
 
     if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
@@ -181,8 +179,8 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     };
 
     // Resolve entrypoint Symbol against top-level `Object`. The whole
-    // dispatch — const lookup (E-27), `respond_to?(:call)` gate
-    // (E-28), and the `target.call(*args, **kwargs)` invocation —
+    // dispatch — const lookup, `respond_to?(:call)` gate,
+    // and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
     let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()));
@@ -248,8 +246,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // kwargs splat. Entrypoints therefore see kwargs as the last
     // positional argument and must accept it as a plain `Hash` (e.g.
     // `def call(req, opts = {})` rather than `def call(req,
-    // multiplier: 1)`). docs/behavior.md B-31 carries the
-    // sandbox-visible side of this contract.
+    // multiplier: 1)`).
     let Value::Array(arg_items) = invocation.args else {
         // `parse_invocation` guarantees Array; the irrefutable shape
         // is reasserted here for the compiler.

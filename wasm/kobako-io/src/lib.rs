@@ -5,7 +5,7 @@
 //! constants, the assignable `$stdout` / `$stderr` globals, and the
 //! private Kernel output delegators (`print` / `puts` / `printf` /
 //! `p` / `putc` / `warn`) that dispatch through those globals at call
-//! time (docs/behavior.md B-04 in the kobako repository).
+//! time.
 //!
 //! Pure Rust over `beni`: the entire Ruby-level surface is defined
 //! through the typed wrapper — no mrblib, no mrbc / RITE pipeline.

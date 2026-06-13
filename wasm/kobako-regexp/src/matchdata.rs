@@ -1,5 +1,5 @@
 //! The guest `MatchData` class — a CDATA carrier over an owned snapshot
-//! of one match (SPEC.md B-41).
+//! of one match.
 //!
 //! The snapshot keeps the subject string plus each group's byte range, so
 //! every accessor answers from owned Rust data without borrowing the
@@ -70,7 +70,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 }
 
 /// `initialize_copy` — restore the owned match snapshot into the bare copy
-/// mruby's `dup` / `clone` allocate (SPEC.md B-41). Only the CDATA payload
+/// mruby's `dup` / `clone` allocate. Only the CDATA payload
 /// needs cloning; the `@regexp` ivar rides along on mruby's own ivar copy.
 fn md_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
     let other = mrb.get_args::<format::O>();

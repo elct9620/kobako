@@ -309,10 +309,10 @@ impl Kobako {
     /// Snapshot every top-level constant currently defined on `Object`
     /// by calling `Object.constants` and unpacking the returned Symbol
     /// Array into a `Vec<String>`. Used by `__kobako_run` to compute
-    /// the E-27 `details:` payload: a baseline taken after kobako
+    /// the `details:` payload: a baseline taken after kobako
     /// install + preamble materialise (before snippet replay) is
     /// subtracted from a post-replay snapshot, yielding the constants
-    /// the preloaded snippets contributed (docs/behavior.md B-31 / E-27).
+    /// the preloaded snippets contributed.
     ///
     /// Returns an empty vec when `Object.constants` does not return an
     /// Array — Ruby core guarantees it does, but the defensive fallback
@@ -348,8 +348,8 @@ impl Kobako {
     /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's
     /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
     /// missing, not a Fixnum, or carries a negative payload — the
-    /// resolver downstream treats id 0 as undefined per
-    /// docs/behavior.md B-19. The id is unboxed directly rather than
+    /// resolver downstream treats id 0 as undefined. The id is unboxed
+    /// rather than
     /// round-tripped through the mruby string machinery, which would
     /// silently truncate above `i32::MAX` and cost a string allocation
     /// on every dispatch.

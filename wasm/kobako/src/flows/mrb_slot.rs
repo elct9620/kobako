@@ -1,10 +1,10 @@
 //! Module-level static slot owning the live `Mrb` state.
 //!
-//! The slot carries the VM in canonical boot state (docs/behavior.md
-//! B-49): populated at build time by the wizer bake
+//! The slot carries the VM in canonical boot state: populated at build
+//! time by the wizer bake
 //! (`super::boot::bake_boot`) or lazily by the first entry on a
-//! non-baked artifact. The block / yield mechanism (docs/behavior.md
-//! B-23 → B-30) needs the *same* `mrb_state` to be reachable from
+//! non-baked artifact. The block / yield mechanism
+//! needs the *same* `mrb_state` to be reachable from
 //! `__kobako_yield_to_block` while the original dispatch frame is
 //! still on the wasm call stack, which is why the slot is a
 //! module-level static rather than a stack local.

@@ -1,8 +1,8 @@
 //! Boot helpers shared by `__kobako_eval` and `__kobako_run`.
 //!
-//! Both entry points acquire a VM in the canonical boot state
-//! (docs/behavior.md B-49) — reusing the slot a build-time
-//! pre-initialized image baked, or booting lazily — then materialise
+//! Both entry points acquire a VM in the canonical boot state —
+//! reusing the slot a build-time pre-initialized image baked, or
+//! booting lazily — then materialise
 //! the Frame 1 preamble namespaces and replay any preloaded Frame 3
 //! snippets before running the entry-specific body. When any of those
 //! steps fails, the failure surfaces as a Panic with
@@ -10,7 +10,7 @@
 //! centralises both the orchestration and the Panic-construction
 //! shape.
 //!
-//! Snippet replay (docs/behavior.md B-32) compiles each snippet under a
+//! Snippet replay compiles each snippet under a
 //! `(snippet:Name)` filename so any uncaught exception's backtrace
 //! attributes back to the originating `#preload` call. Replay failures
 //! are always sandbox-origin even when the raised class would otherwise
@@ -40,10 +40,10 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 }
 
 /// Build the Panic envelope for a return value that has no wire
-/// representation (docs/behavior.md E-06 / B-06). Both `__kobako_eval`
+/// representation. Both `__kobako_eval`
 /// and `__kobako_run` reach this when `Kobako::try_codec_value` returns
-/// `None`. `origin = "sandbox"` maps host-side to `Kobako::SandboxError`
-/// (B-06 attributes the unrepresentable-value case to the guest code);
+/// `None`. `origin = "sandbox"` maps host-side to `Kobako::SandboxError`,
+/// attributing the unrepresentable-value case to the guest code;
 /// the value's class name rides the message so the developer can see
 /// which type failed without an implicit `inspect`.
 #[cfg(mruby_linked)]
@@ -61,7 +61,7 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
 }
 
 /// Decide which Panic `origin` field a given mruby exception class
-/// should produce. Mirrors the docs/behavior.md attribution rules —
+/// should produce. Mirrors the host-side attribution rules —
 /// a `Kobako::ServiceError` raised from a Service capability lands on
 /// `"service"`; everything else lands on `"sandbox"`. Pure string
 /// inspection — host-buildable for unit tests.
@@ -94,7 +94,7 @@ pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
 
 /// Open an mruby VM into the empty `super::mrb_slot::MRB` slot and
 /// install the Kobako runtime plus the shell gem set — producing the
-/// canonical boot state (docs/behavior.md B-49). On `Err` the slot is
+/// canonical boot state. On `Err` the slot is
 /// cleared so no caller observes a half-set state.
 #[cfg(mruby_linked)]
 pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
@@ -114,7 +114,7 @@ pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
     Ok(())
 }
 
-/// Hand the entry flow a VM in the canonical boot state (B-49): reuse
+/// Hand the entry flow a VM in the canonical boot state: reuse
 /// the slot the Guest Binary's pre-initialized image baked, or boot
 /// lazily when the artifact carries none. Returns the `Kobako` token
 /// for the live VM.
@@ -131,7 +131,7 @@ pub(super) fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
     Ok(unsafe { Kobako::resolve_raw(mrb) })
 }
 
-/// Bake the canonical boot state (B-49) into the running instance —
+/// Bake the canonical boot state into the running instance —
 /// the body behind `MrbGuest::bake_boot`, called by the build-time
 /// wizer pre-initialization entry. Panics on failure so a bake aborts
 /// loudly instead of shipping a half-booted image.
@@ -143,7 +143,7 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
 }
 
 /// Materialise the Group / Member proxy classes from the Frame 1
-/// `preamble` onto the invocation's VM (docs/behavior.md B-08).
+/// `preamble` onto the invocation's VM.
 #[cfg(mruby_linked)]
 pub(super) fn install_preamble(
     kobako: &Kobako,
@@ -164,16 +164,16 @@ pub(super) fn install_preamble(
 
 /// Replay every snippet in `snippets` against `mrb` in insertion order
 /// so any uncaught exception's backtrace attributes back to the
-/// originating `#preload` call (docs/behavior.md B-32). Source entries
+/// originating `#preload` call. Source entries
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
 /// entries load through beni's `Mrb::load_bytecode` (the filename,
 /// when present, is baked into their RITE `debug_info` section). The first
 /// snippet that raises wins: the resulting Panic carries that snippet's
 /// class / message / backtrace and is forced to sandbox origin even
 /// when `origin_for_class` would have chosen `"service"`. Bytecode
-/// entries whose load returned a structural-failure code (E-37 / E-38)
+/// entries whose load returned a structural-failure code
 /// additionally override the panic class to `Kobako::BytecodeError`;
-/// a successful load that then raised at top level (E-36) keeps the
+/// a successful load that then raised at top level keeps the
 /// natural mruby class.
 #[cfg(mruby_linked)]
 pub(super) fn replay_snippets(
@@ -198,9 +198,9 @@ pub(super) fn replay_snippets(
 
 /// Apply the replay-specific reshape to a pending Panic. Replay-time
 /// failures are always sandbox origin even when the class would
-/// normally map to service. Structural failures (E-37 / E-38) further
+/// normally map to service. Structural failures further
 /// override the class to `Kobako::BytecodeError`; a bytecode snippet
-/// that loaded cleanly and then raised at top level is E-36 with the
+/// that loaded cleanly and then raised at top level keeps the
 /// natural mruby class preserved. Functional struct-update keeps the
 /// reshape in one expression — no mid-life mutation of the panic
 /// fields.
@@ -220,9 +220,8 @@ fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
 /// Outcome of a bytecode-form snippet load. Distinguishes the two
 /// failure shapes the caller's class-override step needs to tell
 /// apart: a successful parse (whose top-level execution may still have
-/// raised — E-36, natural mruby class preserved) from a structural
-/// failure on the RITE header / IREP body
-/// (docs/behavior.md E-37 / E-38), which gets promoted to
+/// raised, natural mruby class preserved) from a structural
+/// failure on the RITE header / IREP body, which gets promoted to
 /// `Kobako::BytecodeError`.
 #[cfg(mruby_linked)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,9 +250,9 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 
 /// Execute a precompiled RITE bytecode blob via beni's
 /// `Mrb::load_bytecode`. Returns `BytecodeLoad::Loaded` when the
-/// IREP parsed (even if its top-level execution then raised — E-36)
+/// IREP parsed (even if its top-level execution then raised)
 /// and `BytecodeLoad::StructuralFailure` when the RITE header / IREP
-/// body failed structural validation (E-37 / E-38). Either way, a
+/// body failed structural validation. Either way, a
 /// pending exception is left in `mrb->exc` for the shared
 /// `take_pending_panic` step. Folding the return code into a typed
 /// enum keeps the `c_int` from leaking into the replay control flow.

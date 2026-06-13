@@ -41,8 +41,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`).
     // Passing a NULL super to `mrb_define_class` makes mruby emit
     // `"no super class for 'IO', Object assumed"` via `mrb_warn` on
-    // every install, leaking onto the guest `stderr` capture pipe
-    // (docs/behavior.md B-04).
+    // every install, leaking onto the guest `stderr` capture pipe.
     let io = mrb.define_class(c"IO", mrb.object_class())?;
 
     // `initialize` registers any-arity because its body reads the
@@ -121,7 +120,7 @@ fn io_initialize(mrb: &Mrb, self_: Value) -> Value {
 /// and pump the bytes through `write(2)` to the descriptor-selected
 /// stream. Returns the total bytes accepted (an `Integer`).
 ///
-/// Truncation on cap exhaustion (docs/behavior.md B-04) surfaces as
+/// Truncation on cap exhaustion surfaces as
 /// a short return value: when wasmtime's `MemoryOutputPipe` rejects
 /// bytes past its limit, `write(2)` short-writes and the returned
 /// total reflects only the accepted bytes. No Ruby-level error is

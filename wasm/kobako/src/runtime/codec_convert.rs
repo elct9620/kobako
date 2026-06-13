@@ -15,8 +15,8 @@
 //! 2. **Return conversion** (`try_codec_value`) — the `#eval` / `#run`
 //!    outcome and the yield-block result; returns `None` for a value
 //!    with no wire representation so the caller emits a Panic envelope
-//!    (outcome, docs/behavior.md E-06) or a `0x04` error YieldResponse
-//!    (yield, docs/behavior.md E-22). A return value is never coerced
+//!    (outcome) or a `0x04` error YieldResponse
+//!    (yield). A return value is never coerced
 //!    through an implicit `to_s` / `inspect` — SPEC.md § Implementation
 //!    Standards pins "objects without a wire representation take the
 //!    Panic envelope path — no implicit inspect or to_h conversion".
@@ -211,11 +211,11 @@ impl Kobako {
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a return
     /// of a collection retains element-level fidelity.
     ///
-    /// A `Kobako::Handle` proxy the guest holds (a Service return per
-    /// B-14, or a `#run` argument auto-wrap per B-34) re-emits as an
+    /// A `Kobako::Handle` proxy the guest holds (a Service return, or a
+    /// `#run` argument auto-wrap) re-emits as an
     /// `ext 0x01` Capability Handle carrying its id, so the host restores
-    /// it to its original object on every guest→host value path
-    /// (docs/behavior.md B-37) — the invocation result and the yield-block
+    /// it to its original object on every guest→host value path —
+    /// the invocation result and the yield-block
     /// result alike.
     ///
     /// Returns `None` when `val` has no wire representation: any type
@@ -223,8 +223,8 @@ impl Kobako {
     /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
     /// cycle necessarily does). The return contract forbids an implicit
     /// `to_s` / `inspect` coercion, so the caller turns `None` into a Panic
-    /// envelope (outcome, docs/behavior.md E-06 / B-06) or a `0x04` error
-    /// YieldResponse (yield, docs/behavior.md E-22) rather than handing the
+    /// envelope (outcome) or a `0x04` error
+    /// YieldResponse (yield) rather than handing the
     /// host a misleading String.
     pub fn try_codec_value(&self, val: Value) -> Option<kobako_core::codec::Value> {
         self.try_codec_value_at(val, 0)
@@ -249,8 +249,8 @@ impl Kobako {
             "Symbol" => Some(CodecValue::Sym(val.to_string(self.mrb()))),
             // A Capability Handle the guest received earlier this
             // invocation is wire-representable: re-emit it as ext 0x01 so
-            // the host restores the original object (docs/behavior.md
-            // B-37). id 0 means a missing or forged ivar — treat as
+            // the host restores the original object.
+            // id 0 means a missing or forged ivar — treat as
             // unrepresentable rather than emit a wire-violation Handle.
             "Kobako::Handle" => match self.extract_handle_id(val) {
                 0 => None,
@@ -282,7 +282,7 @@ impl Kobako {
     /// boxed into a fresh `Kobako::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
     /// `Kobako::Handle`'s instance-level `method_missing` and the bridge's
-    /// `forward_to_dispatch` round-trip, docs/behavior.md B-17).
+    /// `forward_to_dispatch` round-trip).
     pub fn to_mrb_value(&self, val: kobako_core::codec::Value) -> Value {
         use beni::IntoValue;
         use kobako_core::codec::Value as CodecValue;

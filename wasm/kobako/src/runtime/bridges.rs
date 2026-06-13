@@ -31,7 +31,7 @@
 //! subclasses: `member_method_missing` is the singleton-class shim on
 //! `Kobako::Member` (Member *classes*, `Target::Path`) and
 //! `handle_method_missing` is the instance shim on `Kobako::Handle`
-//! (Handle *instances*, `Target::Handle`, docs/behavior.md B-17). The
+//! (Handle *instances*, `Target::Handle`). The
 //! two differ only in how they derive the `Target` from `self_`; the
 //! BlockFrame push, method-symbol extraction, args/kwargs unpacking,
 //! host round-trip, and result conversion all live in
@@ -49,8 +49,8 @@
 use beni::{Module, Mrb, Value};
 
 /// Ambient reflection / eval method names the guest proxy refuses to
-/// forward (`docs/behavior.md` B-44). This is a best-effort opacity mirror,
-/// not a security boundary: the host's owner-based B-42 guard re-checks every
+/// forward. This is a best-effort opacity mirror,
+/// not a security boundary: the host's owner-based guard re-checks every
 /// dispatch and stays the complete authority, so this hand-maintained name
 /// list may lag it (a name only the host rejects is still caught) without
 /// weakening the sandbox. The callable allowlist (`call` / `[]` / `yield` /
@@ -82,7 +82,7 @@ const REFLECTION_DENYLIST: &[&str] = &[
 ];
 
 /// Raise `NoMethodError` for a reflection method the guest proxy refuses
-/// to forward (B-44), naming the method without leaking host detail.
+/// to forward, naming the method without leaking host detail.
 fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
     let nomethod = mrb
         .class_get(c"NoMethodError")
@@ -124,7 +124,7 @@ fn forward_to_dispatch(
 
     // Push the block onto BLOCK_STACK for the duration of this bridge
     // frame; drops + pops automatically on return / mruby raise. The
-    // wire-level `block_given` bit (B-23) is the observable shadow of
+    // wire-level `block_given` bit is the observable shadow of
     // the same fact.
     let block_given = !block.is_nil();
     let _block_frame = BlockFrame::push_if_block(block);
@@ -134,7 +134,7 @@ fn forward_to_dispatch(
         None => unsafe { kobako.raise_transport_error(sym_err_msg) },
     };
 
-    // Guest-side mirror of the host's B-42 reflection rejection (B-44):
+    // Guest-side mirror of the host's reflection rejection:
     // refuse to forward an ambient reflection / eval name. Non-authoritative
     // — the host re-checks on the resolved method owner.
     if REFLECTION_DENYLIST.contains(&method_name) {
@@ -191,8 +191,8 @@ pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
 }
 
 /// `Kobako::Member.new` / `.allocate` C bridge — singleton-class level.
-/// A Member is a dispatch target, never instantiated by guest code
-/// (docs/behavior.md B-38), so both construction entries raise
+/// A Member is a dispatch target, never instantiated by guest code,
+/// so both construction entries raise
 /// `NoMethodError` naming the offending Member rather than producing an
 /// inert empty instance. Registered with `mrb_args_any()` so the raise
 /// fires regardless of arguments instead of tripping an arity check first.
@@ -216,13 +216,13 @@ pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
 
 /// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
 /// A Handle is a host-issued capability reference the wire decoder
-/// constructs (docs/behavior.md B-39), never guest code, so both
+/// constructs, never guest code, so both
 /// construction entries raise `NoMethodError` rather than minting a proxy
 /// from a bare id that would dispatch against an arbitrary Catalog::Handles
 /// entry. Registered with `mrb_args_any()` so the raise fires regardless of
 /// arguments instead of tripping an arity check first. The decoder's own
 /// restoration path uses `mrb_obj_new`, which bypasses these Ruby entries
-/// (B-14 / B-34) and is unaffected.
+/// and is unaffected.
 pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
     let nomethod = mrb
         .class_get(c"NoMethodError")
@@ -250,7 +250,7 @@ pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Value {
 /// `Kobako::Handle#method_missing(name, *args)` C bridge — instance
 /// level, so `self` is a `Kobako::Handle` instance. Derives
 /// `Target::Handle(handle_id)` from the receiver's `@__kobako_id__` ivar
-/// — the Handle chaining path (docs/behavior.md B-17). The Handle
+/// — the Handle chaining path. The Handle
 /// carries only that id; all of its dispatch behaviour is this one
 /// method plus the inherited `forward_to_dispatch` body.
 ///
@@ -274,7 +274,7 @@ pub(crate) fn handle_method_missing(mrb: &Mrb, self_: Value) -> Value {
 /// `respond_to_missing?(name, include_private)` C bridge, shared by
 /// `Kobako::Member` and `Kobako::Handle`. Always returns `true` — every
 /// method call is dispatched through `method_missing` to the host, so
-/// probing via `respond_to?` must succeed (docs/behavior.md B-36).
+/// probing via `respond_to?` must succeed.
 /// Registered singleton-class on `Kobako::Member` (Member classes) and
 /// instance-class on `Kobako::Handle`.
 pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
@@ -288,7 +288,8 @@ pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
 mod tests {
     use super::REFLECTION_DENYLIST;
 
-    // The escape vectors that motivated B-44 must stay refused guest-side:
+    // The escape vectors that motivated the reflection denylist must stay
+    // refused guest-side:
     // the `send` family pivots into the private `Kernel#eval` / `#system`
     // surface, the `eval` family runs guest-authored strings, and the gadget
     // reflectors (`binding` reaches `Binding#eval`) hand back host internals.

@@ -5,7 +5,7 @@
 //! the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
 //! contract over mruby (canonical-boot-state acquisition per
-//! invocation — docs/behavior.md B-49 — frame reading, codec
+//! invocation, frame reading, codec
 //! conversion, block-yield re-entry) and the build-time `bake_boot`
 //! hook the wizer pre-initialization entry calls. The crate ships
 //! exactly one built-in gem — the wire-tied `KobakoBridge` (Namespace
@@ -82,8 +82,7 @@ pub trait MrbGuest {
     }
 
     /// `__kobako_yield_to_block` — host-initiated re-entry into the
-    /// guest block bound to the active dispatch frame
-    /// (docs/behavior.md B-24).
+    /// guest block bound to the active dispatch frame.
     fn yield_to_block(req: &[u8]) -> u64
     where
         Self: Sized,
@@ -91,7 +90,7 @@ pub trait MrbGuest {
         flows::yield_to_block(req)
     }
 
-    /// Bake the canonical boot state (docs/behavior.md B-49) into the
+    /// Bake the canonical boot state into the
     /// running instance — boot the VM and install the Kobako runtime
     /// plus the shell gem set, leaving preamble installation and
     /// snippet replay to the invocation entries. Called from the

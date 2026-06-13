@@ -34,8 +34,8 @@
 //! In the bundled guest, user-script transport calls land in C via two
 //! `method_missing` shims, one per `Kobako::Transport::Proxy` subclass:
 //! the singleton-class shim on `Kobako::Member` (Member classes) and
-//! the instance shim on `Kobako::Handle` for the Handle chaining path
-//! (docs/behavior.md B-17). Both shims live in the `kobako-wasm`
+//! the instance shim on `Kobako::Handle` for the Handle chaining path.
+//! Both shims live in the `kobako-wasm`
 //! crate's bridge module; their shared `forward_to_dispatch` body calls
 //! `invoke` here. This module's role is the Rust-level
 //! encode/transport/decode pipeline that interpreter-side bridges

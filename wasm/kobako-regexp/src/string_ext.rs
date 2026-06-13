@@ -1,4 +1,4 @@
-//! String ⇄ Regexp integration (SPEC.md B-41) — the `String` methods that
+//! String ⇄ Regexp integration — the `String` methods that
 //! take a regexp pattern, routed through the engine.
 //!
 //! `=~` / `match` / `match?` / `gsub` / `sub` / `scan` are defined outright

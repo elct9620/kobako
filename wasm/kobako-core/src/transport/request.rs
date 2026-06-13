@@ -16,7 +16,7 @@ use crate::codec::{self, Decoder, Encoder, Value};
 /// either a Member constant path (str of the form `"<Namespace>::<Member>"`,
 /// e.g. `"MyService::KV"`) or a Capability Handle. `block_given` is a
 /// Boolean signalling whether the
-/// guest call site supplied a block (B-23); the block body itself never
+/// guest call site supplied a block; the block body itself never
 /// crosses the wire.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn request_decode_rejects_wrong_arity() {
         let mut enc = Encoder::new();
-        // 4-element array — post-B-23 the Request envelope carries
+        // 4-element array — the Request envelope carries
         // `block_given` as the 5th element.
         enc.write_value(&Value::Array(vec![
             Value::Str("G::M".into()),

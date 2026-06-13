@@ -39,7 +39,7 @@ impl Gem for KobakoBridge {
         // abstract base and the Error fault. The two proxy subclasses
         // `Kobako::Member` and `Kobako::Handle` live at the Kobako top level
         // — they are Sandbox-level domain entities (Member: bound-service
-        // dispatch; Handle: B-14 service return / B-34 host-side argument
+        // dispatch; Handle: service return / host-side argument
         // auto-wrap) and are not owned by the Transport namespace.
         let transport_mod = kobako_mod.define_module(mrb, c"Transport")?;
 
@@ -69,7 +69,7 @@ impl Gem for KobakoBridge {
             beni::method!(bridges::proxy_respond_to_missing, -1),
         )?;
         // Block both construction entries so the guest cannot instantiate a
-        // Member (docs/behavior.md B-38); see `bridges::member_not_constructible`.
+        // Member; see `bridges::member_not_constructible`.
         member_class.define_singleton_method(
             mrb,
             c"new",
@@ -98,7 +98,7 @@ impl Gem for KobakoBridge {
             beni::method!(bridges::handle_initialize, -1),
         )?;
         // Block both construction entries so the guest cannot fabricate a
-        // Handle from a bare id (docs/behavior.md B-39); see
+        // Handle from a bare id; see
         // `bridges::handle_not_constructible`. The wire decoder's restoration
         // path constructs Handles through `mrb_obj_new`, which bypasses these
         // Ruby entries and is unaffected.
@@ -134,7 +134,7 @@ impl Gem for KobakoBridge {
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call
         // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the
-        // snippet-replay path of docs/behavior.md E-37 / E-38).
+        // snippet-replay bytecode structural-failure path).
         kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
 
         Ok(())

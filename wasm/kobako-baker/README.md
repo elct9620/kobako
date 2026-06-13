@@ -2,15 +2,13 @@
 
 Build-time pre-initializer for
 [kobako](https://github.com/elct9620/kobako) Guest Binaries — bakes
-the canonical boot state
-([docs/behavior.md B-49](https://github.com/elct9620/kobako/blob/main/docs/behavior.md)
-in the kobako repository) into a linked guest artifact via
+the canonical boot state into a linked guest artifact via
 [wasmtime-wizer](https://crates.io/crates/wasmtime-wizer).
 
 `bake` executes the module's `wizer.initialize` export (the
 `MrbGuest::bake_boot` body) against a deterministic linker — the WASI
 surface wasi-libc's reactor `_initialize` touches answers constants
-(mirroring kobako's B-45 ambient denial), `env::__kobako_dispatch`
+(mirroring kobako's ambient denial), `env::__kobako_dispatch`
 traps, and any other import called during boot aborts the bake — then
 snapshots the booted interpreter into the artifact's data segments.
 Identical inputs produce identical baked bytes, so a double-bake

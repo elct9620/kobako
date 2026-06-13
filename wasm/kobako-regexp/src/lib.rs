@@ -3,8 +3,8 @@
 //!
 //! Backs guest `Regexp` and `MatchData` with the pure-Rust `fancy-regex`
 //! engine through the `beni` typed wrapper — no mrblib, no C mrbgem. A
-//! guest shell composes it the same way it composes `kobako-io`
-//! (SPEC.md B-41). Coverage tracks the curated regexp engine's
+//! guest shell composes it the same way it composes `kobako-io`.
+//! Coverage tracks the curated regexp engine's
 //! surface, not the full CRuby API; match offsets are byte-based.
 //!
 //! Placeholder-mode builds (host targets without a discovered

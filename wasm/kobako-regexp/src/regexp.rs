@@ -1,5 +1,5 @@
 //! The guest `Regexp` class — a CDATA carrier over a compiled
-//! `fancy_regex::Regex` plus the source and MRI option bits (SPEC.md B-41).
+//! `fancy_regex::Regex` plus the source and MRI option bits.
 //!
 //! `Regexp.compile` is the entry a `/.../ ` literal compiles to, so it and
 //! `Regexp.new` are singleton methods that build the carrier directly —
@@ -129,7 +129,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 }
 
 /// `initialize_copy` — the body mruby's `dup` / `clone` run on the freshly
-/// allocated bare copy (SPEC.md B-41). The copy reuses `other`'s compiled
+/// allocated bare copy. The copy reuses `other`'s compiled
 /// pattern instead of recompiling; without this the copy would carry no payload
 /// and every accessor would fail.
 fn rx_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
@@ -151,7 +151,7 @@ fn rx_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
 /// Fancy-mode backtracking ceiling. A pattern that exceeds it fails with
 /// `RegexpError` instead of burning the invocation's wall-clock budget;
 /// non-fancy patterns delegate to the linear engine and never backtrack.
-/// The host fuel / epoch / memory caps (docs/behavior.md B-01) remain the
+/// The host fuel / epoch / memory caps remain the
 /// ultimate compute bound.
 const BACKTRACK_LIMIT: usize = 1_000_000;
 

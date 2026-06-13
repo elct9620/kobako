@@ -4,9 +4,7 @@ Sandbox IO / Kernel capability gem for
 [kobako](https://github.com/elct9620/kobako) mruby guests — `$stdout`
 / `$stderr` over wasi-libc.
 
-A `beni::Gem` installing the write-only Ruby IO surface
-([docs/behavior.md B-04](https://github.com/elct9620/kobako/blob/main/docs/behavior.md)
-in the kobako repository):
+A `beni::Gem` installing the write-only Ruby IO surface:
 
 - the `::IO` class, the `STDOUT` / `STDERR` constants, and the
   assignable `$stdout` / `$stderr` globals

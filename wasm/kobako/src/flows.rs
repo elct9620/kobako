@@ -4,7 +4,7 @@
 //! Each flow implements one `kobako_core::Guest` entry (docs/wire-codec.md
 //! § ABI Signatures) for the trait's provided methods: read the stdin
 //! invocation frames, acquire the VM in canonical boot state
-//! (docs/behavior.md B-49 — the baked image, or a lazy boot with the
+//! (the baked image, or a lazy boot with the
 //! built-in `KobakoBridge` plus the shell-chosen gems), run the
 //! entry-specific body, and write the Outcome envelope through
 //! `kobako_core::abi`. The `#[no_mangle]` exports themselves are
@@ -17,7 +17,7 @@
 //! * `eval` — `__kobako_eval` body.
 //! * `run` — `__kobako_run` body + invocation-envelope parser.
 //! * `yield_block` — `__kobako_yield_to_block` body (host-initiated
-//!   re-entry into a guest block, docs/behavior.md B-24).
+//!   re-entry into a guest block).
 //! * `boot` — canonical-boot-state acquisition / preamble install /
 //!   snippet replay / pending-exception extraction helpers used by
 //!   both entry points, plus the build-time `bake_boot` body.

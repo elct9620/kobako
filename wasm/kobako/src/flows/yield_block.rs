@@ -1,5 +1,5 @@
 //! `__kobako_yield_to_block` — host-initiated re-entry into a guest
-//! block (docs/wire-codec.md § ABI Signatures, docs/behavior.md B-24).
+//! block (docs/wire-codec.md § ABI Signatures).
 //!
 //! The host calls this from inside a `__kobako_dispatch` callback when
 //! a Service method invokes its Yielder. The signature mirrors
@@ -12,22 +12,19 @@
 //! 1. Decode the yield arguments (msgpack array of positional args)
 //!    out of the request buffer.
 //! 2. Resolve the active `mrb_state` via the module-level `MRB`
-//!    slot and read the topmost block off `BLOCK_STACK`
-//!    (docs/behavior.md B-23 / B-28).
+//!    slot and read the topmost block off `BLOCK_STACK`.
 //! 3. Convert codec args → `Value` args via the standard runtime
 //!    converter, then yield to the block through beni's protected
 //!    `Proc::call` so any guest-side raise (or `break` / Proc-`return`
 //!    RBreak) lands as `Err` instead of long-jumping past the Rust
-//!    frame (docs/behavior.md E-21).
+//!    frame.
 //! 4. Encode the outcome as a `YieldResponse`:
 //!     * normal return of a wire-representable value → `tag 0x01` ok
 //!       carrying the value through the standard codec
 //!     * a real `break` from a non-lambda block → `tag 0x02` break
-//!       (docs/behavior.md B-25)
-//!     * a raised exception, a return value with no wire representation
-//!       (docs/behavior.md E-22),
+//!     * a raised exception, a return value with no wire representation,
 //!       or an RBreak aimed past the yielder's frame (a non-orphan Proc
-//!       `return`, docs/behavior.md E-21)
+//!       `return`)
 //!       → `tag 0x04` error with `{class, message, backtrace}`
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
@@ -100,7 +97,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // Step 5: encode the outcome. Extract any exception fields
     // immediately on the Err path before any other mruby allocation
     // could sweep the exception object out of the GC arena. RBreak
-    // outcomes split on `ci_break_index` vs `enter_idx` per B-25 / E-21.
+    // outcomes split on `ci_break_index` vs `enter_idx`.
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
         Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, mrb, exc, enter_idx),
@@ -141,7 +138,7 @@ fn classify_protected_error(
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
-        // — unrepresentable across the host yield boundary (E-21).
+        // — unrepresentable across the host yield boundary.
         encode_error_bytes(
             "LocalJumpError",
             "cannot return from a block passed into the Sandbox",
@@ -156,7 +153,7 @@ fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) ->
     use kobako_core::transport::{Yield, TAG_BREAK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
         // `break val` whose value has no wire representation is the
-        // E-22 shape on the break path — surface it as a 0x04 error
+        // unrepresentable shape on the break path — surface it as a 0x04 error
         // rather than coerce the value to a String.
         return encode_error_bytes(
             "TypeError",
@@ -199,7 +196,7 @@ fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Ve
     use kobako_core::codec::Encode;
     use kobako_core::transport::{Yield, TAG_OK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
-        // A block returning a value with no wire representation is E-22.
+        // A block returning a value with no wire representation.
         // The host Yielder reifies this 0x04 error as an exception at the
         // Service's yield site instead of receiving a misleading String.
         return encode_error_bytes(

@@ -1,5 +1,5 @@
 //! Owned match spans and gsub/sub replacement expansion — the engine-borrow
-//! bridge the String integration builds results from (SPEC.md B-41).
+//! bridge the String integration builds results from.
 
 use crate::errors::{index_error, regexp_error, replace_expression_error};
 use beni::{Error, Mrb, Value};

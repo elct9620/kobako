@@ -2,7 +2,7 @@
 #
 # The `::IO` class, `STDOUT` / `STDERR`, the assignable `$stdout` /
 # `$stderr` globals, and the private Kernel output delegators for a
-# kobako mruby guest (docs/behavior.md B-04). Pure Rust over beni —
+# kobako mruby guest. Pure Rust over beni —
 # the whole Ruby-level surface is defined through the typed wrapper;
 # no mrblib, no mrbc / RITE pipeline. kobako-free by design: output
 # goes straight to wasi-libc `write(2)`, so the gem depends on the

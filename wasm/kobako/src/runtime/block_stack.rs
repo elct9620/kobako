@@ -9,7 +9,7 @@
 //! drop guard so any bridge exit path — normal return, mruby raise,
 //! Rust panic — preserves the LIFO invariant.
 //!
-//! The wire-level `block_given` bit (B-23) is the observable shadow of
+//! The wire-level `block_given` bit is the observable shadow of
 //! a push; the yield flow's read is the matching dereference.
 //!
 //! ## Cross-Sandbox isolation
@@ -52,7 +52,7 @@ impl BlockStack {
 
     /// Return the topmost block, or `None` when the stack is empty.
     /// Consumed by `__kobako_yield_to_block` to identify the block
-    /// bound to the active dispatch frame (B-24). The returned `Value`
+    /// bound to the active dispatch frame. The returned `Value`
     /// is a copy of the `mrb_value` stored on the stack — `Value` is
     /// `Copy` and the underlying `mrb_value` slot keeps the mruby GC
     /// rooting argument intact for the duration of the dispatch

@@ -1,5 +1,5 @@
 //! The `$~` / `$&` / `` $` `` / `$'` / `$+` / `$1..$9` match globals,
-//! refreshed on every successful match and cleared on a miss (SPEC.md B-41).
+//! refreshed on every successful match and cleared on a miss.
 
 use crate::matchdata::{self, MatchState};
 use beni::{Mrb, Value};

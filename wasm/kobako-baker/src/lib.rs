@@ -1,11 +1,11 @@
-//! kobako-baker — bakes the canonical boot state (`docs/behavior.md`
-//! B-49) into a linked kobako Guest Binary.
+//! kobako-baker — bakes the canonical boot state into a linked kobako
+//! Guest Binary.
 //!
 //! `bake` runs wasmtime-wizer over the module, executing its
 //! `wizer.initialize` export (the `MrbGuest::bake_boot` body) against a
 //! deterministic linker: the WASI surface wasi-libc's reactor
 //! `_initialize` touches is stubbed with constant results (mirroring
-//! the host's B-45 ambient denial), `env::__kobako_dispatch` traps
+//! the host's ambient denial), `env::__kobako_dispatch` traps
 //! (boot must never dispatch), and any other import fails instantiation
 //! loudly. Identical inputs therefore produce identical baked bytes;
 //! kobako's Stage C re-bakes and compares to gate reproducibility

@@ -3,8 +3,8 @@
 # Host-side tool crate (lib + thin CLI) that runs wizer over a linked
 # kobako Guest Binary, executing its `wizer.initialize` export (the
 # `MrbGuest::bake_boot` body) against a deterministic linker and
-# snapshotting the booted state into the artifact's data segments
-# (docs/behavior.md B-49). Stage C consumes the CLI; third-party guest
+# snapshotting the booted state into the artifact's data segments.
+# Stage C consumes the CLI; third-party guest
 # shells built on `kobako` / `kobako-core` consume the published crate
 # to bake their own artifacts.
 #

@@ -43,7 +43,7 @@ pub fn write_outcome(bytes: Vec<u8>) {
 /// Encode `panic` as an Outcome envelope and stamp it into the
 /// outcome buffer. If encoding itself fails, the buffer stays
 /// empty — the host treats `len = 0` as a wire violation and follows
-/// the TrapError path (docs/behavior.md Error Scenarios).
+/// the TrapError path.
 pub fn write_panic(panic: Panic) {
     if let Ok(bytes) = Outcome::Panic(panic).encode() {
         write_outcome(bytes);

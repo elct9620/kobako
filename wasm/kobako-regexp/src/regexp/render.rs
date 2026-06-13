@@ -1,5 +1,5 @@
 //! Textual rendering of a pattern: the flag letters and source escaping
-//! behind `Regexp#inspect` / `#to_s` / `Regexp.escape` (SPEC.md B-41).
+//! behind `Regexp#inspect` / `#to_s` / `Regexp.escape`.
 
 use crate::translate;
 

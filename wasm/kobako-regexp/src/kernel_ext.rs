@@ -1,4 +1,4 @@
-//! Kernel integration (SPEC.md B-41) — the universal `=~` fallback.
+//! Kernel integration — the universal `=~` fallback.
 //!
 //! `String` defines its own regexp-aware `=~`; for every other receiver
 //! `obj =~ x` returns `nil`, matching MRI's deprecated `Object#=~`.

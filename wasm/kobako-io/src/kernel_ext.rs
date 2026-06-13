@@ -2,7 +2,7 @@
 //! `#printf` / `#p` / `#putc` / `#warn`, registered private on the
 //! `Kernel` module and dispatching through the assignable `$stdout` /
 //! `$stderr` globals at call time so guest scripts can rebind either
-//! channel (docs/behavior.md B-04). The set mirrors mruby-io's
+//! channel. The set mirrors mruby-io's
 //! `mrblib/kernel.rb` write-path coverage; `warn` is a kobako
 //! extension routed through `$stderr`.
 //!
