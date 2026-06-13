@@ -204,6 +204,8 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior.md`](docs/behavior.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
+`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~30 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work).
+
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
   sandbox.define(:KV).bind(:Lookup, ->(key) { redis.get(key) })
