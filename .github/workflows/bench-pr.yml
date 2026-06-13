@@ -1,0 +1,65 @@
+name: Benchmark (PR)
+
+# Report-only performance check for pull requests: run the SPEC
+# regression benchmarks on the PR head and its base on the same runner,
+# then post the head-vs-base diff to the job summary so a reviewer can
+# confirm a change — including an external contribution — did not
+# regress a gated benchmark past the noise band. It never gates the PR.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Only performance-relevant changes warrant the same-runner double
+    # build; docs- or CI-only PRs skip it entirely.
+    paths:
+      - 'lib/**'
+      - 'ext/**'
+      - 'wasm/**'
+      - 'benchmark/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Gemfile'
+      - 'Gemfile.lock'
+      - '.github/workflows/bench-pr.yml'
+      - '.github/scripts/bench-pr.sh'
+
+# Supersede an in-flight run when the PR is pushed again, so rapid pushes
+# do not stack two double-builds.
+concurrency:
+  group: bench-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    # Draft PRs churn; wait until the PR is up for review.
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # The base revision must be reachable for the same-runner diff.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          rubygems: '3.6.9'
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-wasip1
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: |
+            .
+            wasm/kobako-wasm
+      - name: Benchmark PR head vs base (same-runner A/B)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/bench-pr.sh
