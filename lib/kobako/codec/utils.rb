@@ -19,8 +19,7 @@ module Kobako
     #   - Representability predicate ({representable?}) and the symmetric
     #     host→guest +#run+ argument walk ({deep_wrap}) used by
     #     +Kobako::Transport::Run#encode+ to route non-representable leaves
-    #     through the Sandbox's +Kobako::Catalog::Handles+
-    #     ({docs/behavior.md B-34}[link:../../../docs/behavior.md]).
+    #     through the Sandbox's +Kobako::Catalog::Handles+.
     #
     # All helpers are pure — they only inspect inputs, never mutate
     # them — except {deep_wrap}, whose only side effect is allocating
@@ -84,8 +83,7 @@ module Kobako
 
       # Deep-walk Array / Hash containers in +value+ and replace every
       # leaf that fails {representable?} with a +Kobako::Handle+
-      # allocated from +handler+
-      # ({docs/behavior.md B-34}[link:../../../docs/behavior.md]). The
+      # allocated from +handler+. The
       # walk only descends through representable container shapes
       # (Array, Hash) one structural level at a time; a non-representable
       # leaf is wrapped as-is without inspecting its internal structure.
@@ -116,8 +114,7 @@ module Kobako
 
       # Deep-walk Array / Hash containers in +value+ and replace every
       # +Kobako::Handle+ leaf with the host-side object +handler+ resolves
-      # it to ({docs/behavior.md B-37}[link:../../../docs/behavior.md]).
-      # The symmetric inverse of {deep_wrap}: that walk allocates objects
+      # it to. The symmetric inverse of {deep_wrap}: that walk allocates objects
       # into Handles on the host→guest argument path; this walk resolves
       # Handles back to their objects on every guest→host value path — the
       # +#eval+ / +#run+ result and the yield-block result alike. The walk
@@ -126,11 +123,11 @@ module Kobako
       # unchanged.
       #
       # +value+ is a decoded Ruby value (a Handle here is a wire-decoded
-      # +Kobako::Handle+, never a guest-forged one — B-20); +handler+ must
+      # +Kobako::Handle+, never a guest-forged one); +handler+ must
       # respond to +#fetch(id) -> object+ (a host-side
       # +Kobako::Catalog::Handles+). +handler.fetch+ raises
-      # +Kobako::SandboxError+ for an id with no live binding, which is the
-      # corrupted-runtime fallback B-37 specifies.
+      # +Kobako::SandboxError+ for an id with no live binding, the
+      # corrupted-runtime fallback.
       def deep_restore(value, handler)
         case value
         when ::Array then value.map { |element| Utils.deep_restore(element, handler) }

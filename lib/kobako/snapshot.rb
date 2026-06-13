@@ -16,8 +16,7 @@ module Kobako
   # Host App.
   class Snapshot
     # Wrap the stdout capture pair (+stdout_bytes+, +stdout_truncated+)
-    # as a +Kobako::Capture+ value object. {docs/behavior.md
-    # B-04}[link:../../docs/behavior.md] — the byte content never carries
+    # as a +Kobako::Capture+ value object. The byte content never carries
     # a truncation sentinel; +#truncated?+ is the only way to observe
     # that the cap was hit.
     def stdout
@@ -31,8 +30,7 @@ module Kobako
     end
 
     # Wrap the per-last-invocation usage pair (+wall_time+,
-    # +memory_peak+) as a +Kobako::Usage+ value object
-    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]).
+    # +memory_peak+) as a +Kobako::Usage+ value object.
     def usage
       Usage.new(wall_time: wall_time, memory_peak: memory_peak)
     end

@@ -5,34 +5,29 @@ require_relative "../handle"
 module Kobako
   module Catalog
     # Host-side mapping from opaque integer Handle IDs to Ruby objects.
-    # The table is owned by +Kobako::Sandbox+
-    # ({docs/behavior.md B-19}[link:../../../docs/behavior.md]) and injected
+    # The table is owned by +Kobako::Sandbox+ and injected
     # into the per-Sandbox +Kobako::Catalog::Namespaces+ so guest→host dispatch
     # resolves Handle targets and arguments against the same table that
-    # host→guest wire encoding allocates into
-    # ({docs/behavior.md B-14, B-34}[link:../../../docs/behavior.md]).
+    # host→guest wire encoding allocates into.
     #
-    # Lifecycle invariants ({docs/behavior.md}[link:../../../docs/behavior.md]):
+    # Lifecycle invariants:
     #
-    #   - {docs/behavior.md B-15}[link:../../../docs/behavior.md] — Handle IDs
-    #     are allocated by a monotonically increasing counter scoped to a
-    #     single invocation. The first ID issued in an invocation is 1; ID 0
-    #     is reserved as the invalid sentinel and is never returned by
-    #     +#alloc+.
+    #   - Handle IDs are allocated by a monotonically increasing counter
+    #     scoped to a single invocation. The first ID issued in an
+    #     invocation is 1; ID 0 is reserved as the invalid sentinel and is
+    #     never returned by +#alloc+.
     #
-    #   - {docs/behavior.md B-19}[link:../../../docs/behavior.md] — At every
-    #     invocation boundary (via +#reset!+), every Handle issued under the
-    #     old state becomes invalid. Reset applies uniformly regardless of
-    #     allocation source (B-14 Service return or B-34 host-injected
+    #   - At every invocation boundary (via +#reset!+), every Handle issued
+    #     under the old state becomes invalid. Reset applies uniformly
+    #     regardless of allocation source (Service return or host-injected
     #     argument).
     #
-    #   - {docs/behavior.md B-21}[link:../../../docs/behavior.md] — The cap is
-    #     +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap raises
-    #     immediately — no silent truncation, no wrap, no ID reuse.
+    #   - The cap is +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap
+    #     raises immediately — no silent truncation, no wrap, no ID reuse.
     class Handles
       # Build a fresh, empty table. +next_id+ is an internal seam that
-      # sets the starting value of the monotonic counter (defaults to 1 per
-      # B-15); tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
+      # sets the starting value of the monotonic counter (defaults to 1);
+      # tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
       # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {} # : Hash[Integer, untyped]
@@ -45,8 +40,7 @@ module Kobako
       # +[Kobako::Handle::MIN_ID, Kobako::Handle::MAX_ID]+. Raises
       # +Kobako::HandlerExhaustedError+ if the next ID would exceed the
       # cap. The cap is anchored on +Kobako::Handle+ — the wire codec
-      # and the allocator share the same invariant
-      # ({docs/behavior.md B-21}[link:../../../docs/behavior.md]).
+      # and the allocator share the same invariant.
       #
       # Returning a Handle (rather than a bare Integer id) keeps the
       # allocator's output a domain entity; +Kobako::Handle.restore+
@@ -69,9 +63,8 @@ module Kobako
         @entries[id]
       end
 
-      # Clear all entries AND reset the counter to 1. Called at the per-invocation
-      # boundary by +Kobako::Sandbox+ — see
-      # {docs/behavior.md B-19}[link:../../../docs/behavior.md]. Returns +self+.
+      # Clear all entries AND reset the counter to 1. Called at the
+      # per-invocation boundary by +Kobako::Sandbox+. Returns +self+.
       def reset!
         @entries.clear
         @next_id = 1
@@ -89,12 +82,12 @@ module Kobako
 
       private
 
-      # Refuse to mint a Capability Handle for a reflective gadget
-      # ({docs/behavior.md B-43}[link:../../../docs/behavior.md]): a +Binding+ /
-      # +Method+ / +UnboundMethod+ would hand the guest a callable proxy onto
-      # host reflection (a returned +Binding+ reaches +Binding#eval+). Raising
-      # here keeps the rule at the single mint point, so it holds on both the
-      # Service-return (B-14) and the +#run+ host→guest auto-wrap (B-34) paths.
+      # Refuse to mint a Capability Handle for a reflective gadget:
+      # a +Binding+ / +Method+ / +UnboundMethod+ would hand the guest a
+      # callable proxy onto host reflection (a returned +Binding+ reaches
+      # +Binding#eval+). Raising here keeps the rule at the single mint
+      # point, so it holds on both the Service-return and the +#run+
+      # host→guest auto-wrap paths.
       def reject_unwrappable!(object)
         case object
         when Binding, Method, UnboundMethod
@@ -102,7 +95,7 @@ module Kobako
         end
       end
 
-      # Guard {#alloc} against issuing an ID past the B-21 cap. Returns +nil+
+      # Guard {#alloc} against issuing an ID past the cap. Returns +nil+
       # on success; raises +Kobako::HandlerExhaustedError+ at exhaustion.
       def ensure_capacity!
         cap = Kobako::Handle::MAX_ID

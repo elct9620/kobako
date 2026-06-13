@@ -6,8 +6,7 @@ require_relative "../snippet"
 module Kobako
   module Catalog
     # Kobako::Catalog::Snippets — per-Sandbox insertion-ordered registry
-    # of preloaded snippets
-    # ({docs/behavior.md B-32 / B-33}[link:../../../docs/behavior.md]).
+    # of preloaded snippets.
     #
     # Entries replay against the fresh +mrb_state+ before per-invocation
     # source / entrypoint resolution. Each +Snippet::Source+ entry's +name+
@@ -15,18 +14,16 @@ module Kobako
     # +debug_info+ that surfaces in every backtrace frame originating from
     # the snippet as +(snippet:Name):line+. Duplicate names within the
     # +code:+ form would produce ambiguous attribution and are rejected at
-    # registration time
-    # ({docs/behavior.md E-33}[link:../../../docs/behavior.md]).
+    # registration time.
     # +Snippet::Binary+ entries carry no host-side name — their canonical
     # name lives in the bytecode's +debug_info+ and is read by the guest at
     # load time; the host does not extract it.
     #
-    # Sealing (B-33) is governed by the owning Sandbox — the registry itself
+    # Sealing is governed by the owning Sandbox — the registry itself
     # is append-only and exposes no mutation API beyond +#register+; the
     # Sandbox guards +#register+ behind the seal check before delegating.
     class Snippets
-      # Ruby constant-name pattern enforced on snippet names
-      # ({docs/behavior.md E-34}[link:../../../docs/behavior.md]).
+      # Ruby constant-name pattern enforced on snippet names.
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
       def initialize
@@ -45,7 +42,7 @@ module Kobako
       # self-encode.
       #
       # The bytes are memoized — the table is replayed verbatim on every
-      # invocation after B-33 seals it, so Frame 3 never changes between
+      # invocation after sealing, so Frame 3 never changes between
       # encodes; {#register} drops the memo while the table is still open.
       def encode
         return @encoded if @encoded
@@ -53,8 +50,7 @@ module Kobako
         @encoded = Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
       end
 
-      # Register one preloaded snippet in either of two forms
-      # ({docs/behavior.md B-32}[link:../../../docs/behavior.md]).
+      # Register one preloaded snippet in either of two forms.
       #
       #   * Source form +register(code: src, name: Name)+ — +src+ is the
       #     mruby source as a String; the bytes are re-encoded as UTF-8
@@ -65,15 +61,13 @@ module Kobako
       #     precompiled RITE bytecode as a String, duplicated and forced
       #     to ASCII-8BIT so msgpack-ruby ships it as +bin+. Returns
       #     +nil+ — bytecode entries are anonymous on the host side; any
-      #     structural validation
-      #     ({docs/behavior.md E-37 / E-38}[link:../../../docs/behavior.md])
-      #     is deferred to the guest at first replay.
+      #     structural validation is deferred to the guest at first replay.
       #
       # The two forms are mutually exclusive: shape validation lives
       # here so callers (chiefly +Kobako::Sandbox#preload+) collapse to
       # a single delegation. Raises +ArgumentError+ on mixed forms,
-      # missing keywords, wrong types, malformed +name+ (E-34), or
-      # duplicate +code:+ +name+ (E-33).
+      # missing keywords, wrong types, malformed +name+, or
+      # duplicate +code:+ +name+.
       def register(code: nil, name: nil, binary: nil)
         @encoded = nil
         if binary
@@ -89,7 +83,7 @@ module Kobako
 
       # Source-form register path. Delegates argument-shape checks to
       # +ensure_source_args!+ (which returns the narrowed +[code, name]+
-      # pair), normalises +name+ to a Symbol, rejects duplicates (E-33),
+      # pair), normalises +name+ to a Symbol, rejects duplicates,
       # and appends the Source entry.
       def register_source!(code, name)
         code, name = ensure_source_args!(code, name)

@@ -3,9 +3,8 @@
 module Kobako
   # Wire-level value object for an ext-0x01 Capability Handle, used in both
   # directions across the Sandbox boundary: as a Service method's return
-  # value (guest→host return path; {docs/behavior.md B-14}[link:../../docs/behavior.md])
-  # and as a +#run+ argument auto-wrapped by the host
-  # ({docs/behavior.md B-34}[link:../../docs/behavior.md]).
+  # value (guest→host return path) and as a +#run+ argument auto-wrapped
+  # by the host.
   #
   # SPEC pins the binary layout to fixext 4 with a 4-byte big-endian u32
   # payload ({docs/wire-codec.md}[link:../../docs/wire-codec.md]

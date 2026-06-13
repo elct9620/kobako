@@ -5,8 +5,7 @@ require_relative "snippet/source"
 
 module Kobako
   # Kobako::Snippet — value-object family for preloaded snippet entries
-  # held by +Kobako::Catalog::Snippets+
-  # ({docs/behavior.md B-32 / B-33}[link:../../docs/behavior.md]).
+  # held by +Kobako::Catalog::Snippets+.
   #
   # +Source+ represents a single +#preload(code:, name:)+ entry; +Binary+
   # represents a single +#preload(binary:)+ entry. Both are plain value

@@ -3,8 +3,7 @@
 module Kobako
   module Snippet
     # Kobako::Snippet::Source — value object representing a single
-    # +#preload(code:, name:)+ entry held by +Kobako::Catalog::Snippets+
-    # ({docs/behavior.md B-32}[link:../../../docs/behavior.md]).
+    # +#preload(code:, name:)+ entry held by +Kobako::Catalog::Snippets+.
     #
     # +name+ is the canonical +Symbol+ identity baked into the loaded
     # IREP's +debug_info+; backtrace frames originating in this snippet

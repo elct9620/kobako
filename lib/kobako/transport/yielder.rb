@@ -8,29 +8,25 @@ module Kobako
   # owns the host-side object that materialises a guest-supplied block as
   # a Ruby callable the Service method can yield into.
   module Transport
-    # Host-side stand-in for a guest-supplied block (B-23).
+    # Host-side stand-in for a guest-supplied block.
     #
     # Each guest call that carries +block_given: true+ gets a Yielder
     # that the Dispatcher hands to the Service method as +&block+. The
     # Service method observes it as an ordinary Ruby Proc through
     # {#to_proc}; +yield val+ / +block.call(val)+ invokes {#yield}, which
     # serialises the positional args, re-enters the guest via the injected
-    # +yield_to_guest+ lambda
-    # ({docs/behavior.md B-24}[link:../../../docs/behavior.md]), and
-    # reifies the +YieldResponse+ into Ruby control flow:
+    # +yield_to_guest+ lambda, and reifies the +YieldResponse+ into Ruby
+    # control flow:
     #
     #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
     #   * +tag 0x02+ break — +throw break_tag, value+ so the Dispatcher's
     #     +catch+ frame unwinds the Service method
-    #     ({docs/behavior.md B-25}[link:../../../docs/behavior.md])
     #   * +tag 0x04+ error — raise the +{class, message}+ payload at the
     #     Service's yield site
     #
     # The Dispatcher calls {#invalidate!} from its +ensure+ block once
     # dispatch completes; any later call to a stashed Yielder then raises
-    # +LocalJumpError+ — the observable shape of
-    # {docs/behavior.md E-23}[link:../../../docs/behavior.md] (escaped
-    # Yielder).
+    # +LocalJumpError+ — the observable shape of an escaped Yielder.
     class Yielder
       # +yield_to_guest+ is a +String → String+ callable (typically
       # +Runtime#yield_to_active_invocation+ bound through a lambda) that
@@ -38,8 +34,7 @@ module Kobako
       # throw tag the Dispatcher matches against to unwind the Service on
       # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,
       # used to restore a Capability Handle in the block's ok value back to
-      # its host object before it reaches the Service +yield+ site
-      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]).
+      # its host object before it reaches the Service +yield+ site.
       def initialize(yield_to_guest, break_tag, handler)
         @yield_to_guest = yield_to_guest
         @break_tag = break_tag
@@ -49,10 +44,10 @@ module Kobako
 
       # Re-enter the guest with +args+ and reify the YieldResponse into
       # Ruby control flow. Raises +LocalJumpError+ if called after
-      # {#invalidate!} (E-23). The ok value is consumed by the host Service
-      # method, so a Capability Handle in it is restored to its host object
-      # (B-37). The break value unwinds past the Service back to the guest
-      # Member call (B-25), so it passes through verbatim — a Handle stays a
+      # {#invalidate!}. The ok value is consumed by the host Service
+      # method, so a Capability Handle in it is restored to its host object.
+      # The break value unwinds past the Service back to the guest
+      # Member call, so it passes through verbatim — a Handle stays a
       # Handle and rides back on the same id rather than churning a new one.
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
@@ -73,7 +68,7 @@ module Kobako
 
       # Mark this Yielder dead. Called by the Dispatcher's +ensure+ block
       # when the originating dispatch frame returns; any later {#yield}
-      # call then raises +LocalJumpError+ (E-23).
+      # call then raises +LocalJumpError+.
       def invalidate!
         @active = false
       end
@@ -81,8 +76,7 @@ module Kobako
       private
 
       # Restore any Capability Handle in a block's ok value to its host
-      # object via the injected +Catalog::Handles+
-      # ({docs/behavior.md B-37}[link:../../../docs/behavior.md]). Only the
+      # object via the injected +Catalog::Handles+. Only the
       # ok path calls this — host code consumes the ok value, whereas a
       # break value returns to the guest and stays a Handle. Walks nested
       # Array / Hash one level at a time; a plain value passes through

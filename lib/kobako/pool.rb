@@ -5,32 +5,28 @@ require_relative "sandbox"
 
 module Kobako
   # Kobako::Pool — a bounded set of warm, identically set-up Sandboxes
-  # handed out one exclusive holder at a time
-  # ({docs/behavior.md B-46..B-48}[link:../../docs/behavior.md]).
+  # handed out one exclusive holder at a time.
   #
   # Construction forwards every +Kobako::Sandbox.new+ keyword verbatim
   # and holds the optional block as the per-Sandbox setup hook; a
   # checkout prefers an idle Sandbox and constructs a new one only when
-  # none is idle and fewer than +slots+ exist (B-46). +#with+ blocks up
-  # to +checkout_timeout+ seconds when every slot is held (E-46), applies
-  # the +TrapError+ discard-and-recreate contract at checkin (B-47), and
+  # none is idle and fewer than +slots+ exist. +#with+ blocks up
+  # to +checkout_timeout+ seconds when every slot is held, applies
+  # the +TrapError+ discard-and-recreate contract at checkin, and
   # the Pool releases everything with its own reachability — there is no
-  # teardown verb (B-48).
+  # teardown verb.
   class Pool
-    # The +#with+ wait bound applied when +checkout_timeout+ is not given
-    # ({docs/behavior.md B-46}[link:../../docs/behavior.md]).
+    # The +#with+ wait bound applied when +checkout_timeout+ is not given.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
 
-    # Build a Pool of up to +slots+ Sandboxes
-    # ({docs/behavior.md B-46}[link:../../docs/behavior.md]). +slots+ is
+    # Build a Pool of up to +slots+ Sandboxes. +slots+ is
     # a positive Integer; +checkout_timeout+ bounds the +#with+ wait in
     # seconds (+nil+ waits indefinitely); every other keyword is
     # forwarded verbatim to +Kobako::Sandbox.new+. The optional block
     # runs exactly once per constructed Sandbox — it is the setup window
     # for +#define+ / +#preload+ before that Sandbox's first checkout.
     # No Sandbox is constructed here. Raises +ArgumentError+ for an
-    # invalid +slots+ / +checkout_timeout+
-    # ({docs/behavior.md E-47}[link:../../docs/behavior.md]).
+    # invalid +slots+ / +checkout_timeout+.
     def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
       validate_slots!(slots)
       @slots = slots
@@ -44,11 +40,9 @@ module Kobako
     end
 
     # Yield one exclusively-held Sandbox to the block and return the
-    # block's value ({docs/behavior.md B-47}[link:../../docs/behavior.md]).
-    # Blocks while every slot is held; raises +Kobako::PoolTimeoutError+
-    # once the wait exceeds +checkout_timeout+
-    # ({docs/behavior.md E-46}[link:../../docs/behavior.md]). The Sandbox
-    # returns to the pool at block exit — unless the block raised
+    # block's value. Blocks while every slot is held; raises
+    # +Kobako::PoolTimeoutError+ once the wait exceeds +checkout_timeout+.
+    # The Sandbox returns to the pool at block exit — unless the block raised
     # +Kobako::TrapError+, in which case the unrecoverable Sandbox is
     # discarded and its slot refills by a fresh construction on next
     # demand.
@@ -68,12 +62,12 @@ module Kobako
     private
 
     # Acquire a Sandbox and hand it over in pre-invocation state — empty
-    # output buffers and truncation predicates false (B-47).
+    # output buffers and truncation predicates false.
     def checkout
       acquire.tap(&:reset_invocation_state!)
     end
 
-    # The idle-first claim loop (B-46): an idle Sandbox wins, unclaimed
+    # The idle-first claim loop: an idle Sandbox wins, unclaimed
     # capacity constructs, and a full pool waits for a checkin.
     def acquire
       timeout = @checkout_timeout
@@ -105,7 +99,7 @@ module Kobako
     end
 
     # Wait for a checkin or freed capacity; raises
-    # +Kobako::PoolTimeoutError+ once +deadline+ has passed (E-46). Must
+    # +Kobako::PoolTimeoutError+ once +deadline+ has passed. Must
     # run while holding +@mutex+.
     def await_slot!(deadline)
       remaining = deadline && (deadline - monotonic_now)
@@ -119,7 +113,7 @@ module Kobako
 
     # Construct and set up one pooled Sandbox against the capacity
     # reserved by +claim_or_wait+. Construction and setup-block errors
-    # propagate to the checkout caller unchanged (B-46); the reserved
+    # propagate to the checkout caller unchanged; the reserved
     # capacity is released so a later checkout can retry.
     def construct_slot
       done = false
@@ -154,7 +148,7 @@ module Kobako
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    # E-47 pre-flight for +slots+ — no coercion, a positive Integer is
+    # Pre-flight for +slots+ — no coercion, a positive Integer is
     # the only accepted shape.
     def validate_slots!(slots)
       return if slots.is_a?(Integer) && slots.positive?
@@ -163,8 +157,8 @@ module Kobako
     end
 
     # Coerce +checkout_timeout+ into the Float seconds the wait loop
-    # consumes, or +nil+ to wait indefinitely — the E-39 normalisation
-    # idiom applied to E-47.
+    # consumes, or +nil+ to wait indefinitely — the same normalisation
+    # idiom +SandboxOptions+ applies to +timeout+.
     def normalize_checkout_timeout(checkout_timeout)
       return nil if checkout_timeout.nil?
       unless checkout_timeout.is_a?(Numeric)

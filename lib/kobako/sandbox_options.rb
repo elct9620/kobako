@@ -2,8 +2,7 @@
 
 module Kobako
   # Kobako::SandboxOptions — immutable Value Object holding the four
-  # per-Sandbox configuration caps ({docs/behavior.md B-01,
-  # E-20}[link:../../docs/behavior.md]). Built on the +class X <
+  # per-Sandbox configuration caps. Built on the +class X <
   # Data.define(...)+ subclass form (the Steep-friendly shape — see
   # +lib/kobako/outcome/panic.rb+).
   #
@@ -13,18 +12,15 @@ module Kobako
   # +super+. Anything that survives +SandboxOptions.new+ is a wire-ready
   # cap bundle the +Kobako::Runtime+ constructor consumes as-is.
   class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit)
-    # Default wall-clock timeout for a single invocation: 60 seconds
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
+    # Default wall-clock timeout for a single invocation: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
     # Default cap on the per-invocation guest linear-memory delta:
-    # 1 MiB ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
-    # The mruby image's initial allocation and prior invocations'
-    # watermark sit outside this budget — see B-01 Notes.
+    # 1 MiB. The mruby image's initial allocation and prior invocations'
+    # watermark sit outside this budget.
     DEFAULT_MEMORY_LIMIT = 1 << 20
 
-    # Default per-channel capture ceiling: 1 MiB
-    # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
+    # Default per-channel capture ceiling: 1 MiB.
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,

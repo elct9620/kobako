@@ -9,8 +9,7 @@ module Kobako
   module Catalog
     # Kobako::Catalog::Namespaces — per-Sandbox registry of
     # +Kobako::Namespace+ entities. Holds the Namespace / Member bindings
-    # and the preamble emitted on Frame 1
-    # ({docs/behavior.md B-07..B-11}[link:../../../docs/behavior.md]).
+    # and the preamble emitted on Frame 1.
     #
     # Public API:
     #
@@ -24,14 +23,13 @@ module Kobako
     # +Kobako::Transport::Dispatcher+'s responsibility — the Dispatcher
     # receives this registry and the +Catalog::Handles+ as arguments from
     # the +Runtime#on_dispatch+ Proc that +Kobako::Sandbox#initialize+
-    # installs ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-    # The registry holds an injected +Catalog::Handles+ reference so
+    # installs. The registry holds an injected +Catalog::Handles+ reference so
     # dispatch target resolution and host→guest auto-wrap share the same
-    # Sandbox-owned allocator ({docs/behavior.md B-19}[link:../../../docs/behavior.md]).
+    # Sandbox-owned allocator.
     class Namespaces
       # Build a fresh registry. +handler+ is an internal seam that injects
       # a pre-configured +Catalog::Handles+; tests pass one whose +next_id+
-      # is pinned near +MAX_ID+ to exercise the B-21 cap-exhaustion path
+      # is pinned near +MAX_ID+ to exercise the cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
       def initialize(handler: Catalog::Handles.new)
         @namespaces = {} # : Hash[String, Kobako::Namespace]
@@ -40,14 +38,12 @@ module Kobako
         @encoded = nil # : String?
       end
 
-      # Declare or retrieve the Namespace named +name+ (idempotent —
-      # {docs/behavior.md B-10}[link:../../../docs/behavior.md]).
+      # Declare or retrieve the Namespace named +name+ (idempotent).
       # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
       # +Namespace::NAME_PATTERN+). Returns the +Kobako::Namespace+ for that
       # name, creating it if it does not exist. Raises +ArgumentError+ when
       # +name+ is malformed, or when called after the owning Sandbox has been
-      # sealed by its first invocation
-      # ({docs/behavior.md B-07}[link:../../../docs/behavior.md]).
+      # sealed by its first invocation.
       def define(name)
         raise ArgumentError, "cannot define after first Sandbox invocation" if @sealed
 
@@ -74,20 +70,18 @@ module Kobako
         namespace.fetch(member_name)
       end
 
-      # Encode the preamble as msgpack bytes for stdin Frame 1 delivery
-      # ({docs/behavior.md B-02}[link:../../../docs/behavior.md]). Routes through
-      # {Kobako::Codec::Encoder} like every other host-side wire encode so
-      # there is a single codec path; the preamble carries only Strings and
-      # Arrays, so none of the kobako ext types actually fire. Structure:
-      # +[["Namespace", ["MemberA", "MemberB"]], ...]+. Returns a binary
-      # +String+ of msgpack bytes.
+      # Encode the preamble as msgpack bytes for stdin Frame 1 delivery.
+      # Routes through {Kobako::Codec::Encoder} like every other host-side
+      # wire encode so there is a single codec path; the preamble carries
+      # only Strings and Arrays, so none of the kobako ext types actually
+      # fire. Structure: +[["Namespace", ["MemberA", "MemberB"]], ...]+.
+      # Returns a binary +String+ of msgpack bytes.
       #
       # Once sealed, the bytes are computed once and reused for every
-      # subsequent invocation: B-33 seals Service registration (B-07 /
-      # B-08) at the first invocation, so the preamble is exactly the
-      # bindings that existed at that moment — a bind reaching a
-      # +Kobako::Namespace+ after the seal raises +ArgumentError+ (E-45)
-      # and never alters Frame 1.
+      # subsequent invocation: sealing freezes Service registration at the
+      # first invocation, so the preamble is exactly the bindings that
+      # existed at that moment — a bind reaching a +Kobako::Namespace+
+      # after the seal raises +ArgumentError+ and never alters Frame 1.
       def encode
         return @encoded if @encoded
 
@@ -97,11 +91,9 @@ module Kobako
       end
 
       # Mark the registry as sealed and propagate the seal to every
-      # declared +Kobako::Namespace+
-      # ({docs/behavior.md B-33}[link:../../../docs/behavior.md]). Called
-      # by +Sandbox+ on the first invocation. After sealing, #define
-      # raises ArgumentError (E-18) and +Namespace#bind+ raises
-      # ArgumentError (E-45). Idempotent.
+      # declared +Kobako::Namespace+. Called by +Sandbox+ on the first
+      # invocation. After sealing, both #define and +Namespace#bind+
+      # raise ArgumentError. Idempotent.
       def seal!
         return self if @sealed
 

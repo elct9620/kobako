@@ -20,8 +20,7 @@ module Kobako
     # The module is stateless — all mutable state is threaded through
     # arguments so Dispatcher has no instance variables and no side
     # effects beyond mutating the Catalog::Handles via +alloc+ when a
-    # non-wire-representable return value must be wrapped
-    # ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
+    # non-wire-representable return value must be wrapped.
     #
     # Entry point:
     #
@@ -29,7 +28,7 @@ module Kobako
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
       # Throw tag for the {Yielder}'s break unwind back to the
-      # dispatcher's +catch+ frame (B-25). +private_constant+ is a
+      # dispatcher's +catch+ frame. +private_constant+ is a
       # convention boundary — not a defence.
       BREAK_THROW = :__kobako_break__
       private_constant :BREAK_THROW
@@ -38,16 +37,14 @@ module Kobako
 
       # Internal sentinel raised when target resolution fails. Mapped to
       # Response.error with type="undefined". Contained at the wire boundary —
-      # not part of the public Kobako error taxonomy
-      # ({docs/behavior.md E-12}[link:../../../docs/behavior.md]).
+      # not part of the public Kobako error taxonomy.
       class UndefinedTargetError < StandardError; end
 
       # Modules whose instance methods are ambient Ruby reflection /
       # metaprogramming surface (+send+, +public_send+, +instance_eval+,
       # +method+, +tap+, +instance_variable_get+, ...) rather than Service
       # behaviour. A guest-supplied method name resolving to one of these is
-      # rejected ({docs/behavior.md B-42}[link:../../../docs/behavior.md]):
-      # only methods the bound object itself exposes as Service behaviour are
+      # rejected: only methods the bound object itself exposes as Service behaviour are
       # reachable, and +public_send(:send, ...)+ would otherwise let a guest
       # pivot through +send+ into the private +Kernel#eval+ / +#system+
       # surface (host RCE).
@@ -58,7 +55,7 @@ module Kobako
       # (+Proc#binding+ reaches +Binding#eval+, +Method#receiver+ / +#unbind+
       # hand back the underlying object) rather than Service behaviour. Only
       # {CALLABLE_ALLOW} is reachable on a target of these types; a bound
-      # lambda stays invocable, its reflective surface does not (B-42).
+      # lambda stays invocable, its reflective surface does not.
       GADGET_OWNERS = [Proc, Method, UnboundMethod, Binding].freeze
       private_constant :GADGET_OWNERS
 
@@ -69,8 +66,7 @@ module Kobako
       private_constant :CALLABLE_ALLOW
 
       # Dispatch a single transport request and return the encoded
-      # Response bytes ({docs/behavior.md B-12}[link:../../../docs/behavior.md]).
-      # Invoked from the +Runtime#on_dispatch+ Proc that
+      # Response bytes. Invoked from the +Runtime#on_dispatch+ Proc that
       # +Kobako::Sandbox#initialize+ installs on the ext side; +namespaces+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
       # closure so the Dispatcher stays stateless and the registry doesn't
@@ -105,11 +101,11 @@ module Kobako
 
       # Map an error caught at the dispatch boundary to a +Response.error+
       # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
-      # rescue. Returns a msgpack-encoded Response envelope (binary). Three
-      # error buckets ({docs/behavior.md B-12}[link:../../../docs/behavior.md]):
+      # rescue. Returns a msgpack-encoded Response envelope (binary). Four
+      # error buckets:
       # +Kobako::Codec::Error+ → type="runtime" (malformed request);
-      # +UndefinedTargetError+ → type="undefined" (E-13); +ArgumentError+ →
-      # type="argument" (B-12 arity mismatch); everything else →
+      # +UndefinedTargetError+ → type="undefined"; +ArgumentError+ →
+      # type="argument" (arity mismatch); everything else →
       # type="runtime".
       def encode_caught_error(error)
         case error
@@ -128,8 +124,7 @@ module Kobako
       # uniform empty-map shape.
       #
       # +yielder+ is the host-side {Yielder} materialised when the guest
-      # call site supplied a block ({docs/behavior.md
-      # B-23}[link:../../../docs/behavior.md]); its {Yielder#to_proc}
+      # call site supplied a block; its {Yielder#to_proc}
       # rides the +&block+ slot. +&nil+ is a no-op block argument in Ruby,
       # so the same call site handles both cases without an explicit
       # conditional.
@@ -145,9 +140,8 @@ module Kobako
         end
       end
 
-      # Guard the +public_send+ below against ambient reflection methods
-      # ({docs/behavior.md B-42}[link:../../../docs/behavior.md]). A public
-      # method whose owner is a {META_OWNERS} or {GADGET_OWNERS} module is
+      # Guard the +public_send+ below against ambient reflection methods.
+      # A public method whose owner is a {META_OWNERS} or {GADGET_OWNERS} module is
       # rejected, except {CALLABLE_ALLOW} on a gadget target (a bound lambda
       # stays invocable). A name with no concrete public method is allowed
       # only when the target opts into it via +respond_to?+ (dynamic
@@ -166,10 +160,9 @@ module Kobako
         raise UndefinedTargetError, "no public method #{name.inspect} on target"
       end
 
-      # Consult the target's opt-in narrowing predicate
-      # ({docs/behavior.md B-50}[link:../../../docs/behavior.md]). A bound object
+      # Consult the target's opt-in narrowing predicate. A bound object
       # may define a private +respond_to_guest?(name)+ to restrict which of its
-      # methods the guest reaches; a falsy answer rejects the dispatch (E-48).
+      # methods the guest reaches; a falsy answer rejects the dispatch.
       # The predicate composes beneath {#reject_meta_method!} — it only narrows,
       # never re-opening the reflection surface the floor rejects — and is
       # consulted with the private surface included so the guest's +public_send+
@@ -181,9 +174,9 @@ module Kobako
         raise UndefinedTargetError, "method #{name.inspect} is not exposed to the guest"
       end
 
-      # {docs/behavior.md B-16}[link:../../../docs/behavior.md] — A Kobako::Handle arriving as a positional or keyword
+      # A Kobako::Handle arriving as a positional or keyword
       # argument identifies a host-side object previously allocated by a prior
-      # transport call's Handle wrap (B-14). Resolve it back to the Ruby object before
+      # transport call's Handle wrap. Resolve it back to the Ruby object before
       # the dispatch reaches +public_send+.
       def resolve_arg(value, handler)
         value.is_a?(Kobako::Handle) ? require_live_object!(value.id, handler) : value
@@ -215,7 +208,7 @@ module Kobako
         require_live_object!(handle.id, handler)
       end
 
-      # Resolve +id+ through the Catalog::Handles. An unknown id (E-13)
+      # Resolve +id+ through the Catalog::Handles. An unknown id
       # surfaces as UndefinedTargetError.
       def require_live_object!(id, handler)
         handler.fetch(id)
@@ -224,11 +217,10 @@ module Kobako
       end
 
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
-      # wire-representable per {docs/behavior.md B-13}[link:../../../docs/behavior.md]'s type
-      # mapping, the +UnsupportedType+ rescue routes it through the
+      # wire-representable per the codec's type mapping, the
+      # +UnsupportedType+ rescue routes it through the
       # Catalog::Handles via {#wrap_as_handle} and re-encodes with the Capability
-      # Handle in place ({docs/behavior.md B-14}[link:../../../docs/behavior.md]). The happy
-      # path encodes exactly once.
+      # Handle in place. The happy path encodes exactly once.
       def encode_ok(value, handler)
         response = Kobako::Transport::Response.ok(value)
         response.encode
@@ -237,9 +229,8 @@ module Kobako
       end
 
       # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
-      # that the wire codec can carry ({docs/behavior.md B-14}[link:../../../docs/behavior.md]).
-      # Used as the fallback path of {#encode_ok} when +value+ has no wire
-      # representation.
+      # that the wire codec can carry. Used as the fallback path of
+      # {#encode_ok} when +value+ has no wire representation.
       def wrap_as_handle(value, handler)
         handler.alloc(value)
       end

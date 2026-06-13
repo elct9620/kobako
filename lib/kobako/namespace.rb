@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
 module Kobako
-  # A named grouping of Members for one Sandbox
-  # ({docs/behavior.md B-07..B-11}[link:../../docs/behavior.md]).
+  # A named grouping of Members for one Sandbox.
   # Returned by +Sandbox#define+. Each instance owns a flat name→object
   # table of Members; member binding is validated against {NAME_PATTERN}.
   class Namespace
-    # Ruby constant-name pattern shared by Namespace and Member names
-    # ({docs/behavior.md B-07/B-08 Notes}[link:../../docs/behavior.md]).
+    # Ruby constant-name pattern shared by Namespace and Member names.
     NAME_PATTERN = /\A[A-Z]\w*\z/
 
     attr_reader :name
@@ -26,9 +24,8 @@ module Kobako
     # object that responds to the methods guest code will invoke. Returns
     # +self+ for chaining. Raises +ArgumentError+ when +member+ does not
     # match the constant pattern, when a Member of the same name is
-    # already bound ({docs/behavior.md B-11}[link:../../docs/behavior.md]),
-    # or when the owning Sandbox's first invocation has sealed Service
-    # registration ({docs/behavior.md E-45}[link:../../docs/behavior.md]).
+    # already bound, or when the owning Sandbox's first invocation has
+    # sealed Service registration.
     def bind(member, object)
       raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
 
@@ -39,10 +36,10 @@ module Kobako
       self
     end
 
-    # Mark this Namespace as sealed ({docs/behavior.md B-33}[link:../../docs/behavior.md]).
-    # Called by +Kobako::Catalog::Namespaces#seal!+ on the owning
-    # Sandbox's first invocation; afterwards {#bind} raises
-    # +ArgumentError+ (E-45). Idempotent; returns +self+.
+    # Mark this Namespace as sealed. Called by
+    # +Kobako::Catalog::Namespaces#seal!+ on the owning Sandbox's first
+    # invocation; afterwards {#bind} raises +ArgumentError+. Idempotent;
+    # returns +self+.
     def seal!
       @sealed = true
       self

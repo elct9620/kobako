@@ -2,12 +2,12 @@
 
 # Top-level Kobako namespace.
 module Kobako
-  # Error taxonomy (docs/behavior.md § Error Scenarios).
+  # Error taxonomy.
   #
   # Every `Kobako::Sandbox` invocation (`#eval` or `#run`) either returns a value or raises
   # exactly one of three invocation-outcome classes. Attribution is decided after the
-  # guest binary returns control to the host (docs/behavior.md
-  # "Step 1 — Wasm trap" then "Step 2 — Outcome envelope tag").
+  # guest binary returns control to the host: first the Wasm-trap layer, then
+  # the outcome-envelope tag.
   #
   # Three invocation-outcome branches:
   #
@@ -25,19 +25,17 @@ module Kobako
   #
   #   * {SetupError}    — construction layer. Raised by `Kobako::Sandbox.new`
   #                       when the wasm runtime cannot be built from the
-  #                       configured +wasm_path+ before any invocation runs
-  #                       ({docs/behavior.md E-40 / E-41}[link:../../docs/behavior.md]).
+  #                       configured +wasm_path+ before any invocation runs.
   #                       Not an invocation outcome, so it never passes
   #                       through the two-step attribution decision.
   #   * {PoolTimeoutError} — pool checkout layer. Raised by `Kobako::Pool#with`
-  #                       when the checkout wait exceeds +checkout_timeout+
-  #                       ({docs/behavior.md E-46}[link:../../docs/behavior.md]).
+  #                       when the checkout wait exceeds +checkout_timeout+.
   #
-  # Subclasses pinned by docs/behavior.md Error Classes:
+  # Named subclasses:
   #
   #   * {ModuleNotBuiltError} < {SetupError} — Guest Binary artifact absent
-  #                       at +wasm_path+ (E-40).
-  #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit (B-21).
+  #                       at +wasm_path+.
+  #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit.
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
@@ -46,13 +44,13 @@ module Kobako
   # Wasm engine layer. Raised when the Wasm execution engine crashed
   # (trap, OOM, unreachable) or when the wire layer detected a structural
   # violation that signals a corrupted guest execution environment
-  # (zero-length OUTCOME_BUFFER, unknown outcome tag — SPEC E-02 / E-03).
+  # (zero-length OUTCOME_BUFFER, unknown outcome tag).
   #
-  # Two named subclasses cover the configured per-invocation caps from B-01:
+  # Two named subclasses cover the configured per-invocation caps:
   #
-  #   * {TimeoutError}     — wall-clock +timeout+ exceeded (E-19).
+  #   * {TimeoutError}     — wall-clock +timeout+ exceeded.
   #   * {MemoryLimitError} — guest +memory.grow+ would exceed
-  #                          +memory_limit+ (E-20).
+  #                          +memory_limit+.
   #
   # Host Apps that only care about "guest is unrecoverable, discard the
   # Sandbox" can rescue +TrapError+ and ignore the subclass; Host Apps that
@@ -60,24 +58,23 @@ module Kobako
   # first.
   class TrapError < Error; end
 
-  # Wall-clock timeout cap exhausted. {docs/behavior.md E-19}[link:../../docs/behavior.md]:
-  # the absolute deadline +entry_time + timeout+ passed and the next guest
-  # wasm safepoint trapped. The Sandbox is unrecoverable after this point;
-  # discard and recreate before another execution.
+  # Wall-clock timeout cap exhausted: the absolute deadline
+  # +entry_time + timeout+ passed and the next guest wasm safepoint
+  # trapped. The Sandbox is unrecoverable after this point; discard and
+  # recreate before another execution.
   class TimeoutError < TrapError; end
 
-  # Linear-memory cap exhausted. {docs/behavior.md E-20}[link:../../docs/behavior.md]:
-  # a guest +memory.grow+ would have pushed linear memory past the
-  # configured +memory_limit+. The Sandbox is unrecoverable after this
-  # point; discard and recreate before another execution.
+  # Linear-memory cap exhausted: a guest +memory.grow+ would have pushed
+  # linear memory past the configured +memory_limit+. The Sandbox is
+  # unrecoverable after this point; discard and recreate before another
+  # execution.
   class MemoryLimitError < TrapError; end
 
   # Construction-layer error raised by +Kobako::Sandbox.new+ /
   # +Kobako::Runtime.from_path+ when the wasm runtime cannot be built
   # from the configured +wasm_path+ before any invocation runs —
   # an unreadable artifact, bytes that are not a valid Wasm module, or
-  # engine / linker / instantiation setup failure
-  # ({docs/behavior.md E-41}[link:../../docs/behavior.md]). Construction
+  # engine / linker / instantiation setup failure. Construction
   # is not an invocation, so +SetupError+ sits beside the invocation
   # taxonomy under +Kobako::Error+ rather than under +TrapError+: no
   # Sandbox is produced, so the +TrapError+ "discard and recreate"
@@ -86,8 +83,7 @@ module Kobako
 
   # The named +SetupError+ subclass for the common, actionable case:
   # the Guest Binary artifact is absent at +wasm_path+ — the pre-build
-  # state on a fresh clone before +bundle exec rake compile+
-  # ({docs/behavior.md E-40}[link:../../docs/behavior.md]). Host Apps
+  # state on a fresh clone before +bundle exec rake compile+. Host Apps
   # that only need "the Sandbox could not be set up" rescue +SetupError+;
   # those wanting to special-case the unbuilt-artifact state rescue
   # +ModuleNotBuiltError+ first.
@@ -123,19 +119,18 @@ module Kobako
     end
   end
 
-  # docs/behavior.md Error Classes: HandlerExhaustedError is the canonical
-  # SandboxError subclass for the id-cap-hit path (B-21). Raised when the
-  # per-invocation Handle ID counter in Catalog::Handles reaches
-  # +0x7fff_ffff+ (2³¹ − 1) and further allocation would exceed the cap.
+  # HandlerExhaustedError is the canonical SandboxError subclass for the
+  # id-cap-hit path. Raised when the per-invocation Handle ID counter in
+  # Catalog::Handles reaches +0x7fff_ffff+ (2³¹ − 1) and further
+  # allocation would exceed the cap.
   class HandlerExhaustedError < SandboxError; end
 
-  # docs/behavior.md Error Classes: BytecodeError is the SandboxError
-  # subclass raised when a `#preload(binary:)` snippet fails structural
-  # validation during the first invocation's snippet replay against a
-  # fresh `mrb_state` (E-37 RITE version mismatch, E-38 corrupt body).
-  # Bytecode that loads cleanly and then raises at top level is E-36
-  # and surfaces as plain `SandboxError` with the natural mruby class
-  # preserved. Inherits from SandboxError so a single
+  # BytecodeError is the SandboxError subclass raised when a
+  # `#preload(binary:)` snippet fails structural validation during the
+  # first invocation's snippet replay against a fresh `mrb_state` (RITE
+  # version mismatch or corrupt body). Bytecode that loads cleanly and
+  # then raises at top level surfaces as plain `SandboxError` with the
+  # natural mruby class preserved. Inherits from SandboxError so a single
   # `rescue Kobako::SandboxError` covers both source and bytecode
   # snippet failures while callers wanting bytecode-specific handling
   # can `rescue Kobako::BytecodeError` directly.
@@ -143,8 +138,7 @@ module Kobako
 
   # Pool checkout layer. Raised by +Kobako::Pool#with+ when the checkout
   # wait exceeded the configured +checkout_timeout+ while every slot was
-  # held ({docs/behavior.md E-46}[link:../../docs/behavior.md]). No
-  # Sandbox state is touched — retrying succeeds as soon as a holder
+  # held. No Sandbox state is touched — retrying succeeds as soon as a holder
   # returns its Sandbox.
   class PoolTimeoutError < Error; end
 end

@@ -7,8 +7,7 @@ module Kobako
   # Host-facing boundary for the OUTCOME_BUFFER produced by
   # +__kobako_eval+. Takes raw outcome bytes — a one-byte tag followed by
   # the msgpack-encoded body — and maps them to either the unwrapped
-  # mruby return value or a raised three-layer
-  # ({docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]) exception.
+  # mruby return value or a raised three-layer exception.
   #
   # Self-contained: this module owns the wire framing (tag bytes,
   # body decoding), and the +Panic+ wire record lives at
@@ -17,11 +16,11 @@ module Kobako
   # nothing in +Transport+ participates.
   #
   #   * tag 0x01, decode OK                 → return decoded value
-  #   * tag 0x01, decode fails              → SandboxError (E-09)
-  #   * tag 0x02, origin="service"          → ServiceError (E-13)
-  #   * tag 0x02, origin="sandbox"/missing  → SandboxError (E-04..E-07)
-  #   * tag 0x02, decode fails              → SandboxError (E-08)
-  #   * unknown tag                         → TrapError    (E-03)
+  #   * tag 0x01, decode fails              → SandboxError
+  #   * tag 0x02, origin="service"          → ServiceError
+  #   * tag 0x02, origin="sandbox"/missing  → SandboxError
+  #   * tag 0x02, decode fails              → SandboxError
+  #   * unknown tag                         → TrapError
   module Outcome
     # First byte of the OUTCOME_BUFFER for the success branch — body is
     # the bare msgpack encoding of the returned value
@@ -71,7 +70,7 @@ module Kobako
       [tag, body]
     end
 
-    # Decode failure on the success tag is a SandboxError (E-09): the
+    # Decode failure on the success tag is a SandboxError: the
     # framing was fine, but the carried value is unrepresentable. The
     # specific codec fault is stashed in +details+ rather
     # than spliced into the message — callers cannot act on the inner
@@ -86,7 +85,7 @@ module Kobako
       )
     end
 
-    # Decode failure on the panic tag is a SandboxError (E-08). Either
+    # Decode failure on the panic tag is a SandboxError. Either
     # path raises — on success the decoded Panic is mapped to its three-
     # layer exception via +build_panic_error+ and raised; on wire-decode
     # failure the rescue path raises the wire-violation +SandboxError+.
@@ -130,13 +129,12 @@ module Kobako
       )
     end
 
-    # {docs/behavior.md Error Scenarios}[link:../../docs/behavior.md]: map
-    # the panic +class+ field to the matching Ruby exception subclass so
-    # callers can rescue specific failure paths. +origin="service"+ →
+    # Map the panic +class+ field to the matching Ruby exception subclass
+    # so callers can rescue specific failure paths. +origin="service"+ →
     # +ServiceError+; +origin="sandbox"+ plus
     # +class="Kobako::BytecodeError"+ selects the +BytecodeError+
-    # subclass (E-37 / E-38). Everything else falls back to the base
-    # class for the origin.
+    # subclass. Everything else falls back to the base class for the
+    # origin.
     def panic_target_class(panic)
       case panic.origin
       when Panic::ORIGIN_SERVICE

@@ -13,21 +13,19 @@ require_relative "catalog"
 
 module Kobako
   # Kobako::Sandbox — the user-facing entry point for executing guest mruby
-  # scripts inside a wasmtime-hosted Wasm module
-  # ({docs/behavior.md B-01}[link:../../docs/behavior.md]).
+  # scripts inside a wasmtime-hosted Wasm module.
   #
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
-  # +Kobako::Catalog::Handles+ ({docs/behavior.md B-19}[link:../../docs/behavior.md]),
-  # the per-instance +Kobako::Catalog::Namespaces+ (which receives the
-  # +Catalog::Handles+ by injection so guest→host dispatch and host→guest
-  # auto-wrap share one allocator), and the dispatch +Proc+ /
-  # +yield_to_guest+ lambda installed on the Runtime via
-  # +Runtime#on_dispatch=+ ({docs/behavior.md B-12}[link:../../docs/behavior.md]).
-  # The underlying wasmtime Engine and compiled Module are cached at process
-  # scope by the native ext and never surface to Ruby — constructing many
-  # Sandboxes amortises both costs automatically.
+  # +Kobako::Catalog::Handles+, the per-instance
+  # +Kobako::Catalog::Namespaces+ (which receives the +Catalog::Handles+ by
+  # injection so guest→host dispatch and host→guest auto-wrap share one
+  # allocator), and the dispatch +Proc+ / +yield_to_guest+ lambda installed
+  # on the Runtime via +Runtime#on_dispatch=+. The underlying wasmtime Engine
+  # and compiled Module are cached at process scope by the native ext and
+  # never surface to Ruby — constructing many Sandboxes amortises both costs
+  # automatically.
   #
-  # Output capture policy ({docs/behavior.md B-04}[link:../../docs/behavior.md]): the
+  # Output capture policy: the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
   # WASI pipe — the host buffer stops growing at the cap, subsequent guest
   # writes on that channel fail or are dropped, and +#run+ still returns
@@ -46,9 +44,8 @@ module Kobako
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
-    # any invocation. {docs/behavior.md B-04}[link:../../docs/behavior.md] — the byte
-    # content never contains a truncation sentinel; use +#stdout_truncated?+ to
-    # observe overflow.
+    # any invocation; the byte content never contains a truncation sentinel,
+    # so use +#stdout_truncated?+ to observe overflow.
     def stdout
       @stdout_capture.bytes
     end
@@ -61,9 +58,8 @@ module Kobako
     end
 
     # Returns +true+ iff stdout capture during the most recent invocation
-    # exceeded +stdout_limit+ ({docs/behavior.md B-04}[link:../../docs/behavior.md]). Resets
-    # to +false+ at the start of the next invocation
-    # ({docs/behavior.md B-03}[link:../../docs/behavior.md]).
+    # exceeded +stdout_limit+. Resets to +false+ at the start of the next
+    # invocation.
     def stdout_truncated?
       @stdout_capture.truncated?
     end
@@ -75,8 +71,7 @@ module Kobako
     end
 
     # Returns the +Kobako::Usage+ value object for the most recent
-    # invocation ({docs/behavior.md B-35}[link:../../docs/behavior.md]).
-    # Carries +wall_time+ (Float seconds the guest export call spent
+    # invocation. Carries +wall_time+ (Float seconds the guest export call spent
     # inside wasmtime) and +memory_peak+ (Integer bytes, high-water of
     # the per-invocation +memory.grow+ delta past the entry-time
     # baseline). Returns +Kobako::Usage::EMPTY+ before any invocation;
@@ -109,9 +104,8 @@ module Kobako
       reset_invocation_state!
     end
 
-    # Declare or retrieve the Namespace named +name+ on this Sandbox
-    # ({docs/behavior.md B-07, B-09, B-10}[link:../../docs/behavior.md]). +name+ must be a
-    # Symbol or String in constant form. Returns the
+    # Declare or retrieve the Namespace named +name+ on this Sandbox. +name+
+    # must be a Symbol or String in constant form. Returns the
     # +Kobako::Namespace+.
     #
     # Raises +ArgumentError+ when called after the first invocation, or
@@ -120,20 +114,18 @@ module Kobako
       @services.define(name)
     end
 
-    # Register a snippet on this Sandbox in one of two forms
-    # ({docs/behavior.md B-32}[link:../../docs/behavior.md]):
+    # Register a snippet on this Sandbox in one of two forms:
     #
     #   * +preload(code: source, name: Name)+ — +source+ is mruby source
     #     as a +String+ and +Name+ matches +/\A[A-Z]\w*\z/+. The +name+
     #     becomes the snippet's +(snippet:Name)+ backtrace filename and
-    #     is the dedupe key for E-33.
+    #     is the dedupe key that rejects a duplicate +code:+ snippet.
     #   * +preload(binary: bytes)+ — +bytes+ is precompiled RITE
     #     bytecode as a +String+. The canonical name, when present,
     #     lives in the bytecode's embedded +debug_info+ and is resolved
     #     by the guest at load time; the host treats the bytes as
-    #     opaque. Structural failures
-    #     ({docs/behavior.md E-37 / E-38}[link:../../docs/behavior.md])
-    #     surface as +Kobako::BytecodeError+ on the first invocation.
+    #     opaque. Structural failures surface as +Kobako::BytecodeError+
+    #     on the first invocation.
     #
     # Subsequent invocations (+#eval+ or +#run+) replay every registered
     # snippet — in insertion order — against the fresh +mrb_state+
@@ -145,11 +137,9 @@ module Kobako
     # supplied, when both forms are mixed (e.g., +code:+ and +binary:+
     # together, or +binary:+ paired with +name:+), when +code+ / +bytes+
     # is not a +String+, when +name+ does not match the constant
-    # pattern ({docs/behavior.md E-34}[link:../../docs/behavior.md]),
-    # when +name+ duplicates an already-registered +code:+ form snippet
-    # ({docs/behavior.md E-33}[link:../../docs/behavior.md]), or when
-    # called after the first invocation
-    # ({docs/behavior.md E-35, B-33}[link:../../docs/behavior.md]).
+    # pattern, when +name+ duplicates an already-registered +code:+ form
+    # snippet, or when called after the first invocation has sealed the
+    # snippet table.
     def preload(code: nil, name: nil, binary: nil)
       raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
 
@@ -157,17 +147,16 @@ module Kobako
       self
     end
 
-    # Dispatch into a preloaded entrypoint constant
-    # ({docs/behavior.md B-31}[link:../../docs/behavior.md]). Delegates host
+    # Dispatch into a preloaded entrypoint constant. Delegates host
     # pre-flight and wire encoding to +Kobako::Transport::Run+ /
     # +Kobako::Transport::Run#encode+: a non-Symbol/String +target+ raises
-    # +TypeError+ (E-24), while a +target+ failing the constant pattern
-    # (E-25), a forged +Kobako::Handle+ in +args+ / +kwargs+ (E-29), or a
-    # non-Symbol +kwargs+ key (E-30) raise +ArgumentError+. The guest
-    # resolves +target+ as a top-level constant, calls +#call+ on it with
-    # +args+ / +kwargs+, and returns the deserialized result. The first
-    # invocation seals the Service registry and snippet table (B-07 /
-    # B-33). Runtime errors follow the same three-class taxonomy as +#eval+.
+    # +TypeError+, while a +target+ failing the constant pattern, a forged
+    # +Kobako::Handle+ in +args+ / +kwargs+, or a non-Symbol +kwargs+ key
+    # raise +ArgumentError+. The guest resolves +target+ as a top-level
+    # constant, calls +#call+ on it with +args+ / +kwargs+, and returns the
+    # deserialized result. The first invocation seals the Service registry
+    # and snippet table. Runtime errors follow the same three-class
+    # taxonomy as +#eval+.
     def run(target, *args, **kwargs)
       run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
@@ -175,29 +164,27 @@ module Kobako
       end
     end
 
-    # Execute a guest mruby source string in a fresh +mrb_state+
-    # ({docs/behavior.md B-02 / B-03 / B-06}[link:../../docs/behavior.md]). +code+ is the
-    # mruby source as a UTF-8 String. Returns the deserialized last
+    # Execute a guest mruby source string in a fresh +mrb_state+. +code+ is
+    # the mruby source as a UTF-8 String. Returns the deserialized last
     # expression of the source.
     #
     # Source delivery uses the WASI stdin three-frame protocol
     # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]):
     # Frame 1 carries the msgpack-encoded preamble (Namespace / Member
     # registry snapshot), Frame 2 carries the user source UTF-8 bytes, and
-    # Frame 3 carries the snippet table registered via +#preload+ (B-32).
+    # Frame 3 carries the snippet table registered via +#preload+.
     # Each frame is prefixed by a 4-byte big-endian u32 length; Frame 3 is
     # mandatory-presence — an empty snippet table sends an empty msgpack
     # array, never an absent frame.
     #
-    # The first invocation seals the Service registry and snippet table
-    # ({docs/behavior.md B-07 / B-33}[link:../../docs/behavior.md]); subsequent
-    # +#define+ / +#preload+ calls raise +ArgumentError+.
+    # The first invocation seals the Service registry and snippet table;
+    # subsequent +#define+ / +#preload+ calls raise +ArgumentError+.
     #
     # Raises +Kobako::TrapError+ on a Wasm trap or wire-violation fallback;
     # +Kobako::SandboxError+ when the guest ran to completion but failed
     # (including when +code+ is +nil+ or not a String, or when a preloaded
-    # snippet's replay raises — E-36);
-    # +Kobako::ServiceError+ on an unrescued Service capability failure.
+    # snippet's replay raises); +Kobako::ServiceError+ on an unrescued
+    # Service capability failure.
     def eval(code)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
@@ -207,15 +194,11 @@ module Kobako
     end
 
     # Reset all per-invocation observable state to its pre-invocation
-    # sentinels — both per-channel captures
-    # ({docs/behavior.md B-05}[link:../../docs/behavior.md]) and the
-    # per-last-invocation usage record
-    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Shared by
-    # +#initialize+ (first-time setup) and +#begin_invocation!+
-    # (between-invocation reset) so both paths agree on what
-    # "pre-invocation state" means; +Kobako::Pool+ calls it at checkout
-    # so a pooled Sandbox hands over empty output buffers
-    # ({docs/behavior.md B-47}[link:../../docs/behavior.md]).
+    # sentinels — both per-channel captures and the per-last-invocation
+    # usage record. Shared by +#initialize+ (first-time setup) and
+    # +#begin_invocation!+ (between-invocation reset) so both paths agree on
+    # what "pre-invocation state" means; +Kobako::Pool+ calls it at checkout
+    # so a pooled Sandbox hands over empty output buffers.
     def reset_invocation_state!
       @stdout_capture = Capture::EMPTY
       @stderr_capture = Capture::EMPTY
@@ -224,14 +207,13 @@ module Kobako
 
     private
 
-    # Configure the +Runtime+'s host↔guest dispatch wiring
-    # ({docs/behavior.md B-12}[link:../../docs/behavior.md]). Builds a
+    # Configure the +Runtime+'s host↔guest dispatch wiring. Builds a
     # lambda that re-enters the guest via
-    # +Runtime#yield_to_active_invocation+ (B-24) and a dispatch +Proc+
-    # that routes guest→host calls through the stateless
-    # +Transport::Dispatcher+, capturing +@services+ / +@handler+ in the
-    # closure. Both are registered on the +Runtime+ once at construction
-    # time so the wasm ext callback can fire without further setup.
+    # +Runtime#yield_to_active_invocation+ and a dispatch +Proc+ that routes
+    # guest→host calls through the stateless +Transport::Dispatcher+,
+    # capturing +@services+ / +@handler+ in the closure. Both are registered
+    # on the +Runtime+ once at construction time so the wasm ext callback can
+    # fire without further setup.
     def install_dispatch_proc!
       yield_to_guest = ->(args_bytes) { @runtime.yield_to_active_invocation(args_bytes) }
       @runtime.on_dispatch = lambda do |request_bytes|
@@ -239,14 +221,13 @@ module Kobako
       end
     end
 
-    # Per-invocation prologue ({docs/behavior.md B-03 / B-07 /
-    # B-33}[link:../../docs/behavior.md]). Seals the Service / snippet
-    # registries on first call (idempotent) and zeros the per-invocation
-    # capability state — capture buffers, truncation predicates, and the
+    # Per-invocation prologue. Seals the Service / snippet registries on
+    # first call (idempotent) and zeros the per-invocation capability
+    # state — capture buffers, truncation predicates, and the
     # +Catalog::Handles+ counter — before the guest runs. The
-    # +Catalog::Handles+ itself is held as +@handler+ and never exposed beyond
-    # this class: SPEC.md Terminology pins it as "Not exposed to the
-    # Host App" (B-19 / B-20 / E-29).
+    # +Catalog::Handles+ itself is held as +@handler+ and never exposed
+    # beyond this class: SPEC.md Terminology pins it as "Not exposed to the
+    # Host App".
     def begin_invocation!
       @services.seal!
       @handler.reset!
@@ -254,8 +235,7 @@ module Kobako
     end
 
     # Read the per-last-invocation +wall_time+ and +memory_peak+ from
-    # the ext and wrap them as a +Kobako::Usage+ value object
-    # ({docs/behavior.md B-35}[link:../../docs/behavior.md]). Runs in
+    # the ext and wrap them as a +Kobako::Usage+ value object. Runs in
     # the +invoke!+ +ensure+ block so the usage record is populated on
     # every outcome — value return, +Kobako::TrapError+ (including
     # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
@@ -273,8 +253,7 @@ module Kobako
     end
 
     # Pick the +TrapError+ subclass to re-raise based on +err+'s actual
-    # class. Cap-trap subclasses
-    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
+    # class. Cap-trap subclasses (+TimeoutError+ / +MemoryLimitError+)
     # preserve their named identity; everything else collapses to the
     # base +Kobako::TrapError+. The ext already raises the right subclass
     # directly, so this is a pure re-attribution that lets +#invoke!+
@@ -298,9 +277,8 @@ module Kobako
     # +Capture+ and feeds +#return_bytes+ to +Outcome.decode+; usage is
     # populated by the +ensure+ readout ({#read_usage!}) on every outcome.
     # The rescue chain is the single trap-translation boundary —
-    # configured-cap paths
-    # ({docs/behavior.md E-19 / E-20}[link:../../docs/behavior.md])
-    # surface as named TrapError subclasses; everything else surfaces as
+    # configured-cap paths surface as named TrapError subclasses
+    # (+TimeoutError+ / +MemoryLimitError+); everything else surfaces as
     # the base +TrapError+.
     def invoke!(verb)
       begin_invocation!
@@ -309,7 +287,7 @@ module Kobako
       @stderr_capture = snapshot.stderr
       # A Capability Handle in the result is decoded as a Kobako::Handle
       # token; restore it to the host object the guest referenced before
-      # handing the value to the Host App (B-37). @handler still holds this
+      # handing the value to the Host App. @handler still holds this
       # invocation's table — reset only happens at the next #begin_invocation!.
       Codec::Utils.deep_restore(Outcome.decode(snapshot.return_bytes), @handler)
     rescue Kobako::TrapError => e
