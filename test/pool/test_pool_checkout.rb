@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for the Kobako::Pool checkout / checkin cycle on a single
-# thread (docs/behavior.md B-46 / B-47), driving the real
+# thread (docs/behavior/runtime.md B-46 / B-47), driving the real
 # data/kobako.wasm.
 class TestPoolCheckout < Minitest::Test
   include E2eGuestHelper

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Regression: a guest-supplied method name must not reach Ruby's ambient
-# reflection surface ({docs/behavior.md B-42}[link:../../docs/behavior.md]).
+# reflection surface ({docs/behavior/security.md B-42}[link:../../docs/behavior/security.md]).
 # Before the guard, method="send" let a guest pivot
 # `public_send(:send, :eval, code)` into host RCE; a bound lambda's own
 # `Proc#binding` reached `Binding#eval` for the same effect.

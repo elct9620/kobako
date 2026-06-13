@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — break / lambda-break / Proc-return discrimination at the
-# yield boundary (docs/behavior.md B-25 / B-27 / B-28, E-21 / E-23). The
+# yield boundary (docs/behavior/yield.md B-25 / B-27 / B-28, E-21 / E-23). The
 # guest yield export classifies the post-protect RBreak by comparing its
 # `ci_break_index` against the pre-yield baseline: an index ≥ baseline lands
 # on the yielder's frame (a real `break`, tag 0x02); an index < baseline

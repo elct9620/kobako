@@ -69,7 +69,7 @@ The script executes inside the Wasm guest. It cannot read your filesystem, open 
 
 ### Services
 
-Declare a Namespace, then `bind` any Ruby object as a Member; the guest reaches it as a `<Namespace>::<Member>` proxy and invokes its public methods through the Transport wire. See [`docs/behavior.md`](docs/behavior.md) B-07..B-12.
+Declare a Namespace, then `bind` any Ruby object as a Member; the guest reaches it as a `<Namespace>::<Member>` proxy and invokes its public methods through the Transport wire. See [`docs/behavior/registration.md`](docs/behavior/registration.md) B-07..B-12.
 
 ```ruby
 class User
@@ -93,7 +93,7 @@ Names must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the hos
 
 ### Output Capture
 
-Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and exposed independently of the return value ([`docs/behavior.md`](docs/behavior.md) B-04). Buffers clear at the start of each invocation; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
+Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and exposed independently of the return value ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-04). Buffers clear at the start of each invocation; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
 
 ```ruby
 result = sandbox.eval(<<~RUBY)
@@ -134,7 +134,7 @@ end
 
 ### Resource Limits
 
-Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Sandbox#usage`](lib/kobako/sandbox.rb) after the call — populated on every outcome including traps — for actual consumption ([`docs/behavior.md`](docs/behavior.md) B-35).
+Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Sandbox#usage`](lib/kobako/sandbox.rb) after the call — populated on every outcome including traps — for actual consumption ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-35).
 
 ```ruby
 sandbox = Kobako::Sandbox.new(
@@ -202,7 +202,7 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 ### Pooling
 
-For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior.md`](docs/behavior.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
+For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior/runtime.md`](docs/behavior/runtime.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
 `Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~30 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work).
 
@@ -223,7 +223,7 @@ Sandboxes construct lazily on first demand. `#with` yields a Sandbox with empty 
 
 ### Service Blocks
 
-A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior.md`](docs/behavior.md) B-23..B-30.
+A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior/yield.md`](docs/behavior/yield.md) B-23..B-30.
 
 ```ruby
 sandbox.define(:Seq).bind(:Map, ->(items, &blk) { items.map(&blk) })
@@ -234,7 +234,7 @@ sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }')
 
 ### Handle Management
 
-A non-wire-representable host object — returned from a Service (B-14), passed to `#run` (B-34), or handed back from the guest (B-37) — crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it; any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation ([`docs/behavior.md`](docs/behavior.md) B-13..B-21, B-34, B-37).
+A non-wire-representable host object — returned from a Service (B-14), passed to `#run` (B-34), or handed back from the guest (B-37) — crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it; any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation ([`docs/behavior/dispatch.md`](docs/behavior/dispatch.md) B-13..B-21, B-34, B-37).
 
 ```ruby
 class Greeter
@@ -270,7 +270,7 @@ This is deliberate, not a leak. Handle IDs run to 2³¹ − 1 per invocation and
 
 ### Snippets & Entrypoints
 
-`Sandbox#preload` registers named mruby snippets that replay into every invocation's canonical boot state; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets ([`docs/behavior.md`](docs/behavior.md) B-31..B-33).
+`Sandbox#preload` registers named mruby snippets that replay into every invocation's canonical boot state; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets ([`docs/behavior/invocation.md`](docs/behavior/invocation.md) B-31..B-33).
 
 ```ruby
 sandbox = Kobako::Sandbox.new

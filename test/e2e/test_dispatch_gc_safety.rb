@@ -6,7 +6,7 @@ require "stringio"
 # GC-safety regression coverage for the host-side dispatch Proc.
 #
 # Kobako::Sandbox installs a dispatch Proc on Kobako::Runtime
-# (docs/behavior.md B-12). The native ext holds that Proc across the whole
+# (docs/behavior/dispatch.md B-12). The native ext holds that Proc across the whole
 # guest invocation so that guest->host dispatch (B-13) and the yield
 # round-trip (B-24) can call it. Because the Proc is reachable only from
 # the ext while the guest runs, the ext is responsible for keeping it

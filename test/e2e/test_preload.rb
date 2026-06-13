@@ -49,7 +49,7 @@ class TestE2EPreload < Minitest::Test
            "expected backtrace to reference (snippet:Broken), got #{err.backtrace_lines.inspect}"
   end
 
-  # docs/behavior.md B-32 (binary: form): a precompiled RITE bytecode
+  # docs/behavior/invocation.md B-32 (binary: form): a precompiled RITE bytecode
   # blob registered via `#preload(binary:)` is replayed against the
   # fresh `mrb_state` before each invocation, exactly like a `code:`
   # form snippet. The constant defined by the bytecode is observable to
@@ -79,7 +79,7 @@ class TestE2EPreload < Minitest::Test
                  "not just the first invocation"
   end
 
-  # docs/behavior.md E-37: bytecode whose RITE version mismatches the
+  # docs/behavior/errors.md E-37: bytecode whose RITE version mismatches the
   # guest's pinned version surfaces as Kobako::BytecodeError on the
   # first invocation's snippet replay. The wrong_version fixture takes
   # the valid bytecode and flips the version bytes ("0400" → "9999")
@@ -98,7 +98,7 @@ class TestE2EPreload < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # docs/behavior.md E-38: bytecode body that fails structural parse
+  # docs/behavior/errors.md E-38: bytecode body that fails structural parse
   # against the loaded IREP reader surfaces as Kobako::BytecodeError.
   # The corrupt fixture is a header-prefix truncation of the valid
   # bytecode — enough to pass the four-byte RITE ident check but short
@@ -114,7 +114,7 @@ class TestE2EPreload < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # docs/behavior.md E-36 (binary: form): bytecode that loads cleanly
+  # docs/behavior/errors.md E-36 (binary: form): bytecode that loads cleanly
   # but whose top-level expression raises at replay surfaces as
   # Kobako::SandboxError with the natural mruby class preserved — NOT
   # promoted to Kobako::BytecodeError, which is reserved for the two
@@ -146,7 +146,7 @@ class TestE2EPreload < Minitest::Test
     assert_match(/boom from snippet/, err.message)
   end
 
-  # docs/behavior.md B-32 (binary: form): bytecode emitted without
+  # docs/behavior/invocation.md B-32 (binary: form): bytecode emitted without
   # `mrbc -g` carries no `debug_info` section. Per the relaxed B-32 it
   # remains a legal payload — the guest loads it normally and the
   # snippet contributes its top-level effects to the fresh `mrb_state`.

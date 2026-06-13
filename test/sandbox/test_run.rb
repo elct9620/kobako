@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for Kobako::Sandbox#run — the entrypoint dispatch verb
-# (docs/behavior.md B-31 + E-24..E-31).
+# (docs/behavior/invocation.md B-31 + E-24..E-31).
 #
 # Host pre-flight cases (E-24 / E-25 / E-29 / E-30) raise standard Ruby
 # exceptions synchronously and do not need the real guest binary; the
@@ -124,7 +124,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-27 details: the panic envelope carries the snippet-contributed
   # top-level constants so callers can see what was actually available
-  # when their entrypoint name failed to resolve (docs/behavior.md B-31).
+  # when their entrypoint name failed to resolve (docs/behavior/invocation.md B-31).
   def test_e27_details_includes_snippet_contributed_constants
     err = run_missing_against_sandbox_with_preloads
     available = err.details.fetch("available")

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for Kobako::Sandbox#run host→guest argument auto-wrap
-# (docs/behavior.md B-34) — non-wire-representable args / kwargs values
+# (docs/behavior/dispatch.md B-34) — non-wire-representable args / kwargs values
 # are routed through the Sandbox's Catalog::Handles and arrive in the guest
 # as Kobako::Handle proxies whose method calls dispatch back as
 # transport calls (B-17). The forged-Handle reject path (E-29) lives in

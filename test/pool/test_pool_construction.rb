@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for Kobako::Pool construction pre-flight
-# (docs/behavior.md B-46 + E-47). Pool.new builds no Sandbox, so every
+# (docs/behavior/runtime.md B-46 + E-47). Pool.new builds no Sandbox, so every
 # case here runs without the native ext.
 class TestPoolConstruction < Minitest::Test
   # E-47

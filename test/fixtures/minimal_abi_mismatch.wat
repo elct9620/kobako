@@ -1,6 +1,6 @@
 ;; `minimal_abi_ok.wat` with the reported ABI version replaced by 9999
 ;; — a value that must never match a real ABI version, keeping the
-;; docs/behavior.md E-42 mismatch branch deterministic regardless of
+;; docs/behavior/errors.md E-42 mismatch branch deterministic regardless of
 ;; future version bumps (same convention as
 ;; `snippet_wrong_version.mrb`).
 (module

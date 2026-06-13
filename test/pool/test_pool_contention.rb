@@ -4,7 +4,7 @@ require "test_helper"
 
 # Coverage for Kobako::Pool under cross-thread contention — the blocking
 # checkout wait, its E-46 timeout bound, and checkout independence
-# (docs/behavior.md B-47 + E-46), driving the real data/kobako.wasm.
+# (docs/behavior/runtime.md B-47 + E-46), driving the real data/kobako.wasm.
 class TestPoolContention < Minitest::Test
   include E2eGuestHelper
 

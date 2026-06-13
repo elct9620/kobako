@@ -8,13 +8,13 @@
 # test/test_namespace.rb.
 #
 # Cross-references:
-#   - SPEC.md / docs/behavior.md B-07 — Namespace declaration + name validation
-#   - SPEC.md / docs/behavior.md B-08 — Member binding accepts class/instance/module
-#   - SPEC.md / docs/behavior.md B-09 — Multiple Namespaces coexist independently
-#   - SPEC.md / docs/behavior.md B-10 — define is idempotent
-#   - SPEC.md / docs/behavior.md B-11 — Duplicate bind raises, existing binding preserved
-#   - SPEC.md / docs/behavior.md E-16 — Malformed Namespace name
-#   - SPEC.md / docs/behavior.md E-17 — Malformed Member name
+#   - SPEC.md / docs/behavior/registration.md B-07 — Namespace declaration + name validation
+#   - SPEC.md / docs/behavior/registration.md B-08 — Member binding accepts class/instance/module
+#   - SPEC.md / docs/behavior/registration.md B-09 — Multiple Namespaces coexist independently
+#   - SPEC.md / docs/behavior/registration.md B-10 — define is idempotent
+#   - SPEC.md / docs/behavior/registration.md B-11 — Duplicate bind raises, existing binding preserved
+#   - SPEC.md / docs/behavior/errors.md E-16 — Malformed Namespace name
+#   - SPEC.md / docs/behavior/errors.md E-17 — Malformed Member name
 
 require "test_helper"
 
@@ -129,7 +129,7 @@ module Kobako
   end
 
   # Frame 1 wire shape: the preamble emitted by Namespaces#encode
-  # (docs/behavior.md B-02), including the B-33 sealing snapshot — every
+  # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot — every
   # invocation after the seal ships the bindings that existed at that
   # moment (B-07 Notes).
   class CatalogNamespacesPreambleTest < Minitest::Test

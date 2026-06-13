@@ -6,9 +6,9 @@
 # test/catalog/test_namespaces.rb.
 #
 # Cross-references:
-#   - SPEC.md / docs/behavior.md B-08 — Member binding accepts class/instance/module
-#   - SPEC.md / docs/behavior.md B-11 — Duplicate bind raises, existing binding preserved
-#   - SPEC.md / docs/behavior.md E-17 — Malformed Member name
+#   - SPEC.md / docs/behavior/registration.md B-08 — Member binding accepts class/instance/module
+#   - SPEC.md / docs/behavior/registration.md B-11 — Duplicate bind raises, existing binding preserved
+#   - SPEC.md / docs/behavior/errors.md E-17 — Malformed Member name
 
 require "test_helper"
 

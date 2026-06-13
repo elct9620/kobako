@@ -4,7 +4,7 @@ require "test_helper"
 
 # A bound object narrows its own guest-reachable surface through the opt-in
 # private predicate +respond_to_guest?+
-# ({docs/behavior.md B-50}[link:../../docs/behavior.md]): falsy for every name
+# ({docs/behavior/security.md B-50}[link:../../docs/behavior/security.md]): falsy for every name
 # is opaque, truthy for a subset is an allow-list. The predicate composes
 # beneath the B-42 reflection floor and can only narrow — it never re-opens the
 # +send+ / +eval+ surface the floor rejects, so the bound object never becomes

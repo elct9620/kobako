@@ -4,7 +4,7 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits the `__kobako_abi_version` export — the frozen witness for the `docs/behavior.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). It deliberately has no in-repo source: a buildable fixture crate would violate the "no parallel fixture-driven wasm crates" convention, so any replacement is hand-authored (the `.wat` fixtures below show the text-format route).
+Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits the `__kobako_abi_version` export — the frozen witness for the `docs/behavior/errors.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). It deliberately has no in-repo source: a buildable fixture crate would violate the "no parallel fixture-driven wasm crates" convention, so any replacement is hand-authored (the `.wat` fixtures below show the text-format route).
 
 ## `minimal_abi_ok.wat` / `minimal_abi_mismatch.wat`
 
@@ -12,7 +12,7 @@ Hand-written text-format modules around the B-40 construction-time ABI version c
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
-Each fixture exercises one path of `docs/behavior.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
+Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
 
 ### `snippet_answers.mrb` — happy-path bytecode
 

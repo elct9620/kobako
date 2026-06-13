@@ -72,7 +72,7 @@ class TestSandbox < Minitest::Test
     assert_match(/Sandbox#eval failed/, err.message)
   end
 
-  # docs/behavior.md B-40 / E-42: construction probes the guest's
+  # docs/behavior/runtime.md B-40 / E-42: construction probes the guest's
   # __kobako_abi_version export and accepts only the host's own ABI
   # version. minimal.wasm predates the export (absent branch);
   # minimal_abi_mismatch.wat reports 9999 (non-equal branch). Both are

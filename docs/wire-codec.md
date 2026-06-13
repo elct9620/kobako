@@ -35,7 +35,7 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 
 ## Structural Nesting Depth
 
-Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit, which the Host Gem's codec library already enforces on decode. The Guest Binary encoder caps its recursive walk at the same depth, so it never overflows the wasm stack: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as E-06 / E-22 (→ [`behavior.md`](behavior.md)) rather than a hard trap. A `#run` argument that nests deeper is encoded best-effort — the over-deep subtree is rendered through `Object#to_s` at the cap, the same fallback an unknown argument type takes — so the dispatch stays bounded rather than trapping. The guest cap and the host library's limit sit at the same depth; a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
+Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit, which the Host Gem's codec library already enforces on decode. The Guest Binary encoder caps its recursive walk at the same depth, so it never overflows the wasm stack: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as E-06 / E-22 (→ [`behavior/errors.md`](behavior/errors.md)) rather than a hard trap. A `#run` argument that nests deeper is encoded best-effort — the over-deep subtree is rendered through `Object#to_s` at the cap, the same fallback an unknown argument type takes — so the dispatch stays bounded rather than trapping. The guest cap and the host library's limit sit at the same depth; a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
 
 The cap doubles as a native-stack safety guard: 128 sits far below the depth at which the guest's recursive walk would overflow the wasm stack, and matches the limit established serialization formats impose, so it is never the restrictive outlier.
 
@@ -93,7 +93,7 @@ Position rules for ext 0x00:
 
 The Handle ID field carries the opaque identifier allocated by `Catalog::Handles` (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
 
-ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior.md`](behavior.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
+ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior/dispatch.md`](behavior/dispatch.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
 
 ### ext 0x02 — Fault Envelope
 
@@ -142,7 +142,7 @@ The msgpack encoding of the user script's last mruby expression value, emitted d
 
 | Field | Type |
 |-------|------|
-| `value` | any wire-legal type including ext 0x01 (if the script returned a Capability Handle; the host restores it to its original object per [`docs/behavior.md`](behavior.md) § B-37) |
+| `value` | any wire-legal type including ext 0x01 (if the script returned a Capability Handle; the host restores it to its original object per [`docs/behavior/dispatch.md`](behavior/dispatch.md) § B-37) |
 
 ### Panic Envelope (Outcome payload — failure)
 
@@ -251,7 +251,7 @@ The ABI is a closed enumerated set: exactly six guest exports are permitted, lis
 | `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = YieldResponse buffer ptr; low 32 bits = YieldResponse byte length. `len == 0` is a wire violation. |
 | `__kobako_abi_version` | `() -> i32` | u32 ABI version the Guest Binary was built against (→ § ABI Version) |
 
-`__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior.md` § Error Scenarios).
+`__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope (Result or Panic) to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision (`SPEC.md` § Behavior; `docs/behavior/errors.md` § Error Scenarios).
 
 The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its Yielder (B-24). The host writes the yield arguments as a MessagePack payload (an array of positional args) into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a response buffer via `__kobako_alloc`, writes the YieldResponse bytes (→ YieldResponse Envelope), and returns the packed i64. The single-dispatch 16 MiB payload size limit applies in both directions.
 
@@ -263,7 +263,7 @@ The ABI version is a single u32 owned by the SPEC corpus, independent of every p
 
 Any change to the Wire Contract, this codec document, or the ABI surface (function set, names, signatures) increments the version. There is no compatibility range and no negotiation: a host implements exactly one ABI version and loads only Guest Binaries reporting that version.
 
-Version `2` carries the per-invocation instance discipline (docs/behavior.md B-49): the host drives every invocation entry (`__kobako_eval` / `__kobako_run`) on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
+Version `2` carries the per-invocation instance discipline (docs/behavior/runtime.md B-49): the host drives every invocation entry (`__kobako_eval` / `__kobako_run`) on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
 
 ### Invocation channels
 

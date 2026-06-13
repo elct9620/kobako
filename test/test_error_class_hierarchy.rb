@@ -14,7 +14,7 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::ServiceError < Kobako::Error
   end
 
-  # docs/behavior.md E-40 / E-41: SetupError is the construction-layer branch,
+  # docs/behavior/errors.md E-40 / E-41: SetupError is the construction-layer branch,
   # a sibling of the invocation-outcome classes under Kobako::Error — not a
   # TrapError, because no invocation runs when Sandbox.new fails to build the
   # runtime. ModuleNotBuiltError is its named absent-artifact subclass.

@@ -48,7 +48,7 @@ class TestRuntime < Minitest::Test
     refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
 
-  # SPEC error taxonomy contract (docs/behavior.md E-40 / E-41): a
+  # SPEC error taxonomy contract (docs/behavior/errors.md E-40 / E-41): a
   # present-but-unparseable wasm artifact passing through +from_path+ raises
   # +Kobako::SetupError+, not the absent-artifact subclass
   # +ModuleNotBuiltError+ (reserved for "file absent", E-40) and not the
@@ -74,7 +74,7 @@ class TestRuntime < Minitest::Test
     assert_match(/failed to compile Sandbox runtime/, err.message)
   end
 
-  # docs/behavior.md E-39: an invalid timeout argument is a Host App
+  # docs/behavior/errors.md E-39: an invalid timeout argument is a Host App
   # programming error, raised as +ArgumentError+ before any engine work —
   # distinct from the construction-failure +SetupError+ branch. The
   # +Kobako::Sandbox+ path validates via +SandboxOptions+; this exercises the

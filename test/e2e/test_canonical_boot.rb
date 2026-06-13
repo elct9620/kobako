@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the canonical boot state (docs/behavior.md B-49)
+# E2E (Layer 4) — the canonical boot state (docs/behavior/runtime.md B-49)
 # through real mruby: every invocation observes the deterministic
 # post-boot interpreter state, identical across invocations and
 # carrying no artifact of prior ones. The heap-layout witness below is

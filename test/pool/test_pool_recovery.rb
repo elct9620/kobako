@@ -5,7 +5,7 @@ require "test_helper"
 # Coverage for Kobako::Pool slot recovery — the checkin contract on a
 # raising block (TrapError discards and recreates, anything else checks
 # back in) and capacity release after a failed construction
-# (docs/behavior.md B-46 / B-47), driving the real data/kobako.wasm.
+# (docs/behavior/runtime.md B-46 / B-47), driving the real data/kobako.wasm.
 class TestPoolRecovery < Minitest::Test
   include E2eGuestHelper
 

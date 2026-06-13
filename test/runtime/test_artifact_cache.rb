@@ -7,7 +7,7 @@ require "fileutils"
 require "tmpdir"
 
 # Compiled-artifact disk cache behaviour through +Kobako::Runtime.from_path+
-# (docs/behavior.md B-01 Notes): the cache is best-effort — corrupt
+# (docs/behavior/lifecycle.md B-01 Notes): the cache is best-effort — corrupt
 # entries fall back to in-process compilation, untrusted directories are
 # skipped, and writes prune entries unused past the retention window.
 class TestRuntimeArtifactCache < Minitest::Test
@@ -18,7 +18,7 @@ class TestRuntimeArtifactCache < Minitest::Test
     skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
-  # docs/behavior.md B-01 Notes: a corrupt cache entry falls back to
+  # docs/behavior/lifecycle.md B-01 Notes: a corrupt cache entry falls back to
   # in-process compilation rather than failing construction.
   def test_from_path_falls_back_to_compile_when_cached_artifact_is_corrupt
     with_private_cache_root do |dir|
@@ -51,7 +51,7 @@ class TestRuntimeArtifactCache < Minitest::Test
     end
   end
 
-  # docs/behavior.md B-01 Notes: writing a new artifact opportunistically
+  # docs/behavior/lifecycle.md B-01 Notes: writing a new artifact opportunistically
   # removes cache entries unused for the retention window, so the cache
   # directory does not grow without bound across Guest Binary rebuilds.
   def test_storing_an_artifact_prunes_entries_unused_past_the_retention_window

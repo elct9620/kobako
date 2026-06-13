@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — the block / yield round-trip through real mruby
-# (docs/behavior.md B-23..B-30): a guest call site supplying a block
+# (docs/behavior/yield.md B-23..B-30): a guest call site supplying a block
 # surfaces as a non-nil +&block+ on the host Service method, and each
 # +yield+ / +block.call+ is a synchronous round-trip into the guest via
 # +__kobako_yield_to_block+, returning the block result (tag 0x01), a
