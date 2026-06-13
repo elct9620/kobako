@@ -51,8 +51,8 @@ class KobakoAnchorsTest < Minitest::Test
 
   def test_clean_corpus_reports_no_violations
     violations = Anchors.audit(
-      def_sources: { "B" => { "behavior.md" => "## B-01 — x\n## B-02 — y\n" } },
-      ref_sources: { "behavior.md" => "B-01 leads to B-02" },
+      def_sources: { "B" => { "lifecycle.md" => "## B-01 — x\n## B-02 — y\n" } },
+      ref_sources: { "lifecycle.md" => "B-01 leads to B-02" },
       ceilings: { "B" => 2 }
     )
 
@@ -94,7 +94,7 @@ class KobakoAnchorsTest < Minitest::Test
 
   def test_a_ceiling_that_disagrees_with_the_highest_definition_is_a_violation
     violations = Anchors.audit(
-      def_sources: { "B" => { "behavior.md" => "## B-01 — x\n## B-02 — y\n" } },
+      def_sources: { "B" => { "lifecycle.md" => "## B-01 — x\n## B-02 — y\n" } },
       ref_sources: {},
       ceilings: { "B" => 5 }
     )
@@ -105,7 +105,7 @@ class KobakoAnchorsTest < Minitest::Test
 
   def test_a_reference_to_an_undefined_anchor_is_dangling
     violations = Anchors.audit(
-      def_sources: { "B" => { "behavior.md" => "## B-01 — x\n" } },
+      def_sources: { "B" => { "lifecycle.md" => "## B-01 — x\n" } },
       ref_sources: { "readme.md" => "see B-99 for details" },
       ceilings: { "B" => 1 }
     )

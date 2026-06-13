@@ -11,16 +11,15 @@
 require_relative "support/kobako_anchors"
 
 # Anchor definitions live in the behavior spec (+B+ / +E+) and the regexp
-# spec (+RX+); references are scanned across the whole spec corpus and the
-# source / test trees that cite anchors.
+# spec (+RX+). Anchors are cited only where traceability belongs — the spec
+# corpus and the tests that verify each behavior; implementation comments
+# state intent rather than anchors, so the source trees are not scanned.
 ANCHOR_ROOT = File.expand_path("..", __dir__)
-ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior.md", "docs/behavior/*.md"]
+ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior/*.md"]
 ANCHOR_DEF_REGEXP = FileList["docs/regexp.md"]
 ANCHOR_REF_GLOBS = FileList[
-  "SPEC.md", "README.md", "docs/**/*.md",
-  "lib/**/*.rb", "ext/**/*.rs", "wasm/**/*.rs",
-  "test/**/*.rb", "tasks/**/*.{rb,rake}", "benchmark/**/*.{rb,md}"
-].exclude(%r{/(target|vendor|tmp)/}, "data/**/*", "tasks/support/kobako_anchors_test.rb")
+  "SPEC.md", "README.md", "docs/**/*.md", "test/**/*.rb", "benchmark/**/*.md"
+].exclude(%r{/(target|vendor|tmp)/})
 
 namespace :anchors do
   desc "Run the anchor checker's unit coverage."

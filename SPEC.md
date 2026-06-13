@@ -285,7 +285,7 @@ Each request holds one pooled Sandbox exclusively for the duration of its block;
 
 ## Behavior
 
-The per-anchor behavior specifications (Initial State → Operation → Result / Final State) for B-01..B-50 and the Error Scenarios covering E-01..E-48 live in per-aspect files under `docs/behavior/`, indexed by the [`docs/behavior.md`](docs/behavior.md) façade and listed per grouping below. The decisions below govern those behaviors; consult the linked file for each anchor's full Initial State / Operation / Result.
+The per-anchor behavior specifications (Initial State → Operation → Result / Final State) for B-01..B-50 and the Error Scenarios covering E-01..E-48 live in per-aspect files under `docs/behavior/`, listed per grouping below. The decisions below govern those behaviors; consult the linked file for each anchor's full Initial State / Operation / Result.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
@@ -336,7 +336,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/`, indexed by the [`docs/behavior.md`](docs/behavior.md) façade, per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 
