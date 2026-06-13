@@ -1,6 +1,6 @@
 # Host-side Async I/O
 
-A self-contained script that overlaps many Sandboxes' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose Concurrency section explains why a pure-compute workload gains nothing from a Fiber server — this one shows the other half of the story: when the work waits on external I/O, a reactor lets one thread carry many in-flight requests at once.
+A self-contained script that overlaps many Sandboxes' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose Puma-vs-Falcon appendix explains why a pure-compute workload gains nothing from a Fiber server — this one shows the other half of the story: when the work waits on external I/O, a reactor lets one thread carry many in-flight requests at once.
 
 ## The shape, and why it has to be this shape
 

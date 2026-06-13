@@ -13,7 +13,7 @@ gemfile do
   source "https://rubygems.org"
   gem "ruby_llm"
   gem "reline"
-  gem "kobako", "~> 0.3.0"
+  gem "kobako", "~> 0.10.0"
 end
 
 require "kobako"
@@ -90,7 +90,7 @@ module CodeMode
   # Service object bound to the sandbox as `WebFetch::Client`. Issues a
   # single GET against +url+ and returns a wire-friendly Hash. Failures
   # (disallowed host, bad scheme, oversized body, timeout) raise on the
-  # host side; Kobako::RPC::Dispatcher reifies those as Response.err
+  # host side; Kobako::Transport::Dispatcher reifies those as Response.err
   # envelopes so the guest sees a normal Ruby exception.
   #
   # DEMO ONLY — the allowlist matches hostnames textually. Production
