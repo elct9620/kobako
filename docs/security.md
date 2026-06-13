@@ -80,6 +80,43 @@ sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # reachable: only #color
 > proxy raises and the host refuses it (B-42, B-44) — so it is never reachable. Rename it,
 > and never reuse member / method names across trust layers.
 
+### Least privilege — let a crossing object gate its own surface
+
+A purpose-built wrapper is one lever for the smallest surface; a second is to let the object
+decide for itself. A bound object — a Member, or anything that crosses back as a
+`Kobako::Handle` — may define a private `respond_to_guest?(name)` that answers, per method
+name, whether the guest may call it. Return `false` for every name and the object is
+**opaque**: the guest holds it and forwards it to another Service, but can call nothing on
+it — the bearer-token shape a credential or Vault handle wants, without hand-building a
+wrapper that exposes nothing. Return `true` for a chosen subset and it is an allow-list. The
+predicate composes beneath the reflection floor and can only narrow, so even a buggy
+predicate can never re-open `send` / `eval`; keep it private so the guest cannot probe it
+(B-50).
+
+```ruby
+class ApiCredential
+  def headers = { authorization: "Bearer #{token}" }   # host-side callers only
+
+  private
+
+  def token = Vault.fetch(:api_key)
+  def respond_to_guest?(_name) = false                 # opaque: carried, never read
+end
+
+# A Service issues the credential; being non-wire it crosses as an opaque Handle (B-14).
+sandbox.define(:Secret).bind(:Issue, -> { ApiCredential.new })
+
+# guest:  cred = Secret::Issue.call            # a Handle it holds but cannot read
+#         WebFetch::Get.call(url, cred: cred)  # forwards it to another Service (B-16)
+# host:   WebFetch receives the real ApiCredential and calls #headers;
+#         any cred.<method> the guest attempts raises instead
+```
+
+> An opaque object's calls are rejected with the same `undefined` fault as a name that
+> resolves to nothing (B-50), so the guest learns nothing about which methods it defines. To
+> expose a safe subset instead, answer `true` only for those names:
+> `def respond_to_guest?(name) = name == :public_id`.
+
 ### Untrusted input — validate at the boundary
 
 Every argument arrives from untrusted code that may pass `2.5` where you expect an
@@ -117,7 +154,9 @@ sandbox.define(:Net).bind(:Get, ->(url) {
 A non-wire-representable return crosses as a `Kobako::Handle`, which makes the object's
 *entire* public surface reachable and mints a fresh Handle at each hop with no identity
 dedup (B-15). Return the data the guest needs as a terminal value, not a host object it can
-keep calling into.
+keep calling into. When the guest must hold the object itself — a capability it forwards to
+another Service rather than reads — give it a `respond_to_guest?` that seals or narrows that
+surface (above) instead of leaving every method reachable.
 
 ```ruby
 sandbox.define(:Search).bind(:Docs, ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]

@@ -322,6 +322,11 @@ sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # not: bind(:Settings, Ap
 sandbox.eval('Cfg::Settings.color')  # => "#3366ff"  — every other method raises NoMethodError
 ```
 
+When a purpose-built wrapper is more than you need, an object can gate its own surface in
+place: a private `respond_to_guest?(name)` answers, per method, whether the guest may call
+it. Returning `false` for every name makes the object opaque — a credential the guest
+forwards to another Service but never reads — while a named subset becomes an allow-list.
+
 Guest code can name any `<Namespace>::<Member>` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
 trust context its own Sandbox, and see [`docs/security.md`](docs/security.md) for the rest
