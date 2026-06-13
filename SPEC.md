@@ -336,7 +336,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it (B-51, E-49). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 

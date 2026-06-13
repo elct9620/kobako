@@ -94,6 +94,8 @@ The guest sees exactly these constructs.
 Each behavior carries an `RX-xx` anchor. Match offsets, substring slices, and
 position arguments are byte-based throughout.
 
+RX-07 is a retired anchor — permanently reserved and never reassigned (N-8).
+
 ### RX-01 — Pattern compilation and options
 
 A regexp literal `/pattern/imx`, `Regexp.new(source[, options])`, and
