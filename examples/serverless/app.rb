@@ -11,14 +11,14 @@
 #   * default (per-request): each request builds a fresh Kobako::Sandbox,
 #     preloads only the matched route, and invokes it once. The strongest
 #     isolation kobako offers; Sandbox.new + #preload sit on the hot path.
-#   * --pool: a pool of long-lived Sandboxes, each preloaded with every
-#     route at boot, is built once; each request checks one out and
+#   * --pool: a Kobako::Pool of long-lived Sandboxes, each preloaded with
+#     every route on first checkout; each request checks one out and
 #     dispatches #run on it. Per-invocation guest isolation is unchanged —
 #     every #run still runs a fresh mrb_state (SPEC B-03) — while
 #     Sandbox.new + #preload move off the hot path.
 #
-# The Rack::Request is a non-wire-representable host object, so kobako
-# 0.4.0's #run host→guest auto-wrap (SPEC B-34) allocates a Handle for
+# The Rack::Request is a non-wire-representable host object, so kobako's
+# #run host→guest auto-wrap (SPEC B-34) allocates a Handle for
 # it; the guest receives a Kobako::Handle proxy whose method calls
 # (request_method, path, params) round-trip back through RPC. No
 # host-side marshalling step sits between the Rack env and the script.
@@ -61,29 +61,20 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.4.0"
+  gem "kobako", "~> 0.10.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
-  gem "connection_pool", "~> 2.4"
   gem options[:type]
 end
 
 require "kobako"
 require "rack"
 require "rackup"
-require "connection_pool"
 
 # Example types are nested under Serverless so the script has a single
 # top-level constant — Rubocop's Style/OneClassPerFile is happy and the
 # example reads top-down without splitting into multiple files.
 module Serverless
-  # How long a request waits for a free Sandbox before the pool gives up
-  # and the request is served a 503. Under kobako's GVL-held wasm segment
-  # one #run executes at a time process-wide, so this only bites when more
-  # requests are in flight than there are Sandboxes plus the queue can
-  # drain within the window.
-  POOL_CHECKOUT_TIMEOUT = 5
-
   # Operator-managed script table — keys are the route segment after `/`,
   # values are a +[Entrypoint, source]+ pair: +Entrypoint+ is the
   # top-level constant the +source+ defines, used both as the +#preload+
@@ -132,32 +123,25 @@ module Serverless
     end
   end
 
-  # Builds a pool of long-lived +Kobako::Sandbox+ instances at boot, each
-  # preloaded with every route's entrypoint, and dispatches +#run+ on a
-  # checked-out Sandbox per request. Reuse keeps the same per-invocation
-  # guest isolation (each +#run+ runs a fresh +mrb_state+, SPEC B-03)
-  # while moving +Sandbox.new+ + +#preload+ off the hot path. Exclusive
-  # checkout is mandatory, not an optimisation: the host-side Sandbox
-  # carries per-invocation state, so two threads sharing one would
-  # interleave captures and Handles across requests.
+  # Hands each request a warm +Kobako::Sandbox+ from a +Kobako::Pool+,
+  # each preloaded with every route's entrypoint, and dispatches +#run+ on
+  # the checked-out Sandbox. Reuse keeps the same per-invocation guest
+  # isolation (each +#run+ runs a fresh +mrb_state+, SPEC B-03) while
+  # moving +Sandbox.new+ + +#preload+ off the hot path. The Pool block is
+  # the per-Sandbox setup window — it runs once per constructed Sandbox.
+  # Exclusive checkout is the Pool's contract, not an optimisation: the
+  # host-side Sandbox carries per-invocation state, so two threads sharing
+  # one would interleave captures and Handles across requests.
   class PooledInvoker
     def initialize(routes, size:)
-      @pool = ConnectionPool.new(size: size, timeout: POOL_CHECKOUT_TIMEOUT) do
-        build_sandbox(routes)
+      @pool = Kobako::Pool.new(slots: size) do |sandbox|
+        routes.each_value { |entrypoint, source| sandbox.preload(code: source, name: entrypoint) }
       end
     end
 
     def invoke(entry, rack_env)
       entrypoint, = entry
       @pool.with { |sandbox| sandbox.run(entrypoint, Rack::Request.new(rack_env)) }
-    end
-
-    private
-
-    def build_sandbox(routes)
-      sandbox = Kobako::Sandbox.new
-      routes.each_value { |entrypoint, source| sandbox.preload(code: source, name: entrypoint) }
-      sandbox
     end
   end
 
@@ -185,7 +169,7 @@ module Serverless
       return not_found(name) unless entry
 
       @invoker.invoke(entry, env)
-    rescue ConnectionPool::TimeoutError => e
+    rescue Kobako::PoolTimeoutError => e
       pool_exhausted(e)
     rescue Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError => e
       sandbox_error(e)
