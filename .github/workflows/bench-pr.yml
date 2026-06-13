@@ -33,8 +33,11 @@ permissions:
 
 jobs:
   benchmark:
-    # Draft PRs churn; wait until the PR is up for review.
-    if: ${{ !github.event.pull_request.draft }}
+    # Skip draft PRs (they churn) and release-please PRs (pure version
+    # bumps with no perf-relevant change, so the double build is wasted).
+    if: >-
+      ${{ !github.event.pull_request.draft &&
+          !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
