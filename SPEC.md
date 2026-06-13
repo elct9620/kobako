@@ -285,7 +285,7 @@ Each request holds one pooled Sandbox exclusively for the duration of its block;
 
 ## Behavior
 
-The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-49 and the Error Scenarios subsection covering E-01..E-47 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
+The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-50 and the Error Scenarios subsection covering E-01..E-48 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
@@ -319,6 +319,7 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 | B-45 | The host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects |
 | B-46..B-48 | `Kobako::Pool` — construction with forwarded Sandbox keywords and per-Sandbox setup block, `#with` checkout / checkin with blocking wait, and reachability-tied teardown |
 | B-49 | Every invocation begins from the canonical boot state — the deterministic post-boot interpreter state, optionally baked into the Guest Binary at build time |
+| B-50 | A bound target's opt-in narrowing of its own guest-reachable method surface via the `respond_to_guest?` predicate — opaque when it denies every name, an allow-list when it permits a subset — composed beneath the B-42 reflection floor |
 
 Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError`:
 
@@ -326,7 +327,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 |-------------|---------|
 | `Kobako::TrapError` | E-01..E-03, E-19, E-20 |
 | `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
-| `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44 |
+| `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44, E-48 |
 | `Kobako::SetupError` | E-40, E-41, E-42 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
 | `Kobako::PoolTimeoutError` | E-46 |
 | Setup-time `TypeError` / `ArgumentError` | E-16, E-17, E-18, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45, E-47 |
@@ -335,7 +336,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-49 / E-47; subsequent anchors take the next integer above it (B-50, E-48). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it (B-51, E-49). E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 

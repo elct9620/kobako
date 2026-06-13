@@ -548,6 +548,17 @@ This behavior refines the value-return semantics of B-06 (`#eval`) and B-31 (`#r
 
 ---
 
+## B-50 — Host object narrows its guest-reachable method surface
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code dispatches to a target resolved through `Catalog::Namespaces` or `Catalog::Handles` (B-12, B-16, B-17): a bound Service Member, or a host object received earlier as a Capability Handle. The target's class either defines the private predicate `respond_to_guest?(name)` — answering, for a method name delivered as a Symbol, whether the guest may call it — or does not. |
+| **Operation** | Guest code invokes a method by name on the target. |
+| **Result / Final State** | A target that defines `respond_to_guest?` has the predicate consulted before the call reaches the method: a falsy answer for the invoked name rejects the dispatch with error `type="undefined"` and no method runs on the host; a truthy answer leaves the call subject to the B-42 floor alone, as does a target that does not define the predicate. The predicate composes with the floor by conjunction and only narrows — a name the floor rejects (the reflection / eval surface) stays rejected whatever the predicate answers. A target whose predicate is falsy for every name is opaque: the guest holds it, passes it as a dispatch argument (B-16), and returns it across the boundary (B-37), yet can call nothing on it; a predicate truthy for a chosen subset is an allow-list. Unrescued in the guest, the rejection reaches the Host App as `Kobako::ServiceError` per E-48. |
+| **Notes** | The predicate is opt-in least-privilege: the default reachable surface is unchanged (the B-42 floor alone), and a bound object restricts its own guest-facing surface without the Host App hand-building a wrapper that exposes nothing. `respond_to_guest?` answers permission, not existence — a truthy answer for an unimplemented name still surfaces at dispatch as `type="runtime"` (E-11) when the absent method runs. The `type="undefined"` rejection matches the unresolved-target and reflection-rejection surface (E-12 / E-13 / E-43), so an opaque target discloses nothing about which methods it defines. A predicate defined private is honored, yet stays unreachable to the guest: guest dispatch is routed through `public_send`, which never reaches a private `respond_to_guest?` itself. The decision is host-authoritative and rests on the resolved target, binding Member and Handle targets identically; it is the host-side complement of B-36, where the guest's `respond_to?` answers optimistically inside the guest without consulting the host. |
+
+---
+
 ## Error Scenarios
 
 Every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of four outcomes: a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. Attribution is determined by a two-step decision applied after the invocation export returns (`__kobako_eval` for `#eval`, `__kobako_run` for `#run`):
@@ -621,6 +632,7 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |
 | E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; error `type="undefined"` returned; mruby script does not rescue it | B-42 — reflection rejection |
 | E-44 | A bound Service method returns a `Binding`, `Method`, or `UnboundMethod` — directly, or extracted by the guest from a returned container Handle; the host refuses to mint a Capability Handle and the dispatch reports `type="runtime"`; the mruby script does not rescue it | B-43 — reflective gadget not wire-representable |
+| E-48 | The dispatch method name is rejected by the target's own narrowing predicate — the bound object defines `respond_to_guest?` and it answers falsy for the name (B-50); error `type="undefined"` returned; mruby script does not rescue it | B-50 — guest-surface narrowing |
 
 A guest attempting to forge a Handle from a bare integer is rejected by the guest-side wire decoder before any dispatch reaches the host; that path raises `Kobako::SandboxError` (E-10), not `ServiceError` (B-20).
 
