@@ -46,11 +46,29 @@ class TestDispatchGuestNarrowing < Minitest::Test
     def hello = "hi"
   end
 
+  # A dynamic Service resolves names through +method_missing+; its predicate
+  # permits every name. respond_to_guest? answers permission, not existence,
+  # so a permitted name that the dynamic dispatch cannot satisfy still *runs*
+  # and fails as a runtime fault — it is never the undefined narrowing fault.
+  class Dynamic
+    def respond_to_missing?(_name, _include_private = false) = true
+
+    def method_missing(name, *)
+      return "dynamic:#{name}" if name == :known
+
+      raise "no handler for #{name}"
+    end
+
+    private
+
+    def respond_to_guest?(_name) = true
+  end
+
   def setup
     @handler    = Kobako::Catalog::Handles.new
     @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
     cfg = @namespaces.define(:Cfg)
-    { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new }
+    { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
       .each { |name, service| cfg.bind(name, service) }
     @namespaces.seal!
     @yield = ->(_bytes) { raise "no block" }
@@ -104,11 +122,32 @@ class TestDispatchGuestNarrowing < Minitest::Test
     rce = dispatch("Cfg::Wide", "send", [:eval, "1"])
     assert_equal Kobako::Transport::STATUS_ERROR, rce.status,
                  "send must stay rejected by the floor even when the predicate permits every name"
+    assert_equal "undefined", rce.payload.type,
+                 "send must be rejected by the reflection floor (E-43 undefined), not incidentally by the predicate"
 
     own = dispatch("Cfg::Wide", "safe")
     assert_equal Kobako::Transport::STATUS_OK, own.status,
                  "the object's own Service method must stay reachable when its predicate permits the name"
     assert_equal "ok", own.payload
+  end
+
+  # respond_to_guest? answers permission, not existence: a permitted name is
+  # still subject to the method actually running. A dynamic method_missing
+  # Service that cannot satisfy the name fails as a runtime fault (E-11), never
+  # as the undefined narrowing fault — so a truthy predicate never disguises a
+  # failed dispatch as a narrowing rejection.
+  def test_permitted_dynamic_name_runs_rather_than_being_narrowed
+    handled = dispatch("Cfg::Dyn", "known")
+    assert_equal Kobako::Transport::STATUS_OK, handled.status,
+                 "a permitted name the dynamic Service satisfies must run and return its value"
+    assert_equal "dynamic:known", handled.payload,
+                 "the dynamic dispatch result must cross the boundary as the Service value"
+
+    boom = dispatch("Cfg::Dyn", "missing")
+    assert_equal Kobako::Transport::STATUS_ERROR, boom.status,
+                 "a permitted name the dynamic Service cannot satisfy must fail at dispatch, not be narrowed away"
+    assert_equal "runtime", boom.payload.type,
+                 "the failed dynamic dispatch must surface as a runtime fault (E-11), not the undefined narrowing fault"
   end
 
   def test_object_without_predicate_keeps_full_service_surface
