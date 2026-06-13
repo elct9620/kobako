@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/elct9620/kobako/compare/v0.10.0...v0.11.0) (2026-06-13)
+
+
+### Features
+
+* **transport:** narrow guest-reachable methods via respond_to_guest? ([7a25fe3](https://github.com/elct9620/kobako/commit/7a25fe3b440b523b8a692b7601d08877b1305b0d))
+
 ## [0.10.0](https://github.com/elct9620/kobako/compare/v0.9.2...v0.10.0) (2026-06-12)
 
 
