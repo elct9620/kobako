@@ -285,7 +285,7 @@ Each request holds one pooled Sandbox exclusively for the duration of its block;
 
 ## Behavior
 
-The per-anchor behavior table (Initial State → Operation → Result / Final State) for B-01..B-50 and the Error Scenarios subsection covering E-01..E-48 are specified in detail in [`docs/behavior.md`](docs/behavior.md). The decisions below govern those behaviors; consult the linked document for each anchor's full Initial State / Operation / Result / Notes.
+The per-anchor behavior specifications (Initial State → Operation → Result / Final State) for B-01..B-50 and the Error Scenarios covering E-01..E-48 live in per-aspect files under `docs/behavior/`, indexed by the [`docs/behavior.md`](docs/behavior.md) façade and listed per grouping below. The decisions below govern those behaviors; consult the linked file for each anchor's full Initial State / Operation / Result.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
@@ -298,30 +298,30 @@ The per-anchor behavior table (Initial State → Operation → Result / Final St
 
 **Anchor groupings.** The behavior anchors group as follows:
 
-| Anchors | Cover |
-|---------|-------|
-| B-01..B-06 | Sandbox construction, `#eval` invocation lifecycle, and output capture |
-| B-07..B-11 | Namespace / Member registration |
-| B-12..B-21 | Guest-initiated Transport dispatch and `Catalog::Handles` lifecycle |
-| B-22 | Per-Thread isolation |
-| B-23..B-30 | Block / Yield re-entry |
-| B-31 | `#run` entrypoint dispatch |
-| B-32..B-33 | `#preload` registration (both `code:` and `binary:` forms) and snippet-table sealing |
-| B-34 | `#run` host→guest auto-wrap of non-wire-representable arguments into Capability Handles |
-| B-35 | Per-last-invocation usage observability via `#usage` |
-| B-36 | Guest-side `respond_to?` probing on Member / Handle proxies |
-| B-37 | Guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object |
-| B-38 | The guest's inability to construct a Member proxy (`<Namespace>::<Member>.new` / `.allocate` raise `NoMethodError`, attributed via E-04) |
-| B-39 | The same construction block extended to the `Kobako::Handle` proxy |
-| B-40 | The host's ABI-version validation of the Guest Binary at construction |
-| B-41 | Guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary |
-| B-42..B-44 | Host-authoritative rejection of Ruby's ambient reflection / eval surface at guest→host dispatch (with a callable allowlist for `Proc` / `Method` targets), the non-wire-representability of reflective gadget objects (`Binding` / `Method` / `UnboundMethod`), and the non-authoritative guest-side mirror of that rejection |
-| B-45 | The host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects |
-| B-46..B-48 | `Kobako::Pool` — construction with forwarded Sandbox keywords and per-Sandbox setup block, `#with` checkout / checkin with blocking wait, and reachability-tied teardown |
-| B-49 | Every invocation begins from the canonical boot state — the deterministic post-boot interpreter state, optionally baked into the Guest Binary at build time |
-| B-50 | A bound target's opt-in narrowing of its own guest-reachable method surface via the `respond_to_guest?` predicate — opaque when it denies every name, an allow-list when it permits a subset — composed beneath the B-42 reflection floor |
+| Anchors | Cover | Specification |
+|---------|-------|---------------|
+| B-01..B-06 | Sandbox construction, `#eval` invocation lifecycle, and output capture | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
+| B-07..B-11 | Namespace / Member registration | [`behavior/registration.md`](docs/behavior/registration.md) |
+| B-12..B-21 | Guest-initiated Transport dispatch and `Catalog::Handles` lifecycle | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
+| B-22 | Per-Thread isolation | [`behavior/runtime.md`](docs/behavior/runtime.md) |
+| B-23..B-30 | Block / Yield re-entry | [`behavior/yield.md`](docs/behavior/yield.md) |
+| B-31 | `#run` entrypoint dispatch | [`behavior/invocation.md`](docs/behavior/invocation.md) |
+| B-32..B-33 | `#preload` registration (both `code:` and `binary:` forms) and snippet-table sealing | [`behavior/invocation.md`](docs/behavior/invocation.md) |
+| B-34 | `#run` host→guest auto-wrap of non-wire-representable arguments into Capability Handles | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
+| B-35 | Per-last-invocation usage observability via `#usage` | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
+| B-36 | Guest-side `respond_to?` probing on Member / Handle proxies | [`behavior/security.md`](docs/behavior/security.md) |
+| B-37 | Guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
+| B-38 | The guest's inability to construct a Member proxy (`<Namespace>::<Member>.new` / `.allocate` raise `NoMethodError`, attributed via E-04) | [`behavior/security.md`](docs/behavior/security.md) |
+| B-39 | The same construction block extended to the `Kobako::Handle` proxy | [`behavior/security.md`](docs/behavior/security.md) |
+| B-40 | The host's ABI-version validation of the Guest Binary at construction | [`behavior/runtime.md`](docs/behavior/runtime.md) |
+| B-41 | Guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary | [`behavior/security.md`](docs/behavior/security.md) |
+| B-42..B-44 | Host-authoritative rejection of Ruby's ambient reflection / eval surface at guest→host dispatch (with a callable allowlist for `Proc` / `Method` targets), the non-wire-representability of reflective gadget objects (`Binding` / `Method` / `UnboundMethod`), and the non-authoritative guest-side mirror of that rejection | [`behavior/security.md`](docs/behavior/security.md) |
+| B-45 | The host's WASI-boundary denial of ambient wall-clock time and entropy that makes guest execution deterministic but for values a Service injects | [`behavior/security.md`](docs/behavior/security.md) |
+| B-46..B-48 | `Kobako::Pool` — construction with forwarded Sandbox keywords and per-Sandbox setup block, `#with` checkout / checkin with blocking wait, and reachability-tied teardown | [`behavior/runtime.md`](docs/behavior/runtime.md) |
+| B-49 | Every invocation begins from the canonical boot state — the deterministic post-boot interpreter state, optionally baked into the Guest Binary at build time | [`behavior/runtime.md`](docs/behavior/runtime.md) |
+| B-50 | A bound target's opt-in narrowing of its own guest-reachable method surface via the `respond_to_guest?` predicate — opaque when it denies every name, an allow-list when it permits a subset — composed beneath the B-42 reflection floor | [`behavior/security.md`](docs/behavior/security.md) |
 
-Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError`:
+Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError` (all detailed in [`behavior/errors.md`](docs/behavior/errors.md)):
 
 | Error class | Anchors |
 |-------------|---------|
@@ -336,7 +336,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in [`docs/behavior.md`](docs/behavior.md) per Naming Principle N-8. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/`, indexed by the [`docs/behavior.md`](docs/behavior.md) façade, per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 
