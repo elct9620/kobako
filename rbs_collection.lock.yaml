@@ -10,7 +10,7 @@ gems:
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
 - name: beni
-  version: 0.6.1
+  version: 0.7.0
   source:
     type: rubygems
 - name: fileutils

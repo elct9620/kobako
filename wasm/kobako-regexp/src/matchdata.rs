@@ -37,7 +37,8 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
         .class_get(c"MatchData")
         .expect("MatchData is defined at gem init");
     let md = cls.data_wrap(mrb, state, &MATCH_TYPE);
-    md.iv_set(mrb, mrb.intern_cstr(c"@regexp"), regexp);
+    // Fresh MatchData, never frozen — storing `@regexp` cannot raise.
+    let _ = md.iv_set(mrb, mrb.intern_cstr(c"@regexp"), regexp);
     md
 }
 
@@ -115,7 +116,9 @@ macro_rules! state_or_nil {
 /// did not participate.
 fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
     match state.groups.get(index).copied().flatten() {
-        Some((begin, end)) => mrb.str_new(&state.subject.as_bytes()[begin..end]),
+        Some((begin, end)) => mrb
+            .str_new(&state.subject.as_bytes()[begin..end])
+            .as_value(),
         None => Value::nil(),
     }
 }
@@ -149,13 +152,13 @@ fn md_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::nil());
     };
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    let array = to_a(mrb, state).as_value();
+    let array = to_a(mrb, state)?.as_value();
     if let [arg] = args.as_slice() {
         if let Some(index) = numeric_index(mrb, state, *arg)? {
-            return Ok(array.call(mrb, c"[]", &[index.into_value(mrb)]));
+            return array.funcall(mrb, c"[]", &[index.into_value(mrb)]);
         }
     }
-    Ok(array.call(mrb, c"[]", &args))
+    array.funcall(mrb, c"[]", &args)
 }
 
 /// The byte span the begin/end/offset argument names, or `None` when the
@@ -197,61 +200,70 @@ fn md_offset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let pair = mrb.ary_new();
     match group_at(mrb, state, mrb.get_args::<format::O>())? {
         Some((begin, end)) => {
-            pair.push(mrb, (begin as i32).into_value(mrb));
-            pair.push(mrb, (end as i32).into_value(mrb));
+            pair.push(mrb, (begin as i32).into_value(mrb))?;
+            pair.push(mrb, (end as i32).into_value(mrb))?;
         }
         None => {
-            pair.push(mrb, Value::nil());
-            pair.push(mrb, Value::nil());
+            pair.push(mrb, Value::nil())?;
+            pair.push(mrb, Value::nil())?;
         }
     }
     Ok(pair.as_value())
 }
 
-fn md_captures(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
+fn md_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
     let captures = mrb.ary_new();
     for index in 1..state.groups.len() {
-        captures.push(mrb, group_str(mrb, state, index));
+        captures.push(mrb, group_str(mrb, state, index))?;
     }
-    captures.as_value()
+    Ok(captures.as_value())
 }
 
-fn md_named_captures(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    let symbolize = symbolize_names_requested(mrb);
+fn md_named_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
+    let symbolize = symbolize_names_requested(mrb)?;
     let map = mrb.hash_new();
     for (name, index) in &state.names {
-        let key = mrb.str_new(name.as_bytes());
+        let key = mrb.str_new(name.as_bytes()).as_value();
         let key = if symbolize {
-            key.call(mrb, c"to_sym", &[])
+            key.funcall(mrb, c"to_sym", &[])?
         } else {
             key
         };
-        map.set(mrb, key, group_str(mrb, state, *index));
+        map.set(mrb, key, group_str(mrb, state, *index))?;
     }
-    map.as_value()
+    Ok(map.as_value())
 }
 
 /// Read the optional `symbolize_names:` keyword. mruby passes it as a trailing
 /// option Hash; a truthy value (Ruby semantics: anything but nil/false) turns
 /// the keys into Symbols, as in MRI.
-fn symbolize_names_requested(mrb: &Mrb) -> bool {
+fn symbolize_names_requested(mrb: &Mrb) -> Result<bool, Error> {
     let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
     let Some(options) = args.last().copied().filter(|arg| arg.is_hash()) else {
-        return false;
+        return Ok(false);
     };
-    let key = mrb.str_new(b"symbolize_names").call(mrb, c"to_sym", &[]);
-    options.call(mrb, c"[]", &[key]).to_bool()
+    let key = mrb
+        .str_new(b"symbolize_names")
+        .as_value()
+        .funcall(mrb, c"to_sym", &[])?;
+    Ok(options.funcall(mrb, c"[]", &[key])?.to_bool())
 }
 
-fn md_names(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
+fn md_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
     let names = mrb.ary_new();
     for (name, _) in &state.names {
-        names.push(mrb, mrb.str_new(name.as_bytes()));
+        names.push(mrb, mrb.str_new(name.as_bytes()).as_value())?;
     }
-    names.as_value()
+    Ok(names.as_value())
 }
 
 fn md_size(mrb: &Mrb, self_: Value) -> Value {
@@ -262,42 +274,44 @@ fn md_size(mrb: &Mrb, self_: Value) -> Value {
 fn md_pre_match(mrb: &Mrb, self_: Value) -> Value {
     let state = state_or_nil!(mrb, self_);
     match state.groups.first().copied().flatten() {
-        Some((begin, _)) => mrb.str_new(&state.subject.as_bytes()[..begin]),
-        None => mrb.str_new(b""),
+        Some((begin, _)) => mrb.str_new(&state.subject.as_bytes()[..begin]).as_value(),
+        None => mrb.str_new(b"").as_value(),
     }
 }
 
 fn md_post_match(mrb: &Mrb, self_: Value) -> Value {
     let state = state_or_nil!(mrb, self_);
     match state.groups.first().copied().flatten() {
-        Some((_, end)) => mrb.str_new(&state.subject.as_bytes()[end..]),
-        None => mrb.str_new(b""),
+        Some((_, end)) => mrb.str_new(&state.subject.as_bytes()[end..]).as_value(),
+        None => mrb.str_new(b"").as_value(),
     }
 }
 
 fn md_string(mrb: &Mrb, self_: Value) -> Value {
     let state = state_or_nil!(mrb, self_);
-    mrb.str_new(state.subject.as_bytes())
+    mrb.str_new(state.subject.as_bytes()).as_value()
 }
 
 fn md_regexp(mrb: &Mrb, self_: Value) -> Value {
     self_.iv_get(mrb, mrb.intern_cstr(c"@regexp"))
 }
 
-fn md_to_a(mrb: &Mrb, self_: Value) -> Value {
-    let state = state_or_nil!(mrb, self_);
-    to_a(mrb, state).as_value()
+fn md_to_a(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
+        return Ok(Value::nil());
+    };
+    Ok(to_a(mrb, state)?.as_value())
 }
 
 /// The whole match followed by each capture, as an Array of Strings (a group
 /// that did not participate is `nil`). Shared by `#to_a` and the slicing form
 /// of `#[]`.
-fn to_a(mrb: &Mrb, state: &MatchState) -> beni::Array {
+fn to_a(mrb: &Mrb, state: &MatchState) -> Result<beni::Array, Error> {
     let all = mrb.ary_new();
     for index in 0..state.groups.len() {
-        all.push(mrb, group_str(mrb, state, index));
+        all.push(mrb, group_str(mrb, state, index))?;
     }
-    all
+    Ok(all)
 }
 
 fn md_to_s(mrb: &Mrb, self_: Value) -> Value {

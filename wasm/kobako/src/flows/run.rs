@@ -183,7 +183,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
-    let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()));
+    let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()).as_value());
     // SAFETY: the cached `object_class` pointer was produced by the
     // same `mrb_state` and is GC-stable for the VM's lifetime.
     let object_value = unsafe { mrb.object_class().to_value(mrb) };
@@ -214,15 +214,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         });
     }
 
-    let target_val = object_value.const_get(mrb, target_sym);
-    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
-        // `mrb_const_get` only sets `mrb->exc` for genuinely undefined
-        // constants; the `mrb_const_defined` gate above should make
-        // this branch unreachable. If it ever fires (e.g. autoload
-        // raised), surface the underlying panic verbatim so we never
-        // silently swallow it.
-        return write_panic(panic);
-    }
+    let target_val = match object_value.const_get(mrb, target_sym) {
+        Ok(v) => v,
+        // The `const_defined` gate above makes a plain undefined-constant
+        // miss unreachable here; a surfaced error is the exotic case
+        // (e.g. an autoload hook raised). Attribute it verbatim rather
+        // than silently swallow it.
+        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+    };
 
     let call_sym = mrb.intern_cstr(c"call");
     if !target_val.respond_to(mrb, call_sym) {
@@ -276,12 +275,10 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
     }
 
-    let result_val = target_val.call_argv(mrb, call_sym, &argv);
-
-    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
-        write_panic(panic);
-        return;
-    }
+    let result_val = match target_val.funcall_argv(mrb, call_sym, &argv) {
+        Ok(v) => v,
+        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+    };
 
     let Some(codec_value) = kobako.try_codec_value(result_val) else {
         return write_panic(boot::unrepresentable_return_panic(&kobako, result_val));

@@ -13,7 +13,7 @@
 //! core module, so the `Kernel` lookup is the same idempotent call
 //! every gem uses.
 
-use beni::{format, Module, Mrb, Value};
+use beni::{format, Error, Module, Mrb, Value};
 
 /// Register the six private Kernel delegators — the gem-init step
 /// named after mruby's own `mrb_init_kernel`.
@@ -37,40 +37,44 @@ fn global(mrb: &Mrb, name: &core::ffi::CStr) -> Value {
 
 /// Shared body of the rest-args delegators: forward every positional
 /// argument to `<global>.<method>` and return its result.
-fn delegate_rest(mrb: &Mrb, target: &core::ffi::CStr, method: &core::ffi::CStr) -> Value {
+fn delegate_rest(
+    mrb: &Mrb,
+    target: &core::ffi::CStr,
+    method: &core::ffi::CStr,
+) -> Result<Value, Error> {
     // Copy out of the VM-stack arg window before the funcall can
     // reallocate it.
     let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    global(mrb, target).call(mrb, method, &argv)
+    global(mrb, target).funcall(mrb, method, &argv)
 }
 
-fn kernel_print(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_print(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     delegate_rest(mrb, c"$stdout", c"print")
 }
 
-fn kernel_puts(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_puts(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     delegate_rest(mrb, c"$stdout", c"puts")
 }
 
-fn kernel_printf(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_printf(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     delegate_rest(mrb, c"$stdout", c"printf")
 }
 
-fn kernel_p(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_p(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     delegate_rest(mrb, c"$stdout", c"p")
 }
 
 /// `Kernel#warn` routes through `$stderr.puts` — symmetric with the
 /// `$stdout` delegators above.
-fn kernel_warn(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_warn(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     delegate_rest(mrb, c"$stderr", c"puts")
 }
 
 /// `Kernel#putc` returns `nil`, not the argument — pinned by
 /// mruby-io's `mrblib/kernel.rb`; the IO-level `IO#putc` does return
 /// the original argument, and this delegator deliberately drops it.
-fn kernel_putc(mrb: &Mrb, _self: Value) -> Value {
+fn kernel_putc(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let obj = mrb.get_args::<format::O>();
-    global(mrb, c"$stdout").call(mrb, c"putc", &[obj]);
-    Value::nil()
+    global(mrb, c"$stdout").funcall(mrb, c"putc", &[obj])?;
+    Ok(Value::nil())
 }

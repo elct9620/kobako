@@ -240,7 +240,9 @@ fn encode_error_response_from_exception(
         }
     };
     let message = {
-        let msg_val = exc.call(mrb, c"message", &[]);
+        let msg_val = exc
+            .funcall(mrb, c"message", &[])
+            .unwrap_or(beni::Value::nil());
         let m = msg_val.to_string(mrb);
         if m.is_empty() {
             class_name.clone()

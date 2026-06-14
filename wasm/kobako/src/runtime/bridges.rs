@@ -239,12 +239,12 @@ pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// `super::Kobako::set_handle_id`.
-pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Value {
+pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Result<Value, beni::Error> {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
     let id_val = mrb.get_args::<beni::format::O>();
-    kobako.set_handle_id(self_, id_val);
-    Value::zeroed()
+    kobako.set_handle_id(self_, id_val)?;
+    Ok(Value::zeroed())
 }
 
 /// `Kobako::Handle#method_missing(name, *args)` C bridge — instance

@@ -263,13 +263,16 @@ impl Kobako {
     /// Return the number of elements in an mruby Array or Hash by
     /// calling `.length` and unboxing the resulting Fixnum directly.
     /// Used wherever a collection length is needed without a direct
-    /// FFI binding for `mrb_ary_len`. Returns 0 when `.length` does
-    /// not yield a Fixnum — the mruby core implementations always do,
-    /// so non-Fixnum here signals a user-overridden `length` returning
-    /// nonsense, and callers see "empty collection" rather than a panic.
+    /// FFI binding for `mrb_ary_len`. Returns 0 when `.length` raises
+    /// or does not yield a Fixnum — the mruby core implementations
+    /// always return a Fixnum, so either signals a user-overridden
+    /// `length`, and this diagnostic helper reads "empty collection"
+    /// rather than propagating into the panic it is helping build.
     pub fn collection_len(&self, col: Value) -> usize {
         use beni::FromValue;
-        let len_val = col.call(self.mrb(), c"length", &[]);
+        let Ok(len_val) = col.funcall(self.mrb(), c"length", &[]) else {
+            return 0;
+        };
         let Some(len) = i32::from_value(len_val) else {
             return 0;
         };
@@ -292,7 +295,9 @@ impl Kobako {
     /// `nil`); fall back to an empty vec so the Panic envelope still
     /// serializes cleanly.
     pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
-        let bt_val = exc_val.call(self.mrb(), c"backtrace", &[]);
+        let Ok(bt_val) = exc_val.funcall(self.mrb(), c"backtrace", &[]) else {
+            return Vec::new();
+        };
         if bt_val.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
@@ -323,7 +328,9 @@ impl Kobako {
         // shim behind `RClass::to_value` reuses mruby's own boxing
         // logic.
         let object_value = unsafe { self.mrb().object_class().to_value(self.mrb()) };
-        let consts = object_value.call(self.mrb(), c"constants", &[]);
+        let Ok(consts) = object_value.funcall(self.mrb(), c"constants", &[]) else {
+            return Vec::new();
+        };
         if consts.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
@@ -340,9 +347,9 @@ impl Kobako {
     /// Store `id_val` into a fresh `Kobako::Handle` instance's
     /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
     /// C bridge.
-    pub fn set_handle_id(&self, target: Value, id_val: Value) {
+    pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
         let sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
-        target.iv_set(self.mrb(), sym, id_val);
+        target.iv_set(self.mrb(), sym, id_val)
     }
 
     /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's

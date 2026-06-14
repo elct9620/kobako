@@ -275,6 +275,20 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
     if exc_val.is_nil() {
         return None;
     }
+    let panic = panic_from_exception(mrb, kobako, exc_val);
+    mrb.clear_exc();
+    Some(panic)
+}
+
+/// Build a Panic envelope from an mruby exception value — its class
+/// name, message, and backtrace, with `origin` chosen by
+/// `origin_for_class`. Shared by `take_pending_panic` (the
+/// `mrb->exc`-set path a source / bytecode load leaves) and
+/// `panic_from_error` (the `Err` a protected funcall returns). The
+/// `message` accessor itself raising degrades to the class name rather
+/// than recursing into another panic.
+#[cfg(mruby_linked)]
+fn panic_from_exception(mrb: &Mrb, kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let class_name = {
         let cn = exc_val.classname(mrb);
         if cn.is_empty() {
@@ -284,7 +298,9 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         }
     };
     let message = {
-        let msg_val = exc_val.call(mrb, c"message", &[]);
+        let msg_val = exc_val
+            .funcall(mrb, c"message", &[])
+            .unwrap_or(beni::Value::nil());
         let m = msg_val.to_string(mrb);
         if m.is_empty() {
             class_name.clone()
@@ -293,14 +309,30 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
         }
     };
     let backtrace = kobako.extract_backtrace(exc_val);
-    mrb.clear_exc();
-    Some(Panic {
+    Panic {
         origin: origin_for_class(&class_name).into(),
         class: class_name,
         message,
         backtrace,
         details: None,
-    })
+    }
+}
+
+/// Fold a `beni::Error` a protected funcall returns into a Panic
+/// envelope. A raised Ruby exception reuses `panic_from_exception`; a
+/// Rust-side `Error::Panic` becomes a sandbox-origin `RuntimeError`.
+#[cfg(mruby_linked)]
+pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
+    match err {
+        beni::Error::Exception(exc) => panic_from_exception(kobako.mrb(), kobako, exc),
+        beni::Error::Panic(message) => Panic {
+            origin: "sandbox".into(),
+            class: "RuntimeError".into(),
+            message,
+            backtrace: Vec::new(),
+            details: None,
+        },
+    }
 }
 
 #[cfg(test)]

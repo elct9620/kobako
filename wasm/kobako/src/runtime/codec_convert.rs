@@ -57,7 +57,9 @@ impl Kobako {
         let keys_len = self.collection_len(keys_ary.as_value());
         for i in 0..keys_len {
             let key_val = keys_ary.entry(i as isize);
-            let val = hash.get(self.mrb(), key_val);
+            // A hostile Hash subclass whose `[]` raises reads as `nil`
+            // for that key rather than faulting this marshalling helper.
+            let val = hash.get(self.mrb(), key_val).unwrap_or(Value::nil());
             out.push((key_val.to_string(self.mrb()), self.to_codec_value(val)));
         }
     }
@@ -141,7 +143,9 @@ impl Kobako {
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
             let key = keys_ary.entry(i as isize);
-            let v = hash.get(self.mrb(), key);
+            // As in `extract_hash_kwargs`: a raising `[]` reads as `nil`
+            // rather than faulting the recursive converter.
+            let v = hash.get(self.mrb(), key).unwrap_or(Value::nil());
             pairs.push((convert(self, key, depth + 1), convert(self, v, depth + 1)));
         }
         pairs
@@ -301,24 +305,32 @@ impl Kobako {
             }
             CodecValue::Float(f) => f.into_value(mrb),
             CodecValue::Str(s) => match std::ffi::CString::new(s.as_str()) {
-                Ok(cs) => mrb.str_new_cstr(&cs),
-                Err(_) => mrb.str_new(s.as_bytes()),
+                Ok(cs) => mrb.str_new_cstr(&cs).as_value(),
+                Err(_) => mrb.str_new(s.as_bytes()).as_value(),
             },
             CodecValue::Handle(id) => self
                 .handle_class
-                .obj_new(mrb, &[(id as i32).into_value(mrb)]),
-            CodecValue::Bin(bytes) => mrb.str_new(&bytes),
+                .obj_new(mrb, &[(id as i32).into_value(mrb)])
+                // `Kobako::Handle#initialize` only stores an ivar on the
+                // fresh instance and cannot raise; a lost Handle degrades
+                // to `nil` rather than threading a Result through here.
+                .unwrap_or(Value::nil()),
+            CodecValue::Bin(bytes) => mrb.str_new(&bytes).as_value(),
             CodecValue::Sym(name) => {
                 // Intern via String#to_sym — mruby's mrb_symbol_value
                 // bit-layout is build-private (we use
                 // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
-                mrb.str_new(name.as_bytes()).call(mrb, c"to_sym", &[])
+                // `to_sym` on this fresh String cannot raise; degrade to
+                // the String itself rather than thread a Result here.
+                let s = mrb.str_new(name.as_bytes()).as_value();
+                s.funcall(mrb, c"to_sym", &[]).unwrap_or(s)
             }
             CodecValue::Array(items) => {
                 let ary = mrb.ary_new();
                 for item in items {
                     let elem = self.to_mrb_value(item);
-                    ary.push(mrb, elem);
+                    // Fresh array, never frozen — the push cannot raise.
+                    let _ = ary.push(mrb, elem);
                 }
                 ary.as_value()
             }
@@ -327,7 +339,8 @@ impl Kobako {
                 for (k, v) in pairs {
                     let key = self.to_mrb_value(k);
                     let val = self.to_mrb_value(v);
-                    hash.set(mrb, key, val);
+                    // Fresh hash, never frozen — the set cannot raise.
+                    let _ = hash.set(mrb, key, val);
                 }
                 hash.as_value()
             }

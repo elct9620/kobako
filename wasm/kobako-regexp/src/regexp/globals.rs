@@ -47,17 +47,17 @@ fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
     set_global(
         mrb,
         c"$&",
-        whole.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
+        whole.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]).as_value()),
     );
     set_global(
         mrb,
         c"$`",
-        whole.map(|(s, _)| mrb.str_new(&subject.as_bytes()[..s])),
+        whole.map(|(s, _)| mrb.str_new(&subject.as_bytes()[..s]).as_value()),
     );
     set_global(
         mrb,
         c"$'",
-        whole.map(|(_, e)| mrb.str_new(&subject.as_bytes()[e..])),
+        whole.map(|(_, e)| mrb.str_new(&subject.as_bytes()[e..]).as_value()),
     );
     // $+ is the last capture group that participated (MRI semantics): the
     // highest-numbered non-nil group, nil when the pattern has no groups.
@@ -65,14 +65,14 @@ fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
     set_global(
         mrb,
         c"$+",
-        last_group.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e])),
+        last_group.map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]).as_value()),
     );
     for (i, name) in NUMBERED.iter().enumerate() {
         let value = groups
             .get(i + 1)
             .copied()
             .flatten()
-            .map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]));
+            .map(|(s, e)| mrb.str_new(&subject.as_bytes()[s..e]).as_value());
         set_global(mrb, name, value);
     }
 }

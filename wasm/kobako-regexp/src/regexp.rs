@@ -334,7 +334,7 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if md.is_nil() {
         Ok(Value::nil())
     } else {
-        Ok(md.call(mrb, c"begin", &[Value::from_int(mrb, 0)]))
+        md.funcall(mrb, c"begin", &[Value::from_int(mrb, 0)])
     }
 }
 
@@ -355,7 +355,7 @@ fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 fn rx_source(mrb: &Mrb, self_: Value) -> Value {
     match self_.data_get(mrb, &REGEXP_TYPE) {
-        Some(state) => mrb.str_new(state.source.as_bytes()),
+        Some(state) => mrb.str_new(state.source.as_bytes()).as_value(),
         None => Value::nil(),
     }
 }
@@ -377,32 +377,36 @@ fn rx_casefold(mrb: &Mrb, self_: Value) -> Value {
 /// `Regexp#named_captures` — a Hash mapping each capture name to the list of
 /// group numbers carrying it (`{name => [index]}`). Names are listed in
 /// declaration order; a same-named group appends its index.
-fn rx_named_captures(mrb: &Mrb, self_: Value) -> Value {
+fn rx_named_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
-        return Value::nil();
+        return Ok(Value::nil());
     };
     let map = mrb.hash_new();
     for (name, indexes) in named_groups(state) {
         let array = mrb.ary_new();
         for index in indexes {
-            array.push(mrb, Value::from_int(mrb, index as _));
+            array.push(mrb, Value::from_int(mrb, index as _))?;
         }
-        map.set(mrb, mrb.str_new(name.as_bytes()), array.as_value());
+        map.set(
+            mrb,
+            mrb.str_new(name.as_bytes()).as_value(),
+            array.as_value(),
+        )?;
     }
-    map.as_value()
+    Ok(map.as_value())
 }
 
 /// `Regexp#names` — the capture names in declaration order (the keys of
 /// `#named_captures`).
-fn rx_names(mrb: &Mrb, self_: Value) -> Value {
+fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
-        return Value::nil();
+        return Ok(Value::nil());
     };
     let names = mrb.ary_new();
     for (name, _) in named_groups(state) {
-        names.push(mrb, mrb.str_new(name.as_bytes()));
+        names.push(mrb, mrb.str_new(name.as_bytes()).as_value())?;
     }
-    names.as_value()
+    Ok(names.as_value())
 }
 
 /// Capture names paired with their group numbers, in declaration order; a
@@ -431,6 +435,7 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
         )
         .as_bytes(),
     )
+    .as_value()
 }
 
 fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
@@ -447,7 +452,7 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     } else {
         format!("(?{on}-{off}:{body})")
     };
-    mrb.str_new(rendered.as_bytes())
+    mrb.str_new(rendered.as_bytes()).as_value()
 }
 
 fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
@@ -489,7 +494,9 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
             "wrong number of arguments (given 0, expected 1)",
         ));
     }
-    Ok(mrb.str_new(render::escape_str(&args[0].to_string(mrb)).as_bytes()))
+    Ok(mrb
+        .str_new(render::escape_str(&args[0].to_string(mrb)).as_bytes())
+        .as_value())
 }
 
 /// Run the pattern against `subject` from byte `pos`, building a
