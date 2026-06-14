@@ -320,6 +320,7 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 | B-46..B-48 | `Kobako::Pool` — construction with forwarded Sandbox keywords and per-Sandbox setup block, `#with` checkout / checkin with blocking wait, and reachability-tied teardown | [`behavior/runtime.md`](docs/behavior/runtime.md) |
 | B-49 | Every invocation begins from the canonical boot state — the deterministic post-boot interpreter state, optionally baked into the Guest Binary at build time | [`behavior/runtime.md`](docs/behavior/runtime.md) |
 | B-50 | A bound target's opt-in narrowing of its own guest-reachable method surface via the `respond_to_guest?` predicate — opaque when it denies every name, an allow-list when it permits a subset — composed beneath the B-42 reflection floor | [`behavior/security.md`](docs/behavior/security.md) |
+| B-51 | A capability gem's invocation of a guest-supplied callback (IO `to_s` / `inspect` coercion, regexp substitution block / hash `[]`) propagates a raise as an ordinary guest exception attributed via E-04, never an FFI-boundary Wasm trap | [`behavior/security.md`](docs/behavior/security.md) |
 
 Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError` (all detailed in [`behavior/errors.md`](docs/behavior/errors.md)):
 
@@ -336,7 +337,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-50 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-51 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
 
 ### Terminology
 

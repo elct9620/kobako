@@ -51,7 +51,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
-| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) | B-02, B-03 — script execution |
+| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) — including a raise inside a guest callback a capability gem invokes (B-51) | B-02, B-03 — script execution; B-51 — capability-gem callback raise |
 | E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
 | E-06 | The invocation's return value has no wire representation — the `#eval` last expression or the `#run` entrypoint's `#call` return is a raw mruby `Object` with no MessagePack encoding, or nests beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire-codec.md`](../wire-codec.md) § Structural Nesting Depth); outcome tag `0x01` is present but the value field fails to decode | B-06, B-31 — return value semantics |
 | E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1); raised as the `Kobako::HandlerExhaustedError` subclass | B-21 — Handle counter exhaustion |
