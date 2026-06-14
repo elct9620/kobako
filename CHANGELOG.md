@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/elct9620/kobako/compare/v0.11.0...v0.11.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* **guest:** adopt beni 0.7.0 protected dispatch (B-51) ([c61655b](https://github.com/elct9620/kobako/commit/c61655bcead336d32a4b6ff7ff1b34c21cdfccd9))
+
 ## [0.11.0](https://github.com/elct9620/kobako/compare/v0.10.0...v0.11.0) (2026-06-13)
 
 
