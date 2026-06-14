@@ -9,6 +9,10 @@ name: Release Crate
 # the gem's — `workflow_dispatch` defaults `push` to false, so a bare
 # dispatch is a `cargo publish --dry-run` rehearsal; tick `push` to
 # publish for real.
+#
+# One publish covers the whole linked group, so a `release` event must
+# fire it exactly once. The job guard keys on the `kobako-core-v*` tag
+# alone; the other crate tags in the same group trigger nothing.
 
 on:
   workflow_dispatch:
@@ -25,6 +29,9 @@ on:
         required: false
         default: true
         type: boolean
+  release:
+    types:
+      - released
 
 permissions:
   contents: read
@@ -34,6 +41,9 @@ jobs:
   publish-crate:
     name: Publish guest crates to crates.io
     runs-on: ubuntu-latest
+    # A `release` event publishes the whole group, so accept only the
+    # representative `kobako-core-v*` tag and ignore the sibling crate tags.
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'kobako-core-') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -41,7 +51,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: ./.github/actions/setup-rust
       - name: Dry-run publish
-        if: ${{ !inputs.push }}
+        if: ${{ github.event_name != 'release' && !inputs.push }}
         working-directory: wasm
         run: '"$GITHUB_WORKSPACE/.github/scripts/publish-crates.sh" --dry-run'
       # Trusted Publishing: exchange the workflow's OIDC token for a
@@ -50,10 +60,10 @@ jobs:
       # crate's Trusted Publishing config on crates.io to name this
       # repository and workflow file.
       - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
-        if: ${{ inputs.push }}
+        if: ${{ github.event_name == 'release' || inputs.push }}
         id: auth
       - name: Publish to crates.io
-        if: ${{ inputs.push }}
+        if: ${{ github.event_name == 'release' || inputs.push }}
         working-directory: wasm
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
