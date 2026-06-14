@@ -2,7 +2,6 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "ruby",
   "last-release-sha": "5694da60b08931ea260e13025689b8d8c47d767a",
-  "group-pull-request-title-pattern": "chore${scope}: release${component} ${version}",
   "packages": {
     ".": {
       "component": "kobako",
