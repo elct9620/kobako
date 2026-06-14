@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "beni",
  "beni-sys",
@@ -191,21 +191,21 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rmp",
 ]
 
 [[package]]
 name = "kobako-io"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "beni",
 ]
 
 [[package]]
 name = "kobako-regexp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "beni",
  "fancy-regex",
