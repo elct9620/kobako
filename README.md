@@ -329,7 +329,7 @@ forwards to another Service but never reads — while a named subset becomes an 
 
 Guest code can name any `<Namespace>::<Member>` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
-trust context its own Sandbox, and see [`docs/security.md`](docs/security.md) for the rest
+trust context its own Sandbox, and see [`docs/security-model.md`](docs/security-model.md) for the rest
 as security-design concerns: validating untrusted input, default-deny external effects,
 and controlling the return surface.
 
