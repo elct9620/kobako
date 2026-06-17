@@ -18,6 +18,10 @@
 #   bench:preload_dispatch  — #9 characterization: #preload + #run
 #                             setup-once / dispatch-many path
 #                             (not in release gate).
+#   bench:dispatch_glue     — #10 characterization: GVL-held host glue
+#                             of one guest->host dispatch, isolated from
+#                             wasm. Predictive half of the GVL-impact
+#                             toolkit (#7 is the confirmation half).
 #
 # Each script writes its suite into
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
@@ -44,19 +48,16 @@ namespace :bench do
   end
 
   desc "Run concurrent characterization benchmark (#7; not in release gate)."
-  task :concurrent do
-    sh "bundle exec ruby benchmark/concurrent/threads.rb"
-  end
+  task(:concurrent) { sh "bundle exec ruby benchmark/concurrent/threads.rb" }
 
   desc "Run memory characterization benchmark (#8; not in release gate)."
-  task :memory do
-    sh "bundle exec ruby benchmark/memory.rb"
-  end
+  task(:memory) { sh "bundle exec ruby benchmark/memory.rb" }
 
   desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
-  task :preload_dispatch do
-    sh "bundle exec ruby benchmark/preload_dispatch.rb"
-  end
+  task(:preload_dispatch) { sh "bundle exec ruby benchmark/preload_dispatch.rb" }
+
+  desc "Run dispatch-glue isolation characterization (#10; not in release gate)."
+  task(:dispatch_glue) { sh "bundle exec ruby benchmark/dispatch_glue.rb" }
 end
 
 desc "Alias for bench:release — the six SPEC regression benchmarks."

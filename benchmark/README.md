@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus three characterization suites (multi-thread, per-Sandbox RSS, `#preload` + `#run` dispatch).
+Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus four characterization suites (multi-thread, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation).
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -241,6 +241,20 @@ Per-alloc cost holds 429-527 ns across four orders of magnitude — the gentle c
 
 A long-running script does not block other Threads' short `#eval` calls by hundreds of ms — host-side synchronization yields the GVL and the contending Thread interleaves. Run-to-run ratio swings 1.5-3× with scheduler quirks; the order of magnitude is the regression signal.
 
+#### Dispatch-glue isolation ([`dispatch_glue.rb`](dispatch_glue.rb))
+
+The predictive half of the GVL-impact toolkit; the Multi-Thread suite above (#7) is the confirmation half. It calls `Kobako::Transport::Dispatcher.dispatch` directly with pre-encoded Request bytes — no wasm, boundary, or guest codec in the window — to isolate `G`, the GVL-held host glue of one guest→host dispatch (decode → resolve → invoke → encode). A No-GVL design would parallelize everything *except* this glue, so the multi-core speedup ceiling for an invocation doing `k` dispatches in wall-time `T` is Amdahl-bounded by `d = k·G / T`. The Services are pure-CPU on purpose: a Service doing real I/O releases the GVL during the syscall, so its wait already overlaps today and must not count toward `G`. Captured 2026-06-17 on `58508a1`.
+
+| Case                          | `G` per dispatch | What it isolates                                     |
+|-------------------------------|------------------|------------------------------------------------------|
+| `10a-empty-call`              | 3.73 µs          | Floor: decode 5-field + path lookup + invoke + encode nil |
+| `10b-primitive-arg`           | 3.95 µs          | + one Integer arg                                    |
+| `10c-kwargs`                  | 4.62 µs          | + Symbol-keyed kwargs (ext 0x00)                     |
+| `10d-small-return-16`         | 4.28 µs          | Service returns a 16-element Array                   |
+| `10e-large-return-256`        | 10.7 µs          | 256-element Array — `G` grows with returned payload  |
+
+Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 6.8 µs/call) for the per-dispatch floor of `d`: glue 3.7 µs of a 6.8 µs roundtrip ⇒ `d ≈ 0.54`, since the remaining ~46 % (guest codec + boundary) parallelizes. So even a pure-dispatch workload has a ~1.85× multi-core ceiling, rising toward `N×` as compute per invocation grows. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
+
 #### Memory cost ([`memory.rb`](memory.rb))
 
 External RSS sampling (`ps -o rss=`) only — never reaches inside the Sandbox's mruby heap or Wasm linear memory. The granularity that capacity planning needs without violating SPEC's Non-Goal on per-invocation instrumentation.
@@ -304,6 +318,7 @@ bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
+bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.
