@@ -35,7 +35,7 @@ wasmtime-wasi = { version = "45.0.0", default-features = false, features = ["p1"
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see runtime/cache.rs); a collision would load the wrong artifact, so
 # the hash must be cryptographic.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # libc supplies geteuid for the cache-directory ownership check gating
 # the unsafe artifact deserialize (see runtime/cache.rs); std exposes a
