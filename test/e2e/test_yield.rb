@@ -58,6 +58,27 @@ class TestE2EYield < Minitest::Test
                  "the block runs once per iteration and the value flows back"
   end
 
+  def test_b28_block_body_dispatches_to_another_binding
+    # The block body itself issues a second guest→host dispatch — to a
+    # different binding that takes no block — while the first Service's
+    # yield is mid-flight. This is the load-bearing shape of a `step` /
+    # `with` capability that runs other capabilities inside its block:
+    # the inner dispatch re-enters host dispatch beneath the active
+    # Yielder, its result flows back into the block, and the block's
+    # value reaches the outer Service's yield site. The break-carrying
+    # nested variant lives in test_yield_unwind.rb.
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:A).bind(:Step, ->(name:, &blk) { "A[#{name}]:#{blk.call}" })
+    sandbox.define(:B).bind(:Fetch, ->(key) { "fetched:#{key}" })
+
+    result = sandbox.eval("A::Step.call(name: 'outer') { B::Fetch.call('k1') }")
+
+    assert_equal "A[outer]:fetched:k1", result,
+                 "B-28: a guest block may dispatch to another no-block binding " \
+                 "mid-yield; the inner result must flow back into the block and " \
+                 "on to the outer Service's yield site"
+  end
+
   def test_b24_block_raise_surfaces_to_service_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.define(:Probe).bind(:Boom, ->(&blk) { blk.call })
