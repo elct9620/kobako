@@ -31,7 +31,7 @@ use magnus::{Error as MagnusError, Ruby};
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
-use super::{setup_err, MODULE_NOT_BUILT_ERROR};
+use super::errors::{setup_err, MODULE_NOT_BUILT_ERROR};
 
 static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();

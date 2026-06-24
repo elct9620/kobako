@@ -13,8 +13,8 @@ use std::time::Instant;
 use magnus::{Error as MagnusError, Ruby};
 use wasmtime::{StoreContextMut, UpdateDeadline};
 
+use super::errors::{memory_limit_err, setup_err, timeout_err, trap_err};
 use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
-use super::{memory_limit_err, setup_err, timeout_err, trap_err};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
 /// wall-clock deadline from `Invocation` and trap with

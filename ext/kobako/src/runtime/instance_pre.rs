@@ -20,8 +20,9 @@ use wasmtime::{Caller, InstancePre, Linker};
 use wasmtime_wasi::p1;
 
 use super::cache::{cached_module, shared_engine};
+use super::errors::setup_err;
 use super::invocation::Invocation;
-use super::{dispatch, setup_err, trap};
+use super::{dispatch, trap};
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();
