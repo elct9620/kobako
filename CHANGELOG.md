@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.2](https://github.com/elct9620/kobako/compare/v0.11.1...v0.11.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **codec:** encode guest Handle args/kwargs as ext 0x01 ([bd58538](https://github.com/elct9620/kobako/commit/bd58538f4dbbf91a0927d15fd37f47abc761f8a6))
+* **codec:** refuse out-of-range inbound integers instead of saturating ([f9e9184](https://github.com/elct9620/kobako/commit/f9e91845e0f28fecbb0867d8b70c871cd1feafea))
+* **dispatch:** keep short method names intact across kwarg unpacking ([c6e4a6f](https://github.com/elct9620/kobako/commit/c6e4a6f268970c0c2d2851d3a23e3bec153dc56d))
+* **release:** drop the group PR title pattern that breaks tagging ([d797350](https://github.com/elct9620/kobako/commit/d797350953c2de82df592d3c88e44155d3f076dc))
+* **release:** scope publish triggers to each release's owning tag ([58508a1](https://github.com/elct9620/kobako/commit/58508a1e967799522b2674a989233d8619cabbc9))
+
 ## [0.11.1](https://github.com/elct9620/kobako/compare/v0.11.0...v0.11.1) (2026-06-14)
 
 
