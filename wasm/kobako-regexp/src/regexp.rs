@@ -123,7 +123,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // global so the GC keeps it alive for the invocation and frees it at close.
     let cache = mrb
         .object_class()
-        .data_wrap(mrb, CompileCache::new(), &COMPILE_CACHE_TYPE);
+        .data_wrap(mrb, CompileCache::new(), &COMPILE_CACHE_TYPE)
+        .expect("Object carries a CDATA payload by mruby's object_class exemption");
     mrb.gv_set(mrb.intern_cstr(COMPILE_CACHE_GVAR), cache);
     Ok(())
 }
@@ -209,6 +210,7 @@ fn wrap_regexp(mrb: &Mrb, regex: Rc<fancy_regex::Regex>, source: String, options
         },
         &REGEXP_TYPE,
     )
+    .expect("Regexp is data-marked at gem init")
 }
 
 /// Run `f` against the per-invocation compile cache when it is installed.

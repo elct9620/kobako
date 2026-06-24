@@ -189,7 +189,7 @@ impl Kobako {
         if let Some(f) = f64::from_value(val) {
             return CodecValue::Float(f);
         }
-        match val.classname(self.mrb()) {
+        match val.classname(self.mrb()).as_str() {
             "NilClass" => CodecValue::Nil,
             "TrueClass" => CodecValue::Bool(true),
             "FalseClass" => CodecValue::Bool(false),
@@ -255,7 +255,7 @@ impl Kobako {
         if let Some(f) = f64::from_value(val) {
             return Some(CodecValue::Float(f));
         }
-        match val.classname(self.mrb()) {
+        match val.classname(self.mrb()).as_str() {
             "NilClass" => Some(CodecValue::Nil),
             "TrueClass" => Some(CodecValue::Bool(true)),
             "FalseClass" => Some(CodecValue::Bool(false)),

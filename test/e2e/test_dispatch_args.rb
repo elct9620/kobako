@@ -35,6 +35,24 @@ class TestE2EDispatchArgs < Minitest::Test
                  "E-15: empty kwargs dispatches cleanly to a no-kwargs method (SPEC.md L1001)"
   end
 
+  # A short method name and a short kwarg key are both mruby inline symbols,
+  # which mruby unpacks through one shared per-VM name buffer. Reading the
+  # kwarg key while building the request must not corrupt the already-read
+  # method name: a +get+ dispatched with +auth:+ must arrive as +get+, not as
+  # the kwarg key truncated to the method-name length.
+  def test_short_method_name_survives_a_short_kwarg_key
+    klass = Class.new do
+      define_method(:get) { |id, auth:| "#{id}:#{auth}" }
+    end
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.define(:Http).bind(:Client, klass.new)
+
+    result = sandbox.eval('Http::Client.get("u", auth: "tok")')
+
+    assert_equal "u:tok", result,
+                 "a short method name dispatched with a short kwarg key must reach the host intact, not truncated"
+  end
+
   # transport path: the unknown-type fallback arm uses +Object#to_s+, NOT
   # +Object#inspect+. A user-defined mruby class is not in
   # +to_codec_value+'s named arms (NilClass / Bool / Integer / Float /

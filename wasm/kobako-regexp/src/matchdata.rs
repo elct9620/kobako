@@ -36,7 +36,9 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
     let cls = mrb
         .class_get(c"MatchData")
         .expect("MatchData is defined at gem init");
-    let md = cls.data_wrap(mrb, state, &MATCH_TYPE);
+    let md = cls
+        .data_wrap(mrb, state, &MATCH_TYPE)
+        .expect("MatchData is data-marked at gem init");
     // Fresh MatchData, never frozen — storing `@regexp` cannot raise.
     let _ = md.iv_set(mrb, mrb.intern_cstr(c"@regexp"), regexp);
     md

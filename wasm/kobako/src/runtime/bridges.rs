@@ -137,13 +137,13 @@ fn forward_to_dispatch(
     // Guest-side mirror of the host's reflection rejection:
     // refuse to forward an ambient reflection / eval name. Non-authoritative
     // — the host re-checks on the resolved method owner.
-    if REFLECTION_DENYLIST.contains(&method_name) {
-        return raise_reflection_blocked(kobako.mrb(), method_name);
+    if REFLECTION_DENYLIST.contains(&method_name.as_str()) {
+        return raise_reflection_blocked(kobako.mrb(), &method_name);
     }
 
     let (args, kwargs) = kobako.unpack_args_kwargs(rest);
 
-    match invoke(target, method_name, &args, &kwargs, block_given) {
+    match invoke(target, &method_name, &args, &kwargs, block_given) {
         Ok(value) => kobako.to_mrb_value(value),
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(InvokeError::Service(ex)) => unsafe { kobako.raise_service_error(&ex) },
@@ -173,14 +173,7 @@ pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
     // SAFETY: `self_` is the class receiver of a singleton-class
     // `method_missing` shim — class-tagged by mruby itself.
     let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
-    let target_str = match class.name(kobako.mrb()) {
-        Some(name) => name,
-        None => unsafe {
-            // SAFETY: bridge frame.
-            kobako.raise_transport_error(c"transport target class name is null")
-        },
-    };
-    let target = Target::Path(target_str.to_string());
+    let target = Target::Path(class.name(kobako.mrb()));
 
     forward_to_dispatch(
         kobako,
@@ -203,13 +196,11 @@ pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
     // SAFETY: `self_` is the Member class receiver of a singleton-class
     // method — class-tagged by mruby itself.
     let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
-    let message = match class.name(mrb) {
-        Some(name) => std::ffi::CString::new(format!(
-            "{name} is a Kobako Member (a dispatch target), not a constructible class"
-        ))
-        .unwrap_or_default(),
-        None => c"Kobako Member is not constructible".to_owned(),
-    };
+    let name = class.name(mrb);
+    let message = std::ffi::CString::new(format!(
+        "{name} is a Kobako Member (a dispatch target), not a constructible class"
+    ))
+    .unwrap_or_default();
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
     unsafe { nomethod.raise(mrb, &message) }
 }

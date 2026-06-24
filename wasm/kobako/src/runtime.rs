@@ -195,13 +195,13 @@ impl Kobako {
             let group_cstr = std::ffi::CString::new(group_name.as_str())
                 .map_err(|_| InstallGroupsError::NulInGroupName)?;
             let group_mod = mrb
-                .define_module(&group_cstr)
+                .define_module(group_cstr.as_c_str())
                 .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
             for member_name in members {
                 let member_cstr = std::ffi::CString::new(member_name.as_str())
                     .map_err(|_| InstallGroupsError::NulInMemberName)?;
                 group_mod
-                    .define_class(mrb, &member_cstr, self.member_class)
+                    .define_class(mrb, member_cstr.as_c_str(), self.member_class)
                     .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
             }
         }
