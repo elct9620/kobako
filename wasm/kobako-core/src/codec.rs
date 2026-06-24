@@ -377,7 +377,11 @@ fn read_bin_body(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
 }
 
 fn read_array_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
-    let mut items = Vec::with_capacity(len);
+    // Every msgpack value is at least one byte, so the element count
+    // cannot exceed the bytes remaining; cap the pre-allocation at that
+    // bound so a forged `array 32` length cannot trigger a huge eager
+    // allocation before the read loop reaches the clean `Truncated`.
+    let mut items = Vec::with_capacity(len.min(cursor.len()));
     for _ in 0..len {
         items.push(read_value_from(cursor, depth + 1)?);
     }
@@ -385,7 +389,9 @@ fn read_array_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value
 }
 
 fn read_map_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
-    let mut pairs = Vec::with_capacity(len);
+    // Same bound as `read_array_body`: a pair is at least two bytes, so
+    // `cursor.len()` is a safe upper bound on the pair count.
+    let mut pairs = Vec::with_capacity(len.min(cursor.len()));
     for _ in 0..len {
         let k = read_value_from(cursor, depth + 1)?;
         let v = read_value_from(cursor, depth + 1)?;
@@ -522,6 +528,26 @@ mod tests {
             dec.read_value(),
             Err(Error::Malformed("nesting exceeds maximum depth"))
         );
+    }
+
+    #[test]
+    fn decoder_rejects_forged_array_length_without_eager_alloc() {
+        // An `array 32` header claiming u32::MAX elements with no body
+        // must fail as a clean Truncated error — not pre-allocate a
+        // multi-gigabyte Vec and abort before the read loop runs. The
+        // element count cannot exceed the remaining bytes.
+        let bytes = [0xdd, 0xff, 0xff, 0xff, 0xff];
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(dec.read_value(), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn decoder_rejects_forged_map_length_without_eager_alloc() {
+        // Same as the array case for a `map 32` header claiming
+        // u32::MAX pairs with no body.
+        let bytes = [0xdf, 0xff, 0xff, 0xff, 0xff];
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
 
     #[test]
