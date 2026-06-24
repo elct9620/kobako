@@ -93,7 +93,7 @@ Position rules for ext 0x00:
 
 The Handle ID field carries the opaque identifier allocated by `Catalog::Handles` (→ `SPEC.md` § Wire Contract → Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
 
-ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior/dispatch.md`](behavior/dispatch.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
+ext 0x01 may appear in: Request `target` field (Handle reference form), Request `args` elements, Request `kwargs` values, Response `value` field, Result envelope `value` field, Invocation envelope `args` elements, and Invocation envelope `kwargs` values. It must not appear in any other position. The guest→host Request and host→guest Invocation envelope accept Handles at the same argument positions — `args` elements and `kwargs` values alike. Invocation envelope positions carry Handles produced by host-side auto-wrap (→ [`docs/behavior/dispatch.md`](behavior/dispatch.md) § B-34); the wire framing and ID semantics are identical to the Request / Response forms.
 
 ### ext 0x02 — Fault Envelope
 
@@ -122,7 +122,7 @@ A 5-element msgpack array with fixed field positions:
 | 0 | `target` | str (Member constant path of the form `"<Namespace>::<Member>"`, e.g. `"MyService::KV"`) or ext 0x01 (Capability Handle reference) |
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
-| 3 | `kwargs` | map (str keys; empty kwargs is encoded as empty map `0x80`, never absent) |
+| 3 | `kwargs` | map (Symbol keys as ext 0x00; values may include ext 0x01 Handles; empty kwargs is encoded as empty map `0x80`, never absent) |
 | 4 | `block_given` | bool — `true` if the guest call site supplied a block (B-23); `false` otherwise |
 
 The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.

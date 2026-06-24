@@ -49,8 +49,8 @@ and append-only across the corpus (N-8).
 | Field | Value |
 |-------|-------|
 | **Initial State** | An invocation is in progress. The guest holds a `Kobako::Handle` (mruby object) obtained from a prior dispatch response (B-14) or from a `#run` argument auto-wrapped by the host (B-34) in the same invocation. The Handle's internal ID resolves to a live entry in `Catalog::Handles`. |
-| **Operation** | Guest code invokes a method on a Member and passes the `Kobako::Handle` as one of the arguments (e.g., `Store.put(handle, value)`). |
-| **Result / Final State** | The Host Gem deserializes the Handle from the wire representation, looks up its ID in the Catalog::Handles, and passes the resolved Ruby object as the corresponding argument to the host Service method. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. The guest holds a `Kobako::Handle` mruby proxy, never the raw integer ID; an ID with no live entry surfaces per E-13. |
+| **Operation** | Guest code invokes a method on a Member and passes the `Kobako::Handle` as an argument — as a positional argument (e.g., `Store.put(handle, value)`), as a keyword-argument value (e.g., `Http.get(url, cred: handle)`), or any mix of the two in one call. |
+| **Result / Final State** | The Host Gem deserializes each Handle from the wire representation, looks up its ID in the Catalog::Handles, and passes the resolved Ruby object as the corresponding positional or keyword argument to the host Service method. Positional and keyword Handle arguments are treated identically: both encode as an `ext 0x01` Capability Handle and both resolve back to the live host object before the call reaches `public_send`. The Service method receives the actual Ruby object, not an ID or token. The method executes and its return value follows the normal primitive (B-13) or stateful (B-14) path. The guest holds a `Kobako::Handle` mruby proxy, never the raw integer ID; an ID with no live entry surfaces per E-13. |
 
 ---
 
