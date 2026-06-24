@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.5.1...kobako-regexp-v0.5.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **dispatch:** keep short method names intact across kwarg unpacking ([c6e4a6f](https://github.com/elct9620/kobako/commit/c6e4a6f268970c0c2d2851d3a23e3bec153dc56d))
+
 ## [0.5.1](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.5.0...kobako-regexp-v0.5.1) (2026-06-14)
 
 

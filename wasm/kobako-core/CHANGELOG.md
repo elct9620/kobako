@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/elct9620/kobako/compare/kobako-core-v0.5.1...kobako-core-v0.5.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **codec:** cap decoder pre-allocation to the available bytes ([ff4cb37](https://github.com/elct9620/kobako/commit/ff4cb37a7314b95f151c1bf4b7dbb2eff1e775e6))
+* **codec:** cap the guest decoder's nesting depth ([71d75ee](https://github.com/elct9620/kobako/commit/71d75eece7cc5648025581cf56657e06c1946352))
+
 ## [0.5.1](https://github.com/elct9620/kobako/compare/kobako-core-v0.5.0...kobako-core-v0.5.1) (2026-06-14)
 
 

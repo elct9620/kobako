@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.2](https://github.com/elct9620/kobako/compare/kobako-rs-v0.5.1...kobako-rs-v0.5.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* **codec:** cap the guest decoder's nesting depth ([71d75ee](https://github.com/elct9620/kobako/commit/71d75eece7cc5648025581cf56657e06c1946352))
+* **codec:** encode guest Handle args/kwargs as ext 0x01 ([bd58538](https://github.com/elct9620/kobako/commit/bd58538f4dbbf91a0927d15fd37f47abc761f8a6))
+* **codec:** refuse out-of-range inbound integers instead of saturating ([f9e9184](https://github.com/elct9620/kobako/commit/f9e91845e0f28fecbb0867d8b70c871cd1feafea))
+* **dispatch:** keep short method names intact across kwarg unpacking ([c6e4a6f](https://github.com/elct9620/kobako/commit/c6e4a6f268970c0c2d2851d3a23e3bec153dc56d))
+
 ## [0.5.1](https://github.com/elct9620/kobako/compare/kobako-rs-v0.5.0...kobako-rs-v0.5.1) (2026-06-14)
 
 
