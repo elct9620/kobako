@@ -33,6 +33,12 @@ The following 12 entries constitute the complete set of MessagePack types recogn
 
 ---
 
+## Integer Range
+
+The Host Gem represents `Integer` at arbitrary precision; the Guest Binary represents it as a signed 32-bit value. An inbound integer outside the guest's signed 32-bit range therefore has no faithful guest representation. On every host→guest path — a `#run` / `#eval` argument, a yield-block argument, or a dispatch return value — the guest refuses such a value rather than saturating it to the nearest bound, so neither side ever sees a different number than the wire carried. The refusal travels each path the way that path already reports a malformed payload: a `#run` / `#eval` argument fails the invocation as a guest-entry envelope rejection (E-26); a yield-block argument fails the yield round-trip; and a dispatch return value raises in the guest code that made the call. The reverse direction never overflows: a guest `Integer` always fits the host's arbitrary-precision `Integer`.
+
+---
+
 ## Structural Nesting Depth
 
 Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit. Every decoder enforces it: the Host Gem's codec library on its decode path, and the Guest Binary's decoder on every inbound payload, so a host→guest value nesting deeper than the bound fails as a clean wire error rather than overflowing the wasm stack. The Guest Binary encoder caps its recursive walk at the same depth: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as E-06 / E-22 (→ [`behavior/errors.md`](behavior/errors.md)) rather than a hard trap. A `#run` argument that nests deeper is encoded best-effort — the over-deep subtree is rendered through `Object#to_s` at the cap, the same fallback an unknown argument type takes — so the dispatch stays bounded rather than trapping. The guest cap and the host library's limit sit at the same depth; a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
