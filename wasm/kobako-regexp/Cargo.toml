@@ -21,7 +21,7 @@ categories = ["wasm"]
 [dependencies]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus the
 # CDATA / class-definition seams the Regexp and MatchData surfaces use.
-beni = "0.7.0"
+beni = "0.8.0"
 
 # Pure-Rust regexp engine — the `regex` crate plus the backtracking
 # layer (backreferences, look-around) Ruby patterns reach for. `std`
