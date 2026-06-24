@@ -37,7 +37,7 @@
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
-mod codec_convert;
+pub(crate) mod codec_convert;
 mod init;
 
 use beni::sys;

@@ -267,12 +267,39 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         });
     };
     let kwargs_present = !kwargs_pairs.is_empty();
-    let mut argv: Vec<beni::Value> = arg_items
+    // An argument the guest cannot represent — an integer outside the
+    // 32-bit range — fails the invocation rather than reaching the
+    // entrypoint with a saturated value (docs/wire-codec.md § Integer
+    // Range).
+    let mut argv: Vec<beni::Value> = match arg_items
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
-        .collect();
+        .collect()
+    {
+        Ok(argv) => argv,
+        Err(err) => {
+            return write_panic(Panic {
+                origin: "sandbox".into(),
+                class: "Kobako::Transport::Error".into(),
+                message: err.message(),
+                backtrace: Vec::new(),
+                details: None,
+            })
+        }
+    };
     if kwargs_present {
-        argv.push(kobako.to_mrb_value(Value::Map(kwargs_pairs)));
+        match kobako.to_mrb_value(Value::Map(kwargs_pairs)) {
+            Ok(kwargs_val) => argv.push(kwargs_val),
+            Err(err) => {
+                return write_panic(Panic {
+                    origin: "sandbox".into(),
+                    class: "Kobako::Transport::Error".into(),
+                    message: err.message(),
+                    backtrace: Vec::new(),
+                    details: None,
+                })
+            }
+        }
     }
 
     let result_val = match target_val.funcall_argv(mrb, call_sym, &argv) {

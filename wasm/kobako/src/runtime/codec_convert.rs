@@ -32,6 +32,24 @@ use beni::Value;
 // (docs/wire-codec.md § Structural Nesting Depth).
 use kobako_core::codec::MAX_NESTING_DEPTH;
 
+/// An inbound integer fell outside the guest's signed 32-bit `Integer`
+/// range, which the MRB_INT32 build cannot hold. `to_mrb_value` refuses
+/// it rather than saturating to the nearest bound (docs/wire-codec.md
+/// § Integer Range); each call site fails its path the way it reports any
+/// malformed inbound payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IntegerOutOfRange(pub(crate) i128);
+
+impl IntegerOutOfRange {
+    /// Operator-facing message naming the value the guest could not hold.
+    pub(crate) fn message(self) -> String {
+        format!(
+            "integer {} is outside the guest's 32-bit Integer range",
+            self.0
+        )
+    }
+}
+
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
@@ -292,20 +310,25 @@ impl Kobako {
     /// (subsequent method calls on it route to the host through
     /// `Kobako::Handle`'s instance-level `method_missing` and the bridge's
     /// `forward_to_dispatch` round-trip).
-    pub fn to_mrb_value(&self, val: kobako_core::codec::Value) -> Value {
+    pub(crate) fn to_mrb_value(
+        &self,
+        val: kobako_core::codec::Value,
+    ) -> Result<Value, IntegerOutOfRange> {
         use beni::IntoValue;
         use kobako_core::codec::Value as CodecValue;
         let mrb = self.mrb();
-        match val {
+        Ok(match val {
             CodecValue::Nil => Value::nil(),
             CodecValue::Bool(b) => b.into_value(mrb),
             CodecValue::Int(n) => {
-                // mrb_int on wasm32 is 32-bit (MRB_INT32); clamp to i32.
-                let n32 = n.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                // mrb_int on wasm32 is signed 32-bit (MRB_INT32); a value
+                // outside that range has no faithful guest representation
+                // and is refused rather than saturated.
+                let n32 = i32::try_from(n).map_err(|_| IntegerOutOfRange(n as i128))?;
                 n32.into_value(mrb)
             }
             CodecValue::UInt(n) => {
-                let n32 = n.min(i32::MAX as u64) as i32;
+                let n32 = i32::try_from(n).map_err(|_| IntegerOutOfRange(n as i128))?;
                 n32.into_value(mrb)
             }
             CodecValue::Float(f) => f.into_value(mrb),
@@ -318,7 +341,9 @@ impl Kobako {
                 .obj_new(mrb, &[(id as i32).into_value(mrb)])
                 // `Kobako::Handle#initialize` only stores an ivar on the
                 // fresh instance and cannot raise; a lost Handle degrades
-                // to `nil` rather than threading a Result through here.
+                // to `nil` (the error channel is reserved for the
+                // integer-range refusal, the one conversion that fails on
+                // ordinary data).
                 .unwrap_or(Value::nil()),
             CodecValue::Bin(bytes) => mrb.str_new(&bytes).as_value(),
             CodecValue::Sym(name) => {
@@ -326,14 +351,14 @@ impl Kobako {
                 // bit-layout is build-private (we use
                 // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
                 // `to_sym` on this fresh String cannot raise; degrade to
-                // the String itself rather than thread a Result here.
+                // the String itself.
                 let s = mrb.str_new(name.as_bytes()).as_value();
                 s.funcall(mrb, c"to_sym", &[]).unwrap_or(s)
             }
             CodecValue::Array(items) => {
                 let ary = mrb.ary_new();
                 for item in items {
-                    let elem = self.to_mrb_value(item);
+                    let elem = self.to_mrb_value(item)?;
                     // Fresh array, never frozen — the push cannot raise.
                     let _ = ary.push(mrb, elem);
                 }
@@ -342,8 +367,8 @@ impl Kobako {
             CodecValue::Map(pairs) => {
                 let hash = mrb.hash_new();
                 for (k, v) in pairs {
-                    let key = self.to_mrb_value(k);
-                    let val = self.to_mrb_value(v);
+                    let key = self.to_mrb_value(k)?;
+                    let val = self.to_mrb_value(v)?;
                     // Fresh hash, never frozen — the set cannot raise.
                     let _ = hash.set(mrb, key, val);
                 }
@@ -354,6 +379,6 @@ impl Kobako {
             // conversion; the defensive nil here covers any
             // malformed Response that smuggles one through.
             CodecValue::ErrEnv(_) => Value::nil(),
-        }
+        })
     }
 }

@@ -76,11 +76,20 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 3: convert codec args → Value args.
-    let args: Vec<beni::Value> = args_codec
+    // Step 3: convert codec args → Value args. A yielded argument the
+    // guest cannot represent — an integer outside the 32-bit range —
+    // fails the yield round-trip rather than reaching the block with a
+    // saturated value (docs/wire-codec.md § Integer Range).
+    let args: Vec<beni::Value> = match args_codec
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
-        .collect();
+        .collect()
+    {
+        Ok(args) => args,
+        Err(err) => {
+            return write_error_response("Kobako::Transport::Error", err.message(), Vec::new())
+        }
+    };
 
     // Step 4: protected yield via beni's `Proc::call`, which folds the
     // `mrb_yield_argv` + protect machinery — a guest-side raise / break /

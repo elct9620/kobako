@@ -144,7 +144,16 @@ fn forward_to_dispatch(
     let (args, kwargs) = kobako.unpack_args_kwargs(rest);
 
     match invoke(target, &method_name, &args, &kwargs, block_given) {
-        Ok(value) => kobako.to_mrb_value(value),
+        Ok(value) => match kobako.to_mrb_value(value) {
+            Ok(mrb_value) => mrb_value,
+            // A dispatch return value the guest cannot represent raises in
+            // the calling guest code (docs/wire-codec.md § Integer Range).
+            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+            Err(err) => {
+                let msg = std::ffi::CString::new(err.message()).unwrap_or_default();
+                unsafe { kobako.raise_transport_error(&msg) }
+            }
+        },
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(InvokeError::Service(ex)) => unsafe { kobako.raise_service_error(&ex) },
         // SAFETY: as above.
