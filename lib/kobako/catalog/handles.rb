@@ -43,9 +43,9 @@ module Kobako
       # and the allocator share the same invariant.
       #
       # Returning a Handle (rather than a bare Integer id) keeps the
-      # allocator's output a domain entity; +Kobako::Handle.restore+
-      # is reserved for the codec's wire-decode path, where the id is
-      # the only thing the bytes carry.
+      # allocator's output a domain entity. An id is the Handle's only
+      # content, so the same internal +Kobako::Handle.restore+ constructor
+      # serves both this allocator and the codec's wire-decode path.
       def alloc(object)
         reject_unwrappable!(object)
         ensure_capacity!

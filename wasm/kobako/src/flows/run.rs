@@ -239,10 +239,10 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // `def call(*a)` entrypoint does not see an unwanted Hash tail).
     //
     // mruby C API limitation: `mrb_funcall_argv` and the entire
-    // `mrb_funcall_*` family force `ci->nk = 0` on entry
-    // (`vendor/mruby/src/vm.c:740` — "funcall does not support keyword
-    // arguments"), so callers cannot mark the trailing Hash as a
-    // kwargs splat. Entrypoints therefore see kwargs as the last
+    // `mrb_funcall_*` family force `ci->nk = 0` on entry ("funcall does
+    // not support keyword arguments"), so callers cannot mark the
+    // trailing Hash as a kwargs splat. Entrypoints therefore see kwargs
+    // as the last
     // positional argument and must accept it as a plain `Hash` (e.g.
     // `def call(req, opts = {})` rather than `def call(req,
     // multiplier: 1)`).

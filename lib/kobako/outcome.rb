@@ -14,13 +14,6 @@ module Kobako
   # +Kobako::Outcome::Panic+. The byte-level msgpack codec at
   # +Kobako::Codec+ is invoked for the body itself; otherwise
   # nothing in +Transport+ participates.
-  #
-  #   * tag 0x01, decode OK                 → return decoded value
-  #   * tag 0x01, decode fails              → SandboxError
-  #   * tag 0x02, origin="service"          → ServiceError
-  #   * tag 0x02, origin="sandbox"/missing  → SandboxError
-  #   * tag 0x02, decode fails              → SandboxError
-  #   * unknown tag                         → TrapError
   module Outcome
     # First byte of the OUTCOME_BUFFER for the success branch — body is
     # the bare msgpack encoding of the returned value
@@ -47,9 +40,8 @@ module Kobako
     # TrapError for unknown or absent tag
     # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]:
     # zero-length output and unrecognised first byte both walk the trap
-    # path). The user-facing message stays in caller vocabulary — the
-    # raw tag byte (or absence) belongs in +details+ for operators, not
-    # in the message a caller sees.
+    # path). The absent-vs-present distinction selects the message;
+    # the raw byte is not actionable to a caller and is not surfaced.
     def build_trap_error(tag)
       if tag.nil?
         TrapError.new("Sandbox exited without producing a result")

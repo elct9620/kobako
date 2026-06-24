@@ -119,9 +119,9 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
 }
 
 /// Classify the value the protected `Proc::call` surfaced on its `Err`
-/// path into a YieldResponse. mruby's vm.c already raises
+/// path into a YieldResponse. mruby's VM already raises
 /// `E_LOCALJUMP_ERROR` directly for the orphan-block / orphan-Proc
-/// shapes (vm.c:2756 / 2776), so any RBreak we see here is either a
+/// shapes, so any RBreak we see here is either a
 /// real `break` from a non-lambda block or a non-orphan Proc `return`
 /// — discriminate them by comparing `RBreak.ci_break_index` against
 /// the `enter_idx` snapshot taken immediately before the protected

@@ -100,13 +100,9 @@ module Kobako
       end
 
       # Map an error caught at the dispatch boundary to a +Response.error+
-      # envelope. +error+ is the +StandardError+ caught by {#dispatch}'s
-      # rescue. Returns a msgpack-encoded Response envelope (binary). Four
-      # error buckets:
-      # +Kobako::Codec::Error+ → type="runtime" (malformed request);
-      # +UndefinedTargetError+ → type="undefined"; +ArgumentError+ →
-      # type="argument" (arity mismatch); everything else →
-      # type="runtime".
+      # envelope (binary msgpack). +error+ is the +StandardError+ caught by
+      # {#dispatch}'s rescue; the +type+ field tells the guest which kind
+      # of failure it was so it can raise the matching proxy-side error.
       def encode_caught_error(error)
         case error
         when Kobako::Codec::Error then encode_error("runtime",
