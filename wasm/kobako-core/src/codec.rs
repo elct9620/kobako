@@ -43,6 +43,16 @@ const EXT_ERRENV: i8 = 0x02;
 /// → ext 0x01). Module-private.
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
+/// Maximum structural nesting depth the guest codec walks on both the
+/// encode and decode paths (docs/wire-codec.md § Structural Nesting
+/// Depth). The cap keeps a reference cycle or a pathologically deep
+/// payload from overflowing the wasm stack and hard-trapping the guest;
+/// it sits far below that overflow threshold and matches the limit the
+/// host's MessagePack library imposes, so both sides reject the same
+/// boundary. Shared with the encode-side walk in `kobako`'s codec
+/// conversion so the two guest walks cannot drift apart.
+pub const MAX_NESTING_DEPTH: usize = 128;
+
 /// Errors raised by the codec when bytes do not conform to the kobako
 /// codec (docs/wire-codec.md). The byte-level variants cover a value that
 /// is the wrong msgpack family or truncated; `Malformed` covers a value
@@ -235,7 +245,7 @@ impl<'a> Decoder<'a> {
 
     pub fn read_value(&mut self) -> Result<Value, Error> {
         let mut cursor = &self.input[self.pos..];
-        let value = read_value_from(&mut cursor)?;
+        let value = read_value_from(&mut cursor, 0)?;
         self.pos = self.input.len() - cursor.len();
         Ok(value)
     }
@@ -243,8 +253,13 @@ impl<'a> Decoder<'a> {
 
 /// Decode a single `Value` from a `&mut &[u8]` cursor (the form `rmp`'s
 /// `RmpRead` impl for byte slices expects). The cursor advances by the
-/// number of bytes consumed.
-fn read_value_from(cursor: &mut &[u8]) -> Result<Value, Error> {
+/// number of bytes consumed. `depth` is the current nesting level;
+/// recursing past `MAX_NESTING_DEPTH` is refused as a clean error so a
+/// deeply nested payload cannot overflow the wasm stack.
+fn read_value_from(cursor: &mut &[u8], depth: usize) -> Result<Value, Error> {
+    if depth > MAX_NESTING_DEPTH {
+        return Err(Error::Malformed("nesting exceeds maximum depth"));
+    }
     let marker = read_marker(cursor).map_err(|_| Error::Truncated)?;
     match marker {
         Marker::Null => Ok(Value::Nil),
@@ -299,42 +314,42 @@ fn read_value_from(cursor: &mut &[u8]) -> Result<Value, Error> {
             read_bin_body(cursor, len)
         }
 
-        Marker::FixArray(len) => read_array_body(cursor, len as usize),
+        Marker::FixArray(len) => read_array_body(cursor, len as usize, depth),
         Marker::Array16 => {
             let len = cursor.read_data_u16()? as usize;
-            read_array_body(cursor, len)
+            read_array_body(cursor, len, depth)
         }
         Marker::Array32 => {
             let len = cursor.read_data_u32()? as usize;
-            read_array_body(cursor, len)
+            read_array_body(cursor, len, depth)
         }
 
-        Marker::FixMap(len) => read_map_body(cursor, len as usize),
+        Marker::FixMap(len) => read_map_body(cursor, len as usize, depth),
         Marker::Map16 => {
             let len = cursor.read_data_u16()? as usize;
-            read_map_body(cursor, len)
+            read_map_body(cursor, len, depth)
         }
         Marker::Map32 => {
             let len = cursor.read_data_u32()? as usize;
-            read_map_body(cursor, len)
+            read_map_body(cursor, len, depth)
         }
 
-        Marker::FixExt1 => read_ext(cursor, 1),
-        Marker::FixExt2 => read_ext(cursor, 2),
-        Marker::FixExt4 => read_ext(cursor, 4),
-        Marker::FixExt8 => read_ext(cursor, 8),
-        Marker::FixExt16 => read_ext(cursor, 16),
+        Marker::FixExt1 => read_ext(cursor, 1, depth),
+        Marker::FixExt2 => read_ext(cursor, 2, depth),
+        Marker::FixExt4 => read_ext(cursor, 4, depth),
+        Marker::FixExt8 => read_ext(cursor, 8, depth),
+        Marker::FixExt16 => read_ext(cursor, 16, depth),
         Marker::Ext8 => {
             let len = cursor.read_data_u8()? as usize;
-            read_ext(cursor, len)
+            read_ext(cursor, len, depth)
         }
         Marker::Ext16 => {
             let len = cursor.read_data_u16()? as usize;
-            read_ext(cursor, len)
+            read_ext(cursor, len, depth)
         }
         Marker::Ext32 => {
             let len = cursor.read_data_u32()? as usize;
-            read_ext(cursor, len)
+            read_ext(cursor, len, depth)
         }
 
         Marker::Reserved => Err(Error::InvalidType),
@@ -361,25 +376,25 @@ fn read_bin_body(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
     Ok(Value::Bin(take(cursor, len)?))
 }
 
-fn read_array_body(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
+fn read_array_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
     let mut items = Vec::with_capacity(len);
     for _ in 0..len {
-        items.push(read_value_from(cursor)?);
+        items.push(read_value_from(cursor, depth + 1)?);
     }
     Ok(Value::Array(items))
 }
 
-fn read_map_body(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
+fn read_map_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
     let mut pairs = Vec::with_capacity(len);
     for _ in 0..len {
-        let k = read_value_from(cursor)?;
-        let v = read_value_from(cursor)?;
+        let k = read_value_from(cursor, depth + 1)?;
+        let v = read_value_from(cursor, depth + 1)?;
         pairs.push((k, v));
     }
     Ok(Value::Map(pairs))
 }
 
-fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
+fn read_ext(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
     if cursor.is_empty() {
         return Err(Error::Truncated);
     }
@@ -406,7 +421,7 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
             let payload = take(cursor, len)?;
             // Validate the payload is exactly one msgpack map.
             let mut inner = &payload[..];
-            match read_value_from(&mut inner) {
+            match read_value_from(&mut inner, depth + 1) {
                 Ok(Value::Map(_)) if inner.is_empty() => {}
                 _ => return Err(Error::InvalidErrEnv),
             }
@@ -478,6 +493,35 @@ mod tests {
     fn decoder_empty_input_is_at_end() {
         let dec = Decoder::new(&[]);
         assert!(dec.at_end());
+    }
+
+    #[test]
+    fn decoder_accepts_nesting_at_max_depth() {
+        // A value nested exactly to the cap round-trips — the boundary
+        // value is accepted, mirroring the encode-side limit
+        // (docs/wire-codec.md § Structural Nesting Depth).
+        let mut v = Value::Nil;
+        for _ in 0..MAX_NESTING_DEPTH {
+            v = Value::Array(vec![v]);
+        }
+        assert_eq!(roundtrip(v.clone()), v);
+    }
+
+    #[test]
+    fn decoder_rejects_nesting_past_max_depth() {
+        // One level past the cap fails as a clean wire error instead of
+        // recursing until the wasm stack overflows and hard-traps the
+        // guest (docs/wire-codec.md § Structural Nesting Depth).
+        let mut v = Value::Nil;
+        for _ in 0..(MAX_NESTING_DEPTH + 1) {
+            v = Value::Array(vec![v]);
+        }
+        let bytes = encode(&v);
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(
+            dec.read_value(),
+            Err(Error::Malformed("nesting exceeds maximum depth"))
+        );
     }
 
     #[test]

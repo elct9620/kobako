@@ -27,15 +27,10 @@
 
 use super::Kobako;
 use beni::Value;
-
-/// Maximum structural nesting depth the guest encoder walks before a value
-/// counts as non-wire-representable. Matches the MessagePack ecosystem's
-/// established limit, which the Host Gem's codec library already enforces on
-/// decode (docs/wire-codec.md § Structural Nesting Depth). The cap stops a
-/// reference cycle or a pathologically deep structure from overflowing the
-/// wasm stack and hard-trapping the guest; it sits far below that overflow
-/// threshold.
-const MAX_NESTING_DEPTH: usize = 128;
+// The encode-side walk caps at the same depth the decoder enforces; the
+// constant lives in `kobako-core` so the two guest walks share one bound
+// (docs/wire-codec.md § Structural Nesting Depth).
+use kobako_core::codec::MAX_NESTING_DEPTH;
 
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
