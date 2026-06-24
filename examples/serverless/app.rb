@@ -61,7 +61,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.10.0"
+  gem "kobako", "~> 0.11.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
   gem options[:type]
