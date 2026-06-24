@@ -26,12 +26,10 @@ module DispatcherHelpers
     Kobako::Transport::Dispatcher.dispatch(bytes, server, handler, NO_YIELD)
   end
 
-  def encode_request_with_target(target, method, args, kwargs)
-    Kobako::Transport::Request.new(target: target, method_name: method, args: args, kwargs: kwargs).encode
-  end
-
+  # Encode a Request for +target+ (a constant name String or a
+  # +Kobako::Handle+ — both ride the +target+ slot unchanged).
   def encode_request(target, method, args, kwargs)
-    encode_request_with_target(target, method, args, kwargs)
+    Kobako::Transport::Request.new(target: target, method_name: method, args: args, kwargs: kwargs).encode
   end
 
   def decode_response(bytes)
@@ -47,7 +45,7 @@ module DispatcherHelpers
   # Round-trip a Handle-target Request through the dispatcher: encode,
   # dispatch, decode — the wire shape a guest emits for B-17 chaining.
   def dispatch_handle_target(id, method, args = [], kwargs = {}, **dispatch_opts)
-    req = encode_request_with_target(Kobako::Handle.restore(id), method, args, kwargs)
+    req = encode_request(Kobako::Handle.restore(id), method, args, kwargs)
     decode_response(dispatch(req, **dispatch_opts))
   end
 end
