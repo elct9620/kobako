@@ -1,21 +1,9 @@
 module Kobako
   module Codec
     module Utils
-      MSGPACK_INT_RANGE: Range[Integer]
-
       def self?.assert_utf8!: (String string, String label) -> void
 
       def self?.with_boundary: [T] () { () -> T } -> T
-
-      def self?.representable?: (untyped value) -> bool
-
-      def self?.deep_wrap: (untyped value, Kobako::Catalog::Handles handler) -> untyped
-
-      def self?.deep_restore: (untyped value, Kobako::Catalog::Handles handler) -> untyped
-
-      def self?.primitive_type?: (untyped value) -> bool
-
-      def self?.container_representable?: (untyped value) -> bool
     end
   end
 end

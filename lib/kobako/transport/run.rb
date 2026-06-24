@@ -51,8 +51,8 @@ module Kobako
       # Encode this Run to the msgpack bytes the guest's +__kobako_run+
       # entry point consumes as its command-buffer payload
       # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-      # Walks +args+ / +kwargs+ through {Codec::Utils.deep_wrap} so any
-      # non-wire-representable leaf is allocated into +handler+ and
+      # Walks +args+ / +kwargs+ through {Codec::HandleWalk.deep_wrap} so
+      # any non-wire-representable leaf is allocated into +handler+ and
       # replaced with a +Kobako::Handle+; the
       # +handler+ argument is the Sandbox's table, sharing the same
       # allocator the guest→host return path uses.
@@ -64,8 +64,8 @@ module Kobako
       def encode(handler)
         Codec::Encoder.encode(
           "entrypoint" => entrypoint,
-          "args" => Codec::Utils.deep_wrap(args, handler),
-          "kwargs" => Codec::Utils.deep_wrap(kwargs, handler)
+          "args" => Codec::HandleWalk.deep_wrap(args, handler),
+          "kwargs" => Codec::HandleWalk.deep_wrap(kwargs, handler)
         )
       end
 

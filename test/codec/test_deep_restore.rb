@@ -2,15 +2,15 @@
 
 require "test_helper"
 
-# Coverage for Codec::Utils.deep_restore — the guest→host Handle
+# Coverage for Codec::HandleWalk.deep_restore — the guest→host Handle
 # restoration walk introduced for SPEC B-37. The symmetric inverse of
-# deep_wrap (test_utils.rb): a value decoded off a guest→host wire
+# deep_wrap (test_handle_walk.rb): a value decoded off a guest→host wire
 # (the #eval / #run result or a yield-block result) carries Kobako::Handle
 # tokens where the guest returned a Handle it held; the walk resolves each
 # back to the host object before the Host App or a Service yield site sees
 # it.
 class TestCodecDeepRestore < Minitest::Test
-  Utils = Kobako::Codec::Utils
+  HandleWalk = Kobako::Codec::HandleWalk
 
   def setup
     @table = Kobako::Catalog::Handles.new
@@ -19,7 +19,7 @@ class TestCodecDeepRestore < Minitest::Test
   def test_restore_passes_non_handle_values_through_unchanged
     value = { key: [1, :sym, "x"] }
 
-    restored = Utils.deep_restore(value, @table)
+    restored = HandleWalk.deep_restore(value, @table)
 
     assert_equal value, restored, "a value carrying no Handle must round-trip identically"
   end
@@ -28,7 +28,7 @@ class TestCodecDeepRestore < Minitest::Test
     object = Object.new
     handle = @table.alloc(object)
 
-    restored = Utils.deep_restore(handle, @table)
+    restored = HandleWalk.deep_restore(handle, @table)
 
     assert_same object, restored,
                 "a returned Handle must resolve back to the host object the guest referenced"
@@ -38,7 +38,7 @@ class TestCodecDeepRestore < Minitest::Test
     object = Object.new
     handle = @table.alloc(object)
 
-    restored = Utils.deep_restore([1, handle, :sym], @table)
+    restored = HandleWalk.deep_restore([1, handle, :sym], @table)
 
     assert_equal 1, restored[0]
     assert_same object, restored[1]
@@ -54,7 +54,7 @@ class TestCodecDeepRestore < Minitest::Test
     key_handle = @table.alloc(key_object)
     val_handle = @table.alloc(val_object)
 
-    restored = Utils.deep_restore({ key_handle => val_handle, plain: "x" }, @table)
+    restored = HandleWalk.deep_restore({ key_handle => val_handle, plain: "x" }, @table)
 
     assert_same val_object, restored[key_object],
                 "a Handle in either key or value position must be restored to its host object"
@@ -65,7 +65,7 @@ class TestCodecDeepRestore < Minitest::Test
     object = Object.new
     handle = @table.alloc(object)
 
-    restored = Utils.deep_restore({ payload: [handle, { inner: handle }] }, @table)
+    restored = HandleWalk.deep_restore({ payload: [handle, { inner: handle }] }, @table)
 
     inner_array = restored[:payload]
     assert_same object, inner_array[0]
@@ -80,6 +80,6 @@ class TestCodecDeepRestore < Minitest::Test
     handle = @table.alloc(Object.new)
     @table.reset!
 
-    assert_raises(Kobako::SandboxError) { Utils.deep_restore(handle, @table) }
+    assert_raises(Kobako::SandboxError) { HandleWalk.deep_restore(handle, @table) }
   end
 end

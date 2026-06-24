@@ -289,7 +289,7 @@ module Kobako
       # token; restore it to the host object the guest referenced before
       # handing the value to the Host App. @handler still holds this
       # invocation's table — reset only happens at the next #begin_invocation!.
-      Codec::Utils.deep_restore(Outcome.decode(snapshot.return_bytes), @handler)
+      Codec::HandleWalk.deep_restore(Outcome.decode(snapshot.return_bytes), @handler)
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure

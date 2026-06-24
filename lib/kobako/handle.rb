@@ -17,7 +17,7 @@ module Kobako
   # fields on raised error objects. The Host Gem itself constructs
   # Handles through {.restore}, which exists at exactly two call
   # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
-  # +Kobako::Codec::Utils.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
+  # +Kobako::Codec::HandleWalk.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
   # (allocator paths). Both live inside +lib/kobako/+ and are not part
   # of any public surface.
   #

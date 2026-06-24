@@ -2,13 +2,14 @@
 
 require "test_helper"
 
-# Coverage for the Codec::Utils predicate and deep-wrap helpers
-# introduced for SPEC B-34 — host→guest auto-wrap. The legacy
-# +assert_utf8!+ / +with_boundary+ helpers are exercised transitively
-# by the Codec / Decoder / Factory tests; this file pins the new
-# allocator-aware surface.
-class TestCodecUtils < Minitest::Test
-  Utils = Kobako::Codec::Utils
+# Coverage for the Codec::HandleWalk predicate and deep-wrap helpers
+# behind SPEC B-34 — host→guest auto-wrap. The byte-boundary
+# +assert_utf8!+ / +with_boundary+ helpers that stayed on +Codec::Utils+
+# are exercised transitively by the Codec / Decoder / Factory tests; this
+# file pins the allocator-aware surface. The symmetric +deep_restore+
+# walk is covered in test_deep_restore.rb.
+class TestCodecHandleWalk < Minitest::Test
+  HandleWalk = Kobako::Codec::HandleWalk
 
   def setup
     @table = Kobako::Catalog::Handles.new
@@ -18,39 +19,39 @@ class TestCodecUtils < Minitest::Test
 
   def test_recognises_scalar_wire_types
     [nil, true, false, 0, 1, -1, 1.5, "x", "x".b, :sym].each do |value|
-      assert Utils.representable?(value), "expected #{value.inspect} wire-representable"
+      assert HandleWalk.representable?(value), "expected #{value.inspect} wire-representable"
     end
   end
 
   def test_recognises_existing_handle_as_wire_representable
     handle = @table.alloc(:placeholder)
 
-    assert Utils.representable?(handle)
+    assert HandleWalk.representable?(handle)
   end
 
   def test_rejects_out_of_range_integers
-    refute Utils.representable?(2**64),
+    refute HandleWalk.representable?(2**64),
            "u64 overflow must be rejected so the codec's RangeError path stays consistent"
-    refute Utils.representable?(-(2**63) - 1),
+    refute HandleWalk.representable?(-(2**63) - 1),
            "below i64 minimum must be rejected"
   end
 
   def test_rejects_non_wire_scalars
-    refute Utils.representable?(StringIO.new("x"))
-    refute Utils.representable?(Object.new)
+    refute HandleWalk.representable?(StringIO.new("x"))
+    refute HandleWalk.representable?(Object.new)
   end
 
   # ---------- representable? — container branch ----------
 
   def test_array_is_representable_iff_all_elements_are
-    assert Utils.representable?([1, :sym, [true, "x"]])
-    refute Utils.representable?([1, StringIO.new("x")])
+    assert HandleWalk.representable?([1, :sym, [true, "x"]])
+    refute HandleWalk.representable?([1, StringIO.new("x")])
   end
 
   def test_hash_is_representable_iff_keys_and_values_are
-    assert Utils.representable?({ key: "value", nested: [1, 2] })
-    refute Utils.representable?({ key: StringIO.new("x") })
-    refute Utils.representable?({ StringIO.new("k") => 1 })
+    assert HandleWalk.representable?({ key: "value", nested: [1, 2] })
+    refute HandleWalk.representable?({ key: StringIO.new("x") })
+    refute HandleWalk.representable?({ StringIO.new("k") => 1 })
   end
 
   # ---------- deep_wrap — single-level walk ----------
@@ -58,7 +59,7 @@ class TestCodecUtils < Minitest::Test
   def test_wire_representable_value_passes_through_unchanged
     value = { key: [1, :sym, "x"] }
 
-    wrapped = Utils.deep_wrap(value, @table)
+    wrapped = HandleWalk.deep_wrap(value, @table)
 
     assert_equal value, wrapped
     assert_equal 0, @table.size, "no Handle should be allocated for wire-representable input"
@@ -67,7 +68,7 @@ class TestCodecUtils < Minitest::Test
   def test_non_wire_leaf_is_wrapped_via_handler
     body = StringIO.new("hello")
 
-    wrapped = Utils.deep_wrap(body, @table)
+    wrapped = HandleWalk.deep_wrap(body, @table)
 
     assert_kind_of Kobako::Handle, wrapped
     assert_equal 1, @table.size
@@ -78,7 +79,7 @@ class TestCodecUtils < Minitest::Test
   def test_array_with_mixed_leaves_only_wraps_non_wire_elements
     body = StringIO.new("payload")
 
-    wrapped = Utils.deep_wrap([1, body, :sym], @table)
+    wrapped = HandleWalk.deep_wrap([1, body, :sym], @table)
 
     assert_equal 1, wrapped[0]
     assert_kind_of Kobako::Handle, wrapped[1]
@@ -89,7 +90,7 @@ class TestCodecUtils < Minitest::Test
   def test_hash_values_are_walked_keys_pass_through
     env = Object.new
 
-    wrapped = Utils.deep_wrap({ env: env, name: "App" }, @table)
+    wrapped = HandleWalk.deep_wrap({ env: env, name: "App" }, @table)
 
     assert_kind_of Kobako::Handle, wrapped[:env]
     assert_equal "App", wrapped[:name]
@@ -100,7 +101,7 @@ class TestCodecUtils < Minitest::Test
     original = @table.alloc(:bound)
     pre_size = @table.size
 
-    wrapped = Utils.deep_wrap(original, @table)
+    wrapped = HandleWalk.deep_wrap(original, @table)
 
     assert_same original, wrapped, "an existing Handle is wire-representable and must pass through identity"
     assert_equal pre_size, @table.size, "no extra Handle should be allocated for an existing one"
@@ -109,7 +110,7 @@ class TestCodecUtils < Minitest::Test
   def test_nested_container_is_walked_one_level_at_a_time
     body = StringIO.new("nested")
 
-    wrapped = Utils.deep_wrap({ payload: [body, { inner: body }] }, @table)
+    wrapped = HandleWalk.deep_wrap({ payload: [body, { inner: body }] }, @table)
 
     inner_array = wrapped[:payload]
     assert_kind_of Kobako::Handle, inner_array[0]

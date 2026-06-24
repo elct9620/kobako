@@ -82,7 +82,7 @@ module Kobako
       # Array / Hash one level at a time; a plain value passes through
       # unchanged.
       def restore(value)
-        Kobako::Codec::Utils.deep_restore(value, @handler)
+        Kobako::Codec::HandleWalk.deep_restore(value, @handler)
       end
 
       # Reify a +YieldResponse+ tag 0x04 payload into a +RuntimeError+ the

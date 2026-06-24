@@ -72,7 +72,7 @@ module Kobako
       end
 
       # Number of currently-bound entries. Used by tests of the Dispatcher
-      # and Codec::Utils#deep_wrap to observe whether each path allocates
+      # and Codec::HandleWalk#deep_wrap to observe whether each path allocates
       # exactly the Handle entries it should — the +Handles+ table itself never
       # consults its own size, but the surrounding code's allocation
       # contract is part of the observable boundary.

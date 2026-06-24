@@ -2,6 +2,7 @@
 
 require_relative "codec/error"
 require_relative "codec/utils"
+require_relative "codec/handle_walk"
 require_relative "codec/factory"
 require_relative "codec/encoder"
 require_relative "codec/decoder"
