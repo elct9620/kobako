@@ -126,7 +126,7 @@ impl std::error::Error for InvokeError {
 /// memory and returns the Response bytes the host would have written
 /// back via `__kobako_alloc`. Pure in/out; no shared state.
 #[cfg(not(target_arch = "wasm32"))]
-pub type LoopbackFn = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + 'static>;
+type LoopbackFn = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + 'static>;
 
 #[cfg(not(target_arch = "wasm32"))]
 thread_local! {
@@ -135,9 +135,11 @@ thread_local! {
 }
 
 /// Install a loopback hook for the current thread. Returns the previous
-/// hook so test scaffolding can stack and restore.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
+/// hook so test scaffolding can stack and restore. Test-only — the
+/// loopback is the host-target stand-in for the wasm `__kobako_dispatch`
+/// import, exercised by this module's unit tests.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
     LOOPBACK.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), hook))
 }
 
