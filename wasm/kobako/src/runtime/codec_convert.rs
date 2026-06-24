@@ -195,6 +195,16 @@ impl Kobako {
             "FalseClass" => CodecValue::Bool(false),
             "String" => CodecValue::Str(val.to_string(self.mrb())),
             "Symbol" => CodecValue::Sym(val.to_string(self.mrb())),
+            // A Capability Handle the guest received earlier this invocation
+            // rides back as ext 0x01 so the host resolves it to the original
+            // object — identically whether it sits in args or a kwargs value.
+            // id 0 is a missing or forged ivar; fall through to `.to_s` rather
+            // than emit a wire-violation Handle, keeping the arg path
+            // best-effort and bounded.
+            "Kobako::Handle" => match self.extract_handle_id(val) {
+                0 => CodecValue::Str(val.to_string(self.mrb())),
+                id => CodecValue::Handle(id),
+            },
             "Array" if depth < MAX_NESTING_DEPTH => {
                 CodecValue::Array(self.array_to_codec(val, depth, Self::to_codec_value_at))
             }
