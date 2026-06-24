@@ -15,7 +15,7 @@ module KobakoBench
   # section of benchmark/README.md). +bench:gate+ stays the cheap
   # stage-1 smoke detector; this is the judge it defers to.
   module Confirm
-    ROOT = File.expand_path("../..", __dir__)
+    ROOT = File.expand_path("../../..", __dir__)
     DATA_WASM = File.join(ROOT, "data", "kobako.wasm")
     RESULTS_DIR = File.join(ROOT, "benchmark", "results")
     SCRIPT = File.join(ROOT, "benchmark", "mruby_eval.rb")

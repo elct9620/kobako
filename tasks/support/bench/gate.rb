@@ -14,8 +14,8 @@ module KobakoBench
   # against it instead of resetting each release; it advances only by
   # {bless!}. See the Regression benchmarks section of SPEC.md.
   module Gate
-    ANCHOR_PATH = File.expand_path("../../benchmark/baseline.json", __dir__)
-    RESULTS_GLOB = File.expand_path("../../benchmark/results/*.json", __dir__)
+    ANCHOR_PATH = File.expand_path("../../../benchmark/baseline.json", __dir__)
+    RESULTS_GLOB = File.expand_path("../../../benchmark/results/*.json", __dir__)
 
     module_function
 
