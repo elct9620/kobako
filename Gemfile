@@ -23,7 +23,7 @@ gem "beni", "~> 0.7.0"
 group :development do
   gem "irb"
   gem "minitest", "~> 6.0"
-  gem "rubocop", "~> 1.87"
+  gem "rubocop", "~> 1.88"
 
   # Static type checker. Signatures live in sig/.
   gem "steep", "~> 2.0", require: false
