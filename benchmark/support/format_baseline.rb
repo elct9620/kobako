@@ -29,6 +29,8 @@
 
 require "json"
 
+require_relative "paths"
+
 module Kobako
   module Bench
     # Pure-data conversions from the runner's raw JSON shape to the
@@ -181,8 +183,7 @@ module Kobako
 end
 
 if $PROGRAM_NAME == __FILE__
-  results_dir = File.expand_path("../results", __dir__)
-  path = ARGV[0] || Dir[File.join(results_dir, "*.json")].max_by { |f| File.mtime(f) }
+  path = ARGV[0] || Dir[Kobako::Bench::Paths::RESULTS_GLOB].max_by { |f| File.mtime(f) }
   abort "no baseline JSON found" unless path && File.exist?(path)
 
   payload = JSON.parse(File.read(path))

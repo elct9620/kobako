@@ -6,6 +6,7 @@ require "time"
 
 require_relative "env"
 require_relative "one_shot"
+require_relative "paths"
 require_relative "stats"
 require_relative "usage_sampler"
 
@@ -41,9 +42,6 @@ module Kobako
     # subtraction.
     class Runner
       include OneShot
-
-      ROOT = File.expand_path("../..", __dir__)
-      RESULTS_DIR = File.join(ROOT, "benchmark", "results")
 
       attr_reader :suite, :results
 
@@ -103,7 +101,7 @@ module Kobako
       # multiple +Runner+ instances within one invocation share a single
       # output file.
       def write!
-        FileUtils.mkdir_p(RESULTS_DIR)
+        FileUtils.mkdir_p(Paths::RESULTS_DIR)
         path = result_path
         payload = load_payload(path)
         payload["suites"][@suite] = @results.map { |r| r.transform_keys(&:to_s) }
@@ -189,7 +187,7 @@ module Kobako
       def result_path
         env = Env.snapshot
         date = Time.now.utc.strftime("%Y-%m-%d")
-        File.join(RESULTS_DIR, "#{date}-#{env[:git_sha]}.json")
+        File.join(Paths::RESULTS_DIR, "#{date}-#{env[:git_sha]}.json")
       end
 
       def load_payload(path)

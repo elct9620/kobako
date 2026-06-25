@@ -31,6 +31,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "paths"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("regexp")
@@ -38,7 +39,7 @@ runner = Kobako::Bench::Runner.new("regexp")
 # Regexp lives only in the variant binaries — drive the unicode variant,
 # the fullest surface. memory_limit: nil keeps the per-invocation delta cap
 # out of the hot loop so the cases measure VM work, matching mruby_eval's #4.
-REGEXP_WASM = File.expand_path("../data/kobako+regexp-unicode.wasm", __dir__)
+REGEXP_WASM = Kobako::Bench::Paths.variant_wasm("regexp-unicode")
 sandbox = Kobako::Sandbox.new(wasm_path: REGEXP_WASM, memory_limit: nil)
 sandbox.eval("nil") # warm
 
