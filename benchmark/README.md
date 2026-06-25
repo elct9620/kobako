@@ -365,7 +365,7 @@ Release baselines are additionally marked with `benchmark/<semver>` annotated gi
 
 ## Release gate
 
-`rake bench:gate[current,baseline]` compares a run against the committed anchor `benchmark/baseline.json` and exits non-zero on either a gated case regressed past the anchor or a gated case the anchor does not yet cover. The comparison logic lives in `tasks/support/kobako_bench_gate.rb`; `rake bench:gate_test` runs its unit tests.
+`rake bench:gate[current,baseline]` compares a run against the committed anchor `benchmark/baseline.json` and exits non-zero on either a gated case regressed past the anchor or a gated case the anchor does not yet cover. The comparison logic lives in `benchmark/support/gate.rb` (behind the `Kobako::Bench` facade); `rake bench:gate_test` runs its unit tests.
 
 A case is flagged only when its regression past the anchor clears **both** a +10 % floor (cumulative against the anchor, not the previous run) **and** a noise band of `2 × √(cv_current² + cv_baseline²)`. The noise band can only widen the bar on high-variance rows, never narrow it below the floor.
 

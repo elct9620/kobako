@@ -27,15 +27,16 @@
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
 # instances within one invocation share the same file.
 #
-# Release-gate benchmark roster lives in tasks/support/bench.rb;
-# the anchored gate / bless / confirm tasks in tasks/bench/gate.rake.
+# The benchmark roster and the gate / bless / confirm verbs both live
+# behind the Kobako::Bench facade; the anchored gate tasks are in
+# tasks/bench/gate.rake.
 
-require_relative "../support/bench"
+require_relative "../../benchmark/support/facade"
 
 namespace :bench do
   desc "Run all six regression benchmarks (SPEC.md #1..#6; <=1 MiB payloads)."
   task :release do
-    KobakoBench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
+    Kobako::Bench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
   end
 
   desc "Same as bench:release — CI-friendly, no extra-large payloads."

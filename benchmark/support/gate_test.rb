@@ -9,9 +9,9 @@ require_relative "gate"
 # benchmarks}): path resolution defaulting to the committed anchor, and
 # the {Gate.bless!} guards that refuse to overwrite the anchor from an
 # absent or non-results source. The judgment itself lives in
-# KobakoBench::Comparator and is covered separately.
+# Kobako::Bench::Comparator and is covered separately.
 class KobakoBenchGateTest < Minitest::Test
-  Gate = KobakoBench::Gate
+  Gate = Kobako::Bench::Gate
 
   def test_resolve_defaults_the_baseline_to_the_committed_anchor_path
     assert_equal Gate::ANCHOR_PATH, Gate.resolve("run.json", nil).last,

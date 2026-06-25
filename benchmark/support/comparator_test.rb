@@ -13,7 +13,7 @@ require_relative "comparator"
 # gate on, +ips_row+ the +ips+ pair pure-host rows gate on, and
 # +seconds_row+ a cold-path row the gate skips for want of dispersion.
 class KobakoBenchComparatorTest < Minitest::Test
-  Comparator = KobakoBench::Comparator
+  Comparator = Kobako::Bench::Comparator
 
   def test_wall_time_regression_is_positive_when_the_budget_rises
     assert_in_delta 20.0, Comparator.regression_pct(:wall_time, 100.0, 120.0), 0.001

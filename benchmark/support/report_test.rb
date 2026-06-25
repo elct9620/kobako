@@ -12,7 +12,7 @@ require_relative "report"
 # +ips_row+ the host-row pair, +seconds_row+ a cold-path row carrying no
 # gate metric.
 class KobakoBenchReportTest < Minitest::Test
-  Report = KobakoBench::Report
+  Report = Kobako::Bench::Report
 
   def test_a_slowdown_past_the_floor_and_band_is_a_regression
     assert_equal :regression, Report.status_for(20.0, 5.0),
