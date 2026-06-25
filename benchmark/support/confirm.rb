@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
-require "fileutils"
 require "json"
 require "open3"
 require "tmpdir"
 
 require_relative "baseline_wasm"
+require_relative "guest"
 require_relative "paths"
+require_relative "runner"
 
 module Kobako
   module Bench
@@ -17,8 +18,6 @@ module Kobako
     # section of benchmark/README.md). +bench:gate+ stays the cheap
     # stage-1 smoke detector; this is the judge it defers to.
     module Confirm
-      DATA_WASM = Paths::DATA_WASM
-      RESULTS_DIR = Paths::RESULTS_DIR
       SCRIPT = Paths.probe("mruby_eval")
       SUITE = "mruby_eval"
       PAIRS = 3
@@ -36,28 +35,14 @@ module Kobako
 
       module_function
 
-      # Resolve the baseline, run the paired arms, judge, and report.
+      # Resolve the baseline, run the paired arms, judge, and report. Each
+      # arm runs the probe against a Guest Binary injected through the
+      # environment, so the in-place data/kobako.wasm is never touched.
       def confirm!(ref, pairs: PAIRS)
         abort "bench:confirm needs a baseline — a released version or a wasm path." unless ref
 
         baseline = BaselineWasm.resolve(ref)
-        with_current_preserved do |current|
-          with_results_stashed { report(judge(measure_pairs(baseline, current, pairs))) }
-        end
-      end
-
-      # Copy the in-place Guest Binary aside and guarantee it returns to
-      # +data/kobako.wasm+ after the arms have swapped it around.
-      def with_current_preserved
-        Dir.mktmpdir("kobako-confirm") do |dir|
-          current = File.join(dir, "current.wasm")
-          FileUtils.cp(DATA_WASM, current)
-          begin
-            yield current
-          ensure
-            FileUtils.cp(current, DATA_WASM)
-          end
-        end
+        report(judge(measure_pairs(baseline, Paths::DATA_WASM, pairs)))
       end
 
       # Pure verdict math over +samples+ (one +[baseline_rows,
@@ -94,31 +79,24 @@ module Kobako
         Array.new(pairs) { [run_arm(baseline), run_arm(current)] }
       end
 
-      # Swap +wasm+ in, run the probe suite, harvest its label=>ips rows,
-      # and drop the transient results file the arm wrote.
+      # Run the probe suite against +wasm+ by injecting it through the
+      # environment and harvesting its label=>ips rows from a throwaway
+      # results directory — neither data/kobako.wasm nor benchmark/results
+      # is touched.
       def run_arm(wasm)
-        FileUtils.cp(wasm, DATA_WASM)
-        out, status = Open3.capture2("bundle", "exec", "ruby", SCRIPT)
-        raise "bench:confirm arm failed:\n#{out}" unless status.success?
+        Dir.mktmpdir("kobako-confirm") do |dir|
+          out, status = Open3.capture2(
+            { Guest::ENV_KEY => wasm, Runner::RESULTS_DIR_ENV => dir },
+            "bundle", "exec", "ruby", SCRIPT
+          )
+          raise "bench:confirm arm failed:\n#{out}" unless status.success?
 
-        harvest(out.lines.last.strip)
+          harvest(out.lines.last.strip)
+        end
       end
 
       def harvest(path)
-        rows = JSON.parse(File.read(path)).dig("suites", SUITE)
-        File.delete(path)
-        rows.to_h { |row| [row["label"], row["ips"]] }
-      end
-
-      # The arms merge into and then delete today's results file; stash a
-      # pre-existing one aside so a same-day `rake bench` run survives.
-      def with_results_stashed
-        existing = Dir[File.join(RESULTS_DIR, "#{Time.now.utc.strftime("%Y-%m-%d")}-*.json")].first
-        stash = existing && "#{existing}.confirm-stash"
-        FileUtils.mv(existing, stash) if existing
-        yield
-      ensure
-        FileUtils.mv(stash, existing) if stash && File.exist?(stash)
+        JSON.parse(File.read(path)).dig("suites", SUITE).to_h { |row| [row["label"], row["ips"]] }
       end
 
       def report(rows)
