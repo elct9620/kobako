@@ -68,9 +68,14 @@ $LOAD_PATH.unshift File.expand_path("support", __dir__)
 require "stringio"
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("preload_dispatch")
+
+# The injected Guest Binary path, resolved once outside every measured
+# block so the KOBAKO_BENCH_WASM lookup never lands in the timer.
+Kobako::Bench::Guest.path
 
 NOOP_SNIPPET_CODE = <<~RUBY
   module Noop
@@ -141,10 +146,15 @@ HELPER_MAX = 64
 HELPER_CODES = Array.new(HELPER_MAX) { |i| helper_snippet_code(i) }.freeze
 HELPER_NAMES = Array.new(HELPER_MAX) { |i| helper_snippet_name(i) }.freeze
 
+# The Guest Binary every Sandbox in this probe runs against — the
+# KOBAKO_BENCH_WASM override when set, else the gem-bundled default.
+# Hoisted out of the measured blocks so no ENV read lands in the timer.
+guest = Kobako::Bench::Guest.path
+
 # Process-wide warm-up so 9a's first iteration does not pay the
 # first-Sandbox cold cost (Engine init + Module JIT compile).
 # Mirrors the warm-up pattern in transport_roundtrip / codec / mruby_eval.
-Kobako::Sandbox.new.eval("nil")
+Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 
 # 9a — preload registration cost. Each iteration constructs a fresh
 # Sandbox and registers N helper snippets via index lookups into the
@@ -155,7 +165,7 @@ Kobako::Sandbox.new.eval("nil")
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 [1, 8, 64].each do |n|
   runner.case("9a-sandbox-new+preload-#{n}-source") do
-    sandbox = Kobako::Sandbox.new(memory_limit: nil)
+    sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
     n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   end
 end
@@ -163,7 +173,7 @@ end
 # Shared dispatch sandbox for 9b / 9c / 9d. One warm-up #run seals
 # the Service / snippet tables so the first measured
 # iteration does not pay seal cost.
-dispatch_sandbox = Kobako::Sandbox.new(memory_limit: nil)
+dispatch_sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
 dispatch_sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
 dispatch_sandbox.preload(code: ECHO_SNIPPET_CODE, name: :Echo)
 dispatch_sandbox.preload(code: GREET_SNIPPET_CODE, name: :Greet)
@@ -180,7 +190,7 @@ runner.case_with_usage("9d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sa
 # already sit outside the timer, but the +HELPER_CODES+ /
 # +HELPER_NAMES+ lookup keeps the setup code uniform with 9a.)
 [0, 8, 64].each do |n|
-  sandbox = Kobako::Sandbox.new(memory_limit: nil)
+  sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
   sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
   n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
@@ -194,7 +204,7 @@ end
 # Catalog::Handles at the start of every
 # invocation, so each measured #run still pays for one fresh
 # Catalog::Handles#alloc.
-autowrap_sandbox = Kobako::Sandbox.new(memory_limit: nil)
+autowrap_sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
 autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
 autowrap_arg = StringIO.new("payload")
 autowrap_sandbox.run(:Wrap, autowrap_arg) # warm + seal

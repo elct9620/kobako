@@ -31,6 +31,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "paths"
 require "runner"
 
@@ -40,7 +41,7 @@ runner = Kobako::Bench::Runner.new("regexp")
 # the fullest surface. memory_limit: nil keeps the per-invocation delta cap
 # out of the hot loop so the cases measure VM work, matching mruby_eval's #4.
 REGEXP_WASM = Kobako::Bench::Paths.variant_wasm("regexp-unicode")
-sandbox = Kobako::Sandbox.new(wasm_path: REGEXP_WASM, memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path(REGEXP_WASM), memory_limit: nil)
 sandbox.eval("nil") # warm
 
 SUBJECT = '"the quick brown bar jumps"'

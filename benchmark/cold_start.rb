@@ -18,14 +18,19 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("cold_start")
 
-runner.one_shot("1c-sandbox-new-cold") { Kobako::Sandbox.new }
-runner.one_shot_median("1c-sandbox-new-warm", rounds: 9) { Kobako::Sandbox.new }
+# Hoist the injected Guest Binary path out of the measured blocks so the
+# KOBAKO_BENCH_WASM lookup never lands in the timer.
+guest = Kobako::Bench::Guest.path
 
-runner.case("1a-sandbox-new") { Kobako::Sandbox.new }
+runner.one_shot("1c-sandbox-new-cold") { Kobako::Sandbox.new(wasm_path: guest) }
+runner.one_shot_median("1c-sandbox-new-warm", rounds: 9) { Kobako::Sandbox.new(wasm_path: guest) }
+
+runner.case("1a-sandbox-new") { Kobako::Sandbox.new(wasm_path: guest) }
 
 # 1b constructs a fresh Sandbox per iteration, so the +sandbox+ to
 # sample +usage+ from is only knowable after the block runs; expose
@@ -34,7 +39,7 @@ runner.case("1a-sandbox-new") { Kobako::Sandbox.new }
 # the EMPTY sentinel, which is why 1a does not annotate.
 last_sandbox = nil
 runner.case("1b-sandbox-new+eval-nil") do
-  last_sandbox = Kobako::Sandbox.new
+  last_sandbox = Kobako::Sandbox.new(wasm_path: guest)
   last_sandbox.eval("nil")
 end
 runner.annotate_usage!(last_sandbox)

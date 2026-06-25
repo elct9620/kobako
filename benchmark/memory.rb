@@ -49,7 +49,12 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
+
+# The injected Guest Binary path, resolved once outside every measured
+# block so the KOBAKO_BENCH_WASM lookup never lands in the timer.
+GUEST = Kobako::Bench::Guest.path
 
 # 8c payload size — kept well below MRB_STR_LENGTH_MAX (1 MiB; SPEC
 # Invariant) so the guest can construct the String without raising.
@@ -72,7 +77,7 @@ def warm_sandbox
   # script (2 MiB written) would both exceed the default 1 MiB per-
   # invocation delta cap; this suite measures host-side RSS / allocator
   # behavior and intentionally keeps the cap path out of the hot loop.
-  Kobako::Sandbox.new(memory_limit: nil).tap { |s| s.eval("nil") }
+  Kobako::Sandbox.new(wasm_path: GUEST, memory_limit: nil).tap { |s| s.eval("nil") }
 end
 
 def record(runner, label, sandbox: nil, **fields)
@@ -100,7 +105,7 @@ end
 
 def grow_sandboxes(runner, sandboxes, after_first)
   [10, 100, 1000].each do |target|
-    sandboxes << Kobako::Sandbox.new(memory_limit: nil) while sandboxes.size < target
+    sandboxes << Kobako::Sandbox.new(wasm_path: GUEST, memory_limit: nil) while sandboxes.size < target
     record_growth(runner, target, gc_then_rss, after_first)
   end
   sandboxes

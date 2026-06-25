@@ -23,6 +23,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("codec")
@@ -80,7 +81,7 @@ end
 # Absolute ips includes the constant per-invocation overhead (see
 # #1 1b); per-size and per-depth ratios are the regression signal.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm
 
 # Guest-side String is capped by MRB_STR_LENGTH_MAX (1 MiB; the

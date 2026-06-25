@@ -37,6 +37,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("catalog_handles")
@@ -61,7 +62,7 @@ batch_obj = Object.new
 end
 
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm
 
 # Runs after the 5b loop has retained `batch_table` (1 M Handles) at

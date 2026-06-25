@@ -26,6 +26,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("mruby_eval")
@@ -37,7 +38,7 @@ runner = Kobako::Bench::Runner.new("mruby_eval")
 # so #4 measures VM throughput without the enforcement overhead.
 # stdout_limit stays at the default 1 MiB so 4f saturates the cap
 # without an explicit override.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm
 
 # build_config/wasi.rb pins guest mruby to MRB_INT32; a 100k sum

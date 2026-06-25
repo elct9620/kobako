@@ -30,6 +30,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("transport_roundtrip")
@@ -54,7 +55,7 @@ end
 # per-invocation delta cap is enforced on its own dedicated path; this
 # suite measures Transport throughput, so we keep the limiter callback out
 # of the wasmtime hot loop.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.define(:Bench)
        .bind(:Noop,    ->        {})
        .bind(:Echo,    ->(x)     { x })

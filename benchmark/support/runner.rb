@@ -43,6 +43,10 @@ module Kobako
     class Runner
       include OneShot
 
+      # +bench:confirm+ points each arm's output at a throwaway directory so
+      # the paired runs never collide with a real benchmark/results file.
+      RESULTS_DIR_ENV = "KOBAKO_BENCH_RESULTS_DIR"
+
       attr_reader :suite, :results
 
       # +suite+ identifies the benchmark group (matches the filename
@@ -101,7 +105,7 @@ module Kobako
       # multiple +Runner+ instances within one invocation share a single
       # output file.
       def write!
-        FileUtils.mkdir_p(Paths::RESULTS_DIR)
+        FileUtils.mkdir_p(results_dir)
         path = result_path
         payload = load_payload(path)
         payload["suites"][@suite] = @results.map { |r| r.transform_keys(&:to_s) }
@@ -187,7 +191,13 @@ module Kobako
       def result_path
         env = Env.snapshot
         date = Time.now.utc.strftime("%Y-%m-%d")
-        File.join(Paths::RESULTS_DIR, "#{date}-#{env[:git_sha]}.json")
+        File.join(results_dir, "#{date}-#{env[:git_sha]}.json")
+      end
+
+      # The KOBAKO_BENCH_RESULTS_DIR override when set, else the committed
+      # +benchmark/results+ directory.
+      def results_dir
+        ENV.fetch(RESULTS_DIR_ENV, nil) || Paths::RESULTS_DIR
       end
 
       def load_payload(path)

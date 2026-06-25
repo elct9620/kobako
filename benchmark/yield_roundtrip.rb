@@ -29,6 +29,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("yield_roundtrip")
@@ -36,7 +37,7 @@ runner = Kobako::Bench::Runner.new("yield_roundtrip")
 # memory_limit: nil — see benchmark/transport_roundtrip.rb. This suite
 # measures yield re-entry throughput, so we keep the per-invocation
 # memory limiter callback out of the wasmtime hot loop.
-sandbox = Kobako::Sandbox.new(memory_limit: nil)
+sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.define(:Bench)
        .bind(:YieldOnce, ->(x, &blk)     { blk.call(x) })
        .bind(:Ignore,    ->(*, &_blk)    {})

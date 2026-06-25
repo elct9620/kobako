@@ -34,7 +34,12 @@ $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("../support", __dir__)
 
 require "kobako"
+require "guest"
 require "runner"
+
+# The injected Guest Binary path, resolved once outside every measured
+# block so the KOBAKO_BENCH_WASM lookup never lands in the timer.
+GUEST = Kobako::Bench::Guest.path
 
 OPS_PER_THREAD_6A = 50
 
@@ -61,7 +66,7 @@ def parallel_join(count)
 end
 
 def measure_7a(runner, count)
-  sandboxes = Array.new(count) { Kobako::Sandbox.new }
+  sandboxes = Array.new(count) { Kobako::Sandbox.new(wasm_path: GUEST) }
   sandboxes.each { |s| s.eval("nil") }
   elapsed = time_block { parallel_join(count) { |i| OPS_PER_THREAD_6A.times { sandboxes[i].eval("nil") } } }
   total = count * OPS_PER_THREAD_6A
@@ -71,7 +76,7 @@ def measure_7a(runner, count)
 end
 
 def measure_7b(runner, count)
-  elapsed = time_block { parallel_join(count) { Kobako::Sandbox.new } }
+  elapsed = time_block { parallel_join(count) { Kobako::Sandbox.new(wasm_path: GUEST) } }
   runner.results << { label: "7b-new-#{count}", seconds: elapsed,
                       constructions: count, per_construction_seconds: elapsed / count,
                       mode: "concurrent" }
@@ -81,7 +86,7 @@ end
 
 def measure_7c(runner)
   ready = Queue.new
-  short = Kobako::Sandbox.new
+  short = Kobako::Sandbox.new(wasm_path: GUEST)
   long = build_synced_long_sandbox(ready)
   short.eval("nil")
   long.eval("nil") # warm — does not trip Sync::Ready
@@ -91,7 +96,7 @@ def measure_7c(runner)
 end
 
 def build_synced_long_sandbox(ready)
-  Kobako::Sandbox.new.tap do |s|
+  Kobako::Sandbox.new(wasm_path: GUEST).tap do |s|
     s.define(:Sync).bind(:Ready, lambda {
       ready << :go
       nil
@@ -119,7 +124,7 @@ def record_7c(runner, baseline, contended)
 end
 
 runner = Kobako::Bench::Runner.new("concurrent")
-Kobako::Sandbox.new.eval("nil") # warm process-wide caches
+Kobako::Sandbox.new(wasm_path: GUEST).eval("nil") # warm process-wide caches
 
 [1, 2, 4, 8].each do |count|
   measure_7a(runner, count)
