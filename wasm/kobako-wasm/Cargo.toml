@@ -46,6 +46,11 @@ kobako-io = { path = "../kobako-io" }
 # variant binaries instead.
 kobako-regexp = { path = "../kobako-regexp", optional = true }
 
+# `kobako-json` — JSON parse / generate capability gem. Optional, like
+# `kobako-regexp`: the `json` / `full` features below compose it into the
+# named variant binaries; the default Guest Binary ships without it.
+kobako-json = { path = "../kobako-json", optional = true }
+
 # `beni` — typed mruby wrapper; the shell only names `Mrb` / `Error`
 # in its `init_gems` hook. Archive discovery happens in `beni-sys`
 # via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
@@ -55,11 +60,15 @@ beni = "0.8.0"
 # Guest Binary variants. The default (no feature) is the pure binary;
 # `regexp` adds the kobako-regexp capability gem, and `regexp-unicode`
 # also turns on its coarse Unicode support (`\p{...}` classes and the
-# case folding `/i` patterns need). `rake wasm:build:regexp` /
-# `wasm:build:regexp_unicode` select these.
+# case folding `/i` patterns need). `json` adds the kobako-json capability
+# gem, and `full` composes ASCII regexp with json. `rake wasm:build:regexp`
+# / `wasm:build:regexp_unicode` / `wasm:build:json` / `wasm:build:full`
+# select these.
 [features]
 regexp = ["dep:kobako-regexp"]
 regexp-unicode = ["regexp", "kobako-regexp/unicode"]
+json = ["dep:kobako-json"]
+full = ["regexp", "json"]
 
 # `[profile.release]` lives at the workspace root (`wasm/Cargo.toml`)
 # so all members share the same wasm size hygiene tuning.

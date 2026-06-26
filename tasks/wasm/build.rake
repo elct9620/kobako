@@ -38,9 +38,27 @@ namespace :wasm do
     KobakoWasm::GuestBuilder.new(features: ["regexp-unicode"], output: KobakoWasm::DATA_WASM_REGEXP_UNICODE).build
   end
 
+  desc "Build the json variant Guest Binary (data/kobako+json.wasm)"
+  task "build:json" => ["beni:build"] do
+    KobakoWasm.ensure_cargo!
+    KobakoWasm::GuestBuilder.new(features: ["json"], output: KobakoWasm::DATA_WASM_JSON).build
+  end
+
+  desc "Build the full variant Guest Binary (data/kobako+full.wasm; ASCII regexp + json)"
+  task "build:full" => ["beni:build"] do
+    KobakoWasm.ensure_cargo!
+    KobakoWasm::GuestBuilder.new(features: ["full"], output: KobakoWasm::DATA_WASM_FULL).build
+  end
+
   desc "Remove every Guest Binary variant and the wasm crate target/ cache"
   task :clean do
-    [KobakoWasm::DATA_WASM, KobakoWasm::DATA_WASM_REGEXP, KobakoWasm::DATA_WASM_REGEXP_UNICODE].each do |wasm|
+    [
+      KobakoWasm::DATA_WASM,
+      KobakoWasm::DATA_WASM_REGEXP,
+      KobakoWasm::DATA_WASM_REGEXP_UNICODE,
+      KobakoWasm::DATA_WASM_JSON,
+      KobakoWasm::DATA_WASM_FULL
+    ].each do |wasm|
       FileUtils.rm_f(wasm)
     end
     FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)

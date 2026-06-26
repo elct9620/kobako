@@ -31,9 +31,19 @@ namespace :wasm do
     target = nil if target && !File.exist?(KobakoWasm::LIBMRUBY_PATH)
     target_flag = target ? ["--target", target] : []
     env = target ? { "MRUBY_LIB_DIR" => KobakoWasm::MRUBY_LIB_DIR, "WASI_SDK_PATH" => KobakoWasm::WASI_SDK_DIR } : {}
-    # `--workspace` covers both member crates (`kobako-core`,
-    # `kobako-wasm`) so the wasm32 lane catches breakage in either.
+    # `--workspace` covers every member crate (`kobako-core`, `kobako`,
+    # `kobako-io`, `kobako-json`, `kobako-regexp`, `kobako-wasm`) at its
+    # default features so the wasm32 lane catches breakage in any of them.
     sh env, "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST, "--workspace", *target_flag
+
+    # The default check builds the shell with no variant features, so the
+    # capability compositions (extra gems + their `cfg` blocks) go
+    # unchecked. Compile the shell under each named variant so broken
+    # feature wiring fails here, not when a release first builds it.
+    KobakoWasm::VARIANT_FEATURES.each do |feature|
+      sh env, "cargo", "check", "--manifest-path", KobakoWasm::MANIFEST,
+         "--package", "kobako-wasm", "--features", feature, *target_flag
+    end
   end
 
   desc "cargo test the wasm sub-workspace on the host (wasm32 has no test runner)"

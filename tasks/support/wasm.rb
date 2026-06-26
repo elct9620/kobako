@@ -41,6 +41,20 @@ module KobakoWasm
   DATA_WASM_REGEXP         = File.join(DATA_DIR, "kobako+regexp.wasm").freeze
   DATA_WASM_REGEXP_UNICODE = File.join(DATA_DIR, "kobako+regexp-unicode.wasm").freeze
 
+  # JSON-capability Guest Binary variants. `json` carries kobako-json
+  # alone; `full` composes ASCII regexp with json. Built by
+  # `wasm:build:json` / `wasm:build:full` and shipped as downloadable
+  # Release assets — never bundled into the gem.
+  DATA_WASM_JSON = File.join(DATA_DIR, "kobako+json.wasm").freeze
+  DATA_WASM_FULL = File.join(DATA_DIR, "kobako+full.wasm").freeze
+
+  # The named capability compositions, as kobako-wasm cargo features. The
+  # default `--workspace` check builds every member at its default
+  # features; these change only the shell's composition (extra capability
+  # gems + their `cfg` blocks), so `wasm:check` compiles the shell under
+  # each to catch broken feature wiring before a release builds a variant.
+  VARIANT_FEATURES = %w[regexp regexp-unicode json full].freeze
+
   # Stage B output (produced by `rake beni:build` against
   # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`
   # default (`BENI_VENDOR_DIR` or `vendor/` at the project root) so the

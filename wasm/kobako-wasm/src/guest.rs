@@ -1,8 +1,9 @@
 //! The bundled guest — `KobakoGuest` composes the published `kobako`
 //! harness with the `kobako-io` IO / Kernel gem and forwards the
 //! `kobako_core::Guest` contract to the inherited flows. The
-//! `kobako-regexp` capability gem is wired only under the `regexp`
-//! feature, so the default binary stays pure mruby + `kobako-io`.
+//! `kobako-regexp` and `kobako-json` capability gems are wired only under
+//! the `regexp` / `json` features, so the default binary stays pure mruby
+//! + `kobako-io`.
 
 use beni::{Error, Mrb};
 
@@ -17,6 +18,8 @@ impl kobako::MrbGuest for KobakoGuest {
         mrb.init_gem::<kobako_io::KobakoIo>()?;
         #[cfg(feature = "regexp")]
         mrb.init_gem::<kobako_regexp::KobakoRegexp>()?;
+        #[cfg(feature = "json")]
+        mrb.init_gem::<kobako_json::KobakoJson>()?;
         Ok(())
     }
 }
