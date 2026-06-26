@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.5.2...kobako-baker-v0.6.0) (2026-06-26)
+
+
+### Miscellaneous Chores
+
+* **kobako-baker:** Synchronize kobako guest crates versions
+
 ## [0.5.2](https://github.com/elct9620/kobako/compare/kobako-baker-v0.5.1...kobako-baker-v0.5.2) (2026-06-24)
 
 
