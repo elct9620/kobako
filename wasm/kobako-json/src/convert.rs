@@ -19,10 +19,11 @@ use crate::errors::{generator_error, parser_error};
 use beni::{Array, Error, FromValue, Hash, IntoValue, Mrb, RString, Value};
 use serde_json::{Map, Number, Value as JsonValue};
 
-/// The JSON nesting bound, owned by this capability. serde_json's
-/// deserializer enforces the same 128 limit while parsing, so the inbound
-/// tree is already bounded; the outbound walk enforces the bound itself.
-const MAX_NESTING_DEPTH: usize = 128;
+/// The maximum container nesting `generate` accepts. serde_json's parse
+/// recursion limit (128) admits 127 nested levels and rejects the 128th;
+/// the outbound walk mirrors that exact bound so a generated structure
+/// always re-parses — a value one path rejects the other rejects too.
+const MAX_NESTING_DEPTH: usize = 127;
 
 /// 2^53 — the largest magnitude an f64 carries without integer precision
 /// loss, the ceiling of the parse integer policy's `Float` band.
