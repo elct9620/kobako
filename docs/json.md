@@ -76,13 +76,13 @@ The guest sees exactly these constructs.
 
 Each behavior carries a `JS-xx` anchor.
 
-### JS-01 — Parse maps JSON values to native mruby types
+### JS-01 — Parse maps JSON values to JSON-native mruby types
 
 `JSON.parse` maps each JSON value to its mruby counterpart: `null` → `nil`,
 `true` / `false` → the booleans, a JSON string → `String`, a JSON number →
 `Integer` or `Float` (JS-03), a JSON array → `Array`, and a JSON object → `Hash`
-keyed by `String` (JS-02 for symbol keys). Parsing produces only these native
-types — never a `Kobako::Handle` or any host capability (B-53).
+keyed by `String` (JS-02 for symbol keys). Parsing produces only these
+JSON-native types — never a `Kobako::Handle` or any host capability (B-53).
 
 ### JS-02 — symbolize_names yields Symbol keys
 
@@ -117,24 +117,26 @@ values, with correct string escaping: `String` → JSON string, `nil` → `null`
 the booleans, `Integer` and `Float` numbers, `Array`, and `Hash`. A `Symbol`
 value renders as its name. A `Hash` key renders as its string form when it is a
 `String`, a `Symbol`, or a JSON-native scalar (a number, `nil`, or a boolean),
-as in CRuby; the `as_json` opt-in (JS-08) applies to values, never to keys. A
-`Hash` key that is not JSON-native — a `Kobako::Handle`, a `Member`, or any
-other object — is refused through the same boundary as a non-native value
-(B-53), never stringified through a host-dispatching `to_s`. A `Float` that is
+as in CRuby. Any other key raises `JSON::GeneratorError`: a JSON-native `Array`
+or `Hash` is not a usable JSON key, and a `Kobako::Handle`, a `Member`, or any
+other non-native object is refused through the same boundary as a non-native
+value (B-53), never stringified through a host-dispatching `to_s`. The `as_json`
+opt-in (JS-08) applies to values, never to keys. A `Float` that is
 `NaN` or infinite raises `JSON::GeneratorError`. Output is always well-formed:
 the gem owns escaping and never splices caller-provided text.
 
 ### JS-07 — pretty_generate emits indented JSON
 
 `JSON.pretty_generate` emits the same value as `generate` with CRuby's pretty
-layout — two-space indentation per nesting level, a space after each `:`, and a
-newline between members; parsing its output yields the same tree as parsing
-`generate`'s output.
+layout — two-space indentation per nesting level, a space after each `:`, one
+object member or array element per line, and empty `[]` / `{}` left inline;
+parsing its output yields the same tree as parsing `generate`'s output.
 
 ### JS-08 — Generate serializes an opt-in object through as_json
 
 A value the generator does not encode directly — anything but the JSON-native
-types and `Symbol` (JS-06) — serializes only if its class defines `as_json`.
+types and `Symbol` (JS-06) — serializes only if its class overrides the raising
+`Object#as_json` default.
 `generate` calls `as_json` and encodes the value it returns, recursively, under
 the same rules (escaping, depth bound, capability refusal). `Object#as_json` is
 defined with a raising default, so an object that has not opted in raises
