@@ -113,8 +113,9 @@ trailing content, or nesting beyond the depth bound (JS-09) — raises
 ### JS-06 — Generate emits well-formed JSON
 
 `JSON.generate` emits a compact, well-formed JSON `String` for JSON-native
-values, with correct string escaping: `nil` → `null`, the booleans, `Integer`
-and `Float` numbers, `Array`, and `Hash`. A `Symbol` value renders as its name,
+values, with correct string escaping: `String` → JSON string, `nil` → `null`,
+the booleans, `Integer` and `Float` numbers, `Array`, and `Hash`. A `Symbol`
+value renders as its name,
 and a `Symbol` or numeric `Hash` key renders as its string form, as in CRuby. A
 `Hash` key that is not JSON-native — a `Kobako::Handle`, a `Member`, or any
 other object — is refused through the same boundary as a non-native value
@@ -130,7 +131,8 @@ indentation and spacing; parsing its output yields the same tree as parsing
 
 ### JS-08 — Generate serializes an opt-in object through as_json
 
-A non-JSON-native object serializes only if its class defines `as_json`.
+A value the generator does not encode directly — anything but the JSON-native
+types and `Symbol` (JS-06) — serializes only if its class defines `as_json`.
 `generate` calls `as_json` and encodes the value it returns, recursively, under
 the same rules (escaping, depth bound, capability refusal). `Object#as_json` is
 defined with a raising default, so an object that has not opted in raises
