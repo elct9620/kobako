@@ -12,7 +12,7 @@
 
 [package]
 name = "kobako-core"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 description = "Contract crate for kobako Guest Binaries — the guest-side wire codec and SPEC envelopes."
 license = "Apache-2.0"

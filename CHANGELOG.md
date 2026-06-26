@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0](https://github.com/elct9620/kobako/compare/v0.11.2...v0.12.0) (2026-06-26)
+
+
+### Features
+
+* **bench:** inject the Guest Binary into probes via KOBAKO_BENCH_WASM ([3408058](https://github.com/elct9620/kobako/commit/3408058f5a4319725863dd3bd1b305cc4609bbf8))
+* **kobako-json:** classify generate values by native mruby type ([f8e5de3](https://github.com/elct9620/kobako/commit/f8e5de3a2bdc0234290101734f2cceff88058cd6))
+* **spec:** specify the guest JSON capability (B-52/B-53, docs/json.md) ([b666d6f](https://github.com/elct9620/kobako/commit/b666d6fecc230eef0b01ae34cdb9eab2bbc6b153))
+* **wasm:** compose the json and full Guest Binary variants ([002b16d](https://github.com/elct9620/kobako/commit/002b16d88ea7c9dbf0493185bbac757b782bc28d))
+
+
+### Bug Fixes
+
+* **bench:** correct results/baseline path depth after support dir move ([faf1d8a](https://github.com/elct9620/kobako/commit/faf1d8aaf185159edced2d421696c721da9ed15c))
+* **spec:** classify Symbol as directly-encoded in JSON generate ([10a8671](https://github.com/elct9620/kobako/commit/10a867145ed8ccb0b0e2d8e61c0ae84ae0ef3399))
+* **spec:** close the JSON Hash-key host-dispatch gap and refresh the anchor range ([aea1313](https://github.com/elct9620/kobako/commit/aea13133efc957c70f8ff3f77fd2164c634ebb86))
+* **spec:** complete the JSON generate Hash-key partition and tighten wording ([b01a3f2](https://github.com/elct9620/kobako/commit/b01a3f26baf2e8364ff82a9d292b426444e0acd7))
+* **spec:** keep B-52 from re-enumerating the JSON-carrying variants ([13a5723](https://github.com/elct9620/kobako/commit/13a57236e1b4b33c5e84caa8bb940a0b8560a6d0))
+* **spec:** let pretty_generate own its layout instead of pinning CRuby ([bf78bf1](https://github.com/elct9620/kobako/commit/bf78bf1a8ab8e125f35eacf6e2151ec94f87d46b))
+* **spec:** make the JSON depth bound consistent across parse and generate ([efdc535](https://github.com/elct9620/kobako/commit/efdc535f5e70f67efb8638abcd4b7b1881cedf35))
+* **spec:** make variant pointers source-free and pin generate edge cases ([8aeeecd](https://github.com/elct9620/kobako/commit/8aeeecd674ba24f4caab3cc3ea4e905b182061b0))
+* **spec:** note the full variant in regexp.md availability ([7e50f27](https://github.com/elct9620/kobako/commit/7e50f27a593ed8d8582f24961c8725fc252699b5))
+
 ## [0.11.2](https://github.com/elct9620/kobako/compare/v0.11.1...v0.11.2) (2026-06-24)
 
 
