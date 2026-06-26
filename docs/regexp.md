@@ -41,9 +41,9 @@ the matching engine is an implementation choice below this contract.
 ### Availability
 
 The capability is opt-in and ships as the `kobako+regexp` /
-`kobako+regexp-unicode` variants. The variant matrix, the
-`regexp` / `regexp-unicode` difference, build tasks, and packaging policy live
-in [`docs/variants.md`](variants.md).
+`kobako+regexp-unicode` variants, with the ASCII subset also in `kobako+full`.
+The variant matrix, the `regexp` / `regexp-unicode` difference, build tasks, and
+packaging policy live in [`docs/variants.md`](variants.md).
 
 ## Scope
 
