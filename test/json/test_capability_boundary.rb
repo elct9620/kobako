@@ -74,4 +74,19 @@ class TestJsonCapabilityBoundary < Minitest::Test
     assert_equal "JSON::GeneratorError", err.klass,
                  "a Handle Hash key through JSON.generate must be refused at the key boundary, not host-dispatched"
   end
+
+  # B-53 (outbound): the as_json hook is itself no host-penetration path.
+  # A direct as_json call on a Handle resolves the Object-rooted default
+  # locally — were it unshadowed, the call would fall to the Handle's
+  # method_missing and dispatch as_json to the host, surfacing some other
+  # error rather than the JSON::GeneratorError this asserts.
+  def test_b53_calling_as_json_on_a_handle_raises_locally_without_host_dispatch
+    sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
+    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; h.as_json") }
+
+    assert_equal "JSON::GeneratorError", err.klass,
+                 "as_json on a Handle must raise the Object-rooted default locally, not dispatch to the host"
+  end
 end
