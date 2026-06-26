@@ -70,7 +70,7 @@ These five roles describe the system. All design and behavior content in later l
 
 **Does:**
 - Provide an in-process mruby execution environment isolated by a Wasm boundary
-- Bundle a curated guest standard library composed from two sources: allowlisted mruby core-extension mrbgems (Array / Enum / Hash / Numeric / Object / Proc / Range / String / Symbol / Error / Metaprog) and Rust capability gems linked into the Guest Binary shell (the worked examples are the IO / Kernel surface and the Regexp / MatchData surface). The mrbgem half is gated by a strict allowlist — the single source of truth for which mrbgems enter the binary — whose security rationale is documented inline with the build config. Both sources obey the same constraint: pure compute plus the explicitly mediated capabilities, never ambient I/O, network, sleep, or random-seed access.
+- Bundle a curated guest standard library composed from two sources: allowlisted mruby core-extension mrbgems (Array / Enum / Hash / Numeric / Object / Proc / Range / String / Symbol / Error / Metaprog) and Rust capability gems linked into the Guest Binary shell (the worked examples are the IO / Kernel surface, the Regexp / MatchData surface, and the JSON parse / generate surface). The mrbgem half is gated by a strict allowlist — the single source of truth for which mrbgems enter the binary — whose security rationale is documented inline with the build config. Both sources obey the same constraint: pure compute plus the explicitly mediated capabilities, never ambient I/O, network, sleep, or random-seed access.
 - Deny the guest every ambient nondeterminism source — wall-clock time, monotonic time, and host entropy — at the Wasm/WASI boundary, so guest execution depends only on its source, snippets, and injected Service responses (B-45)
 - Expose a Ruby API for Host Apps to declare Namespaces and bind host objects as callable Members
 - Execute a mruby source synchronously via `Sandbox#eval` and return its last expression as a deserialized Ruby value
@@ -321,6 +321,8 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 | B-49 | Every invocation begins from the canonical boot state — the deterministic post-boot interpreter state, optionally baked into the Guest Binary at build time | [`behavior/runtime.md`](docs/behavior/runtime.md) |
 | B-50 | A bound target's opt-in narrowing of its own guest-reachable method surface via the `respond_to_guest?` predicate — opaque when it denies every name, an allow-list when it permits a subset — composed beneath the B-42 reflection floor | [`behavior/security.md`](docs/behavior/security.md) |
 | B-51 | A capability gem's invocation of a guest-supplied callback (IO `to_s` / `inspect` coercion, regexp substitution block / hash `[]`) propagates a raise as an ordinary guest exception attributed via E-04, never an FFI-boundary Wasm trap | [`behavior/security.md`](docs/behavior/security.md) |
+| B-52 | Guest-side JSON parse / generate as a guest-internal compute capability that yields only wire-native mruby values when a result crosses the boundary | [`behavior/security.md`](docs/behavior/security.md) |
+| B-53 | The JSON capability-reference boundary — `parse` cannot forge a Capability Handle, and `generate` refuses a Handle / Member / un-opted object via an `Object`-rooted serialization hook rather than dispatching to the host | [`behavior/security.md`](docs/behavior/security.md) |
 
 Errors split across the invocation-outcome classes, the construction-time `SetupError`, and the pool-checkout `PoolTimeoutError` (all detailed in [`behavior/errors.md`](docs/behavior/errors.md)):
 
@@ -337,7 +339,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-51 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md); `RX-xx` is an append-only sequence local to that file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-53 / E-48; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
 
 ### Terminology
 

@@ -2,20 +2,21 @@
 
 # Append-only anchor checker backing +tasks/anchors.rake+. Enforces the
 # N-8 invariant once the behavior spec is split across +docs/behavior/+:
-# every +B-xx+ / +E-xx+ / +RX-xx+ is defined exactly once, the sequence is
-# contiguous up to the ceiling +SPEC.md+ states (gaps only where a retired
-# tombstone declares one), and every reference resolves to a definition.
-# +B+ / +RX+ anchors are defined by a Markdown heading, +E+ anchors by an
-# error-table row; +RX-xx+ is a regexp.md-local sequence with no SPEC
-# ceiling, so its top is the highest +RX+ defined.
+# every +B-xx+ / +E-xx+ / +RX-xx+ / +JS-xx+ is defined exactly once, the
+# sequence is contiguous up to the ceiling +SPEC.md+ states (gaps only where a
+# retired tombstone declares one), and every reference resolves to a
+# definition. +B+ / +RX+ / +JS+ anchors are defined by a Markdown heading, +E+
+# anchors by an error-table row; +RX-xx+ (regexp.md) and +JS-xx+ (json.md) are
+# topic-doc-local sequences with no SPEC ceiling, so each top is the highest
+# anchor of that prefix defined.
 module KobakoAnchors
   module_function
 
-  # A reference token (+B-07+, +E-19+, +RX-03+). The surrounding
+  # A reference token (+B-07+, +E-19+, +RX-03+, +JS-08+). The surrounding
   # boundaries keep it from binding inside a longer token such as a date
   # (+2026-06+) or an identifier, so prose, ranges, and tables all read the
   # same anchors a human would.
-  REFERENCE = /(?<![A-Za-z0-9])(RX|B|E)-(\d{1,3})(?![0-9])/
+  REFERENCE = /(?<![A-Za-z0-9])(RX|JS|B|E)-(\d{1,3})(?![0-9])/
 
   # The numbers a prefix defines in +text+: +B+ / +RX+ from their
   # +## B-07 — +-style headings, +E+ from +| E-04 |+ table rows so an

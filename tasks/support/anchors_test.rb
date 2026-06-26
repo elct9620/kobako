@@ -38,7 +38,7 @@ class KobakoAnchorsTest < Minitest::Test
   end
 
   def test_references_extract_anchor_tokens_including_range_endpoints
-    text = "See B-07..B-12 and E-19; RX-03 covers it. Not an anchor: rev-2026."
+    text = "See B-07..B-12 and E-19; RX-03 and JS-08 cover it. Not an anchor: rev-2026."
 
     refs = Anchors.references(text)
 
@@ -46,6 +46,7 @@ class KobakoAnchorsTest < Minitest::Test
     assert_includes refs, ["B", 12]
     assert_includes refs, ["E", 19]
     assert_includes refs, ["RX", 3]
+    assert_includes refs, ["JS", 8]
     refute_includes refs, ["E", 2026], "a hyphenated number inside a word is not an anchor reference"
   end
 
