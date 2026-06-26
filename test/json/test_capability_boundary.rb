@@ -59,4 +59,19 @@ class TestJsonCapabilityBoundary < Minitest::Test
     assert_equal "JSON::GeneratorError", err.klass,
                  "JSON.generate must refuse a Handle nested in an as_json result, not dispatch it to the host"
   end
+
+  # B-53 (outbound): a Handle used as a Hash key is refused through the key
+  # boundary, distinct from the value boundary. GeneratorError is the
+  # witness that the key was rejected locally — a host-dispatching to_s
+  # would stringify the Handle and let generate succeed, the failure mode
+  # this pins shut.
+  def test_b53_generate_refuses_a_handle_used_as_a_hash_key
+    sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
+    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; JSON.generate({ h => 1 })") }
+
+    assert_equal "JSON::GeneratorError", err.klass,
+                 "a Handle Hash key through JSON.generate must be refused at the key boundary, not host-dispatched"
+  end
 end
