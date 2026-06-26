@@ -149,7 +149,9 @@ not change `generate`'s output.
 
 ### JS-09 — Nesting depth bound
 
-`parse` and `generate` enforce a fixed maximum nesting depth of 128, owned by
-the JSON capability. Parsing input nested deeper raises `JSON::ParserError`;
-generating a structure nested deeper raises `JSON::GeneratorError`. The bound
-caps recursion on untrusted input rather than exhausting the guest stack.
+`parse` and `generate` cap nesting at a fixed depth bound owned by the JSON
+capability and shared by both paths, so a structure one rejects the other
+rejects too. A value nested to a depth of 128 exceeds the bound: parsing it
+raises `JSON::ParserError`, generating it raises `JSON::GeneratorError`. The
+bound caps recursion on untrusted input rather than exhausting the guest
+stack.
