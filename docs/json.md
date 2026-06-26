@@ -115,8 +115,14 @@ trailing content, or nesting beyond the depth bound (JS-09) — raises
 `JSON.generate` emits a compact, well-formed JSON `String` for JSON-native
 values, with correct string escaping: `String` → JSON string, `nil` → `null`,
 the booleans, `Integer` and `Float` numbers, `Array`, and `Hash`. A `Symbol`
-value renders as its name. A `Hash` key renders as its string form when it is a
-`String`, a `Symbol`, or a JSON-native scalar (a number, `nil`, or a boolean),
+value renders as its name. `generate` classifies each value by its native type,
+not by its Ruby class identity or any method it answers to, so a subclass of a
+JSON-native type serializes as that native kind and classification never probes
+the object — a capability proxy cannot masquerade as a native type (B-53). A
+`String` value carries JSON text, so a `String` whose bytes are not valid UTF-8
+raises `JSON::GeneratorError` rather than being lossily transcoded. A `Hash` key
+renders as its string form when it is a `String`, a `Symbol`, or a JSON-native
+scalar (a number, `nil`, or a boolean),
 as in CRuby. Any other key raises `JSON::GeneratorError`: a JSON-native `Array`
 or `Hash` is not a usable JSON key, and a `Kobako::Handle`, a `Member`, or any
 other non-native object is refused through the same boundary as a non-native
