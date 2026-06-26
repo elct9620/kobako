@@ -4,7 +4,7 @@
 #
 # Dependency order: kobako depends on kobako-core, so it goes last —
 # `cargo publish` waits for each crate to land in the index before
-# returning. kobako-io and kobako-regexp depend only on the
+# returning. kobako-io, kobako-json, and kobako-regexp depend only on the
 # already-published beni, so their order is free.
 #
 # The already-published check makes a re-run after a partial failure
@@ -29,7 +29,7 @@ already_published() {
     "https://crates.io/api/v1/crates/$1/$2" >/dev/null 2>&1
 }
 
-for crate in kobako-core kobako-io kobako-regexp kobako; do
+for crate in kobako-core kobako-io kobako-json kobako-regexp kobako; do
   if $dry_run; then
     cargo publish -p "$crate" --dry-run
     continue

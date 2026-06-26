@@ -76,8 +76,8 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: wasm/kobako-wasm
-      - name: Build Guest Binary variants (pure default + regexp variants)
-        run: bundle exec rake wasm:build wasm:build:regexp wasm:build:regexp_unicode
+      - name: Build Guest Binary variants (pure default + regexp + json variants)
+        run: bundle exec rake wasm:build wasm:build:regexp wasm:build:regexp_unicode wasm:build:json wasm:build:full
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kobako-wasm
@@ -85,6 +85,8 @@ jobs:
             data/kobako.wasm
             data/kobako+regexp.wasm
             data/kobako+regexp-unicode.wasm
+            data/kobako+json.wasm
+            data/kobako+full.wasm
           retention-days: 7
           if-no-files-found: error
 

@@ -19,6 +19,7 @@ jobs:
       core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
       rs_release_created: ${{ steps.release.outputs['wasm/kobako--release_created'] }}
       io_release_created: ${{ steps.release.outputs['wasm/kobako-io--release_created'] }}
+      json_release_created: ${{ steps.release.outputs['wasm/kobako-json--release_created'] }}
       regexp_release_created: ${{ steps.release.outputs['wasm/kobako-regexp--release_created'] }}
       baker_release_created: ${{ steps.release.outputs['wasm/kobako-baker--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
@@ -44,7 +45,7 @@ jobs:
   # keeps the chain alive if one output ever drops.
   release-crate:
     needs: release-please
-    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created }}
+    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.json_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created }}
     uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 
@@ -73,7 +74,7 @@ jobs:
         run: cargo update -p kobako --workspace --offline || cargo update -p kobako
       - name: Regenerate wasm/Cargo.lock guest crate entries
         working-directory: wasm
-        run: cargo update -p kobako-core -p kobako -p kobako-io -p kobako-regexp --workspace --offline || cargo update -p kobako-core -p kobako -p kobako-io -p kobako-regexp
+        run: cargo update -p kobako-core -p kobako -p kobako-io -p kobako-json -p kobako-regexp --workspace --offline || cargo update -p kobako-core -p kobako -p kobako-io -p kobako-json -p kobako-regexp
       - name: Regenerate wasm/kobako-baker/Cargo.lock entry
         working-directory: wasm/kobako-baker
         run: cargo update -p kobako-baker --offline || cargo update -p kobako-baker

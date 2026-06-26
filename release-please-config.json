@@ -74,6 +74,21 @@
         }
       ]
     },
+    "wasm/kobako-json": {
+      "component": "kobako-json",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-json')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/wasm/kobako-json/README.md"
+        }
+      ]
+    },
     "wasm/kobako-baker": {
       "component": "kobako-baker",
       "release-type": "rust",
@@ -94,7 +109,7 @@
     {
       "type": "linked-versions",
       "groupName": "kobako guest crates",
-      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-regexp", "kobako-baker"]
+      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-json", "kobako-regexp", "kobako-baker"]
     }
   ],
   "extra-files": [
