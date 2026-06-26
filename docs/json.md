@@ -127,10 +127,12 @@ the gem owns escaping and never splices caller-provided text.
 
 ### JS-07 — pretty_generate emits indented JSON
 
-`JSON.pretty_generate` emits the same value as `generate` with CRuby's pretty
-layout — two-space indentation per nesting level, a space after each `:`, one
-object member or array element per line, and empty `[]` / `{}` left inline;
-parsing its output yields the same tree as parsing `generate`'s output.
+`JSON.pretty_generate` emits the same value as `generate` in an indented
+layout: two-space indentation per nesting level, a space after each `:`, one
+object member or array element per line, and an empty `[]` / `{}` left inline.
+The layout is the capability's own committed shape, not a byte-for-byte match of
+any other `JSON` implementation; parsing its output yields the same tree as
+parsing `generate`'s output.
 
 ### JS-08 — Generate serializes an opt-in object through as_json
 
