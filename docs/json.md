@@ -35,8 +35,8 @@ follows MRI within that subset except where a behavior below states otherwise.
 
 ### Availability
 
-The capability is opt-in and ships as the `kobako+json` / `kobako+full`
-variants. The variant matrix, build tasks, and packaging policy live in
+The capability is opt-in: the default Guest Binary ships without it. The
+variants that carry it, the build tasks, and the packaging policy live in
 [`docs/variants.md`](variants.md).
 
 ## Scope
@@ -115,8 +115,9 @@ trailing content, or nesting beyond the depth bound (JS-09) — raises
 `JSON.generate` emits a compact, well-formed JSON `String` for JSON-native
 values, with correct string escaping: `String` → JSON string, `nil` → `null`,
 the booleans, `Integer` and `Float` numbers, `Array`, and `Hash`. A `Symbol`
-value renders as its name,
-and a `Symbol` or numeric `Hash` key renders as its string form, as in CRuby. A
+value renders as its name. A `Hash` key renders as its string form when it is a
+`String`, a `Symbol`, or a JSON-native scalar (a number, `nil`, or a boolean),
+as in CRuby; the `as_json` opt-in (JS-08) applies to values, never to keys. A
 `Hash` key that is not JSON-native — a `Kobako::Handle`, a `Member`, or any
 other object — is refused through the same boundary as a non-native value
 (B-53), never stringified through a host-dispatching `to_s`. A `Float` that is
@@ -125,8 +126,9 @@ the gem owns escaping and never splices caller-provided text.
 
 ### JS-07 — pretty_generate emits indented JSON
 
-`JSON.pretty_generate` emits the same value as `generate` with human-readable
-indentation and spacing; parsing its output yields the same tree as parsing
+`JSON.pretty_generate` emits the same value as `generate` with CRuby's pretty
+layout — two-space indentation per nesting level, a space after each `:`, and a
+newline between members; parsing its output yields the same tree as parsing
 `generate`'s output.
 
 ### JS-08 — Generate serializes an opt-in object through as_json
