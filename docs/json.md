@@ -148,10 +148,13 @@ types and `Symbol` (JS-06) — serializes only if its class overrides the raisin
 `generate` calls `as_json` and encodes the value it returns, recursively, under
 the same rules (escaping, depth bound, capability refusal). `Object#as_json` is
 defined with a raising default, so an object that has not opted in raises
-`JSON::GeneratorError` (B-53). The hook returns a value the gem encodes — to
-serialize an object as `true`, its `as_json` returns the boolean `true`, not the
-string `"true"`. `generate` consults `as_json` only; overriding `to_json` does
-not change `generate`'s output.
+`JSON::GeneratorError` (B-53). The default governs a capability reference too:
+`as_json` on a `Kobako::Handle` or `Member` raises locally rather than reaching
+the host, so the hook never becomes a path to a host round-trip. The hook
+returns a value the gem encodes — to serialize an object as `true`, its
+`as_json` returns the boolean `true`, not the string `"true"`. `generate`
+consults `as_json` only; overriding `to_json` does not change `generate`'s
+output.
 
 ### JS-09 — Nesting depth bound
 
