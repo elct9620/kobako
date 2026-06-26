@@ -58,4 +58,18 @@ class TestJsonGenerate < Minitest::Test
   def test_js06_non_scalar_key_raises_generator_error
     assert_guest_raises "JSON::GeneratorError", "JSON.generate({ [1] => 2 })"
   end
+
+  # JS-06: a value is classified by its native type, not its class identity,
+  # so a subclass of a JSON-native type serializes as that native kind.
+  def test_js06_native_subclass_serializes_as_native_kind
+    assert_equal "[1,2]",
+                 eval_json("class A < Array; end; a = A.new; a.push(1); a.push(2); JSON.generate(a)"),
+                 "JSON.generate of an Array subclass through the json guest must serialize it as a JSON array"
+    assert_equal '{"k":1}',
+                 eval_json('class H < Hash; end; h = H.new; h["k"] = 1; JSON.generate(h)'),
+                 "JSON.generate of a Hash subclass through the json guest must serialize it as a JSON object"
+    assert_equal '"x"',
+                 eval_json('class S < String; end; JSON.generate(S.new("x"))'),
+                 "JSON.generate of a String subclass through the json guest must serialize it as a JSON string"
+  end
 end

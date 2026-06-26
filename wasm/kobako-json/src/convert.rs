@@ -5,8 +5,11 @@
 //! maps mruby values to JSON. Both honor one nesting bound owned by this
 //! capability.
 //!
-//! The outbound walk classifies native types by exact class and reaches a
-//! non-native object ONLY through the `Object`-rooted `as_json` hook. It
+//! The outbound walk classifies a value by its native mruby type, not its
+//! Ruby class identity, and reaches a non-native object ONLY through the
+//! `Object`-rooted `as_json` hook. Keying on the type tag means a subclass
+//! of a native type still serializes as that kind, while a capability proxy
+//! — whatever names it answers to — cannot masquerade as one. It
 //! never probes a value via `respond_to?` or a conversion protocol
 //! (`to_ary` / `to_hash` / a bare `to_json`): on a capability proxy those
 //! forward to the host — `respond_to?` lies (the proxy answers every name)
@@ -16,7 +19,7 @@
 //! round-trip.
 
 use crate::errors::{generator_error, parser_error};
-use beni::{Array, Error, FromValue, Hash, IntoValue, Mrb, RString, Value};
+use beni::{Array, Error, FromValue, Hash, IntoValue, Mrb, RString, Symbol, Value};
 use serde_json::{Map, Number, Value as JsonValue};
 
 /// The maximum container nesting `generate` accepts. serde_json's parse
@@ -110,26 +113,40 @@ fn decode_key(mrb: &Mrb, key: &str, symbolize: bool) -> Value {
 /// `pretty_generate`). `depth` is the current nesting level, bounded by
 /// `MAX_NESTING_DEPTH`.
 pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
-    // Scalar leaves dispatch on mruby's type tag through the safe
-    // `FromValue` downcast, as the guest codec does.
+    // Dispatch on the value's native mruby type through the safe `FromValue`
+    // downcast / tag predicates, as the guest codec does — never on its Ruby
+    // class identity, so a native subclass still serializes as its kind and a
+    // capability proxy cannot masquerade by answering a name.
     if let Some(n) = i32::from_value(val) {
         return Ok(JsonValue::Number(Number::from(n as i64)));
     }
     if let Some(f) = f64::from_value(val) {
         return number_from_f64(mrb, f);
     }
-    match val.classname(mrb).as_str() {
-        "NilClass" => Ok(JsonValue::Null),
-        "TrueClass" => Ok(JsonValue::Bool(true)),
-        "FalseClass" => Ok(JsonValue::Bool(false)),
-        "String" => Ok(JsonValue::String(utf8_string(mrb, val)?)),
-        "Symbol" => Ok(JsonValue::String(val.to_string(mrb))),
-        "Array" => encode_array(mrb, val, depth),
-        "Hash" => encode_hash(mrb, val, depth),
-        // Any other value — including a `Kobako::Handle` or `Member` — is
-        // reached only through the `Object`-rooted `as_json` hook.
-        _ => encode_via_as_json(mrb, val, depth),
+    if val.is_nil() {
+        return Ok(JsonValue::Null);
     }
+    if val.is_true() {
+        return Ok(JsonValue::Bool(true));
+    }
+    if val.is_false() {
+        return Ok(JsonValue::Bool(false));
+    }
+    if let Some(s) = RString::from_value(val) {
+        return Ok(JsonValue::String(utf8_string(mrb, s)?));
+    }
+    if Symbol::from_value(val).is_some() {
+        return Ok(JsonValue::String(val.to_string(mrb)));
+    }
+    if let Some(ary) = Array::from_value(val) {
+        return encode_array(mrb, ary, depth);
+    }
+    if let Some(hash) = Hash::from_value(val) {
+        return encode_hash(mrb, hash, depth);
+    }
+    // Any other value — including a `Kobako::Handle` or `Member` — is reached
+    // only through the `Object`-rooted `as_json` hook.
+    encode_via_as_json(mrb, val, depth)
 }
 
 fn number_from_f64(mrb: &Mrb, f: f64) -> Result<JsonValue, Error> {
@@ -138,12 +155,10 @@ fn number_from_f64(mrb: &Mrb, f: f64) -> Result<JsonValue, Error> {
         .ok_or_else(|| generator_error(mrb, "NaN and Infinity are not valid JSON"))
 }
 
-fn encode_array(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
+fn encode_array(mrb: &Mrb, ary: Array, depth: usize) -> Result<JsonValue, Error> {
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
-    // SAFETY: reached only after a `classname == "Array"` gate.
-    let ary = unsafe { Array::from_value_unchecked(val) };
     let len = ary.len();
     let mut items = Vec::with_capacity(len);
     for i in 0..len {
@@ -152,12 +167,10 @@ fn encode_array(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error>
     Ok(JsonValue::Array(items))
 }
 
-fn encode_hash(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
+fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> {
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
-    // SAFETY: reached only after a `classname == "Hash"` gate.
-    let hash = unsafe { Hash::from_value_unchecked(val) };
     let keys = hash.keys(mrb);
     let len = keys.len();
     let mut map = Map::with_capacity(len);
@@ -185,17 +198,25 @@ fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
     if f64::from_value(key).is_some() {
         return Ok(key.to_string(mrb));
     }
-    match key.classname(mrb).as_str() {
-        "String" => utf8_string(mrb, key),
-        "Symbol" => Ok(key.to_string(mrb)),
-        "NilClass" => Ok(String::new()),
-        "TrueClass" => Ok("true".to_string()),
-        "FalseClass" => Ok("false".to_string()),
-        other => Err(generator_error(
-            mrb,
-            &format!("{other} is not a valid JSON object key"),
-        )),
+    if key.is_nil() {
+        return Ok(String::new());
     }
+    if key.is_true() {
+        return Ok("true".to_string());
+    }
+    if key.is_false() {
+        return Ok("false".to_string());
+    }
+    if let Some(s) = RString::from_value(key) {
+        return utf8_string(mrb, s);
+    }
+    if Symbol::from_value(key).is_some() {
+        return Ok(key.to_string(mrb));
+    }
+    Err(generator_error(
+        mrb,
+        &format!("{} is not a valid JSON object key", key.classname(mrb)),
+    ))
 }
 
 fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
@@ -212,10 +233,8 @@ fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, 
 
 /// Read a `String` value's bytes as a Rust `String`. JSON text is UTF-8,
 /// so a non-UTF-8 byte sequence is refused rather than lossily transcoded.
-fn utf8_string(mrb: &Mrb, val: Value) -> Result<String, Error> {
-    // SAFETY: reached only after a `classname == "String"` gate.
-    let bytes = unsafe { RString::from_value_unchecked(val).as_bytes(mrb) }.to_vec();
-    String::from_utf8(bytes).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
+fn utf8_string(mrb: &Mrb, s: RString) -> Result<String, Error> {
+    String::from_utf8(s.to_bytes()).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
 }
 
 fn too_deep(mrb: &Mrb) -> Error {
