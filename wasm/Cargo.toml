@@ -15,6 +15,10 @@
 #     the `MrbGuest` harness + the `KobakoBridge` built-in gem.
 #   * `kobako-io` — sandbox IO / Kernel capability gem (publishable
 #     rlib). Pure Rust over `beni`; kobako-free.
+#   * `kobako-json` — sandbox JSON capability gem (publishable rlib).
+#     Pure Rust over `beni`; kobako-free.
+#   * `kobako-regexp` — sandbox Regexp / MatchData capability gem
+#     (publishable rlib). Pure Rust over `beni`; kobako-free.
 #   * `kobako-wasm` — leaf shell producing `kobako.wasm`; composes the
 #     three published crates and emits the wasm exports. The typed
 #     mruby wrapper comes from the published `beni` crate (extracted
@@ -29,7 +33,7 @@
 # table, which keeps wizer/wasmtime out of this wasm32 dependency graph.
 
 [workspace]
-members = ["kobako", "kobako-core", "kobako-io", "kobako-regexp", "kobako-wasm"]
+members = ["kobako", "kobako-core", "kobako-io", "kobako-json", "kobako-regexp", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

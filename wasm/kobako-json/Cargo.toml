@@ -1,0 +1,36 @@
+# kobako-json — sandbox JSON capability gem.
+#
+# Backs a guest `JSON` module — `parse` / `generate` / `pretty_generate` —
+# with the pure-Rust `serde_json` engine, defined entirely through the
+# `beni` typed wrapper — no mrblib, no C mrbgem. A Guest Binary shell
+# composes it as an optional capability gem the same way it composes
+# `kobako-io`. The Ruby-visible surface is a curated subset of MRI's
+# `JSON` module, not the full API.
+
+[package]
+name = "kobako-json"
+version = "0.5.2"
+edition = "2021"
+description = "Sandbox JSON capability gem for kobako mruby guests — pure-Rust serde_json over beni."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
+keywords = ["wasm", "mruby", "sandbox", "json"]
+categories = ["wasm"]
+
+[dependencies]
+# Typed mruby wrapper — the `Gem` trait this crate implements plus the
+# class-definition and value-conversion seams the JSON surface uses.
+beni = "0.8.0"
+
+# Pure-Rust JSON engine. `preserve_order` makes a parsed object an
+# insertion-ordered map (CRuby member-order parity). `arbitrary_precision`
+# keeps each number's original literal so the parse integer policy can tell
+# a large integer from a real and refuse one beyond exact Float range
+# instead of silently degrading it. No default features so only `std` and
+# these two come in.
+serde_json = { version = "1", default-features = false, features = [
+    "std",
+    "preserve_order",
+    "arbitrary_precision",
+] }
