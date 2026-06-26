@@ -93,8 +93,23 @@ fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
 fn too_large(mrb: &Mrb, literal: &str) -> Error {
     parser_error(
         mrb,
-        &format!("integer {literal} exceeds the range the guest can represent exactly"),
+        &format!(
+            "integer {} exceeds the range the guest can represent exactly",
+            clamp_literal(literal)
+        ),
     )
+}
+
+/// Cap an untrusted numeric literal before it enters an error message, so a
+/// pathologically long digit run cannot inflate the exception. A literal past
+/// the cap shows a bounded prefix and its length instead of its full text.
+fn clamp_literal(literal: &str) -> String {
+    const MAX: usize = 32;
+    if literal.len() <= MAX {
+        return literal.to_string();
+    }
+    let head: String = literal.chars().take(MAX).collect();
+    format!("{head}... ({} digits)", literal.len())
 }
 
 /// Build a `String` or interned `Symbol` object key. Interning routes
@@ -176,8 +191,9 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
     let mut map = Map::with_capacity(len);
     for i in 0..len {
         let key = keys.entry(i as isize);
-        // A hostile `[]` reads as `nil` for that key rather than faulting
-        // the recursive converter.
+        // `hash.get` is the C hash lookup, not a Ruby `[]` dispatch, so a key
+        // missing from the snapshot (e.g. removed mid-walk) reads as `nil`
+        // rather than faulting the recursive converter.
         let value = hash.get(mrb, key).unwrap_or(Value::nil());
         map.insert(encode_key(mrb, key)?, encode(mrb, value, depth + 1)?);
     }
