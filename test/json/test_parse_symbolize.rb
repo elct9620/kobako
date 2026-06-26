@@ -24,6 +24,13 @@ class TestJsonParseSymbolize < Minitest::Test
                  "JSON.parse(symbolize_names: false) through the json guest must keep String keys")
   end
 
+  # JS-02: only the symbolize_names: keyword is honored; a String-keyed
+  # options Hash does not symbolize, so the keys stay String.
+  def test_js02_string_keyed_option_does_not_symbolize
+    assert_equal({ "a" => 1 }, eval_json('JSON.parse(%q({"a":1}), {"symbolize_names" => true})'),
+                 "JSON.parse with a String-keyed symbolize_names option must be ignored, keeping String keys")
+  end
+
   # JS-02: only keys change — string values stay String even when keys are
   # symbolized.
   def test_js02_values_are_unaffected_by_symbolize

@@ -59,6 +59,19 @@ class TestJsonGenerate < Minitest::Test
     assert_guest_raises "JSON::GeneratorError", "JSON.generate({ [1] => 2 })"
   end
 
+  # JS-06: a Float key renders as its string form, like the other
+  # JSON-native scalar keys.
+  def test_js06_float_key_renders_as_string
+    assert_equal '{"1.5":2}', eval_json("JSON.generate({ 1.5 => 2 })"),
+                 "JSON.generate of a Float key through the json guest must render the key as its string form"
+  end
+
+  # JS-06: a String carries JSON text, so a non-UTF-8 byte sequence is
+  # refused rather than lossily transcoded.
+  def test_js06_non_utf8_string_raises_generator_error
+    assert_guest_raises "JSON::GeneratorError", "JSON.generate(255.chr)"
+  end
+
   # JS-06: a value is classified by its native type, not its class identity,
   # so a subclass of a JSON-native type serializes as that native kind.
   def test_js06_native_subclass_serializes_as_native_kind
