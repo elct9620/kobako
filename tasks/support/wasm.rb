@@ -48,12 +48,27 @@ module KobakoWasm
   DATA_WASM_JSON = File.join(DATA_DIR, "kobako+json.wasm").freeze
   DATA_WASM_FULL = File.join(DATA_DIR, "kobako+full.wasm").freeze
 
-  # The named capability compositions, as kobako-wasm cargo features. The
-  # default `--workspace` check builds every member at its default
-  # features; these change only the shell's composition (extra capability
-  # gems + their `cfg` blocks), so `wasm:check` compiles the shell under
-  # each to catch broken feature wiring before a release builds a variant.
-  VARIANT_FEATURES = %w[regexp regexp-unicode json full].freeze
+  # Variant build matrix: rake task name => [cargo features, output path].
+  # The single source of truth for the capability variant set — drives the
+  # wasm:build:<variant> tasks, the wasm:clean artifact list, and (via
+  # VARIANT_FEATURES) the wasm:check feature gate.
+  VARIANT_BUILDS = {
+    "build:regexp" => [["regexp"], DATA_WASM_REGEXP],
+    "build:regexp_unicode" => [["regexp-unicode"], DATA_WASM_REGEXP_UNICODE],
+    "build:json" => [["json"], DATA_WASM_JSON],
+    "build:full" => [["full"], DATA_WASM_FULL]
+  }.freeze
+
+  # The shell cargo feature each variant enables. The default `--workspace`
+  # check builds every member at its default features; these change only the
+  # shell's composition (extra capability gems + their `cfg` blocks), so
+  # `wasm:check` compiles the shell under each to catch broken feature
+  # wiring before a release builds a variant.
+  VARIANT_FEATURES = VARIANT_BUILDS.values.map { |features, _output| features.first }.freeze
+
+  # Every Guest Binary artifact, default plus variants — the set wasm:clean
+  # removes.
+  GUEST_BINARIES = [DATA_WASM, *VARIANT_BUILDS.values.map(&:last)].freeze
 
   # Stage B output (produced by `rake beni:build` against
   # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`

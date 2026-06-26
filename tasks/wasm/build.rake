@@ -26,41 +26,20 @@ namespace :wasm do
     KobakoWasm::GuestBuilder.new.build
   end
 
-  desc "Build the regexp variant Guest Binary (data/kobako+regexp.wasm; no Unicode)"
-  task "build:regexp" => ["beni:build"] do
-    KobakoWasm.ensure_cargo!
-    KobakoWasm::GuestBuilder.new(features: ["regexp"], output: KobakoWasm::DATA_WASM_REGEXP).build
-  end
-
-  desc "Build the regexp+unicode variant Guest Binary (data/kobako+regexp-unicode.wasm)"
-  task "build:regexp_unicode" => ["beni:build"] do
-    KobakoWasm.ensure_cargo!
-    KobakoWasm::GuestBuilder.new(features: ["regexp-unicode"], output: KobakoWasm::DATA_WASM_REGEXP_UNICODE).build
-  end
-
-  desc "Build the json variant Guest Binary (data/kobako+json.wasm)"
-  task "build:json" => ["beni:build"] do
-    KobakoWasm.ensure_cargo!
-    KobakoWasm::GuestBuilder.new(features: ["json"], output: KobakoWasm::DATA_WASM_JSON).build
-  end
-
-  desc "Build the full variant Guest Binary (data/kobako+full.wasm; ASCII regexp + json)"
-  task "build:full" => ["beni:build"] do
-    KobakoWasm.ensure_cargo!
-    KobakoWasm::GuestBuilder.new(features: ["full"], output: KobakoWasm::DATA_WASM_FULL).build
+  # One build task per capability variant, table-driven so the bodies do
+  # not repeat. The matrix (task name => [features, output]) lives in
+  # KobakoWasm so the build tasks, clean list, and check gate share it.
+  KobakoWasm::VARIANT_BUILDS.each do |name, (features, output)|
+    desc "Build the #{name.delete_prefix("build:")} variant Guest Binary (#{File.basename(output)})"
+    task name => ["beni:build"] do
+      KobakoWasm.ensure_cargo!
+      KobakoWasm::GuestBuilder.new(features: features, output: output).build
+    end
   end
 
   desc "Remove every Guest Binary variant and the wasm crate target/ cache"
   task :clean do
-    [
-      KobakoWasm::DATA_WASM,
-      KobakoWasm::DATA_WASM_REGEXP,
-      KobakoWasm::DATA_WASM_REGEXP_UNICODE,
-      KobakoWasm::DATA_WASM_JSON,
-      KobakoWasm::DATA_WASM_FULL
-    ].each do |wasm|
-      FileUtils.rm_f(wasm)
-    end
+    KobakoWasm::GUEST_BINARIES.each { |wasm| FileUtils.rm_f(wasm) }
     FileUtils.rm_rf(KobakoWasm::CRATE_TARGET_DIR)
     puts "[wasm:clean] removed the Guest Binary variants and #{KobakoWasm::CRATE_TARGET_DIR}"
   end
