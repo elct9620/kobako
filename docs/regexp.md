@@ -40,18 +40,10 @@ the matching engine is an implementation choice below this contract.
 
 ### Availability
 
-The capability is opt-in: the default Guest Binary ships without it, and a
-guest selects a regexp variant (`kobako+regexp` or `kobako+regexp-unicode`).
-The two differ by one behavior — case-insensitive matching (`IGNORECASE` /
-`/i`) needs the `-unicode` variant; on the plain `regexp` variant a
-case-insensitive pattern raises `RegexpError` at compile. The ASCII shorthand
-classes work on both.
-
-The variant binaries ship as GitHub Release assets
-(`kobako+regexp{,-unicode}-<version>.wasm`) — or build locally via
-`rake wasm:build:regexp` / `rake wasm:build:regexp_unicode` — and a Host App
-opts in per Sandbox by pointing `Kobako::Sandbox.new(wasm_path:)` at the
-downloaded file.
+The capability is opt-in and ships as the `kobako+regexp` /
+`kobako+regexp-unicode` variants. The variant matrix, the
+`regexp` / `regexp-unicode` difference, build tasks, and packaging policy live
+in [`docs/variants.md`](variants.md).
 
 ## Scope
 

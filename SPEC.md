@@ -79,7 +79,7 @@ These five roles describe the system. All design and behavior content in later l
 - Represent Ruby objects outside the wire type mapping as opaque Capability Handles in both directions across the boundary — objects returned by Service methods (guest→host return path) and objects supplied as `#run` arguments (host→guest argument path); allow the guest to reference those handles in subsequent calls
 - Capture guest stdout and stderr into separate in-process buffers and expose them to the Host App
 - Classify every execution failure into exactly one of three typed error classes and raise it to the Host App
-- Ship `kobako.wasm` inside the gem alongside a source-only native extension; provide a single build command that produces both artifacts from a clean clone on Linux or macOS
+- Ship the pure default `kobako.wasm` inside the gem alongside a source-only native extension; provide a single build command that produces both artifacts from a clean clone on Linux or macOS. Optional capability variants (`kobako+<cap>.wasm`) are not bundled — they ship as downloadable Release assets a Host App points a Sandbox at; the variant matrix and packaging policy live in [`docs/variants.md`](docs/variants.md)
 - Maintain a four-layer test suite and six regression benchmarks that perceive performance drift against a committed anchor baseline across releases
 
 **Does not do:**
@@ -482,7 +482,7 @@ The following principles govern how all names in this specification and in the `
 | N-1 | Role names are PascalCase with every word capitalized: `Host App`, `Host Gem`, `Guest Binary`, `Wire Spec` | All role names in this document and in code comments |
 | N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle`, `Kobako::Namespace` |
 | N-3 | The gem name is always lowercase: `kobako` | Gemspec, `require` statements, Bundler references |
-| N-4 | The Wasm artifact name is fixed: `kobako.wasm` | Build output, gem packaging, documentation |
+| N-4 | The Wasm artifact name is fixed: `kobako.wasm` for the pure default; a capability variant adds a `+<cap>` suffix (`kobako+<cap>.wasm`, e.g. `kobako+regexp.wasm`), the composition convention detailed in [`docs/variants.md`](docs/variants.md) | Build output, gem packaging, documentation |
 | N-5 | The Guest Binary crate is `kobako-wasm`; the native extension crate package is `kobako`, matching the `lib/kobako/kobako.<ext>` artifact that rb_sys / rake-compiler loads. Neither crate name is exposed to Ruby. | `Cargo.toml` package names |
 | N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface | All layers of this specification |
 | N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |

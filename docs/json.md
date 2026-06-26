@@ -35,11 +35,9 @@ follows MRI within that subset except where a behavior below states otherwise.
 
 ### Availability
 
-The capability is opt-in: the default Guest Binary ships without it, and a guest
-selects a JSON variant — `kobako+json` (JSON only) or `kobako+full` (JSON plus
-ASCII regexp). The variant binaries ship as GitHub Release assets and a Host App
-opts in per Sandbox by pointing `Kobako::Sandbox.new(wasm_path:)` at the
-downloaded file.
+The capability is opt-in and ships as the `kobako+json` / `kobako+full`
+variants. The variant matrix, build tasks, and packaging policy live in
+[`docs/variants.md`](variants.md).
 
 ## Scope
 
