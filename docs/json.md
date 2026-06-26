@@ -114,8 +114,11 @@ trailing content, or nesting beyond the depth bound (JS-09) — raises
 
 `JSON.generate` emits a compact, well-formed JSON `String` for JSON-native
 values, with correct string escaping: `nil` → `null`, the booleans, `Integer`
-and `Float` numbers, `Array`, and `Hash`. A `Symbol` value and a non-`String`
-`Hash` key render through their `to_s` name, as in CRuby. A `Float` that is
+and `Float` numbers, `Array`, and `Hash`. A `Symbol` value renders as its name,
+and a `Symbol` or numeric `Hash` key renders as its string form, as in CRuby. A
+`Hash` key that is not JSON-native — a `Kobako::Handle`, a `Member`, or any
+other object — is refused through the same boundary as a non-native value
+(B-53), never stringified through a host-dispatching `to_s`. A `Float` that is
 `NaN` or infinite raises `JSON::GeneratorError`. Output is always well-formed:
 the gem owns escaping and never splices caller-provided text.
 
