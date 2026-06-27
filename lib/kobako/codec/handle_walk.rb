@@ -82,11 +82,11 @@ module Kobako
       # +Kobako::Handle+ leaf with the host-side object +handler+ resolves
       # it to. The symmetric inverse of {deep_wrap}: that walk allocates objects
       # into Handles on the host→guest argument path; this walk resolves
-      # Handles back to their objects on every guest→host value path — the
-      # +#eval+ / +#run+ result and the yield-block result alike. The walk
-      # descends through Array elements and Hash keys and values one
-      # structural level at a time; any non-Handle leaf passes through
-      # unchanged.
+      # Handles back to their objects wherever a guest→host payload carries
+      # one — an invocation result, a yield-block result, or a dispatch
+      # argument. The walk descends through Array elements and Hash keys and
+      # values one structural level at a time; any non-Handle leaf passes
+      # through unchanged.
       #
       # +value+ is a decoded Ruby value (a Handle here is a wire-decoded
       # +Kobako::Handle+, never a guest-forged one); +handler+ must
