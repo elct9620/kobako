@@ -563,6 +563,7 @@ The test suite is organized into four layers. All four layers must exist and mus
 - kwargs dispatch — empty kwargs, symbol-key wire form, and Symbol round-trip through args / return values
 - Handle chaining — a Service returns a stateful object and the guest uses the Handle as a subsequent dispatch target
 - Guest→host Handle restoration — the guest returns a Handle (bare and nested in an Array / Hash) as the `#eval` / `#run` result or as a yield-block result, and the host restores the original host object (B-37)
+- Guest→host Handle arguments — the guest passes a Handle (bare and nested in an Array / Hash, positional or keyword) into a Service dispatch, and the host resolves each to its original host object before the call (B-16)
 - Handle lifecycle over Sandbox teardown, and cross-invocation Handle invalidity — a Handle obtained in invocation N used as a target in invocation N+1 surfaces as `Kobako::ServiceError` with `type="undefined"` when not rescued within the guest (B-18, E-13)
 - Block / yield round-trip — a Service method receives a block via `&block` and yields one or more times; covers each YieldResponse tag (`0x01` ok, `0x02` break with B-25 unwind semantics, `0x04` error from a block exception, and the unsupported-`return` path of E-21 raising at the yield site), lambda-block `break` silent return (B-27), and nested dispatch frames (B-28)
 - stdout / stderr isolation from the Transport channel
