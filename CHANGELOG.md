@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/elct9620/kobako/compare/v0.12.1...v0.12.2) (2026-06-27)
+
+
+### Bug Fixes
+
+* **release:** advance last-release-sha past the unparseable fork merge ([d06117d](https://github.com/elct9620/kobako/commit/d06117d462eea0ae5648e5bdd6886b735765f3b3))
+
 ## [0.12.1](https://github.com/elct9620/kobako/compare/v0.12.0...v0.12.1) (2026-06-27)
 
 
