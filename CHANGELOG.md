@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/elct9620/kobako/compare/v0.12.0...v0.12.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **spec:** resolve nested Handle dispatch arguments symmetric with B-37 ([bb4ca9a](https://github.com/elct9620/kobako/commit/bb4ca9a0fef0f17a6e97a63a3ee4a3784961fbe2))
+* **transport:** resolve nested Handle dispatch arguments to host objects ([de5b233](https://github.com/elct9620/kobako/commit/de5b233a2750684ce1c6cceb3d718da1194eabc1))
+
 ## [0.12.0](https://github.com/elct9620/kobako/compare/v0.11.2...v0.12.0) (2026-06-26)
 
 
