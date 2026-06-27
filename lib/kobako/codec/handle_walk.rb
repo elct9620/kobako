@@ -8,8 +8,7 @@ module Kobako
     # the host↔guest boundary. {deep_wrap} allocates a +Kobako::Handle+ for
     # each non-wire-representable leaf on the host→guest +#run+ argument
     # path; {deep_restore} resolves each wire-decoded Handle back to its
-    # host object on every guest→host value path — the +#eval+ / +#run+
-    # result and the yield-block result alike. {representable?} is the
+    # host object on every guest→host value path. {representable?} is the
     # by-value codec-type predicate that decides which leaves {deep_wrap}
     # must wrap: the closed 12-entry wire type set
     # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
