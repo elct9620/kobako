@@ -30,8 +30,6 @@ module Kobako
 
       def self?.resolve_path: (String path, Kobako::Catalog::Namespaces namespaces) -> untyped
 
-      def self?.resolve_handle: (Kobako::Handle handle, Kobako::Catalog::Handles handler) -> untyped
-
       def self?.require_live_object!: (Integer id, Kobako::Catalog::Handles handler) -> untyped
 
       def self?.encode_ok: (untyped value, Kobako::Catalog::Handles handler) -> String

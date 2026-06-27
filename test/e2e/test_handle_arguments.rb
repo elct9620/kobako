@@ -66,4 +66,22 @@ class TestE2EHandleArguments < Minitest::Test
     assert_same greeter, recorder.kwargs[:cred],
                 "B-16: in a mixed call the keyword Handle value must resolve to the host object"
   end
+
+  def test_b16_handle_nested_in_array_argument_resolves_to_host_object
+    greeter = Greeter.new("Bob")
+    recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take([h])")
+
+    assert_same greeter, recorder.args[0][0],
+                "B-16: a Handle nested in an Array argument must reach the Service method " \
+                "as the original host object, symmetric with the nested return path (B-37)"
+  end
+
+  def test_b16_handle_nested_in_hash_keyword_value_resolves_to_host_object
+    greeter = Greeter.new("Bob")
+    recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take(opts: { cred: h })")
+
+    assert_same greeter, recorder.kwargs[:opts][:cred],
+                "B-16: a Handle nested in a Hash keyword value must reach the Service method " \
+                "as the original host object, symmetric with the nested return path (B-37)"
+  end
 end

@@ -170,12 +170,14 @@ module Kobako
         raise UndefinedTargetError, "method #{name.inspect} is not exposed to the guest"
       end
 
-      # A Kobako::Handle arriving as a positional or keyword
-      # argument identifies a host-side object previously allocated by a prior
-      # transport call's Handle wrap. Resolve it back to the Ruby object before
-      # the dispatch reaches +public_send+.
+      # Resolve every Kobako::Handle in an argument — bare or nested in an
+      # Array / Hash — back to its host object before the dispatch reaches
+      # +public_send+, symmetric with the guest→host return path. A Handle id
+      # with no live entry surfaces as an unrecognized target.
       def resolve_arg(value, handler)
-        value.is_a?(Kobako::Handle) ? require_live_object!(value.id, handler) : value
+        Kobako::Codec::HandleWalk.deep_restore(value, handler)
+      rescue Kobako::SandboxError => e
+        raise UndefinedTargetError, e.message
       end
 
       # Resolve a Request target to the Ruby object the registry (or
@@ -190,7 +192,7 @@ module Kobako
         when String
           resolve_path(target, namespaces)
         when Kobako::Handle
-          resolve_handle(target, handler)
+          require_live_object!(target.id, handler)
         end
       end
 
@@ -198,10 +200,6 @@ module Kobako
         namespaces.lookup(path)
       rescue KeyError => e
         raise UndefinedTargetError, e.message
-      end
-
-      def resolve_handle(handle, handler)
-        require_live_object!(handle.id, handler)
       end
 
       # Resolve +id+ through the Catalog::Handles. An unknown id
