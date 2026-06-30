@@ -22,10 +22,9 @@ class TestSnapshot < Minitest::Test
   end
 
   # Every raw reader returns the documented Ruby type. The ext side
-  # encodes the slot data into seven specific shapes (binary String for
-  # the byte fields, bool for the truncation flags, Float for wall_time,
-  # Integer for memory_peak) — pin them so a magnus binding change cannot
-  # silently shift the type.
+  # encodes the slot data into five specific shapes (binary String for the
+  # byte fields, bool for the truncation flags) — pin them so a magnus
+  # binding change cannot silently shift the type.
   def test_eval_returns_snapshot_with_documented_raw_field_types
     snapshot = drive_eval("42")
 
@@ -35,8 +34,6 @@ class TestSnapshot < Minitest::Test
     assert_kind_of String, snapshot.stderr_bytes
     assert_includes [true, false], snapshot.stdout_truncated
     assert_includes [true, false], snapshot.stderr_truncated
-    assert_kind_of Float,   snapshot.wall_time
-    assert_kind_of Integer, snapshot.memory_peak
   end
 
   # +#stdout+ packs the +stdout_bytes+ / +stdout_truncated+ raw pair into
@@ -64,17 +61,6 @@ class TestSnapshot < Minitest::Test
     assert_equal snapshot.stderr_truncated, snapshot.stderr.truncated?
   end
 
-  # +#usage+ packs the +wall_time+ / +memory_peak+ raw pair into a
-  # +Kobako::Usage+ value object. Same anti-swap invariant — the
-  # destructure-to-kwargs handoff must keep field order correct.
-  def test_usage_helper_packs_wall_time_and_memory_peak
-    snapshot = drive_eval("42")
-
-    assert_instance_of Kobako::Usage, snapshot.usage
-    assert_equal snapshot.wall_time, snapshot.usage.wall_time
-    assert_equal snapshot.memory_peak, snapshot.usage.memory_peak
-  end
-
   # End-to-end stdout capture through the Snapshot pipeline: guest writes
   # via +puts+, host reads through +snapshot.stdout+. This is the path
   # the Sandbox-facing +#stdout+ reader ultimately depends on, so the
@@ -85,16 +71,6 @@ class TestSnapshot < Minitest::Test
 
     assert_includes snapshot.stdout.bytes, "hello-from-snapshot-test"
     refute snapshot.stdout.truncated?
-  end
-
-  # Wall-clock and memory accounting are populated on every successful
-  # invocation (B-35). Lock the non-negative invariants so a measurement
-  # bug that produces NaN / negative integers is caught.
-  def test_snapshot_usage_carries_non_negative_wall_time_and_memory_peak
-    snapshot = drive_eval("42")
-
-    assert_operator snapshot.wall_time, :>=, 0.0
-    assert_operator snapshot.memory_peak, :>=, 0
   end
 
   private

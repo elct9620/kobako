@@ -239,9 +239,10 @@ module Kobako
     # the +invoke!+ +ensure+ block so the usage record is populated on
     # every outcome — value return, +Kobako::TrapError+ (including
     # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
-    # and +Kobako::ServiceError+. On the success path the same figures
-    # already arrive via +Snapshot#usage+; on the trap path the Snapshot
-    # never reaches Ruby so the ext readout here is the only source.
+    # and +Kobako::ServiceError+. +Runtime#usage+ is the single source for
+    # both paths: the figures are stashed in the ext on every outcome, so
+    # unlike the +Snapshot+ (built only on success) the readout here also
+    # covers the trap path.
     #
     # The ext returns a positional 2-tuple +[wall_time, memory_peak]+
     # whose order matches the +Kobako::Usage+ field order; the

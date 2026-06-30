@@ -62,7 +62,7 @@ use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData
 use crate::contract::dispatch::DispatchHandler;
 use crate::contract::error::{Error, SetupError, Trap};
 use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use crate::contract::snapshot::{Capture, Snapshot as RuntimeSnapshot, Usage};
+use crate::contract::snapshot::{Capture, Snapshot as RuntimeSnapshot};
 use crate::snapshot::Snapshot;
 use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
@@ -493,12 +493,12 @@ impl Runtime {
         store.data_mut().start_wall_clock();
     }
 
-    /// Collect every per-invocation observable into a fresh `Snapshot`.
-    /// Called from the run-path methods after the guest export returns
-    /// successfully: drains OUTCOME_BUFFER via `__kobako_take_outcome`
-    /// and snapshots the per-channel stdout / stderr pipes (clipped to
-    /// their caps). The usage figures were already stashed by
-    /// `call_with_caps`.
+    /// Collect the success-path outputs into a fresh `Snapshot`. Called
+    /// after the guest export returns successfully: drains OUTCOME_BUFFER
+    /// via `__kobako_take_outcome` and snapshots the per-channel stdout /
+    /// stderr pipes (clipped to their caps). Usage is not collected here —
+    /// `call_with_caps` already stashed it into `last_usage` so `#usage`
+    /// survives the trap path, where no Snapshot is built.
     fn build_snapshot(
         &self,
         store: &mut WtStore<Invocation>,
@@ -506,12 +506,7 @@ impl Runtime {
     ) -> Result<RuntimeSnapshot, Trap> {
         let return_bytes = frames::fetch_outcome_bytes(store, exports)?;
         let data = store.data();
-        let (stdout_raw, stderr_raw, wall_time, memory_peak) = (
-            data.stdout_bytes(),
-            data.stderr_bytes(),
-            data.wall_time(),
-            data.memory_peak(),
-        );
+        let (stdout_raw, stderr_raw) = (data.stdout_bytes(), data.stderr_bytes());
         let (stdout_visible, stdout_truncated) =
             capture::clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
         let (stderr_visible, stderr_truncated) =
@@ -525,10 +520,6 @@ impl Runtime {
             stderr: Capture {
                 bytes: stderr_visible.to_vec(),
                 truncated: stderr_truncated,
-            },
-            usage: Usage {
-                wall_time,
-                memory_peak,
             },
         })
     }
