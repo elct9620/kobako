@@ -26,7 +26,11 @@ module Kobako
       # mapping is a closed set, and anything outside it is rejected by
       # the msgpack gem itself (arbitrary objects raise +NoMethodError+
       # from missing +to_msgpack+, integers outside i64..u64 raise
-      # +RangeError+).
+      # +RangeError+). The +NoMethodError+ catch is deliberately broad:
+      # MessagePack signals "no wire representation" only through that error,
+      # so there is no narrower discriminator — a packer-internal
+      # +NoMethodError+ is likewise reported as +UnsupportedType+ rather than
+      # propagating.
       def self.encode(value)
         Factory.dump(value)
       rescue ::RangeError, ::NoMethodError => e

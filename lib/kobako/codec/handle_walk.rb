@@ -97,6 +97,10 @@ module Kobako
         case value
         when ::Array then value.map { |element| HandleWalk.deep_restore(element, handler) }
         when ::Hash
+          # Rebuilt with each key restored: two distinct Handle keys that
+          # resolve to equal host objects collapse to the later pair, as in
+          # any Ruby Hash. The guest authored this payload, so that collapse
+          # is its own concern, not a fidelity guarantee the host owes it.
           value.to_h { |key, val| [HandleWalk.deep_restore(key, handler), HandleWalk.deep_restore(val, handler)] }
         when Kobako::Handle then handler.fetch(value.id)
         else value

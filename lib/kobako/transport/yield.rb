@@ -67,7 +67,7 @@ module Kobako
         raise Codec::InvalidType, "YieldResponse must carry at least one byte" if bytes.empty?
 
         tag = bytes.getbyte(0) # : Integer
-        body = bytes.byteslice(1, bytes.bytesize - 1) || +""
+        body = bytes.byteslice(1, bytes.bytesize - 1) # : String
 
         reject_dead_tag!(tag)
         new(tag: tag, value: Codec::Decoder.decode(body))
