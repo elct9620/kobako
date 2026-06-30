@@ -82,6 +82,10 @@ module Kobako
       # first invocation, so the preamble is exactly the bindings that
       # existed at that moment — a bind reaching a +Kobako::Namespace+
       # after the seal raises +ArgumentError+ and never alters Frame 1.
+      # The memo is gated on the seal rather than dropped per mutation (the
+      # +Catalog::Snippets#encode+ approach) because a +Member+ bind lands
+      # on a child +Kobako::Namespace+, invisible to this collection; only
+      # the seal guarantees nothing further can change.
       def encode
         return @encoded if @encoded
 
