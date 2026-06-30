@@ -71,8 +71,12 @@ pub(crate) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
 /// for exactly one `__kobako_dispatch` frame: the bridge builds one, hands
 /// it to the `Proc` as the second argument, and `invalidate`s it the
 /// instant the `Proc` returns. A guest block stashed and called after that
-/// frame (E-23) finds an invalidated handle and raises rather than
-/// touching freed stack.
+/// frame (E-23) normally raises `LocalJumpError` at the Ruby
+/// `Transport::Yielder` net — invalidated in the dispatcher's `ensure`,
+/// which fires before this handle is reached. This inner invalidation is
+/// the backstop behind that outer net: it keeps `call`'s `unsafe`
+/// `NonNull` deref from touching freed stack should the outer net ever be
+/// bypassed, so neither net is redundant.
 ///
 /// This is the single, explicit, frame-scoped FFI pointer the host↔guest
 /// re-entry still costs: `magnus`' `funcall` sits between two Rust frames,
