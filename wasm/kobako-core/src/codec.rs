@@ -168,6 +168,21 @@ impl Encoder {
     }
 
     pub fn write_value(&mut self, value: &Value) -> Result<(), Error> {
+        self.write_value_at(value, 0)
+    }
+
+    /// Encode one `Value` at nesting level `depth`. Recursing past
+    /// `MAX_NESTING_DEPTH` is refused as a clean error, mirroring the
+    /// decoder's `read_value_from` guard so an over-deep `Value` tree cannot
+    /// overflow the wasm stack on the way out either. Today's callers bound
+    /// the tree before it reaches here (the codec-conversion walk caps at the
+    /// same depth), so this is the encoder's own backstop, not the primary
+    /// cap — it keeps the limit true at the codec layer the const's doc
+    /// already promises it on.
+    fn write_value_at(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
+        if depth > MAX_NESTING_DEPTH {
+            return Err(Error::Malformed("nesting exceeds maximum depth"));
+        }
         match value {
             Value::Nil => write_nil(&mut self.buf).map_err(|_| Error::Truncated)?,
             Value::Bool(b) => write_bool(&mut self.buf, *b).map_err(|_| Error::Truncated)?,
@@ -186,15 +201,15 @@ impl Encoder {
                 let len = u32::try_from(items.len()).map_err(|_| Error::PayloadTooLarge)?;
                 write_array_len(&mut self.buf, len).map_err(|_| Error::Truncated)?;
                 for item in items {
-                    self.write_value(item)?;
+                    self.write_value_at(item, depth + 1)?;
                 }
             }
             Value::Map(pairs) => {
                 let len = u32::try_from(pairs.len()).map_err(|_| Error::PayloadTooLarge)?;
                 write_map_len(&mut self.buf, len).map_err(|_| Error::Truncated)?;
                 for (k, v) in pairs {
-                    self.write_value(k)?;
-                    self.write_value(v)?;
+                    self.write_value_at(k, depth + 1)?;
+                    self.write_value_at(v, depth + 1)?;
                 }
             }
             Value::Sym(name) => {
@@ -517,15 +532,49 @@ mod tests {
     fn decoder_rejects_nesting_past_max_depth() {
         // One level past the cap fails as a clean wire error instead of
         // recursing until the wasm stack overflows and hard-traps the
-        // guest (docs/wire-codec.md § Structural Nesting Depth).
+        // guest (docs/wire-codec.md § Structural Nesting Depth). The bytes
+        // are hand-built — `0x91` is a one-element fixarray, `0xc0` the
+        // innermost nil — because the encoder now refuses to emit an
+        // over-deep tree (encoder_rejects_nesting_past_max_depth), so it
+        // cannot serialize this input for us.
+        let mut bytes = vec![0x91u8; MAX_NESTING_DEPTH + 1];
+        bytes.push(0xc0);
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(
+            dec.read_value(),
+            Err(Error::Malformed("nesting exceeds maximum depth"))
+        );
+    }
+
+    #[test]
+    fn encoder_accepts_nesting_at_max_depth() {
+        // The encode-side guard mirrors the decode-side boundary: a value
+        // nested exactly to the cap must encode, so the two paths agree on
+        // which structures are legal (docs/wire-codec.md § Structural
+        // Nesting Depth).
+        let mut v = Value::Nil;
+        for _ in 0..MAX_NESTING_DEPTH {
+            v = Value::Array(vec![v]);
+        }
+        let mut enc = Encoder::new();
+        assert!(
+            enc.write_value(&v).is_ok(),
+            "a value nested to the cap must encode, matching the decoder's accepted boundary"
+        );
+    }
+
+    #[test]
+    fn encoder_rejects_nesting_past_max_depth() {
+        // One level past the cap fails as a clean wire error instead of
+        // recursing until the wasm stack overflows and hard-traps the guest
+        // — the encode-side twin of decoder_rejects_nesting_past_max_depth.
         let mut v = Value::Nil;
         for _ in 0..(MAX_NESTING_DEPTH + 1) {
             v = Value::Array(vec![v]);
         }
-        let bytes = encode(&v);
-        let mut dec = Decoder::new(&bytes);
+        let mut enc = Encoder::new();
         assert_eq!(
-            dec.read_value(),
+            enc.write_value(&v),
             Err(Error::Malformed("nesting exceeds maximum depth"))
         );
     }
