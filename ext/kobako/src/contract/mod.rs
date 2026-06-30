@@ -7,4 +7,5 @@
 
 pub(crate) mod dispatch;
 pub(crate) mod error;
+pub(crate) mod snapshot;
 pub(crate) mod yielder;

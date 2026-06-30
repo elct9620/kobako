@@ -60,6 +60,7 @@ use std::time::{Duration, Instant};
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
 use crate::contract::error::{Error, SetupError, Trap};
+use crate::contract::snapshot::{Capture, Snapshot as RuntimeSnapshot, Usage};
 use crate::snapshot::Snapshot;
 use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
@@ -318,6 +319,7 @@ impl Runtime {
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         self.eval_inner(preamble, source, snippets)
+            .map(Snapshot::new)
             .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
@@ -329,7 +331,7 @@ impl Runtime {
         preamble: RString,
         source: RString,
         snippets: RString,
-    ) -> Result<Snapshot, Error> {
+    ) -> Result<RuntimeSnapshot, Error> {
         let mut store = self.new_store()?;
         frames::install_wasi_frames(
             &mut store,
@@ -365,6 +367,7 @@ impl Runtime {
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         self.run_inner(preamble, snippets, envelope)
+            .map(Snapshot::new)
             .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
@@ -376,7 +379,7 @@ impl Runtime {
         preamble: RString,
         snippets: RString,
         envelope: RString,
-    ) -> Result<Snapshot, Error> {
+    ) -> Result<RuntimeSnapshot, Error> {
         let mut store = self.new_store()?;
         frames::install_wasi_frames(
             &mut store,
@@ -527,7 +530,7 @@ impl Runtime {
         &self,
         store: &mut WtStore<Invocation>,
         exports: &Exports,
-    ) -> Result<Snapshot, Trap> {
+    ) -> Result<RuntimeSnapshot, Trap> {
         let return_bytes = frames::fetch_outcome_bytes(store, exports)?;
         let data = store.data();
         let (stdout_raw, stderr_raw, wall_time, memory_peak) = (
@@ -538,19 +541,23 @@ impl Runtime {
         );
         let (stdout_visible, stdout_truncated) =
             capture::clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
-        let stdout_bytes = stdout_visible.to_vec();
         let (stderr_visible, stderr_truncated) =
             capture::clip_capture(&stderr_raw, self.config.stderr_limit_bytes);
-        let stderr_bytes = stderr_visible.to_vec();
-        Ok(Snapshot::new(
+        Ok(RuntimeSnapshot {
             return_bytes,
-            stdout_bytes,
-            stdout_truncated,
-            stderr_bytes,
-            stderr_truncated,
-            wall_time,
-            memory_peak,
-        ))
+            stdout: Capture {
+                bytes: stdout_visible.to_vec(),
+                truncated: stdout_truncated,
+            },
+            stderr: Capture {
+                bytes: stderr_visible.to_vec(),
+                truncated: stderr_truncated,
+            },
+            usage: Usage {
+                wall_time,
+                memory_peak,
+            },
+        })
     }
 }
 
