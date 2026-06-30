@@ -5,7 +5,6 @@
 //! reads the OUTCOME_BUFFER back out. The ext owns no wire codec — these
 //! helpers move raw bytes; Ruby decodes them.
 
-use magnus::RString;
 use wasmtime::{AsContextMut, Memory, Store as WtStore, TypedFunc};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
@@ -13,7 +12,6 @@ use wasmtime_wasi::WasiCtxBuilder;
 use super::config::Config;
 use super::exports::Exports;
 use super::invocation::Invocation;
-use super::rstring_to_vec;
 use super::{ambient, capture, guest_mem};
 use crate::contract::error::{Error, SetupError, Trap};
 
@@ -36,17 +34,16 @@ fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
 pub(crate) fn write_envelope(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
-    envelope: RString,
+    envelope: &[u8],
 ) -> Result<(i32, i32), Error> {
-    let bytes = rstring_to_vec(envelope);
-    let len_i32 =
-        guest_mem::checked_payload_len(bytes.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
+    let len_i32 = guest_mem::checked_payload_len(envelope.len())
+        .map_err(|msg| Trap::Other(msg.to_string()))?;
 
     let alloc = require_export(exports.alloc.as_ref())?;
     let memory = require_memory(exports)?;
 
     let ptr = alloc
-        .call(store.as_context_mut(), bytes.len() as u32)
+        .call(store.as_context_mut(), envelope.len() as u32)
         .map_err(|e| Trap::Other(format!("failed to allocate input buffer: {e}")))?;
     if ptr == 0 {
         return Err(SetupError::Intact(
@@ -55,9 +52,9 @@ pub(crate) fn write_envelope(
         .into());
     }
     let data = memory.data_mut(store.as_context_mut());
-    let range = guest_mem::guest_buffer_range(ptr as usize, bytes.len(), data.len())
+    let range = guest_mem::guest_buffer_range(ptr as usize, envelope.len(), data.len())
         .map_err(|msg| Trap::Other(msg.to_string()))?;
-    data[range].copy_from_slice(&bytes);
+    data[range].copy_from_slice(envelope);
 
     Ok((ptr as i32, len_i32))
 }

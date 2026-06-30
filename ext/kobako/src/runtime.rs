@@ -59,7 +59,9 @@ use std::time::{Duration, Instant};
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
+use crate::contract::dispatch::DispatchHandler;
 use crate::contract::error::{Error, SetupError, Trap};
+use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use crate::contract::snapshot::{Capture, Snapshot as RuntimeSnapshot, Usage};
 use crate::snapshot::Snapshot;
 use wasmtime::{
@@ -295,22 +297,12 @@ impl Runtime {
     // taxonomy.
     // -----------------------------------------------------------------
 
-    /// Execute one guest invocation (`__kobako_eval` — one-shot source)
-    /// and return a `Snapshot` bundling every per-invocation observable.
-    ///
-    /// Builds a fresh Store + instance whose WASI context carries
-    /// the three-frame stdin protocol (`preamble`, `source`, `snippets`
-    /// — docs/wire-codec.md § Invocation channels), then invokes
-    /// `__kobako_eval`. Per-invocation caps are
-    /// primed here: the wall-clock deadline is stamped into `Invocation`
-    /// and the epoch deadline is set to fire at the next ticker tick;
-    /// the memory-cap limiter is already wired.
-    ///
-    /// On a wasmtime trap the configured-cap path raises
-    /// `Kobako::TimeoutError` / `Kobako::MemoryLimitError`; everything
-    /// else raises `Kobako::TrapError`. On success the Snapshot carries
-    /// the OUTCOME_BUFFER bytes, the per-channel stdout / stderr captures
-    /// with their truncation flags, and the usage figures.
+    /// One-shot mruby source execution (`#eval`). The Ruby-facing entry:
+    /// builds the dispatch handler from the registered Proc, hands the
+    /// three stdin frames (`preamble`, `source`, `snippets`) and the source
+    /// to `invoke`, and wraps the neutral `Snapshot` or maps the `Error`
+    /// onto its `Kobako::*` exception. The run mechanics — frames, caps,
+    /// trap classification — live in `invoke`.
     pub(crate) fn eval(
         &self,
         preamble: RString,
@@ -318,47 +310,30 @@ impl Runtime {
         snippets: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        self.eval_inner(preamble, source, snippets)
-            .map(Snapshot::new)
-            .map_err(|e| errors::to_magnus(&ruby, e))
-    }
-
-    /// Magnus-free body of `#eval`: drive the guest export and return a
-    /// `Snapshot` or a neutral run-path `Error`. The magnus method above is
-    /// the single point that maps the `Error` onto a `Kobako::*` exception.
-    fn eval_inner(
-        &self,
-        preamble: RString,
-        source: RString,
-        snippets: RString,
-    ) -> Result<RuntimeSnapshot, Error> {
-        let mut store = self.new_store()?;
-        frames::install_wasi_frames(
-            &mut store,
-            &self.config,
-            &[
-                rstring_to_vec(preamble),
-                rstring_to_vec(source),
-                rstring_to_vec(snippets),
-            ],
-        )?;
-        let exports = self.instantiate(&mut store)?;
-        let eval = frames::require_export(exports.eval.as_ref())?;
-        self.call_with_caps(&mut store, &exports, eval, ())
-            .map_err(trap::trap_from)?;
-        Ok(self.build_snapshot(&mut store, &exports)?)
+        let handler = self.build_handler();
+        let preamble = rstring_to_vec(preamble);
+        let source = rstring_to_vec(source);
+        let snippets = rstring_to_vec(snippets);
+        self.invoke(
+            Entry::Eval { source: &source },
+            Frames {
+                preamble: &preamble,
+                snippets: &snippets,
+            },
+            handler,
+        )
+        .map(Snapshot::new)
+        .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`) and return a
     /// `Snapshot` bundling every per-invocation observable.
     ///
-    /// Builds a fresh Store + instance whose WASI context carries
-    /// the two-frame stdin protocol (preamble + snippets; no user source
-    /// frame — docs/wire-codec.md § Invocation channels), copies
-    /// `envelope` bytes into guest linear memory via `__kobako_alloc`,
-    /// and calls `__kobako_run(env_ptr, env_len)`. Per-invocation cap
-    /// semantics match `Runtime::eval`. Raises `Kobako::TrapError`
-    /// ("alloc returned 0") when guest allocation fails.
+    /// The two-frame stdin protocol (preamble + snippets; no user source
+    /// frame — docs/wire-codec.md § Invocation channels) plus the
+    /// `envelope` copied into guest linear memory; cap semantics match
+    /// `#eval`. Raises `Kobako::TrapError` / `Kobako::SandboxError` per the
+    /// engine-vs-host-fault split inside `invoke`.
     pub(crate) fn run(
         &self,
         preamble: RString,
@@ -366,32 +341,33 @@ impl Runtime {
         envelope: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        self.run_inner(preamble, snippets, envelope)
-            .map(Snapshot::new)
-            .map_err(|e| errors::to_magnus(&ruby, e))
+        let handler = self.build_handler();
+        let preamble = rstring_to_vec(preamble);
+        let snippets = rstring_to_vec(snippets);
+        let envelope = rstring_to_vec(envelope);
+        self.invoke(
+            Entry::Run {
+                envelope: &envelope,
+            },
+            Frames {
+                preamble: &preamble,
+                snippets: &snippets,
+            },
+            handler,
+        )
+        .map(Snapshot::new)
+        .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
-    /// Magnus-free body of `#run`: copy the envelope into guest memory,
-    /// drive the guest export, and return a `Snapshot` or a neutral
-    /// run-path `Error`. The magnus method above maps the `Error`.
-    fn run_inner(
-        &self,
-        preamble: RString,
-        snippets: RString,
-        envelope: RString,
-    ) -> Result<RuntimeSnapshot, Error> {
-        let mut store = self.new_store()?;
-        frames::install_wasi_frames(
-            &mut store,
-            &self.config,
-            &[rstring_to_vec(preamble), rstring_to_vec(snippets)],
-        )?;
-        let exports = self.instantiate(&mut store)?;
-        let run = frames::require_export(exports.run.as_ref())?;
-        let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
-        self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
-            .map_err(trap::trap_from)?;
-        Ok(self.build_snapshot(&mut store, &exports)?)
+    /// Build the dispatch handler for one invocation from the registered
+    /// `on_dispatch` Proc, or `None` when none is set. The `Opaque` the
+    /// handler wraps stays GC-rooted by `Runtime`'s `mark`, so `invoke`
+    /// only borrows it for the call (the safety contract on
+    /// `crate::contract::runtime::Runtime`).
+    fn build_handler(&self) -> Option<Arc<dyn DispatchHandler>> {
+        self.on_dispatch.get().map(|proc| {
+            Arc::new(dispatch::RubyDispatchHandler::new(proc)) as Arc<dyn DispatchHandler>
+        })
     }
 
     /// Return the per-last-invocation usage as a
@@ -433,11 +409,6 @@ impl Runtime {
         let mut store = WtStore::new(shared_engine()?, Invocation::new(self.memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
-        if let Some(on_dispatch) = self.on_dispatch.get() {
-            store
-                .data_mut()
-                .bind_on_dispatch(Arc::new(dispatch::RubyDispatchHandler::new(on_dispatch)));
-        }
         Ok(store)
     }
 
@@ -461,8 +432,8 @@ impl Runtime {
     /// the `wall_time` bracket and the memory
     /// cap always close — that close-on-trap guarantee is the reason this
     /// bracket lives in one place rather than inline at each call site.
-    /// The wasmtime trap is returned unmapped; each caller wraps it
-    /// through `trap::call_err` for its own error context.
+    /// The wasmtime trap is returned unmapped; the caller classifies it
+    /// through `trap::trap_from`.
     fn call_with_caps<Params, Results>(
         &self,
         store: &mut WtStore<Invocation>,
@@ -558,6 +529,54 @@ impl Runtime {
                 memory_peak,
             },
         })
+    }
+}
+
+impl ContractRuntime for Runtime {
+    /// Drive one guest invocation on a fresh instance and return its
+    /// `Snapshot`, or a neutral run-path `Error`. Builds a fresh Store, binds
+    /// the borrowed dispatch handler, installs the stdin frames (three for
+    /// `Eval` — preamble / source / snippets; two for `Run` — preamble /
+    /// snippets, with the envelope copied into guest memory), primes the
+    /// per-invocation caps around the export call, and collects the
+    /// observable Snapshot. On a wasmtime trap the configured-cap path
+    /// yields `Trap::Timeout` / `Trap::MemoryLimit`; everything else
+    /// `Trap::Other`. The body touches no Ruby value — the handler is only
+    /// borrowed (see the trait's safety contract).
+    fn invoke(
+        &self,
+        entry: Entry<'_>,
+        frames: Frames<'_>,
+        handler: Option<Arc<dyn DispatchHandler>>,
+    ) -> Result<RuntimeSnapshot, Error> {
+        let mut store = self.new_store()?;
+        if let Some(handler) = handler {
+            store.data_mut().bind_on_dispatch(handler);
+        }
+        let frame_list: Vec<Vec<u8>> = match &entry {
+            Entry::Eval { source } => vec![
+                frames.preamble.to_vec(),
+                source.to_vec(),
+                frames.snippets.to_vec(),
+            ],
+            Entry::Run { .. } => vec![frames.preamble.to_vec(), frames.snippets.to_vec()],
+        };
+        frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
+        let exports = self.instantiate(&mut store)?;
+        match entry {
+            Entry::Eval { .. } => {
+                let eval = frames::require_export(exports.eval.as_ref())?;
+                self.call_with_caps(&mut store, &exports, eval, ())
+                    .map_err(trap::trap_from)?;
+            }
+            Entry::Run { envelope } => {
+                let run = frames::require_export(exports.run.as_ref())?;
+                let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
+                self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
+                    .map_err(trap::trap_from)?;
+            }
+        }
+        Ok(self.build_snapshot(&mut store, &exports)?)
     }
 }
 
