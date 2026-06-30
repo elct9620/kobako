@@ -10,13 +10,19 @@ require "test_helper"
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
 
-  # SPEC Wire Codec → Ext Types → ext 0x00: kwargs map keys MUST be
-  # ext 0x00 Symbols. A `str` or `bin` value at a kwargs-key position
-  # is a wire violation; the envelope decoder rejects the message and
-  # the dispatcher surfaces a wire-decode error.
+  # SPEC Wire Codec → Ext Types → ext 0x00: kwargs map keys MUST be ext
+  # 0x00 Symbols. A String key decodes to a structurally valid 5-element
+  # envelope, then fails the Request value object's kwargs-key invariant;
+  # because that invariant is checked inside Request.decode's block,
+  # Codec::Decoder.decode rescues the ArgumentError and re-raises it as a
+  # wire-decode InvalidType, so the dispatcher reports type="runtime". The
+  # envelope MUST carry all five elements: a 4-element array would trip the
+  # arity guard first and never reach the kwargs-key check — the second
+  # message assertion witnesses that the kwargs-key path, not the arity
+  # guard, produced this error.
   def test_string_kwargs_key_is_wire_violation
     bad_request_bytes = Kobako::Codec::Encoder.encode(
-      ["Logger::Echo", "call", [], { "name" => "alice" }]
+      ["Logger::Echo", "call", [], { "name" => "alice" }, false]
     )
 
     resp = decode_response(dispatch(bad_request_bytes))
@@ -24,13 +30,16 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed request/, resp.payload.message)
+    assert_match(/kwargs keys must be Symbol/, resp.payload.message,
+                 "a String kwargs key must be rejected by the kwargs-key invariant, not the arity guard")
   end
 
-  # SPEC: non-Symbol keys (e.g. Integer) are a wire violation — the
-  # envelope decoder rejects them at the boundary.
+  # An Integer key is the other non-Symbol shape; same invariant, same
+  # type="runtime" outcome. Five elements again so the kwargs-key check is
+  # reached rather than the arity guard.
   def test_non_symbol_kwargs_key_is_wire_violation
     bad_request_bytes = Kobako::Codec::Encoder.encode(
-      ["Logger::Echo", "call", [], { 42 => "v" }]
+      ["Logger::Echo", "call", [], { 42 => "v" }, false]
     )
 
     resp = decode_response(dispatch(bad_request_bytes))
@@ -38,6 +47,8 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
     assert_match(/Sandbox received a malformed request/, resp.payload.message)
+    assert_match(/kwargs keys must be Symbol/, resp.payload.message,
+                 "an Integer kwargs key must be rejected by the kwargs-key invariant, not the arity guard")
   end
 
   # ---------- Raw-int Handle rejection (SPEC B-20) ----------
