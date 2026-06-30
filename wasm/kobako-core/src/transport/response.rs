@@ -46,7 +46,7 @@ impl codec::Encode for Response {
 impl codec::Decode for Response {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
-        let frame = dec.read_value()?;
+        let frame = dec.read_only_value()?;
         let [status, payload]: [Value; 2] = match frame {
             Value::Array(items) if items.len() == 2 => items.try_into().unwrap(),
             _ => {

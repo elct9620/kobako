@@ -77,7 +77,7 @@ impl Decode for Yield {
         }
 
         let mut dec = Decoder::new(body);
-        let value = dec.read_value()?;
+        let value = dec.read_only_value()?;
         Ok(Yield { tag, value })
     }
 }

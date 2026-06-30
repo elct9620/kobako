@@ -31,7 +31,7 @@ pub fn read_frame() -> Option<Vec<u8>> {
 /// target.
 pub fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
     let mut dec = Decoder::new(bytes);
-    let outer = dec.read_value().ok()?;
+    let outer = dec.read_only_value().ok()?;
     let outer_arr = match outer {
         Value::Array(items) => items,
         _ => return None,

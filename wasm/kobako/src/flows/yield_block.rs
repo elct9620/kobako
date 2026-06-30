@@ -192,7 +192,7 @@ fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, Strin
     use kobako_core::codec::{Decoder, Value};
     let mut dec = Decoder::new(req);
     let frame = dec
-        .read_value()
+        .read_only_value()
         .map_err(|e| format!("failed to decode the block arguments: {e}"))?;
     match frame {
         Value::Array(items) => Ok(items),

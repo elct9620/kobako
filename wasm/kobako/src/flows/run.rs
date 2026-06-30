@@ -152,7 +152,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
 
     let envelope = {
         let mut dec = Decoder::new(env);
-        match dec.read_value() {
+        match dec.read_only_value() {
             Ok(v) => v,
             Err(_) => {
                 return write_panic(Panic {

@@ -264,6 +264,20 @@ impl<'a> Decoder<'a> {
         self.pos = self.input.len() - cursor.len();
         Ok(value)
     }
+
+    /// Read a single value and require it to consume the whole input. Every
+    /// kobako envelope is exactly one msgpack value, so bytes left over
+    /// after it signal a host↔guest framing desync. The host codec rejects
+    /// the same case ("extra bytes after the deserialized object"); matching
+    /// that here keeps the two wire peers equally strict and fails loud
+    /// instead of silently decoding a truncated stream.
+    pub fn read_only_value(&mut self) -> Result<Value, Error> {
+        let value = self.read_value()?;
+        if !self.at_end() {
+            return Err(Error::Malformed("trailing bytes after the envelope value"));
+        }
+        Ok(value)
+    }
 }
 
 /// Decode a single `Value` from a `&mut &[u8]` cursor (the form `rmp`'s
@@ -514,6 +528,26 @@ mod tests {
     fn decoder_empty_input_is_at_end() {
         let dec = Decoder::new(&[]);
         assert!(dec.at_end());
+    }
+
+    #[test]
+    fn read_only_value_accepts_a_sole_value() {
+        let bytes = encode(&Value::Int(42));
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(dec.read_only_value(), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn read_only_value_rejects_trailing_bytes() {
+        // Two concatenated values: an envelope buffer must hold exactly
+        // one, so the second is a framing desync the host codec rejects too.
+        let mut bytes = encode(&Value::Int(1));
+        bytes.extend(encode(&Value::Int(2)));
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(
+            dec.read_only_value(),
+            Err(Error::Malformed("trailing bytes after the envelope value"))
+        );
     }
 
     #[test]

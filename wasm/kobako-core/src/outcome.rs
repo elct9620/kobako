@@ -91,7 +91,7 @@ impl Encode for Panic {
 impl Decode for Panic {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
-        let frame = dec.read_value()?;
+        let frame = dec.read_only_value()?;
         let pairs = match frame {
             Value::Map(p) => p,
             _ => return Err(codec::Error::Malformed("Panic must be a map")),
@@ -184,7 +184,7 @@ impl Decode for Outcome {
         match tag {
             OUTCOME_TAG_RESULT => {
                 let mut dec = Decoder::new(body);
-                Ok(Outcome::Value(dec.read_value()?))
+                Ok(Outcome::Value(dec.read_only_value()?))
             }
             OUTCOME_TAG_PANIC => Ok(Outcome::Panic(Panic::decode(body)?)),
             _ => Err(codec::Error::Malformed("Outcome tag must be 0x01 or 0x02")),
