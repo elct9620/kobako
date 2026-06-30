@@ -10,14 +10,19 @@ module Kobako
       Integer? stderr_limit_bytes
     ) -> Runtime
 
-    def on_dispatch=: (^(String) -> String dispatch_proc) -> void
-
-    def yield_to_active_invocation: (String args_bytes) -> String
+    def on_dispatch=: (^(String, Kobako::Transport::_GuestYielder) -> String dispatch_proc) -> void
 
     def eval: (String preamble, String source, String snippets) -> Kobako::Snapshot
 
     def run: (String preamble, String snippets, String envelope) -> Kobako::Snapshot
 
     def usage: () -> [Float, Integer]
+
+    # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
+    # its second argument; stands in as the +String -> String+ callable the
+    # host +Transport::Yielder+ invokes for a block yield.
+    class GuestYielder
+      def call: (String args_bytes) -> String
+    end
   end
 end

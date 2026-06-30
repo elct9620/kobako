@@ -72,8 +72,8 @@ module Kobako
       # closure so the Dispatcher stays stateless and the registry doesn't
       # need to publish accessors for the Sandbox-owned +Catalog::Handles+
       # or +Runtime+. +yield_to_guest+ is a +String → String+ callable
-      # (typically +Runtime#yield_to_active_invocation+ bound as a lambda)
-      # used only when the Request carries +block_given: true+. Always
+      # (the ext's per-dispatch +Kobako::Runtime::GuestYielder+) used only
+      # when the Request carries +block_given: true+. Always
       # returns a binary String — every failure path is reified as a
       # Response.error envelope so the guest sees a transport error rather
       # than a wasm trap.

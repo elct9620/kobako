@@ -1,12 +1,12 @@
 module Kobako
   module Transport
     class Yielder
-      @yield_to_guest: ^(String) -> String
+      @yield_to_guest: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
       @handler: Kobako::Catalog::Handles
       @active: bool
 
-      def initialize: (^(String) -> String yield_to_guest, Symbol break_tag, Kobako::Catalog::Handles handler) -> void
+      def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Catalog::Handles handler) -> void
 
       def yield: (*untyped args) -> untyped
 

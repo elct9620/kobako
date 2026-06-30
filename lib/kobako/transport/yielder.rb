@@ -28,8 +28,8 @@ module Kobako
     # dispatch completes; any later call to a stashed Yielder then raises
     # +LocalJumpError+ — the observable shape of an escaped Yielder.
     class Yielder
-      # +yield_to_guest+ is a +String → String+ callable (typically
-      # +Runtime#yield_to_active_invocation+ bound through a lambda) that
+      # +yield_to_guest+ is a +String → String+ callable (the ext's
+      # per-dispatch +Kobako::Runtime::GuestYielder+) that
       # {#yield} invokes to re-enter the guest; +break_tag+ is the +catch+
       # throw tag the Dispatcher matches against to unwind the Service on
       # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,

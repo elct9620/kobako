@@ -49,84 +49,97 @@ use core::cell::Cell;
 use core::ptr::NonNull;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{RString, Ruby, Value};
+use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Value};
 use wasmtime::Caller;
 
 use super::invocation::Invocation;
 use crate::contract::dispatch::DispatchHandler;
+use crate::contract::yielder::Yielder;
 
-// ============================================================
-// Active-caller pointer for the per-thread Invocation slot
-// (SPEC.md Single-Invocation Slot).
-// ============================================================
-//
-// `Runtime#yield_to_active_invocation` (whose body is the
-// `__kobako_yield_to_block` guest export) runs synchronously inside a
-// Ruby Service callback that itself was invoked from inside this
-// dispatcher — at that moment we are several stack frames deep in
-// `try_handle`, with the original `&mut Caller<'_, Invocation>` parked
-// unused on the Rust stack while Ruby code is running. The yield path
-// needs the same Caller to call the guest export, but the Rust borrow
-// type is non-`'static` so it cannot be stored on the `Invocation`
-// struct directly (the `&mut Caller` outlives no struct field — its
-// lifetime ends when `handle` returns to wasmtime).
-//
-// The pointer is therefore erased to `NonNull<()>` and parked in a
-// per-thread slot — the materialised form of the SPEC.md
-// "Single-Invocation Slot" invariant. The single-threaded wasm
-// execution per Sandbox plus the LIFO re-entry shape of nested
-// dispatch frames ensures no aliasing across threads or across
-// frames; the recovery invariant lives at `current_caller`. The
-// pointer is set on entry to `handle` and restored to the outer
-// frame's value on every exit through a drop guard.
-
-thread_local! {
-    static ACTIVE_CALLER: Cell<Option<NonNull<()>>> = const { Cell::new(None) };
+/// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
+/// `crate::runtime::init` after `Kobako::Runtime` is defined so the
+/// `#[magnus::wrap]` class name resolves before any object is wrapped.
+pub(crate) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let class = runtime_class.define_class("GuestYielder", ruby.class_object())?;
+    class.define_method("call", method!(GuestYielder::call, 1))?;
+    Ok(())
 }
 
-/// RAII guard that saves the previous `ACTIVE_CALLER` value on
-/// installation and restores it on drop. Nested `__kobako_dispatch`
-/// frames stack within one Invocation — the inner frame's `set`
-/// swaps in its own pointer while remembering the outer's; drop
-/// restores the outer so its continuation (e.g. iterating over another
-/// guest block) still finds a live caller.
-pub(crate) struct CallerGuard {
-    previous: Option<NonNull<()>>,
-}
-
-impl CallerGuard {
-    fn set(ptr: NonNull<()>) -> Self {
-        let previous = ACTIVE_CALLER.with(|c| c.replace(Some(ptr)));
-        Self { previous }
-    }
-}
-
-impl Drop for CallerGuard {
-    fn drop(&mut self) {
-        ACTIVE_CALLER.with(|c| c.set(self.previous));
-    }
-}
-
-/// Recover the active `&mut Caller<'_, Invocation>` set by the
-/// enclosing `handle` frame. Returns `None` when no dispatch frame is
-/// active on this thread.
+/// Frame-scoped Ruby handle that lets the dispatch `Proc` re-enter the
+/// guest to run a yielded block. It wraps the active `&mut dyn Yielder`
+/// for exactly one `__kobako_dispatch` frame: the bridge builds one, hands
+/// it to the `Proc` as the second argument, and `invalidate`s it the
+/// instant the `Proc` returns. A guest block stashed and called after that
+/// frame (E-23) finds an invalidated handle and raises rather than
+/// touching freed stack.
 ///
-/// # Safety
-///
-/// The returned reference aliases the original `&mut Caller` borrow
-/// held on the Rust stack inside `handle`'s enclosing frame. The
-/// original borrow is logically inactive while Ruby code is running
-/// (it is parked on the stack between `invoke_on_dispatch` and the
-/// eventual `funcall` return), and the SPEC.md Single-Invocation Slot
-/// invariant (one Invocation per OS thread for the duration of any
-/// invocation) guarantees no other Rust frame can observe it. Callers
-/// must not retain the returned `&mut` past the synchronous Ruby
-/// callback that requested it — i.e. only use it inside one short
-/// magnus method body and let the borrow end before the method returns.
-pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
-    let raw: NonNull<()> = ACTIVE_CALLER.with(|c| c.get())?;
-    // SAFETY: see item doc.
-    Some(unsafe { &mut *raw.as_ptr().cast::<Caller<'a, Invocation>>() })
+/// This is the single, explicit, frame-scoped FFI pointer the host↔guest
+/// re-entry still costs: `magnus`' `funcall` sits between two Rust frames,
+/// so the typed `&mut dyn Yielder` cannot cross it and is erased to a raw
+/// pointer here. Unlike the dispatch `Proc`, this handle holds **no Ruby
+/// `Value`**, so GC has nothing to trace through it — it needs no `mark`.
+#[magnus::wrap(class = "Kobako::Runtime::GuestYielder", free_immediately, size)]
+struct GuestYielder {
+    yielder: Cell<Option<NonNull<dyn Yielder>>>,
+}
+
+// SAFETY: magnus requires `Send + Sync` on wrapped types. The raw pointer
+// is created, used, and invalidated within a single `__kobako_dispatch`
+// frame on the one Ruby thread that owns the active Invocation (SPEC.md
+// Single-Invocation Slot); it is never read from another thread.
+unsafe impl Send for GuestYielder {}
+unsafe impl Sync for GuestYielder {}
+
+impl GuestYielder {
+    /// Erase the frame-scoped `&mut dyn Yielder` into a Ruby-owned handle.
+    /// Safety contract for the caller: `invalidate` MUST run before the
+    /// borrow this pointer came from ends (i.e. before the dispatch frame
+    /// returns).
+    fn new(yielder: &mut dyn Yielder) -> Self {
+        let ptr = NonNull::from(yielder);
+        // Erase the borrow's lifetime to `'static`; the pointer is only
+        // ever dereferenced while it is still `Some` (i.e. `invalidate`
+        // has not run), so the referent is guaranteed live.
+        let ptr: NonNull<dyn Yielder> = unsafe {
+            std::mem::transmute::<NonNull<dyn Yielder + '_>, NonNull<dyn Yielder + 'static>>(ptr)
+        };
+        Self {
+            yielder: Cell::new(Some(ptr)),
+        }
+    }
+
+    /// Mark this handle dead. Called the instant the dispatch frame's
+    /// `funcall` returns, so a guest block stashed beyond its frame raises
+    /// instead of dereferencing freed stack.
+    fn invalidate(&self) {
+        self.yielder.set(None);
+    }
+
+    /// Ruby-visible `call(args_bytes) -> resp_bytes`: drive one yield
+    /// round-trip. Stands in for the `String -> String` callable the host
+    /// `Transport::Yielder` invokes. Raises `Kobako::TrapError` when the
+    /// handle has been invalidated (escaped guest block) or the re-entry
+    /// itself traps.
+    fn call(&self, args: RString) -> Result<RString, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_yield");
+        let Some(mut ptr) = self.yielder.get() else {
+            return Err(super::errors::trap_err(
+                &ruby,
+                "guest block invoked after the host dispatch frame returned",
+            ));
+        };
+        let bytes = super::rstring_to_vec(args);
+        // SAFETY: `yielder` is `Some`, so `invalidate` has not run — the
+        // dispatch frame that lent the `&mut dyn Yielder` is still on the
+        // Rust stack, and the Single-Invocation Slot guarantees no other
+        // frame aliases it. The borrow ends with this method.
+        let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
+        let resp = yielder
+            .yield_block(&bytes)
+            .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
+        Ok(ruby.str_from_slice(&resp))
+    }
 }
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
@@ -140,18 +153,10 @@ pub(crate) fn current_caller<'a>() -> Option<&'a mut Caller<'a, Invocation>> {
 /// so reaching the failure path is always a wiring bug or wire-layer
 /// fault rather than an expected path.
 pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
-    // SAFETY: lifetime erased to `NonNull<()>` per the module's
-    // Invocation-slot doc. The pointer is restored by `_caller_guard`
-    // before this function returns, and only
-    // `Runtime#yield_to_active_invocation` (running inside a Ruby
-    // callback we are about to invoke) reads it through `current_caller`.
-    let ptr: NonNull<()> = NonNull::from(&mut *caller).cast();
-    let _caller_guard = CallerGuard::set(ptr);
-
     match try_handle(caller, req_ptr, req_len) {
         Ok(packed) => packed,
         Err(reason) => {
-            eprintln!("[kobako-dispatch] {}", reason);
+            eprintln!("[kobako-dispatch] {reason}");
             0
         }
     }
@@ -174,7 +179,15 @@ fn try_handle(
         .on_dispatch()
         .ok_or("a Sandbox callback fired outside an active Sandbox#run — please report this as a kobako bug")?;
 
-    let resp_bytes = handler.dispatch(&req_bytes).ok_or(
+    // Build a frame-scoped yielder over this Caller and hand it to the
+    // handler. The borrow ends with the block, freeing the Caller for
+    // `write_response`; nested dispatch frames each build their own, so
+    // the LIFO re-entry lives on the Rust stack — no shared slot (B-28).
+    let resp_bytes = {
+        let mut yielder = super::guest_mem::CallerYielder::new(caller);
+        handler.dispatch(&req_bytes, &mut yielder)
+    }
+    .ok_or(
         "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
     )?;
 
@@ -203,7 +216,7 @@ impl DispatchHandler for RubyDispatchHandler {
     /// `Kobako::Transport::Dispatcher.dispatch`), so a raise is a contract
     /// violation surfaced as `None` — the dispatcher then walks the
     /// 0-return wire-fault path.
-    fn dispatch(&self, request: &[u8]) -> Option<Vec<u8>> {
+    fn dispatch(&self, request: &[u8], yielder: &mut dyn Yielder) -> Option<Vec<u8>> {
         // The wasmtime callback runs on the same Ruby thread that called
         // the active Sandbox invocation (#eval or #run) — the invariant
         // SPEC Implementation Standards Architecture pins for the host gem
@@ -213,7 +226,15 @@ impl DispatchHandler for RubyDispatchHandler {
         let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
         let proc_value: Value = ruby.get_inner(self.on_dispatch);
         let req_str = ruby.str_from_slice(request);
-        let resp: Result<RString, magnus::Error> = proc_value.funcall("call", (req_str,));
+        // Hand the Proc a frame-scoped yielder object as its second arg and
+        // invalidate it the instant the Proc returns, so a guest block that
+        // escapes the dispatch frame can never deref the freed stack
+        // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
+        // mark — the GC has nothing to trace through it.
+        let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
+        let resp: Result<RString, magnus::Error> =
+            proc_value.funcall("call", (req_str, guest_yielder));
+        guest_yielder.invalidate();
         resp.ok().map(super::rstring_to_vec)
     }
 }

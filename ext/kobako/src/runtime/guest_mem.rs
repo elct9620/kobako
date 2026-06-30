@@ -12,6 +12,29 @@
 use wasmtime::{Caller, Extern, Memory};
 
 use super::invocation::Invocation;
+use crate::contract::error::Trap;
+use crate::contract::yielder::Yielder;
+
+/// The wasmtime-backed `Yielder` (`crate::contract::yielder`): a
+/// frame-scoped wrapper over the dispatch `Caller` that drives a block-yield
+/// round-trip through `drive_yield`. Built per `__kobako_dispatch` frame and
+/// handed to the dispatch handler, so nested dispatch frames (B-28) each
+/// carry their own and stack on the Rust call stack with no shared slot.
+pub(super) struct CallerYielder<'a, 'c> {
+    caller: &'a mut Caller<'c, Invocation>,
+}
+
+impl<'a, 'c> CallerYielder<'a, 'c> {
+    pub(super) fn new(caller: &'a mut Caller<'c, Invocation>) -> Self {
+        Self { caller }
+    }
+}
+
+impl Yielder for CallerYielder<'_, '_> {
+    fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+        drive_yield(self.caller, args).map_err(|msg| Trap::Other(msg.to_string()))
+    }
+}
 
 /// User-facing reason when a required guest export (the allocation or
 /// block-yield hook) is absent or has the wrong signature — the loaded

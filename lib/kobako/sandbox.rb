@@ -207,17 +207,17 @@ module Kobako
 
     private
 
-    # Configure the +Runtime+'s host↔guest dispatch wiring. Builds a
-    # lambda that re-enters the guest via
-    # +Runtime#yield_to_active_invocation+ and a dispatch +Proc+ that routes
-    # guest→host calls through the stateless +Transport::Dispatcher+,
-    # capturing +@services+ / +@handler+ in the closure. Both are registered
-    # on the +Runtime+ once at construction time so the wasm ext callback can
-    # fire without further setup.
+    # Configure the +Runtime+'s host↔guest dispatch wiring. Registers a
+    # dispatch +Proc+ that routes guest→host calls through the stateless
+    # +Transport::Dispatcher+, capturing +@services+ / +@handler+ in the
+    # closure. The ext hands the +Proc+ a per-dispatch +guest_yielder+ — a
+    # +String → String+ callable that re-enters the in-flight guest to run a
+    # yielded block — which the +Dispatcher+ forwards to the +Transport::Yielder+
+    # it builds for the call. Registered once at construction time so the
+    # wasm ext callback can fire without further setup.
     def install_dispatch_proc!
-      yield_to_guest = ->(args_bytes) { @runtime.yield_to_active_invocation(args_bytes) }
-      @runtime.on_dispatch = lambda do |request_bytes|
-        Transport::Dispatcher.dispatch(request_bytes, @services, @handler, yield_to_guest)
+      @runtime.on_dispatch = lambda do |request_bytes, guest_yielder|
+        Transport::Dispatcher.dispatch(request_bytes, @services, @handler, guest_yielder)
       end
     end
 

@@ -106,13 +106,13 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 5))?;
     runtime.define_method("on_dispatch=", method!(Runtime::set_on_dispatch, 1))?;
-    runtime.define_method(
-        "yield_to_active_invocation",
-        method!(Runtime::yield_to_active_invocation, 1),
-    )?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 3))?;
     runtime.define_method("usage", method!(Runtime::usage, 0))?;
+    // The guest re-enters for a block yield through a frame-scoped
+    // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
+    // method on Runtime.
+    dispatch::register(runtime)?;
 
     Ok(())
 }
@@ -285,41 +285,6 @@ impl Runtime {
     pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         self.on_dispatch.set(Some(Opaque::from(proc_value)));
         Ok(())
-    }
-
-    /// Synchronously re-enter the guest's `__kobako_yield_to_block`
-    /// export with `args_bytes` as the yield-arguments payload, and
-    /// return the YieldResponse bytes the guest produced.
-    ///
-    /// Bound to Ruby as `Kobako::Runtime#yield_to_active_invocation`.
-    /// Recovers the dispatcher's `&mut Caller` from the per-thread
-    /// Invocation slot (SPEC.md Single-Invocation Slot) — the host is
-    /// already inside a `__kobako_dispatch` callback, so the Caller
-    /// parked on the Rust stack is the same one the Sandbox-level
-    /// `#eval` / `#run` is driving. Invoked from the host-side yield
-    /// proxy that the dispatcher hands to Service methods;
-    /// raises `Kobako::TrapError` when called outside an active dispatch
-    /// frame, or when any of the underlying allocation / write / call /
-    /// read steps fails.
-    pub(crate) fn yield_to_active_invocation(
-        &self,
-        args_bytes: RString,
-    ) -> Result<RString, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let _ = self; // The Caller carries its own Store; `self` is only
-                      // a marker that the method belongs to a Runtime.
-
-        let bytes = rstring_to_vec(args_bytes);
-        let Some(caller) = dispatch::current_caller() else {
-            return Err(errors::trap_err(
-                &ruby,
-                "yield_to_active_invocation called outside an active Sandbox dispatch frame",
-            ));
-        };
-
-        let resp_bytes =
-            guest_mem::drive_yield(caller, &bytes).map_err(|msg| errors::trap_err(&ruby, msg))?;
-        Ok(ruby.str_from_slice(&resp_bytes))
     }
 
     // -----------------------------------------------------------------
