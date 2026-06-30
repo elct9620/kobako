@@ -48,6 +48,13 @@ class TestSandboxUsage < Minitest::Test
     assert_operator sandbox.usage.wall_time, :>, 0.0,
                     "wall_time must be positive after a successful invocation — " \
                     "the bracket covers the guest export call"
+    # Pin the magnus binding types Runtime#usage hands back: the numeric
+    # assertions above pass for either type (0.0 == 0, :> on any numeric), so
+    # a Float→Integer drift in the ext binding would slip through without these.
+    assert_kind_of Float, sandbox.usage.wall_time,
+                   "a successful invocation through Sandbox#usage must report wall_time as Float seconds"
+    assert_kind_of Integer, sandbox.usage.memory_peak,
+                   "a successful invocation through Sandbox#usage must report memory_peak as Integer bytes"
   end
 
   # B-35: `#run` shares the same usage path as `#eval`. Pin both verbs
