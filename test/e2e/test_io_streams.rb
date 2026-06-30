@@ -31,7 +31,12 @@ class TestE2EIoStreams < Minitest::Test
     result = sandbox.eval(OVERFLOW_SCRIPT)
 
     assert_equal 1, result
-    assert_operator sandbox.stdout.bytesize, :<=, 5
+    # The retained bytes are the real first 5 of the overflowing line
+    # ("long enough …" → "long "), clipped at the boundary — not a bounded
+    # length alone, which a regression dropping or reordering content could
+    # still satisfy, and not a sentinel.
+    assert_equal "long ", sandbox.stdout,
+                 "an overflowing stdout write must retain exactly its first stdout_limit bytes, no sentinel"
     refute_includes sandbox.stdout, "[truncated]"
     assert sandbox.stdout_truncated?
   end
@@ -121,9 +126,32 @@ class TestE2EIoStreams < Minitest::Test
     result = sandbox.eval(OVERFLOW_STDERR_SCRIPT)
 
     assert_equal 1, result
-    assert_operator sandbox.stderr.bytesize, :<=, 5
+    assert_equal "long ", sandbox.stderr,
+                 "an overflowing stderr write must retain exactly its first stderr_limit bytes, no sentinel"
     refute_includes sandbox.stderr, "[truncated]"
     assert sandbox.stderr_truncated?
+  end
+
+  # L5 / B-01: an explicit nil output cap leaves the channel uncapped, so
+  # output far past the 1 MiB default is captured in full and the predicate
+  # stays false. Proves the ext's uncapped (None → usize::MAX) capture path
+  # is reachable from the Sandbox once nil disables the bound. memory_limit
+  # is also lifted so the 2 MiB the guest builds is not stopped by the
+  # memory cap before it can reach the capture pipe.
+  def test_nil_stdout_limit_captures_output_past_the_default_cap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: nil, memory_limit: nil)
+    # Written as four sub-MiB chunks: a single 2 MiB mruby String would trip
+    # the interpreter's own 1 MiB string cap before reaching the pipe.
+    chunk = 512 * 1024
+    count = 4
+    script = %(#{count}.times { print "x" * #{chunk} }; 1)
+
+    sandbox.eval(script)
+
+    assert_equal chunk * count, sandbox.stdout.bytesize,
+                 "stdout_limit: nil must capture the full output past the default 1 MiB cap"
+    refute sandbox.stdout_truncated?,
+           "an uncapped stdout channel must never report truncation"
   end
 
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
