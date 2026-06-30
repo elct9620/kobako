@@ -89,7 +89,9 @@ module Kobako
     # normalisation. The constructed +SandboxOptions+ is exposed as
     # +#options+ and the four caps remain readable directly on Sandbox via
     # +Forwardable+ delegation.
-    def initialize(wasm_path: nil, stdout_limit: nil, stderr_limit: nil,
+    def initialize(wasm_path: nil,
+                   stdout_limit: SandboxOptions::DEFAULT_OUTPUT_LIMIT,
+                   stderr_limit: SandboxOptions::DEFAULT_OUTPUT_LIMIT,
                    timeout: SandboxOptions::DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: SandboxOptions::DEFAULT_MEMORY_LIMIT)
       @wasm_path = wasm_path || Kobako::Runtime.default_path

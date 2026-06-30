@@ -6,8 +6,8 @@ module Kobako
 
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
-    attr_reader stdout_limit: Integer
-    attr_reader stderr_limit: Integer
+    attr_reader stdout_limit: Integer?
+    attr_reader stderr_limit: Integer?
 
     def self.new: (
       ?timeout: (Float | Integer)?,
@@ -28,5 +28,7 @@ module Kobako
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?
 
     def normalize_memory_limit: (Integer? memory_limit) -> Integer?
+
+    def normalize_output_limit: (Integer? limit, String name) -> Integer?
   end
 end
