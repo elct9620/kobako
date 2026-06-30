@@ -54,6 +54,7 @@ use magnus::{function, method, prelude::*, Error as MagnusError, RModule, RStrin
 
 use std::cell::Cell;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
@@ -465,7 +466,9 @@ impl Runtime {
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
         if let Some(on_dispatch) = self.on_dispatch.get() {
-            store.data_mut().bind_on_dispatch(on_dispatch);
+            store
+                .data_mut()
+                .bind_on_dispatch(Arc::new(dispatch::RubyDispatchHandler::new(on_dispatch)));
         }
         Ok(store)
     }

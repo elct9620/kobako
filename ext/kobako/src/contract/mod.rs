@@ -5,4 +5,5 @@
 //! `crate::runtime::errors`. Keeping the contract free of the Ruby surface
 //! lets it move to a standalone runtime crate unchanged.
 
+pub(crate) mod dispatch;
 pub(crate) mod error;

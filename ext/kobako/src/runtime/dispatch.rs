@@ -49,10 +49,11 @@ use core::cell::Cell;
 use core::ptr::NonNull;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{Error as MagnusError, RString, Ruby, Value};
+use magnus::{RString, Ruby, Value};
 use wasmtime::Caller;
 
 use super::invocation::Invocation;
+use crate::contract::dispatch::DispatchHandler;
 
 // ============================================================
 // Active-caller pointer for the per-thread Invocation slot
@@ -165,41 +166,56 @@ fn try_handle(
 ) -> Result<i64, &'static str> {
     let req_bytes = super::guest_mem::read(caller, req_ptr, req_len)?;
 
-    // `Kobako::Sandbox` always installs the dispatch Proc before
+    // `Kobako::Sandbox` always installs the dispatch handler before
     // invoking the runtime, so reaching this branch indicates a misuse
     // rather than a normal control path.
-    let on_dispatch = caller
+    let handler = caller
         .data()
         .on_dispatch()
         .ok_or("a Sandbox callback fired outside an active Sandbox#run — please report this as a kobako bug")?;
 
-    let resp_bytes = invoke_on_dispatch(on_dispatch, &req_bytes).map_err(|_| {
-        "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug"
-    })?;
+    let resp_bytes = handler.dispatch(&req_bytes).ok_or(
+        "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
+    )?;
 
     write_response(caller, &resp_bytes)
 }
 
-/// Invoke the Ruby-side dispatch `Proc` with the request bytes and return
-/// the encoded Response bytes. The Proc is contracted to fold every
-/// dispatch failure into a `Response.err` envelope (see
-/// `Kobako::Transport::Dispatcher.dispatch`), so reaching the error
-/// branch is itself a wire-layer fault rather than a normal control path.
-fn invoke_on_dispatch(
+/// The Ruby-Proc bridge: a `DispatchHandler` backed by the host-side
+/// dispatch `Proc` registered through `Runtime#on_dispatch=`. This is the
+/// one place the dispatch seam touches `magnus`; the wasm runtime sees
+/// only the trait. The Proc is GC-rooted by `Runtime`'s `mark`; this
+/// struct holds an `Opaque` copy of the same handle.
+pub(crate) struct RubyDispatchHandler {
     on_dispatch: Opaque<Value>,
-    req_bytes: &[u8],
-) -> Result<Vec<u8>, MagnusError> {
-    // The wasmtime callback runs on the same Ruby thread that called the
-    // active Sandbox invocation (#eval or #run) — the invariant SPEC
-    // Implementation Standards Architecture pins for the host gem — so
-    // `Ruby::get()` is always available here. Panicking with `expect`
-    // localises the violation rather than letting a nonsense error
-    // propagate.
-    let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
-    let proc_value: Value = ruby.get_inner(on_dispatch);
-    let req_str = ruby.str_from_slice(req_bytes);
-    let resp: RString = proc_value.funcall("call", (req_str,))?;
-    Ok(super::rstring_to_vec(resp))
+}
+
+impl RubyDispatchHandler {
+    pub(crate) fn new(on_dispatch: Opaque<Value>) -> Self {
+        Self { on_dispatch }
+    }
+}
+
+impl DispatchHandler for RubyDispatchHandler {
+    /// Call the Ruby Proc with the request bytes and return the encoded
+    /// Response bytes. The Proc is contracted to fold every dispatch
+    /// failure into a `Response.err` envelope (see
+    /// `Kobako::Transport::Dispatcher.dispatch`), so a raise is a contract
+    /// violation surfaced as `None` — the dispatcher then walks the
+    /// 0-return wire-fault path.
+    fn dispatch(&self, request: &[u8]) -> Option<Vec<u8>> {
+        // The wasmtime callback runs on the same Ruby thread that called
+        // the active Sandbox invocation (#eval or #run) — the invariant
+        // SPEC Implementation Standards Architecture pins for the host gem
+        // — so `Ruby::get()` is always available here. Panicking with
+        // `expect` localises the violation rather than letting a nonsense
+        // error propagate.
+        let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
+        let proc_value: Value = ruby.get_inner(self.on_dispatch);
+        let req_str = ruby.str_from_slice(request);
+        let resp: Result<RString, magnus::Error> = proc_value.funcall("call", (req_str,));
+        resp.ok().map(super::rstring_to_vec)
+    }
 }
 
 /// Allocate a guest-side buffer and copy the response bytes into it via

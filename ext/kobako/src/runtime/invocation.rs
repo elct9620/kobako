@@ -4,7 +4,7 @@
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
-//! the `__kobako_dispatch` dispatcher reads the bound dispatch Proc,
+//! the `__kobako_dispatch` dispatcher reads the bound dispatch handler,
 //! while the run-path methods on `crate::runtime::Runtime` install the
 //! invocation's WASI context + pipes at Store creation.
 //!
@@ -19,19 +19,21 @@
 //!
 //! [SPEC.md Single-Invocation Slot]: ../../../../SPEC.md
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use magnus::{value::Opaque, Value};
 use wasmtime::ResourceLimiter;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
+
+use crate::contract::dispatch::DispatchHandler;
 
 /// Per-invocation host state — the data half of the Single-Invocation
 /// Slot. Threaded through every host import callback.
 ///
 /// All field access is mediated by methods on this type — the WASI ctx
 /// is rebuilt fresh before each invocation via
-/// `Invocation::install_wasi`, the Ruby dispatch Proc is set once via
+/// `Invocation::install_wasi`, the dispatch handler is set once via
 /// `Invocation::bind_on_dispatch`, and captured stdout/stderr bytes
 /// are read after the invocation via `Invocation::stdout_bytes` /
 /// `Invocation::stderr_bytes`. The fields are private so the mutation
@@ -40,7 +42,7 @@ pub(super) struct Invocation {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
-    on_dispatch: Option<Opaque<Value>>,
+    on_dispatch: Option<Arc<dyn DispatchHandler>>,
     deadline: Option<Instant>,
     limiter: MemoryLimiter,
     wall_entry: Option<Instant>,
@@ -80,11 +82,11 @@ impl Invocation {
         self.stderr_pipe = Some(stderr);
     }
 
-    /// Register the Ruby-side dispatch `Proc`. From this point on, every
-    /// `__kobako_dispatch` host import invocation calls the Proc with the
-    /// request bytes and expects encoded Response bytes back.
-    pub(super) fn bind_on_dispatch(&mut self, proc_value: Opaque<Value>) {
-        self.on_dispatch = Some(proc_value);
+    /// Bind the dispatch handler for this invocation. From this point on,
+    /// every `__kobako_dispatch` host import invocation hands the handler
+    /// the request bytes and expects encoded Response bytes back.
+    pub(super) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
+        self.on_dispatch = Some(handler);
     }
 
     /// Snapshot the bytes captured on guest fd 1 during the most recent
@@ -105,12 +107,13 @@ impl Invocation {
             .unwrap_or_default()
     }
 
-    /// Return the bound dispatch Proc handle. `Opaque<Value>` is `Copy`,
-    /// so the handle is returned by value rather than by reference. None
-    /// means no Proc has been bound yet via
+    /// Return a clone of the bound dispatch handler (an `Arc`, so the clone
+    /// is a cheap refcount bump). Cloning releases the borrow on the
+    /// `Caller` so the dispatcher can re-borrow it to write the response.
+    /// None means no handler has been bound yet via
     /// `Invocation::bind_on_dispatch`.
-    pub(super) fn on_dispatch(&self) -> Option<Opaque<Value>> {
-        self.on_dispatch
+    pub(super) fn on_dispatch(&self) -> Option<Arc<dyn DispatchHandler>> {
+        self.on_dispatch.clone()
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has
