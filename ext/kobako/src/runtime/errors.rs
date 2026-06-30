@@ -70,14 +70,14 @@ pub(crate) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
 /// wall-clock cap path with the verb prefix added
 /// by `Kobako::Sandbox#invoke!`.
-pub(crate) fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TIMEOUT_ERROR, msg)
 }
 
 /// Construct a `Kobako::MemoryLimitError` magnus error. Surfaces the
 /// linear-memory cap path with the verb prefix
 /// added by `Kobako::Sandbox#invoke!`.
-pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &MEMORY_LIMIT_ERROR, msg)
 }
 
@@ -87,7 +87,7 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 /// envelope reservation failure (`__kobako_alloc` returns 0).
 /// The runtime is intact, so this must not be a
 /// `TrapError`: no discard-and-recreate recovery is owed to the caller.
-pub(crate) fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &SANDBOX_ERROR, msg)
 }
 

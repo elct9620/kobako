@@ -33,9 +33,12 @@
 //
 // This file owns the `Kobako::Runtime` magnus class itself (the
 // InstancePre + `Config` + the per-invocation `#eval` / `#run` run
-// path), the Ruby error-class lazy-resolvers, the `trap_err` /
-// `timeout_err` / `memory_limit_err` / `setup_err` constructors shared by
-// every submodule, and the Ruby init() that registers the class.
+// path) and the Ruby init() that registers the class. The Ruby
+// error-class lazy-resolvers and the `*_err` constructors live in the
+// `errors` submodule, which is the single boundary mapping the neutral
+// `Trap` / `SetupError` channels onto the `Kobako::*` classes; only
+// `trap_err` / `setup_err` are reached cross-module (from `dispatch` and
+// the `#eval` / `#run` path here).
 
 mod ambient;
 mod cache;
