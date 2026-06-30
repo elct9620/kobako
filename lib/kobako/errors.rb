@@ -89,10 +89,13 @@ module Kobako
   # +ModuleNotBuiltError+ first.
   class ModuleNotBuiltError < SetupError; end
 
-  # Sandbox / wire layer. Raised when the guest ran to completion but
-  # execution failed due to a mruby script error, a protocol fault, or a
-  # host-side wire decode failure on an otherwise valid outcome tag.
-  class SandboxError < Error
+  # The structured attribution the two invocation-failure classes carry
+  # from a decoded guest exception — its +origin+, original +klass+,
+  # +backtrace_lines+, and +details+ — so a Host App can inspect a failure
+  # beyond its message. Mixed into both rather than promoted to a shared
+  # superclass because +SandboxError+ and +ServiceError+ sit in distinct
+  # branches of the invocation-outcome taxonomy under +Kobako::Error+.
+  module StructuredError
     attr_reader :origin, :klass, :backtrace_lines, :details
 
     def initialize(message, origin: nil, klass: nil, backtrace_lines: nil, details: nil)
@@ -104,19 +107,18 @@ module Kobako
     end
   end
 
+  # Sandbox / wire layer. Raised when the guest ran to completion but
+  # execution failed due to a mruby script error, a protocol fault, or a
+  # host-side wire decode failure on an otherwise valid outcome tag.
+  class SandboxError < Error
+    include StructuredError
+  end
+
   # Service layer. Raised when a Service capability call inside a mruby
   # script reported an application-level failure that the script did not
   # rescue.
   class ServiceError < Error
-    attr_reader :origin, :klass, :backtrace_lines, :details
-
-    def initialize(message, origin: nil, klass: nil, backtrace_lines: nil, details: nil)
-      super(message)
-      @origin = origin
-      @klass = klass
-      @backtrace_lines = backtrace_lines
-      @details = details
-    end
+    include StructuredError
   end
 
   # HandlerExhaustedError is the canonical SandboxError subclass for the
