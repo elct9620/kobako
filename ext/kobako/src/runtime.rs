@@ -138,11 +138,12 @@ pub(crate) struct Runtime {
     config: Config,
     // The host-side dispatch Proc, held here only
     // to give `DataTypeFunctions::mark` a read path so it can pin the
-    // Proc across GC. The copy the `__kobako_dispatch` import actually
-    // calls is bound onto each per-invocation `Invocation` by
-    // `Runtime::new_store`. Both hold the same `Copy` handle to the one
-    // pinned Proc. `Cell` is sound under the GVL (see the `unsafe impl
-    // Sync` below).
+    // Proc across GC. For each invocation `build_handler` wraps a copy of
+    // this handle in a `RubyDispatchHandler`, and `invoke` binds that
+    // `Arc<dyn DispatchHandler>` onto the per-invocation `Invocation`,
+    // where the `__kobako_dispatch` import calls it — both reference the
+    // one Proc this `Opaque` pins. `Cell` is sound under the GVL (see the
+    // `unsafe impl Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
     // Usage of the most recent invocation —
     // `(wall_time_seconds, memory_peak_bytes)` — captured by
@@ -282,8 +283,9 @@ impl Runtime {
 
     /// Register the Ruby-side dispatch `Proc`.
     /// Bound to Ruby as `Kobako::Runtime#on_dispatch=`. The handle is
-    /// pinned by `DataTypeFunctions::mark` and copied onto every
-    /// per-invocation `Invocation` by `Runtime::new_store`, where the
+    /// pinned by `DataTypeFunctions::mark`; for each invocation
+    /// `build_handler` wraps a copy in a `RubyDispatchHandler` and `invoke`
+    /// binds it onto the per-invocation `Invocation`, where the
     /// `__kobako_dispatch` import reads it through `Caller<Invocation>`.
     pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         self.on_dispatch.set(Some(Opaque::from(proc_value)));

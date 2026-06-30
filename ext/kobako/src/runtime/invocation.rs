@@ -5,8 +5,9 @@
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
 //! the `__kobako_dispatch` dispatcher reads the bound dispatch handler,
-//! while the run-path methods on `crate::runtime::Runtime` install the
-//! invocation's WASI context + pipes at Store creation.
+//! while `crate::runtime::Runtime::invoke` installs the invocation's WASI
+//! context + pipes (via `frames::install_wasi_frames`) before the guest
+//! export call.
 //!
 //! The slot also carries the per-invocation wall-clock deadline
 //! and the per-invocation linear-memory
@@ -68,8 +69,8 @@ impl Invocation {
     }
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
-    /// pipe clones. Called from `crate::runtime::Runtime::eval` /
-    /// `crate::runtime::Runtime::run` at the top of every guest
+    /// pipe clones. Called from `frames::install_wasi_frames`, which
+    /// `crate::runtime::Runtime::invoke` runs at the top of every guest
     /// invocation.
     pub(super) fn install_wasi(
         &mut self,
@@ -129,7 +130,8 @@ impl Invocation {
 
     /// Replace the per-run wall-clock deadline. `Some(at)` makes the
     /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
-    /// disables the cap. Called at the top of every `#run`.
+    /// disables the cap. Called from `Runtime::prime_caps` at the top of
+    /// every invocation (`#eval` and `#run`).
     pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
     }
