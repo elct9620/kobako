@@ -216,7 +216,9 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     // covers Array subclasses too, matching the `is_a?(Array)` check
     // the mrblib predecessor made.
     if let Some(ary) = beni::Array::from_value(val) {
-        let len = collection_len(mrb, val)?;
+        // C array length, not a `.length` dispatch: a hostile Array subclass
+        // cannot override it to drive the recursion past the real elements.
+        let len = ary.len();
         for i in 0..len {
             puts_one(mrb, self_, ary.entry(i as isize))?;
         }
@@ -354,19 +356,6 @@ fn write_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
 fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
     let nl = mrb.str_new(b"\n").as_value();
     write_one(mrb, self_, nl)
-}
-
-/// Collection length via `.length`, mirroring the mruby core
-/// implementation's Fixnum return; non-Fixnum (a user-overridden
-/// `length` returning nonsense) reads as empty. A `length` that raises
-/// surfaces as a guest exception so `puts` of a hostile Array
-/// subclass attributes to the guest rather than corrupting the frame.
-fn collection_len(mrb: &Mrb, col: Value) -> Result<usize, Error> {
-    let len_val = col.funcall(mrb, c"length", &[])?;
-    Ok(match i32::from_value(len_val) {
-        Some(len) if len > 0 => len as usize,
-        _ => 0,
-    })
 }
 
 /// Build an `ArgumentError` carrying `msg`. A handler returns it as

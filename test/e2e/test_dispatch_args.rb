@@ -142,4 +142,29 @@ class TestE2EDispatchArgs < Minitest::Test
     assert_equal NESTED_AOH, seen.first, "transport arg: nested Array-of-Hash must arrive natively"
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
+
+  # transport path: argument conversion sizes a buffer from the array length,
+  # so it reads the C element count rather than dispatching `#length`, which
+  # untrusted guest mruby can override per-instance. An array whose `length`
+  # the guest has inflated must still convert by its real elements — neither
+  # trapping on an oversized reservation nor mis-shaping the request.
+  OVERRIDDEN_LENGTH_SCRIPT = <<~RUBY
+    a = [1, 2, 3]
+    def a.length; 1_000_000_000; end
+    Echo::Identity.call(a)
+  RUBY
+
+  def test_rpc_array_arg_ignores_guest_overridden_length
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    seen = []
+    sandbox.define(:Echo).bind(:Identity, ->(arg) { arg.tap { seen << arg } })
+
+    result = sandbox.eval(OVERRIDDEN_LENGTH_SCRIPT)
+
+    assert_equal [1, 2, 3], seen.first,
+                 "transport arg: a guest-overridden Array#length must not steer the conversion — " \
+                 "the Service receives the real elements"
+    assert_equal [1, 2, 3], result,
+                 "transport return: the array round-trips by its real element count"
+  end
 end

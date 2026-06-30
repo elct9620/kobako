@@ -260,27 +260,17 @@ impl Kobako {
     // Collection / hash / handle helpers.
     // ----------------------------------------------------------------
 
-    /// Return the number of elements in an mruby Array or Hash by
-    /// calling `.length` and unboxing the resulting Fixnum directly.
-    /// Used wherever a collection length is needed without a direct
-    /// FFI binding for `mrb_ary_len`. Returns 0 when `.length` raises
-    /// or does not yield a Fixnum — the mruby core implementations
-    /// always return a Fixnum, so either signals a user-overridden
-    /// `length`, and this diagnostic helper reads "empty collection"
-    /// rather than propagating into the panic it is helping build.
+    /// Return the element count of an mruby Array via the C array length,
+    /// not a `.length` method dispatch. Untrusted guest mruby can override
+    /// `length` per-instance to return an arbitrary value; reading the C
+    /// length keeps that out of the downstream `Vec::with_capacity`, which
+    /// would otherwise reserve a guest-chosen size. Returns 0 for any value
+    /// that is not an Array — every caller passes an Array or a C-built keys
+    /// array, so a non-Array here reads as "empty" rather than faulting the
+    /// conversion it feeds.
     pub fn collection_len(&self, col: Value) -> usize {
         use beni::FromValue;
-        let Ok(len_val) = col.funcall(self.mrb(), c"length", &[]) else {
-            return 0;
-        };
-        let Some(len) = i32::from_value(len_val) else {
-            return 0;
-        };
-        if len < 0 {
-            0
-        } else {
-            len as usize
-        }
+        beni::Array::from_value(col).map_or(0, |ary| ary.len())
     }
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
