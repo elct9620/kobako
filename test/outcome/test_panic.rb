@@ -13,31 +13,32 @@ require "test_helper"
 # pinned here at the value-object level.
 class TestOutcomePanic < Minitest::Test
   def test_origin_must_be_string
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError, "a non-String origin through Panic.new must raise ArgumentError") do
       Kobako::Outcome::Panic.new(origin: 123, klass: "E", message: "m")
     end
   end
 
   def test_klass_must_be_string
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError, "a non-String klass through Panic.new must raise ArgumentError") do
       Kobako::Outcome::Panic.new(origin: "sandbox", klass: :sym, message: "m")
     end
   end
 
   def test_message_must_be_string
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError, "a non-String message through Panic.new must raise ArgumentError") do
       Kobako::Outcome::Panic.new(origin: "sandbox", klass: "E", message: nil)
     end
   end
 
   def test_backtrace_must_be_array
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError, "a non-Array backtrace through Panic.new must raise ArgumentError") do
       Kobako::Outcome::Panic.new(origin: "sandbox", klass: "E", message: "m", backtrace: "str")
     end
   end
 
   def test_backtrace_elements_must_all_be_strings
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError,
+                  "a backtrace with a non-String element through Panic.new must raise ArgumentError") do
       Kobako::Outcome::Panic.new(origin: "sandbox", klass: "E", message: "m", backtrace: ["ok", 42])
     end
   end
@@ -48,11 +49,11 @@ class TestOutcomePanic < Minitest::Test
   def test_required_only_construction_succeeds
     panic = Kobako::Outcome::Panic.new(origin: "sandbox", klass: "RuntimeError", message: "boom")
 
-    assert_equal "sandbox", panic.origin
-    assert_equal "RuntimeError", panic.klass
-    assert_equal "boom", panic.message
-    assert_equal [], panic.backtrace
-    assert_nil panic.details
+    assert_equal "sandbox", panic.origin, "Panic.new must expose the constructed origin"
+    assert_equal "RuntimeError", panic.klass, "Panic.new must expose the constructed klass"
+    assert_equal "boom", panic.message, "Panic.new must expose the constructed message"
+    assert_equal [], panic.backtrace, "an omitted backtrace through Panic.new must default to an empty Array"
+    assert_nil panic.details, "an omitted details through Panic.new must default to nil"
   end
 
   def test_full_kwargs_construction_succeeds
@@ -64,12 +65,14 @@ class TestOutcomePanic < Minitest::Test
       details: { "type" => "runtime" }
     )
 
-    assert_equal ["a.rb:1", "b.rb:2"], panic.backtrace
-    assert_equal({ "type" => "runtime" }, panic.details)
+    assert_equal ["a.rb:1", "b.rb:2"], panic.backtrace, "a backtrace through Panic.new must pass through intact"
+    assert_equal({ "type" => "runtime" }, panic.details, "a details Hash through Panic.new must pass through intact")
   end
 
   def test_origin_constants_match_spec_strings
-    assert_equal "sandbox", Kobako::Outcome::Panic::ORIGIN_SANDBOX
-    assert_equal "service", Kobako::Outcome::Panic::ORIGIN_SERVICE
+    assert_equal "sandbox", Kobako::Outcome::Panic::ORIGIN_SANDBOX,
+                 "ORIGIN_SANDBOX must be the SPEC origin string the host attributes guest panics to"
+    assert_equal "service", Kobako::Outcome::Panic::ORIGIN_SERVICE,
+                 "ORIGIN_SERVICE must be the SPEC origin string the host attributes Service faults to"
   end
 end

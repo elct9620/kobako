@@ -17,12 +17,16 @@ class TestTransportRequest < Minitest::Test
       { target: 123 }, { method_name: :sym }, { args: "no" },
       { kwargs: [] }, { block_given: "true" }
     ]
-    overrides.each { |o| assert_raises(ArgumentError) { Envelope::Request.new(**base, **o) } }
+    overrides.each do |o|
+      assert_raises(ArgumentError, "a wrong-typed #{o.keys.first} through Request.new must raise ArgumentError") do
+        Envelope::Request.new(**base, **o)
+      end
+    end
   end
 
   def test_request_block_given_defaults_to_false
     req = Envelope::Request.new(target: "G::M", method_name: "ping")
-    refute req.block_given
+    refute req.block_given, "an omitted block_given through Request.new must default to false"
   end
 
   def test_request_round_trip_with_block_given_true
@@ -34,8 +38,8 @@ class TestTransportRequest < Minitest::Test
       block_given: true
     )
     decoded = Envelope::Request.decode(req.encode)
-    assert_equal req, decoded
-    assert decoded.block_given
+    assert_equal req, decoded, "a block_given Request must survive an encode/decode round-trip unchanged"
+    assert decoded.block_given, "block_given: true must round-trip as true"
   end
 
   def test_request_round_trip_with_string_target
@@ -47,7 +51,7 @@ class TestTransportRequest < Minitest::Test
     )
     bytes   = req.encode
     decoded = Envelope::Request.decode(bytes)
-    assert_equal req, decoded
+    assert_equal req, decoded, "a String-target Request must survive an encode/decode round-trip unchanged"
   end
 
   def test_request_round_trip_with_handle_target
@@ -59,8 +63,8 @@ class TestTransportRequest < Minitest::Test
     )
     bytes   = req.encode
     decoded = Envelope::Request.decode(bytes)
-    assert_equal req, decoded
-    assert_instance_of Handle, decoded.target
+    assert_equal req, decoded, "a Handle-target Request must survive an encode/decode round-trip unchanged"
+    assert_instance_of Handle, decoded.target, "a Handle target must decode back to a Kobako::Handle, not a raw id"
   end
 
   def test_request_handles_in_args
@@ -73,7 +77,7 @@ class TestTransportRequest < Minitest::Test
       kwargs: { k: h1 }
     )
     decoded = Envelope::Request.decode(req.encode)
-    assert_equal req, decoded
+    assert_equal req, decoded, "Handles bare and nested in args/kwargs must survive the round-trip unchanged"
   end
 
   def test_request_kwargs_must_have_symbol_keys
@@ -81,7 +85,7 @@ class TestTransportRequest < Minitest::Test
     # to Symbols. The Value Object refuses non-Symbol kwargs keys at
     # construction; the wire-level InvalidType guarantee is preserved
     # via the Request.decode boundary translator.
-    assert_raises(ArgumentError) do
+    assert_raises(ArgumentError, "a non-Symbol kwargs key through Request.new must raise ArgumentError") do
       Envelope::Request.new(target: "G::M", method_name: "x", args: [], kwargs: { "active" => true })
     end
   end
@@ -91,14 +95,18 @@ class TestTransportRequest < Minitest::Test
     # envelope-illegal. The decoder must translate the value-object
     # ArgumentError into a wire-layer InvalidType.
     bytes = Encoder.encode(["G::M", "x", [], { 42 => "v" }, false])
-    assert_raises(InvalidType) { Envelope::Request.decode(bytes) }
+    assert_raises(InvalidType, "decoding a Request with a non-Symbol kwargs key must surface as a wire InvalidType") do
+      Envelope::Request.decode(bytes)
+    end
   end
 
   def test_request_decode_rejects_wrong_arity
     # 4-element array, not 5 — post-B-23 the Request envelope carries
     # +block_given+ as the 5th element.
     bytes = Encoder.encode(["G::M", "x", [], {}])
-    assert_raises(InvalidType) { Envelope::Request.decode(bytes) }
+    assert_raises(InvalidType, "decoding a 4-element Request envelope must be rejected as a wire InvalidType") do
+      Envelope::Request.decode(bytes)
+    end
   end
 
   # ---------- Request golden vector ----------
@@ -109,6 +117,7 @@ class TestTransportRequest < Minitest::Test
     # fixstr 4 "ping" (0xa4 70 69 6e 67) | fixarray 0 (0x90) |
     # fixmap 0 (0x80) | false (0xc2)
     bytes = Envelope::Request.new(target: "G::M", method_name: "ping").encode
-    assert_equal "95a4473a3a4da470696e679080c2", hex(bytes)
+    assert_equal "95a4473a3a4da470696e679080c2", hex(bytes),
+                 "Request#encode must produce the canonical SPEC byte sequence for the empty-args/kwargs shape"
   end
 end
