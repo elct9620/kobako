@@ -74,18 +74,18 @@ pub(crate) fn write_envelope(
 pub(crate) fn install_wasi_frames(
     store: &mut WtStore<Invocation>,
     config: &Config,
-    frames: &[Vec<u8>],
+    frames: &[&[u8]],
 ) -> Result<(), Trap> {
     // Every frame carries the same 16 MiB cap as the `#run` envelope
     // (`write_envelope`): the length prefix is a `u32`, so a frame past
     // the cap would silently wrap and corrupt the stdin frame stream.
-    for frame in frames {
+    for &frame in frames {
         guest_mem::checked_payload_len(frame.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
     }
 
-    let total: usize = frames.iter().map(|f| 4 + f.len()).sum();
+    let total: usize = frames.iter().map(|&f| 4 + f.len()).sum();
     let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
-    for frame in frames {
+    for &frame in frames {
         stdin_content.extend_from_slice(&(frame.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(frame);
     }

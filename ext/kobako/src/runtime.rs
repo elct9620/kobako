@@ -553,13 +553,9 @@ impl ContractRuntime for Runtime {
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
-        let frame_list: Vec<Vec<u8>> = match &entry {
-            Entry::Eval { source } => vec![
-                frames.preamble.to_vec(),
-                source.to_vec(),
-                frames.snippets.to_vec(),
-            ],
-            Entry::Run { .. } => vec![frames.preamble.to_vec(), frames.snippets.to_vec()],
+        let frame_list: Vec<&[u8]> = match &entry {
+            Entry::Eval { source } => vec![frames.preamble, source, frames.snippets],
+            Entry::Run { .. } => vec![frames.preamble, frames.snippets],
         };
         frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
         let exports = self.instantiate(&mut store)?;
