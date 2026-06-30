@@ -31,7 +31,7 @@ fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
 /// (an engine fault), and a runtime-intact `SetupError` when the hook runs
 /// but cannot reserve the buffer (`__kobako_alloc` returns 0). The ext
 /// boundary maps these to `Kobako::TrapError` / `Kobako::SandboxError`.
-pub(crate) fn write_envelope(
+pub(super) fn write_envelope(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
     envelope: &[u8],
@@ -71,7 +71,7 @@ pub(crate) fn write_envelope(
 /// rely on `memory_limit` for the real ceiling.
 /// Returns a `Trap` when any frame exceeds the 16 MiB cap that keeps its
 /// `u32` length prefix from wrapping (boundary → `Kobako::TrapError`).
-pub(crate) fn install_wasi_frames(
+pub(super) fn install_wasi_frames(
     store: &mut WtStore<Invocation>,
     config: &Config,
     frames: &[&[u8]],
@@ -117,7 +117,7 @@ pub(crate) fn install_wasi_frames(
 /// `len` exceeds the 16 MiB single-dispatch cap, the `ptr`/`len`
 /// arithmetic overflows, the slice falls outside live memory, or the
 /// `memory` export itself is absent.
-pub(crate) fn fetch_outcome_bytes(
+pub(super) fn fetch_outcome_bytes(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
 ) -> Result<Vec<u8>, Trap> {
@@ -165,7 +165,7 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
 /// message is intentionally export-agnostic (see
 /// `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol name is not
 /// actionable to callers, so it is not threaded in.
-pub(crate) fn require_export<Params, Results>(
+pub(super) fn require_export<Params, Results>(
     export: Option<&TypedFunc<Params, Results>>,
 ) -> Result<&TypedFunc<Params, Results>, Trap>
 where

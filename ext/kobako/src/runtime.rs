@@ -92,7 +92,7 @@ const ABI_VERSION: u32 = 2;
 /// does not outlive this call, so no Ruby allocation can move the
 /// underlying RString between the borrow and the copy — the safety
 /// invariant the inline form relied on is established once here.
-pub(crate) fn rstring_to_vec(s: RString) -> Vec<u8> {
+fn rstring_to_vec(s: RString) -> Vec<u8> {
     // SAFETY: see item doc.
     unsafe { s.as_slice() }.to_vec()
 }
@@ -125,7 +125,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime", free_immediately, size, mark)]
-pub(crate) struct Runtime {
+struct Runtime {
     // Pre-linked instantiation template (import wiring + type checks
     // done once in `instance_pre::cached_instance_pre`). Every
     // invocation instantiates a fresh instance from it and discards the
@@ -194,7 +194,7 @@ impl Runtime {
     /// disables). All four are validated by the caller
     /// (`Kobako::Sandbox`); this method only refuses non-finite or
     /// non-positive timeouts as a defence in depth.
-    pub(crate) fn from_path(
+    fn from_path(
         path: String,
         timeout_seconds: Option<f64>,
         memory_limit: Option<usize>,
@@ -290,7 +290,7 @@ impl Runtime {
     /// `build_handler` wraps a copy in a `RubyDispatchHandler` and `invoke`
     /// binds it onto the per-invocation `Invocation`, where the
     /// `__kobako_dispatch` import reads it through `Caller<Invocation>`.
-    pub(crate) fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
+    fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         self.on_dispatch.set(Some(Opaque::from(proc_value)));
         Ok(())
     }
@@ -308,7 +308,7 @@ impl Runtime {
     /// to `invoke`, and wraps the neutral `Snapshot` or maps the `Error`
     /// onto its `Kobako::*` exception. The run mechanics — frames, caps,
     /// trap classification — live in `invoke`.
-    pub(crate) fn eval(
+    fn eval(
         &self,
         preamble: RString,
         source: RString,
@@ -339,7 +339,7 @@ impl Runtime {
     /// `envelope` copied into guest linear memory; cap semantics match
     /// `#eval`. Raises `Kobako::TrapError` / `Kobako::SandboxError` per the
     /// engine-vs-host-fault split inside `invoke`.
-    pub(crate) fn run(
+    fn run(
         &self,
         preamble: RString,
         snippets: RString,
@@ -394,7 +394,7 @@ impl Runtime {
     ///
     /// Reads the `last_usage` Cell `build_snapshot` populated before the
     /// per-invocation Store was discarded.
-    pub(crate) fn usage(&self) -> Result<RArray, MagnusError> {
+    fn usage(&self) -> Result<RArray, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let (wall_time, memory_peak) = self.last_usage.get();
         let arr = ruby.ary_new_capa(2);

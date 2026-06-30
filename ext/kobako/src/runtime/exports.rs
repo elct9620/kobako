@@ -25,12 +25,12 @@ use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 /// The handles are indices into the owning Store, not borrows of the
 /// `Instance` — they stay valid for the Store's lifetime, which is why
 /// no `Instance` field is kept.
-pub(crate) struct Exports {
-    pub(crate) eval: Option<TypedFunc<(), ()>>,
-    pub(crate) run: Option<TypedFunc<(i32, i32), ()>>,
-    pub(crate) take_outcome: Option<TypedFunc<(), u64>>,
-    pub(crate) alloc: Option<TypedFunc<u32, u32>>,
-    pub(crate) memory: Option<Memory>,
+pub(super) struct Exports {
+    pub(super) eval: Option<TypedFunc<(), ()>>,
+    pub(super) run: Option<TypedFunc<(i32, i32), ()>>,
+    pub(super) take_outcome: Option<TypedFunc<(), u64>>,
+    pub(super) alloc: Option<TypedFunc<u32, u32>>,
+    pub(super) memory: Option<Memory>,
 }
 
 impl Exports {
@@ -42,7 +42,7 @@ impl Exports {
     /// `(env_ptr, env_len) -> ()`, `__kobako_take_outcome` is `() -> u64`,
     /// `__kobako_alloc` is `(len) -> ptr`
     /// (docs/wire-codec.md § ABI Signatures).
-    pub(crate) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
+    pub(super) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
         Self {
             eval: instance
                 .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")

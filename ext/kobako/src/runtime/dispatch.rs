@@ -59,7 +59,7 @@ use crate::contract::yielder::Yielder;
 /// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
 /// `crate::runtime::init` after `Kobako::Runtime` is defined so the
 /// `#[magnus::wrap]` class name resolves before any object is wrapped.
-pub(crate) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
+pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let class = runtime_class.define_class("GuestYielder", ruby.class_object())?;
     class.define_method("call", method!(GuestYielder::call, 1))?;
@@ -156,7 +156,7 @@ impl GuestYielder {
 /// raise (it folds Service exceptions into Response.err envelopes),
 /// so reaching the failure path is always a wiring bug or wire-layer
 /// fault rather than an expected path.
-pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
+pub(super) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
     match try_handle(caller, req_ptr, req_len) {
         Ok(packed) => packed,
         Err(reason) => {
@@ -203,12 +203,12 @@ fn try_handle(
 /// one place the dispatch seam touches `magnus`; the wasm runtime sees
 /// only the trait. The Proc is GC-rooted by `Runtime`'s `mark`; this
 /// struct holds an `Opaque` copy of the same handle.
-pub(crate) struct RubyDispatchHandler {
+pub(super) struct RubyDispatchHandler {
     on_dispatch: Opaque<Value>,
 }
 
 impl RubyDispatchHandler {
-    pub(crate) fn new(on_dispatch: Opaque<Value>) -> Self {
+    pub(super) fn new(on_dispatch: Opaque<Value>) -> Self {
         Self { on_dispatch }
     }
 }

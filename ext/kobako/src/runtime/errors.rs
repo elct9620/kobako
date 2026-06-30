@@ -24,22 +24,20 @@ fn kobako_error_class(ruby: &Ruby, name: &str) -> ExceptionClass {
     kobako.const_get(name).unwrap()
 }
 
-pub(crate) static SETUP_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "SetupError"));
+static SETUP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| kobako_error_class(ruby, "SetupError"));
 
-pub(crate) static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
+static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "ModuleNotBuiltError"));
 
-pub(crate) static TRAP_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "TrapError"));
+static TRAP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| kobako_error_class(ruby, "TrapError"));
 
-pub(crate) static TIMEOUT_ERROR: Lazy<ExceptionClass> =
+static TIMEOUT_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "TimeoutError"));
 
-pub(crate) static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
+static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "MemoryLimitError"));
 
-pub(crate) static SANDBOX_ERROR: Lazy<ExceptionClass> =
+static SANDBOX_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "SandboxError"));
 
 /// Build a `MagnusError` in `class` carrying `msg` — the shared body of
@@ -53,7 +51,7 @@ fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -
 /// invocation-time wasmtime engine failure that is not a configured-cap
 /// trap — missing exports, allocation faults, memory write/read failures.
 /// Construction-time setup failures use `setup_err`, not this.
-pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }
 
@@ -63,7 +61,7 @@ pub(crate) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// module, or engine / linker / instantiation setup failure. The
 /// `ModuleNotBuiltError` subclass (artifact absent) is
 /// raised through `MODULE_NOT_BUILT_ERROR` directly.
-pub(crate) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
+pub(super) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &SETUP_ERROR, msg)
 }
 
@@ -95,7 +93,7 @@ fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// The boundary between the magnus-free run mechanics and the Ruby surface:
 /// the run path classifies a fault into a `Trap`, and this is where it
 /// becomes a raised exception.
-pub(crate) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
+pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     match trap {
         Trap::Timeout(msg) => timeout_err(ruby, msg),
         Trap::MemoryLimit(msg) => memory_limit_err(ruby, msg),
@@ -105,7 +103,7 @@ pub(crate) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
 
 /// Map a neutral `SetupError` onto the `Kobako::*` class the SPEC assigns
 /// to each runtime state — artifact-absent, runtime-dead, runtime-intact.
-pub(crate) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
+pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
         SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
         SetupError::Dead(msg) => setup_err(ruby, msg),
@@ -116,7 +114,7 @@ pub(crate) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
 /// Map either run-path channel onto its Ruby exception. The single
 /// translation point the run-path entry methods funnel their `Result`
 /// through.
-pub(crate) fn to_magnus(ruby: &Ruby, err: Error) -> MagnusError {
+pub(super) fn to_magnus(ruby: &Ruby, err: Error) -> MagnusError {
     match err {
         Error::Trap(trap) => trap_to_magnus(ruby, trap),
         Error::Setup(err) => setup_to_magnus(ruby, err),

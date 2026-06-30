@@ -59,7 +59,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// cap. The first call spawns the process-singleton ticker
 /// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
 /// cadence; subsequent calls reuse the same engine and ticker.
-pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
+pub(super) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
     }
@@ -96,7 +96,7 @@ fn spawn_epoch_ticker(engine: WtEngine) {
 /// (boundary → `Kobako::ModuleNotBuiltError`) when the file is missing —
 /// the headline error for the common pre-build state on a fresh clone
 /// before `rake compile`.
-pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
+pub(super) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(module) = cache

@@ -323,7 +323,7 @@ impl ResourceLimiter for MemoryLimiter {
 /// `Display` impl below — no field is read directly — so the inner
 /// state stays private.
 #[derive(Debug)]
-pub(crate) struct MemoryLimitTrap {
+pub(super) struct MemoryLimitTrap {
     desired: usize,
     limit: usize,
 }
@@ -356,7 +356,7 @@ impl std::error::Error for MemoryLimitTrap {}
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
 /// error to surface as `Kobako::TimeoutError` on the Ruby side.
 #[derive(Debug)]
-pub(crate) struct TimeoutTrap;
+pub(super) struct TimeoutTrap;
 
 impl std::fmt::Display for TimeoutTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
