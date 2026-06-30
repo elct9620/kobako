@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/elct9620/kobako/compare/kobako-json-v0.6.0...kobako-json-v0.6.1) (2026-06-30)
+
+
+### Miscellaneous Chores
+
+* **kobako-json:** Synchronize kobako guest crates versions
+
 ## [0.6.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.5.2...kobako-json-v0.6.0) (2026-06-26)
 
 
