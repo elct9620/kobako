@@ -58,6 +58,7 @@ use std::time::{Duration, Instant};
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
+use crate::contract::error::{Error, SetupError, Trap};
 use crate::snapshot::Snapshot;
 use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
@@ -209,8 +210,10 @@ impl Runtime {
             }
         };
 
+        let instance_pre = instance_pre::cached_instance_pre(Path::new(&path))
+            .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
         let runtime = Self {
-            instance_pre: instance_pre::cached_instance_pre(Path::new(&path))?,
+            instance_pre,
             memory_limit,
             config: Config {
                 timeout,
@@ -234,12 +237,15 @@ impl Runtime {
     /// WASI on the `SetupError` path instead of panicking in
     /// `Invocation::wasi_mut`.
     fn probe_abi_version(&self, ruby: &Ruby) -> Result<(), MagnusError> {
-        let mut store = self.new_store()?;
-        frames::install_wasi_frames(&mut store, &self.config, &[])?;
+        let mut store = self
+            .new_store()
+            .map_err(|e| errors::setup_to_magnus(ruby, e))?;
+        frames::install_wasi_frames(&mut store, &self.config, &[])
+            .map_err(|t| errors::setup_err(ruby, t.to_string()))?;
         let instance = self
             .instance_pre
             .instantiate(store.as_context_mut())
-            .map_err(|e| trap::instantiate_err(ruby, e))?;
+            .map_err(|e| errors::setup_to_magnus(ruby, trap::instantiate_err(e)))?;
         let probe = instance
             .get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
             .map_err(|_| {
@@ -345,6 +351,19 @@ impl Runtime {
         snippets: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        self.eval_inner(preamble, source, snippets)
+            .map_err(|e| errors::to_magnus(&ruby, e))
+    }
+
+    /// Magnus-free body of `#eval`: drive the guest export and return a
+    /// `Snapshot` or a neutral run-path `Error`. The magnus method above is
+    /// the single point that maps the `Error` onto a `Kobako::*` exception.
+    fn eval_inner(
+        &self,
+        preamble: RString,
+        source: RString,
+        snippets: RString,
+    ) -> Result<Snapshot, Error> {
         let mut store = self.new_store()?;
         frames::install_wasi_frames(
             &mut store,
@@ -355,11 +374,11 @@ impl Runtime {
                 rstring_to_vec(snippets),
             ],
         )?;
-        let exports = self.instantiate(&ruby, &mut store)?;
-        let eval = frames::require_export(&ruby, exports.eval.as_ref())?;
+        let exports = self.instantiate(&mut store)?;
+        let eval = frames::require_export(exports.eval.as_ref())?;
         self.call_with_caps(&mut store, &exports, eval, ())
-            .map_err(|e| trap::call_err(&ruby, e))?;
-        self.build_snapshot(&ruby, &mut store, &exports)
+            .map_err(trap::trap_from)?;
+        Ok(self.build_snapshot(&mut store, &exports)?)
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`) and return a
@@ -379,18 +398,31 @@ impl Runtime {
         envelope: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        self.run_inner(preamble, snippets, envelope)
+            .map_err(|e| errors::to_magnus(&ruby, e))
+    }
+
+    /// Magnus-free body of `#run`: copy the envelope into guest memory,
+    /// drive the guest export, and return a `Snapshot` or a neutral
+    /// run-path `Error`. The magnus method above maps the `Error`.
+    fn run_inner(
+        &self,
+        preamble: RString,
+        snippets: RString,
+        envelope: RString,
+    ) -> Result<Snapshot, Error> {
         let mut store = self.new_store()?;
         frames::install_wasi_frames(
             &mut store,
             &self.config,
             &[rstring_to_vec(preamble), rstring_to_vec(snippets)],
         )?;
-        let exports = self.instantiate(&ruby, &mut store)?;
-        let run = frames::require_export(&ruby, exports.run.as_ref())?;
-        let (env_ptr, env_len) = frames::write_envelope(&ruby, &mut store, &exports, envelope)?;
+        let exports = self.instantiate(&mut store)?;
+        let run = frames::require_export(exports.run.as_ref())?;
+        let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
         self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
-            .map_err(|e| trap::call_err(&ruby, e))?;
-        self.build_snapshot(&ruby, &mut store, &exports)
+            .map_err(trap::trap_from)?;
+        Ok(self.build_snapshot(&mut store, &exports)?)
     }
 
     /// Return the per-last-invocation usage as a
@@ -428,7 +460,7 @@ impl Runtime {
     /// Build the per-invocation Store: a fresh `Invocation` wired with
     /// the memory limiter, the epoch-deadline callback, and the
     /// registered dispatch Proc.
-    fn new_store(&self) -> Result<WtStore<Invocation>, MagnusError> {
+    fn new_store(&self) -> Result<WtStore<Invocation>, SetupError> {
         let mut store = WtStore::new(shared_engine()?, Invocation::new(self.memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
@@ -443,20 +475,11 @@ impl Runtime {
     /// instantiation failure at invocation time is an engine fault —
     /// `Kobako::TrapError` — unlike the construction-time probe, whose
     /// failure is `SetupError`.
-    fn instantiate(
-        &self,
-        ruby: &Ruby,
-        store: &mut WtStore<Invocation>,
-    ) -> Result<Exports, MagnusError> {
+    fn instantiate(&self, store: &mut WtStore<Invocation>) -> Result<Exports, Trap> {
         let instance = self
             .instance_pre
             .instantiate(store.as_context_mut())
-            .map_err(|e| {
-                errors::trap_err(
-                    ruby,
-                    format!("failed to instantiate the Sandbox runtime: {e}"),
-                )
-            })?;
+            .map_err(|e| Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}")))?;
         Ok(Exports::resolve(&instance, store.as_context_mut()))
     }
 
@@ -534,11 +557,10 @@ impl Runtime {
     /// `call_with_caps`.
     fn build_snapshot(
         &self,
-        ruby: &Ruby,
         store: &mut WtStore<Invocation>,
         exports: &Exports,
-    ) -> Result<Snapshot, MagnusError> {
-        let return_bytes = frames::fetch_outcome_bytes(ruby, store, exports)?;
+    ) -> Result<Snapshot, Trap> {
+        let return_bytes = frames::fetch_outcome_bytes(store, exports)?;
         let data = store.data();
         let (stdout_raw, stderr_raw, wall_time, memory_peak) = (
             data.stdout_bytes(),

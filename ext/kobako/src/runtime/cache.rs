@@ -27,11 +27,10 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use magnus::{Error as MagnusError, Ruby};
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
-use super::errors::{setup_err, MODULE_NOT_BUILT_ERROR};
+use crate::contract::error::SetupError;
 
 static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
@@ -60,17 +59,15 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// cap. The first call spawns the process-singleton ticker
 /// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
 /// cadence; subsequent calls reuse the same engine and ticker.
-pub(crate) fn shared_engine() -> Result<&'static WtEngine, MagnusError> {
+pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
     }
     let mut config = WtConfig::new();
     config.wasm_exceptions(true);
     config.epoch_interruption(true);
-    let engine = WtEngine::new(&config).map_err(|e| {
-        let ruby = Ruby::get().expect("Ruby thread");
-        setup_err(&ruby, format!("engine init: {}", e))
-    })?;
+    let engine =
+        WtEngine::new(&config).map_err(|e| SetupError::Dead(format!("engine init: {e}")))?;
     let engine = SHARED_ENGINE.get_or_init(|| engine);
     spawn_epoch_ticker(engine.clone());
     Ok(engine)
@@ -95,11 +92,11 @@ fn spawn_epoch_ticker(engine: WtEngine) {
 }
 
 /// Look up `path` in the per-path Module cache, compiling and inserting
-/// the artifact on a miss. Raises `Kobako::ModuleNotBuiltError`
-/// when the file is missing — the headline error for the common
-/// pre-build state on a fresh clone before `rake compile`.
-pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
+/// the artifact on a miss. Returns `SetupError::ModuleNotBuilt`
+/// (boundary → `Kobako::ModuleNotBuiltError`) when the file is missing —
+/// the headline error for the common pre-build state on a fresh clone
+/// before `rake compile`.
+pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(module) = cache
@@ -112,33 +109,25 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, MagnusError> {
     }
 
     if !path.exists() {
-        return Err(MagnusError::new(
-            ruby.get_inner(&MODULE_NOT_BUILT_ERROR),
-            format!(
-                "Sandbox runtime not found at {}; run `bundle exec rake wasm:build` to build it",
-                path.display()
-            ),
-        ));
+        return Err(SetupError::ModuleNotBuilt(format!(
+            "Sandbox runtime not found at {}; run `bundle exec rake wasm:build` to build it",
+            path.display()
+        )));
     }
 
     let bytes = fs::read(path).map_err(|e| {
-        setup_err(
-            &ruby,
-            format!(
-                "failed to read Sandbox runtime at {}: {}",
-                path.display(),
-                e
-            ),
-        )
+        SetupError::Dead(format!(
+            "failed to read Sandbox runtime at {}: {e}",
+            path.display()
+        ))
     })?;
     let engine = shared_engine()?;
     let artifact = artifact_path(&bytes);
     let module = match artifact.as_deref().and_then(|p| load_artifact(engine, p)) {
         Some(module) => module,
         None => {
-            let module = WtModule::new(engine, &bytes).map_err(|e| {
-                setup_err(&ruby, format!("failed to compile Sandbox runtime: {}", e))
-            })?;
+            let module = WtModule::new(engine, &bytes)
+                .map_err(|e| SetupError::Dead(format!("failed to compile Sandbox runtime: {e}")))?;
             if let Some(p) = artifact.as_deref() {
                 store_artifact(&module, p);
             }

@@ -11,6 +11,8 @@
 use magnus::value::Lazy;
 use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
 
+use crate::contract::error::{Error, SetupError, Trap};
+
 /// Resolve `Kobako::<name>` as an `ExceptionClass` — the shared body of
 /// every error-class `Lazy` below, which differ only in the constant
 /// name. The constants are guaranteed present by the time any of these
@@ -87,4 +89,36 @@ pub(crate) fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusErr
 /// `TrapError`: no discard-and-recreate recovery is owed to the caller.
 pub(crate) fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &SANDBOX_ERROR, msg)
+}
+
+/// Map a neutral `Trap` onto its `Kobako::TrapError`-family Ruby exception.
+/// The boundary between the magnus-free run mechanics and the Ruby surface:
+/// the run path classifies a fault into a `Trap`, and this is where it
+/// becomes a raised exception.
+pub(crate) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
+    match trap {
+        Trap::Timeout(msg) => timeout_err(ruby, msg),
+        Trap::MemoryLimit(msg) => memory_limit_err(ruby, msg),
+        Trap::Other(msg) => trap_err(ruby, msg),
+    }
+}
+
+/// Map a neutral `SetupError` onto the `Kobako::*` class the SPEC assigns
+/// to each runtime state — artifact-absent, runtime-dead, runtime-intact.
+pub(crate) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
+    match err {
+        SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
+        SetupError::Dead(msg) => setup_err(ruby, msg),
+        SetupError::Intact(msg) => sandbox_err(ruby, msg),
+    }
+}
+
+/// Map either run-path channel onto its Ruby exception. The single
+/// translation point the run-path entry methods funnel their `Result`
+/// through.
+pub(crate) fn to_magnus(ruby: &Ruby, err: Error) -> MagnusError {
+    match err {
+        Error::Trap(trap) => trap_to_magnus(ruby, trap),
+        Error::Setup(err) => setup_to_magnus(ruby, err),
+    }
 }

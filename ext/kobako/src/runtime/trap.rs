@@ -10,11 +10,10 @@
 
 use std::time::Instant;
 
-use magnus::{Error as MagnusError, Ruby};
 use wasmtime::{StoreContextMut, UpdateDeadline};
 
-use super::errors::{memory_limit_err, setup_err, timeout_err, trap_err};
 use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+use crate::contract::error::{SetupError, Trap};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
 /// wall-clock deadline from `Invocation` and trap with
@@ -63,39 +62,34 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
     }
 }
 
-/// Map a wasmtime call error to the right top-level `Kobako::*` Ruby
-/// exception class. The ABI export symbol (`__kobako_eval` /
-/// `__kobako_run`) is deliberately omitted from the message — the
-/// Sandbox layer attaches the user-facing verb (`Sandbox#eval` /
-/// `Sandbox#run`) so the message reads in caller vocabulary rather
-/// than ABI vocabulary.
+/// Classify a wasmtime call error into a neutral `Trap`. The ABI export
+/// symbol (`__kobako_eval` / `__kobako_run`) is deliberately omitted from
+/// the message — the Sandbox layer attaches the user-facing verb
+/// (`Sandbox#eval` / `Sandbox#run`) so the message reads in caller
+/// vocabulary rather than ABI vocabulary.
 ///
 /// For the configured-cap paths (`TrapClass::Timeout` /
 /// `TrapClass::MemoryLimit`) the trap's own `std::fmt::Display`
 /// carries the user-facing reason (`"wall-clock deadline exceeded"`,
 /// `"linear memory growth exceeded memory_limit: ..."`). The wasmtime
-/// outer wrapper at `format!("{}", err)` would otherwise surface only
+/// outer wrapper at `format!("{err}")` would otherwise surface only
 /// the `"error while executing at wasm backtrace: ..."` framing, which
 /// is operator noise on a cap trap. For `TrapClass::Other` the framing
 /// is kept but the chain's root cause is appended (see
 /// `other_trap_message`) so the real trap reason survives.
-pub(super) fn call_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
+pub(super) fn trap_from(err: wasmtime::Error) -> Trap {
     match classify_trap(&err) {
-        TrapClass::Timeout => {
-            let msg = err
-                .downcast_ref::<TimeoutTrap>()
+        TrapClass::Timeout => Trap::Timeout(
+            err.downcast_ref::<TimeoutTrap>()
                 .map(|t| t.to_string())
-                .unwrap_or_else(|| format!("{}", err));
-            timeout_err(ruby, msg)
-        }
-        TrapClass::MemoryLimit => {
-            let msg = err
-                .downcast_ref::<MemoryLimitTrap>()
+                .unwrap_or_else(|| format!("{err}")),
+        ),
+        TrapClass::MemoryLimit => Trap::MemoryLimit(
+            err.downcast_ref::<MemoryLimitTrap>()
                 .map(|t| t.to_string())
-                .unwrap_or_else(|| format!("{}", err));
-            memory_limit_err(ruby, msg)
-        }
-        TrapClass::Other => trap_err(ruby, other_trap_message(&err)),
+                .unwrap_or_else(|| format!("{err}")),
+        ),
+        TrapClass::Other => Trap::Other(other_trap_message(&err)),
     }
 }
 
@@ -116,15 +110,15 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
     }
 }
 
-/// Map an instantiation error to `Kobako::SetupError`. Instantiation runs
-/// during `from_path` construction, before any invocation — every such
-/// failure is a construction setup fault, not a
+/// Classify an instantiation error as a runtime-dead `SetupError`.
+/// Instantiation runs during `from_path` construction, before any
+/// invocation — every such failure is a construction setup fault, not a
 /// per-invocation cap outcome. The memory cap is dormant during
 /// instantiation (see `Invocation::arm_memory_cap` /
 /// `Invocation::disarm_memory_cap`) and the epoch deadline is not yet
-/// armed, so the `call_err` trap-class split does not apply here.
-pub(super) fn instantiate_err(ruby: &Ruby, err: wasmtime::Error) -> MagnusError {
-    setup_err(ruby, format!("instantiate: {}", err))
+/// armed, so the `trap_from` trap-class split does not apply here.
+pub(super) fn instantiate_err(err: wasmtime::Error) -> SetupError {
+    SetupError::Dead(format!("instantiate: {err}"))
 }
 
 #[cfg(test)]

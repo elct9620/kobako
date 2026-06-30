@@ -15,14 +15,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use magnus::{Error as MagnusError, Ruby};
 use wasmtime::{Caller, InstancePre, Linker};
 use wasmtime_wasi::p1;
 
 use super::cache::{cached_module, shared_engine};
-use super::errors::setup_err;
 use super::invocation::Invocation;
 use super::{dispatch, trap};
+use crate::contract::error::SetupError;
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();
@@ -30,8 +29,8 @@ static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocatio
 /// Look up `path` in the per-path `InstancePre` cache, wiring the
 /// Linker and resolving the Module's imports on a miss. Compilation
 /// faults surface through `cached_module`; import-resolution faults
-/// raise `Kobako::SetupError`.
-pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, MagnusError> {
+/// return a runtime-dead `SetupError` (boundary → `Kobako::SetupError`).
+pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(pre) = cache
@@ -45,10 +44,9 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
 
     let module = cached_module(path)?;
     let linker = build_linker()?;
-    let ruby = Ruby::get().expect("Ruby thread");
     let pre = linker
         .instantiate_pre(&module)
-        .map_err(|e| trap::instantiate_err(&ruby, e))?;
+        .map_err(trap::instantiate_err)?;
     cache
         .lock()
         .expect("instance_pre cache mutex poisoned")
@@ -58,8 +56,7 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
 
 /// Build the host-import `Linker` every Guest Binary instantiates
 /// against.
-fn build_linker() -> Result<Linker<Invocation>, MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
+fn build_linker() -> Result<Linker<Invocation>, SetupError> {
     let mut linker: Linker<Invocation> = Linker::new(shared_engine()?);
 
     // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
@@ -68,7 +65,7 @@ fn build_linker() -> Result<Linker<Invocation>, MagnusError> {
     // Invocation; the panic semantics live inside `Invocation::wasi_mut`
     // so the wiring stays honest about its precondition.
     p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
-        .map_err(|e| setup_err(&ruby, format!("failed to set up the WASI runtime: {}", e)))?;
+        .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
     // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
     // § ABI Signatures:
@@ -87,12 +84,7 @@ fn build_linker() -> Result<Linker<Invocation>, MagnusError> {
                 dispatch::handle(&mut caller, req_ptr, req_len)
             },
         )
-        .map_err(|e| {
-            setup_err(
-                &ruby,
-                format!("failed to set up the host callback bridge: {}", e),
-            )
-        })?;
+        .map_err(|e| SetupError::Dead(format!("failed to set up the host callback bridge: {e}")))?;
 
     Ok(linker)
 }

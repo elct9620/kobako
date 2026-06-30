@@ -5,7 +5,7 @@
 //! reads the OUTCOME_BUFFER back out. The ext owns no wire codec — these
 //! helpers move raw bytes; Ruby decodes them.
 
-use magnus::{Error as MagnusError, RString, Ruby};
+use magnus::RString;
 use wasmtime::{AsContextMut, Memory, Store as WtStore, TypedFunc};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
@@ -14,50 +14,49 @@ use super::config::Config;
 use super::exports::Exports;
 use super::invocation::Invocation;
 use super::rstring_to_vec;
-use super::{ambient, capture, errors, guest_mem};
+use super::{ambient, capture, guest_mem};
+use crate::contract::error::{Error, SetupError, Trap};
 
-/// Return the resolved `memory` export handle, or raise
-/// `Kobako::TrapError` when the loaded module exports no linear
-/// memory — the "not a Kobako-shaped runtime" failure mode
-/// (`SANDBOX_RUNTIME_NOT_KOBAKO`).
-fn require_memory(ruby: &Ruby, exports: &Exports) -> Result<Memory, MagnusError> {
+/// Return the resolved `memory` export handle, or a `Trap` when the loaded
+/// module exports no linear memory — the "not a Kobako-shaped runtime"
+/// failure mode (`SANDBOX_RUNTIME_NOT_KOBAKO`).
+fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
     exports
         .memory
-        .ok_or_else(|| errors::trap_err(ruby, SANDBOX_RUNTIME_NOT_KOBAKO))
+        .ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
 }
 
 /// Allocate a `len`-byte buffer in guest linear memory via
 /// `__kobako_alloc`, copy `envelope` into it, and return `(ptr, len)`
 /// as `i32` values matching the `__kobako_run(env_ptr, env_len)` ABI.
-/// Raises `Kobako::TrapError` when the allocation hook is missing or
-/// itself traps, and `Kobako::SandboxError` when the hook runs but
-/// cannot reserve the buffer (`__kobako_alloc` returns 0) — an
-/// intact runtime, not an engine fault.
+/// Returns a `Trap` when the allocation hook is missing or itself traps
+/// (an engine fault), and a runtime-intact `SetupError` when the hook runs
+/// but cannot reserve the buffer (`__kobako_alloc` returns 0). The ext
+/// boundary maps these to `Kobako::TrapError` / `Kobako::SandboxError`.
 pub(crate) fn write_envelope(
-    ruby: &Ruby,
     store: &mut WtStore<Invocation>,
     exports: &Exports,
     envelope: RString,
-) -> Result<(i32, i32), MagnusError> {
+) -> Result<(i32, i32), Error> {
     let bytes = rstring_to_vec(envelope);
     let len_i32 =
-        guest_mem::checked_payload_len(bytes.len()).map_err(|msg| errors::trap_err(ruby, msg))?;
+        guest_mem::checked_payload_len(bytes.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
 
-    let alloc = require_export(ruby, exports.alloc.as_ref())?;
-    let memory = require_memory(ruby, exports)?;
+    let alloc = require_export(exports.alloc.as_ref())?;
+    let memory = require_memory(exports)?;
 
     let ptr = alloc
         .call(store.as_context_mut(), bytes.len() as u32)
-        .map_err(|e| errors::trap_err(ruby, format!("failed to allocate input buffer: {}", e)))?;
+        .map_err(|e| Trap::Other(format!("failed to allocate input buffer: {e}")))?;
     if ptr == 0 {
-        return Err(errors::sandbox_err(
-            ruby,
-            "could not allocate input buffer (out of memory)",
-        ));
+        return Err(SetupError::Intact(
+            "could not allocate input buffer (out of memory)".to_string(),
+        )
+        .into());
     }
     let data = memory.data_mut(store.as_context_mut());
     let range = guest_mem::guest_buffer_range(ptr as usize, bytes.len(), data.len())
-        .map_err(|msg| errors::trap_err(ruby, msg))?;
+        .map_err(|msg| Trap::Other(msg.to_string()))?;
     data[range].copy_from_slice(&bytes);
 
     Ok((ptr as i32, len_i32))
@@ -73,19 +72,18 @@ pub(crate) fn write_envelope(
 /// `capture::clip_capture` can distinguish "wrote exactly cap bytes"
 /// from "exceeded cap"; uncapped channels fall back to `usize::MAX` and
 /// rely on `memory_limit` for the real ceiling.
-/// Raises `Kobako::TrapError` when any frame exceeds the 16 MiB cap that
-/// keeps its `u32` length prefix from wrapping.
+/// Returns a `Trap` when any frame exceeds the 16 MiB cap that keeps its
+/// `u32` length prefix from wrapping (boundary → `Kobako::TrapError`).
 pub(crate) fn install_wasi_frames(
     store: &mut WtStore<Invocation>,
     config: &Config,
     frames: &[Vec<u8>],
-) -> Result<(), MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
+) -> Result<(), Trap> {
     // Every frame carries the same 16 MiB cap as the `#run` envelope
     // (`write_envelope`): the length prefix is a `u32`, so a frame past
     // the cap would silently wrap and corrupt the stdin frame stream.
     for frame in frames {
-        guest_mem::checked_payload_len(frame.len()).map_err(|msg| errors::trap_err(&ruby, msg))?;
+        guest_mem::checked_payload_len(frame.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
     }
 
     let total: usize = frames.iter().map(|f| 4 + f.len()).sum();
@@ -117,37 +115,31 @@ pub(crate) fn install_wasi_frames(
 }
 
 /// Invoke `__kobako_take_outcome`, decode the packed `(ptr<<32)|len`
-/// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Raises
-/// `Kobako::TrapError` when the export is missing, `len` exceeds the
-/// 16 MiB single-dispatch cap, the `ptr`/`len` arithmetic overflows,
-/// the slice falls outside live memory, or the `memory` export itself
-/// is absent.
+/// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Returns a
+/// `Trap` (boundary → `Kobako::TrapError`) when the export is missing,
+/// `len` exceeds the 16 MiB single-dispatch cap, the `ptr`/`len`
+/// arithmetic overflows, the slice falls outside live memory, or the
+/// `memory` export itself is absent.
 pub(crate) fn fetch_outcome_bytes(
-    ruby: &Ruby,
     store: &mut WtStore<Invocation>,
     exports: &Exports,
-) -> Result<Vec<u8>, MagnusError> {
-    let take = require_export(ruby, exports.take_outcome.as_ref())?;
-    let mem = require_memory(ruby, exports)?;
+) -> Result<Vec<u8>, Trap> {
+    let take = require_export(exports.take_outcome.as_ref())?;
+    let mem = require_memory(exports)?;
 
     let packed = take
         .call(store.as_context_mut(), ())
-        .map_err(|e| errors::trap_err(ruby, format!("failed to read the Sandbox result: {}", e)))?;
+        .map_err(|e| Trap::Other(format!("failed to read the Sandbox result: {e}")))?;
     let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
     if len > guest_mem::MAX_DISPATCH_PAYLOAD {
-        return Err(errors::trap_err(
-            ruby,
-            "result payload exceeds the 16 MiB limit",
+        return Err(Trap::Other(
+            "result payload exceeds the 16 MiB limit".to_string(),
         ));
     }
 
     let data = mem.data(store.as_context_mut());
-    let range = guest_mem::guest_buffer_range(ptr, len, data.len()).map_err(|msg| {
-        errors::trap_err(
-            ruby,
-            format!("the Sandbox result is out of bounds: {}", msg),
-        )
-    })?;
+    let range = guest_mem::guest_buffer_range(ptr, len, data.len())
+        .map_err(|msg| Trap::Other(format!("the Sandbox result is out of bounds: {msg}")))?;
     Ok(data[range].to_vec())
 }
 
@@ -168,21 +160,20 @@ const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required
 const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-/// Return the resolved `TypedFunc` for an ABI export, or raise
-/// `Kobako::TrapError` when the option is `None`. Both run-path
-/// methods (`#eval`, `#run`) plus the `build_snapshot` readout that
-/// drains `OUTCOME_BUFFER` share the same "missing export → Ruby
-/// error" boilerplate; this helper collapses those sites onto one
-/// safe entry. The user-facing message is intentionally export-
-/// agnostic (see `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol
-/// name is not actionable to callers, so it is not threaded in.
-pub(crate) fn require_export<'a, Params, Results>(
-    ruby: &Ruby,
-    export: Option<&'a TypedFunc<Params, Results>>,
-) -> Result<&'a TypedFunc<Params, Results>, MagnusError>
+/// Return the resolved `TypedFunc` for an ABI export, or a `Trap`
+/// (boundary → `Kobako::TrapError`) when the option is `None`. Both
+/// run-path methods (`#eval`, `#run`) plus the `build_snapshot` readout
+/// that drains `OUTCOME_BUFFER` share the same "missing export" handling;
+/// this helper collapses those sites onto one safe entry. The user-facing
+/// message is intentionally export-agnostic (see
+/// `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol name is not
+/// actionable to callers, so it is not threaded in.
+pub(crate) fn require_export<Params, Results>(
+    export: Option<&TypedFunc<Params, Results>>,
+) -> Result<&TypedFunc<Params, Results>, Trap>
 where
     Params: wasmtime::WasmParams,
     Results: wasmtime::WasmResults,
 {
-    export.ok_or_else(|| errors::trap_err(ruby, SANDBOX_RUNTIME_MISSING_HOOKS))
+    export.ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_MISSING_HOOKS.to_string()))
 }

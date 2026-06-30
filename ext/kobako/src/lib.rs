@@ -1,5 +1,6 @@
 use magnus::{Error, Ruby};
 
+mod contract;
 mod runtime;
 mod snapshot;
 
