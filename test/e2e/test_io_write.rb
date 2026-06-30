@@ -38,6 +38,30 @@ class TestE2EIoWrite < Minitest::Test
                     "io_initialize must raise ArgumentError citing the mode constraint"
   end
 
+  # A guest that rebinds the stdout IO's fd ivar to an arbitrary descriptor
+  # before writing — the construction-time allowlist alone would not stop it.
+  TAMPERED_FD_SCRIPT = <<~RUBY
+    io = IO.new(1, "w")
+    io.instance_variable_set(:@__kobako_fd__, 5)
+    io.write("escape")
+  RUBY
+
+  # The fd allowlist is enforced at the write syscall, not only at
+  # construction: @__kobako_fd__ is a guest-mutable ivar, so a guest that
+  # rebinds it to an arbitrary descriptor and then writes must be refused
+  # rather than reaching write(2) on that descriptor. Without the use-point
+  # check the construction-time allowlist would be a courtesy, and any extra
+  # fd the host happens to expose would become an ambient write capability.
+  def test_io_write_rejects_a_guest_tampered_fd
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval(TAMPERED_FD_SCRIPT) }
+
+    assert_includes err.message, "kobako IO writes only to fd",
+                    "a rebound @__kobako_fd__ outside {1,2} must be refused at IO#write, " \
+                    "not forwarded to write(2)"
+  end
+
   # Pins the io_fileno C bridge through a real run: STDOUT was
   # constructed with fd 1 in install_raw, so STDOUT.fileno must round
   # trip back to 1. STDERR.fileno mirrors with 2.

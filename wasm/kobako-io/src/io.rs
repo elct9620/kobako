@@ -125,6 +125,17 @@ fn io_initialize(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// raised.
 fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = read_fd(mrb, self_);
+    // The construction-time allowlist in `io_initialize` is not
+    // self-enforcing: `@__kobako_fd__` is an ordinary ivar that guest mruby
+    // can rewrite via `instance_variable_set`. Re-validate at the one place
+    // the fd reaches a syscall, so the stdout / stderr restriction is an
+    // enforced boundary rather than a construction-time courtesy.
+    if fd != 1 && fd != 2 {
+        return Err(argument_error(
+            mrb,
+            "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
+        ));
+    }
     // Copy out of the VM-stack arg window before any funcall
     // (`obj_as_string` on a user type) can reallocate it.
     let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
@@ -368,13 +379,12 @@ fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     Error::Exception(cls.exc_new(mrb, msg))
 }
 
-/// Read the `@__kobako_fd__` ivar back to an `i32`. Returns 0 when the
-/// ivar is missing or not Fixnum-tagged — neither case should arise in
-/// practice because `io_initialize` is the only writer and stores the
-/// fd as a boxed Integer (constrained to 1 / 2). The fd flows straight
-/// into the `write(2)` call in `io_write`; a degenerate `0` would
-/// target fd 0, where the short-write guard (`if n > 0`) absorbs the
-/// result rather than trapping.
+/// Read the `@__kobako_fd__` ivar back to an `i32`, or 0 when the ivar is
+/// missing or not Fixnum-tagged. The value is untrusted: although
+/// `io_initialize` only ever stores 1 or 2, the ivar is guest-mutable
+/// (`instance_variable_set`), so any caller that forwards the result to a
+/// syscall must re-validate the descriptor first — `io_write` does, refusing
+/// anything outside {1, 2} before reaching `write(2)`.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
     let sym = mrb.intern_cstr(c"@__kobako_fd__");
     let val = self_.iv_get(mrb, sym);
