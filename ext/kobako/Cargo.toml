@@ -17,7 +17,7 @@ magnus = { version = "0.8.2" }
 # feature so test fixtures can be expressed as text.
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "45.0.0", default-features = false, features = [
+wasmtime = { version = "46.0.1", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
