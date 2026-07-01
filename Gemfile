@@ -14,7 +14,7 @@ gem "rake-compiler"
 # unconditionally, same as rake-compiler above. Pinned to the 0.7
 # series — the wasm/ workspace's `beni` crate pin is `0.7` and the
 # gem + crates release in lockstep, so the two sides must move together.
-gem "beni", "~> 0.7.0"
+gem "beni", "~> 0.8.0"
 
 # Dev-only tooling, grouped so a constrained environment can exclude it
 # via BUNDLE_WITHOUT=development. The rb-sys-dock cross-compile container
