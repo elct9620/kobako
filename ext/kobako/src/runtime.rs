@@ -1,29 +1,27 @@
-// Host-side magnus shell over the extracted wasmtime driver.
-//
-// The only Ruby-visible class is
-//
-//   Kobako::Runtime — wraps a `kobako_wasmtime::Driver` + the Ruby seams
-//
-// constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
-// stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
-// instantiates a fresh instance and discards the whole Store afterwards —
-// the per-invocation instance discipline (ABI v2). The run mechanics —
-// engine/module caches, caps, trap classification — live in the
-// `kobako-wasmtime` crate behind the `kobako_runtime` contract; no wasm
-// engine type reaches this crate or Ruby (SPEC.md "Code Organization":
-// `ext/` "exposes no Wasm engine types to the Host App or downstream
-// gems").
-//
-// Module layout (per CLAUDE.md principle #2 — one responsibility per file):
-//
-//   * `bridge`      — the magnus dispatch bridge: `RubyDispatchHandler` +
-//                     the frame-scoped `GuestYielder` Ruby class.
-//   * `errors`      — the single boundary mapping the neutral `Trap` /
-//                     `SetupError` channels onto the `Kobako::*` classes.
-//
-// This file owns the `Kobako::Runtime` magnus class itself — the Ruby
-// init() that registers the class, the byte↔`RString` shuttling, the
-// dispatch-Proc GC root, and the per-invocation usage readout.
+//! Host-side magnus shell over the extracted wasmtime driver.
+//!
+//! The only Ruby-visible class is
+//!
+//!   Kobako::Runtime — wraps a `kobako_wasmtime::Driver` + the Ruby seams
+//!
+//! constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
+//! stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
+//! instantiates a fresh instance and discards the whole Store afterwards —
+//! the per-invocation instance discipline. The run mechanics —
+//! engine/module caches, caps, trap classification — live in the
+//! `kobako-wasmtime` crate behind the `kobako_runtime` contract; no wasm
+//! engine type reaches this crate or the Host App.
+//!
+//! Module layout — one responsibility per file:
+//!
+//! * `bridge` — the magnus dispatch bridge: `RubyDispatchHandler` plus the
+//!   frame-scoped `GuestYielder` Ruby class.
+//! * `errors` — the single boundary mapping the neutral `Trap` /
+//!   `SetupError` channels onto the `Kobako::*` classes.
+//!
+//! This file owns the `Kobako::Runtime` magnus class itself — the Ruby
+//! init() that registers the class, the byte↔`RString` shuttling, the
+//! dispatch-Proc GC root, and the per-invocation usage readout.
 
 mod bridge;
 mod errors;

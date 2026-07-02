@@ -3,7 +3,7 @@
 //! When guest code calls `Service.method(...) { ... }`, the C-bridge
 //! captures the block as a non-orphan `mrb_value` via the `"n*&"`
 //! argspec and pushes it onto `BLOCK_STACK` before dispatching to the
-//! host. The host's eventual `__kobako_yield_to_block` re-entry (S5+)
+//! host. The host's eventual `__kobako_yield_to_block` re-entry
 //! reads `BLOCK_STACK.last()` to find the block bound to the active
 //! dispatch frame. The push/pop pair is enforced by `BlockFrame`'s
 //! drop guard so any bridge exit path — normal return, mruby raise,
