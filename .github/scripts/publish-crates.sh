@@ -3,19 +3,22 @@
 # to crates.io, or rehearse with `--dry-run`. Runs from the `wasm/`
 # sub-workspace directory.
 #
-# Dependency order: kobako depends on kobako-core, so it goes last —
-# `cargo publish` waits for each crate to land in the index before
-# returning. kobako-io, kobako-json, and kobako-regexp depend only on the
-# already-published beni, so their order is free. On the host side
-# kobako-wasmtime depends on kobako-runtime, so runtime goes first.
+# Dependency order: kobako-codec is everyone's wire tier, so it goes
+# first (from the crates/ workspace); kobako depends on kobako-core,
+# so it goes last in the guest loop — `cargo publish` waits for each
+# crate to land in the index before returning. kobako-io, kobako-json,
+# and kobako-regexp depend only on the already-published beni, so
+# their order is free. On the host side kobako-wasmtime depends on
+# kobako-runtime, so runtime goes first.
 #
 # The already-published check makes a re-run after a partial failure
 # resume instead of dying on "version already uploaded".
 #
 # Rehearsal caveat: after a release PR bumps the linked versions but
 # before the dependency publishes, a dependent's dry-run fails — the
-# kobako-core requirement of kobako, and the kobako-runtime requirement
-# of kobako-wasmtime, resolve against the registry, not the workspace
+# kobako-codec requirement of kobako-core and kobako, the kobako-core
+# requirement of kobako, and the kobako-runtime requirement of
+# kobako-wasmtime, all resolve against the registry, not the workspace
 # path.
 set -euo pipefail
 
@@ -31,6 +34,19 @@ already_published() {
   curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
     "https://crates.io/api/v1/crates/$1/$2" >/dev/null 2>&1
 }
+
+# The shared wire tier lives in the crates/ workspace but every guest
+# crate below depends on it — publish it before anything else.
+if $dry_run; then
+  cargo publish --manifest-path ../crates/Cargo.toml -p kobako-codec --dry-run
+else
+  version="$(crate_version kobako-codec --manifest-path ../crates/Cargo.toml)"
+  if already_published kobako-codec "$version"; then
+    echo "kobako-codec $version already on crates.io; skipping"
+  else
+    cargo publish --manifest-path ../crates/Cargo.toml -p kobako-codec
+  fi
+fi
 
 for crate in kobako-core kobako-io kobako-json kobako-regexp kobako; do
   if $dry_run; then
