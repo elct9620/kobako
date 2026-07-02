@@ -20,6 +20,13 @@ contract surface:
 The kobako Ruby gem's native ext is the first frontend; a Rust host
 SDK consumes the same surface.
 
+## Usage
+
+```toml
+[dependencies]
+kobako-wasmtime = "0.6.0" # x-release-please-version
+```
+
 ## License
 
 Apache-2.0

@@ -1,19 +1,22 @@
 #!/bin/bash
-# Publish the guest crates and kobako-baker to crates.io, or rehearse
-# with `--dry-run`. Runs from the `wasm/` sub-workspace directory.
+# Publish the guest crates, kobako-baker, and the crates/ host crates
+# to crates.io, or rehearse with `--dry-run`. Runs from the `wasm/`
+# sub-workspace directory.
 #
 # Dependency order: kobako depends on kobako-core, so it goes last —
 # `cargo publish` waits for each crate to land in the index before
 # returning. kobako-io, kobako-json, and kobako-regexp depend only on the
-# already-published beni, so their order is free.
+# already-published beni, so their order is free. On the host side
+# kobako-wasmtime depends on kobako-runtime, so runtime goes first.
 #
 # The already-published check makes a re-run after a partial failure
 # resume instead of dying on "version already uploaded".
 #
 # Rehearsal caveat: after a release PR bumps the linked versions but
-# before kobako-core publishes, the kobako dry-run fails — its
-# kobako-core requirement resolves against the registry, not the
-# workspace path.
+# before the dependency publishes, a dependent's dry-run fails — the
+# kobako-core requirement of kobako, and the kobako-runtime requirement
+# of kobako-wasmtime, resolve against the registry, not the workspace
+# path.
 set -euo pipefail
 
 dry_run=false
@@ -54,3 +57,18 @@ else
     cargo publish --manifest-path kobako-baker/Cargo.toml
   fi
 fi
+
+# Host crates from the crates/ workspace (the Ruby ext's path
+# dependencies, published for non-Ruby hosts).
+for crate in kobako-runtime kobako-wasmtime; do
+  if $dry_run; then
+    cargo publish --manifest-path ../crates/Cargo.toml -p "$crate" --dry-run
+    continue
+  fi
+  version="$(crate_version "$crate" --manifest-path ../crates/Cargo.toml)"
+  if already_published "$crate" "$version"; then
+    echo "$crate $version already on crates.io; skipping"
+    continue
+  fi
+  cargo publish --manifest-path ../crates/Cargo.toml -p "$crate"
+done

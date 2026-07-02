@@ -103,13 +103,58 @@
           "path": "/wasm/kobako-baker/README.md"
         }
       ]
+    },
+    "crates/kobako-runtime": {
+      "component": "kobako-runtime",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/crates/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-runtime')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-runtime')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/crates/kobako-runtime/README.md"
+        }
+      ]
+    },
+    "crates/kobako-wasmtime": {
+      "component": "kobako-wasmtime",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/crates/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-wasmtime')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-wasmtime')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/crates/kobako-wasmtime/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-runtime'].version"
+        },
+        {
+          "type": "generic",
+          "path": "/crates/kobako-wasmtime/README.md"
+        }
+      ]
     }
   },
   "plugins": [
     {
       "type": "linked-versions",
-      "groupName": "kobako guest crates",
-      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-json", "kobako-regexp", "kobako-baker"]
+      "groupName": "kobako crates",
+      "components": ["kobako-core", "kobako-rs", "kobako-io", "kobako-json", "kobako-regexp", "kobako-baker", "kobako-runtime", "kobako-wasmtime"]
     }
   ],
   "extra-files": [

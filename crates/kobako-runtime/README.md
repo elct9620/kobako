@@ -22,6 +22,13 @@ Engine implementations (such as `kobako-wasmtime`) implement
 `Runtime`; host frontends (such as the kobako Ruby gem's native ext)
 map the neutral types onto their own language surface.
 
+## Usage
+
+```toml
+[dependencies]
+kobako-runtime = "0.6.0" # x-release-please-version
+```
+
 ## License
 
 Apache-2.0
