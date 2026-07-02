@@ -11,7 +11,7 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 
 module.exports = async ({ github, context, core }) => {
-  const candidates = ['Gemfile.lock', 'Cargo.lock', 'wasm/Cargo.lock', 'wasm/kobako-baker/Cargo.lock'];
+  const candidates = ['Gemfile.lock', 'Cargo.lock', 'wasm/Cargo.lock', 'wasm/kobako-baker/Cargo.lock', 'crates/Cargo.lock'];
   const changed = candidates.filter((path) => {
     try {
       execSync(`git diff --quiet -- ${path}`);
