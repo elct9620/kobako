@@ -15,10 +15,10 @@ class TestSandboxOutcomeDecoding < Minitest::Test
     Kobako::Outcome.decode(bytes)
   end
 
-  # SPEC.md ABI Signatures: "len == 0 is a wire violation; host walks trap path."
-  # Empty outcome bytes have no tag → the host emits TrapError. The user-
-  # facing message stays in caller vocabulary — "len=0" is a wire-codec
-  # detail Host Apps can't act on, so it never appears in +message+.
+  # docs/behavior/errors.md E-02: empty outcome bytes (len == 0) are a wire
+  # violation → the host emits TrapError. The user-facing message stays in
+  # caller vocabulary — "len=0" is a wire-codec detail Host Apps can't act
+  # on, so it never appears in +message+.
   def test_zero_length_outcome_bytes_raises_trap_error
     err = assert_raises(Kobako::TrapError) { decode("".b) }
 
@@ -26,7 +26,7 @@ class TestSandboxOutcomeDecoding < Minitest::Test
                  "len=0 outcome → TrapError attributed to the Sandbox, not to the wire tag byte")
   end
 
-  # SPEC.md Error Scenarios: unknown outcome tag → TrapError (wire
+  # docs/behavior/errors.md E-03: an unknown outcome tag → TrapError (wire
   # violation fallback). Hex tag value belongs in operator-side
   # diagnostics, not the user-facing message — the contract here is "an
   # unrecognised result means the guest runtime is corrupted; discard
