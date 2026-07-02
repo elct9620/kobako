@@ -43,8 +43,8 @@ module Kobako
 
       def initialize(entrypoint:, args: [], kwargs: {})
         entrypoint = normalize_entrypoint(entrypoint)
-        args = validate_args!(args)
-        kwargs = validate_kwargs!(kwargs)
+        validate_args!(args)
+        validate_kwargs!(kwargs)
         super
       end
 
@@ -100,8 +100,6 @@ module Kobako
       def validate_args!(args)
         raise ArgumentError, "arguments must be an Array" unless args.is_a?(Array)
         raise ArgumentError, forged_handle_message("arguments") if args.any?(Kobako::Handle)
-
-        args
       end
 
       # Reject a non-Symbol kwargs key, and a +Kobako::Handle+ arriving
@@ -117,8 +115,6 @@ module Kobako
                 "keyword argument keys must be Symbols (got #{bad_keys.inspect})"
         end
         raise ArgumentError, forged_handle_message("keyword argument values") if kwargs.each_value.any?(Kobako::Handle)
-
-        kwargs
       end
 
       # Single source of truth for the forged-Handle reject message so the

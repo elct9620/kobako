@@ -17,9 +17,9 @@ module Kobako
 
       def normalize_entrypoint: (Symbol | String target) -> Symbol
 
-      def validate_args!: (Array[untyped] args) -> Array[untyped]
+      def validate_args!: (Array[untyped] args) -> void
 
-      def validate_kwargs!: (Hash[untyped, untyped] kwargs) -> Hash[Symbol, untyped]
+      def validate_kwargs!: (Hash[untyped, untyped] kwargs) -> void
 
       def forged_handle_message: (String slot) -> String
     end
