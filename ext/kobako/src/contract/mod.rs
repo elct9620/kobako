@@ -1,9 +1,10 @@
-//! Engine-neutral, magnus-free host contract types.
+//! Engine-neutral, frontend-free host contract types.
 //!
-//! Nothing in this module depends on `magnus` or any Ruby type; the
-//! boundary that maps these shapes onto `Kobako::*` exceptions lives in
-//! `crate::runtime::errors`. Keeping the contract free of the Ruby surface
-//! lets it move to a standalone runtime crate unchanged.
+//! Nothing in this module depends on `magnus` or any Ruby type. Each
+//! frontend maps these shapes onto its own host-language surface at its
+//! boundary — for the Ruby ext that is the error mapper in its runtime
+//! module. Keeping the contract free of frontend types lets it move to a
+//! standalone runtime crate unchanged.
 
 pub(crate) mod dispatch;
 pub(crate) mod error;

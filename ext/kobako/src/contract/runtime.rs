@@ -34,9 +34,9 @@ pub(crate) struct Frames<'a> {
 /// for the duration of `invoke` and never roots it. A frontend whose
 /// handler references a GC-managed object (e.g. a Ruby `Proc`) must keep
 /// that object alive — and, under a moving GC, pinned — for the whole call.
-/// The ext frontend does this by holding the `Proc` on the long-lived
-/// `Kobako::Runtime` magnus object and marking it; the runtime itself
-/// touches no Ruby value.
+/// The Ruby ext does this by holding the `Proc` on its long-lived Runtime
+/// wrapper and GC-marking it; the runtime itself touches no frontend
+/// value.
 pub(crate) trait Runtime {
     fn invoke(
         &self,

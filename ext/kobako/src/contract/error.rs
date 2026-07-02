@@ -1,18 +1,18 @@
-//! Engine-neutral host error channels, free of any `magnus` dependency.
+//! Engine-neutral host error channels, free of any frontend dependency.
 //!
-//! The run path produces these instead of constructing Ruby exceptions
-//! directly; the ext boundary (`crate::runtime::errors`) is the single place
-//! that maps them onto the `Kobako::*` classes. Keeping the channels
-//! magnus-free lets the run mechanics move to a standalone runtime crate
-//! unchanged.
+//! The run path produces these instead of constructing host-language
+//! exceptions directly; each frontend's boundary is the single place that
+//! maps them onto its own error classes (the Ruby ext does so in its error
+//! mapper). Keeping the channels frontend-free lets the run mechanics move
+//! to a standalone runtime crate unchanged.
 
 use std::fmt;
 
 /// A guest invocation that faulted in the wasm engine, or a host-detected
 /// runtime corruption during invocation, classified into the host-facing
-/// kinds. The boundary maps `Timeout` to `Kobako::TimeoutError`,
-/// `MemoryLimit` to `Kobako::MemoryLimitError`, and `Other` to
-/// `Kobako::TrapError`.
+/// kinds a frontend surfaces distinctly: the wall-clock cap (`Timeout`),
+/// the linear-memory cap (`MemoryLimit`), and every other engine fault
+/// (`Other`).
 #[derive(Debug)]
 pub(crate) enum Trap {
     Timeout(String),
@@ -20,12 +20,12 @@ pub(crate) enum Trap {
     Other(String),
 }
 
-/// A failure that yields no invocation outcome. The discriminant records the
-/// runtime's state so the boundary can pick the SPEC-assigned class:
-/// `ModuleNotBuilt` (artifact absent) maps to `Kobako::ModuleNotBuiltError`,
-/// `Dead` (runtime could not be constructed) to `Kobako::SetupError`, and
-/// `Intact` (runtime live, a host-side pre-call step failed) to
-/// `Kobako::SandboxError`.
+/// A failure that yields no invocation outcome. The discriminant records
+/// the runtime's state so a frontend can attribute the failure per SPEC:
+/// `ModuleNotBuilt` (the guest artifact is absent), `Dead` (the runtime
+/// could not be constructed), and `Intact` (the runtime is live but a
+/// host-side pre-call step failed, so no discard-and-recreate recovery is
+/// owed).
 #[derive(Debug)]
 pub(crate) enum SetupError {
     ModuleNotBuilt(String),

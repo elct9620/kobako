@@ -1,11 +1,11 @@
-//! Engine-neutral, magnus-free per-invocation observable bundle.
+//! Engine-neutral, frontend-free per-invocation observable bundle.
 //!
 //! The success-path outputs of a single guest invocation, expressed
-//! without any Ruby type: the outcome bytes and the two captured output
-//! channels. Usage is not here — the Runtime stashes it per outcome so it
-//! survives the trap path, where no Snapshot is produced. The ext's
-//! `Kobako::Snapshot` magnus value wraps one of these and exposes its
-//! readers to Ruby.
+//! without any frontend type: the outcome bytes and the two captured
+//! output channels. Usage is not here — the Runtime stashes it per outcome
+//! so it survives the trap path, where no Snapshot is produced. A frontend
+//! wraps one of these to expose the readers to its host language (the Ruby
+//! ext's `Kobako::Snapshot`).
 
 /// One captured output channel: the bytes the guest wrote (already clipped
 /// to the channel's cap) and whether the cap was reached.

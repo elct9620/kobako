@@ -14,9 +14,9 @@ use crate::contract::error::Trap;
 /// yielded block.
 ///
 /// `yield_block` ships `args` to `__kobako_yield_to_block` and returns the
-/// raw YieldResponse bytes, or a `Trap` (boundary → `Kobako::TrapError`)
-/// when the re-entry traps, the guest returns an empty result, or a payload
-/// exceeds the 16 MiB cap.
+/// raw YieldResponse bytes, or a `Trap` — surfaced through the frontend's
+/// trap-error mapping — when the re-entry traps, the guest returns an empty
+/// result, or a payload exceeds the 16 MiB cap.
 pub(crate) trait Yielder {
     fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap>;
 }

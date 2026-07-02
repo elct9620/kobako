@@ -4,7 +4,7 @@
 //! The wasm runtime hands a handler the raw Request bytes a guest produced
 //! and expects raw Response bytes back. What the handler *is* — a Ruby Proc,
 //! a Rust closure — is the frontend's concern; the runtime only sees this
-//! trait. The concrete Ruby-Proc bridge lives in `crate::runtime::dispatch`.
+//! trait. The Ruby ext conforms by bridging its dispatch Proc behind it.
 
 use crate::contract::yielder::Yielder;
 
