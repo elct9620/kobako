@@ -3,7 +3,7 @@
 //! The Ruby-Proc `DispatchHandler` and the frame-scoped `GuestYielder`
 //! handle the Proc re-enters the guest through — the one place the
 //! dispatch seam touches `magnus`. The wasm-side dispatch path
-//! (`super::dispatch`) sees only the contract traits.
+//! (`kobako_wasmtime`'s dispatch module) sees only the contract traits.
 
 use core::cell::Cell;
 use core::ptr::NonNull;

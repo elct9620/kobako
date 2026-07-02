@@ -23,12 +23,11 @@
 //!
 //! ## Why this module writes to `stderr`
 //!
-//! This file is the one place in `ext/` that deliberately prints
-//! through `eprintln!`. The host normally surfaces faults by
-//! raising a `MagnusError` back into Ruby; the dispatcher contract
-//! is the exception — it must return a packed `i64` to the guest
-//! and cannot raise, so a 0 return is the only signal the wasm side
-//! receives. The guest collapses every 0 into the same trap, so the
+//! This file is the one place in the driver that deliberately prints
+//! through `eprintln!`. The host normally surfaces faults through the
+//! contract's error channels; the dispatcher contract is the exception
+//! — it must return a packed `i64` to the guest and cannot fail, so a
+//! 0 return is the only signal the wasm side receives. The guest collapses every 0 into the same trap, so the
 //! Ruby host has no way to attribute the failure to a specific step
 //! (missing `memory` export vs. no dispatch handler bound vs. the
 //! handler raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
@@ -48,7 +47,7 @@
 
 use wasmtime::Caller;
 
-use super::invocation::Invocation;
+use crate::invocation::Invocation;
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
 /// from the wasmtime closure registered by `instance_pre::build_linker`.
@@ -60,7 +59,7 @@ use super::invocation::Invocation;
 /// raise (it folds Service exceptions into Response.err envelopes),
 /// so reaching the failure path is always a wiring bug or wire-layer
 /// fault rather than an expected path.
-pub(super) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
+pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
     match try_handle(caller, req_ptr, req_len) {
         Ok(packed) => packed,
         Err(reason) => {
@@ -77,7 +76,7 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = super::guest_mem::read(caller, req_ptr, req_len)?;
+    let req_bytes = crate::guest_mem::read(caller, req_ptr, req_len)?;
 
     // `Kobako::Sandbox` always installs the dispatch handler before
     // invoking the runtime, so reaching this branch indicates a misuse
@@ -92,7 +91,7 @@ fn try_handle(
     // `write_response`; nested dispatch frames each build their own, so
     // the LIFO re-entry lives on the Rust stack — no shared slot (B-28).
     let resp_bytes = {
-        let mut yielder = super::guest_mem::CallerYielder::new(caller);
+        let mut yielder = crate::guest_mem::CallerYielder::new(caller);
         handler.dispatch(&req_bytes, &mut yielder)
     }
     .ok_or(
@@ -103,9 +102,9 @@ fn try_handle(
 }
 
 /// Allocate a guest-side buffer and copy the response bytes into it via
-/// `super::guest_mem::alloc_and_write`, returning the packed
+/// `crate::guest_mem::alloc_and_write`, returning the packed
 /// `(ptr<<32)|len` u64 the guest's `__kobako_dispatch` import expects.
 fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
-    let ptr = super::guest_mem::alloc_and_write(caller, bytes)?;
+    let ptr = crate::guest_mem::alloc_and_write(caller, bytes)?;
     Ok(((ptr as i64) << 32) | (bytes.len() as i64))
 }

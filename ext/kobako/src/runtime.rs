@@ -1,63 +1,32 @@
-// Host-side magnus shell over the wasmtime driver.
+// Host-side magnus shell over the extracted wasmtime driver.
 //
 // The only Ruby-visible class is
 //
-//   Kobako::Runtime — wraps a magnus-free `driver::Driver` + the Ruby seams
+//   Kobako::Runtime — wraps a `kobako_wasmtime::Driver` + the Ruby seams
 //
 // constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
 // stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
 // instantiates a fresh instance and discards the whole Store afterwards —
-// the per-invocation instance discipline (ABI v2). The underlying wasmtime
-// Engine and compiled Module live in a process-scope cache (see the `cache`
-// submodule) and never surface to Ruby (SPEC.md "Code Organization":
+// the per-invocation instance discipline (ABI v2). The run mechanics —
+// engine/module caches, caps, trap classification — live in the
+// `kobako-wasmtime` crate behind the `kobako_runtime` contract; no wasm
+// engine type reaches this crate or Ruby (SPEC.md "Code Organization":
 // `ext/` "exposes no Wasm engine types to the Host App or downstream
 // gems").
 //
 // Module layout (per CLAUDE.md principle #2 — one responsibility per file):
 //
-//   * `driver`      — the magnus-free wasmtime driver: `Driver` +
-//                     `impl contract::Runtime` (the run mechanics).
 //   * `bridge`      — the magnus dispatch bridge: `RubyDispatchHandler` +
 //                     the frame-scoped `GuestYielder` Ruby class.
-//   * `cache`       — process-wide Engine + per-path Module cache and the
-//                     process-singleton epoch ticker thread.
-//   * `config`      — per-Runtime caps (timeout / stdout / stderr limits).
-//   * `exports`     — per-invocation `__kobako_eval` / `_run` /
-//                     `_take_outcome` / `_alloc` / `memory` handles.
-//   * `instance_pre`— host-import Linker wiring + per-path `InstancePre`
-//                     cache.
-//   * `invocation`  — Invocation (per-Store context), the `MemoryLimiter`
-//                     memory cap, and the trap marker types
-//                     (`TimeoutTrap` / `MemoryLimitTrap`).
-//   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
-//   * `frames`      — stdin frame stream + WASI context assembly, `#run`
-//                     envelope write, OUTCOME_BUFFER readout.
-//   * `guest_mem`   — Caller-based guest linear-memory alloc / write / read.
-//   * `capture`     — stdout / stderr pipe sizing + clip helpers.
-//   * `ambient`     — frozen WASI clocks + constant RNG (ambient denial).
-//   * `trap`        — wasmtime-error → neutral `Trap` classification.
+//   * `errors`      — the single boundary mapping the neutral `Trap` /
+//                     `SetupError` channels onto the `Kobako::*` classes.
 //
 // This file owns the `Kobako::Runtime` magnus class itself — the Ruby
 // init() that registers the class, the byte↔`RString` shuttling, the
-// dispatch-Proc GC root, and the per-invocation usage readout. The Ruby
-// error-class lazy-resolvers and the `*_err` constructors live in the
-// `errors` submodule, which is the single boundary mapping the neutral
-// `Trap` / `SetupError` channels onto the `Kobako::*` classes.
+// dispatch-Proc GC root, and the per-invocation usage readout.
 
-mod ambient;
 mod bridge;
-mod cache;
-mod capture;
-mod config;
-mod dispatch;
-mod driver;
 mod errors;
-mod exports;
-mod frames;
-mod guest_mem;
-mod instance_pre;
-mod invocation;
-mod trap;
 
 use magnus::{function, method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
@@ -72,9 +41,7 @@ use crate::snapshot::Snapshot;
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot, Usage};
-
-use self::config::Config;
-use self::driver::Driver;
+use kobako_wasmtime::{Config, Driver};
 
 /// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline `unsafe { rstring.as_slice() }
@@ -242,7 +209,7 @@ impl Runtime {
     /// to the driver, and settles the returned `Snapshot` through
     /// `finish_invocation` — or maps a could-not-start `Error` onto its
     /// `Kobako::*` exception. The run mechanics — frames, caps, trap
-    /// classification — live in `driver::Driver`.
+    /// classification — live in `kobako_wasmtime::Driver`.
     fn eval(
         &self,
         preamble: RString,

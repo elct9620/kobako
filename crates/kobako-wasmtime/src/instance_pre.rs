@@ -6,9 +6,9 @@
 //! same Guest Binary — both host closures read all their state from
 //! the `Invocation` inside the calling Store, never from the Runtime.
 //! Caching the resolved `InstancePre` per path leaves only the
-//! `instantiate` call itself on the `Runtime.from_path` hot path.
+//! `instantiate` call itself on the `Driver::new` hot path.
 //!
-//! Concurrency: see `super::cache` — under Ruby's GVL the Mutex serves
+//! Concurrency: see `crate::cache` — under Ruby's GVL the Mutex serves
 //! `Sync` bounds rather than real contention.
 
 use std::collections::HashMap;
@@ -18,9 +18,9 @@ use std::sync::{Mutex, OnceLock};
 use wasmtime::{Caller, InstancePre, Linker};
 use wasmtime_wasi::p1;
 
-use super::cache::{cached_module, shared_engine};
-use super::invocation::Invocation;
-use super::{dispatch, trap};
+use crate::cache::{cached_module, shared_engine};
+use crate::invocation::Invocation;
+use crate::{dispatch, trap};
 use kobako_runtime::error::SetupError;
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
@@ -30,7 +30,7 @@ static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocatio
 /// Linker and resolving the Module's imports on a miss. Compilation
 /// faults surface through `cached_module`; import-resolution faults
 /// return a runtime-dead `SetupError` (boundary → `Kobako::SetupError`).
-pub(super) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
+pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(pre) = cache

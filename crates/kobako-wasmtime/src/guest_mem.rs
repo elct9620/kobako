@@ -2,7 +2,7 @@
 //!
 //! Both directions of a host↔guest buffer handoff that run *inside* a wasm
 //! callback frame go through here: writing the transport Response back
-//! (`super::dispatch`) and shipping block-yield args into the guest
+//! (`crate::dispatch`) and shipping block-yield args into the guest
 //! (`drive_yield`, below) performed the same `__kobako_alloc` +
 //! bounds-check + `memory.write` dance with only the diagnostic strings
 //! differing. The Store-based write path (`frames::write_envelope`) is a
@@ -11,7 +11,7 @@
 
 use wasmtime::{Caller, Extern, Memory};
 
-use super::invocation::Invocation;
+use crate::invocation::Invocation;
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
 
@@ -20,12 +20,12 @@ use kobako_runtime::yielder::Yielder;
 /// round-trip through `drive_yield`. Built per `__kobako_dispatch` frame and
 /// handed to the dispatch handler, so nested dispatch frames (B-28) each
 /// carry their own and stack on the Rust call stack with no shared slot.
-pub(super) struct CallerYielder<'a, 'c> {
+pub(crate) struct CallerYielder<'a, 'c> {
     caller: &'a mut Caller<'c, Invocation>,
 }
 
 impl<'a, 'c> CallerYielder<'a, 'c> {
-    pub(super) fn new(caller: &'a mut Caller<'c, Invocation>) -> Self {
+    pub(crate) fn new(caller: &'a mut Caller<'c, Invocation>) -> Self {
         Self { caller }
     }
 }
@@ -60,7 +60,7 @@ fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static
 /// copy `bytes` in. Returns the guest pointer. Every failure path carries a
 /// `&'static str` reason so the caller can surface a diagnostic rather than
 /// a silent fault.
-pub(super) fn alloc_and_write(
+pub(crate) fn alloc_and_write(
     caller: &mut Caller<'_, Invocation>,
     bytes: &[u8],
 ) -> Result<u32, &'static str> {
@@ -90,7 +90,7 @@ pub(super) fn alloc_and_write(
 /// diagnostic instead of a lumped one; a guest-claimed length past the
 /// 16 MiB cap is a wire violation that names the cap (the caller walks
 /// the trap path on any `Err`).
-pub(super) fn read(
+pub(crate) fn read(
     caller: &mut Caller<'_, Invocation>,
     ptr: i32,
     len: i32,
@@ -116,7 +116,7 @@ pub(super) fn read(
 /// transfer larger than this is a wire violation — the Host Gem walks
 /// the trap path rather than allocate or copy the buffer. Held as a
 /// constant for now; a future SPEC anchor may let the Host App raise it.
-pub(super) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
 
 /// Validate a payload length against `MAX_DISPATCH_PAYLOAD` and narrow it
 /// to `i32` — the signed wasm ABI width for the guest buffer parameters.
@@ -124,7 +124,7 @@ pub(super) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
 /// `frames::write_envelope`) routes its length through here so the
 /// wire-violation reason is uniform; the *read* boundaries compare
 /// against `MAX_DISPATCH_PAYLOAD` directly.
-pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
+pub(crate) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
     if len > MAX_DISPATCH_PAYLOAD {
         return Err("payload exceeds the 16 MiB limit");
     }
@@ -136,7 +136,7 @@ pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
 /// copy, validating that the arithmetic does not overflow and the range
 /// fits inside `mem_size`. Shared by `frames::write_envelope` (write side)
 /// and `frames::fetch_outcome_bytes` (read side).
-pub(super) fn guest_buffer_range(
+pub(crate) fn guest_buffer_range(
     ptr: usize,
     len: usize,
     mem_size: usize,
@@ -151,7 +151,7 @@ pub(super) fn guest_buffer_range(
 /// Unpack the `(ptr, len)` u64 returned by `__kobako_take_outcome`:
 /// high 32 bits = ptr, low 32 bits = len. Mirrors the guest-side
 /// `unpack_u64` in `wasm/kobako-core/src/abi.rs`.
-pub(super) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
+pub(crate) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
     let ptr = (packed >> 32) as u32 as usize;
     let len = packed as u32 as usize;
     (ptr, len)
@@ -162,7 +162,7 @@ pub(super) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
 /// the guest produced and return it. Mirrors `dispatch::write_response`'s
 /// allocator dance but in the opposite direction — the host is the
 /// *initiator* of this round-trip, not the responder.
-pub(super) fn drive_yield(
+pub(crate) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
     args: &[u8],
 ) -> Result<Vec<u8>, &'static str> {

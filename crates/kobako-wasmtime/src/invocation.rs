@@ -1,6 +1,6 @@
 //! Per-invocation host state — the materialised
 //! [SPEC.md Single-Invocation Slot] (one `Invocation` per OS thread
-//! for the lifetime of one `Runtime::eval` / `Runtime::run` call).
+//! for the lifetime of one `Driver` invoke call).
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
@@ -18,7 +18,7 @@
 //! memory size captured at invocation entry — the image's initial
 //! allocation is outside the budget.
 //!
-//! [SPEC.md Single-Invocation Slot]: ../../../../SPEC.md
+//! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,7 +39,7 @@ use kobako_runtime::dispatch::DispatchHandler;
 /// are read after the invocation via `Invocation::stdout_bytes` /
 /// `Invocation::stderr_bytes`. The fields are private so the mutation
 /// surface stays narrow.
-pub(super) struct Invocation {
+pub(crate) struct Invocation {
     wasi: Option<WasiP1Ctx>,
     stdout_pipe: Option<MemoryOutputPipe>,
     stderr_pipe: Option<MemoryOutputPipe>,
@@ -55,7 +55,7 @@ impl Invocation {
     /// `Sandbox#memory_limit` cap in bytes (or `None` to disable the cap);
     /// it is read from the wasmtime `ResourceLimiter` callback every
     /// time the guest grows linear memory.
-    pub(super) fn new(memory_limit: Option<usize>) -> Self {
+    pub(crate) fn new(memory_limit: Option<usize>) -> Self {
         Self {
             wasi: None,
             stdout_pipe: None,
@@ -72,7 +72,7 @@ impl Invocation {
     /// pipe clones. Called from `frames::install_wasi_frames`, which
     /// `Driver::invoke` runs at the top of every guest
     /// invocation.
-    pub(super) fn install_wasi(
+    pub(crate) fn install_wasi(
         &mut self,
         wasi: WasiP1Ctx,
         stdout: MemoryOutputPipe,
@@ -86,13 +86,13 @@ impl Invocation {
     /// Bind the dispatch handler for this invocation. From this point on,
     /// every `__kobako_dispatch` host import invocation hands the handler
     /// the request bytes and expects encoded Response bytes back.
-    pub(super) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
+    pub(crate) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
         self.on_dispatch = Some(handler);
     }
 
     /// Snapshot the bytes captured on guest fd 1 during the most recent
     /// run. Empty vec before any run.
-    pub(super) fn stdout_bytes(&self) -> Vec<u8> {
+    pub(crate) fn stdout_bytes(&self) -> Vec<u8> {
         self.stdout_pipe
             .as_ref()
             .map(|p| p.contents().to_vec())
@@ -101,7 +101,7 @@ impl Invocation {
 
     /// Snapshot the bytes captured on guest fd 2 during the most recent
     /// run. Empty vec before any run.
-    pub(super) fn stderr_bytes(&self) -> Vec<u8> {
+    pub(crate) fn stderr_bytes(&self) -> Vec<u8> {
         self.stderr_pipe
             .as_ref()
             .map(|p| p.contents().to_vec())
@@ -113,18 +113,18 @@ impl Invocation {
     /// `Caller` so the dispatcher can re-borrow it to write the response.
     /// None means no handler has been bound yet via
     /// `Invocation::bind_on_dispatch`.
-    pub(super) fn on_dispatch(&self) -> Option<Arc<dyn DispatchHandler>> {
+    pub(crate) fn on_dispatch(&self) -> Option<Arc<dyn DispatchHandler>> {
         self.on_dispatch.clone()
     }
 
     /// Mutable handle to the live WASI context. Panics if no context has
     /// been installed yet — every call site is downstream of
-    /// `Invocation::install_wasi` running at the top of
-    /// `Runtime::eval` / `Runtime::run`, so reaching this branch with
-    /// `None` signals a host-side wiring bug.
-    pub(super) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
+    /// `Invocation::install_wasi` running at the top of every `Driver`
+    /// invoke, so reaching this branch with `None` signals a host-side
+    /// wiring bug.
+    pub(crate) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
         self.wasi.as_mut().expect(
-            "WASI context not initialised — call Runtime#eval / Runtime#run before any WASI use",
+            "WASI context not initialised — the driver must install frames before any WASI use",
         )
     }
 
@@ -132,13 +132,13 @@ impl Invocation {
     /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
     /// disables the cap. Called from `Driver::prime_caps` at the top of
     /// every invocation (`#eval` and `#run`).
-    pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
+    pub(crate) fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
     }
 
     /// Return the current per-run deadline. Read from the epoch-deadline
     /// callback installed by `Driver::new_store`.
-    pub(super) fn deadline(&self) -> Option<Instant> {
+    pub(crate) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
 
@@ -149,7 +149,7 @@ impl Invocation {
     /// the wasm submodule so the only public surface for arming the
     /// cap goes through `Invocation::arm_memory_cap` /
     /// `Invocation::disarm_memory_cap`.
-    pub(super) fn limiter_mut(&mut self) -> &mut MemoryLimiter {
+    pub(crate) fn limiter_mut(&mut self) -> &mut MemoryLimiter {
         &mut self.limiter
     }
 
@@ -162,13 +162,13 @@ impl Invocation {
     /// call to the corresponding `__kobako_*` export so post-run host
     /// bookkeeping (e.g. fetching the OUTCOME_BUFFER) is not
     /// attributed to the user script.
-    pub(super) fn arm_memory_cap(&mut self, baseline: usize) {
+    pub(crate) fn arm_memory_cap(&mut self, baseline: usize) {
         self.limiter.activate(baseline);
     }
 
     /// Disarm the memory cap. See
     /// `Invocation::arm_memory_cap`.
-    pub(super) fn disarm_memory_cap(&mut self) {
+    pub(crate) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }
 
@@ -178,7 +178,7 @@ impl Invocation {
     /// bracket matches the `timeout` deadline accounting and
     /// excludes post-run host bookkeeping such as `OUTCOME_BUFFER`
     /// decoding.
-    pub(super) fn start_wall_clock(&mut self) {
+    pub(crate) fn start_wall_clock(&mut self) {
         self.wall_entry = Some(Instant::now());
     }
 
@@ -187,7 +187,7 @@ impl Invocation {
     /// stop with no matching start (e.g. if the guest export call
     /// never executed because of a host-side allocation failure)
     /// leaves the previously-recorded value untouched.
-    pub(super) fn stop_wall_clock(&mut self) {
+    pub(crate) fn stop_wall_clock(&mut self) {
         if let Some(entry) = self.wall_entry.take() {
             self.wall_time = entry.elapsed();
         }
@@ -196,7 +196,7 @@ impl Invocation {
     /// Return the wall-clock duration the most recent invocation
     /// spent inside the guest export call.
     /// Zero before the first invocation.
-    pub(super) fn wall_time(&self) -> Duration {
+    pub(crate) fn wall_time(&self) -> Duration {
         self.wall_time
     }
 
@@ -204,7 +204,7 @@ impl Invocation {
     /// water mark of the per-invocation `memory.grow` delta past the
     /// linear-memory size captured at invocation entry. Zero before
     /// the first invocation.
-    pub(super) fn memory_peak(&self) -> usize {
+    pub(crate) fn memory_peak(&self) -> usize {
         self.limiter.peak()
     }
 }
@@ -221,16 +221,16 @@ impl Invocation {
 /// `cap_active` gates whether the cap is enforced — wasmtime's
 /// `ResourceLimiter` also fires for the module's declared initial
 /// allocation at instantiation time, but the cap stays dormant until
-/// `MemoryLimiter::activate` flips the flag for one
-/// `Runtime::eval` / `Runtime::run` call. When `cap_active` is
-/// `false`, the limiter always allows growth.
+/// `MemoryLimiter::activate` flips the flag for one `Driver` invoke
+/// call. When `cap_active` is `false`, the limiter always allows
+/// growth.
 ///
 /// When `memory.grow` would push the per-invocation delta past
 /// `max_memory`, the limiter returns `MemoryLimitTrap` from
 /// `memory_growing`; wasmtime turns that into the trap surfaced to the
 /// host as a guest invocation failure.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct MemoryLimiter {
+pub(crate) struct MemoryLimiter {
     max_memory: Option<usize>,
     baseline: usize,
     cap_active: bool,
@@ -279,7 +279,7 @@ impl MemoryLimiter {
     /// rejected `desired` values that trip the memory
     /// cap never update the peak, so the reported value never exceeds
     /// `memory_limit`.
-    pub(super) fn peak(&self) -> usize {
+    pub(crate) fn peak(&self) -> usize {
         self.peak
     }
 }
@@ -323,7 +323,7 @@ impl ResourceLimiter for MemoryLimiter {
 /// `Display` impl below — no field is read directly — so the inner
 /// state stays private.
 #[derive(Debug)]
-pub(super) struct MemoryLimitTrap {
+pub(crate) struct MemoryLimitTrap {
     desired: usize,
     limit: usize,
 }
@@ -334,7 +334,7 @@ impl MemoryLimitTrap {
     /// by the sibling-module `classify_trap` unit tests to materialise
     /// a representative error for downcast routing.
     #[cfg(test)]
-    pub(super) fn new(desired: usize, limit: usize) -> Self {
+    pub(crate) fn new(desired: usize, limit: usize) -> Self {
         Self { desired, limit }
     }
 }
@@ -356,7 +356,7 @@ impl std::error::Error for MemoryLimitTrap {}
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
 /// error to surface as `Kobako::TimeoutError` on the Ruby side.
 #[derive(Debug)]
-pub(super) struct TimeoutTrap;
+pub(crate) struct TimeoutTrap;
 
 impl std::fmt::Display for TimeoutTrap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

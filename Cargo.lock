@@ -925,16 +925,24 @@ name = "kobako"
 version = "0.12.1"
 dependencies = [
  "kobako-runtime",
- "libc",
+ "kobako-wasmtime",
  "magnus",
- "sha2 0.11.0",
- "wasmtime",
- "wasmtime-wasi",
 ]
 
 [[package]]
 name = "kobako-runtime"
 version = "0.6.0"
+
+[[package]]
+name = "kobako-wasmtime"
+version = "0.6.0"
+dependencies = [
+ "kobako-runtime",
+ "libc",
+ "sha2 0.11.0",
+ "wasmtime",
+ "wasmtime-wasi",
+]
 
 [[package]]
 name = "lazy_static"

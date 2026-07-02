@@ -1,13 +1,12 @@
 //! Process-wide caches for the wasmtime `Engine` and compiled
 //! `Module`, plus the on-disk compiled-artifact cache.
 //!
-//! SPEC.md "Code Organization" pins `ext/` as private and forbids
-//! exposing wasm engine types to the Host App or downstream gems. To
-//! amortise Engine creation and Module JIT compilation across multiple
-//! `Kobako::Sandbox` constructions, the ext keeps a process-scope
-//! shared Engine and a per-path Module cache. Both are transparent to
-//! Ruby callers, who construct a `Runtime` via
-//! `Kobako::Runtime.from_path(...)` and never see Engine or Module.
+//! SPEC.md "Code Organization" forbids exposing wasm engine types to
+//! the Host App or downstream gems. To amortise Engine creation and
+//! Module JIT compilation across multiple sandbox constructions, the
+//! driver keeps a process-scope shared Engine and a per-path Module
+//! cache. Both are transparent to frontends, which construct a
+//! `Driver` via `Driver::new` and never see Engine or Module.
 //!
 //! Across processes, the Cranelift compile cost is amortised by a
 //! best-effort `.cwasm` disk cache keyed by the SHA-256 of the Guest
@@ -59,7 +58,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// cap. The first call spawns the process-singleton ticker
 /// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
 /// cadence; subsequent calls reuse the same engine and ticker.
-pub(super) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
+pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
     }
@@ -96,7 +95,7 @@ fn spawn_epoch_ticker(engine: WtEngine) {
 /// (boundary → `Kobako::ModuleNotBuiltError`) when the file is missing —
 /// the headline error for the common pre-build state on a fresh clone
 /// before `rake compile`.
-pub(super) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
+pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(module) = cache
@@ -148,11 +147,12 @@ const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// Compute the disk-cache location for a Guest Binary's compiled
 /// artifact: `$XDG_CACHE_HOME/kobako` (falling back to
-/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>-<gem version>.cwasm`.
+/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>-<crate version>.cwasm`.
 /// Content addressing makes a rebuilt Guest Binary a new cache entry
-/// rather than an invalidation problem; the gem-version segment keeps
-/// two installed kobako versions (each pinning its own wasmtime) from
-/// sharing a key and recompile-thrashing each other's entry. wasmtime
+/// rather than an invalidation problem; the crate-version segment keeps
+/// two installed kobako-wasmtime versions (each pinning its own
+/// wasmtime) from sharing a key and recompile-thrashing each other's
+/// entry. wasmtime
 /// itself rejects an artifact produced by an incompatible wasmtime
 /// version or Config at deserialize time. Returns `None` when no home
 /// directory is available — the caller then just compiles in-process.

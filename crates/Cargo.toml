@@ -18,7 +18,10 @@
 #     (publishable rlib): the `Runtime` / `DispatchHandler` / `Yielder`
 #     traits and the neutral value types an engine implementation and a
 #     host frontend meet on.
+#   * `kobako-wasmtime` — the wasmtime implementation of that contract
+#     (publishable rlib): `Driver` plus every engine-bound mechanic
+#     (AOT cache, InstancePre, epoch timeout, ambient denial).
 
 [workspace]
-members = ["kobako-runtime"]
+members = ["kobako-runtime", "kobako-wasmtime"]
 resolver = "2"

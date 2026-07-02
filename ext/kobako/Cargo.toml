@@ -11,39 +11,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.8.2" }
-# The engine-neutral host runtime contract the ext maps onto Ruby. A
-# pure path dependency: the crate ships inside the gem, so installs
-# never resolve it against crates.io and the gem release cadence stays
-# decoupled from the crate's.
+# The engine-neutral host runtime contract plus its wasmtime driver —
+# the ext is a thin magnus shim over them. Pure path dependencies: both
+# crates ship inside the gem, so installs never resolve them against
+# crates.io and the gem release cadence stays decoupled from theirs.
+# wasmtime itself enters only through kobako-wasmtime; no engine type
+# reaches this crate.
 kobako-runtime = { path = "../../crates/kobako-runtime" }
-# wasmtime — host-side embedder for kobako.wasm. We disable default-features
-# and opt back in only what kobako needs: a Cranelift-backed runtime that can
-# compile a pre-built wasm32-wasip1 module on the host triple, plus the `wat`
-# feature so test fixtures can be expressed as text.
-# `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
-# are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "45.0.0", default-features = false, features = [
-    "cranelift",
-    "runtime",
-    "gc",
-    "gc-drc",
-    "addr2line",
-    "demangle",
-    "wat",
-] }
-# wasmtime-wasi provides WASI preview1 support for routing guest stdout/stderr
-# into in-memory buffers. The `p1` feature enables the
-# WasiCtxBuilder + preview1 adapter which wires fd 1/2 to pipes. We omit
-# `p2` (component-model) and `p0`/`p3` (async) because kobako runs
-# synchronous sandboxes only.
-wasmtime-wasi = { version = "45.0.0", default-features = false, features = ["p1"] }
-# sha2 keys the on-disk compiled-module cache by Guest Binary content
-# (see runtime/cache.rs); a collision would load the wrong artifact, so
-# the hash must be cryptographic.
-sha2 = "0.11"
-
-# libc supplies geteuid for the cache-directory ownership check gating
-# the unsafe artifact deserialize (see runtime/cache.rs); std exposes a
-# file's owner but not the process's effective uid.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
+kobako-wasmtime = { path = "../../crates/kobako-wasmtime" }

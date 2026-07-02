@@ -1,11 +1,11 @@
-//! The magnus-free wasmtime driver: everything needed to run one guest
-//! invocation, expressed purely in contract and wasmtime types.
+//! The wasmtime driver: everything needed to run one guest invocation,
+//! expressed purely in contract and wasmtime types.
 //!
-//! A `Driver` is the engine half of `Kobako::Runtime` — the pre-linked
-//! `InstancePre` plus the per-Runtime caps — and implements the contract
-//! `Runtime` trait over it. Keeping it free of any frontend type lets it
-//! move to a standalone engine crate unchanged; the magnus shell in
-//! `crate::runtime` only shuttles Ruby values across its boundary.
+//! A `Driver` is the engine half of a kobako host — the pre-linked
+//! `InstancePre` plus the per-Driver caps — and implements the contract
+//! `Runtime` trait over it. It is free of any frontend type; a frontend
+//! shell (the Ruby ext's `Kobako::Runtime`) only shuttles its
+//! host-language values across the contract boundary.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -15,11 +15,11 @@ use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
 };
 
-use super::cache::shared_engine;
-use super::config::Config;
-use super::exports::Exports;
-use super::invocation::Invocation;
-use super::{capture, frames, instance_pre, trap};
+use crate::cache::shared_engine;
+use crate::config::Config;
+use crate::exports::Exports;
+use crate::invocation::Invocation;
+use crate::{capture, frames, instance_pre, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{Error, SetupError, Trap};
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
@@ -35,8 +35,8 @@ use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 /// its VM state dirty at exit.
 const ABI_VERSION: u32 = 2;
 
-/// The wasmtime execution unit behind one `Kobako::Runtime`.
-pub(super) struct Driver {
+/// The wasmtime execution unit behind one sandbox runtime.
+pub struct Driver {
     // Pre-linked instantiation template (import wiring + type checks
     // done once in `instance_pre::cached_instance_pre`). Every
     // invocation instantiates a fresh instance from it and discards the
@@ -58,7 +58,7 @@ impl Driver {
     /// the artifact's ABI version. Every failure is a `SetupError` for
     /// the frontend to attribute — Engine and Module never leave the
     /// driver.
-    pub(super) fn new(
+    pub fn new(
         path: &Path,
         memory_limit: Option<usize>,
         config: Config,

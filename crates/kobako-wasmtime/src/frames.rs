@@ -1,18 +1,18 @@
-//! Per-invocation byte-shuttle between Ruby and guest linear memory: it
-//! resolves the required `memory` / ABI-export handles, writes the `#run`
-//! envelope into a freshly allocated guest buffer, builds the stdin frame
-//! stream plus stdout / stderr capture pipes for the WASI context, and
-//! reads the OUTCOME_BUFFER back out. The ext owns no wire codec — these
-//! helpers move raw bytes; Ruby decodes them.
+//! Per-invocation byte-shuttle between the host and guest linear memory:
+//! it resolves the required `memory` / ABI-export handles, writes the
+//! `#run` envelope into a freshly allocated guest buffer, builds the
+//! stdin frame stream plus stdout / stderr capture pipes for the WASI
+//! context, and reads the OUTCOME_BUFFER back out. The driver owns no
+//! wire codec — these helpers move raw bytes; the frontend decodes them.
 
 use wasmtime::{AsContextMut, Memory, Store as WtStore, TypedFunc};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use super::config::Config;
-use super::exports::Exports;
-use super::invocation::Invocation;
-use super::{ambient, capture, guest_mem};
+use crate::config::Config;
+use crate::exports::Exports;
+use crate::invocation::Invocation;
+use crate::{ambient, capture, guest_mem};
 use kobako_runtime::error::{Error, SetupError, Trap};
 
 /// Return the resolved `memory` export handle, or a `Trap` when the loaded
@@ -31,7 +31,7 @@ fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
 /// (an engine fault), and a runtime-intact `SetupError` when the hook runs
 /// but cannot reserve the buffer (`__kobako_alloc` returns 0). The ext
 /// boundary maps these to `Kobako::TrapError` / `Kobako::SandboxError`.
-pub(super) fn write_envelope(
+pub(crate) fn write_envelope(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
     envelope: &[u8],
@@ -71,7 +71,7 @@ pub(super) fn write_envelope(
 /// rely on `memory_limit` for the real ceiling.
 /// Returns a `Trap` when any frame exceeds the 16 MiB cap that keeps its
 /// `u32` length prefix from wrapping (boundary → `Kobako::TrapError`).
-pub(super) fn install_wasi_frames(
+pub(crate) fn install_wasi_frames(
     store: &mut WtStore<Invocation>,
     config: &Config,
     frames: &[&[u8]],
@@ -117,7 +117,7 @@ pub(super) fn install_wasi_frames(
 /// `len` exceeds the 16 MiB single-dispatch cap, the `ptr`/`len`
 /// arithmetic overflows, the slice falls outside live memory, or the
 /// `memory` export itself is absent.
-pub(super) fn fetch_outcome_bytes(
+pub(crate) fn fetch_outcome_bytes(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
 ) -> Result<Vec<u8>, Trap> {
@@ -165,7 +165,7 @@ const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
 /// message is intentionally export-agnostic (see
 /// `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol name is not
 /// actionable to callers, so it is not threaded in.
-pub(super) fn require_export<Params, Results>(
+pub(crate) fn require_export<Params, Results>(
     export: Option<&TypedFunc<Params, Results>>,
 ) -> Result<&TypedFunc<Params, Results>, Trap>
 where

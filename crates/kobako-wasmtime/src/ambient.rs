@@ -19,7 +19,7 @@ use wasmtime_wasi::random::Deterministic;
 use wasmtime_wasi::{HostMonotonicClock, HostWallClock};
 
 /// Wall clock frozen at the Unix epoch — the guest observes no real time.
-pub(super) struct FrozenWallClock;
+pub(crate) struct FrozenWallClock;
 
 impl HostWallClock for FrozenWallClock {
     fn resolution(&self) -> Duration {
@@ -32,7 +32,7 @@ impl HostWallClock for FrozenWallClock {
 }
 
 /// Monotonic clock frozen at zero — the guest observes no elapsed time.
-pub(super) struct FrozenMonotonicClock;
+pub(crate) struct FrozenMonotonicClock;
 
 impl HostMonotonicClock for FrozenMonotonicClock {
     fn resolution(&self) -> u64 {
@@ -46,7 +46,7 @@ impl HostMonotonicClock for FrozenMonotonicClock {
 
 /// Constant-stream RNG handed to the guest's `wasi:random`, so a guest that
 /// reaches `random_get` receives no host entropy.
-pub(super) fn deterministic_rng() -> Deterministic {
+pub(crate) fn deterministic_rng() -> Deterministic {
     Deterministic::new(vec![0])
 }
 

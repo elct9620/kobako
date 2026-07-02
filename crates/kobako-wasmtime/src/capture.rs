@@ -11,7 +11,7 @@
 /// `cap + 1` (saturated against `usize::MAX`) when a cap is set so the
 /// "wrote exactly cap" and "exceeded cap" cases stay distinguishable;
 /// `usize::MAX` when the channel is uncapped.
-pub(super) fn pipe_capacity(cap: Option<usize>) -> usize {
+pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
     match cap {
         Some(c) => c.saturating_add(1),
         None => usize::MAX,
@@ -24,7 +24,7 @@ pub(super) fn pipe_capacity(cap: Option<usize>) -> usize {
 /// `true` only when the snapshot strictly exceeded the cap — this is the
 /// "wrote `cap + 1` bytes into a `cap + 1`-sized pipe" case; "wrote
 /// exactly `cap` bytes" stays `false`.
-pub(super) fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
+pub(crate) fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
     match cap {
         Some(c) if raw.len() > c => (&raw[..c], true),
         _ => (raw, false),

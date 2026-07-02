@@ -6,24 +6,24 @@
 //! `TimeoutTrap`. The classification is a pure function over the error's
 //! downcast chain so it can be exercised from `cargo test` without the
 //! magnus surface; the trap marker types themselves live in
-//! `super::invocation` (where the limiter / callback construct them).
+//! `crate::invocation` (where the limiter / callback construct them).
 
 use std::time::Instant;
 
 use wasmtime::{StoreContextMut, UpdateDeadline};
 
-use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
 use kobako_runtime::error::{SetupError, Trap};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
 /// wall-clock deadline from `Invocation` and trap with
 /// `TimeoutTrap` once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
-/// deadline is `None` the callback should not fire under normal
-/// `Runtime::eval` / `Runtime::run` flow because
+/// deadline is `None` the callback should not fire under the normal
+/// `Driver` invoke flow because
 /// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
 /// keeps the callback inert as a defence in depth.
-pub(super) fn epoch_deadline_callback(
+pub(crate) fn epoch_deadline_callback(
     ctx: StoreContextMut<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
     match ctx.data().deadline() {
@@ -77,7 +77,7 @@ fn classify_trap(err: &wasmtime::Error) -> TrapClass {
 /// is operator noise on a cap trap. For `TrapClass::Other` the framing
 /// is kept but the chain's root cause is appended (see
 /// `other_trap_message`) so the real trap reason survives.
-pub(super) fn trap_from(err: wasmtime::Error) -> Trap {
+pub(crate) fn trap_from(err: wasmtime::Error) -> Trap {
     match classify_trap(&err) {
         TrapClass::Timeout => Trap::Timeout(
             err.downcast_ref::<TimeoutTrap>()
@@ -117,14 +117,14 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
 /// instantiation (see `Invocation::arm_memory_cap` /
 /// `Invocation::disarm_memory_cap`) and the epoch deadline is not yet
 /// armed, so the `trap_from` trap-class split does not apply here.
-pub(super) fn instantiate_err(err: wasmtime::Error) -> SetupError {
+pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
     SetupError::Dead(format!("instantiate: {err}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{classify_trap, other_trap_message, TrapClass};
-    use crate::runtime::invocation::{MemoryLimitTrap, TimeoutTrap};
+    use crate::invocation::{MemoryLimitTrap, TimeoutTrap};
 
     #[test]
     fn classify_trap_routes_timeout_trap_to_timeout() {
