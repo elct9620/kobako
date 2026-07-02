@@ -35,8 +35,27 @@ These hold without any host effort — do not re-implement them.
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
 | Guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
+| The runtime declares its isolation profile on the `permissive < hermetic` ladder, and `Sandbox.new` fails cleanly when the declaration falls below the floor you request — `hermetic` by default. The bundled wasmtime runtime declares `hermetic`. | B-54 |
 | Per-invocation `timeout`, linear-memory cap, and stdout / stderr clipping, all with clean errors. | B-01, B-35 |
 | Only the type allowlist serializes; an unrepresentable, over-deep, cyclic, or NUL-bearing value becomes a controlled `Kobako::SandboxError`, never a host crash. | B-06, E-06, [`wire-codec.md`](wire-codec.md) § Structural Nesting Depth |
+
+## Isolation profiles
+
+A runtime implementation names the posture it provides by declaring one profile from the
+ordered ladder `permissive < hermetic` (B-54). `hermetic` is the full ambient-denial
+posture this document describes: B-45's frozen clocks and constant entropy, no filesystem,
+`ENV`, or network reachability, and no host import beyond the wire ABI's single
+`__kobako_dispatch` — so the guest's only paths outward are the Services you inject and
+the stdout / stderr capture. `permissive` declares nothing beyond the Wasm cell; it is
+what a runtime that grants some ambient authority declares honestly.
+
+`Sandbox.new(profile:)` states the weakest posture your application accepts, defaulting
+to `:hermetic`; construction fails with `Kobako::SetupError` rather than run guest code
+on a runtime that declares less. The declaration is a contract statement, not a switch —
+requesting `:permissive` on the bundled wasmtime runtime does not relax anything; it only
+widens what you would accept. The floor matters when the runtime is swappable: pin
+`:hermetic` (or keep the default) and an alternative engine that cannot deny ambient
+authority is refused at construction instead of weakening the guarantees above silently.
 
 ## Designing a Service
 

@@ -90,17 +90,18 @@ E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ### `Kobako::SetupError`
 
-Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from the configured `wasm_path` (B-01) or the Guest Binary fails the ABI version check (B-40) — before any invocation entry point runs. Construction is a setup verb, not an invocation: `SetupError` is therefore not one of the four invocation outcomes and does not pass through the two-step attribution decision, mirroring the E-16..E-18 setup-time treatment. Because no Sandbox instance is produced, the `TrapError` "discard and recreate" recovery contract does not apply — a `SetupError` reflects a deterministic artifact or environment fault, and retrying `Sandbox.new` against the same `wasm_path` fails identically until the underlying cause is fixed.
+Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from the configured `wasm_path` (B-01), the Guest Binary fails the ABI version check (B-40), or the runtime's declared isolation profile falls below the requested floor (B-54) — before any invocation entry point runs. Construction is a setup verb, not an invocation: `SetupError` is therefore not one of the four invocation outcomes and does not pass through the two-step attribution decision, mirroring the E-16..E-18 setup-time treatment. Because no Sandbox instance is produced, the `TrapError` "discard and recreate" recovery contract does not apply — a `SetupError` reflects a deterministic artifact or environment fault, and retrying `Sandbox.new` against the same `wasm_path` fails identically until the underlying cause is fixed.
 
 `Kobako::ModuleNotBuiltError` is the named subclass for the common, actionable case: the Guest Binary artifact has not been built yet. A Host App that only needs "the Sandbox could not be set up" can rescue `Kobako::SetupError`; one that wants to special-case the unbuilt-artifact state can rescue `Kobako::ModuleNotBuiltError` first.
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
-| E-39 | `Sandbox.new` cap argument is invalid: `timeout` is non-Numeric, non-positive, or non-finite, or `memory_limit` is not a positive Integer | host pre-flight (`SandboxOptions`, before any engine work) | `ArgumentError` |
+| E-39 | `Sandbox.new` option argument is invalid: `timeout` is non-Numeric, non-positive, or non-finite, `memory_limit` is not a positive Integer, or `profile` is not a ladder value — `nil` included; the no-floor request is `:permissive` (B-54) | host pre-flight (`SandboxOptions`, before any engine work) | `ArgumentError` |
 | E-40 | The Guest Binary artifact is absent at the resolved `wasm_path` — the common state on a fresh clone before `rake compile` | construction: artifact lookup | `Kobako::ModuleNotBuiltError` |
 | E-41 | The Guest Binary artifact is present but the wasm runtime cannot be constructed from it: the file cannot be read, its bytes are not a valid Wasm module, or engine / linker / instantiation setup fails | construction: read / compile / instantiate | `Kobako::SetupError` |
 | E-42 | The Guest Binary does not export `__kobako_abi_version`, or the export's reported value differs from the ABI version the Host Gem implements (→ [`docs/wire-codec.md`](../wire-codec.md) § ABI Version) | construction: ABI version probe (B-40) | `Kobako::SetupError` |
 | E-47 | `Pool.new` argument is invalid: `slots` is not a positive Integer, or `checkout_timeout` is non-Numeric, non-positive, or non-finite (`nil` is valid and waits indefinitely) | host pre-flight (`Pool.new`, before any engine work) | `ArgumentError` |
+| E-49 | The runtime's declared isolation profile is below the floor requested via `profile:` (B-54) | construction: profile floor check | `Kobako::SetupError` |
 
 E-42's actionable remedy is rebuilding the Guest Binary against the Host Gem's ABI version.
 
