@@ -15,7 +15,14 @@ updates:
           - patch
 
   - package-ecosystem: cargo
-    directory: "/"
+    # Each entry is a standalone cargo workspace with its own Cargo.lock;
+    # the root workspace excludes crates/ and wasm/, so they must be
+    # listed explicitly for their manifests to be updatable.
+    directories:
+      - "/"
+      - "/crates"
+      - "/wasm"
+      - "/wasm/kobako-baker"
     schedule:
       interval: weekly
     cooldown:
