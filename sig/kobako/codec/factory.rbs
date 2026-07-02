@@ -8,6 +8,8 @@ module Kobako
       EXT_SYMBOL: Integer
       EXT_HANDLE: Integer
       EXT_ERRENV: Integer
+      MAX_EXT_DEPTH: Integer
+      EXT_DEPTH_KEY: Symbol
 
       def dump: (untyped value) -> String
       def load: (String bytes) -> untyped
@@ -26,6 +28,7 @@ module Kobako
       def unpack_handle: (String payload) -> Kobako::Handle
       def pack_fault: (Kobako::Fault fault) -> String
       def unpack_fault: (String payload) -> Kobako::Fault
+      def within_ext_frame: [T] (singleton(Kobako::Codec::Error) over_limit) { () -> T } -> T
     end
   end
 end

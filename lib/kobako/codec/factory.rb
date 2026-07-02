@@ -48,6 +48,16 @@ module Kobako
       EXT_ERRENV = 0x02
       private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_ERRENV
 
+      # An ext 0x02 (Fault) envelope nests through its +details+ field, and
+      # each level re-enters the codec with a fresh +MessagePack+ unpacker
+      # whose built-in stack guard resets — so ext-envelope depth is tracked
+      # here instead. The cap matches the wire's overall nesting bound and
+      # keeps a nested chain from exhausting the native stack: an over-deep
+      # chain fails as a clean wire error, never a stack-level trap.
+      MAX_EXT_DEPTH = 128
+      EXT_DEPTH_KEY = :__kobako_codec_ext_depth__
+      private_constant :MAX_EXT_DEPTH, :EXT_DEPTH_KEY
+
       # Instance-level pass-through onto the wrapped +MessagePack::Factory+.
       # Spelled +def_instance_delegators+ rather than +def_delegators+ because
       # the class also extends +SingleForwardable+ (see the +extend+ block
@@ -129,9 +139,13 @@ module Kobako
       # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so
       # the embedded payload flows through the same boundary as a top-level
       # encode — nested kobako values (Handle, nested Fault) reach the
-      # registered ext-type packers via the cached singleton.
+      # registered ext-type packers via the cached singleton. A +details+
+      # chain nested past {MAX_EXT_DEPTH} has no wire representation and
+      # surfaces as +UnsupportedType+.
       def pack_fault(fault)
-        Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
+        within_ext_frame(UnsupportedType) do
+          Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
+        end
       end
 
       # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
@@ -139,19 +153,33 @@ module Kobako
       # +ArgumentError+ invariants surface as +InvalidType+ through the
       # decoder boundary. Inner decode goes through {Decoder} (not
       # +factory.load+) so the embedded +str+ payloads flow through the
-      # same UTF-8 validation as a top-level decode.
-      #
-      # This establishes a runtime cycle Factory → Decoder → Factory: the
-      # singleton instance feeds +Decoder.decode+, which re-enters this
-      # method when a nested ext 0x02 appears inside +details+. The recursion
-      # is bounded by msgpack nesting depth — identical to nested Array /
-      # Hash payloads — so no extra guard is needed. Do not switch back to
-      # +factory.load+ to "simplify": that path bypasses UTF-8 validation.
+      # same UTF-8 validation as a top-level decode. A nested ext 0x02 in
+      # +details+ re-enters this method, so {#within_ext_frame} bounds the
+      # chain depth to keep it from exhausting the native stack.
       def unpack_fault(payload)
-        Decoder.decode(payload) do |map|
-          raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
+        within_ext_frame(InvalidType) do
+          Decoder.decode(payload) do |map|
+            raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
 
-          Kobako::Fault.new(type: map["type"], message: map["message"], details: map["details"])
+            Kobako::Fault.new(type: map["type"], message: map["message"], details: map["details"])
+          end
+        end
+      end
+
+      # Track ext-envelope re-entry depth and refuse a chain past
+      # {MAX_EXT_DEPTH}, raising +over_limit+ so the failure lands in the
+      # caller's existing wire-error class. The counter is thread-scoped and
+      # balanced by the +ensure+, so a raise mid-chain still unwinds it to
+      # its entry value.
+      def within_ext_frame(over_limit)
+        depth = (Thread.current[EXT_DEPTH_KEY] || 0) + 1
+        raise over_limit, "ext envelope nesting exceeds #{MAX_EXT_DEPTH} levels" if depth > MAX_EXT_DEPTH
+
+        Thread.current[EXT_DEPTH_KEY] = depth
+        begin
+          yield
+        ensure
+          Thread.current[EXT_DEPTH_KEY] = depth - 1
         end
       end
     end
