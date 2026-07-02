@@ -9,10 +9,12 @@
 #                          them as the ext's path dependencies, and this
 #                          task runs their unit tests.
 
+require_relative "support/wasm"
+
 namespace :crates do
   desc "cargo test the crates/ workspace (kobako-runtime, kobako-wasmtime)"
   task :test do
-    abort "cargo not on PATH; install Rust toolchain to run crates:test" unless system("cargo --version >/dev/null 2>&1")
+    abort "cargo not on PATH; install Rust toolchain to run crates:test" unless KobakoWasm.cargo_available?
     manifest = File.expand_path("../crates/Cargo.toml", __dir__)
     sh "cargo", "test", "--manifest-path", manifest, "--workspace"
   end
