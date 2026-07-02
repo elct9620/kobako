@@ -127,7 +127,7 @@ end
 |---------------------------------|----------------|------------------------------------------------------|
 | `Kobako::TimeoutError`          | `TrapError`    | Per-invocation `timeout` exhausted                   |
 | `Kobako::MemoryLimitError`      | `TrapError`    | Per-invocation `memory_limit` exhausted              |
-| `Kobako::HandlerExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
+| `Kobako::HandleExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
 | `Kobako::BytecodeError`         | `SandboxError` | `#preload(binary:)` failed RITE validation at replay |
 
 `SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` / `details` fields when the guest produced a panic envelope.

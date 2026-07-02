@@ -38,7 +38,7 @@ module Kobako
       # for it. +object+ is any host-side Ruby object to bind. Returns a
       # freshly-allocated +Kobako::Handle+ whose +#id+ falls in
       # +[Kobako::Handle::MIN_ID, Kobako::Handle::MAX_ID]+. Raises
-      # +Kobako::HandlerExhaustedError+ if the next ID would exceed the
+      # +Kobako::HandleExhaustedError+ if the next ID would exceed the
       # cap. The cap is anchored on +Kobako::Handle+ — the wire codec
       # and the allocator share the same invariant.
       #
@@ -96,12 +96,12 @@ module Kobako
       end
 
       # Guard {#alloc} against issuing an ID past the cap. Returns +nil+
-      # on success; raises +Kobako::HandlerExhaustedError+ at exhaustion.
+      # on success; raises +Kobako::HandleExhaustedError+ at exhaustion.
       def ensure_capacity!
         cap = Kobako::Handle::MAX_ID
         return unless @next_id > cap
 
-        raise HandlerExhaustedError,
+        raise HandleExhaustedError,
               "Out of handle allocations: too many host objects were referenced " \
               "in a single invocation (limit #{cap})"
       end

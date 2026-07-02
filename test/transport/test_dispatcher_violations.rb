@@ -105,7 +105,7 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # SPEC B-21 / E-07: when the per-#run Catalog::Handles counter reaches
   # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
-  # Kobako::HandlerExhaustedError (a SandboxError subclass). The
+  # Kobako::HandleExhaustedError (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
   # during a normal transport call: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
@@ -125,17 +125,17 @@ class TestTransportDispatchViolations < Minitest::Test
 
     assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type
-    assert_match(/Kobako::HandlerExhaustedError/, resp.payload.message)
+    assert_match(/Kobako::HandleExhaustedError/, resp.payload.message)
   end
 
   def test_handler_exhaustion_propagates_as_sandbox_error_class
-    # Pin the class hierarchy: HandlerExhaustedError < SandboxError
+    # Pin the class hierarchy: HandleExhaustedError < SandboxError
     # (per Kobako::errors). This matters because Sandbox-invocation-
     # level callers rescuing SandboxError must catch the exhaustion path;
     # the dispatcher's rescue StandardError branch turns the raise into
     # a Response.error so the guest can observe it, but the underlying
     # class identity is what SPEC B-21 pins.
-    assert_operator Kobako::HandlerExhaustedError, :<, Kobako::SandboxError
+    assert_operator Kobako::HandleExhaustedError, :<, Kobako::SandboxError
 
     table = Kobako::Catalog::Handles.new(
       next_id: Kobako::Handle::MAX_ID + 1
@@ -143,7 +143,7 @@ class TestTransportDispatchViolations < Minitest::Test
     error = assert_raises(Kobako::SandboxError) do
       table.alloc(Object.new)
     end
-    assert_kind_of Kobako::HandlerExhaustedError, error
+    assert_kind_of Kobako::HandleExhaustedError, error
   end
 
   private

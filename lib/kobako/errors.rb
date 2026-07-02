@@ -35,7 +35,7 @@ module Kobako
   #
   #   * {ModuleNotBuiltError} < {SetupError} — Guest Binary artifact absent
   #                       at +wasm_path+.
-  #   * {HandlerExhaustedError} < {SandboxError} — Handle id cap hit.
+  #   * {HandleExhaustedError} < {SandboxError} — Handle id cap hit.
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
@@ -121,11 +121,11 @@ module Kobako
     include StructuredError
   end
 
-  # HandlerExhaustedError is the canonical SandboxError subclass for the
+  # HandleExhaustedError is the canonical SandboxError subclass for the
   # id-cap-hit path. Raised when the per-invocation Handle ID counter in
   # Catalog::Handles reaches +0x7fff_ffff+ (2³¹ − 1) and further
   # allocation would exceed the cap.
-  class HandlerExhaustedError < SandboxError; end
+  class HandleExhaustedError < SandboxError; end
 
   # BytecodeError is the SandboxError subclass raised when a
   # `#preload(binary:)` snippet fails structural validation during the

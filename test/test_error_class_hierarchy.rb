@@ -26,7 +26,7 @@ class TestErrorClassHierarchy < Minitest::Test
   end
 
   def test_handler_exhausted_chains_under_sandbox_error
-    assert Kobako::HandlerExhaustedError < Kobako::SandboxError
+    assert Kobako::HandleExhaustedError < Kobako::SandboxError
   end
 
   # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named

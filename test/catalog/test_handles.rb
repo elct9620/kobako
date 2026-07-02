@@ -4,7 +4,7 @@
 #
 # Catalog::Handles is pure Ruby and needs no native extension; test_helper's
 # no-ext fallback loads the whole pure-Ruby tree (including the
-# Kobako::SandboxError / Kobako::HandlerExhaustedError this test asserts on),
+# Kobako::SandboxError / Kobako::HandleExhaustedError this test asserts on),
 # so it still runs on a clean checkout.
 #
 # Cross-references:
@@ -84,8 +84,8 @@ module Kobako
       assert_equal 0x7fff_ffff, id
 
       # SPEC "Error Classes": cap-exhaustion raises the canonical
-      # HandlerExhaustedError < SandboxError chain.
-      err = assert_raises(Kobako::HandlerExhaustedError) { table.alloc(Object.new) }
+      # HandleExhaustedError < SandboxError chain.
+      err = assert_raises(Kobako::HandleExhaustedError) { table.alloc(Object.new) }
       assert_kind_of Kobako::SandboxError, err
     end
 

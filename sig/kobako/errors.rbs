@@ -40,7 +40,7 @@ module Kobako
     include StructuredError
   end
 
-  class HandlerExhaustedError < SandboxError
+  class HandleExhaustedError < SandboxError
   end
 
   class BytecodeError < SandboxError
