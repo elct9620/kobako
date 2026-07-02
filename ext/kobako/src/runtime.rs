@@ -35,7 +35,10 @@ use std::time::Duration;
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
+use magnus::Symbol;
+
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
 use kobako_wasmtime::{Config, Driver};
@@ -79,6 +82,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("run", method!(Runtime::run, 3))?;
     runtime.define_method("usage", method!(Runtime::usage, 0))?;
     runtime.define_method("captures", method!(Runtime::captures, 0))?;
+    runtime.define_method("profile", method!(Runtime::profile, 0))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
@@ -367,5 +371,16 @@ impl Runtime {
         arr.push(ruby.str_from_slice(&stderr.bytes))?;
         arr.push(stderr.truncated)?;
         Ok(arr)
+    }
+
+    /// Return the driver's declared isolation profile as a Symbol
+    /// (`:hermetic` / `:permissive`), the value the Sandbox compares
+    /// against the floor its `profile:` option requested.
+    fn profile(&self) -> Symbol {
+        let ruby = Ruby::get().expect("Ruby thread");
+        match self.driver.profile() {
+            Profile::Hermetic => ruby.to_symbol("hermetic"),
+            Profile::Permissive => ruby.to_symbol("permissive"),
+        }
     }
 }

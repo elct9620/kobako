@@ -11,6 +11,7 @@
 
 pub mod dispatch;
 pub mod error;
+pub mod profile;
 pub mod runtime;
 pub mod snapshot;
 pub mod yielder;

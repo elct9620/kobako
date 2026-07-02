@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::dispatch::DispatchHandler;
 use crate::error::Error;
+use crate::profile::Profile;
 use crate::snapshot::Snapshot;
 
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
@@ -47,4 +48,10 @@ pub trait Runtime {
         frames: Frames<'_>,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, Error>;
+
+    /// The isolation profile this runtime provides. Deliberately
+    /// without a default: every engine states its posture explicitly,
+    /// and a frontend refuses construction when the declaration falls
+    /// below the floor its host application requested.
+    fn profile(&self) -> Profile;
 }

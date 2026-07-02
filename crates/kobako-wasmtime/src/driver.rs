@@ -22,6 +22,7 @@ use crate::invocation::Invocation;
 use crate::{capture, frames, instance_pre, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 
@@ -270,6 +271,15 @@ impl ContractRuntime for Driver {
             Err(e) => Completion::Trap(trap::trap_from(e)),
         };
         Ok(self.build_snapshot(&store, completion))
+    }
+
+    /// This driver's posture is hermetic: the WASI context freezes
+    /// ambient time and entropy (`crate::ambient`), wires no
+    /// filesystem, environment, or network, and the linker adds only
+    /// the wire ABI's `__kobako_dispatch` beyond that confined WASI
+    /// surface (`crate::instance_pre`).
+    fn profile(&self) -> Profile {
+        Profile::Hermetic
     }
 }
 
