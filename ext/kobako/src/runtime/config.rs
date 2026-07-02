@@ -14,11 +14,11 @@ use std::time::Duration;
 /// disables that cap.
 pub(super) struct Config {
     /// Wall-clock cap for one guest `#eval` / `#run`. Stamped into a
-    /// per-run `Instant` deadline by `Runtime::prime_caps`.
+    /// per-run `Instant` deadline by `Driver::prime_caps`.
     pub(super) timeout: Option<Duration>,
     /// Byte cap for guest stdout capture.
     /// Sizes the per-run `MemoryOutputPipe` and computes the truncation
-    /// flag in `Runtime::build_snapshot`.
+    /// flag in `Driver::build_snapshot`.
     pub(super) stdout_limit_bytes: Option<usize>,
     /// Byte cap for guest stderr capture. Mirror of `stdout_limit_bytes`.
     pub(super) stderr_limit_bytes: Option<usize>,

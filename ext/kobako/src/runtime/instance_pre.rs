@@ -61,7 +61,7 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
 
     // Wire the wasmtime-wasi preview1 WASI imports. Routes guest fd 1/2
     // to the MemoryOutputPipes set up before each run via
-    // `Runtime::eval`. The closure pulls a `&mut WasiP1Ctx` out of
+    // `Driver::invoke`. The closure pulls a `&mut WasiP1Ctx` out of
     // Invocation; the panic semantics live inside `Invocation::wasi_mut`
     // so the wiring stays honest about its precondition.
     p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())

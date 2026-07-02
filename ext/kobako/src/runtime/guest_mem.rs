@@ -5,9 +5,9 @@
 //! (`super::dispatch`) and shipping block-yield args into the guest
 //! (`drive_yield`, below) performed the same `__kobako_alloc` +
 //! bounds-check + `memory.write` dance with only the diagnostic strings
-//! differing. The Store-based write path (`Runtime::write_envelope`) is a
-//! separate beast — it holds the cached `Store`, not a `Caller` — and stays
-//! in `runtime.rs`.
+//! differing. The Store-based write path (`frames::write_envelope`) is a
+//! separate beast — it holds the per-invocation `Store`, not a `Caller` —
+//! and stays in `frames`.
 
 use wasmtime::{Caller, Extern, Memory};
 
@@ -121,7 +121,7 @@ pub(super) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
 /// Validate a payload length against `MAX_DISPATCH_PAYLOAD` and narrow it
 /// to `i32` — the signed wasm ABI width for the guest buffer parameters.
 /// Every host *write* boundary (`alloc_and_write`, `drive_yield`,
-/// `Runtime::write_envelope`) routes its length through here so the
+/// `frames::write_envelope`) routes its length through here so the
 /// wire-violation reason is uniform; the *read* boundaries compare
 /// against `MAX_DISPATCH_PAYLOAD` directly.
 pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
@@ -134,8 +134,8 @@ pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
 
 /// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
 /// copy, validating that the arithmetic does not overflow and the range
-/// fits inside `mem_size`. Shared by `Runtime::write_envelope` (write side)
-/// and `Runtime::fetch_outcome_bytes` (read side).
+/// fits inside `mem_size`. Shared by `frames::write_envelope` (write side)
+/// and `frames::fetch_outcome_bytes` (read side).
 pub(super) fn guest_buffer_range(
     ptr: usize,
     len: usize,

@@ -5,7 +5,7 @@
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
 //! the `__kobako_dispatch` dispatcher reads the bound dispatch handler,
-//! while `crate::runtime::Runtime::invoke` installs the invocation's WASI
+//! while `Driver::invoke` installs the invocation's WASI
 //! context + pipes (via `frames::install_wasi_frames`) before the guest
 //! export call.
 //!
@@ -13,7 +13,7 @@
 //! and the per-invocation linear-memory
 //! delta cap `MemoryLimiter`. Both are
 //! read from the wasmtime `epoch_deadline_callback` / `ResourceLimiter`
-//! callbacks installed in `crate::runtime::Runtime::new_store`. The
+//! callbacks installed in `Driver::new_store`. The
 //! memory cap measures only the `memory.grow` delta past the linear-
 //! memory size captured at invocation entry — the image's initial
 //! allocation is outside the budget.
@@ -70,7 +70,7 @@ impl Invocation {
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr
     /// pipe clones. Called from `frames::install_wasi_frames`, which
-    /// `crate::runtime::Runtime::invoke` runs at the top of every guest
+    /// `Driver::invoke` runs at the top of every guest
     /// invocation.
     pub(super) fn install_wasi(
         &mut self,
@@ -130,21 +130,21 @@ impl Invocation {
 
     /// Replace the per-run wall-clock deadline. `Some(at)` makes the
     /// epoch-deadline callback trap once `Instant::now() >= at`; `None`
-    /// disables the cap. Called from `Runtime::prime_caps` at the top of
+    /// disables the cap. Called from `Driver::prime_caps` at the top of
     /// every invocation (`#eval` and `#run`).
     pub(super) fn set_deadline(&mut self, deadline: Option<Instant>) {
         self.deadline = deadline;
     }
 
     /// Return the current per-run deadline. Read from the epoch-deadline
-    /// callback installed by `crate::runtime::Runtime::new_store`.
+    /// callback installed by `Driver::new_store`.
     pub(super) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
 
     /// Mutable handle to the embedded `MemoryLimiter`. Required by
     /// the wasmtime `ResourceLimiter` callback wiring in
-    /// `crate::runtime::Runtime::new_store`
+    /// `Driver::new_store`
     /// (`store.limiter(|state| state.limiter_mut())`); kept private to
     /// the wasm submodule so the only public surface for arming the
     /// cap goes through `Invocation::arm_memory_cap` /

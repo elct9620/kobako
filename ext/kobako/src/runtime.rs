@@ -1,21 +1,24 @@
-// Host-side wasmtime runtime wrapper.
+// Host-side magnus shell over the wasmtime driver.
 //
 // The only Ruby-visible class is
 //
-//   Kobako::Runtime — wraps a pre-linked InstancePre + per-Runtime caps
+//   Kobako::Runtime — wraps a magnus-free `driver::Driver` + the Ruby seams
 //
 // constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
 // stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
-// instantiates a fresh instance from the InstancePre and discards the
-// whole Store afterwards — the per-invocation instance discipline
-// (ABI v2). The underlying wasmtime Engine and
-// compiled Module live in a process-scope cache (see the `cache`
+// instantiates a fresh instance and discards the whole Store afterwards —
+// the per-invocation instance discipline (ABI v2). The underlying wasmtime
+// Engine and compiled Module live in a process-scope cache (see the `cache`
 // submodule) and never surface to Ruby (SPEC.md "Code Organization":
 // `ext/` "exposes no Wasm engine types to the Host App or downstream
 // gems").
 //
 // Module layout (per CLAUDE.md principle #2 — one responsibility per file):
 //
+//   * `driver`      — the magnus-free wasmtime driver: `Driver` +
+//                     `impl contract::Runtime` (the run mechanics).
+//   * `bridge`      — the magnus dispatch bridge: `RubyDispatchHandler` +
+//                     the frame-scoped `GuestYielder` Ruby class.
 //   * `cache`       — process-wide Engine + per-path Module cache and the
 //                     process-singleton epoch ticker thread.
 //   * `config`      — per-Runtime caps (timeout / stdout / stderr limits).
@@ -29,22 +32,22 @@
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
 //   * `guest_mem`   — Caller-based guest linear-memory alloc / write / read.
 //   * `capture`     — stdout / stderr pipe sizing + clip helpers.
-//   * `trap`        — wasmtime-error → `Kobako::*` trap classification.
+//   * `trap`        — wasmtime-error → neutral `Trap` classification.
 //
-// This file owns the `Kobako::Runtime` magnus class itself (the
-// InstancePre + `Config` + the per-invocation `#eval` / `#run` run
-// path) and the Ruby init() that registers the class. The Ruby
+// This file owns the `Kobako::Runtime` magnus class itself — the Ruby
+// init() that registers the class, the byte↔`RString` shuttling, the
+// dispatch-Proc GC root, and the per-invocation usage readout. The Ruby
 // error-class lazy-resolvers and the `*_err` constructors live in the
 // `errors` submodule, which is the single boundary mapping the neutral
-// `Trap` / `SetupError` channels onto the `Kobako::*` classes; only
-// `trap_err` / `setup_err` are reached cross-module (from `dispatch` and
-// the `#eval` / `#run` path here).
+// `Trap` / `SetupError` channels onto the `Kobako::*` classes.
 
 mod ambient;
+mod bridge;
 mod cache;
 mod capture;
 mod config;
 mod dispatch;
+mod driver;
 mod errors;
 mod exports;
 mod frames;
@@ -58,33 +61,17 @@ use magnus::{function, method, prelude::*, Error as MagnusError, RModule, RStrin
 use std::cell::Cell;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
 use crate::contract::dispatch::DispatchHandler;
-use crate::contract::error::{Error, SetupError, Trap};
 use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use crate::contract::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
+use crate::contract::snapshot::{Completion, Snapshot as RuntimeSnapshot, Usage};
 use crate::snapshot::Snapshot;
-use wasmtime::{
-    AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
-};
 
-use self::cache::shared_engine;
 use self::config::Config;
-use self::exports::Exports;
-use self::invocation::Invocation;
-
-/// The wire ABI version this host implements (docs/wire-codec.md § ABI
-/// Version). A Guest Binary is accepted only when its
-/// `__kobako_abi_version` export reports the same value; a mismatch
-/// is a deterministic artifact fault. The guest-side mirror is
-/// `kobako_core::abi::ABI_VERSION`. Version 2
-/// carries the per-invocation instance discipline: the host
-/// drives every invocation on a fresh instance, so the guest may leave
-/// its VM state dirty at exit.
-const ABI_VERSION: u32 = 2;
+use self::driver::Driver;
 
 /// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline `unsafe { rstring.as_slice() }
@@ -118,7 +105,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
-    dispatch::register(runtime)?;
+    bridge::register(runtime)?;
 
     Ok(())
 }
@@ -126,27 +113,17 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime", free_immediately, size, mark)]
 struct Runtime {
-    // Pre-linked instantiation template (import wiring + type checks
-    // done once in `instance_pre::cached_instance_pre`). Every
-    // invocation instantiates a fresh instance from it and discards the
-    // whole Store afterwards — the per-invocation instance discipline.
-    instance_pre: WtInstancePre<Invocation>,
-    // Per-invocation linear-memory cap,
-    // threaded into each fresh `Invocation`; lives apart from `Config`
-    // because the wasmtime `ResourceLimiter` callback consumes it from
-    // inside the wasm engine.
-    memory_limit: Option<usize>,
-    // Wall-clock + per-channel capture caps forwarded from the Sandbox;
-    // see `Config`.
-    config: Config,
+    // The magnus-free wasmtime driver that runs every invocation; the
+    // shell only shuttles Ruby values across its boundary.
+    driver: Driver,
     // The host-side dispatch Proc, held here only
     // to give `DataTypeFunctions::mark` a read path so it can pin the
     // Proc across GC. For each invocation `build_handler` wraps a copy of
-    // this handle in a `RubyDispatchHandler`, and `invoke` binds that
-    // `Arc<dyn DispatchHandler>` onto the per-invocation `Invocation`,
-    // where the `__kobako_dispatch` import calls it — both reference the
-    // one Proc this `Opaque` pins. `Cell` is sound under the GVL (see the
-    // `unsafe impl Sync` below).
+    // this handle in a `RubyDispatchHandler`, and the driver's `invoke`
+    // binds that `Arc<dyn DispatchHandler>` onto the per-invocation
+    // `Invocation`, where the `__kobako_dispatch` import calls it — both
+    // reference the one Proc this `Opaque` pins. `Cell` is sound under the
+    // GVL (see the `unsafe impl Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
     // Usage of the most recent invocation, kept apart from the returned
     // `Snapshot` so `#usage` reads survive the per-invocation Store
@@ -217,81 +194,33 @@ impl Runtime {
             }
         };
 
-        let instance_pre = instance_pre::cached_instance_pre(Path::new(&path))
-            .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
-        let runtime = Self {
-            instance_pre,
+        let driver = Driver::new(
+            Path::new(&path),
             memory_limit,
-            config: Config {
+            Config {
                 timeout,
                 stdout_limit_bytes,
                 stderr_limit_bytes,
             },
+        )
+        .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
+        Ok(Self {
+            driver,
             on_dispatch: Cell::new(None),
             last_usage: Cell::new(Usage {
                 wall_time: 0.0,
                 memory_peak: 0,
             }),
-        };
-        runtime.probe_abi_version(&ruby)?;
-        Ok(runtime)
-    }
-
-    /// Instantiate a throwaway probe instance at construction and require
-    /// the guest's `__kobako_abi_version` export to equal `ABI_VERSION`
-    /// An absent export or a non-equal value is
-    /// a deterministic artifact fault raised as
-    /// `Kobako::SetupError`. The probe Store drops here; invocation
-    /// instances are created per `#eval` / `#run`. The frameless WASI
-    /// context keeps a third-party guest whose start section touches
-    /// WASI on the `SetupError` path instead of panicking in
-    /// `Invocation::wasi_mut`.
-    fn probe_abi_version(&self, ruby: &Ruby) -> Result<(), MagnusError> {
-        let mut store = self
-            .new_store()
-            .map_err(|e| errors::setup_to_magnus(ruby, e))?;
-        frames::install_wasi_frames(&mut store, &self.config, &[])
-            .map_err(|t| errors::setup_err(ruby, t.to_string()))?;
-        let instance = self
-            .instance_pre
-            .instantiate(store.as_context_mut())
-            .map_err(|e| errors::setup_to_magnus(ruby, trap::instantiate_err(e)))?;
-        let probe = instance
-            .get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
-            .map_err(|_| {
-                errors::setup_err(
-                    ruby,
-                    format!(
-                        "the Guest Binary does not export __kobako_abi_version; \
-                         rebuild it against ABI version {ABI_VERSION}"
-                    ),
-                )
-            })?;
-        let reported = probe.call(store.as_context_mut(), ()).map_err(|e| {
-            errors::setup_err(
-                ruby,
-                format!("failed to read the Guest Binary's ABI version: {e}"),
-            )
-        })?;
-        if reported != ABI_VERSION {
-            return Err(errors::setup_err(
-                ruby,
-                format!(
-                    "the Guest Binary reports ABI version {reported}, but this host \
-                     implements ABI version {ABI_VERSION}; rebuild the Guest Binary \
-                     against the host's version"
-                ),
-            ));
-        }
-        Ok(())
+        })
     }
 
     /// Register the Ruby-side dispatch `Proc`.
     /// Bound to Ruby as `Kobako::Runtime#on_dispatch=`. The handle is
     /// pinned by `DataTypeFunctions::mark`; for each invocation
-    /// `build_handler` wraps a copy in a `RubyDispatchHandler` and `invoke`
-    /// binds it onto the per-invocation `Invocation`, where the
-    /// `__kobako_dispatch` import reads it through `Caller<Invocation>`.
+    /// `build_handler` wraps a copy in a `RubyDispatchHandler` and the
+    /// driver's `invoke` binds it onto the per-invocation `Invocation`,
+    /// where the `__kobako_dispatch` import reads it through
+    /// `Caller<Invocation>`.
     fn set_on_dispatch(&self, proc_value: Value) -> Result<(), MagnusError> {
         self.on_dispatch.set(Some(Opaque::from(proc_value)));
         Ok(())
@@ -307,10 +236,10 @@ impl Runtime {
     /// One-shot mruby source execution (`#eval`). The Ruby-facing entry:
     /// builds the dispatch handler from the registered Proc, hands the
     /// three stdin frames (`preamble`, `source`, `snippets`) and the source
-    /// to `invoke`, and settles the returned `Snapshot` through
+    /// to the driver, and settles the returned `Snapshot` through
     /// `finish_invocation` — or maps a could-not-start `Error` onto its
     /// `Kobako::*` exception. The run mechanics — frames, caps, trap
-    /// classification — live in `invoke`.
+    /// classification — live in `driver::Driver`.
     fn eval(
         &self,
         preamble: RString,
@@ -323,6 +252,7 @@ impl Runtime {
         let source = rstring_to_vec(source);
         let snippets = rstring_to_vec(snippets);
         let snapshot = self
+            .driver
             .invoke(
                 Entry::Eval { source: &source },
                 Frames {
@@ -342,7 +272,7 @@ impl Runtime {
     /// frame — docs/wire-codec.md § Invocation channels) plus the
     /// `envelope` copied into guest linear memory; cap semantics match
     /// `#eval`. Raises `Kobako::TrapError` / `Kobako::SandboxError` per the
-    /// engine-vs-host-fault split inside `invoke`.
+    /// engine-vs-host-fault split inside the driver.
     fn run(
         &self,
         preamble: RString,
@@ -355,6 +285,7 @@ impl Runtime {
         let snippets = rstring_to_vec(snippets);
         let envelope = rstring_to_vec(envelope);
         let snapshot = self
+            .driver
             .invoke(
                 Entry::Run {
                     envelope: &envelope,
@@ -389,12 +320,12 @@ impl Runtime {
 
     /// Build the dispatch handler for one invocation from the registered
     /// `on_dispatch` Proc, or `None` when none is set. The `Opaque` the
-    /// handler wraps stays GC-rooted by `Runtime`'s `mark`, so `invoke`
+    /// handler wraps stays GC-rooted by `Runtime`'s `mark`, so the driver
     /// only borrows it for the call (the safety contract on
     /// `crate::contract::runtime::Runtime`).
     fn build_handler(&self) -> Option<Arc<dyn DispatchHandler>> {
         self.on_dispatch.get().map(|proc| {
-            Arc::new(dispatch::RubyDispatchHandler::new(proc)) as Arc<dyn DispatchHandler>
+            Arc::new(bridge::RubyDispatchHandler::new(proc)) as Arc<dyn DispatchHandler>
         })
     }
 
@@ -406,10 +337,9 @@ impl Runtime {
     ///
     ///   * `wall_time` (Float seconds) — the wall-clock duration the
     ///     most recent invocation spent inside the guest export call.
-    ///     Bracket opens in `Runtime::prime_caps` and closes in
-    ///     `disarm_caps`, so the value mirrors the `timeout` deadline
-    ///     accounting and excludes everything that runs after the guest
-    ///     export returns. `0.0` before the first invocation.
+    ///     The bracket mirrors the `timeout` deadline accounting and
+    ///     excludes everything that runs after the guest export
+    ///     returns. `0.0` before the first invocation.
     ///   * `memory_peak` (Integer bytes) — the high-water mark of the
     ///     per-invocation `memory.grow` delta past the linear-memory
     ///     size captured at invocation entry. `0` before the first
@@ -425,185 +355,4 @@ impl Runtime {
         arr.push(usage.memory_peak)?;
         Ok(arr)
     }
-
-    // -----------------------------------------------------------------
-    // Private helpers.
-    // -----------------------------------------------------------------
-
-    /// Build the per-invocation Store: a fresh `Invocation` wired with
-    /// the memory limiter, the epoch-deadline callback, and the
-    /// registered dispatch Proc.
-    fn new_store(&self) -> Result<WtStore<Invocation>, SetupError> {
-        let mut store = WtStore::new(shared_engine()?, Invocation::new(self.memory_limit));
-        store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
-        store.epoch_deadline_callback(trap::epoch_deadline_callback);
-        Ok(store)
-    }
-
-    /// Instantiate the per-invocation instance from the pre-linked
-    /// template and resolve its host-driven export handles. An
-    /// instantiation failure at invocation time is an engine fault —
-    /// `Kobako::TrapError` — unlike the construction-time probe, whose
-    /// failure is `SetupError`.
-    fn instantiate(&self, store: &mut WtStore<Invocation>) -> Result<Exports, Trap> {
-        let instance = self
-            .instance_pre
-            .instantiate(store.as_context_mut())
-            .map_err(|e| Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}")))?;
-        Ok(Exports::resolve(&instance, store.as_context_mut()))
-    }
-
-    /// Run one guest export call inside the per-invocation cap window:
-    /// `Runtime::prime_caps` before, `disarm_caps` after — the shared
-    /// bracket for both run-path exports (`__kobako_eval` /
-    /// `__kobako_run`). Disarm runs whether the call returns or traps, so
-    /// the `wall_time` bracket and the memory
-    /// cap always close — that close-on-trap guarantee is the reason this
-    /// bracket lives in one place rather than inline at each call site.
-    /// The wasmtime trap is returned unmapped; the caller classifies it
-    /// through `trap::trap_from`.
-    fn call_with_caps<Params, Results>(
-        &self,
-        store: &mut WtStore<Invocation>,
-        exports: &Exports,
-        export: &TypedFunc<Params, Results>,
-        params: Params,
-    ) -> Result<Results, wasmtime::Error>
-    where
-        Params: wasmtime::WasmParams,
-        Results: wasmtime::WasmResults,
-    {
-        self.prime_caps(store, exports);
-        let result = export.call(store.as_context_mut(), params);
-        disarm_caps(store);
-        result
-    }
-
-    /// Stamp the per-invocation wall-clock deadline into `Invocation`
-    /// and prime the wasmtime epoch deadline so the next ticker tick
-    /// wakes the epoch-deadline callback. When `timeout` is disabled,
-    /// the deadline is set far enough in the future that the callback
-    /// effectively never fires.
-    ///
-    /// Also captures the current linear-memory size as the baseline
-    /// for the per-invocation memory delta cap —
-    /// the pre-initialized image's allocation is folded into the
-    /// baseline rather than the budget — and stamps the wall-clock
-    /// entry instant for the `wall_time`
-    /// measurement. The bracket closes in `disarm_caps` so it matches
-    /// the `timeout` deadline window and excludes `OUTCOME_BUFFER`
-    /// decoding and stdout / stderr capture readout.
-    fn prime_caps(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
-        match self.config.timeout {
-            Some(timeout) => {
-                let deadline = Instant::now() + timeout;
-                store.data_mut().set_deadline(Some(deadline));
-                store.set_epoch_deadline(1);
-            }
-            None => {
-                store.data_mut().set_deadline(None);
-                store.set_epoch_deadline(u64::MAX);
-            }
-        }
-        let baseline = match exports.memory {
-            Some(m) => m.data_size(store.as_context_mut()),
-            None => 0,
-        };
-        store.data_mut().arm_memory_cap(baseline);
-        store.data_mut().start_wall_clock();
-    }
-
-    /// Bundle one invocation's observables into a fresh `Snapshot`,
-    /// uniformly for every `completion` — the clipped captures and the
-    /// cap-bracket usage must survive a trap just as they do an outcome.
-    fn build_snapshot(
-        &self,
-        store: &WtStore<Invocation>,
-        completion: Completion,
-    ) -> RuntimeSnapshot {
-        let data = store.data();
-        let usage = Usage {
-            wall_time: data.wall_time().as_secs_f64(),
-            memory_peak: data.memory_peak(),
-        };
-        let (stdout_raw, stderr_raw) = (data.stdout_bytes(), data.stderr_bytes());
-        let (stdout_visible, stdout_truncated) =
-            capture::clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
-        let (stderr_visible, stderr_truncated) =
-            capture::clip_capture(&stderr_raw, self.config.stderr_limit_bytes);
-        RuntimeSnapshot {
-            completion,
-            stdout: Capture {
-                bytes: stdout_visible.to_vec(),
-                truncated: stdout_truncated,
-            },
-            stderr: Capture {
-                bytes: stderr_visible.to_vec(),
-                truncated: stderr_truncated,
-            },
-            usage,
-        }
-    }
-}
-
-impl ContractRuntime for Runtime {
-    /// Drive one guest invocation on a fresh instance and return its
-    /// `Snapshot`, `Ok` iff the guest export ran. Builds a fresh Store,
-    /// binds the borrowed dispatch handler, installs the stdin frames
-    /// (three for `Eval` — preamble / source / snippets; two for `Run` —
-    /// preamble / snippets, with the envelope copied into guest memory),
-    /// and primes the per-invocation caps around the export call. A fault
-    /// before the export call is the `Err` channel; once the call starts,
-    /// every fault folds into the Snapshot's `Completion` — the
-    /// configured-cap paths as `Trap::Timeout` / `Trap::MemoryLimit`,
-    /// everything else as `Trap::Other` — so captures and usage survive
-    /// it. The body touches no Ruby value — the handler is only borrowed
-    /// (see the trait's safety contract).
-    fn invoke(
-        &self,
-        entry: Entry<'_>,
-        frames: Frames<'_>,
-        handler: Option<Arc<dyn DispatchHandler>>,
-    ) -> Result<RuntimeSnapshot, Error> {
-        let mut store = self.new_store()?;
-        if let Some(handler) = handler {
-            store.data_mut().bind_on_dispatch(handler);
-        }
-        let frame_list: Vec<&[u8]> = match &entry {
-            Entry::Eval { source } => vec![frames.preamble, source, frames.snippets],
-            Entry::Run { .. } => vec![frames.preamble, frames.snippets],
-        };
-        frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
-        let exports = self.instantiate(&mut store)?;
-        let called = match entry {
-            Entry::Eval { .. } => {
-                let eval = frames::require_export(exports.eval.as_ref())?;
-                self.call_with_caps(&mut store, &exports, eval, ())
-            }
-            Entry::Run { envelope } => {
-                let run = frames::require_export(exports.run.as_ref())?;
-                let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
-                self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
-            }
-        };
-        let completion = match called {
-            Ok(()) => match frames::fetch_outcome_bytes(&mut store, &exports) {
-                Ok(bytes) => Completion::Outcome(bytes),
-                Err(t) => Completion::Trap(t),
-            },
-            Err(e) => Completion::Trap(trap::trap_from(e)),
-        };
-        Ok(self.build_snapshot(&store, completion))
-    }
-}
-
-/// Drop the memory cap as soon as the guest call returns so that
-/// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
-/// which can grow guest memory transiently) is not attributed to
-/// the user script. Also closes the
-/// `wall_time` bracket opened by `Runtime::prime_caps`. Paired
-/// with `Runtime::prime_caps`.
-fn disarm_caps(store: &mut WtStore<Invocation>) {
-    store.data_mut().stop_wall_clock();
-    store.data_mut().disarm_memory_cap();
 }
