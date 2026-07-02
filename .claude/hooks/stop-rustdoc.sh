@@ -17,5 +17,6 @@ doc() {
 }
 
 doc host --manifest-path "$root/Cargo.toml" --workspace
+doc crates --manifest-path "$root/crates/Cargo.toml" --workspace
 doc wasm --manifest-path "$root/wasm/Cargo.toml" --workspace
 doc baker --manifest-path "$root/wasm/kobako-baker/Cargo.toml"

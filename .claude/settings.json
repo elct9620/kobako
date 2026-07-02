@@ -29,7 +29,7 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-clippy.sh",
-            "statusMessage": "cargo clippy -D warnings (host + wasm + baker + wasm32 workspaces)"
+            "statusMessage": "cargo clippy -D warnings (host + crates + wasm + baker + wasm32 workspaces)"
           },
           {
             "type": "command",

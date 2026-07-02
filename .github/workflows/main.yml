@@ -39,6 +39,7 @@ jobs:
         with:
           workspaces: |
             .
+            crates
             wasm/kobako-wasm
       - name: Run the default task
         run: bundle exec rake
@@ -46,12 +47,17 @@ jobs:
         run: .github/scripts/report-tooling-tests.sh
       - name: Rust unit tests (kobako-wasm, host target)
         run: bundle exec rake wasm:test
-      - name: cargo fmt --check (ext + wasm crate)
+      - name: Rust unit tests (crates/ host workspace)
+        run: bundle exec rake crates:test
+      - name: cargo fmt --check (ext + crates + wasm crate)
         run: |
           cargo fmt --manifest-path ext/kobako/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/Cargo.toml --all -- --check
           cargo fmt --manifest-path wasm/kobako-wasm/Cargo.toml -- --check
       - name: cargo clippy (ext, host target)
         run: cargo clippy --manifest-path ext/kobako/Cargo.toml -- -D warnings
+      - name: cargo clippy (crates/, host workspace)
+        run: cargo clippy --manifest-path crates/Cargo.toml --workspace --all-targets -- -D warnings
       - name: cargo clippy (kobako-wasm, wasm32-wasip1)
         # beni-sys requires the Stage B archive paths explicitly on
         # cross targets; "Run the default task" above built them.

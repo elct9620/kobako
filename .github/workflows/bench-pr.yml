@@ -13,6 +13,7 @@ on:
     paths:
       - 'lib/**'
       - 'ext/**'
+      - 'crates/**'
       - 'wasm/**'
       - 'benchmark/**'
       - 'Cargo.toml'
@@ -60,6 +61,7 @@ jobs:
         with:
           workspaces: |
             .
+            crates
             wasm/kobako-wasm
       - name: Benchmark PR head vs base (same-runner A/B)
         env:

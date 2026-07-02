@@ -1,7 +1,8 @@
 #!/bin/bash
-# Stop: clippy gate over every workspace — host ext, wasm sub-workspace,
-# and the standalone kobako-baker — plus the wasm32-wasip1 cross check
-# when the target toolchain and the Stage B archive are both present.
+# Stop: clippy gate over every workspace — host ext, crates/ host
+# crates, wasm sub-workspace, and the standalone kobako-baker — plus
+# the wasm32-wasip1 cross check when the target toolchain and the
+# Stage B archive are both present.
 set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:?}"
@@ -16,6 +17,7 @@ clippy() {
 }
 
 clippy host --manifest-path "$root/Cargo.toml" --workspace --all-targets
+clippy crates --manifest-path "$root/crates/Cargo.toml" --workspace --all-targets
 clippy wasm --manifest-path "$root/wasm/Cargo.toml" --workspace --all-targets
 clippy baker --manifest-path "$root/wasm/kobako-baker/Cargo.toml" --all-targets
 
