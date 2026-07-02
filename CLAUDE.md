@@ -24,7 +24,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 5. **Document Ruby in RDoc prose.** Match the existing style — wrap identifiers in `+code+`, state intent rather than citing behavior anchors (Principle 1), no YARD tags (`@param` / `@return` / `@raise`); migrate stale tags when touching nearby code. `lib/kobako/catalog/handles.rb` is the worked example.
 
-   **In Rust, wrap identifiers in backtick code spans (`` `Invocation` ``); do not use rustdoc intra-doc links (`` [`Invocation`] ``)** — they rot silently on renames and cannot target private items. The Stop hook gates this (`cargo doc -D warnings --document-private-items`, both workspaces); reference-style file links to a format/contract doc (e.g. `[wire codec]: ../wire-codec.md`) are not intra-doc links and stay, but per Principle 1 these are doc pointers, not behavior-anchor citations.
+   **In Rust, wrap identifiers in backtick code spans (`` `Invocation` ``); do not use rustdoc intra-doc links (`` [`Invocation`] ``)** — they rot silently on renames and cannot target private items. The Stop hook gates this (`cargo doc -D warnings --document-private-items`, every workspace); reference-style file links to a format/contract doc (e.g. `[wire codec]: ../wire-codec.md`) are not intra-doc links and stay, but per Principle 1 these are doc pointers, not behavior-anchor citations.
 
 6. **Docs and comments state intent in 1–2 sentences; don't explain mechanism.** A doc or comment block answers "what + why" — mechanism is what the code already shows. Drop chained rationale, generic SE narration, and grep-discoverable enumerations; in implementation comments a worked-example pointer (file path, named migration) replaces enumerated cases — behavior-anchor citations belong in tests and prose docs, not here (Principle 1). Applies to RDoc, Rust doc comments, `docs/*.md`, and CLAUDE.md itself.
 
@@ -32,7 +32,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 8. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
 
-9. **Commit lock files.** Both `Cargo.lock` (workspace root) and `Gemfile.lock` ship alongside the dependency changes that produced them.
+9. **Commit lock files.** Every workspace's `Cargo.lock` (root, `crates/`, `wasm/`) and `Gemfile.lock` ship alongside the dependency changes that produced them.
 
 10. **Lock external interfaces before pruning internals.** Settle the outward-facing API first, then prune what sits behind it. Worked example: the `Kobako::Outcome` migration (decode-boundary rename + lift → wire-format simplification → internal absorption), each step kept the previous step's external surface intact.
 
@@ -40,7 +40,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 ## Build Pipeline
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm/build.rake` — including the non-obvious linker choice). Stage C ends with the `kobako-baker` bake (`wasm/kobako-baker`, host-side standalone crate): the canonical boot state (B-49) is pre-initialized into every shipped artifact, gated by a double-bake byte-identity check (F-10). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/`, host-side `wasmtime` via `rb_sys`, not the guest).
+The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm/build.rake` — including the non-obvious linker choice). Stage C ends with the `kobako-baker` bake (`wasm/kobako-baker`, host-side standalone crate): the canonical boot state (B-49) is pre-initialized into every shipped artifact, gated by a double-bake byte-identity check (F-10). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/` plus its `crates/` path dependencies — host-side `wasmtime` via `rb_sys`, not the guest).
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp is opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
 
@@ -60,6 +60,7 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Guest crate host-only tests (wasm32 has no test runner) | `bundle exec rake wasm:test` |
 | Guest crate `cargo check` | `bundle exec rake wasm:check` |
+| Host crate unit tests (`crates/` workspace) | `bundle exec rake crates:test` |
 | Clean Stage B / Stage C | `rake beni:clean` / `rake wasm:clean` |
 | Clean vendor toolchains | `rake beni:vendor:clean` (keeps tarball cache) or `rake beni:vendor:clobber` |
 | Interactive REPL with gem loaded | `bin/console` |
@@ -70,9 +71,9 @@ CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (
 
 ## Layering
 
-### Three modules across the wasm boundary
+### The source trees across the wasm boundary
 
-kobako is three source trees that meet at the wasm sandbox boundary. Host and guest are deliberately **wire-symmetric**; `ext/` is the driver that connects them.
+Host and guest meet at the wasm sandbox boundary and are deliberately **wire-symmetric**; `crates/kobako-wasmtime` is the driver that connects them, behind the `crates/kobako-runtime` contract, with `ext/` as the magnus shim on top.
 
 ```
 HOST (process)                                  │  GUEST (wasm32, one Sandbox)
@@ -95,16 +96,16 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │  beni / beni-sys  — typed wrapper + FFI
        │                                         │    (crates.io) → libmruby.a (mruby C API)
        ▼                                         │       ▲  kobako-wasm → kobako · kobako-io ·
-ext/  — Rust native ext (magnus + wasmtime)      │       │    kobako-regexp · kobako-core; kobako →
-  Runtime (Exports, Config) · Invocation ·       │       │    core · beni; kobako-io/-regexp → beni
-  dispatch · guest_mem · cache · Snapshot        │       │
+ext/  — magnus shim over the crates/ driver      │       │    kobako-regexp · kobako-core; kobako →
+  runtime.rs shell · bridge · errors · Snapshot  │       │    core · beni; kobako-io/-regexp → beni
+crates/ — kobako-runtime + kobako-wasmtime       │       │
        └─────────── drives the ABI ─── wasm ─────┼───────┘
                     (alloc / eval / run / take_outcome / dispatch / yield)
 ```
 
 - **`lib/` ↔ `wasm/kobako-core` are wire-symmetric peers.** Each independently implements the same SPEC wire so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this); the one asymmetry that stays is the error model — success/failure is a value on the guest (`Outcome` enum) but return-or-raise on the host.
 - **Four publishable guest crates, one shell, one bake tool.** Crate roles live in the stack diagram below; `wasm/kobako-wasm` is the unpublished cdylib-only shell composing them into `data/kobako.wasm`, the same path any third-party guest takes. `wasm/kobako-baker` (publishable, host-side, standalone `[workspace]` — wizer/wasmtime must never enter the wasm32 graph) bakes the canonical boot state into any kobako guest artifact. Published-crate internals follow the beni placeholder rule (compile on every target, fail at runtime); only `kobako` additionally mirrors the `mruby_linked` cfg in its build.rs.
-- **`ext/` is the host's wasmtime driver, not a wire endpoint.** It drives the ABI exports and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes itself.
+- **The host's wasmtime driver is `crates/kobako-wasmtime`, not a wire endpoint.** It implements the `crates/kobako-runtime` contract, drives the ABI exports, and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes. `ext/` is the magnus shim over it; the gem ships both crates as the ext's path-dependency closure (see the gemspec allowlist).
 - **The typed mruby wrapper is the published `beni` crate** ([elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by the guest crates; its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by `rake wasm:build`). Wrapper-tier changes are beni contributions consumed here by a dependency bump — see beni's own CLAUDE.md for its layering and API surface.
 
 ### `lib/` tier stack
@@ -130,28 +131,30 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 
 **Accepted lateral edge:** `Outcome` requires `transport/error.rb`. The `Kobako::Transport::Error` name is SPEC-pinned (SPEC.md "Wire-level error class"), so the class stays at its namespace path; the file itself depends only on root `errors.rb`, so the edge cannot close into a cycle. Do not relocate the definition to "fix" this.
 
-### `ext/` tier stack (Rust native ext, host)
+### Host native stack (`ext/` + `crates/`)
 
-`runtime.rs` (module root) owns the `Kobako::Runtime` magnus class and drives the tiers below it; `Kobako::Snapshot` (`src/snapshot.rs`) is the ext's **root** value object — pure per-invocation carrier (`return_bytes` + capture + usage).
+The magnus surface lives only in `ext/kobako`; the engine mechanics live in `crates/kobako-wasmtime` behind the engine-free `crates/kobako-runtime` contract — the surface a non-Ruby host consumes. Both crates ship inside the gem as the ext's path dependencies (the `crates/` workspace manifest never ships, so member manifests use no `workspace = true` inheritance).
 
 ```
-Runtime          runtime.rs — Kobako::Runtime class (#from_path / #eval / #run / #usage)
+Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc GC
+      │           root, usage Cell) · runtime/bridge.rs (RubyDispatchHandler +
+      │           GuestYielder) · runtime/errors.rs (neutral channels →
+      │           Kobako::* classes) · snapshot.rs (success-only carrier)
       │
-Run mechanics    runtime/{dispatch, guest_mem, trap, capture, ambient, instance_pre}
-      │            dispatch (__kobako_dispatch) · guest_mem (Caller alloc/write/read)
-      │            · trap (error→Kobako::*) · capture (stdout/stderr clip)
-      │            · ambient (frozen WASI clocks + constant RNG, B-45)
-      │            · instance_pre (Linker wiring + per-path InstancePre cache)
+Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechanics
+      │           driver (caps bracket, ABI probe) · dispatch (__kobako_dispatch)
+      │           · guest_mem (Caller alloc/write/read + CallerYielder) · trap
+      │           (wasmtime error → neutral Trap) · capture · ambient (B-45)
+      │           · instance_pre (Linker + per-path InstancePre cache)
+      │           · invocation / exports / config (per-Store state) · cache
+      │           (process-wide Engine + Module + epoch ticker)
       │
-Per-Store state  runtime/{invocation, exports, config}
-      │            Invocation + StoreCell + MemoryLimiter · Exports (cached handles) · Config (caps)
-      │
-Process cache    runtime/cache — shared Engine + per-path Module + epoch ticker
-                   (Invocation-free; the InstancePre cache sits above because
-                   its type and linker wiring depend on Invocation + dispatch)
+Contract        crates/kobako-runtime — trait Runtime · DispatchHandler · Yielder
+                  · Snapshot{Completion, Capture, Usage} · Trap · SetupError
+                  (engine-free, frontend-free)
 ```
 
-In `runtime.rs`, reference siblings as bare `dispatch::` / `trap::` (not `super::`, not `use self::dispatch;`).
+Inside `kobako-wasmtime`, sibling modules reference each other as `crate::dispatch` / `crate::trap` (not `super::`).
 
 ### Guest crate stack (`wasm/`)
 
@@ -208,13 +211,13 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 |-------|--------------|-------|
 | Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/` (envelopes: `request.rb` / `response.rb` / `run.rb` / `yield.rb`); guest `wasm/kobako-core/src/{codec.rs,transport/}` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior/errors.md`. |
-| Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `ext/kobako/src/runtime.rs`; guest `wasm/kobako/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
+| Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
 | Guest Regexp / MatchData | `wasm/kobako-regexp/src/{regexp,matchdata,string_ext,translate}.rs` | Pure-Rust `beni::Gem` over `fancy-regex`; self-defines `RegexpError`; byte-based offsets; `translate.rs` rewrites Ruby `\d\w\s`→ASCII + flag mapping. SPEC B-41. |
 | Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
 | Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-13..B-21 in `docs/behavior/dispatch.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Namespaces` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job. |
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live at `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`). |
-| ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako/src/flows.rs` ↔ `ext/kobako/src/runtime.rs` | — |
+| ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/runtime/test_runtime.rb`) covers only `from_path`. |
 | mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
