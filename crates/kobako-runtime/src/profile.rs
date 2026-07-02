@@ -26,14 +26,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ladder_orders_permissive_below_hermetic() {
-        assert!(Profile::Permissive < Profile::Hermetic);
-    }
-
-    #[test]
     fn a_declaration_satisfies_any_floor_at_or_below_it() {
         assert!(Profile::Hermetic >= Profile::Hermetic);
         assert!(Profile::Hermetic >= Profile::Permissive);
-        assert!(!(Profile::Permissive >= Profile::Hermetic));
+        assert!(Profile::Permissive < Profile::Hermetic);
     }
 }

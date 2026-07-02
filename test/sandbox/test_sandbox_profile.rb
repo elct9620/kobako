@@ -25,9 +25,16 @@ class TestSandboxProfile < Minitest::Test
                  "profile: :permissive through Sandbox.new must construct on the hermetic runtime and read back"
   end
 
-  def test_profile_outside_the_ladder_is_rejected_before_engine_work
-    assert_raises(ArgumentError, "a non-ladder profile through Sandbox.new must be rejected at pre-flight (E-39)") do
+  # Sandbox.new forwards every non-wasm_path keyword verbatim to
+  # SandboxOptions, so both option validation (E-39, covered per value
+  # in test_sandbox_options.rb) and unknown-keyword rejection surface
+  # through the Sandbox entry point unchanged.
+  def test_option_keywords_forward_to_sandbox_options_rejection
+    assert_raises(ArgumentError, "a non-ladder profile through Sandbox.new must be rejected (E-39)") do
       Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :sealed)
+    end
+    assert_raises(ArgumentError, "an unknown keyword through Sandbox.new must be rejected") do
+      Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, bogus: 1)
     end
   end
 
