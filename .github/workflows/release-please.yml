@@ -22,6 +22,8 @@ jobs:
       json_release_created: ${{ steps.release.outputs['wasm/kobako-json--release_created'] }}
       regexp_release_created: ${{ steps.release.outputs['wasm/kobako-regexp--release_created'] }}
       baker_release_created: ${{ steps.release.outputs['wasm/kobako-baker--release_created'] }}
+      runtime_release_created: ${{ steps.release.outputs['crates/kobako-runtime--release_created'] }}
+      wasmtime_release_created: ${{ steps.release.outputs['crates/kobako-wasmtime--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -41,11 +43,11 @@ jobs:
 
   # The crate release chains the same way, keyed on the per-path outputs
   # of the crate packages (the root gem keeps the unprefixed outputs).
-  # The linked-versions group releases the five crates together; the OR
+  # The linked-versions group releases all the crates together; the OR
   # keeps the chain alive if one output ever drops.
   release-crate:
     needs: release-please
-    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.json_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created }}
+    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.rs_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.json_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created || needs.release-please.outputs.runtime_release_created || needs.release-please.outputs.wasmtime_release_created }}
     uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 
