@@ -1,8 +1,9 @@
 //! kobako-runtime — engine-neutral host runtime contract.
 //!
 //! The surface where a wasm engine implementation and a host frontend
-//! meet: the `Runtime` trait, the neutral per-invocation value types,
-//! and the dispatch / yield re-entry traits a frontend supplies.
+//! meet: the `Runtime` trait, the isolation `Profile` a runtime
+//! declares, the neutral per-invocation value types, and the
+//! dispatch / yield re-entry traits a frontend supplies.
 //! Nothing here depends on an engine or a frontend type — each engine
 //! hides its own machinery behind `Runtime`, and each frontend maps
 //! these shapes onto its own host-language surface at its boundary

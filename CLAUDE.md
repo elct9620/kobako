@@ -155,8 +155,8 @@ Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechan
       │           (process-wide Engine + Module + epoch ticker)
       │
 Contract        crates/kobako-runtime — trait Runtime · DispatchHandler · Yielder
-                  · Snapshot{Completion, Capture, Usage} · Trap · SetupError
-                  (engine-free, frontend-free)
+                  · Profile(declared isolation ladder) · Snapshot{Completion,
+                  Capture, Usage} · Trap · SetupError  (engine-free, frontend-free)
 ```
 
 Inside `kobako-wasmtime`, sibling modules reference each other as `crate::dispatch` / `crate::trap` (not `super::`).
