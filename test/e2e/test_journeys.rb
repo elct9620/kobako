@@ -44,6 +44,23 @@ class TestE2EJourneys < Minitest::Test
     refute_kind_of Kobako::TrapError, err
   end
 
+  # docs/behavior/errors.md E-05: source that fails to compile is rejected
+  # before any execution begins, so a syntactically invalid script — the
+  # common shape of model-generated code — raises SandboxError and never
+  # runs the statements preceding the error.
+  def test_j01_syntax_error_source_raises_sandbox_error_before_execution
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.eval('puts "reached execution"; 1 +')
+    end
+
+    assert_equal "sandbox", err.origin,
+                 "syntactically invalid source through #eval must raise a sandbox-origin SandboxError"
+    assert_empty sandbox.stdout,
+                 "source that fails to compile through #eval must not execute the statements preceding the error"
+  end
+
   # SPEC.md "Panic Envelope" L876 — the +backtrace+ field is an array of
   # str carrying the mruby backtrace. The guest must populate it from the
   # mruby Exception object so the Host App can see where the failure
