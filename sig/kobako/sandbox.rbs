@@ -48,8 +48,10 @@ module Kobako
 
     def read_usage!: () -> void
 
+    def read_captures!: () -> void
+
     def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
 
-    def invoke!: (Symbol verb) { () -> Kobako::Snapshot } -> untyped
+    def invoke!: (Symbol verb) { () -> String } -> untyped
   end
 end

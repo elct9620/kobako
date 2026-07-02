@@ -20,9 +20,8 @@ rescue LoadError => e
   # codec / transport / catalog / outcome unit tests still run on a clean
   # checkout — and a new pure-Ruby module wired into that graph is picked up
   # automatically, no list to keep in sync with lib/kobako.rb. Kobako::Runtime
-  # and Kobako::Snapshot stay undefined on purpose (sandbox.rb pulls neither),
-  # so the ext-dependent tests skip on `defined?(Kobako::Runtime)` /
-  # `defined?(Kobako::Snapshot)`.
+  # stays undefined on purpose (sandbox.rb does not pull it), so the
+  # ext-dependent tests skip on `defined?(Kobako::Runtime)`.
   require "kobako/version"
   require "kobako/sandbox"
   # Pool sits above the sandbox aggregator (the checkout layer), so it is

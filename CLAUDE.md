@@ -14,7 +14,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 2. **One thing per file; keep files small.** Split a growing module into a façade plus per-responsibility files in a sibling directory — `Kobako::Transport` and `Kobako::Snippet` are the worked examples. In guest capability gems, a file extending an existing core class takes the `_ext` suffix (`string_ext.rs`, `kernel_ext.rs`); a file defining a new class takes the class name.
 
-   **Types nest under a Module, not a Class.** Place new types at the top level (`Kobako::Capture`, `Kobako::Snapshot`) or under a Module (`Kobako::Transport::Request`, `Kobako::Outcome::Panic`); a stateful Class is per-instance and should not double as the namespace for sibling types.
+   **Types nest under a Module, not a Class.** Place new types at the top level (`Kobako::Capture`, `Kobako::Usage`) or under a Module (`Kobako::Transport::Request`, `Kobako::Outcome::Panic`); a stateful Class is per-instance and should not double as the namespace for sibling types.
 
 3. **Keep it simple. Don't pre-abstract.** Model exactly what SPEC requires — no speculative interfaces, parallel hierarchies, or defensive layers. Three similar lines beats a premature abstraction; avoid feature flags and back-compat shims when the code can just change.
 
@@ -99,7 +99,7 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │    (crates.io) → libmruby.a (mruby C API)
        ▼                                         │       ▲  kobako-wasm → kobako · kobako-io ·
 ext/  — magnus shim over the crates/ driver      │       │    kobako-regexp · kobako-json · kobako-core;
-  runtime.rs shell · bridge · errors · Snapshot  │       │    kobako → core · beni; io/-regexp/-json → beni
+  runtime.rs shell · bridge · errors             │       │    kobako → core · beni; io/-regexp/-json → beni
 crates/ — kobako-runtime + kobako-wasmtime       │       │
        └─────────── drives the ABI ─── wasm ─────┼───────┘
                     (alloc / eval / run / take_outcome / dispatch / yield)
@@ -115,7 +115,7 @@ crates/ — kobako-runtime + kobako-wasmtime       │       │
 Dependencies point downward — a tier may use the tiers below it, never above. The non-obvious tier is the **root** of dependency-free value objects: they live at `Kobako::*`, *not* under the layer that consumes them, so a lower layer can use them without an upward dependency.
 
 ```
-Orchestration   Kobako::Pool, Kobako::Sandbox, Kobako::Runtime (+ ext), Kobako::Snapshot
+Orchestration   Kobako::Pool, Kobako::Sandbox, Kobako::Runtime (+ ext)
       │
 Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
       │
@@ -139,9 +139,9 @@ The magnus surface lives only in `ext/kobako`; the engine mechanics live in `cra
 
 ```
 Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc GC
-      │           root, usage Cell) · runtime/bridge.rs (RubyDispatchHandler +
-      │           GuestYielder) · runtime/errors.rs (neutral channels →
-      │           Kobako::* classes) · snapshot.rs (success-only carrier)
+      │           root, per-outcome usage / capture readouts) · runtime/bridge.rs
+      │           (RubyDispatchHandler + GuestYielder) · runtime/errors.rs
+      │           (neutral channels → Kobako::* classes)
       │
 Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechanics
       │           driver (caps bracket, ABI probe) · dispatch (__kobako_dispatch)

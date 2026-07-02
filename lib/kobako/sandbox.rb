@@ -45,7 +45,9 @@ module Kobako
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
     # any invocation; the byte content never contains a truncation sentinel,
-    # so use +#stdout_truncated?+ to observe overflow.
+    # so use +#stdout_truncated?+ to observe overflow. Populated on every
+    # outcome — including a rescued +TrapError+, after which it holds the
+    # bytes written before the trap fired — mirroring +#usage+.
     def stdout
       @stdout_capture.bytes
     end
@@ -242,8 +244,8 @@ module Kobako
     # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
     # and +Kobako::ServiceError+. +Runtime#usage+ is the single source for
     # both paths: the figures are stashed in the ext on every outcome, so
-    # unlike the +Snapshot+ (built only on success) the readout here also
-    # covers the trap path.
+    # the readout here also covers the trap path, where +Runtime#eval+ /
+    # +#run+ raise instead of returning outcome bytes.
     #
     # The ext returns a positional 2-tuple +[wall_time, memory_peak]+
     # whose order matches the +Kobako::Usage+ field order; the
@@ -269,33 +271,51 @@ module Kobako
       end
     end
 
+    # Read the per-last-invocation output captures from the ext and wrap
+    # them as +Kobako::Capture+ value objects. Runs in the +invoke!+
+    # +ensure+ block next to {#read_usage!} for the same reason: the ext
+    # stashes the captures on every outcome, so the readout also covers
+    # the trap path, where +Runtime#eval+ / +#run+ raise instead of
+    # returning outcome bytes — +#stdout+ / +#stderr+ keep the guest's
+    # partial output readable after a rescue.
+    #
+    # The ext returns a positional 4-tuple
+    # +[stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated]+;
+    # the destructure-then-kwargs handoff below is the explicit
+    # positional→keyword conversion point.
+    def read_captures!
+      stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated = @runtime.captures
+      @stdout_capture = Capture.new(bytes: stdout_bytes, truncated: stdout_truncated)
+      @stderr_capture = Capture.new(bytes: stderr_bytes, truncated: stderr_truncated)
+    end
+
     # Shared prologue / epilogue + trap-class translator for both
     # invocation verbs. +verb+ is +:eval+ or +:run+; it tags the
     # TrapError message so the failing export is identifiable.
     #
-    # The yielded block must return a +Kobako::Snapshot+ — i.e. the
-    # value of +Runtime#eval+ / +#run+. The success path unpacks
-    # +#stdout+ / +#stderr+ into
-    # +Capture+ and feeds +#return_bytes+ to +Outcome.decode+; usage is
-    # populated by the +ensure+ readout ({#read_usage!}) on every outcome.
+    # The yielded block must return the invocation's raw outcome bytes —
+    # i.e. the value of +Runtime#eval+ / +#run+ — which the success path
+    # feeds to +Outcome.decode+. Captures and usage are populated by the
+    # +ensure+ readouts ({#read_usage!} / {#read_captures!}) on every
+    # outcome, so +#stdout+ / +#stderr+ / +#usage+ stay readable after a
+    # rescued trap.
     # The rescue chain is the single trap-translation boundary —
     # configured-cap paths surface as named TrapError subclasses
     # (+TimeoutError+ / +MemoryLimitError+); everything else surfaces as
     # the base +TrapError+.
     def invoke!(verb)
       begin_invocation!
-      snapshot = yield
-      @stdout_capture = snapshot.stdout
-      @stderr_capture = snapshot.stderr
+      return_bytes = yield
       # A Capability Handle in the result is decoded as a Kobako::Handle
       # token; restore it to the host object the guest referenced before
       # handing the value to the Host App. @handler still holds this
       # invocation's table — reset only happens at the next #begin_invocation!.
-      Codec::HandleWalk.deep_restore(Outcome.decode(snapshot.return_bytes), @handler)
+      Codec::HandleWalk.deep_restore(Outcome.decode(return_bytes), @handler)
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure
       read_usage!
+      read_captures!
     end
   end
 end

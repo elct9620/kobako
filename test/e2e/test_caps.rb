@@ -112,6 +112,78 @@ class TestE2ECaps < Minitest::Test
                  "within-budget eval must succeed under a re-anchored cap window"
   end
 
+  # SPEC.md B-04 / E-19: the output buffers are populated on every
+  # invocation outcome, so the bytes a guest wrote before a wall-clock
+  # trap stay readable after the rescue. The guest writes both channels
+  # in the one run — the trap kills the instance mid-invocation, the one
+  # moment the two capture pipes could plausibly diverge — and this case
+  # asserts the stdout half; the stderr half is the case below.
+  def test_partial_stdout_readable_after_timeout_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+
+    assert_raises(Kobako::TimeoutError) do
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+    end
+
+    assert_equal "out before trap\n", sandbox.stdout,
+                 "stdout written before a TimeoutError must stay readable " \
+                 "after the rescue per SPEC.md B-04"
+    refute_predicate sandbox, :stdout_truncated?,
+                     "a trap is not a cap overflow — the truncation " \
+                     "predicate must stay false per SPEC.md B-04"
+  end
+
+  # SPEC.md B-04 / E-19: the stderr half of the two-channel trap run
+  # above — the guest writes both channels, then traps on the wall-clock
+  # cap; the bytes on stderr must survive the rescue independently.
+  def test_partial_stderr_readable_after_timeout_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+
+    assert_raises(Kobako::TimeoutError) do
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+    end
+
+    assert_equal "err before trap\n", sandbox.stderr,
+                 "stderr written before a TimeoutError must stay readable " \
+                 "after the rescue per SPEC.md B-04"
+  end
+
+  # SPEC.md B-04 / E-19: the truncation predicate keeps its meaning
+  # through a trap — a channel that overflowed its cap before the trap
+  # fired reports +true+ after the rescue, alongside the clipped bytes.
+  # The rescued overflow write mirrors +test_io_streams.rb+'s
+  # OVERFLOW_SCRIPT (past-cap write behaviour is deliberately unpinned).
+  def test_truncation_predicate_survives_timeout_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2, stdout_limit: 5)
+
+    assert_raises(Kobako::TimeoutError) do
+      sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }')
+    end
+
+    assert_equal "long ", sandbox.stdout,
+                 "stdout overflowing its cap before a TimeoutError must keep " \
+                 "exactly its first stdout_limit bytes per SPEC.md B-04"
+    assert_predicate sandbox, :stdout_truncated?,
+                     "a cap overflow before the trap must stay observable " \
+                     "through the rescue per SPEC.md B-04"
+  end
+
+  # SPEC.md B-04 / E-20: the MemoryLimitError counterpart — output written
+  # before the linear-memory cap trap stays readable after the rescue.
+  # One channel suffices here; the two-channel divergence witness is the
+  # timeout case above.
+  def test_partial_stdout_readable_after_memory_limit_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
+
+    assert_raises(Kobako::MemoryLimitError) do
+      sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil')
+    end
+
+    assert_equal "before alloc\n", sandbox.stdout,
+                 "stdout written before a MemoryLimitError must stay " \
+                 "readable after the rescue per SPEC.md B-04"
+  end
+
   # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
   # the corresponding cap. With caps off, a small script must complete
   # normally — the guards are dormant rather than always-firing.

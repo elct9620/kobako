@@ -21,24 +21,23 @@
 //!
 //! This file owns the `Kobako::Runtime` magnus class itself — the Ruby
 //! init() that registers the class, the byte↔`RString` shuttling, the
-//! dispatch-Proc GC root, and the per-invocation usage readout.
+//! dispatch-Proc GC root, and the per-invocation usage / capture readouts.
 
 mod bridge;
 mod errors;
 
 use magnus::{function, method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
-use crate::snapshot::Snapshot;
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot, Usage};
+use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
 use kobako_wasmtime::{Config, Driver};
 
 /// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
@@ -50,6 +49,15 @@ use kobako_wasmtime::{Config, Driver};
 fn rstring_to_vec(s: RString) -> Vec<u8> {
     // SAFETY: see item doc.
     unsafe { s.as_slice() }.to_vec()
+}
+
+/// The pre-invocation sentinel for one capture channel: no bytes, cap
+/// not reached. Fresh `Vec`s per call because `Capture` owns its buffer.
+fn empty_capture() -> Capture {
+    Capture {
+        bytes: Vec::new(),
+        truncated: false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +78,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 3))?;
     runtime.define_method("usage", method!(Runtime::usage, 0))?;
+    runtime.define_method("captures", method!(Runtime::captures, 0))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
@@ -93,11 +102,17 @@ struct Runtime {
     // reference the one Proc this `Opaque` pins. `Cell` is sound under the
     // GVL (see the `unsafe impl Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
-    // Usage of the most recent invocation, kept apart from the returned
-    // `Snapshot` so `#usage` reads survive the per-invocation Store
-    // teardown and the trap path's raise. Zeroed before the first
-    // invocation.
+    // Usage of the most recent invocation, stashed here so `#usage` reads
+    // survive the per-invocation Store teardown and the trap path's
+    // raise. Zeroed before the first invocation.
     last_usage: Cell<Usage>,
+    // Output captures of the most recent invocation, stashed for the same
+    // reason as `last_usage`: the trap path raises, and this readout is
+    // what keeps the guest's partial output readable after a rescue.
+    // `RefCell` (not `Cell`) because `Capture` owns its byte buffer; the
+    // same GVL single-thread discipline applies (see the `unsafe impl
+    // Sync` below). Empty before the first invocation.
+    last_captures: RefCell<(Capture, Capture)>,
 }
 
 impl DataTypeFunctions for Runtime {
@@ -118,11 +133,11 @@ impl DataTypeFunctions for Runtime {
 }
 
 // SAFETY: magnus requires `Send + Sync` on TypedData types. The
-// `on_dispatch` / `last_usage` `Cell`s make the auto-derived `Sync`
-// unavailable, but every access to them happens under the GVL on a single
-// thread at a time — Ruby method calls, and a GC `mark` pass that also
-// holds the GVL. No cross-thread access to either Cell can occur. `Send`
-// stays auto-derived.
+// `on_dispatch` / `last_usage` `Cell`s and the `last_captures` `RefCell`
+// make the auto-derived `Sync` unavailable, but every access to them
+// happens under the GVL on a single thread at a time — Ruby method calls,
+// and a GC `mark` pass that also holds the GVL. No cross-thread access to
+// any of them can occur. `Send` stays auto-derived.
 unsafe impl Sync for Runtime {}
 
 impl Runtime {
@@ -179,6 +194,7 @@ impl Runtime {
                 wall_time: 0.0,
                 memory_peak: 0,
             }),
+            last_captures: RefCell::new((empty_capture(), empty_capture())),
         })
     }
 
@@ -204,7 +220,7 @@ impl Runtime {
     /// One-shot mruby source execution (`#eval`). The Ruby-facing entry:
     /// builds the dispatch handler from the registered Proc, hands the
     /// three stdin frames (`preamble`, `source`, `snippets`) and the source
-    /// to the driver, and settles the returned `Snapshot` through
+    /// to the driver, and settles the invocation through
     /// `finish_invocation` — or maps a could-not-start `Error` onto its
     /// `Kobako::*` exception. The run mechanics — frames, caps, trap
     /// classification — live in `kobako_wasmtime::Driver`.
@@ -213,7 +229,7 @@ impl Runtime {
         preamble: RString,
         source: RString,
         snippets: RString,
-    ) -> Result<Snapshot, MagnusError> {
+    ) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = self.build_handler();
         let preamble = rstring_to_vec(preamble);
@@ -233,8 +249,8 @@ impl Runtime {
         self.finish_invocation(&ruby, snapshot)
     }
 
-    /// Execute one entrypoint dispatch (`__kobako_run`) and return a
-    /// `Snapshot` bundling every per-invocation observable.
+    /// Execute one entrypoint dispatch (`__kobako_run`) and return the
+    /// guest's raw outcome bytes.
     ///
     /// The two-frame stdin protocol (preamble + snippets; no user source
     /// frame — docs/wire-codec.md § Invocation channels) plus the
@@ -246,7 +262,7 @@ impl Runtime {
         preamble: RString,
         snippets: RString,
         envelope: RString,
-    ) -> Result<Snapshot, MagnusError> {
+    ) -> Result<RString, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = self.build_handler();
         let preamble = rstring_to_vec(preamble);
@@ -268,20 +284,27 @@ impl Runtime {
         self.finish_invocation(&ruby, snapshot)
     }
 
-    /// Settle one invocation's `Snapshot` at the Ruby boundary: usage is
-    /// recorded even when the completion is a trap and this call raises,
-    /// while trap-path captures are deliberately dropped — exposing them
-    /// is a SPEC decision the Ruby surface has not taken.
+    /// Settle one invocation's `Snapshot` at the Ruby boundary: usage and
+    /// the two output captures are recorded on every outcome, so the
+    /// `#usage` / `#captures` readouts survive the trap path's raise —
+    /// that is what keeps the guest's partial output readable after the
+    /// Host App rescues the trap. A completed guest invocation returns
+    /// its raw outcome bytes; the Sandbox layer decodes them.
     fn finish_invocation(
         &self,
         ruby: &Ruby,
         snapshot: RuntimeSnapshot,
-    ) -> Result<Snapshot, MagnusError> {
-        self.last_usage.set(snapshot.usage);
-        match snapshot.completion {
-            Completion::Outcome(bytes) => {
-                Ok(Snapshot::new(bytes, snapshot.stdout, snapshot.stderr))
-            }
+    ) -> Result<RString, MagnusError> {
+        let RuntimeSnapshot {
+            completion,
+            stdout,
+            stderr,
+            usage,
+        } = snapshot;
+        self.last_usage.set(usage);
+        self.last_captures.replace((stdout, stderr));
+        match completion {
+            Completion::Outcome(bytes) => Ok(ruby.str_from_slice(&bytes)),
             Completion::Trap(trap) => Err(errors::trap_to_magnus(ruby, trap)),
         }
     }
@@ -313,14 +336,36 @@ impl Runtime {
     ///     size captured at invocation entry. `0` before the first
     ///     invocation.
     ///
-    /// Reads the `last_usage` Cell `finish_invocation` populated from the
-    /// returned `Snapshot` before the per-invocation Store was discarded.
+    /// Reads the `last_usage` Cell `finish_invocation` populated before
+    /// the per-invocation Store was discarded.
     fn usage(&self) -> Result<RArray, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let usage = self.last_usage.get();
         let arr = ruby.ary_new_capa(2);
         arr.push(usage.wall_time)?;
         arr.push(usage.memory_peak)?;
+        Ok(arr)
+    }
+
+    /// Return the per-last-invocation output captures as a Ruby 4-tuple
+    /// `[stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated]`
+    /// — the flat positional layout mirrors `#usage`, and the element
+    /// order matches the destructure in `Kobako::Sandbox#read_captures!`;
+    /// reorder both sides together.
+    ///
+    /// Reads the `last_captures` pair `finish_invocation` stashed on
+    /// every outcome, so the readout also covers the trap path, where
+    /// `#eval` / `#run` raise instead of returning outcome bytes.
+    /// Empty bytes and `false` flags before the first invocation.
+    fn captures(&self) -> Result<RArray, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let captures = self.last_captures.borrow();
+        let (stdout, stderr) = &*captures;
+        let arr = ruby.ary_new_capa(4);
+        arr.push(ruby.str_from_slice(&stdout.bytes))?;
+        arr.push(stdout.truncated)?;
+        arr.push(ruby.str_from_slice(&stderr.bytes))?;
+        arr.push(stderr.truncated)?;
         Ok(arr)
     }
 }

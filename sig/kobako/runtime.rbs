@@ -12,11 +12,13 @@ module Kobako
 
     def on_dispatch=: (^(String, Kobako::Transport::_GuestYielder) -> String dispatch_proc) -> void
 
-    def eval: (String preamble, String source, String snippets) -> Kobako::Snapshot
+    def eval: (String preamble, String source, String snippets) -> String
 
-    def run: (String preamble, String snippets, String envelope) -> Kobako::Snapshot
+    def run: (String preamble, String snippets, String envelope) -> String
 
     def usage: () -> [Float, Integer]
+
+    def captures: () -> [String, bool, String, bool]
 
     # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
     # its second argument; stands in as the +String -> String+ callable the
