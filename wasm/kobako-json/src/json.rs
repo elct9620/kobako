@@ -2,6 +2,11 @@
 //! `pretty_generate` module functions plus the `Object#as_json` opt-in
 //! hook. The value conversion lives in `crate::convert`; this file owns
 //! the Ruby-visible surface.
+//!
+//! `Object#as_json` extends a core class yet lives here, not in an
+//! `object_ext.rs`: it is `generate`'s opt-in serialization protocol
+//! rather than a general Object extension, so it stays with the JSON
+//! surface it serves.
 
 use crate::convert;
 use crate::errors;
