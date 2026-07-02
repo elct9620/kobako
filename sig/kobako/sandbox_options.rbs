@@ -3,24 +3,29 @@ module Kobako
     DEFAULT_TIMEOUT_SECONDS: Float
     DEFAULT_MEMORY_LIMIT: Integer
     DEFAULT_OUTPUT_LIMIT: Integer
+    DEFAULT_PROFILE: Symbol
+    PROFILES: Array[Symbol]
 
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
     attr_reader stdout_limit: Integer?
     attr_reader stderr_limit: Integer?
+    attr_reader profile: Symbol
 
     def self.new: (
       ?timeout: (Float | Integer)?,
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?
+      ?stderr_limit: Integer?,
+      ?profile: Symbol
     ) -> SandboxOptions
 
     def initialize: (
       ?timeout: (Float | Integer)?,
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?
+      ?stderr_limit: Integer?,
+      ?profile: Symbol
     ) -> void
 
     private
@@ -30,5 +35,7 @@ module Kobako
     def normalize_memory_limit: (Integer? memory_limit) -> Integer?
 
     def normalize_output_limit: (Integer? limit, String name) -> Integer?
+
+    def normalize_profile: (untyped profile) -> Symbol
   end
 end

@@ -2,18 +2,21 @@
 
 module Kobako
   # Kobako::SandboxOptions — immutable Value Object holding the four
-  # per-Sandbox configuration caps. Built on the +class X <
-  # Data.define(...)+ subclass form (the Steep-friendly shape — see
-  # +lib/kobako/outcome/panic.rb+).
+  # per-Sandbox configuration caps and the isolation-profile floor.
+  # Built on the +class X < Data.define(...)+ subclass form (the
+  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
   #
-  # The +initialize+ normalises every cap before delegating to Data's
+  # The +initialize+ normalises every option before delegating to Data's
   # +super+: +timeout+ to Float seconds, +memory_limit+ / +stdout_limit+ /
   # +stderr_limit+ to positive Integer bytes. Each cap is +nil+-disablable
   # (an absent argument takes its DEFAULT; an explicit +nil+ leaves the
-  # bound off), so all four behave uniformly. Anything that survives
-  # +SandboxOptions.new+ is a wire-ready cap bundle the +Kobako::Runtime+
-  # constructor consumes as-is.
-  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit)
+  # bound off), so all four behave uniformly. +profile+ is the one
+  # non-cap: a Symbol on the PROFILES ladder naming the weakest runtime
+  # posture the Host App accepts — +nil+ is rejected because the
+  # no-floor request is an explicit +:permissive+. Anything that
+  # survives +SandboxOptions.new+ is a wire-ready bundle the
+  # +Kobako::Runtime+ constructor consumes as-is.
+  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile)
     # Default wall-clock timeout for a single invocation: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -25,14 +28,24 @@ module Kobako
     # Default per-channel capture ceiling: 1 MiB.
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
+    # The isolation ladder, weakest first — index order is rank order,
+    # so a floor check is an index comparison.
+    PROFILES = %i[permissive hermetic].freeze
+
+    # Default isolation floor: the strictest rung, matching the posture
+    # the bundled wasmtime runtime declares.
+    DEFAULT_PROFILE = :hermetic
+
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: DEFAULT_MEMORY_LIMIT,
                    stdout_limit: DEFAULT_OUTPUT_LIMIT,
-                   stderr_limit: DEFAULT_OUTPUT_LIMIT)
+                   stderr_limit: DEFAULT_OUTPUT_LIMIT,
+                   profile: DEFAULT_PROFILE)
       timeout = normalize_timeout(timeout)
       memory_limit = normalize_memory_limit(memory_limit)
       stdout_limit = normalize_output_limit(stdout_limit, "stdout_limit")
       stderr_limit = normalize_output_limit(stderr_limit, "stderr_limit")
+      profile = normalize_profile(profile)
       super
     end
 
@@ -77,6 +90,16 @@ module Kobako
       end
 
       limit
+    end
+
+    # Validate +profile+ against the PROFILES ladder. Unlike the caps
+    # there is no +nil+ form: requesting no floor is an explicit
+    # +:permissive+, so anything off the ladder — +nil+ included — is
+    # rejected.
+    def normalize_profile(profile)
+      return profile if PROFILES.include?(profile)
+
+      raise ArgumentError, "profile must be one of #{PROFILES.map(&:inspect).join(", ")}, got #{profile.inspect}"
     end
   end
 end

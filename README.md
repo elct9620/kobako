@@ -154,6 +154,8 @@ sandbox = Kobako::Sandbox.new(
 
 `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
 
+A fifth option, `profile:`, names the weakest isolation posture the Sandbox accepts on the `:permissive` < `:hermetic` ladder (default `:hermetic`). It is a floor, not a switch — the bundled wasmtime runtime always runs hermetic; construction fails with `Kobako::SetupError` on a runtime that declares less. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
+
 ### Invocation Lifecycle
 
 One Sandbox serves many invocations. Service bindings and preloaded snippets persist across calls; capability state (Handles, stdout, stderr, memory delta) resets between them.

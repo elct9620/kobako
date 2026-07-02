@@ -38,9 +38,9 @@ module Kobako
 
     attr_reader :wasm_path, :options
 
-    # Per-cap accessors forward to the immutable +SandboxOptions+ Value
+    # Per-option accessors forward to the immutable +SandboxOptions+ Value
     # Object so the Host App still reads them off Sandbox directly.
-    def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit
+    def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile
 
     # Returns the bytes the guest wrote to stdout during the most recent
     # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
@@ -85,25 +85,22 @@ module Kobako
     # Build a fresh Sandbox.
     #
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
-    # gem-bundled +data/kobako.wasm+. The four caps (+stdout_limit+,
-    # +stderr_limit+, +timeout+, +memory_limit+) are forwarded verbatim to
-    # +Kobako::SandboxOptions+, which owns their DEFAULT fallback and
+    # gem-bundled +data/kobako.wasm+. Every other keyword — the four caps
+    # (+stdout_limit+, +stderr_limit+, +timeout+, +memory_limit+) and the
+    # isolation floor (+profile+) — is forwarded verbatim to
+    # +Kobako::SandboxOptions+, which owns the DEFAULT fallbacks and
     # normalisation. The constructed +SandboxOptions+ is exposed as
-    # +#options+ and the four caps remain readable directly on Sandbox via
-    # +Forwardable+ delegation.
-    def initialize(wasm_path: nil,
-                   stdout_limit: SandboxOptions::DEFAULT_OUTPUT_LIMIT,
-                   stderr_limit: SandboxOptions::DEFAULT_OUTPUT_LIMIT,
-                   timeout: SandboxOptions::DEFAULT_TIMEOUT_SECONDS,
-                   memory_limit: SandboxOptions::DEFAULT_MEMORY_LIMIT)
+    # +#options+ and every option remains readable directly on Sandbox via
+    # +Forwardable+ delegation. Construction refuses a runtime whose
+    # declared isolation profile falls below the requested floor, raising
+    # +Kobako::SetupError+ before any invocation entry point runs.
+    def initialize(wasm_path: nil, **)
       @wasm_path = wasm_path || Kobako::Runtime.default_path
-      @options = SandboxOptions.new(timeout: timeout, memory_limit: memory_limit, stdout_limit: stdout_limit,
-                                    stderr_limit: stderr_limit)
+      @options = SandboxOptions.new(**)
       @handler = Catalog::Handles.new
       @services = Kobako::Catalog::Namespaces.new(handler: @handler)
       @snippets = Catalog::Snippets.new
-      @runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                           @options.stdout_limit, @options.stderr_limit)
+      @runtime = build_runtime!
       install_dispatch_proc!
       reset_invocation_state!
     end
@@ -210,6 +207,25 @@ module Kobako
     end
 
     private
+
+    # Construct the +Runtime+ and enforce the isolation floor: a runtime
+    # whose declared profile ranks below the requested +profile+ floor
+    # never runs guest code — construction fails with
+    # +Kobako::SetupError+ instead of weakening the posture silently. A
+    # declaration off the +SandboxOptions::PROFILES+ ladder ranks below
+    # every floor, so a posture this gem cannot place never satisfies one.
+    def build_runtime!
+      runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
+                                          @options.stdout_limit, @options.stderr_limit)
+      declared = runtime.profile
+      ladder = SandboxOptions::PROFILES
+      if (ladder.index(declared) || -1) < (ladder.index(profile) || 0)
+        raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \
+                                  "below the requested floor #{profile.inspect}"
+      end
+
+      runtime
+    end
 
     # Configure the +Runtime+'s host↔guest dispatch wiring. Registers a
     # dispatch +Proc+ that routes guest→host calls through the stateless

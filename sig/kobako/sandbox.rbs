@@ -10,13 +10,13 @@ module Kobako
     def memory_limit: () -> Integer?
     def stdout_limit: () -> Integer?
     def stderr_limit: () -> Integer?
+    def profile: () -> Symbol
 
+    # Every keyword beyond wasm_path forwards verbatim to
+    # SandboxOptions.new (the four caps + the profile floor).
     def initialize: (
       ?wasm_path: String?,
-      ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?,
-      ?timeout: (Float | Integer)?,
-      ?memory_limit: Integer?
+      **untyped options
     ) -> void
 
     def stdout: () -> String
@@ -41,6 +41,8 @@ module Kobako
     def reset_invocation_state!: () -> void
 
     private
+
+    def build_runtime!: () -> Kobako::Runtime
 
     def install_dispatch_proc!: () -> void
 

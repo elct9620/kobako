@@ -20,6 +20,8 @@ module Kobako
 
     def captures: () -> [String, bool, String, bool]
 
+    def profile: () -> Symbol
+
     # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
     # its second argument; stands in as the +String -> String+ callable the
     # host +Transport::Yielder+ invokes for a block yield.
