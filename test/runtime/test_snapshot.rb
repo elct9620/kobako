@@ -87,7 +87,7 @@ class TestSnapshot < Minitest::Test
     snippets = Kobako::Catalog::Snippets.new
 
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil)
-    runtime.on_dispatch = ->(_) { raise "unexpected dispatch in eval-only snapshot test" }
+    runtime.on_dispatch = ->(_, _) { raise "unexpected dispatch in eval-only snapshot test" }
 
     runtime.eval(services.encode, code.b, snippets.encode)
   end
