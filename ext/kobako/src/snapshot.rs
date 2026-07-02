@@ -1,57 +1,63 @@
 //! `Kobako::Snapshot` — the Ruby-facing per-invocation observable bundle.
 //!
-//! A thin magnus wrapper over the engine-neutral
-//! `crate::contract::snapshot::Snapshot`: it owns one and exposes the five
-//! raw readers Ruby needs. The helper methods that pack them into
-//! `Kobako::Capture` (`Kobako::Snapshot#stdout` / `#stderr`) live in
+//! The success-path view of the engine-neutral snapshot: the outcome bytes
+//! and the two captured output channels, exposed through five raw readers.
+//! The helper methods that pack them into `Kobako::Capture`
+//! (`Kobako::Snapshot#stdout` / `#stderr`) live in
 //! `lib/kobako/snapshot.rb`. The split keeps the ext side a pure value
 //! carrier and lets Ruby own the convenience surface. Usage is not on the
 //! Snapshot — `Sandbox#usage` reads it from `Kobako::Runtime#usage`, which
-//! survives the trap path where no Snapshot is produced.
+//! survives the trap path where no `Kobako::Snapshot` is produced.
 
 use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
-use crate::contract::snapshot::Snapshot as RuntimeSnapshot;
+use crate::contract::snapshot::Capture;
 
 /// Per-invocation snapshot value. Magnus wraps it so a single ext call
 /// from `Runtime::eval` / `Runtime::run` returns the whole bundle — the
 /// Sandbox layer decomposes it without round-tripping into ext again. The
-/// inner neutral `Snapshot` is set once at construction and never mutated;
-/// the five public methods registered in `init` read it out one by one.
+/// fields are set once at construction and never mutated; the five public
+/// methods registered in `init` read them out one by one.
 #[magnus::wrap(class = "Kobako::Snapshot", free_immediately, size)]
 pub(crate) struct Snapshot {
-    inner: RuntimeSnapshot,
+    return_bytes: Vec<u8>,
+    stdout: Capture,
+    stderr: Capture,
 }
 
 impl Snapshot {
-    /// Wrap the neutral per-invocation `Snapshot` the Runtime collected
-    /// once the guest export returned, the OUTCOME_BUFFER was drained, and
-    /// the capture pipes were clipped to their caps.
-    pub(crate) fn new(inner: RuntimeSnapshot) -> Self {
-        Self { inner }
+    /// Bundle the success outputs the Runtime collected once the guest
+    /// export returned with an outcome: the drained OUTCOME_BUFFER bytes
+    /// and the capture pipes clipped to their caps.
+    pub(crate) fn new(return_bytes: Vec<u8>, stdout: Capture, stderr: Capture) -> Self {
+        Self {
+            return_bytes,
+            stdout,
+            stderr,
+        }
     }
 
     fn return_bytes(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
-        ruby.str_from_slice(&self.inner.return_bytes)
+        ruby.str_from_slice(&self.return_bytes)
     }
 
     fn stdout_bytes(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
-        ruby.str_from_slice(&self.inner.stdout.bytes)
+        ruby.str_from_slice(&self.stdout.bytes)
     }
 
     fn stdout_truncated(&self) -> bool {
-        self.inner.stdout.truncated
+        self.stdout.truncated
     }
 
     fn stderr_bytes(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
-        ruby.str_from_slice(&self.inner.stderr.bytes)
+        ruby.str_from_slice(&self.stderr.bytes)
     }
 
     fn stderr_truncated(&self) -> bool {
-        self.inner.stderr.truncated
+        self.stderr.truncated
     }
 }
 

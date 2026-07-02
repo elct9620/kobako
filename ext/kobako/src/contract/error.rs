@@ -33,8 +33,11 @@ pub(crate) enum SetupError {
     Intact(String),
 }
 
-/// Either run-path channel, unified so the run mechanics can propagate both
-/// with `?`. The boundary destructures it back into the two channels.
+/// A failure that prevented the invocation from starting — a pre-call
+/// engine fault (`Trap`) or a host-side setup fault (`Setup`) — unified so
+/// the run mechanics can propagate both with `?`; a frontend destructures
+/// it back into the two channels. Faults after the guest export starts
+/// ride in `Completion::Trap` instead, so captures and usage survive them.
 #[derive(Debug)]
 pub(crate) enum Error {
     Trap(Trap),

@@ -2,9 +2,10 @@
 //!
 //! The contract a wasm engine must satisfy to drive a kobako guest: take a
 //! per-invocation entry plus its stdin frames, run one invocation on a
-//! fresh instance, and return the observable `Snapshot` (or a neutral
-//! run-path `Error`). Nothing here mentions `magnus` or a Ruby type — a
-//! frontend supplies the dispatch handler, the contract only borrows it.
+//! fresh instance, and return the observable `Snapshot` — `Ok` iff the
+//! guest export ran, `Err` when the invocation never started. Nothing here
+//! mentions `magnus` or a Ruby type — a frontend supplies the dispatch
+//! handler, the contract only borrows it.
 
 use std::sync::Arc;
 
@@ -28,7 +29,9 @@ pub(crate) struct Frames<'a> {
 }
 
 /// Engine-neutral runtime: drives one guest invocation on a fresh instance
-/// and returns its observable `Snapshot`, or a neutral run-path `Error`.
+/// and returns its observable `Snapshot`. `Ok` means the guest export ran
+/// — the `Snapshot` carries the completion (outcome or trap), captures,
+/// and usage uniformly; `Err` means the invocation never started.
 ///
 /// Safety contract for `handler`: the runtime only *borrows* the handler
 /// for the duration of `invoke` and never roots it. A frontend whose

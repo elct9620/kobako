@@ -65,7 +65,7 @@ use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData
 use crate::contract::dispatch::DispatchHandler;
 use crate::contract::error::{Error, SetupError, Trap};
 use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use crate::contract::snapshot::{Capture, Snapshot as RuntimeSnapshot};
+use crate::contract::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
 use crate::snapshot::Snapshot;
 use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
@@ -148,12 +148,11 @@ struct Runtime {
     // one Proc this `Opaque` pins. `Cell` is sound under the GVL (see the
     // `unsafe impl Sync` below).
     on_dispatch: Cell<Option<Opaque<Value>>>,
-    // Usage of the most recent invocation —
-    // `(wall_time_seconds, memory_peak_bytes)` — captured by
-    // `build_snapshot` before the per-invocation Store is discarded so
-    // `#usage` reads survive the teardown. `(0.0, 0)` before the first
+    // Usage of the most recent invocation, kept apart from the returned
+    // `Snapshot` so `#usage` reads survive the per-invocation Store
+    // teardown and the trap path's raise. Zeroed before the first
     // invocation.
-    last_usage: Cell<(f64, usize)>,
+    last_usage: Cell<Usage>,
 }
 
 impl DataTypeFunctions for Runtime {
@@ -229,7 +228,10 @@ impl Runtime {
                 stderr_limit_bytes,
             },
             on_dispatch: Cell::new(None),
-            last_usage: Cell::new((0.0, 0)),
+            last_usage: Cell::new(Usage {
+                wall_time: 0.0,
+                memory_peak: 0,
+            }),
         };
         runtime.probe_abi_version(&ruby)?;
         Ok(runtime)
@@ -305,9 +307,10 @@ impl Runtime {
     /// One-shot mruby source execution (`#eval`). The Ruby-facing entry:
     /// builds the dispatch handler from the registered Proc, hands the
     /// three stdin frames (`preamble`, `source`, `snippets`) and the source
-    /// to `invoke`, and wraps the neutral `Snapshot` or maps the `Error`
-    /// onto its `Kobako::*` exception. The run mechanics — frames, caps,
-    /// trap classification — live in `invoke`.
+    /// to `invoke`, and settles the returned `Snapshot` through
+    /// `finish_invocation` — or maps a could-not-start `Error` onto its
+    /// `Kobako::*` exception. The run mechanics — frames, caps, trap
+    /// classification — live in `invoke`.
     fn eval(
         &self,
         preamble: RString,
@@ -319,16 +322,17 @@ impl Runtime {
         let preamble = rstring_to_vec(preamble);
         let source = rstring_to_vec(source);
         let snippets = rstring_to_vec(snippets);
-        self.invoke(
-            Entry::Eval { source: &source },
-            Frames {
-                preamble: &preamble,
-                snippets: &snippets,
-            },
-            handler,
-        )
-        .map(Snapshot::new)
-        .map_err(|e| errors::to_magnus(&ruby, e))
+        let snapshot = self
+            .invoke(
+                Entry::Eval { source: &source },
+                Frames {
+                    preamble: &preamble,
+                    snippets: &snippets,
+                },
+                handler,
+            )
+            .map_err(|e| errors::to_magnus(&ruby, e))?;
+        self.finish_invocation(&ruby, snapshot)
     }
 
     /// Execute one entrypoint dispatch (`__kobako_run`) and return a
@@ -350,18 +354,37 @@ impl Runtime {
         let preamble = rstring_to_vec(preamble);
         let snippets = rstring_to_vec(snippets);
         let envelope = rstring_to_vec(envelope);
-        self.invoke(
-            Entry::Run {
-                envelope: &envelope,
-            },
-            Frames {
-                preamble: &preamble,
-                snippets: &snippets,
-            },
-            handler,
-        )
-        .map(Snapshot::new)
-        .map_err(|e| errors::to_magnus(&ruby, e))
+        let snapshot = self
+            .invoke(
+                Entry::Run {
+                    envelope: &envelope,
+                },
+                Frames {
+                    preamble: &preamble,
+                    snippets: &snippets,
+                },
+                handler,
+            )
+            .map_err(|e| errors::to_magnus(&ruby, e))?;
+        self.finish_invocation(&ruby, snapshot)
+    }
+
+    /// Settle one invocation's `Snapshot` at the Ruby boundary: usage is
+    /// recorded even when the completion is a trap and this call raises,
+    /// while trap-path captures are deliberately dropped — exposing them
+    /// is a SPEC decision the Ruby surface has not taken.
+    fn finish_invocation(
+        &self,
+        ruby: &Ruby,
+        snapshot: RuntimeSnapshot,
+    ) -> Result<Snapshot, MagnusError> {
+        self.last_usage.set(snapshot.usage);
+        match snapshot.completion {
+            Completion::Outcome(bytes) => {
+                Ok(Snapshot::new(bytes, snapshot.stdout, snapshot.stderr))
+            }
+            Completion::Trap(trap) => Err(errors::trap_to_magnus(ruby, trap)),
+        }
     }
 
     /// Build the dispatch handler for one invocation from the registered
@@ -392,14 +415,14 @@ impl Runtime {
     ///     size captured at invocation entry. `0` before the first
     ///     invocation.
     ///
-    /// Reads the `last_usage` Cell `build_snapshot` populated before the
-    /// per-invocation Store was discarded.
+    /// Reads the `last_usage` Cell `finish_invocation` populated from the
+    /// returned `Snapshot` before the per-invocation Store was discarded.
     fn usage(&self) -> Result<RArray, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let (wall_time, memory_peak) = self.last_usage.get();
+        let usage = self.last_usage.get();
         let arr = ruby.ary_new_capa(2);
-        arr.push(wall_time)?;
-        arr.push(memory_peak)?;
+        arr.push(usage.wall_time)?;
+        arr.push(usage.memory_peak)?;
         Ok(arr)
     }
 
@@ -453,12 +476,6 @@ impl Runtime {
         self.prime_caps(store, exports);
         let result = export.call(store.as_context_mut(), params);
         disarm_caps(store);
-        // Stash the usage figures on every outcome — including the
-        // trap paths, where `build_snapshot` never runs and the Store is
-        // about to be discarded with the error.
-        let data = store.data();
-        self.last_usage
-            .set((data.wall_time().as_secs_f64(), data.memory_peak()));
         result
     }
 
@@ -496,26 +513,26 @@ impl Runtime {
         store.data_mut().start_wall_clock();
     }
 
-    /// Collect the success-path outputs into a fresh `Snapshot`. Called
-    /// after the guest export returns successfully: drains OUTCOME_BUFFER
-    /// via `__kobako_take_outcome` and snapshots the per-channel stdout /
-    /// stderr pipes (clipped to their caps). Usage is not collected here —
-    /// `call_with_caps` already stashed it into `last_usage` so `#usage`
-    /// survives the trap path, where no Snapshot is built.
+    /// Bundle one invocation's observables into a fresh `Snapshot`,
+    /// uniformly for every `completion` — the clipped captures and the
+    /// cap-bracket usage must survive a trap just as they do an outcome.
     fn build_snapshot(
         &self,
-        store: &mut WtStore<Invocation>,
-        exports: &Exports,
-    ) -> Result<RuntimeSnapshot, Trap> {
-        let return_bytes = frames::fetch_outcome_bytes(store, exports)?;
+        store: &WtStore<Invocation>,
+        completion: Completion,
+    ) -> RuntimeSnapshot {
         let data = store.data();
+        let usage = Usage {
+            wall_time: data.wall_time().as_secs_f64(),
+            memory_peak: data.memory_peak(),
+        };
         let (stdout_raw, stderr_raw) = (data.stdout_bytes(), data.stderr_bytes());
         let (stdout_visible, stdout_truncated) =
             capture::clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
         let (stderr_visible, stderr_truncated) =
             capture::clip_capture(&stderr_raw, self.config.stderr_limit_bytes);
-        Ok(RuntimeSnapshot {
-            return_bytes,
+        RuntimeSnapshot {
+            completion,
             stdout: Capture {
                 bytes: stdout_visible.to_vec(),
                 truncated: stdout_truncated,
@@ -524,21 +541,24 @@ impl Runtime {
                 bytes: stderr_visible.to_vec(),
                 truncated: stderr_truncated,
             },
-        })
+            usage,
+        }
     }
 }
 
 impl ContractRuntime for Runtime {
     /// Drive one guest invocation on a fresh instance and return its
-    /// `Snapshot`, or a neutral run-path `Error`. Builds a fresh Store, binds
-    /// the borrowed dispatch handler, installs the stdin frames (three for
-    /// `Eval` — preamble / source / snippets; two for `Run` — preamble /
-    /// snippets, with the envelope copied into guest memory), primes the
-    /// per-invocation caps around the export call, and collects the
-    /// observable Snapshot. On a wasmtime trap the configured-cap path
-    /// yields `Trap::Timeout` / `Trap::MemoryLimit`; everything else
-    /// `Trap::Other`. The body touches no Ruby value — the handler is only
-    /// borrowed (see the trait's safety contract).
+    /// `Snapshot`, `Ok` iff the guest export ran. Builds a fresh Store,
+    /// binds the borrowed dispatch handler, installs the stdin frames
+    /// (three for `Eval` — preamble / source / snippets; two for `Run` —
+    /// preamble / snippets, with the envelope copied into guest memory),
+    /// and primes the per-invocation caps around the export call. A fault
+    /// before the export call is the `Err` channel; once the call starts,
+    /// every fault folds into the Snapshot's `Completion` — the
+    /// configured-cap paths as `Trap::Timeout` / `Trap::MemoryLimit`,
+    /// everything else as `Trap::Other` — so captures and usage survive
+    /// it. The body touches no Ruby value — the handler is only borrowed
+    /// (see the trait's safety contract).
     fn invoke(
         &self,
         entry: Entry<'_>,
@@ -555,20 +575,25 @@ impl ContractRuntime for Runtime {
         };
         frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
         let exports = self.instantiate(&mut store)?;
-        match entry {
+        let called = match entry {
             Entry::Eval { .. } => {
                 let eval = frames::require_export(exports.eval.as_ref())?;
                 self.call_with_caps(&mut store, &exports, eval, ())
-                    .map_err(trap::trap_from)?;
             }
             Entry::Run { envelope } => {
                 let run = frames::require_export(exports.run.as_ref())?;
                 let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
                 self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
-                    .map_err(trap::trap_from)?;
             }
-        }
-        Ok(self.build_snapshot(&mut store, &exports)?)
+        };
+        let completion = match called {
+            Ok(()) => match frames::fetch_outcome_bytes(&mut store, &exports) {
+                Ok(bytes) => Completion::Outcome(bytes),
+                Err(t) => Completion::Trap(t),
+            },
+            Err(e) => Completion::Trap(trap::trap_from(e)),
+        };
+        Ok(self.build_snapshot(&store, completion))
     }
 }
 
