@@ -22,7 +22,7 @@ use crate::runtime::{InstallGroupsError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
-use kobako_core::outcome::Panic;
+use kobako_codec::outcome::Panic;
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty

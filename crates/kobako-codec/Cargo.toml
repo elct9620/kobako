@@ -1,0 +1,32 @@
+# kobako-codec — portable wire tier crate.
+#
+# The MessagePack wire codec and the SPEC envelope value objects shared
+# by both sides of the kobako wasm boundary: the guest-ABI contract
+# crate (`kobako-core`) builds its transport machinery on it, and a
+# Rust host embedding the sandbox encodes the same envelopes with it.
+# Free of mruby, wasmtime, and any guest-bound ABI so it compiles on
+# every target.
+#
+# This crate is a plain rlib. Packaging rule (workspace-wide): the
+# manifest stays self-contained — no `workspace = true` inheritance
+# fields — because sibling crates ship in the Ruby gem without the
+# workspace manifest.
+
+[package]
+name = "kobako-codec"
+version = "0.6.1"
+edition = "2021"
+description = "Portable wire tier for kobako — the MessagePack wire codec and SPEC envelope value objects shared by host and guest."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
+keywords = ["wasm", "mruby", "sandbox", "wasi", "msgpack"]
+categories = ["wasm", "encoding"]
+
+[dependencies]
+# `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
+# Rust counterpart of the msgpack-ruby gem used on the host side. The
+# codec stays a thin shim over `rmp::encode` / `rmp::decode`, keeping
+# the byte form aligned with the host. `default-features = false`
+# keeps the dependency footprint minimal on wasm32-wasip1.
+rmp = { version = "0.8", default-features = false }

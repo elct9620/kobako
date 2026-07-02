@@ -19,7 +19,7 @@ contract over mruby:
   flows themselves: the `Kobako` module, Namespace / Handle dispatch
   to the host, and the block machinery
 - mruby ↔ wire value conversion between `beni` values and the
-  `kobako-core` codec
+  [kobako-codec](https://crates.io/crates/kobako-codec) codec
 
 ## Usage
 

@@ -1,29 +1,18 @@
 //! kobako-core — Guest ABI contract crate root.
 //!
-//! Language-agnostic building blocks for a kobako Guest Binary,
-//! mirroring the host's `lib/kobako/` wire tiers (SPEC.md "Wire
-//! Codec"): the `Guest` trait + `export_guest!` macro turn the ABI
-//! export enumeration into a compiler-checked contract, and `codec` /
-//! `transport` / `outcome` / `frames` / `abi` carry the wire
-//! machinery behind it. mruby never enters this crate; the assembled
-//! mruby guest and any third-party guest build on it alike.
-//!
-//! Two tiers share this root, and their dependency edge points one
-//! way: the portable wire tier (`codec`, `outcome`, the `transport`
-//! envelopes) depends on nothing guest-bound, while the guest-ABI tier
-//! (`abi`, `frames`, `guest`, `transport::proxy`) builds on it — never
-//! the reverse. That one-way edge keeps the wire tier extractable as a
-//! standalone both-sides crate.
-
-/// Width in bytes of the length prefix that precedes each stdin frame
-/// and outcome buffer (docs/wire-codec.md § Invocation channels).
-pub const FRAME_LEN_SIZE: usize = 4;
+//! Language-agnostic building blocks for a kobako Guest Binary: the
+//! `Guest` trait + `export_guest!` macro turn the ABI export
+//! enumeration into a compiler-checked contract, and `abi` / `frames`
+//! / `transport::proxy` carry the guest-bound machinery behind it.
+//! The portable wire tier — codec, envelopes, outcome — lives in the
+//! `kobako-codec` crate, which this crate builds on and which mirrors
+//! the host's `lib/kobako/` wire tiers (SPEC.md "Wire Codec"). mruby
+//! never enters this crate; the assembled mruby guest and any
+//! third-party guest build on it alike.
 
 pub mod abi;
-pub mod codec;
 pub mod frames;
 mod guest;
-pub mod outcome;
 pub mod transport;
 
 pub use guest::Guest;

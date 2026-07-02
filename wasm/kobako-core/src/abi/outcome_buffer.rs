@@ -13,8 +13,8 @@
 //! emitted by `export_guest!` in the shell crate; these are the plain
 //! functions they delegate to.
 
-use crate::codec::Encode;
-use crate::outcome::{Outcome, Panic};
+use kobako_codec::codec::Encode;
+use kobako_codec::outcome::{Outcome, Panic};
 
 use std::sync::Mutex;
 

@@ -28,6 +28,12 @@ license = "Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
+# `kobako-codec` — portable wire tier (cross-workspace path
+# dependency). Direct dependency of the oracle bins, which exercise the
+# codec and envelope layers against the Ruby host's independent
+# implementation.
+kobako-codec = { path = "../../crates/kobako-codec" }
+
 # `kobako-core` — Guest ABI contract crate (sibling workspace member).
 # Direct dependency because `export_guest!` resolves against it.
 kobako-core = { path = "../kobako-core" }

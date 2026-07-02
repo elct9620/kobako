@@ -10,7 +10,8 @@
 # Members
 # -------
 #   * `kobako-core` — Guest ABI contract crate (publishable rlib).
-#     The mruby-free wire tiers a Guest Binary builds on.
+#     The mruby-free ABI machinery a Guest Binary builds on, over the
+#     `crates/kobako-codec` wire tier (a cross-workspace path dep).
 #   * `kobako` — assembled mruby implementation (publishable rlib):
 #     the `MrbGuest` harness + the `KobakoBridge` built-in gem.
 #   * `kobako-io` — sandbox IO / Kernel capability gem (publishable
@@ -20,7 +21,7 @@
 #   * `kobako-regexp` — sandbox Regexp / MatchData capability gem
 #     (publishable rlib). Pure Rust over `beni`; kobako-free.
 #   * `kobako-wasm` — leaf shell producing `kobako.wasm`; composes the
-#     three published crates and emits the wasm exports. The typed
+#     published crates and emits the wasm exports. The typed
 #     mruby wrapper comes from the published `beni` crate (extracted
 #     from this repository); its `beni-sys` FFI layer consumes
 #     `MRUBY_LIB_DIR` and `WASI_SDK_PATH`.

@@ -48,8 +48,8 @@ pub const ABI_VERSION: u32 = 2;
 // The `wasm_import_module = "env"` attribute pins the import namespace.
 // Signature: `(req_ptr: i32, req_len: i32) -> i64` per docs/wire-codec.md
 // § ABI Signatures. We only declare the import on the wasm32 target —
-// on the host target (where rlib codec tests run) there is no host to
-// provide the symbol.
+// on the host target (where the rlib's unit tests run) there is no
+// host to provide the symbol.
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {

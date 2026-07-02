@@ -25,12 +25,12 @@
 //! EOF on stdin is the normal exit path (clean shutdown, status 0). Any
 //! IO error is fatal (status 1).
 //!
-//! No third-party deps — only the kobako-core codec and `std`.
+//! No deps beyond the codec under test and `std`.
 
 use std::io::{self, Read, Write};
 
-use kobako_core::codec::{self, Decoder, Encoder};
-use kobako_core::FRAME_LEN_SIZE;
+use kobako_codec::codec::{self, Decoder, Encoder};
+use kobako_codec::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024; // 64 MiB hard cap (well above SPEC's 16 MiB single-call limit)
 const ERROR_FLAG: u32 = 0x8000_0000;

@@ -20,9 +20,13 @@ keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm"]
 
 [dependencies]
-# Guest ABI contract crate — the wire tiers (`codec`, `transport`,
-# `outcome`) and ABI primitives the provided flows implement the
-# contract with.
+# Portable wire tier — codec, envelopes, outcome — shared with the
+# host side; the flows encode outcomes and convert values against it.
+kobako-codec = { path = "../../crates/kobako-codec", version = "0.6.1" }
+
+# Guest ABI contract crate — the ABI primitives (outcome buffer,
+# frames, dispatch proxy) the provided flows implement the contract
+# with.
 kobako-core = { path = "../kobako-core", version = "0.6.1" }
 
 # Typed mruby wrapper — `Mrb` / `Value` seams, the `Gem` trait, and

@@ -113,7 +113,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: kobako_core::transport::Target,
+    target: kobako_codec::transport::Target,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
@@ -173,7 +173,7 @@ fn forward_to_dispatch(
 ///
 /// Forwards to `forward_to_dispatch` with `Target::Path`.
 pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
-    use kobako_core::transport::Target;
+    use kobako_codec::transport::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
     // (the shim was registered by it).
@@ -256,7 +256,7 @@ pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Result<Value, beni::
 ///
 /// Forwards to `forward_to_dispatch` with `Target::Handle`.
 pub(crate) fn handle_method_missing(mrb: &Mrb, self_: Value) -> Value {
-    use kobako_core::transport::Target;
+    use kobako_codec::transport::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };

@@ -27,10 +27,10 @@ fn eval_body<G: crate::MrbGuest>() {
     use super::boot;
     use super::mrb_slot::MRB;
     use beni::Ccontext;
+    use kobako_codec::codec::Encode;
+    use kobako_codec::outcome::{Outcome, Panic};
     use kobako_core::abi::{write_outcome, write_panic};
-    use kobako_core::codec::Encode;
     use kobako_core::frames;
-    use kobako_core::outcome::{Outcome, Panic};
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,

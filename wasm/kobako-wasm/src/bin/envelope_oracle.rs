@@ -24,15 +24,15 @@
 //! the re-encoded bytes (no kind tag — the Ruby driver knows which kind
 //! it sent).
 //!
-//! No third-party deps.
+//! No deps beyond the envelopes under test and `std`.
 
 use std::io::{self, Read, Write};
 
-use kobako_core::codec;
-use kobako_core::codec::{Decode, Encode};
-use kobako_core::outcome::{Outcome, Panic};
-use kobako_core::transport::{Request, Response};
-use kobako_core::FRAME_LEN_SIZE;
+use kobako_codec::codec;
+use kobako_codec::codec::{Decode, Encode};
+use kobako_codec::outcome::{Outcome, Panic};
+use kobako_codec::transport::{Request, Response};
+use kobako_codec::FRAME_LEN_SIZE;
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
 const ERROR_FLAG: u32 = 0x8000_0000;

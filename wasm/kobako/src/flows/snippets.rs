@@ -6,7 +6,7 @@
 //! text, `"bytecode"` carries RITE bytes — so they stay with the
 //! mruby implementation. See docs/wire-codec.md § Invocation channels.
 
-use kobako_core::codec::{Decoder, Value};
+use kobako_codec::codec::{Decoder, Value};
 
 /// A decoded Frame 3 snippet entry — either a `code:` form source
 /// snippet carrying its compile-time name and UTF-8 body, or a
@@ -97,7 +97,7 @@ fn decode_snippet_entry(item: Value) -> Option<Snippet> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_core::codec::Encoder;
+    use kobako_codec::codec::Encoder;
 
     fn encode(v: &Value) -> Vec<u8> {
         let mut enc = Encoder::new();

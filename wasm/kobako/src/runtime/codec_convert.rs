@@ -28,9 +28,9 @@
 use super::Kobako;
 use beni::Value;
 // The encode-side walk caps at the same depth the decoder enforces; the
-// constant lives in `kobako-core` so the two guest walks share one bound
+// constant lives in `kobako-codec` so the two guest walks share one bound
 // (docs/wire-codec.md § Structural Nesting Depth).
-use kobako_core::codec::MAX_NESTING_DEPTH;
+use kobako_codec::codec::MAX_NESTING_DEPTH;
 
 /// An inbound integer fell outside the guest's signed 32-bit `Integer`
 /// range, which the MRB_INT32 build cannot hold. `to_mrb_value` refuses
@@ -53,7 +53,7 @@ impl IntegerOutOfRange {
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; `Request`'s `kobako_core::codec::Encode` impl re-emits
+    /// key's name; `Request`'s `kobako_codec::codec::Encode` impl re-emits
     /// each name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
     /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. Values go through
@@ -61,7 +61,7 @@ impl Kobako {
     pub fn extract_hash_kwargs(
         &self,
         hash: Value,
-        out: &mut Vec<(String, kobako_core::codec::Value)>,
+        out: &mut Vec<(String, kobako_codec::codec::Value)>,
     ) {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
@@ -90,11 +90,11 @@ impl Kobako {
         &self,
         rest: &[Value],
     ) -> (
-        Vec<kobako_core::codec::Value>,
-        Vec<(String, kobako_core::codec::Value)>,
+        Vec<kobako_codec::codec::Value>,
+        Vec<(String, kobako_codec::codec::Value)>,
     ) {
-        let mut args: Vec<kobako_core::codec::Value> = Vec::new();
-        let mut kwargs: Vec<(String, kobako_core::codec::Value)> = Vec::new();
+        let mut args: Vec<kobako_codec::codec::Value> = Vec::new();
+        let mut kwargs: Vec<(String, kobako_codec::codec::Value)> = Vec::new();
 
         for (idx, &mrb_val) in rest.iter().enumerate() {
             let is_hash = mrb_val.classname(self.mrb()) == "Hash" && idx == rest.len() - 1;
@@ -113,8 +113,8 @@ impl Kobako {
     /// is a function pointer generic over its output so the two consumer
     /// converters share the iteration while preserving their per-converter
     /// recursion target: `to_codec_value` recurses with
-    /// `R = kobako_core::codec::Value` (each element `to_s`-coerced), while
-    /// `try_codec_value` recurses with `R = Option<kobako_core::codec::Value>`
+    /// `R = kobako_codec::codec::Value` (each element `to_s`-coerced), while
+    /// `try_codec_value` recurses with `R = Option<kobako_codec::codec::Value>`
     /// so a single unrepresentable element collapses the whole Array to
     /// `None`.
     fn array_to_codec<R>(
@@ -164,11 +164,11 @@ impl Kobako {
         pairs
     }
 
-    /// Convert a `Value` to a kobako `kobako_core::codec::Value` for use
+    /// Convert a `Value` to a kobako `kobako_codec::codec::Value` for use
     /// as a transport argument or keyword value. Symbol values map to
-    /// `kobako_core::codec::Value::Sym` (ext 0x00, docs/wire-codec.md
+    /// `kobako_codec::codec::Value::Sym` (ext 0x00, docs/wire-codec.md
     /// § Ext Types). Array / Hash values map to
-    /// `kobako_core::codec::Value::Array` / `kobako_core::codec::Value::Map`
+    /// `kobako_codec::codec::Value::Array` / `kobako_codec::codec::Value::Map`
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8). Unknown
     /// types fall back to `Object#to_s`.
     ///
@@ -179,20 +179,20 @@ impl Kobako {
     /// when they trail the positional list; a Hash that arrives here is
     /// either nested inside an Array argument or sitting in a non-final
     /// positional slot, and travels natively as
-    /// `kobako_core::codec::Value::Map`. The sibling `Kobako::try_codec_value`
+    /// `kobako_codec::codec::Value::Map`. The sibling `Kobako::try_codec_value`
     /// handles the **return path** (the `#eval` / `#run` outcome and the
     /// yield-block result) and returns `None` for an unrepresentable
     /// value instead of coercing it. Do not unify the two: an argument
     /// the guest hands to a Service tolerates a best-effort `to_s`, but a
     /// return value with no wire representation must fail loudly so the
     /// host raises rather than receive a misleading String.
-    pub fn to_codec_value(&self, val: Value) -> kobako_core::codec::Value {
+    pub fn to_codec_value(&self, val: Value) -> kobako_codec::codec::Value {
         self.to_codec_value_at(val, 0)
     }
 
-    fn to_codec_value_at(&self, val: Value, depth: usize) -> kobako_core::codec::Value {
+    fn to_codec_value_at(&self, val: Value, depth: usize) -> kobako_codec::codec::Value {
         use beni::FromValue;
-        use kobako_core::codec::Value as CodecValue;
+        use kobako_codec::codec::Value as CodecValue;
         // Scalar leaves dispatch on mruby's own type tag through the safe
         // `FromValue` downcast (which folds the `mrb_type` guard into the
         // unbox) rather than a classname-string match.
@@ -231,10 +231,10 @@ impl Kobako {
         }
     }
 
-    /// Convert a `Value` to a kobako `kobako_core::codec::Value` for a guest
+    /// Convert a `Value` to a kobako `kobako_codec::codec::Value` for a guest
     /// **return** path — the `#eval` / `#run` outcome Result envelope and
     /// the yield-block result. Array / Hash values map to
-    /// `kobako_core::codec::Value::Array` / `kobako_core::codec::Value::Map`
+    /// `kobako_codec::codec::Value::Array` / `kobako_codec::codec::Value::Map`
     /// recursively (docs/wire-codec.md § Type Mapping #7-#8) so a return
     /// of a collection retains element-level fidelity.
     ///
@@ -253,13 +253,13 @@ impl Kobako {
     /// envelope (outcome) or a `0x04` error
     /// YieldResponse (yield) rather than handing the
     /// host a misleading String.
-    pub fn try_codec_value(&self, val: Value) -> Option<kobako_core::codec::Value> {
+    pub fn try_codec_value(&self, val: Value) -> Option<kobako_codec::codec::Value> {
         self.try_codec_value_at(val, 0)
     }
 
-    fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<kobako_core::codec::Value> {
+    fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<kobako_codec::codec::Value> {
         use beni::FromValue;
-        use kobako_core::codec::Value as CodecValue;
+        use kobako_codec::codec::Value as CodecValue;
         // Scalar-leaf downcast through the safe `FromValue` seam, as in
         // `to_codec_value`.
         if let Some(n) = i32::from_value(val) {
@@ -304,7 +304,7 @@ impl Kobako {
         }
     }
 
-    /// Convert a kobako `kobako_core::codec::Value` into a `Value`
+    /// Convert a kobako `kobako_codec::codec::Value` into a `Value`
     /// suitable for handing back to the mruby VM. Handle values are
     /// boxed into a fresh `Kobako::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
@@ -312,10 +312,10 @@ impl Kobako {
     /// `forward_to_dispatch` round-trip).
     pub(crate) fn to_mrb_value(
         &self,
-        val: kobako_core::codec::Value,
+        val: kobako_codec::codec::Value,
     ) -> Result<Value, IntegerOutOfRange> {
         use beni::IntoValue;
-        use kobako_core::codec::Value as CodecValue;
+        use kobako_codec::codec::Value as CodecValue;
         let mrb = self.mrb();
         Ok(match val {
             CodecValue::Nil => Value::nil(),

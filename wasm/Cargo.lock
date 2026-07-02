@@ -202,14 +202,22 @@ version = "0.6.1"
 dependencies = [
  "beni",
  "beni-sys",
+ "kobako-codec",
  "kobako-core",
+]
+
+[[package]]
+name = "kobako-codec"
+version = "0.6.1"
+dependencies = [
+ "rmp",
 ]
 
 [[package]]
 name = "kobako-core"
 version = "0.6.1"
 dependencies = [
- "rmp",
+ "kobako-codec",
 ]
 
 [[package]]
@@ -242,6 +250,7 @@ version = "0.0.0"
 dependencies = [
  "beni",
  "kobako",
+ "kobako-codec",
  "kobako-core",
  "kobako-io",
  "kobako-json",

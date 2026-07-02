@@ -49,10 +49,11 @@ namespace :wasm do
   desc "cargo test the wasm sub-workspace on the host (wasm32 has no test runner)"
   task :test do
     abort "cargo not on PATH; install Rust toolchain to run wasm:test" unless KobakoWasm.cargo_available?
-    # `--workspace` covers the `kobako-core` codec / envelope tests and
-    # the `kobako-wasm` entry-body tests. The mruby wrapper / FFI tiers
-    # are tested in the beni repository, which runs them against a real
-    # host libmruby.a.
+    # `--workspace` covers the `kobako-core` ABI / frames tests and the
+    # `kobako-wasm` entry-body tests; the wire-tier codec / envelope
+    # tests live in `crates/kobako-codec` and run under `crates:test`.
+    # The mruby wrapper / FFI tiers are tested in the beni repository,
+    # which runs them against a real host libmruby.a.
     sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
 end

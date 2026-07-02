@@ -12,13 +12,15 @@ compiler-checked contract:
 
 - `Guest` trait + `export_guest!` — the export enumeration as a trait;
   the macro emits every `#[no_mangle]` export in the invoking crate
-- `codec` — the MessagePack wire codec (12-type set + 3 ext types),
-  byte-for-byte symmetric with the host gem's Ruby codec
-- `transport` — Request / Response / Yield envelopes plus the dispatch
-  proxy to the host
-- `outcome` — the per-invocation Result / Panic envelopes
+- `transport::proxy` — the guest dispatch path to the host over
+  `__kobako_dispatch`
 - `abi` / `frames` — outcome buffer, packed-u64 helpers, stdin frame
   reader, and `ABI_VERSION`
+
+The wire tier itself — the MessagePack codec, the Request / Response /
+Yield envelopes, and the Outcome / Panic records — lives in
+[kobako-codec](https://crates.io/crates/kobako-codec), which this crate
+builds on and which a Rust host reuses unchanged.
 
 ## Usage
 

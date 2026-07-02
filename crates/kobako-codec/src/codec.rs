@@ -1,21 +1,21 @@
-//! MessagePack codec — guest-side glue over the `rmp` crate.
+//! MessagePack codec — Rust-side glue over the `rmp` crate.
 //!
 //! The kobako codec (docs/wire-codec.md) is plain MessagePack with
 //! three ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes), 0x01 Capability Handle (`fixext 4`,
 //! big-endian u32) and 0x02 Exception envelope (variable-length ext
-//! wrapping an embedded msgpack map). The host side encodes through the
-//! official `msgpack` Ruby gem; the guest side encodes through `rmp`
-//! here. Both pickers apply MessagePack's narrowest-encoding rule, which
+//! wrapping an embedded msgpack map). The Ruby host encodes through the
+//! official `msgpack` gem; the Rust side encodes through `rmp` here.
+//! Both pickers apply MessagePack's narrowest-encoding rule, which
 //! keeps the two implementations byte-aligned without any cross-language
 //! sharing.
 //!
-//! This module is intentionally a thin shim: the public surface — `Value`,
-//! `Encoder`, `Decoder`, `Error` — is the same one downstream callers
-//! (`transport/{request,response}.rs`, `transport/proxy.rs`, the round-trip
-//! oracle binary) used
-//! against the previous hand-rolled implementation, but the byte-level
-//! work is now delegated to `rmp::encode` / `rmp::decode`.
+//! This module is intentionally a thin shim: the public surface —
+//! `Value`, `Encoder`, `Decoder`, `Error` — carries the whole wire
+//! byte form, and every consumer (the envelope files here, the
+//! guest-ABI machinery in `kobako-core`, the round-trip oracle binary)
+//! reaches the bytes only through it; the byte-level work is delegated
+//! to `rmp::encode` / `rmp::decode`.
 
 use rmp::decode::{read_marker, MarkerReadError, NumValueReadError, RmpRead, ValueReadError};
 use rmp::encode::{

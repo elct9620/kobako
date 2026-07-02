@@ -1,10 +1,11 @@
 # kobako-core — Guest ABI contract crate.
 #
-# The language-agnostic half of the guest: the MessagePack wire codec
-# and the SPEC envelope value objects a kobako Guest Binary needs,
-# free of mruby so it compiles on every target. The assembled mruby
-# guest (`kobako-wasm`, this workspace) consumes it as a path
-# dependency; third-party guests consume the published crate.
+# The language-agnostic half of the guest: the ABI exports, stdin
+# frame reader, and dispatch proxy a kobako Guest Binary needs, built
+# on the portable wire tier (`kobako-codec`) and free of mruby so it
+# compiles on every target. The assembled mruby guest (`kobako-wasm`,
+# this workspace) consumes it as a path dependency; third-party guests
+# consume the published crate.
 #
 # This crate is a plain rlib — it defines no `#[no_mangle]` symbol and
 # no `cdylib` crate-type. Wasm exports belong to the leaf shell crate
@@ -14,17 +15,14 @@
 name = "kobako-core"
 version = "0.6.1"
 edition = "2021"
-description = "Contract crate for kobako Guest Binaries — the guest-side wire codec and SPEC envelopes."
+description = "Contract crate for kobako Guest Binaries — the Guest ABI exports and dispatch proxy over the kobako wire."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
 readme = "README.md"
-keywords = ["wasm", "mruby", "sandbox", "wasi", "msgpack"]
-categories = ["wasm", "encoding"]
+keywords = ["wasm", "mruby", "sandbox", "wasi"]
+categories = ["wasm"]
 
 [dependencies]
-# `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
-# Rust counterpart of the msgpack-ruby gem used on the host side. The
-# codec stays a thin shim over `rmp::encode` / `rmp::decode`, keeping
-# the byte form aligned with the host. `default-features = false`
-# keeps the dependency footprint minimal on wasm32-wasip1.
-rmp = { version = "0.8", default-features = false }
+# The portable wire tier — codec, envelopes, outcome — shared with any
+# Rust host; this crate adds only the guest-bound ABI machinery on top.
+kobako-codec = { version = "0.6.1", path = "../../crates/kobako-codec" }

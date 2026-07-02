@@ -27,7 +27,7 @@
 //!    exception into a Panic envelope.
 
 #[cfg(any(mruby_linked, test))]
-use kobako_core::codec::Value;
+use kobako_codec::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
 /// name (a Symbol on the codec side); `args` is always a
@@ -116,9 +116,9 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use super::mrb_slot::MRB;
+    use kobako_codec::codec::{Decoder, Encode};
+    use kobako_codec::outcome::{Outcome, Panic};
     use kobako_core::abi::{write_outcome, write_panic};
-    use kobako_core::codec::{Decoder, Encode};
-    use kobako_core::outcome::{Outcome, Panic};
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,

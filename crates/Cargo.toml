@@ -14,6 +14,10 @@
 #
 # Members
 # -------
+#   * `kobako-codec` — portable wire tier (publishable rlib): the
+#     MessagePack wire codec and SPEC envelope value objects shared by
+#     both sides of the wasm boundary; the guest crates in `wasm/`
+#     consume it as a cross-workspace path dependency.
 #   * `kobako-runtime` — engine-neutral host runtime contract
 #     (publishable rlib): the `Runtime` / `DispatchHandler` / `Yielder`
 #     traits and the neutral value types an engine implementation and a
@@ -23,5 +27,5 @@
 #     (AOT cache, InstancePre, epoch timeout, ambient denial).
 
 [workspace]
-members = ["kobako-runtime", "kobako-wasmtime"]
+members = ["kobako-codec", "kobako-runtime", "kobako-wasmtime"]
 resolver = "2"

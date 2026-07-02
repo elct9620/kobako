@@ -158,8 +158,8 @@ fn classify_protected_error(
 
 #[cfg(mruby_linked)]
 fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    use kobako_core::codec::Encode;
-    use kobako_core::transport::{Yield, TAG_BREAK};
+    use kobako_codec::codec::Encode;
+    use kobako_codec::transport::{Yield, TAG_BREAK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
         // `break val` whose value has no wire representation is the
         // unrepresentable shape on the break path — surface it as a 0x04 error
@@ -188,8 +188,8 @@ fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) ->
 }
 
 #[cfg(mruby_linked)]
-fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, String> {
-    use kobako_core::codec::{Decoder, Value};
+fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_codec::codec::Value>, String> {
+    use kobako_codec::codec::{Decoder, Value};
     let mut dec = Decoder::new(req);
     let frame = dec
         .read_only_value()
@@ -202,8 +202,8 @@ fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_core::codec::Value>, Strin
 
 #[cfg(mruby_linked)]
 fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    use kobako_core::codec::Encode;
-    use kobako_core::transport::{Yield, TAG_OK};
+    use kobako_codec::codec::Encode;
+    use kobako_codec::transport::{Yield, TAG_OK};
     let Some(codec_value) = kobako.try_codec_value(value) else {
         // A block returning a value with no wire representation.
         // The host Yielder reifies this 0x04 error as an exception at the
@@ -265,9 +265,9 @@ fn encode_error_response_from_exception(
 
 #[cfg(mruby_linked)]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
-    use kobako_core::codec::Encode;
-    use kobako_core::codec::Value;
-    use kobako_core::transport::{Yield, TAG_ERROR};
+    use kobako_codec::codec::Encode;
+    use kobako_codec::codec::Value;
+    use kobako_codec::transport::{Yield, TAG_ERROR};
     let payload = Value::Map(vec![
         (Value::Str("class".into()), Value::Str(class.into())),
         (Value::Str("message".into()), Value::Str(message.into())),

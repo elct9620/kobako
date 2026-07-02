@@ -10,13 +10,13 @@
 //! bytecode) — stay in the implementation crate; this module carries
 //! only the language-neutral wire shapes.
 
-use crate::codec::{Decoder, Value};
+use kobako_codec::codec::{Decoder, Value};
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF or short
 /// read; callers turn that into a Panic envelope.
 pub fn read_frame() -> Option<Vec<u8>> {
     use std::io::Read;
-    let mut len_buf = [0u8; crate::FRAME_LEN_SIZE];
+    let mut len_buf = [0u8; kobako_codec::FRAME_LEN_SIZE];
     let mut stdin = std::io::stdin().lock();
     stdin.read_exact(&mut len_buf).ok()?;
     let len = u32::from_be_bytes(len_buf) as usize;
@@ -65,7 +65,7 @@ pub fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::Encoder;
+    use kobako_codec::codec::Encoder;
 
     fn encode(v: &Value) -> Vec<u8> {
         let mut enc = Encoder::new();

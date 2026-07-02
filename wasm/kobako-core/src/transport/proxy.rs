@@ -10,7 +10,7 @@
 //! ## Layered responsibilities
 //!
 //! `invoke` — full round-trip. Builds a `Request`, encodes it via
-//! its `crate::codec::Encode` impl, calls the host via
+//! its `kobako_codec::codec::Encode` impl, calls the host via
 //! `__kobako_dispatch` on `wasm32`, then decodes the `Response`. On the
 //! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
 //! **loopback** hook stands in for the host so that integration-style
@@ -45,8 +45,8 @@
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use crate::codec::{self, Decode, Decoder, Encode, Value};
-use crate::transport::{Request, Response, Target};
+use kobako_codec::codec::{self, Decode, Decoder, Encode, Value};
+use kobako_codec::transport::{Request, Response, Target};
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -275,7 +275,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::codec::Encoder;
+    use kobako_codec::codec::Encoder;
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
