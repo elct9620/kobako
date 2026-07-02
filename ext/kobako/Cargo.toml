@@ -11,6 +11,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.8.2" }
+# The engine-neutral host runtime contract the ext maps onto Ruby. A
+# pure path dependency: the crate ships inside the gem, so installs
+# never resolve it against crates.io and the gem release cadence stays
+# decoupled from the crate's.
+kobako-runtime = { path = "../../crates/kobako-runtime" }
 # wasmtime — host-side embedder for kobako.wasm. We disable default-features
 # and opt back in only what kobako needs: a Cranelift-backed runtime that can
 # compile a pre-built wasm32-wasip1 module on the host triple, plus the `wat`

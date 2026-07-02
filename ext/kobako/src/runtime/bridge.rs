@@ -11,8 +11,8 @@ use core::ptr::NonNull;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Value};
 
-use crate::contract::dispatch::DispatchHandler;
-use crate::contract::yielder::Yielder;
+use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::yielder::Yielder;
 
 /// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
 /// `crate::runtime::init` after `Kobako::Runtime` is defined so the

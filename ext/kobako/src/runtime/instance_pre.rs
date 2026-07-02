@@ -21,7 +21,7 @@ use wasmtime_wasi::p1;
 use super::cache::{cached_module, shared_engine};
 use super::invocation::Invocation;
 use super::{dispatch, trap};
-use crate::contract::error::SetupError;
+use kobako_runtime::error::SetupError;
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();

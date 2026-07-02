@@ -30,7 +30,7 @@ use std::time::{Duration, SystemTime};
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
-use crate::contract::error::SetupError;
+use kobako_runtime::error::SetupError;
 
 static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();

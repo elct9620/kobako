@@ -6,8 +6,12 @@
 members = ["./ext/kobako"]
 # `wasm/` is a sibling workspace (kobako-wasm crate) compiled for
 # wasm32-wasip1; excluding it keeps the host (wasmtime) and guest
-# dependency graphs separate.
-exclude = ["wasm", "vendor"]
+# dependency graphs separate. `crates/` is the native host-side crate
+# workspace; excluding it lets the ext consume its members as plain
+# path dependencies resolved as standalone packages — the same shape
+# the packaged gem sees, which ships the crates without their
+# workspace manifest.
+exclude = ["wasm", "vendor", "crates"]
 resolver = "2"
 
 # Strip the local-symbol table from the shipped ext (~22% of the binary).

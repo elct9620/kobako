@@ -13,7 +13,7 @@ use std::time::Instant;
 use wasmtime::{StoreContextMut, UpdateDeadline};
 
 use super::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
-use crate::contract::error::{SetupError, Trap};
+use kobako_runtime::error::{SetupError, Trap};
 
 /// Epoch-deadline callback installed on every Store. Read the per-run
 /// wall-clock deadline from `Invocation` and trap with

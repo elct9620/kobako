@@ -1,0 +1,24 @@
+# crates/ sub-workspace.
+#
+# Native host-side crates: the pieces of the kobako host that function
+# on the host (or both) side of the wasm boundary, isolated from the
+# root workspace (the Ruby ext) and the `wasm/` guest workspace so each
+# dependency graph stays separate. The repo-root `Cargo.toml` excludes
+# `crates`, so the Ruby ext consumes members as plain path dependencies.
+#
+# Packaging rule: this workspace manifest and its `Cargo.lock` do NOT
+# ship in the Ruby gem — the gem carries only the ext's path-dependency
+# closure, whose members resolve there as standalone packages. Member
+# manifests must therefore stay self-contained: no `workspace = true`
+# inheritance fields.
+#
+# Members
+# -------
+#   * `kobako-runtime` — engine-neutral host runtime contract
+#     (publishable rlib): the `Runtime` / `DispatchHandler` / `Yielder`
+#     traits and the neutral value types an engine implementation and a
+#     host frontend meet on.
+
+[workspace]
+members = ["kobako-runtime"]
+resolver = "2"

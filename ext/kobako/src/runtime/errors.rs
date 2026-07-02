@@ -11,7 +11,7 @@
 use magnus::value::Lazy;
 use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
 
-use crate::contract::error::{Error, SetupError, Trap};
+use kobako_runtime::error::{Error, SetupError, Trap};
 
 /// Resolve `Kobako::<name>` as an `ExceptionClass` — the shared body of
 /// every error-class `Lazy` below, which differ only in the constant

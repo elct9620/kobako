@@ -1,0 +1,23 @@
+# kobako-runtime — engine-neutral host runtime contract.
+#
+# The contract a wasm engine must satisfy to drive a kobako guest,
+# free of any engine or frontend type: the `Runtime` trait plus the
+# neutral value types (`Snapshot`, `Trap`, `SetupError`, ...) and the
+# dispatch / yield re-entry traits a frontend supplies. Engine
+# implementations (`kobako-wasmtime`) and host frontends (the Ruby
+# ext) meet on this surface, so the engine stays swappable.
+#
+# Self-contained by design: the Ruby gem ships this crate without the
+# `crates/` workspace manifest, so no `workspace = true` inheritance
+# fields may appear here.
+
+[package]
+name = "kobako-runtime"
+version = "0.6.0"
+edition = "2021"
+description = "Engine-neutral host runtime contract for embedding kobako Wasm guests."
+license = "Apache-2.0"
+repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
+keywords = ["wasm", "mruby", "sandbox", "wasi"]
+categories = ["wasm", "virtualization"]

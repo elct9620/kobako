@@ -9,23 +9,23 @@
 
 use std::sync::Arc;
 
-use crate::contract::dispatch::DispatchHandler;
-use crate::contract::error::Error;
-use crate::contract::snapshot::Snapshot;
+use crate::dispatch::DispatchHandler;
+use crate::error::Error;
+use crate::snapshot::Snapshot;
 
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
 /// entrypoint-dispatch envelope (`Run`). Both ride alongside the stdin
 /// `Frames`; `Run` additionally copies its envelope into guest memory.
-pub(crate) enum Entry<'a> {
+pub enum Entry<'a> {
     Eval { source: &'a [u8] },
     Run { envelope: &'a [u8] },
 }
 
 /// The stdin frames shared by both entries: the Frame 1 preamble (the
 /// Sandbox's registrations) and the Frame 3 snippet-replay payload.
-pub(crate) struct Frames<'a> {
-    pub(crate) preamble: &'a [u8],
-    pub(crate) snippets: &'a [u8],
+pub struct Frames<'a> {
+    pub preamble: &'a [u8],
+    pub snippets: &'a [u8],
 }
 
 /// Engine-neutral runtime: drives one guest invocation on a fresh instance
@@ -40,7 +40,7 @@ pub(crate) struct Frames<'a> {
 /// The Ruby ext does this by holding the `Proc` on its long-lived Runtime
 /// wrapper and GC-marking it; the runtime itself touches no frontend
 /// value.
-pub(crate) trait Runtime {
+pub trait Runtime {
     fn invoke(
         &self,
         entry: Entry<'_>,

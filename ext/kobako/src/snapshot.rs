@@ -11,7 +11,7 @@
 
 use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
 
-use crate::contract::snapshot::Capture;
+use kobako_runtime::snapshot::Capture;
 
 /// Per-invocation snapshot value. Magnus wraps it so a single ext call
 /// from `Runtime::eval` / `Runtime::run` returns the whole bundle — the

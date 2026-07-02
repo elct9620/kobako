@@ -20,10 +20,10 @@ use super::config::Config;
 use super::exports::Exports;
 use super::invocation::Invocation;
 use super::{capture, frames, instance_pre, trap};
-use crate::contract::dispatch::DispatchHandler;
-use crate::contract::error::{Error, SetupError, Trap};
-use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use crate::contract::snapshot::{Capture, Completion, Snapshot, Usage};
+use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
+use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 
 /// The wire ABI version this host implements (docs/wire-codec.md § ABI
 /// Version). A Guest Binary is accepted only when its

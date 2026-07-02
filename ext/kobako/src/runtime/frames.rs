@@ -13,7 +13,7 @@ use super::config::Config;
 use super::exports::Exports;
 use super::invocation::Invocation;
 use super::{ambient, capture, guest_mem};
-use crate::contract::error::{Error, SetupError, Trap};
+use kobako_runtime::error::{Error, SetupError, Trap};
 
 /// Return the resolved `memory` export handle, or a `Trap` when the loaded
 /// module exports no linear memory — the "not a Kobako-shaped runtime"

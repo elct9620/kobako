@@ -3,8 +3,8 @@
 //! The run path produces these instead of constructing host-language
 //! exceptions directly; each frontend's boundary is the single place that
 //! maps them onto its own error classes (the Ruby ext does so in its error
-//! mapper). Keeping the channels frontend-free lets the run mechanics move
-//! to a standalone runtime crate unchanged.
+//! mapper). Keeping the channels frontend-free lets any engine
+//! implementation produce them unchanged.
 
 use std::fmt;
 
@@ -14,7 +14,7 @@ use std::fmt;
 /// the linear-memory cap (`MemoryLimit`), and every other engine fault
 /// (`Other`).
 #[derive(Debug)]
-pub(crate) enum Trap {
+pub enum Trap {
     Timeout(String),
     MemoryLimit(String),
     Other(String),
@@ -27,7 +27,7 @@ pub(crate) enum Trap {
 /// host-side pre-call step failed, so no discard-and-recreate recovery is
 /// owed).
 #[derive(Debug)]
-pub(crate) enum SetupError {
+pub enum SetupError {
     ModuleNotBuilt(String),
     Dead(String),
     Intact(String),
@@ -39,7 +39,7 @@ pub(crate) enum SetupError {
 /// it back into the two channels. Faults after the guest export starts
 /// ride in `Completion::Trap` instead, so captures and usage survive them.
 #[derive(Debug)]
-pub(crate) enum Error {
+pub enum Error {
     Trap(Trap),
     Setup(SetupError),
 }

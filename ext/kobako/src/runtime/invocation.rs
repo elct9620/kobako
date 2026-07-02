@@ -27,7 +27,7 @@ use wasmtime::ResourceLimiter;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
-use crate::contract::dispatch::DispatchHandler;
+use kobako_runtime::dispatch::DispatchHandler;
 
 /// Per-invocation host state — the data half of the Single-Invocation
 /// Slot. Threaded through every host import callback.

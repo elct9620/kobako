@@ -68,10 +68,10 @@ use std::time::Duration;
 
 use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
 
-use crate::contract::dispatch::DispatchHandler;
-use crate::contract::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use crate::contract::snapshot::{Completion, Snapshot as RuntimeSnapshot, Usage};
 use crate::snapshot::Snapshot;
+use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
+use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot, Usage};
 
 use self::config::Config;
 use self::driver::Driver;
@@ -325,7 +325,7 @@ impl Runtime {
     /// `on_dispatch` Proc, or `None` when none is set. The `Opaque` the
     /// handler wraps stays GC-rooted by `Runtime`'s `mark`, so the driver
     /// only borrows it for the call (the safety contract on
-    /// `crate::contract::runtime::Runtime`).
+    /// `kobako_runtime::runtime::Runtime`).
     fn build_handler(&self) -> Option<Arc<dyn DispatchHandler>> {
         self.on_dispatch.get().map(|proc| {
             Arc::new(bridge::RubyDispatchHandler::new(proc)) as Arc<dyn DispatchHandler>

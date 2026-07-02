@@ -6,7 +6,7 @@
 //! a Rust closure — is the frontend's concern; the runtime only sees this
 //! trait. The Ruby ext conforms by bridging its dispatch Proc behind it.
 
-use crate::contract::yielder::Yielder;
+use crate::yielder::Yielder;
 
 /// Host-side handler for a guest→host dispatch.
 ///
@@ -17,6 +17,6 @@ use crate::contract::yielder::Yielder;
 /// handler is contracted to fold application failures into a `Response.err`
 /// envelope, so `None` signals a contract violation (the handler raised)
 /// rather than a normal dispatch outcome.
-pub(crate) trait DispatchHandler: Send + Sync {
+pub trait DispatchHandler: Send + Sync {
     fn dispatch(&self, request: &[u8], yielder: &mut dyn Yielder) -> Option<Vec<u8>>;
 }

@@ -8,7 +8,7 @@
 //! other engine handle — is the implementer's concern; the dispatch
 //! contract sees only this trait.
 
-use crate::contract::error::Trap;
+use crate::error::Trap;
 
 /// Host-initiated re-entry into the in-flight guest instance to run a
 /// yielded block.
@@ -17,6 +17,6 @@ use crate::contract::error::Trap;
 /// raw YieldResponse bytes, or a `Trap` — surfaced through the frontend's
 /// trap-error mapping — when the re-entry traps, the guest returns an empty
 /// result, or a payload exceeds the 16 MiB cap.
-pub(crate) trait Yielder {
+pub trait Yielder {
     fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap>;
 }
