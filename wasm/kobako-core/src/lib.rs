@@ -7,6 +7,13 @@
 //! `transport` / `outcome` / `frames` / `abi` carry the wire
 //! machinery behind it. mruby never enters this crate; the assembled
 //! mruby guest and any third-party guest build on it alike.
+//!
+//! Two tiers share this root, and their dependency edge points one
+//! way: the portable wire tier (`codec`, `outcome`, the `transport`
+//! envelopes) depends on nothing guest-bound, while the guest-ABI tier
+//! (`abi`, `frames`, `guest`, `transport::proxy`) builds on it — never
+//! the reverse. That one-way edge keeps the wire tier extractable as a
+//! standalone both-sides crate.
 
 /// Width in bytes of the length prefix that precedes each stdin frame
 /// and outcome buffer (docs/wire-codec.md § Invocation channels).
