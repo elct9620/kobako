@@ -35,7 +35,7 @@ kobako-runtime = { version = "0.6.1", path = "../kobako-runtime" }
 # feature so test fixtures can be expressed as text.
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "45.0.0", default-features = false, features = [
+wasmtime = { version = "46.0.1", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
@@ -49,7 +49,7 @@ wasmtime = { version = "45.0.0", default-features = false, features = [
 # WasiCtxBuilder + preview1 adapter which wires fd 1/2 to pipes. We omit
 # `p2` (component-model) and `p0`/`p3` (async) because kobako runs
 # synchronous sandboxes only.
-wasmtime-wasi = { version = "45.0.0", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "46.0.1", default-features = false, features = ["p1"] }
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see cache.rs); a collision would load the wrong artifact, so the
 # hash must be cryptographic.

@@ -33,8 +33,8 @@ anyhow = "1"
 # the same wasmtime major the kobako host ext drives — the only wizer
 # lineage whose engine accepts the Guest Binary's exception-handling
 # (setjmp/longjmp) instructions.
-wasmtime-wizer = { version = "45", features = ["wasmtime"] }
-wasmtime = "45"
+wasmtime-wizer = { version = "46", features = ["wasmtime"] }
+wasmtime = "46"
 # wasmtime-wizer's entry points are async-colored; the bake is fully
 # synchronous, so a minimal executor drives them to completion.
 pollster = "0.4"
