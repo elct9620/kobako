@@ -40,10 +40,19 @@ Gem::Specification.new do |spec|
   # `sig/_external/` holds dev-only stubs for upstream gems whose
   # maintainers have not yet published RBS — kept out of the gem so
   # downstream consumers are not handed our partial third-party signatures.
+  #
+  # `crates/` ships exactly the ext's path-dependency closure — an
+  # allowlist, so a new crate stays out of the gem until the ext actually
+  # depends on it. The workspace manifest and lock at `crates/` root must
+  # never ship: a member listed there but absent from the gem would break
+  # `cargo` at install; without them the shipped crates resolve as
+  # standalone packages under the root manifest's `exclude`.
   gemspec = File.basename(__FILE__)
+  ext_crates = %w[crates/kobako-runtime/ crates/kobako-wasmtime/]
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
+        (f.start_with?("crates/") && !f.start_with?(*ext_crates)) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
                           SPEC.md .claude/ CLAUDE.md Rakefile Steepfile rbs_collection.yaml
