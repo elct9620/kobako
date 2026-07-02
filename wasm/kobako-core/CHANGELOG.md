@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/elct9620/kobako/compare/kobako-core-v0.6.0...kobako-core-v0.6.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **codec:** cap encoder recursion at the nesting depth too ([dfe0ddb](https://github.com/elct9620/kobako/commit/dfe0ddb7e480a491106519ec57f426d9bbce22fa))
+* **codec:** reject trailing bytes after a guest envelope value ([36601f1](https://github.com/elct9620/kobako/commit/36601f1eabe97153427d72a07bcd47f20bb07a1f))
+
 ## [0.6.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.5.2...kobako-core-v0.6.0) (2026-06-26)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/elct9620/kobako/compare/kobako-io-v0.6.0...kobako-io-v0.6.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **guest:** size collection conversions by C array length, not #length ([90ecbd0](https://github.com/elct9620/kobako/commit/90ecbd0cb6a990b8c5a1e5deec3a10df4eaa37df))
+* **io:** enforce the fd allowlist at the write syscall ([1b300df](https://github.com/elct9620/kobako/commit/1b300df7bee8f87b701f76b42300163a8899b93e))
+
 ## [0.6.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.5.2...kobako-io-v0.6.0) (2026-06-26)
 
 

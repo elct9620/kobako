@@ -9,7 +9,7 @@
 
 [package]
 name = "kobako-json"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Sandbox JSON capability gem for kobako mruby guests — pure-Rust serde_json over beni."
 license = "Apache-2.0"

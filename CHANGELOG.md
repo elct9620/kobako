@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.2](https://github.com/elct9620/kobako/compare/v0.12.1...v0.12.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **codec:** bound ext-envelope nesting to keep deep Fault chains off the native stack ([7bed2b2](https://github.com/elct9620/kobako/commit/7bed2b2f43a63538aa60610c82d2eb65bcce7b15))
+* **guest:** size collection conversions by C array length, not #length ([90ecbd0](https://github.com/elct9620/kobako/commit/90ecbd0cb6a990b8c5a1e5deec3a10df4eaa37df))
+* **io:** enforce the fd allowlist at the write syscall ([1b300df](https://github.com/elct9620/kobako/commit/1b300df7bee8f87b701f76b42300163a8899b93e))
+* **release:** advance last-release-sha past the unparseable fork merge ([d06117d](https://github.com/elct9620/kobako/commit/d06117d462eea0ae5648e5bdd6886b735765f3b3))
+* **sandbox:** honor nil to disable the output caps, and validate them ([51d1e90](https://github.com/elct9620/kobako/commit/51d1e900e3d7d659ffd432ff3d613786e9073b05))
+
 ## [0.12.1](https://github.com/elct9620/kobako/compare/v0.12.0...v0.12.1) (2026-06-27)
 
 

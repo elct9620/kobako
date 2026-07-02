@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/elct9620/kobako/compare/kobako-rs-v0.6.0...kobako-rs-v0.6.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **codec:** reject trailing bytes after a guest envelope value ([36601f1](https://github.com/elct9620/kobako/commit/36601f1eabe97153427d72a07bcd47f20bb07a1f))
+* **guest:** size collection conversions by C array length, not #length ([90ecbd0](https://github.com/elct9620/kobako/commit/90ecbd0cb6a990b8c5a1e5deec3a10df4eaa37df))
+
 ## [0.6.0](https://github.com/elct9620/kobako/compare/kobako-rs-v0.5.2...kobako-rs-v0.6.0) (2026-06-26)
 
 
