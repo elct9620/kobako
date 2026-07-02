@@ -38,20 +38,6 @@ module Kobako
         new(status: STATUS_ERROR, payload: fault)
       end
 
-      # Decode +bytes+ into a {Response}. Raises +Codec::InvalidType+ when the
-      # envelope is not the expected 2-element msgpack array, or when the
-      # Value Object's construction invariants reject the decoded fields.
-      def self.decode(bytes)
-        Codec::Decoder.decode(bytes) do |arr|
-          unless arr.is_a?(Array) && arr.length == 2
-            raise Codec::InvalidType, "Response envelope is malformed (expected a 2-element array)"
-          end
-
-          status, payload = arr
-          new(status: status, payload: payload)
-        end
-      end
-
       def initialize(status:, payload:)
         unless [STATUS_OK, STATUS_ERROR].include?(status)
           raise ArgumentError, "Response status must be 0 (ok) or 1 (error), got #{status.inspect}"
@@ -70,6 +56,20 @@ module Kobako
       # +[status, payload]+ array.
       def encode
         Codec::Encoder.encode([status, payload])
+      end
+
+      # Decode +bytes+ into a {Response}. Raises +Codec::InvalidType+ when the
+      # envelope is not the expected 2-element msgpack array, or when the
+      # Value Object's construction invariants reject the decoded fields.
+      def self.decode(bytes)
+        Codec::Decoder.decode(bytes) do |arr|
+          unless arr.is_a?(Array) && arr.length == 2
+            raise Codec::InvalidType, "Response envelope is malformed (expected a 2-element array)"
+          end
+
+          status, payload = arr
+          new(status: status, payload: payload)
+        end
       end
     end
   end
