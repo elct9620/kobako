@@ -228,8 +228,7 @@ module Kobako
     # state — capture buffers, truncation predicates, and the
     # +Catalog::Handles+ counter — before the guest runs. The
     # +Catalog::Handles+ itself is held as +@handler+ and never exposed
-    # beyond this class: SPEC.md Terminology pins it as "Not exposed to the
-    # Host App".
+    # beyond this class — it is not part of the Host App's surface.
     def begin_invocation!
       @services.seal!
       @handler.reset!
@@ -275,8 +274,8 @@ module Kobako
     # TrapError message so the failing export is identifiable.
     #
     # The yielded block must return a +Kobako::Snapshot+ — i.e. the
-    # value of +Runtime#eval+ / +#run+ (SPEC.md Internal Concepts →
-    # Snapshot). The success path unpacks +#stdout+ / +#stderr+ into
+    # value of +Runtime#eval+ / +#run+. The success path unpacks
+    # +#stdout+ / +#stderr+ into
     # +Capture+ and feeds +#return_bytes+ to +Outcome.decode+; usage is
     # populated by the +ensure+ readout ({#read_usage!}) on every outcome.
     # The rescue chain is the single trap-translation boundary —

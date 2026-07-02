@@ -73,7 +73,7 @@ fn emit(mrb: &Mrb, obj: Value, pretty: bool) -> Result<Value, Error> {
 
 /// `Object#as_json` — the raising default. The generator handles native
 /// types directly and only calls this for a non-native value, so an
-/// object that has not overridden it is refused (B-53) here rather than
+/// object that has not overridden it is refused here rather than
 /// stringified through a host-dispatching `to_s`.
 fn object_as_json(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Err(errors::generator_error(

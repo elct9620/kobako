@@ -89,7 +89,7 @@ fn try_handle(
     // Build a frame-scoped yielder over this Caller and hand it to the
     // handler. The borrow ends with the block, freeing the Caller for
     // `write_response`; nested dispatch frames each build their own, so
-    // the LIFO re-entry lives on the Rust stack — no shared slot (B-28).
+    // the LIFO re-entry lives on the Rust stack — no shared slot.
     let resp_bytes = {
         let mut yielder = crate::guest_mem::CallerYielder::new(caller);
         handler.dispatch(&req_bytes, &mut yielder)

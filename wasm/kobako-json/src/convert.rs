@@ -63,7 +63,7 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
     }
 }
 
-/// Apply the integer-range policy (JS-03). A real maps to `Float`; an
+/// Apply the integer-range policy. A real maps to `Float`; an
 /// integer maps to `Integer` when it fits the guest's 32-bit width, to an
 /// exact `Float` up to 2^53, and otherwise raises rather than degrade.
 fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {

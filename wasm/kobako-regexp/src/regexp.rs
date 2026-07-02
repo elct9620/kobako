@@ -3,7 +3,7 @@
 //!
 //! `Regexp.compile` is the entry a `/.../ ` literal compiles to, so it and
 //! `Regexp.new` are singleton methods that build the carrier directly —
-//! through a bounded per-invocation cache (RX-08) that lets an identical
+//! through a bounded per-invocation cache that lets an identical
 //! pattern reuse its compiled engine instead of rebuilding it every time the
 //! literal is evaluated. Each successful match refreshes the `$~` / `$1..$9` /
 //! `$&` / `` $` `` / `$'` globals, mirroring the curated regexp engine's
@@ -38,8 +38,8 @@ pub(crate) struct RegexpState {
 
 static REGEXP_TYPE: DataType<RegexpState> = DataType::new(c"Kobako::Regexp");
 
-/// Per-invocation memoization of compiled patterns (docs/regexp.md RX-08),
-/// keyed by `(source, options)`. Bounded so it cannot grow without limit within
+/// Per-invocation memoization of compiled patterns, keyed by
+/// `(source, options)`. Bounded so it cannot grow without limit within
 /// an invocation; rooted on an interpreter global, it is freed with the
 /// interpreter when the invocation ends.
 struct CompileCache {
@@ -119,7 +119,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
         beni::method!(rx_initialize_copy, -1),
     )?;
 
-    // Install the per-invocation compile cache (RX-08), rooted on an interpreter
+    // Install the per-invocation compile cache, rooted on an interpreter
     // global so the GC keeps it alive for the invocation and frees it at close.
     let cache = mrb
         .object_class()
@@ -175,7 +175,7 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 /// raising `RegexpError` on an invalid pattern. The canonical construction
 /// path shared by `Regexp.new` / `Regexp.compile` and the String-method
 /// coercion of a non-`Regexp` pattern. It consults the per-invocation compile
-/// cache (RX-08) first, so an identical pattern reuses its compiled engine
+/// cache first, so an identical pattern reuses its compiled engine
 /// instead of rebuilding it.
 fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
     if let Some(regex) = cache_get(mrb, &source, options) {

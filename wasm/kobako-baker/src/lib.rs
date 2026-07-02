@@ -8,8 +8,7 @@
 //! the host's ambient denial), `env::__kobako_dispatch` traps
 //! (boot must never dispatch), and any other import fails instantiation
 //! loudly. Identical inputs therefore produce identical baked bytes;
-//! kobako's Stage C re-bakes and compares to gate reproducibility
-//! (F-10).
+//! kobako's Stage C re-bakes and compares to gate reproducibility.
 
 use wasmtime::Result;
 

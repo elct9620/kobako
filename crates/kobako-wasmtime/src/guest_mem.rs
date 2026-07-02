@@ -18,7 +18,7 @@ use kobako_runtime::yielder::Yielder;
 /// The wasmtime-backed `Yielder` (`kobako_runtime::yielder`): a
 /// frame-scoped wrapper over the dispatch `Caller` that drives a block-yield
 /// round-trip through `drive_yield`. Built per `__kobako_dispatch` frame and
-/// handed to the dispatch handler, so nested dispatch frames (B-28) each
+/// handed to the dispatch handler, so nested dispatch frames each
 /// carry their own and stack on the Rust call stack with no shared slot.
 pub(crate) struct CallerYielder<'a, 'c> {
     caller: &'a mut Caller<'c, Invocation>,
