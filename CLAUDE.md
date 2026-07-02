@@ -42,7 +42,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm/build.rake` — including the non-obvious linker choice). Stage C ends with the `kobako-baker` bake (`wasm/kobako-baker`, host-side standalone crate): the canonical boot state (B-49) is pre-initialized into every shipped artifact, gated by a double-bake byte-identity check (F-10). `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/` plus its `crates/` path dependencies — host-side `wasmtime` via `rb_sys`, not the guest).
 
-The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp is opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
+The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`; `wasm:build:json` and `wasm:build:full` compose the `kobako-json` gem alone, or together with ASCII regexp, into `data/kobako+json.wasm` / `data/kobako+full.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
 
 CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep`) is the canonical gate.
 
@@ -88,6 +88,8 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │    ::IO · $stdout/$stderr · delegators
        │                                         │  wasm/kobako-regexp  — Regexp / MatchData gem
        │                                         │    Regexp · MatchData · String integ
+       │                                         │  wasm/kobako-json  — JSON gem
+       │                                         │    JSON.generate/parse · Object#as_json
        │                                         │  wasm/kobako-core  — contract crate
        │                                         │    Guest trait · abi(primitives) · transport
        │                                         │    · outcome · codec  (mirrors lib/)
@@ -96,15 +98,15 @@ lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm  — lea
        │                                         │  beni / beni-sys  — typed wrapper + FFI
        │                                         │    (crates.io) → libmruby.a (mruby C API)
        ▼                                         │       ▲  kobako-wasm → kobako · kobako-io ·
-ext/  — magnus shim over the crates/ driver      │       │    kobako-regexp · kobako-core; kobako →
-  runtime.rs shell · bridge · errors · Snapshot  │       │    core · beni; kobako-io/-regexp → beni
+ext/  — magnus shim over the crates/ driver      │       │    kobako-regexp · kobako-json · kobako-core;
+  runtime.rs shell · bridge · errors · Snapshot  │       │    kobako → core · beni; io/-regexp/-json → beni
 crates/ — kobako-runtime + kobako-wasmtime       │       │
        └─────────── drives the ABI ─── wasm ─────┼───────┘
                     (alloc / eval / run / take_outcome / dispatch / yield)
 ```
 
 - **`lib/` ↔ `wasm/kobako-core` are wire-symmetric peers.** Each independently implements the same SPEC wire so envelopes round-trip byte-for-byte (the `*_oracle` fuzz checks pin this); the one asymmetry that stays is the error model — success/failure is a value on the guest (`Outcome` enum) but return-or-raise on the host.
-- **Four publishable guest crates, one shell, one bake tool.** Crate roles live in the stack diagram below; `wasm/kobako-wasm` is the unpublished cdylib-only shell composing them into `data/kobako.wasm`, the same path any third-party guest takes. `wasm/kobako-baker` (publishable, host-side, standalone `[workspace]` — wizer/wasmtime must never enter the wasm32 graph) bakes the canonical boot state into any kobako guest artifact. Published-crate internals follow the beni placeholder rule (compile on every target, fail at runtime); only `kobako` additionally mirrors the `mruby_linked` cfg in its build.rs.
+- **Five publishable guest crates, one shell, one bake tool.** Crate roles live in the stack diagram below; `wasm/kobako-wasm` is the unpublished cdylib-only shell composing them into `data/kobako.wasm`, the same path any third-party guest takes. `wasm/kobako-baker` (publishable, host-side, standalone `[workspace]` — wizer/wasmtime must never enter the wasm32 graph) bakes the canonical boot state into any kobako guest artifact. Published-crate internals follow the beni placeholder rule (compile on every target, fail at runtime); only `kobako` additionally mirrors the `mruby_linked` cfg in its build.rs.
 - **The host's wasmtime driver is `crates/kobako-wasmtime`, not a wire endpoint.** It implements the `crates/kobako-runtime` contract, drives the ABI exports, and shuttles *raw bytes* between Ruby (which owns the codec) and the guest — never decodes envelopes. `ext/` is the magnus shim over it; the gem ships both crates as the ext's path-dependency closure (see the gemspec allowlist).
 - **The typed mruby wrapper is the published `beni` crate** ([elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by the guest crates; its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by `rake wasm:build`). Wrapper-tier changes are beni contributions consumed here by a dependency bump — see beni's own CLAUDE.md for its layering and API surface.
 
@@ -120,7 +122,7 @@ Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
 Transport ──┐   Kobako::Transport::{Request, Response, Run, Yield, Dispatcher, Yielder}
 Outcome ────┤   Kobako::Outcome (decode + Panic)
       │     │
-Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, Factory, Utils}   (byte-level wire)
+Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, Factory, Utils, HandleWalk}   (byte-level wire)
       │
 Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOptions},
                 Kobako::Snippet::{Source, Binary}, Kobako::Outcome::Panic, Kobako::*Error
@@ -163,7 +165,7 @@ Mirrors `lib/` tier-for-tier — `kobako-core` is the wire-symmetric peer; the `
 ```
 kobako-wasm  (unpublished leaf shell, cdylib-only)
 Shell           guest — KobakoGuest (impl kobako::MrbGuest; init_gems
-                  wires kobako-io + kobako-regexp) + Guest forwarding + export_guest!
+                  wires kobako-io + kobako-regexp + kobako-json) + Guest forwarding + export_guest!
                   emits __kobako_{eval,run,alloc,take_outcome,yield_to_block,abi_version}
 ────────────────────────────────────────────────────────────────────
 kobako  (assembled mruby implementation — publishable rlib)
@@ -188,6 +190,11 @@ kobako-regexp  (Regexp / MatchData capability gem — publishable rlib, kobako-f
                 split/[]/index); pure Rust over fancy-regex, translate
                 Ruby pattern/flags → regex dialect
 ────────────────────────────────────────────────────────────────────
+kobako-json  (JSON capability gem — publishable rlib, kobako-free)
+                KobakoJson (impl beni::Gem) — JSON module
+                (parse/generate/pretty_generate) · Object#as_json opt-in
+                · JSON error tree; pure Rust over serde_json
+────────────────────────────────────────────────────────────────────
 kobako-core  (contract crate — publishable rlib, mruby-free)
 Contract        Guest trait (eval / run / yield_to_block) + export_guest! macro
       │
@@ -200,7 +207,7 @@ Outcome ────┤   outcome::{Outcome, Panic}
 Codec ◄─────┘   codec::{Encoder, Decoder, Value, Error, Encode, Decode}   (byte-level wire)
 
 (mruby)         beni (typed wrapper) → beni-sys (bindgen FFI) — crates.io;
-                consumed by kobako, kobako-io, and kobako-regexp
+                consumed by kobako, kobako-io, kobako-regexp, and kobako-json
 ```
 
 ## Where to Look
@@ -214,6 +221,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
 | Guest Regexp / MatchData | `wasm/kobako-regexp/src/{regexp,matchdata,string_ext,translate}.rs` | Pure-Rust `beni::Gem` over `fancy-regex`; self-defines `RegexpError`; byte-based offsets; `translate.rs` rewrites Ruby `\d\w\s`→ASCII + flag mapping. SPEC B-41. |
+| Guest JSON | `wasm/kobako-json/src/{json,convert,errors}.rs` | Pure-Rust `beni::Gem` over `serde_json`; `JSON.parse` / `generate` / `pretty_generate`; `Object#as_json` opt-in that parse can't use to forge a Handle. SPEC B-52 / B-53. |
 | Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
 | Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-13..B-21 in `docs/behavior/dispatch.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Namespaces` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job. |
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live at `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`). |
