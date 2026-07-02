@@ -30,8 +30,11 @@
 //                     memory cap, and the trap marker types
 //                     (`TimeoutTrap` / `MemoryLimitTrap`).
 //   * `dispatch`    — `__kobako_dispatch` host-import dispatch helpers.
+//   * `frames`      — stdin frame stream + WASI context assembly, `#run`
+//                     envelope write, OUTCOME_BUFFER readout.
 //   * `guest_mem`   — Caller-based guest linear-memory alloc / write / read.
 //   * `capture`     — stdout / stderr pipe sizing + clip helpers.
+//   * `ambient`     — frozen WASI clocks + constant RNG (ambient denial).
 //   * `trap`        — wasmtime-error → neutral `Trap` classification.
 //
 // This file owns the `Kobako::Runtime` magnus class itself — the Ruby
