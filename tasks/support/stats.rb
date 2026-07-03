@@ -1,0 +1,106 @@
+# frozen_string_literal: true
+
+require "json"
+require "open3"
+require "tempfile"
+
+# Code-statistics helper backing +tasks/stats.rake+ — a rails-stats-style
+# size report over the tracked source tree. cloc owns the per-file line
+# classification; this module owns file selection (git-tracked, minus
+# generated artifacts) and the report shape, so the category table in the
+# rake file can grow without touching the counting logic.
+module KobakoStats
+  module_function
+
+  # Tracked-for-reproducibility artifacts that are not implementation:
+  # dependency lock files and vector images.
+  EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z}
+
+  HEADER = %w[Name Files Lines LOC Comments].freeze
+
+  ZERO_ROW = { files: 0, blank: 0, comment: 0, code: 0 }.freeze
+
+  def cloc_available?
+    system("cloc", "--version", out: File::NULL, err: File::NULL)
+  end
+
+  def excluded?(path)
+    path.match?(EXCLUDED)
+  end
+
+  # Count the git-tracked files under +paths+ with cloc, returning one
+  # totals row. +--force-lang+ folds +sig/*.rbs+ signatures into Ruby,
+  # which cloc does not recognize on its own.
+  def measure(paths, root:)
+    files = tracked_files(paths, root: root)
+    return ZERO_ROW if files.empty?
+
+    Tempfile.create("kobako-stats") do |list|
+      list.puts(files)
+      list.flush
+      output, = Open3.capture2("cloc", "--list-file=#{list.path}", "--json",
+                               "--quiet", "--force-lang=Ruby,rbs", chdir: root)
+      sum(output)
+    end
+  end
+
+  # The countable files under +paths+: git-tracked (so gitignored build
+  # products and vendored trees never enter), minus the exclusion rule.
+  def tracked_files(paths, root:)
+    output, = Open3.capture2("git", "-C", root, "ls-files", "-z", "--", *paths)
+    output.split("\0").reject { |path| excluded?(path) }
+  end
+
+  # Fold cloc's +--json+ report into a totals row; cloc emits nothing for
+  # an empty file list, so blank output is a zero row.
+  def sum(json_text)
+    totals = json_text.strip.empty? ? {} : JSON.parse(json_text).fetch("SUM", {})
+    { files: totals.fetch("nFiles", 0), blank: totals.fetch("blank", 0),
+      comment: totals.fetch("comment", 0), code: totals.fetch("code", 0) }
+  end
+
+  # Render category rows as an aligned table with a Total row and the
+  # rails-stats-style code-to-test summary line.
+  def table(rows)
+    body = rows.map { |row| cells(row) }
+    foot = cells(total(rows))
+    widths = [HEADER, foot, *body].transpose.map { |column| column.map(&:length).max }
+    [*framed(body, foot, widths), ratio_line(rows), ""].join("\n")
+  end
+
+  def framed(body, foot, widths)
+    rule = "+#{widths.map { |width| "-" * (width + 2) }.join("+")}+"
+    [rule, line(HEADER, widths), rule,
+     *body.map { |row| line(row, widths) },
+     rule, line(foot, widths), rule]
+  end
+
+  def cells(row)
+    lines = row[:blank] + row[:comment] + row[:code]
+    [row[:name], row[:files].to_s, lines.to_s, row[:code].to_s, row[:comment].to_s]
+  end
+
+  def total(rows)
+    ZERO_ROW.to_h { |key, _| [key, rows.sum { |row| row[key] }] }.merge(name: "Total")
+  end
+
+  def line(values, widths)
+    padded = values.each_with_index.map do |value, index|
+      index.zero? ? value.ljust(widths[index]) : value.rjust(widths[index])
+    end
+    "| #{padded.join(" | ")} |"
+  end
+
+  # Only +:code+ and +:test+ rows enter the ratio — signatures, docs, and
+  # tooling are reported but not weighed against implementation.
+  def ratio_line(rows)
+    code = kind_loc(rows, :code)
+    test = kind_loc(rows, :test)
+    ratio = code.zero? ? 0.0 : test.fdiv(code).round(1)
+    "  Code LOC: #{code}    Test LOC: #{test}    Code to Test Ratio: 1:#{ratio}"
+  end
+
+  def kind_loc(rows, kind)
+    rows.sum { |row| row[:kind] == kind ? row[:code] : 0 }
+  end
+end
