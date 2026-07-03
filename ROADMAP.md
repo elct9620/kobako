@@ -23,4 +23,4 @@ output capture, and a warm Sandbox pool.
 | ✅ [F-12 Guest block reception and yield re-entry](docs/behavior/yield.md) | [lib/kobako/transport/yielder.rb](lib/kobako/transport/yielder.rb) | — |
 | ✅ [F-13 Snippet preloading (`#preload`)](docs/behavior/invocation.md) | [lib/kobako/catalog/snippets.rb](lib/kobako/catalog/snippets.rb) | — |
 | ✅ [F-14 Synchronous entrypoint dispatch (`#run`)](docs/behavior/invocation.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
-| ⏳ [F-15 Warm Sandbox pool checkout (`Kobako::Pool`)](docs/behavior/runtime.md) | [lib/kobako/pool.rb](lib/kobako/pool.rb) | B-46 / B-47 tested; B-48 (reachability-tied teardown) has no exercising test |
+| ✅ [F-15 Warm Sandbox pool checkout (`Kobako::Pool`)](docs/behavior/runtime.md) | [lib/kobako/pool.rb](lib/kobako/pool.rb) | — |
