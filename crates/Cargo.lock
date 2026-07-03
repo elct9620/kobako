@@ -855,18 +855,18 @@ dependencies = [
 
 [[package]]
 name = "kobako-codec"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "rmp",
 ]
 
 [[package]]
 name = "kobako-runtime"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "kobako-runtime",
  "libc",
