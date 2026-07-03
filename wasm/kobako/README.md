@@ -32,8 +32,8 @@ and emits the wasm exports:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako = "0.6.1" # x-release-please-version
-kobako-core = "0.6.1" # x-release-please-version
+kobako = "0.7.0" # x-release-please-version
+kobako-core = "0.7.0" # x-release-please-version
 beni = "0.3"
 ```
 
