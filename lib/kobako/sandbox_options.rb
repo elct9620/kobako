@@ -18,7 +18,9 @@ module Kobako
   # +nil+ is rejected because the weakest posture is requested as an
   # explicit +:permissive+. Anything that survives +SandboxOptions.new+
   # is a wire-ready bundle the +Kobako::Runtime+ constructor consumes
-  # as-is.
+  # as-is. The options also own the ladder comparison
+  # (+#enforce_floor!+) that +Kobako::Sandbox+ delegates its
+  # construction floor check to.
   class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile)
     # Default wall-clock timeout for a single invocation: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0

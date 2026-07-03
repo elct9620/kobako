@@ -111,11 +111,11 @@ class TestSandboxOptions < Minitest::Test
 
   # B-54's passing branch: a declaration at the floor constructs, and a
   # runtime that can only build a stronger posture satisfies a weaker
-  # request by declaring what it built.
+  # request by declaring what it built. The contract is "returns
+  # without raising" — the return value is void — and minitest turns
+  # any raise into a failure, so the bare calls are the whole witness.
   def test_enforce_floor_accepts_a_declaration_at_or_above_the_floor
-    assert_nil Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:hermetic),
-               "a :hermetic declaration through #enforce_floor! must pass the :hermetic floor"
-    assert_nil Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:hermetic),
-               "a :hermetic declaration through #enforce_floor! must satisfy the weaker :permissive floor"
+    Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:hermetic)
+    Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:hermetic)
   end
 end
