@@ -53,6 +53,27 @@ class TestE2EIoStreams < Minitest::Test
     assert_equal "", sandbox.stdout
   end
 
+  # SPEC.md B-03: the per-run reset also covers a run that *trapped* —
+  # the invocation raises instead of returning, the one path where the
+  # reset could plausibly be skipped — so a rescued TimeoutError's
+  # partial output must not bleed into the next run's readout. Trap
+  # counterpart of the truncation-predicate reset case above; the
+  # trapped run's partial-output readability itself is pinned by the
+  # B-04 cases in test_caps.rb.
+  def test_captures_reset_on_the_invocation_after_a_trap
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+    assert_raises(Kobako::TimeoutError) do
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+    end
+
+    assert_equal 3, sandbox.eval("1 + 2")
+
+    assert_equal "", sandbox.stdout,
+                 "stdout left by a trapped run must reset on the next invocation per SPEC.md B-03"
+    assert_equal "", sandbox.stderr,
+                 "stderr left by a trapped run must reset on the next invocation per SPEC.md B-03"
+  end
+
   # SPEC.md B-04: $stderr writes land in Sandbox#stderr, not Sandbox#stdout.
   # Covers the guest-side fd 2 path enabled by the kobako-io ::IO gem.
   # The equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
