@@ -154,7 +154,7 @@ sandbox = Kobako::Sandbox.new(
 
 `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
 
-A fifth option, `profile:`, names the weakest isolation posture the Sandbox accepts on the `:permissive` < `:hermetic` ladder (default `:hermetic`). It is a floor, not a switch — the bundled wasmtime runtime always runs hermetic; construction fails with `Kobako::SetupError` on a runtime that declares less. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
+A fifth option, `profile:`, requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources — an explicit trade of reproducibility, with filesystem, environment, and network still unreachable. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
 
 ### Invocation Lifecycle
 

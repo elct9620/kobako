@@ -34,28 +34,31 @@ These hold without any host effort — do not re-implement them.
 | The guest cannot fabricate a `Kobako::Handle` or a Member proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
-| Guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
-| The runtime declares its isolation profile on the `permissive < hermetic` ladder, and `Sandbox.new` fails cleanly when the declaration falls below the floor you request — `hermetic` by default. The bundled wasmtime runtime declares `hermetic`. | B-54 |
+| Under the default `hermetic` profile, guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
+| `Sandbox.new(profile:)` requests the isolation posture on the `permissive < hermetic` ladder — `hermetic` by default; the runtime builds it, declares what it built, and construction fails cleanly when the declaration falls below the request. | B-54 |
 | Per-invocation `timeout`, linear-memory cap, and stdout / stderr clipping, all with clean errors. | B-01, B-35 |
 | Only the type allowlist serializes; an unrepresentable, over-deep, cyclic, or NUL-bearing value becomes a controlled `Kobako::SandboxError`, never a host crash. | B-06, E-06, [`wire-codec.md`](wire-codec.md) § Structural Nesting Depth |
 
 ## Isolation profiles
 
-A runtime implementation names the posture it provides by declaring one profile from the
-ordered ladder `permissive < hermetic` (B-54). `hermetic` is the full ambient-denial
-posture this document describes: B-45's frozen clocks and constant entropy, no filesystem,
-`ENV`, or network reachability, and no host import beyond the wire ABI's single
-`__kobako_dispatch` — so the guest's only paths outward are the Services you inject and
-the stdout / stderr capture. `permissive` declares nothing beyond the Wasm cell; it is
-what a runtime that grants some ambient authority declares honestly.
+Isolation postures form the ordered ladder `permissive < hermetic` (B-54). `hermetic` is
+the full ambient-denial posture this document describes: B-45's frozen clocks and constant
+entropy, no filesystem, `ENV`, or network reachability, and no host import beyond the wire
+ABI's single `__kobako_dispatch` — so the guest's only paths outward are the Services you
+inject and the stdout / stderr capture. `permissive` relaxes exactly one thing: the guest's
+`wasi:clocks` and `wasi:random` read live host time and entropy, giving up reproducible
+execution for that Sandbox; filesystem, `ENV`, network, and the host-import set stay as at
+`hermetic`.
 
-`Sandbox.new(profile:)` states the weakest posture your application accepts, defaulting
-to `:hermetic`; construction fails with `Kobako::SetupError` rather than run guest code
-on a runtime that declares less. The declaration is a contract statement, not a switch —
-requesting `:permissive` on the bundled wasmtime runtime does not relax anything; it only
-widens what you would accept. The floor matters when the runtime is swappable: pin
-`:hermetic` (or keep the default) and an alternative engine that cannot deny ambient
-authority is refused at construction instead of weakening the guarantees above silently.
+`Sandbox.new(profile:)` requests the posture, defaulting to `:hermetic`; the runtime builds
+the request and declares the posture it actually built, and construction fails with
+`Kobako::SetupError` rather than run guest code on a runtime that declares less than you
+requested. Requesting `:permissive` is an explicit trade — you accept ambient
+nondeterminism in exchange for guest code that reads real time and entropy; every other
+guarantee in this document holds on both rungs. The request doubles as a floor when the
+runtime is swappable: pin `:hermetic` (or keep the default) and an alternative engine that
+cannot deny ambient authority is refused at construction instead of weakening the
+guarantees above silently.
 
 ## Designing a Service
 

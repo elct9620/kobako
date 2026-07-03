@@ -96,12 +96,12 @@ Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
-| E-39 | `Sandbox.new` option argument is invalid: `timeout` is non-Numeric, non-positive, or non-finite, `memory_limit` is not a positive Integer, or `profile` is not a ladder value — `nil` included; the no-floor request is `:permissive` (B-54) | host pre-flight (`SandboxOptions`, before any engine work) | `ArgumentError` |
+| E-39 | `Sandbox.new` option argument is invalid: `timeout` is non-Numeric, non-positive, or non-finite, `memory_limit` is not a positive Integer, or `profile` is not a ladder value — `nil` included; the weakest posture is requested explicitly as `:permissive` (B-54) | host pre-flight (`SandboxOptions`, before any engine work) | `ArgumentError` |
 | E-40 | The Guest Binary artifact is absent at the resolved `wasm_path` — the common state on a fresh clone before `rake compile` | construction: artifact lookup | `Kobako::ModuleNotBuiltError` |
 | E-41 | The Guest Binary artifact is present but the wasm runtime cannot be constructed from it: the file cannot be read, its bytes are not a valid Wasm module, or engine / linker / instantiation setup fails | construction: read / compile / instantiate | `Kobako::SetupError` |
 | E-42 | The Guest Binary does not export `__kobako_abi_version`, or the export's reported value differs from the ABI version the Host Gem implements (→ [`docs/wire-codec.md`](../wire-codec.md) § ABI Version) | construction: ABI version probe (B-40) | `Kobako::SetupError` |
 | E-47 | `Pool.new` argument is invalid: `slots` is not a positive Integer, or `checkout_timeout` is non-Numeric, non-positive, or non-finite (`nil` is valid and waits indefinitely) | host pre-flight (`Pool.new`, before any engine work) | `ArgumentError` |
-| E-49 | The runtime's declared isolation profile is below the floor requested via `profile:` (B-54) | construction: profile floor check | `Kobako::SetupError` |
+| E-49 | The runtime's declared isolation profile is below the posture requested via `profile:` (B-54) | construction: profile floor check | `Kobako::SetupError` |
 
 E-42's actionable remedy is rebuilding the Guest Binary against the Host Gem's ABI version.
 
