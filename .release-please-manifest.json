@@ -1,1 +1,1 @@
-{".":"0.12.2","wasm/kobako-core":"0.6.1","wasm/kobako":"0.6.1","wasm/kobako-io":"0.6.1","wasm/kobako-json":"0.6.1","wasm/kobako-regexp":"0.6.1","wasm/kobako-baker":"0.6.1","crates/kobako-codec":"0.6.1","crates/kobako-runtime":"0.6.1","crates/kobako-wasmtime":"0.6.1"}
+{".":"0.13.0","wasm/kobako-core":"0.7.0","wasm/kobako":"0.7.0","wasm/kobako-io":"0.7.0","wasm/kobako-json":"0.7.0","wasm/kobako-regexp":"0.7.0","wasm/kobako-baker":"0.7.0","crates/kobako-codec":"0.7.0","crates/kobako-runtime":"0.7.0","crates/kobako-wasmtime":"0.7.0"}

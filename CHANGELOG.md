@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0](https://github.com/elct9620/kobako/compare/v0.12.2...v0.13.0) (2026-07-03)
+
+
+### Features
+
+* **crates:** build the requested isolation profile into the WASI context ([63c25d8](https://github.com/elct9620/kobako/commit/63c25d835d4d03010c1658217cee412318e6b5d8))
+* enforce the isolation-profile floor at Sandbox construction ([73f0dfe](https://github.com/elct9620/kobako/commit/73f0dfe34a144045a559a28caec31468351de64a))
+* forward the Sandbox profile request through the ext to the driver ([f47f906](https://github.com/elct9620/kobako/commit/f47f9063aa56462be023f5c76cbc73db6e4315ad))
+* keep guest output readable after a trap ([464454c](https://github.com/elct9620/kobako/commit/464454cd774db96ad72b3787007f2ce015673587))
+* **runtime:** runtimes declare their isolation profile ([f89717a](https://github.com/elct9620/kobako/commit/f89717a6bc9809f0de0df78f97da33a49a1474ac))
+
 ## [0.12.2](https://github.com/elct9620/kobako/compare/v0.12.1...v0.12.2) (2026-07-02)
 
 
