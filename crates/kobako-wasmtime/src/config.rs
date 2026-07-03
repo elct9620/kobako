@@ -10,8 +10,10 @@
 
 use std::time::Duration;
 
-/// Wall-clock and output caps for one `Driver`. `None` on any field
-/// disables that cap.
+use kobako_runtime::profile::Profile;
+
+/// Wall-clock and output caps plus the requested isolation profile for
+/// one `Driver`. `None` on any cap field disables that cap.
 pub struct Config {
     /// Wall-clock cap for one guest `#eval` / `#run`. Stamped into a
     /// per-run `Instant` deadline by `Driver::prime_caps`.
@@ -22,4 +24,10 @@ pub struct Config {
     pub stdout_limit_bytes: Option<usize>,
     /// Byte cap for guest stderr capture. Mirror of `stdout_limit_bytes`.
     pub stderr_limit_bytes: Option<usize>,
+    /// Isolation posture the frontend requested. The per-invocation
+    /// WASI context is built to this rung — `Hermetic` freezes ambient
+    /// time and entropy (`crate::ambient`), `Permissive` leaves the
+    /// live WASI sources — and `Driver::profile` declares it back as
+    /// the built posture.
+    pub profile: Profile,
 }

@@ -187,6 +187,7 @@ impl Runtime {
                 timeout,
                 stdout_limit_bytes,
                 stderr_limit_bytes,
+                profile: Profile::Hermetic,
             },
         )
         .map_err(|e| errors::setup_to_magnus(&ruby, e))?;

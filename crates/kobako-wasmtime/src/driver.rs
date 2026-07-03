@@ -273,13 +273,15 @@ impl ContractRuntime for Driver {
         Ok(self.build_snapshot(&store, completion))
     }
 
-    /// This driver's posture is hermetic: the WASI context freezes
-    /// ambient time and entropy (`crate::ambient`), wires no
-    /// filesystem, environment, or network, and the linker adds only
-    /// the wire ABI's `__kobako_dispatch` beyond that confined WASI
-    /// surface (`crate::instance_pre`).
+    /// The posture this driver built — exactly the rung requested via
+    /// `Config`. Every per-invocation WASI context is built to it
+    /// (`frames::install_wasi_frames`): `Hermetic` freezes ambient time
+    /// and entropy (`crate::ambient`), `Permissive` leaves the live WASI
+    /// sources. Both rungs wire no filesystem, environment, or network,
+    /// and the linker adds only the wire ABI's `__kobako_dispatch`
+    /// beyond that confined WASI surface (`crate::instance_pre`).
     fn profile(&self) -> Profile {
-        Profile::Hermetic
+        self.config.profile
     }
 }
 

@@ -1,11 +1,14 @@
-//! Defense-in-depth denial of guest ambient authority at the WASI layer.
+//! Denial of guest ambient authority at the WASI layer — the one grant
+//! that separates the hermetic rung from permissive;
+//! `frames::install_wasi_frames` wires these sources on `Hermetic` only.
 //!
 //! `wasmtime-wasi`'s `WasiCtxBuilder` defaults the guest's `wasi:clocks` to
 //! the host wall / monotonic clock and `wasi:random` to a fresh per-context
 //! seed. No allowlisted mrbgem reaches these preview1 imports today
 //! (`build_config/wasi.rb`), but a future libc-backed gem would silently
 //! obtain real time and host entropy — a covert timing channel and a
-//! nondeterminism source the sandbox deliberately excludes (docs/security-model.md).
+//! nondeterminism source the hermetic posture deliberately excludes
+//! (docs/security-model.md).
 //! Pinning the clocks to the Unix epoch and the RNG to a constant stream
 //! makes that denial a property of the host, not merely of the gem allowlist.
 //!

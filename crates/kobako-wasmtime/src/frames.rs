@@ -14,6 +14,7 @@ use crate::exports::Exports;
 use crate::invocation::Invocation;
 use crate::{ambient, capture, guest_mem};
 use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::profile::Profile;
 
 /// Return the resolved `memory` export handle, or a `Trap` when the loaded
 /// module exports no linear memory — the "not a Kobako-shaped runtime"
@@ -98,11 +99,20 @@ pub(crate) fn install_wasi_frames(
     builder.stdin(stdin_pipe);
     builder.stdout(stdout_pipe.clone());
     builder.stderr(stderr_pipe.clone());
-    // Deny the preview1 ambient-authority imports the guest never legitimately
-    // reaches but the WASI layer would otherwise grant (see `ambient`).
-    builder.wall_clock(ambient::FrozenWallClock);
-    builder.monotonic_clock(ambient::FrozenMonotonicClock);
-    builder.secure_random(ambient::deterministic_rng());
+    // The requested profile decides the ambient-authority grant: the
+    // hermetic rung denies the preview1 time and entropy imports (see
+    // `ambient`), the permissive rung leaves the live WASI sources.
+    // Filesystem, environment, and network stay absent on both rungs —
+    // the builder grants none unless asked. The exhaustive match makes
+    // a future ladder rung a compile error here, not a silent grant.
+    match config.profile {
+        Profile::Hermetic => {
+            builder.wall_clock(ambient::FrozenWallClock);
+            builder.monotonic_clock(ambient::FrozenMonotonicClock);
+            builder.secure_random(ambient::deterministic_rng());
+        }
+        Profile::Permissive => {}
+    }
     let wasi = builder.build_p1();
 
     store
@@ -173,4 +183,94 @@ where
     Results: wasmtime::WasmResults,
 {
     export.ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_MISSING_HOOKS.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Witness the B-54 rung split at the WASI boundary: one probe
+    //! module reads `wasi:clocks` / `wasi:random` through the context
+    //! `install_wasi_frames` builds — frozen under `Hermetic`, live
+    //! under `Permissive`.
+    use wasmtime::{Linker, Module};
+    use wasmtime_wasi::p1;
+
+    use super::*;
+    use crate::cache::shared_engine;
+
+    /// Preview1 probe with one export per ambient source: `clock_ns`
+    /// reads the realtime clock, `random_word` reads eight entropy bytes.
+    const AMBIENT_PROBE_WAT: &str = r#"
+        (module
+          (import "wasi_snapshot_preview1" "clock_time_get"
+            (func $clock (param i32 i64 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "random_get"
+            (func $random (param i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (func (export "clock_ns") (result i64)
+            (drop (call $clock (i32.const 0) (i64.const 1) (i32.const 0)))
+            (i64.load (i32.const 0)))
+          (func (export "random_word") (result i64)
+            (drop (call $random (i32.const 8) (i32.const 8)))
+            (i64.load (i32.const 8))))
+    "#;
+
+    /// Instantiate the probe over a WASI context built at `profile` and
+    /// return the `(clock, random)` readings it observes.
+    fn probe_ambient(profile: Profile) -> (i64, i64) {
+        let engine = shared_engine().expect("shared engine must be constructible");
+        let config = Config {
+            timeout: None,
+            stdout_limit_bytes: None,
+            stderr_limit_bytes: None,
+            profile,
+        };
+        let mut store = WtStore::new(engine, Invocation::new(None));
+        store.set_epoch_deadline(u64::MAX);
+        install_wasi_frames(&mut store, &config, &[]).expect("WASI context must install");
+
+        let mut linker: Linker<Invocation> = Linker::new(engine);
+        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
+            .expect("WASI imports must link");
+        let module = Module::new(engine, AMBIENT_PROBE_WAT).expect("probe module must compile");
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("probe module must instantiate");
+
+        let read = |store: &mut WtStore<Invocation>, name: &str| -> i64 {
+            instance
+                .get_typed_func::<(), i64>(store.as_context_mut(), name)
+                .expect("probe export must resolve")
+                .call(store.as_context_mut(), ())
+                .expect("probe export must run")
+        };
+        let clock = read(&mut store, "clock_ns");
+        let random = read(&mut store, "random_word");
+        (clock, random)
+    }
+
+    #[test]
+    fn hermetic_denies_ambient_time_and_entropy() {
+        let (clock, random) = probe_ambient(Profile::Hermetic);
+        assert_eq!(
+            clock, 0,
+            "a hermetic guest's wasi:clocks must read the Unix epoch, not host time"
+        );
+        assert_eq!(
+            random, 0,
+            "a hermetic guest's wasi:random must yield the constant stream, not host entropy"
+        );
+    }
+
+    #[test]
+    fn permissive_grants_live_ambient_time_and_entropy() {
+        let (clock, random) = probe_ambient(Profile::Permissive);
+        assert!(
+            clock > 0,
+            "a permissive guest's wasi:clocks must read live host time"
+        );
+        assert_ne!(
+            random, 0,
+            "a permissive guest's wasi:random must yield host entropy"
+        );
+    }
 }
