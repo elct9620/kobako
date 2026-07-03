@@ -26,16 +26,15 @@
 mod bridge;
 mod errors;
 
-use magnus::{function, method, prelude::*, Error as MagnusError, RModule, RString, Ruby};
+use magnus::{
+    function, gc, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
+    Error as MagnusError, RArray, RModule, RString, Ruby, Symbol, TypedData, Value,
+};
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-
-use magnus::{gc, typed_data::DataTypeFunctions, value::Opaque, RArray, TypedData, Value};
-
-use magnus::Symbol;
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
