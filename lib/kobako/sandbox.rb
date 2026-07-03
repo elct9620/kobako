@@ -87,12 +87,14 @@ module Kobako
     # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
     # gem-bundled +data/kobako.wasm+. Every other keyword — the four caps
     # (+stdout_limit+, +stderr_limit+, +timeout+, +memory_limit+) and the
-    # isolation floor (+profile+) — is forwarded verbatim to
+    # requested isolation profile (+profile+) — is forwarded verbatim to
     # +Kobako::SandboxOptions+, which owns the DEFAULT fallbacks and
     # normalisation. The constructed +SandboxOptions+ is exposed as
     # +#options+ and every option remains readable directly on Sandbox via
-    # +Forwardable+ delegation. Construction refuses a runtime whose
-    # declared isolation profile falls below the requested floor, raising
+    # +Forwardable+ delegation. The runtime builds the requested profile —
+    # +:hermetic+ (the default) denies the guest ambient time and entropy,
+    # +:permissive+ leaves them live — and construction refuses a runtime
+    # whose declared profile falls below the request, raising
     # +Kobako::SetupError+ before any invocation entry point runs.
     def initialize(wasm_path: nil, **)
       @wasm_path = wasm_path || Kobako::Runtime.default_path
@@ -208,17 +210,18 @@ module Kobako
 
     private
 
-    # Construct the +Runtime+ and enforce the isolation floor: a runtime
-    # whose declared profile ranks below the requested +profile+ floor
-    # never runs guest code — construction fails with
+    # Construct the +Runtime+ with the requested isolation profile and
+    # enforce the request as the floor: the runtime builds the requested
+    # posture and declares what it built, and a declaration below the
+    # request never runs guest code — construction fails with
     # +Kobako::SetupError+ instead of weakening the posture silently.
     # Both fallbacks fail closed: a declaration off the
-    # +SandboxOptions::PROFILES+ ladder ranks below every floor, and a
-    # floor off the ladder (unreachable past +SandboxOptions+) refuses
+    # +SandboxOptions::PROFILES+ ladder ranks below every request, and a
+    # request off the ladder (unreachable past +SandboxOptions+) refuses
     # every declaration.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                          @options.stdout_limit, @options.stderr_limit)
+                                          @options.stdout_limit, @options.stderr_limit, profile)
       declared = runtime.profile
       ladder = SandboxOptions::PROFILES
       if (ladder.index(declared) || -1) < (ladder.index(profile) || ladder.size)

@@ -2,7 +2,7 @@
 
 module Kobako
   # Kobako::SandboxOptions — immutable Value Object holding the four
-  # per-Sandbox configuration caps and the isolation-profile floor.
+  # per-Sandbox configuration caps and the requested isolation profile.
   # Built on the +class X < Data.define(...)+ subclass form (the
   # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
   #
@@ -11,11 +11,12 @@ module Kobako
   # +stderr_limit+ to positive Integer bytes. Each cap is +nil+-disablable
   # (an absent argument takes its DEFAULT; an explicit +nil+ leaves the
   # bound off), so all four behave uniformly. +profile+ is the one
-  # non-cap: a Symbol on the PROFILES ladder naming the weakest runtime
-  # posture the Host App accepts — +nil+ is rejected because the
-  # no-floor request is an explicit +:permissive+. Anything that
-  # survives +SandboxOptions.new+ is a wire-ready bundle the
-  # +Kobako::Runtime+ constructor consumes as-is.
+  # non-cap: a Symbol on the PROFILES ladder naming the posture the
+  # runtime builds, which is also the weakest the Host App accepts —
+  # +nil+ is rejected because the weakest posture is requested as an
+  # explicit +:permissive+. Anything that survives +SandboxOptions.new+
+  # is a wire-ready bundle the +Kobako::Runtime+ constructor consumes
+  # as-is.
   class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile)
     # Default wall-clock timeout for a single invocation: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -32,8 +33,8 @@ module Kobako
     # so a floor check is an index comparison.
     PROFILES = %i[permissive hermetic].freeze
 
-    # Default isolation floor: the strictest rung, matching the posture
-    # the bundled wasmtime runtime declares.
+    # Default isolation profile: the strictest rung — opting down to
+    # +:permissive+ is the Host App's explicit trade.
     DEFAULT_PROFILE = :hermetic
 
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
@@ -93,9 +94,9 @@ module Kobako
     end
 
     # Validate +profile+ against the PROFILES ladder. Unlike the caps
-    # there is no +nil+ form: requesting no floor is an explicit
-    # +:permissive+, so anything off the ladder — +nil+ included — is
-    # rejected.
+    # there is no +nil+ form: the weakest posture is requested as an
+    # explicit +:permissive+, so anything off the ladder — +nil+
+    # included — is rejected.
     def normalize_profile(profile)
       return profile if PROFILES.include?(profile)
 

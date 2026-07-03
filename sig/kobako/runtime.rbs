@@ -7,7 +7,8 @@ module Kobako
       (Float | Integer)? timeout_seconds,
       Integer? memory_limit,
       Integer? stdout_limit_bytes,
-      Integer? stderr_limit_bytes
+      Integer? stderr_limit_bytes,
+      Symbol profile
     ) -> Runtime
 
     def on_dispatch=: (^(String, Kobako::Transport::_GuestYielder) -> String dispatch_proc) -> void

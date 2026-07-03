@@ -25,7 +25,7 @@ class TestRuntimeArtifactCache < Minitest::Test
       wasm_path, entry = plant_corrupt_artifact(dir)
 
       assert_instance_of Kobako::Runtime,
-                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil),
+                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic),
                          "a corrupt compiled-artifact cache entry must fall back to compilation (B-01)"
       # Key-derivation witness: the test and the ext name the entry
       # independently — a drift would leave it unconsulted and vacuous.
@@ -44,7 +44,7 @@ class TestRuntimeArtifactCache < Minitest::Test
       File.chmod(0o777, File.dirname(entry))
 
       assert_instance_of Kobako::Runtime,
-                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil),
+                         Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic),
                          "construction over a group-writable cache directory must fall back to compilation (B-01)"
       assert_equal "not a serialized wasmtime artifact", File.binread(entry),
                    "an artifact in a group-writable cache directory must be neither loaded nor overwritten (B-01)"
@@ -60,7 +60,7 @@ class TestRuntimeArtifactCache < Minitest::Test
       wasm_path = File.join(dir, "prune_probe.wat")
       FileUtils.cp(FIXTURE_PATH, wasm_path)
 
-      Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil)
+      Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic)
 
       refute_path_exists stale,
                          "writing a new artifact must prune cache entries unused past the retention window (B-01)"

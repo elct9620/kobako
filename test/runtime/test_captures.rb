@@ -54,7 +54,7 @@ class TestRuntimeCaptures < Minitest::Test
   # empty bytes, flags down — so a fresh Runtime never leaks a previous
   # process state or nil into the Sandbox's Capture wrapping.
   def test_captures_before_any_invocation_returns_empty_sentinel
-    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil)
+    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
 
     assert_equal ["", false, "", false], runtime.captures
   end
@@ -73,7 +73,7 @@ class TestRuntimeCaptures < Minitest::Test
     services = Kobako::Catalog::Namespaces.new(handler: handler)
     snippets = Kobako::Catalog::Snippets.new
 
-    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil)
+    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
     runtime.on_dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
     @return_bytes = runtime.eval(services.encode, code.b, snippets.encode)

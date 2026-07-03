@@ -5,7 +5,7 @@
 //!   Kobako::Runtime — wraps a `kobako_wasmtime::Driver` + the Ruby seams
 //!
 //! constructed via `Kobako::Runtime.from_path(path, timeout, memory_limit,
-//! stdout_limit, stderr_limit)`. Every invocation (`#eval` / `#run`)
+//! stdout_limit, stderr_limit, profile)`. Every invocation (`#eval` / `#run`)
 //! instantiates a fresh instance and discards the whole Store afterwards —
 //! the per-invocation instance discipline. The run mechanics —
 //! engine/module caches, caps, trap classification — live in the
@@ -75,7 +75,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // intermediate hierarchy is registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
-    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 5))?;
+    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 6))?;
     runtime.define_method("on_dispatch=", method!(Runtime::set_on_dispatch, 1))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 3))?;
@@ -153,15 +153,18 @@ impl Runtime {
     /// (`None` disables); `memory_limit` is the linear-memory cap in
     /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
     /// are the per-channel output caps (`None`
-    /// disables). All four are validated by the caller
-    /// (`Kobako::Sandbox`); this method only refuses non-finite or
-    /// non-positive timeouts as a defence in depth.
+    /// disables); `profile` is the isolation rung the driver builds
+    /// (`:permissive` / `:hermetic`). All five are validated by the
+    /// caller (`Kobako::Sandbox`); this method only refuses non-finite
+    /// or non-positive timeouts and off-ladder profiles as a defence in
+    /// depth.
     fn from_path(
         path: String,
         timeout_seconds: Option<f64>,
         memory_limit: Option<usize>,
         stdout_limit_bytes: Option<usize>,
         stderr_limit_bytes: Option<usize>,
+        profile: Symbol,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let timeout = match timeout_seconds {
@@ -179,6 +182,19 @@ impl Runtime {
                 ));
             }
         };
+        // Fail closed on an off-ladder rung: an unrecognized posture must
+        // never fall back to a grant. Same defence-in-depth posture as the
+        // timeout guard above — `SandboxOptions` is the primary validator.
+        let profile = match profile.name()?.as_ref() {
+            "hermetic" => Profile::Hermetic,
+            "permissive" => Profile::Permissive,
+            other => {
+                return Err(MagnusError::new(
+                    ruby.exception_arg_error(),
+                    format!("profile must be :permissive or :hermetic, got :{other}"),
+                ));
+            }
+        };
 
         let driver = Driver::new(
             Path::new(&path),
@@ -187,7 +203,7 @@ impl Runtime {
                 timeout,
                 stdout_limit_bytes,
                 stderr_limit_bytes,
-                profile: Profile::Hermetic,
+                profile,
             },
         )
         .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
@@ -373,9 +389,9 @@ impl Runtime {
         Ok(arr)
     }
 
-    /// Return the driver's declared isolation profile as a Symbol
-    /// (`:hermetic` / `:permissive`), the value the Sandbox compares
-    /// against the floor its `profile:` option requested.
+    /// Return the isolation profile the driver built, as a Symbol
+    /// (`:hermetic` / `:permissive`) — the declaration the Sandbox
+    /// compares against the posture its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
         match self.driver.profile() {

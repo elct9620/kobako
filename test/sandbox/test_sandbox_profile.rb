@@ -2,11 +2,11 @@
 
 require "test_helper"
 
-# docs/behavior/security.md B-54: a runtime declares its isolation
-# profile on the permissive < hermetic ladder, and Sandbox.new(profile:)
-# is the floor construction enforces — a declaration below the floor
-# fails with Kobako::SetupError (E-49) before any invocation entry
-# point runs, and the floor never alters runtime behavior.
+# docs/behavior/security.md B-54: Sandbox.new(profile:) requests the
+# isolation rung the runtime builds and declares, and construction
+# enforces the request as a floor — a declaration below it fails with
+# Kobako::SetupError (E-49) before any invocation entry point runs, and
+# an off-ladder declaration ranks below every floor (fail-closed).
 class TestSandboxProfile < Minitest::Test
   FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
@@ -15,14 +15,13 @@ class TestSandboxProfile < Minitest::Test
     skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
   end
 
-  # The profile option is a floor, not a switch — the bundled hermetic
-  # runtime satisfies every ladder floor, so construction succeeds at
-  # both rungs and the reader reports the configured floor.
-  def test_profile_floor_defaults_to_hermetic_and_accepts_every_ladder_rung
+  # The bundled runtime builds whichever rung is requested, so
+  # construction succeeds at both and the reader reports the request.
+  def test_profile_defaults_to_hermetic_and_constructs_at_every_ladder_rung
     assert_equal :hermetic, Kobako::Sandbox.new(wasm_path: FIXTURE_PATH).profile,
-                 "Sandbox.new without profile: must default to the :hermetic floor"
+                 "Sandbox.new without profile: must default to the :hermetic rung"
     assert_equal :permissive, Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :permissive).profile,
-                 "profile: :permissive through Sandbox.new must construct on the hermetic runtime and read back"
+                 "profile: :permissive through Sandbox.new must construct and read back the requested rung"
   end
 
   # Sandbox.new forwards every non-wasm_path keyword verbatim to
@@ -38,11 +37,13 @@ class TestSandboxProfile < Minitest::Test
     end
   end
 
-  # The bundled driver always declares :hermetic, so the failing branch
-  # of the floor check (E-49) is witnessed through a stubbed Runtime
-  # declaring :permissive — the shape an alternative engine on the
-  # kobako-runtime contract may take. Stubbed by singleton-method
-  # replacement: minitest 6 no longer bundles minitest/mock.
+  # The bundled driver builds and declares whichever rung is requested,
+  # so the floor check's failing branch (E-49) needs a runtime that
+  # cannot honor the request — witnessed through a stubbed Runtime
+  # declaring :permissive against the default :hermetic request, the
+  # shape an alternative engine on the kobako-runtime contract may take.
+  # Stubbed by singleton-method replacement: minitest 6 no longer
+  # bundles minitest/mock.
   def test_runtime_declaring_below_the_requested_floor_fails_construction
     permissive_runtime = Object.new
     permissive_runtime.define_singleton_method(:profile) { :permissive }
