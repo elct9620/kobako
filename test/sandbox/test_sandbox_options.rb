@@ -3,8 +3,10 @@
 require "test_helper"
 
 # Kobako::SandboxOptions normalises the four per-Sandbox caps and the
-# isolation-profile floor. Pure Ruby — no native ext — so it runs on a
-# clean checkout. The contract (docs/behavior/lifecycle.md B-01,
+# isolation-profile floor, and owns the PROFILES ladder comparison
+# (#enforce_floor!) that Sandbox.new delegates its construction floor
+# check to. Pure Ruby — no native ext — so it runs on a clean checkout.
+# The contract (docs/behavior/lifecycle.md B-01,
 # docs/behavior/security.md B-54): an absent cap takes its DEFAULT, an
 # explicit nil disables that bound, and a set output / memory cap must be a
 # positive Integer. All four caps behave uniformly. The profile option is
@@ -80,5 +82,40 @@ class TestSandboxOptions < Minitest::Test
         Kobako::SandboxOptions.new(profile: bad)
       end
     end
+  end
+
+  # The floor check's failing branch (E-49) is witnessed here, on the
+  # ladder owner, with a plain declared value — the bundled runtime
+  # always builds the requested rung, so no real runtime can hand
+  # Sandbox.new a below-floor declaration.
+  def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
+    err = assert_raises(Kobako::SetupError,
+                        "a :permissive declaration through #enforce_floor! must fail a :hermetic floor (E-49)") do
+      Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:permissive)
+    end
+    assert_match(/permissive/, err.message)
+    assert_match(/hermetic/, err.message)
+  end
+
+  # B-54's fail-closed clause: a declaration the gem cannot place on the
+  # ladder ranks below every floor. Witnessed against the :permissive
+  # floor because that is the rung an off-ladder declaration could most
+  # plausibly slip past.
+  def test_enforce_floor_ranks_an_off_ladder_declaration_below_every_floor
+    err = assert_raises(Kobako::SetupError,
+                        "an off-ladder declaration must rank below even the :permissive floor (B-54 fail-closed)") do
+      Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:isolated)
+    end
+    assert_match(/isolated/, err.message)
+  end
+
+  # B-54's passing branch: a declaration at the floor constructs, and a
+  # runtime that can only build a stronger posture satisfies a weaker
+  # request by declaring what it built.
+  def test_enforce_floor_accepts_a_declaration_at_or_above_the_floor
+    assert_nil Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:hermetic),
+               "a :hermetic declaration through #enforce_floor! must pass the :hermetic floor"
+    assert_nil Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:hermetic),
+               "a :hermetic declaration through #enforce_floor! must satisfy the weaker :permissive floor"
   end
 end

@@ -211,24 +211,13 @@ module Kobako
     private
 
     # Construct the +Runtime+ with the requested isolation profile and
-    # enforce the request as the floor: the runtime builds the requested
-    # posture and declares what it built, and a declaration below the
-    # request never runs guest code — construction fails with
-    # +Kobako::SetupError+ instead of weakening the posture silently.
-    # Both fallbacks fail closed: a declaration off the
-    # +SandboxOptions::PROFILES+ ladder ranks below every request, and a
-    # request off the ladder (unreachable past +SandboxOptions+) refuses
-    # every declaration.
+    # refuse one whose declared posture falls below the request —
+    # +SandboxOptions#enforce_floor!+ owns the ladder comparison, so a
+    # runtime that cannot honor the request never runs guest code.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                           @options.stdout_limit, @options.stderr_limit, profile)
-      declared = runtime.profile
-      ladder = SandboxOptions::PROFILES
-      if (ladder.index(declared) || -1) < (ladder.index(profile) || ladder.size)
-        raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \
-                                  "below the requested floor #{profile.inspect}"
-      end
-
+      @options.enforce_floor!(runtime.profile)
       runtime
     end
 

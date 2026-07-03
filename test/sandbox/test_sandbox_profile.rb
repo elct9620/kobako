@@ -3,10 +3,12 @@
 require "test_helper"
 
 # docs/behavior/security.md B-54: Sandbox.new(profile:) requests the
-# isolation rung the runtime builds and declares, and construction
-# enforces the request as a floor — a declaration below it fails with
-# Kobako::SetupError (E-49) before any invocation entry point runs, and
-# an off-ladder declaration ranks below every floor (fail-closed).
+# isolation rung the runtime builds and declares. This class covers the
+# request path through the real ext; the floor-check branches (E-49 and
+# the fail-closed off-ladder ranking) live with the PROFILES ladder
+# owner and are witnessed on SandboxOptions#enforce_floor! in
+# test_sandbox_options.rb — the bundled runtime always builds the
+# requested rung, so no real runtime reaches them.
 class TestSandboxProfile < Minitest::Test
   FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
@@ -35,53 +37,5 @@ class TestSandboxProfile < Minitest::Test
     assert_raises(ArgumentError, "an unknown keyword through Sandbox.new must be rejected") do
       Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, bogus: 1)
     end
-  end
-
-  # The bundled driver builds and declares whichever rung is requested,
-  # so the floor check's failing branch (E-49) needs a runtime that
-  # cannot honor the request — witnessed through a stubbed Runtime
-  # declaring :permissive against the default :hermetic request, the
-  # shape an alternative engine on the kobako-runtime contract may take.
-  # Stubbed by singleton-method replacement: minitest 6 no longer
-  # bundles minitest/mock.
-  def test_runtime_declaring_below_the_requested_floor_fails_construction
-    permissive_runtime = Object.new
-    permissive_runtime.define_singleton_method(:profile) { :permissive }
-
-    with_stubbed_from_path(permissive_runtime) do
-      err = assert_raises(Kobako::SetupError, "a :permissive declaration must fail a :hermetic floor (E-49)") do
-        Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-      end
-      assert_match(/permissive/, err.message)
-      assert_match(/hermetic/, err.message)
-    end
-  end
-
-  # B-54's fail-closed clause: a declaration the gem cannot place on the
-  # ladder ranks below every floor — even the weakest — so a runtime
-  # declaring an unknown posture never constructs. Witnessed against the
-  # :permissive floor because that is the rung an off-ladder declaration
-  # could most plausibly slip past.
-  def test_runtime_declaring_off_the_ladder_fails_every_floor
-    unplaceable_runtime = Object.new
-    unplaceable_runtime.define_singleton_method(:profile) { :isolated }
-
-    with_stubbed_from_path(unplaceable_runtime) do
-      err = assert_raises(Kobako::SetupError,
-                          "an off-ladder declaration must rank below even the :permissive floor (B-54 fail-closed)") do
-        Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :permissive)
-      end
-      assert_match(/isolated/, err.message)
-    end
-  end
-
-  private
-
-  def with_stubbed_from_path(fake)
-    original = Kobako::Runtime.method(:from_path)
-    Kobako::Runtime.singleton_class.define_method(:from_path) { |*| fake }
-    yield
-  ensure
-    Kobako::Runtime.singleton_class.define_method(:from_path, original)
   end
 end

@@ -28,6 +28,8 @@ module Kobako
       ?profile: Symbol
     ) -> void
 
+    def enforce_floor!: (Symbol declared) -> void
+
     private
 
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?

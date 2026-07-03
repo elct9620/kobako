@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "errors"
+
 module Kobako
   # Kobako::SandboxOptions — immutable Value Object holding the four
   # per-Sandbox configuration caps and the requested isolation profile.
@@ -48,6 +50,20 @@ module Kobako
       stderr_limit = normalize_output_limit(stderr_limit, "stderr_limit")
       profile = normalize_profile(profile)
       super
+    end
+
+    # Enforce the requested +profile+ as the floor against +declared+ —
+    # the posture a runtime reports having built — so a runtime that
+    # cannot honor the request fails construction with
+    # +Kobako::SetupError+ instead of weakening the posture silently.
+    # Both fallbacks fail closed: a declaration off the PROFILES ladder
+    # ranks below every request, and a request off the ladder
+    # (unreachable past +initialize+) refuses every declaration.
+    def enforce_floor!(declared)
+      return if (PROFILES.index(declared) || -1) >= (PROFILES.index(profile) || PROFILES.size)
+
+      raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \
+                                "below the requested floor #{profile.inspect}"
     end
 
     private
