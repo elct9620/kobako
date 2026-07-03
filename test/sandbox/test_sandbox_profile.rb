@@ -56,6 +56,24 @@ class TestSandboxProfile < Minitest::Test
     end
   end
 
+  # B-54's fail-closed clause: a declaration the gem cannot place on the
+  # ladder ranks below every floor — even the weakest — so a runtime
+  # declaring an unknown posture never constructs. Witnessed against the
+  # :permissive floor because that is the rung an off-ladder declaration
+  # could most plausibly slip past.
+  def test_runtime_declaring_off_the_ladder_fails_every_floor
+    unplaceable_runtime = Object.new
+    unplaceable_runtime.define_singleton_method(:profile) { :isolated }
+
+    with_stubbed_from_path(unplaceable_runtime) do
+      err = assert_raises(Kobako::SetupError,
+                          "an off-ladder declaration must rank below even the :permissive floor (B-54 fail-closed)") do
+        Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :permissive)
+      end
+      assert_match(/isolated/, err.message)
+    end
+  end
+
   private
 
   def with_stubbed_from_path(fake)

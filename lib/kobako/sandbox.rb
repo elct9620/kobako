@@ -211,15 +211,17 @@ module Kobako
     # Construct the +Runtime+ and enforce the isolation floor: a runtime
     # whose declared profile ranks below the requested +profile+ floor
     # never runs guest code — construction fails with
-    # +Kobako::SetupError+ instead of weakening the posture silently. A
-    # declaration off the +SandboxOptions::PROFILES+ ladder ranks below
-    # every floor, so a posture this gem cannot place never satisfies one.
+    # +Kobako::SetupError+ instead of weakening the posture silently.
+    # Both fallbacks fail closed: a declaration off the
+    # +SandboxOptions::PROFILES+ ladder ranks below every floor, and a
+    # floor off the ladder (unreachable past +SandboxOptions+) refuses
+    # every declaration.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                           @options.stdout_limit, @options.stderr_limit)
       declared = runtime.profile
       ladder = SandboxOptions::PROFILES
-      if (ladder.index(declared) || -1) < (ladder.index(profile) || 0)
+      if (ladder.index(declared) || -1) < (ladder.index(profile) || ladder.size)
         raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \
                                   "below the requested floor #{profile.inspect}"
       end
