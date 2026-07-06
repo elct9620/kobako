@@ -39,9 +39,9 @@ class TestE2EJourneys < Minitest::Test
       RUBY
     end
 
-    assert_equal "sandbox", err.origin
-    refute_kind_of Kobako::ServiceError, err
-    refute_kind_of Kobako::TrapError, err
+    assert_equal "sandbox", err.origin, "an unrescued script error through #eval must be sandbox-origin"
+    refute_kind_of Kobako::ServiceError, err, "a script fault through #eval must not surface as ServiceError"
+    refute_kind_of Kobako::TrapError, err, "a script fault through #eval must not surface as TrapError"
   end
 
   # docs/behavior/errors.md E-05: source that fails to compile is rejected
@@ -92,8 +92,8 @@ class TestE2EJourneys < Minitest::Test
       RUBY
     end
 
-    assert_equal "service", err.origin
-    refute_kind_of Kobako::SandboxError, err
+    assert_equal "service", err.origin, "an unrescued capability failure through #eval must be service-origin"
+    refute_kind_of Kobako::SandboxError, err, "a capability fault through #eval must not surface as SandboxError"
   end
 
   # SPEC.md L876 again — an unrescued Service call equally flows through
@@ -133,6 +133,6 @@ class TestE2EJourneys < Minitest::Test
     err = assert_raises(Kobako::ServiceError) do
       sandbox_b.eval('Svc::Call.call("x")')
     end
-    assert_equal "service", err.origin
+    assert_equal "service", err.origin, "J-05: a capability fault through #eval must carry service origin"
   end
 end
