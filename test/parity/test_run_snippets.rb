@@ -42,7 +42,7 @@ class TestParityRunSnippets < Parity::Case
   def test_entrypoint_faults
     assert_parity Parity::Scenario.new(
       name: "entrypoint-faults", anchors: %w[E-27 E-28],
-      preloads: [{ kind: "source", name: "NotCallable", code: "NOT_CALLABLE = 7; NotCallable = 8" }],
+      preloads: [{ kind: "source", name: "NotCallable", code: "NotCallable = 8" }],
       invocations: [
         { verb: "run", target: "Missing" },
         { verb: "run", target: "NotCallable" }

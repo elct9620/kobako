@@ -148,9 +148,10 @@ Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc 
       │           (RubyDispatchHandler + GuestYielder) · runtime/errors.rs
       │           (neutral channels → Kobako::* classes)
       │
-Rust SDK        crates/kobako — Sandbox(seal-once eval/run) · Member/Fault seam
-      │           · CatalogHandler(never-fail dispatch) · outcome classification
-      │           (parity-pinned; run/preload/Handles/yield are pending seams)
+Rust SDK        crates/kobako — Sandbox(seal-once eval/run/preload) · Member/
+      │           Fault seam · CatalogHandler(never-fail dispatch) · snippet
+      │           table · outcome classification (parity-pinned; Handles/yield
+      │           are pending seams)
       │
 Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechanics
       │           driver (caps bracket, ABI probe) · dispatch (__kobako_dispatch)
