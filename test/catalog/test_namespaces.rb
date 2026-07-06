@@ -61,9 +61,9 @@ module Kobako
       end
     end
 
-    # B-07 Notes: define raises once Namespaces#seal! has fired. This is the
-    # mechanism Sandbox's first invocation rides on; the Sandbox-surface
-    # observable lives in test/sandbox/test_preload.rb.
+    # B-07 Notes / E-18: define raises ArgumentError once Namespaces#seal!
+    # has fired. This is the mechanism Sandbox's first invocation rides on;
+    # the Sandbox-surface observable lives in test/sandbox/test_preload.rb.
     def test_define_after_seal_raises
       @namespaces.define(:Early)
       @namespaces.seal!
