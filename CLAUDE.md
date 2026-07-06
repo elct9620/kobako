@@ -22,7 +22,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
    **Tool-vs-tool conflicts are the one justified widening.** When Rubocop and Steep / RBS upstream disagree on the same code shape, prefer the type-system guidance and disable the cop at the `.rubocop.yml` level with a comment citing the upstream source — worked example: `Style/DataInheritance` there.
 
-5. **Document Ruby in RDoc prose.** Match the existing style — wrap identifiers in `+code+`, state intent rather than citing behavior anchors (Principle 1), no YARD tags (`@param` / `@return` / `@raise`); migrate stale tags when touching nearby code. `lib/kobako/catalog/handles.rb` is the worked example.
+5. **Document Ruby in RDoc prose.** Match the existing style — wrap identifiers in `+code+`, state intent rather than citing behavior anchors (Principle 1), no YARD tags (`@param` / `@return` / `@raise`); migrate stale tags when touching nearby code. Cross-references to another documented class or method use RDoc `{Ref}` links (`{TrapError}`, `{#read_usage!}`); `+code+` marks identifiers that are code but not link targets — Markdown backticks render literally and are never used. `lib/kobako/catalog/handles.rb` is the worked example.
 
    **In Rust, wrap identifiers in backtick code spans (`` `Invocation` ``); do not use rustdoc intra-doc links (`` [`Invocation`] ``)** — they rot silently on renames and cannot target private items. The Stop hook gates this (`cargo doc -D warnings --document-private-items`, every workspace); reference-style file links to a format/contract doc (e.g. `[wire codec]: ../wire-codec.md`) are not intra-doc links and stay, but per Principle 1 these are doc pointers, not behavior-anchor citations.
 
