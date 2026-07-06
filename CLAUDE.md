@@ -44,7 +44,7 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage ra
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in. `wasm:build:regexp` and `wasm:build:regexp_unicode` compose the `kobako-regexp` gem under the shell's `regexp` / `regexp-unicode` cargo features into `data/kobako+regexp{,-unicode}.wasm`; `wasm:build:json` and `wasm:build:full` compose the `kobako-json` gem alone, or together with ASCII regexp, into `data/kobako+json.wasm` / `data/kobako+full.wasm`. The gem bundles only the pure default; the variants ship as downloadable Release assets.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep`) is the canonical gate.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + anchors + parity:coverage`) is the canonical gate.
 
 ## Common Commands
 
@@ -140,11 +140,17 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 
 The magnus surface lives only in `ext/kobako`; the engine mechanics live in `crates/kobako-wasmtime` behind the engine-free `crates/kobako-runtime` contract — the surface a non-Ruby host consumes. Both crates ship inside the gem as the ext's path dependencies (the `crates/` workspace manifest never ships, so member manifests use no `workspace = true` inheritance). The third `crates/` member, `kobako-codec`, is the wire tier: the ext never touches it (the wasmtime driver shuttles raw bytes; Ruby owns the host codec), so it stays outside the gem's crate closure.
 
+**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Member` glue over the same driver; unpublished until its release wiring lands). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism and the CORE anchor manifest, `rake parity:coverage` gates manifest coverage, and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
+
 ```
 Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc GC
       │           root, per-outcome usage / capture readouts) · runtime/bridge.rs
       │           (RubyDispatchHandler + GuestYielder) · runtime/errors.rs
       │           (neutral channels → Kobako::* classes)
+      │
+Rust SDK        crates/kobako — Sandbox(seal-once eval/run) · Member/Fault seam
+      │           · CatalogHandler(never-fail dispatch) · outcome classification
+      │           (parity-pinned; run/preload/Handles/yield are pending seams)
       │
 Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechanics
       │           driver (caps bracket, ABI probe) · dispatch (__kobako_dispatch)
@@ -233,6 +239,7 @@ Entry points only — siblings (`outcome/panic.rb`, `snippet/{source,binary}.rb`
 | Service registration | `lib/kobako/catalog/namespaces.rb`, `lib/kobako/namespace.rb` | Per-Sandbox `Catalog::Namespaces` owns the `Kobako::Namespace` registry; bound objects live at `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`). |
 | ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-mruby/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/runtime/test_runtime.rb`) covers only `from_path`. |
+| Ruby↔Rust parity harness | `docs/parity.md`, `test/parity/` + `test/support/parity/`, `crates/kobako` + `crates/kobako-parity` | Differential: one scenario, two frontends, normalized observables compared. CORE manifest in the doc; `rake parity:coverage` gates it. |
 | mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
 | Regression benchmarks | `tasks/bench/`, `benchmark/` | #1..#6 gated (+10% regression blocks release); #7..#10 characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |
