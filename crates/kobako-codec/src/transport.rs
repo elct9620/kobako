@@ -1,7 +1,7 @@
 //! Kobako transport envelopes — mirror of the host's
 //! `lib/kobako/transport/` directory. One file per value object —
-//! `Request` (`request`), `Response` (`response`), `Yield` (`block`)
-//! — each re-exported at this root so call sites name it
+//! `Request` (`request`), `Response` (`response`), `Run` (`run`),
+//! `Yield` (`block`) — each re-exported at this root so call sites name it
 //! `transport::Request` etc., matching the host's flat
 //! `Kobako::Transport::Request`. The guest dispatch path that drives
 //! these envelopes over the ABI lives in `kobako-core`
@@ -18,7 +18,9 @@
 pub mod block;
 pub mod request;
 pub mod response;
+pub mod run;
 
 pub use block::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK, TAG_RESERVED};
 pub use request::{Request, Target};
 pub use response::Response;
+pub use run::Run;
