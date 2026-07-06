@@ -860,7 +860,6 @@ dependencies = [
  "kobako-codec",
  "kobako-runtime",
  "kobako-wasmtime",
- "serde_json",
 ]
 
 [[package]]
@@ -868,6 +867,14 @@ name = "kobako-codec"
 version = "0.7.0"
 dependencies = [
  "rmp",
+]
+
+[[package]]
+name = "kobako-parity"
+version = "0.0.0"
+dependencies = [
+ "kobako",
+ "serde_json",
 ]
 
 [[package]]

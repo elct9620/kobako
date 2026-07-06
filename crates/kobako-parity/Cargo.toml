@@ -1,0 +1,25 @@
+# kobako-parity — the Rust half of the Ruby↔Rust parity harness.
+#
+# Repo-internal tooling, never published: keeping the runner out of
+# the `kobako` SDK crate keeps the published library free of harness
+# source and JSON dependencies. `test/parity/` builds and drives the
+# `parity_runner` bin through the CargoOracle framed protocol.
+
+[package]
+name = "kobako-parity"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Differential parity runner driving the kobako host SDK."
+license = "Apache-2.0"
+
+[[bin]]
+name = "parity_runner"
+path = "src/main.rs"
+
+[dependencies]
+# The SDK under test.
+kobako = { path = "../kobako" }
+
+# Scenario / observable JSON.
+serde_json = "1.0.150"

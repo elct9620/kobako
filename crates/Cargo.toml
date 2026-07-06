@@ -18,6 +18,9 @@
 #     its release wiring lands): `Sandbox` over the contract below,
 #     carrying the Ruby-parity behavior glue (Service dispatch,
 #     Handles, snippet replay, seal-once).
+#   * `kobako-parity` — repo-internal, never published: the parity
+#     runner bin `test/parity/` drives to diff the SDK against the
+#     Ruby frontend.
 #   * `kobako-codec` — portable wire tier (publishable rlib): the
 #     MessagePack wire codec and SPEC envelope value objects shared by
 #     both sides of the wasm boundary; the guest crates in `wasm/`
@@ -31,5 +34,5 @@
 #     (AOT cache, InstancePre, epoch timeout, ambient denial).
 
 [workspace]
-members = ["kobako", "kobako-codec", "kobako-runtime", "kobako-wasmtime"]
+members = ["kobako", "kobako-codec", "kobako-parity", "kobako-runtime", "kobako-wasmtime"]
 resolver = "2"
