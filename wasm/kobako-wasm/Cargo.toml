@@ -1,8 +1,8 @@
 # kobako-wasm — Guest Binary crate.
 #
 # This crate compiles to `kobako.wasm` (the Guest Binary artifact) —
-# the leaf shell composing the sibling `kobako` crate (the MrbGuest
-# harness + KobakoBridge built-in) with the sibling `kobako-io` gem
+# the leaf shell composing the sibling `kobako-mruby` crate (the
+# MrbGuest harness + KobakoBridge built-in) with the sibling `kobako-io` gem
 # over the `kobako-core` contract crate, whose `export_guest!` macro
 # emits the wasm exports here. The typed mruby wrapper and its FFI
 # layer come from the published `beni` / `beni-sys` crates.
@@ -38,9 +38,9 @@ kobako-codec = { path = "../../crates/kobako-codec" }
 # Direct dependency because `export_guest!` resolves against it.
 kobako-core = { path = "../kobako-core" }
 
-# `kobako` — the assembled mruby implementation (sibling workspace
-# member): the `MrbGuest` harness this shell implements.
-kobako = { path = "../kobako" }
+# `kobako-mruby` — the assembled mruby implementation (sibling
+# workspace member): the `MrbGuest` harness this shell implements.
+kobako-mruby = { path = "../kobako-mruby" }
 
 # `kobako-io` — sandbox IO / Kernel capability gem (sibling workspace
 # member), wired by `KobakoGuest::init_gems`.

@@ -4,22 +4,22 @@
 # sub-workspace directory.
 #
 # Dependency order: kobako-codec is everyone's wire tier, so it goes
-# first (from the crates/ workspace); kobako depends on kobako-core,
-# so it goes last in the guest loop — `cargo publish` waits for each
-# crate to land in the index before returning. kobako-io, kobako-json,
-# and kobako-regexp depend only on the already-published beni, so
-# their order is free. On the host side kobako-wasmtime depends on
-# kobako-runtime, so runtime goes first.
+# first (from the crates/ workspace); kobako-mruby depends on
+# kobako-core, so it goes last in the guest loop — `cargo publish`
+# waits for each crate to land in the index before returning.
+# kobako-io, kobako-json, and kobako-regexp depend only on the
+# already-published beni, so their order is free. On the host side
+# kobako-wasmtime depends on kobako-runtime, so runtime goes first.
 #
 # The already-published check makes a re-run after a partial failure
 # resume instead of dying on "version already uploaded".
 #
 # Rehearsal caveat: after a release PR bumps the linked versions but
 # before the dependency publishes, a dependent's dry-run fails — the
-# kobako-codec requirement of kobako-core and kobako, the kobako-core
-# requirement of kobako, and the kobako-runtime requirement of
-# kobako-wasmtime, all resolve against the registry, not the workspace
-# path.
+# kobako-codec requirement of kobako-core and kobako-mruby, the
+# kobako-core requirement of kobako-mruby, and the kobako-runtime
+# requirement of kobako-wasmtime, all resolve against the registry,
+# not the workspace path.
 set -euo pipefail
 
 dry_run=false
@@ -48,7 +48,7 @@ else
   fi
 fi
 
-for crate in kobako-core kobako-io kobako-json kobako-regexp kobako; do
+for crate in kobako-core kobako-io kobako-json kobako-regexp kobako-mruby; do
   if $dry_run; then
     cargo publish -p "$crate" --dry-run
     continue

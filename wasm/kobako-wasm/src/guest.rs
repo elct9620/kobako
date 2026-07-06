@@ -1,5 +1,5 @@
-//! The bundled guest — `KobakoGuest` composes the published `kobako`
-//! harness with the `kobako-io` IO / Kernel gem and forwards the
+//! The bundled guest — `KobakoGuest` composes the published
+//! `kobako-mruby` harness with the `kobako-io` IO / Kernel gem and forwards the
 //! `kobako_core::Guest` contract to the inherited flows. The
 //! `kobako-regexp` and `kobako-json` capability gems are wired only under
 //! the `regexp` / `json` features, so the default binary stays pure mruby
@@ -10,7 +10,7 @@ use beni::{Error, Mrb};
 /// The bundled mruby guest behind `data/kobako.wasm`.
 pub(crate) struct KobakoGuest;
 
-impl kobako::MrbGuest for KobakoGuest {
+impl kobako_mruby::MrbGuest for KobakoGuest {
     // KobakoBridge is the harness built-in — the provided flows
     // install it themselves; the hook wires the rest of the bundled
     // gem set.
@@ -29,15 +29,15 @@ impl kobako::MrbGuest for KobakoGuest {
 // forward.
 impl kobako_core::Guest for KobakoGuest {
     fn eval() {
-        <KobakoGuest as kobako::MrbGuest>::eval();
+        <KobakoGuest as kobako_mruby::MrbGuest>::eval();
     }
 
     fn run(env: &[u8]) {
-        <KobakoGuest as kobako::MrbGuest>::run(env);
+        <KobakoGuest as kobako_mruby::MrbGuest>::run(env);
     }
 
     fn yield_to_block(req: &[u8]) -> u64 {
-        <KobakoGuest as kobako::MrbGuest>::yield_to_block(req)
+        <KobakoGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
     }
 }
 

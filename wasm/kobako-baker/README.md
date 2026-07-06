@@ -28,7 +28,7 @@ $ kobako-baker input.wasm output.wasm
 ```
 
 As a library, for third-party guest shells built on
-[kobako](https://crates.io/crates/kobako) /
+[kobako-mruby](https://crates.io/crates/kobako-mruby) /
 [kobako-core](https://crates.io/crates/kobako-core):
 
 ```toml

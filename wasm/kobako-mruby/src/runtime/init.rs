@@ -9,8 +9,8 @@ use beni::{Error, Gem, Module, Mrb, Object};
 
 use super::bridges;
 
-/// The Kobako module / class hierarchy and its C bridges — the unit a
-/// future published `kobako` crate ships as its one built-in gem.
+/// The Kobako module / class hierarchy and its C bridges — the unit
+/// the published `kobako-mruby` crate ships as its one built-in gem.
 /// `super::Kobako` re-resolves the registered class handles afterwards
 /// via `resolve_raw`; `init` itself stays stateless per the `Gem`
 /// contract.

@@ -1,4 +1,4 @@
-# kobako
+# kobako-mruby
 
 Assembled mruby implementation of the kobako Guest ABI — the
 interpreter half of [kobako](https://github.com/elct9620/kobako), an
@@ -32,7 +32,7 @@ and emits the wasm exports:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako = "0.7.0" # x-release-please-version
+kobako-mruby = "0.7.0" # x-release-please-version
 kobako-core = "0.7.0" # x-release-please-version
 beni = "0.3"
 ```
@@ -42,7 +42,7 @@ use beni::{Error, Mrb};
 
 struct MyGuest;
 
-impl kobako::MrbGuest for MyGuest {
+impl kobako_mruby::MrbGuest for MyGuest {
     // KobakoBridge is the harness built-in; the hook names only the
     // shell's additional gems — Ok(()) yields a bridge-only guest.
     fn init_gems(_mrb: &Mrb) -> Result<(), Error> {
@@ -52,15 +52,15 @@ impl kobako::MrbGuest for MyGuest {
 
 impl kobako_core::Guest for MyGuest {
     fn eval() {
-        <MyGuest as kobako::MrbGuest>::eval();
+        <MyGuest as kobako_mruby::MrbGuest>::eval();
     }
 
     fn run(env: &[u8]) {
-        <MyGuest as kobako::MrbGuest>::run(env);
+        <MyGuest as kobako_mruby::MrbGuest>::run(env);
     }
 
     fn yield_to_block(req: &[u8]) -> u64 {
-        <MyGuest as kobako::MrbGuest>::yield_to_block(req)
+        <MyGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
     }
 }
 
@@ -71,7 +71,7 @@ kobako_core::export_guest!(MyGuest);
 // and run kobako-baker over the linked module.
 #[export_name = "wizer.initialize"]
 pub extern "C" fn wizer_initialize() {
-    <MyGuest as kobako::MrbGuest>::bake_boot();
+    <MyGuest as kobako_mruby::MrbGuest>::bake_boot();
 }
 ```
 

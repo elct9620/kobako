@@ -12,8 +12,8 @@
 #   * `kobako-core` — Guest ABI contract crate (publishable rlib).
 #     The mruby-free ABI machinery a Guest Binary builds on, over the
 #     `crates/kobako-codec` wire tier (a cross-workspace path dep).
-#   * `kobako` — assembled mruby implementation (publishable rlib):
-#     the `MrbGuest` harness + the `KobakoBridge` built-in gem.
+#   * `kobako-mruby` — assembled mruby implementation (publishable
+#     rlib): the `MrbGuest` harness + the `KobakoBridge` built-in gem.
 #   * `kobako-io` — sandbox IO / Kernel capability gem (publishable
 #     rlib). Pure Rust over `beni`; kobako-free.
 #   * `kobako-json` — sandbox JSON capability gem (publishable rlib).
@@ -34,7 +34,7 @@
 # table, which keeps wizer/wasmtime out of this wasm32 dependency graph.
 
 [workspace]
-members = ["kobako", "kobako-core", "kobako-io", "kobako-json", "kobako-regexp", "kobako-wasm"]
+members = ["kobako-core", "kobako-io", "kobako-json", "kobako-mruby", "kobako-regexp", "kobako-wasm"]
 resolver = "2"
 
 [profile.release]

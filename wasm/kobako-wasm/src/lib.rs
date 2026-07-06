@@ -2,7 +2,7 @@
 //!
 //! This crate is the source of `kobako.wasm`, the Guest Binary
 //! artifact described in SPEC.md "Core Abstractions". It is the leaf
-//! shell over the published guest stack: `kobako` supplies the
+//! shell over the published guest stack: `kobako-mruby` supplies the
 //! `MrbGuest` harness (provided flows + the built-in `KobakoBridge`
 //! gem), `kobako-io` the IO / Kernel capability gem, and
 //! `kobako-core` the ABI contract whose `export_guest!` macro emits
@@ -17,5 +17,5 @@ mod guest;
 /// consumed there — it is never called at Sandbox runtime.
 #[export_name = "wizer.initialize"]
 pub extern "C" fn wizer_initialize() {
-    <guest::KobakoGuest as kobako::MrbGuest>::bake_boot();
+    <guest::KobakoGuest as kobako_mruby::MrbGuest>::bake_boot();
 }

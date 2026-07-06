@@ -1,4 +1,4 @@
-# kobako — the assembled mruby implementation of the Guest ABI.
+# kobako-mruby — the assembled mruby implementation of the Guest ABI.
 #
 # The `MrbGuest` trait harness (required `init_gems` hook +
 # provided `eval` / `run` / `yield_to_block` flows over mruby), the
@@ -9,7 +9,7 @@
 # in-repo `kobako-wasm` shell is the worked example.
 
 [package]
-name = "kobako"
+name = "kobako-mruby"
 version = "0.7.0"
 edition = "2021"
 description = "Assembled mruby implementation of the kobako Guest ABI — the MrbGuest harness and the KobakoBridge gem, built on beni."
