@@ -1,11 +1,11 @@
 //! The Sandbox: one guest, its Services, and the invocation verbs.
 //!
 //! The Rust counterpart of `Kobako::Sandbox`: registrations fill the
-//! Catalog until the first invocation seals it (B-33), `eval` runs a
+//! Catalog until the first invocation seals it, `eval` runs a
 //! one-shot source on a fresh guest instance and yields the decoded
 //! value or a taxonomy `Error`, and the capture / usage readers expose
-//! the per-invocation observables (B-04, B-35). `run`, `preload`, and
-//! the capability-Handle table are seams of a later build.
+//! the per-invocation observables. `run`, `preload`, and the
+//! capability-Handle table are seams of a later build.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -33,7 +33,7 @@ pub struct Options {
     pub stdout_limit: Option<usize>,
     pub stderr_limit: Option<usize>,
     /// Requested isolation floor; the driver declares its posture and
-    /// construction fails below the floor (B-54).
+    /// construction fails below the floor.
     pub profile: Profile,
 }
 
@@ -52,7 +52,7 @@ impl Default for Options {
 }
 
 /// The registration tables' seal-once lifecycle: open for setup, then
-/// immutable from the first invocation on (B-33).
+/// immutable from the first invocation on.
 enum Registry {
     Open(Catalog),
     Sealed(Arc<Catalog>),
@@ -115,7 +115,7 @@ impl Sandbox {
         })
     }
 
-    /// Declare a Namespace (idempotent, B-10). Refused once sealed.
+    /// Declare a Namespace (idempotent). Refused once sealed.
     pub fn define(&mut self, namespace: &str) -> Result<(), Error> {
         self.registry.open_mut()?.define(namespace);
         Ok(())
@@ -133,8 +133,8 @@ impl Sandbox {
         Ok(())
     }
 
-    /// Register a snippet for per-invocation replay (B-32). Seam of a
-    /// later build.
+    /// Register a snippet for per-invocation replay. Seam of a later
+    /// build.
     pub fn preload(&mut self, _name: &str, _source: &str) -> Result<(), Error> {
         self.registry.open_mut()?;
         Err(Error::Unimplemented("Sandbox::preload"))
@@ -160,14 +160,14 @@ impl Sandbox {
         self.read_snapshot(snapshot)
     }
 
-    /// Dispatch into a preloaded entrypoint (B-31). Seam of a later
-    /// build — the Run envelope encoder lands with `preload`.
+    /// Dispatch into a preloaded entrypoint. Seam of a later build —
+    /// the Run envelope encoder lands with `preload`.
     pub fn run(&mut self, _target: &str) -> Result<Value, Error> {
         Err(Error::Unimplemented("Sandbox::run"))
     }
 
     /// Stash the invocation's observables, then classify its
-    /// completion: captures and usage survive traps (B-04, B-35).
+    /// completion: captures and usage survive traps.
     fn read_snapshot(&mut self, snapshot: Snapshot) -> Result<Value, Error> {
         self.stdout = snapshot.stdout;
         self.stderr = snapshot.stderr;

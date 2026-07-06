@@ -238,7 +238,7 @@ fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
 }
 
 /// A registration arriving after the first invocation: the seal
-/// refusal is the observable (B-33); a successful bind observes as ok.
+/// refusal is the observable; a successful bind observes as ok.
 fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, Error>, String> {
     let namespace = invocation["namespace"]
         .as_str()
@@ -305,8 +305,14 @@ fn untag_value(tagged: &Json) -> Result<Value, String> {
         "nil" => Ok(Value::Nil),
         "bool" => Ok(Value::Bool(tagged["v"].as_bool().ok_or_else(err)?)),
         "int" => {
+            // The tag rides both signed and unsigned wire ints as one
+            // decimal string; accept the full range back.
             let digits = tagged["v"].as_str().ok_or_else(err)?;
-            digits.parse().map(Value::Int).map_err(|_| err())
+            digits
+                .parse()
+                .map(Value::Int)
+                .or_else(|_| digits.parse().map(Value::UInt))
+                .map_err(|_| err())
         }
         "float" => Ok(Value::Float(tagged["v"].as_f64().ok_or_else(err)?)),
         "str" => Ok(Value::Str(tagged["v"].as_str().ok_or_else(err)?.into())),

@@ -4,8 +4,8 @@
 //! The SDK twin of the Ruby gem's `Kobako::Catalog::Namespaces`: the
 //! registry fills during setup, seals on the first invocation, and
 //! from then on every dispatch and preamble read sees one immutable
-//! table. The capability Handle table (per-invocation, B-13..B-21)
-//! will sit beside it in a later build.
+//! table. The per-invocation capability Handle table will sit beside
+//! it in a later build.
 
 use std::sync::Arc;
 
@@ -25,8 +25,8 @@ struct Namespace {
 }
 
 impl Catalog {
-    /// Declare a Namespace; declaring the same name again is a no-op
-    /// (the Ruby `#define` is idempotent, B-10).
+    /// Declare a Namespace; declaring the same name again is a no-op,
+    /// like the Ruby `#define`.
     pub(crate) fn define(&mut self, namespace: &str) {
         if self.position(namespace).is_none() {
             self.namespaces.push(Namespace {
@@ -38,8 +38,8 @@ impl Catalog {
 
     /// Bind a Member under `namespace`, declaring the Namespace when
     /// absent. Rebinding an existing name replaces the object — the
-    /// Ruby frontend refuses this at its own surface (E-11), so the
-    /// registry itself stays permissive.
+    /// Ruby frontend refuses this at its own surface, so the registry
+    /// itself stays permissive.
     pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn Member>) {
         self.define(namespace);
         let ns = self
