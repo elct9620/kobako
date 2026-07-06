@@ -183,7 +183,7 @@ impl Driver {
             }
             None => {
                 store.data_mut().set_deadline(None);
-                store.set_epoch_deadline(u64::MAX);
+                store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
             }
         }
         let baseline = match exports.memory {

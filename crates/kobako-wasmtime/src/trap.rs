@@ -15,21 +15,29 @@ use wasmtime::{StoreContextMut, UpdateDeadline};
 use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
 use kobako_runtime::error::{SetupError, Trap};
 
+/// Epoch delta that keeps the deadline effectively unreachable when no
+/// wall-clock cap is configured. Half the epoch range rather than
+/// `u64::MAX`: wasmtime adds the delta to the engine's current epoch,
+/// which the process-wide ticker advances for the engine's whole
+/// lifetime, so the full range overflows the sum (a panic under debug
+/// overflow checks).
+pub(crate) const NO_TIMEOUT_EPOCH_DELTA: u64 = u64::MAX / 2;
+
 /// Epoch-deadline callback installed on every Store. Read the per-run
 /// wall-clock deadline from `Invocation` and trap with
 /// `TimeoutTrap` once the deadline has passed; otherwise extend the
 /// next check by one tick of the process-wide epoch ticker. When the
 /// deadline is `None` the callback should not fire under the normal
 /// `Driver` invoke flow because
-/// `set_epoch_deadline(u64::MAX)` is used; returning a long extension
-/// keeps the callback inert as a defence in depth.
+/// `NO_TIMEOUT_EPOCH_DELTA` is primed; returning the same long
+/// extension keeps the callback inert as a defence in depth.
 pub(crate) fn epoch_deadline_callback(
     ctx: StoreContextMut<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
     match ctx.data().deadline() {
         Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
         Some(_) => Ok(UpdateDeadline::Continue(1)),
-        None => Ok(UpdateDeadline::Continue(u64::MAX / 2)),
+        None => Ok(UpdateDeadline::Continue(NO_TIMEOUT_EPOCH_DELTA)),
     }
 }
 
@@ -123,8 +131,23 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_trap, other_trap_message, TrapClass};
-    use crate::invocation::{MemoryLimitTrap, TimeoutTrap};
+    use super::{classify_trap, other_trap_message, TrapClass, NO_TIMEOUT_EPOCH_DELTA};
+    use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+
+    // The no-timeout priming delta is added to the engine's current
+    // epoch inside wasmtime, and the process-wide ticker advances that
+    // epoch from the first `shared_engine` call on — so the sum must
+    // stay in range for a long-lived engine, not just a fresh one.
+    // `increment_epoch` stands in for the ticker to make the ticked
+    // state deterministic; under debug overflow checks an overflowing
+    // delta panics right here.
+    #[test]
+    fn no_timeout_delta_survives_a_ticked_engine_epoch() {
+        let engine = crate::cache::shared_engine().expect("shared engine must be constructible");
+        engine.increment_epoch();
+        let mut store = wasmtime::Store::new(engine, Invocation::new(None));
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+    }
 
     #[test]
     fn classify_trap_routes_timeout_trap_to_timeout() {

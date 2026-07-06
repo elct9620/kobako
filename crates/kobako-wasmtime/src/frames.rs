@@ -225,7 +225,7 @@ mod tests {
             profile,
         };
         let mut store = WtStore::new(engine, Invocation::new(None));
-        store.set_epoch_deadline(u64::MAX);
+        store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
         install_wasi_frames(&mut store, &config, &[]).expect("WASI context must install");
 
         let mut linker: Linker<Invocation> = Linker::new(engine);
