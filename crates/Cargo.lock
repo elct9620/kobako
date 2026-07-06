@@ -860,6 +860,7 @@ dependencies = [
  "kobako-codec",
  "kobako-runtime",
  "kobako-wasmtime",
+ "serde_json",
 ]
 
 [[package]]

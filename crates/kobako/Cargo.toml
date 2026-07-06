@@ -29,3 +29,16 @@ kobako-runtime = { path = "../kobako-runtime" }
 
 # Default engine: the wasmtime driver implementing the contract.
 kobako-wasmtime = { path = "../kobako-wasmtime" }
+
+# Scenario / observable JSON for the parity runner only — the SDK
+# library itself never touches JSON.
+serde_json = { version = "1.0.150", optional = true }
+
+# The differential parity harness's runner half (test/parity/ drives
+# it); feature-gated so default SDK builds carry no JSON dependency.
+[features]
+parity = ["dep:serde_json"]
+
+[[bin]]
+name = "parity_runner"
+required-features = ["parity"]
