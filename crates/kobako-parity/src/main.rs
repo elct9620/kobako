@@ -131,29 +131,32 @@ fn bind_service(sandbox: &mut Sandbox, service: &Json) -> Result<(), String> {
 }
 
 /// The closed stub-behavior set both executors interpret identically;
-/// it grows append-only alongside the scenario corpus.
+/// it grows append-only alongside the scenario corpus. Fault kinds are
+/// deliberately absent from the DSL: `undefined` / `argument` faults
+/// must arise from the same conditions on both sides (a method the
+/// stub does not have, a call shape it does not take), never from a
+/// stub declaration.
 enum Behavior {
     /// Return the first positional argument (or nil).
     Echo,
     /// Return a constant tagged value.
     Value(Value),
-    /// Refuse with a dispatch fault of the given kind.
-    Fault(FaultKind, String),
+    /// The member itself fails (the Ruby stub raises; this side
+    /// surfaces the SDK's member-failure channel).
+    Raise(String),
 }
 
 fn parse_behavior(behavior: &Json) -> Result<Behavior, String> {
     match behavior["behavior"].as_str() {
         Some("echo") => Ok(Behavior::Echo),
         Some("value") => Ok(Behavior::Value(untag_value(&behavior["value"])?)),
-        Some("fault") => {
-            let kind = match behavior["kind"].as_str() {
-                Some("undefined") | None => FaultKind::Undefined,
-                Some("argument") => FaultKind::Argument,
-                Some("runtime") => FaultKind::Runtime,
-                Some(other) => return Err(format!("unknown fault kind {other:?}")),
-            };
-            let message = behavior["message"].as_str().unwrap_or("stub fault");
-            Ok(Behavior::Fault(kind, message.to_string()))
+        Some("raise") => {
+            // The Ruby stub raises a RuntimeError and its dispatcher
+            // folds the fault message as "<class>: <message>"; produce
+            // the same wording so a guest that rescues and reads
+            // `e.message` observes identically.
+            let message = behavior["message"].as_str().unwrap_or("stub failure");
+            Ok(Behavior::Raise(format!("RuntimeError: {message}")))
         }
         other => Err(format!("unknown stub behavior {other:?}")),
     }
@@ -174,7 +177,7 @@ impl Member for StubMember {
         match self.methods.get(method) {
             Some(Behavior::Echo) => Ok(args.first().cloned().unwrap_or(Value::Nil)),
             Some(Behavior::Value(value)) => Ok(value.clone()),
-            Some(Behavior::Fault(kind, message)) => Err(Fault::new(*kind, message.clone())),
+            Some(Behavior::Raise(message)) => Err(Fault::new(FaultKind::Runtime, message.clone())),
             None => Err(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{method} is not a Service method"),
@@ -198,6 +201,7 @@ fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
                 .ok_or("run invocation must carry target")?;
             sandbox.run(target)
         }
+        Some("late_bind") => late_bind(sandbox, invocation)?,
         other => return Err(format!("unknown invocation verb {other:?}")),
     };
 
@@ -231,6 +235,23 @@ fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
         },
     );
     Ok(Json::Object(observable))
+}
+
+/// A registration arriving after the first invocation: the seal
+/// refusal is the observable (B-33); a successful bind observes as ok.
+fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, Error>, String> {
+    let namespace = invocation["namespace"]
+        .as_str()
+        .ok_or("late_bind invocation must carry namespace")?;
+    let member = invocation["member"]
+        .as_str()
+        .ok_or("late_bind invocation must carry member")?;
+    let stub = StubMember {
+        methods: HashMap::new(),
+    };
+    Ok(sandbox
+        .bind(namespace, member, Arc::new(stub))
+        .map(|()| Value::Nil))
 }
 
 /// The neutral parity status of each error variant, plus the guest
