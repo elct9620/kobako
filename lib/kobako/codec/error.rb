@@ -21,7 +21,7 @@ module Kobako
     # type mapping (e.g. an unknown ext code, or a reserved msgpack tag).
     class InvalidType < Error; end
 
-    # A msgpack `str` payload was not valid UTF-8, or an ext 0x00 Symbol
+    # A msgpack +str+ payload was not valid UTF-8, or an ext 0x00 Symbol
     # payload was not valid UTF-8 — both are wire violations per SPEC.
     class InvalidEncoding < Error; end
 

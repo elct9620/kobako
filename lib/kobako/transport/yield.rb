@@ -10,9 +10,9 @@ module Kobako
     # First byte of the YieldResponse for the success branch — body is
     # the block's return value encoded as a single msgpack value.
     TAG_OK = 0x01
-    # First byte for `break val` — body is the break value.
+    # First byte for +break val+ — body is the break value.
     TAG_BREAK = 0x02
-    # Reserved for future `return val` support; both sides reject this
+    # Reserved for future +return val+ support; both sides reject this
     # tag as a wire violation (YieldResponse envelope contract).
     TAG_RESERVED = 0x03
     # First byte for an error / fault outcome — body is a

@@ -4,7 +4,7 @@
 module Kobako
   # Error taxonomy.
   #
-  # Every `Kobako::Sandbox` invocation (`#eval` or `#run`) either returns a value or raises
+  # Every +Kobako::Sandbox+ invocation (+#eval+ or +#run+) either returns a value or raises
   # exactly one of three invocation-outcome classes. Attribution is decided after the
   # guest binary returns control to the host: first the Wasm-trap layer, then
   # the outcome-envelope tag.
@@ -23,12 +23,12 @@ module Kobako
   #
   # Two further branches sit outside the invocation taxonomy:
   #
-  #   * {SetupError}    — construction layer. Raised by `Kobako::Sandbox.new`
+  #   * {SetupError}    — construction layer. Raised by +Kobako::Sandbox.new+
   #                       when the wasm runtime cannot be built from the
   #                       configured +wasm_path+ before any invocation runs.
   #                       Not an invocation outcome, so it never passes
   #                       through the two-step attribution decision.
-  #   * {PoolTimeoutError} — pool checkout layer. Raised by `Kobako::Pool#with`
+  #   * {PoolTimeoutError} — pool checkout layer. Raised by +Kobako::Pool#with+
   #                       when the checkout wait exceeds +checkout_timeout+.
   #
   # Named subclasses:
@@ -128,14 +128,14 @@ module Kobako
   class HandleExhaustedError < SandboxError; end
 
   # BytecodeError is the SandboxError subclass raised when a
-  # `#preload(binary:)` snippet fails structural validation during the
-  # first invocation's snippet replay against a fresh `mrb_state` (RITE
+  # +#preload(binary:)+ snippet fails structural validation during the
+  # first invocation's snippet replay against a fresh +mrb_state+ (RITE
   # version mismatch or corrupt body). Bytecode that loads cleanly and
-  # then raises at top level surfaces as plain `SandboxError` with the
+  # then raises at top level surfaces as plain +SandboxError+ with the
   # natural mruby class preserved. Inherits from SandboxError so a single
-  # `rescue Kobako::SandboxError` covers both source and bytecode
+  # +rescue Kobako::SandboxError+ covers both source and bytecode
   # snippet failures while callers wanting bytecode-specific handling
-  # can `rescue Kobako::BytecodeError` directly.
+  # can +rescue Kobako::BytecodeError+ directly.
   class BytecodeError < SandboxError; end
 
   # Pool checkout layer. Raised by +Kobako::Pool#with+ when the checkout
