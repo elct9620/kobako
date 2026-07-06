@@ -854,6 +854,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kobako"
+version = "0.7.0"
+dependencies = [
+ "kobako-codec",
+ "kobako-runtime",
+ "kobako-wasmtime",
+]
+
+[[package]]
 name = "kobako-codec"
 version = "0.7.0"
 dependencies = [
