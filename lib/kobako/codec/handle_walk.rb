@@ -61,13 +61,9 @@ module Kobako
       # whose leaves are either representable or +Kobako::Handle+
       # tokens.
       #
-      # The block bodies spell +HandleWalk.deep_wrap+ explicitly rather
-      # than the unqualified +deep_wrap+ because +module_function+ makes
-      # the instance copy of these helpers private; an implicit receiver
-      # inside a block would resolve against the enclosing +self+
-      # (still +HandleWalk+ at definition time, but the qualified form
-      # keeps the dispatch readable when the recursive call sits inside a
-      # Proc captured from elsewhere).
+      # Recursive calls spell the +HandleWalk.+ receiver so the dispatch
+      # stays valid even when a block is captured and run under a
+      # different +self+ (+module_function+ privatizes the instance copies).
       def deep_wrap(value, handler)
         case value
         when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handler) }

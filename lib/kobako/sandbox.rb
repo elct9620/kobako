@@ -257,10 +257,8 @@ module Kobako
     # the readout here also covers the trap path, where +Runtime#eval+ /
     # +#run+ raise instead of returning outcome bytes.
     #
-    # The ext returns a positional 2-tuple +[wall_time, memory_peak]+
-    # whose order matches the +Kobako::Usage+ field order; the
-    # destructure-then-kwargs handoff below is the explicit
-    # positional→keyword conversion point.
+    # The ext-side contract is positional: +Runtime#usage+ yields
+    # +[wall_time, memory_peak]+ in +Kobako::Usage+ field order.
     def read_usage!
       wall_time, memory_peak = @runtime.usage
       @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
@@ -289,10 +287,8 @@ module Kobako
     # returning outcome bytes — +#stdout+ / +#stderr+ keep the guest's
     # partial output readable after a rescue.
     #
-    # The ext returns a positional 4-tuple
-    # +[stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated]+;
-    # the destructure-then-kwargs handoff below is the explicit
-    # positional→keyword conversion point.
+    # The ext-side contract is positional: +Runtime#captures+ yields
+    # +[stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated]+.
     def read_captures!
       stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated = @runtime.captures
       @stdout_capture = Capture.new(bytes: stdout_bytes, truncated: stdout_truncated)
