@@ -77,11 +77,7 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         bind_service(&mut sandbox, service)?;
     }
     for preload in scenario["preloads"].as_array().unwrap_or(&Vec::new()) {
-        let name = preload["name"].as_str().ok_or("preload must carry name")?;
-        let code = preload["code"].as_str().ok_or("preload must carry code")?;
-        sandbox
-            .preload(name, code)
-            .map_err(|err| format!("preload failed: {err}"))?;
+        apply_preload(&mut sandbox, preload)?;
     }
 
     let invocations = scenario["invocations"]
@@ -92,6 +88,31 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         observables.push(observe(&mut sandbox, invocation)?);
     }
     Ok(Json::Array(observables))
+}
+
+/// The closed preload-kind set the Ruby executor interprets too.
+/// Snippet failures are invocation-time observables (replay), so a
+/// preload here never fails on a well-formed scenario.
+fn apply_preload(sandbox: &mut Sandbox, preload: &Json) -> Result<(), String> {
+    match preload["kind"].as_str() {
+        Some("source") => {
+            let name = preload["name"]
+                .as_str()
+                .ok_or("source preload must carry name")?;
+            let code = preload["code"]
+                .as_str()
+                .ok_or("source preload must carry code")?;
+            sandbox.preload(name, code)
+        }
+        Some("bytecode") => {
+            let hex = preload["hex"]
+                .as_str()
+                .ok_or("bytecode preload must carry hex")?;
+            sandbox.preload_binary(unhex(hex)?)
+        }
+        other => return Err(format!("unknown preload kind {other:?}")),
+    }
+    .map_err(|err| format!("preload failed: {err}"))
 }
 
 fn parse_options(options: &Json) -> Result<Options, String> {

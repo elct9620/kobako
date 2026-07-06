@@ -25,54 +25,11 @@ module Parity
     end
 
     def execute(scenario)
-      sandbox = build_sandbox(scenario)
+      sandbox = SandboxBuilder.new(@wasm_path).build(scenario)
       scenario.invocations.map { |invocation| observe(sandbox, invocation) }
     end
 
     private
-
-    def build_sandbox(scenario)
-      sandbox = Kobako::Sandbox.new(wasm_path: @wasm_path, **sandbox_options(scenario.options))
-      scenario.defines.each { |name| sandbox.define(name) }
-      scenario.services.each do |service|
-        namespace = sandbox.define(service.fetch(:namespace))
-        namespace.bind(service.fetch(:member), stub_object(service[:methods]))
-      end
-      sandbox
-    end
-
-    # Scenario caps ride in the runner's neutral spelling; translate
-    # to the Ruby keyword surface (ms → seconds, profile → Symbol).
-    def sandbox_options(options)
-      translated = {}
-      translated[:timeout] = options[:timeout_ms] / 1000.0 if options[:timeout_ms]
-      %i[memory_limit stdout_limit stderr_limit].each do |cap|
-        translated[cap] = options[cap] if options.key?(cap)
-      end
-      translated[:profile] = options[:profile].to_sym if options[:profile]
-      translated
-    end
-
-    def stub_object(methods)
-      stub = Object.new
-      (methods || {}).each do |name, behavior|
-        stub.define_singleton_method(name, &stub_body(behavior))
-      end
-      stub
-    end
-
-    # The closed stub-behavior set; the Rust runner's StubMember is
-    # the other interpreter of the same tags.
-    def stub_body(behavior)
-      case behavior.fetch(:behavior)
-      when "echo" then ->(arg = nil, *, **) { arg }
-      when "value" then constant = ValueTags.untag(behavior.fetch(:value))
-                        ->(*, **) { constant }
-      when "raise" then message = behavior.fetch(:message, "stub failure")
-                        ->(*, **) { raise message }
-      else raise ArgumentError, "unknown stub behavior: #{behavior.inspect}"
-      end
-    end
 
     def observe(sandbox, invocation)
       invoke(sandbox, invocation).merge(

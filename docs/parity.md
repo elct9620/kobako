@@ -24,11 +24,11 @@ Both emit raw observables per invocation — neutral status, tagged
 value, capture bytes and truncation predicates, usage — and the test
 asserts equality after normalization (`test/support/parity/case.rb`:
 host-generated `message` wording and raw usage numbers are
-diagnostic-only). Stub behaviors (`echo` / `value` / `raise`) and
-invocation verbs (`eval` / `run` / `late_bind`) are closed sets that
-grow append-only with the corpus; `undefined` / `argument` faults must
-arise from the scenario's shape on both sides, never from a stub
-declaration.
+diagnostic-only). Stub behaviors (`echo` / `value` / `raise`),
+invocation verbs (`eval` / `run` / `late_bind`), and preload kinds
+(`source` / `bytecode`) are closed sets that grow append-only with the
+corpus; `undefined` / `argument` faults must arise from the scenario's
+shape on both sides, never from a stub declaration.
 
 The suite rides `rake test`; on a checkout without cargo the families
 skip. A family whose SDK seam has not landed yet carries `skip`
