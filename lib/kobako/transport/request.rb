@@ -13,7 +13,7 @@ module Kobako
     # 5-element msgpack array:
     # +[target, method_name, args, kwargs, block_given]+. +target+ is
     # either a +String+ (+"<Namespace>::<Member>"+, e.g. +"MyService::KV"+)
-    # or a {Handle}. SPEC pins +kwargs+ map keys to ext 0x00 Symbol;
+    # or a Handle. SPEC pins +kwargs+ map keys to ext 0x00 Symbol;
     # enforced at construction so the Value Object is the single source of
     # truth. +block_given+ is a Boolean signalling whether the guest call
     # site supplied a block; the block body itself never crosses the
@@ -43,7 +43,7 @@ module Kobako
         Codec::Encoder.encode([target, method_name, args, kwargs, block_given])
       end
 
-      # Decode +bytes+ into a {Request}. Raises +Codec::InvalidType+ when the
+      # Decode +bytes+ into a Request. Raises +Codec::InvalidType+ when the
       # envelope is not the expected 5-element msgpack array, or when the
       # Value Object's construction invariants reject the decoded fields.
       def self.decode(bytes)

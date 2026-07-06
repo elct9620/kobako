@@ -3,7 +3,7 @@
 module Kobako
   # A named grouping of Members for one Sandbox.
   # Returned by +Sandbox#define+. Each instance owns a flat name→object
-  # table of Members; member binding is validated against {NAME_PATTERN}.
+  # table of Members; member binding is validated against NAME_PATTERN.
   class Namespace
     # Ruby constant-name pattern shared by Namespace and Member names.
     NAME_PATTERN = /\A[A-Z]\w*\z/
@@ -11,7 +11,7 @@ module Kobako
     attr_reader :name
 
     # Build a new Namespace. +name+ is an already-validated Namespace
-    # name (must satisfy {NAME_PATTERN}; validation is the caller's
+    # name (must satisfy NAME_PATTERN; validation is the caller's
     # responsibility).
     def initialize(name)
       @name = name
@@ -38,7 +38,7 @@ module Kobako
 
     # Mark this Namespace as sealed. Called by
     # +Kobako::Catalog::Namespaces#seal!+ on the owning Sandbox's first
-    # invocation; afterwards {#bind} raises +ArgumentError+. Idempotent;
+    # invocation; afterwards #bind raises +ArgumentError+. Idempotent;
     # returns +self+.
     def seal!
       @sealed = true

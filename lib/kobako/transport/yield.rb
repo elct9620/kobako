@@ -58,7 +58,7 @@ module Kobako
         [tag].pack("C") + Codec::Encoder.encode(value)
       end
 
-      # Decode +bytes+ into a {Yield}. Rejects empty input, the reserved
+      # Decode +bytes+ into a Yield. Rejects empty input, the reserved
       # tag 0x03, and any tag outside +LIVE_TAGS+ by raising
       # +Kobako::Codec::InvalidType+ — these are wire violations per the
       # SPEC's YieldResponse envelope contract.

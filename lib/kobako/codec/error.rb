@@ -7,11 +7,11 @@ module Kobako
     # The wire codec implements the binary contract pinned in
     # {docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type Mapping.
     # Every wire violation surfaces as a
-    # subclass of {Error} so callers can pattern-match on the specific
+    # subclass of Error so callers can pattern-match on the specific
     # fault while still rescuing all codec faults via this base class.
     #
     # Higher layers (e.g. the Sandbox dispatch loop) translate these into
-    # the public {Kobako::SandboxError} / {Kobako::TrapError} taxonomy.
+    # the public Kobako::SandboxError / Kobako::TrapError taxonomy.
     class Error < StandardError; end
 
     # Input ended before the type prefix or payload was fully consumed.

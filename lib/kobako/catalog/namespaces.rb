@@ -71,7 +71,7 @@ module Kobako
       end
 
       # Encode the preamble as msgpack bytes for stdin Frame 1 delivery.
-      # Routes through {Kobako::Codec::Encoder} like every other host-side
+      # Routes through Kobako::Codec::Encoder like every other host-side
       # wire encode so there is a single codec path; the preamble carries
       # only Strings and Arrays, so none of the kobako ext types actually
       # fire. Structure: +[["Namespace", ["MemberA", "MemberB"]], ...]+.
@@ -106,7 +106,7 @@ module Kobako
         self
       end
 
-      # Returns +true+ when {#seal!} has been called, +false+ otherwise.
+      # Returns +true+ when #seal! has been called, +false+ otherwise.
       def sealed?
         @sealed
       end

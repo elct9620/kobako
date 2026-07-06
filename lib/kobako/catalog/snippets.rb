@@ -43,7 +43,7 @@ module Kobako
       #
       # The bytes are memoized — the table is replayed verbatim on every
       # invocation after sealing, so Frame 3 never changes between
-      # encodes; {#register} drops the memo while the table is still open.
+      # encodes; #register drops the memo while the table is still open.
       # Unlike +Catalog::Namespaces#encode+, which gates its memo on the
       # seal, this one can fill eagerly and invalidate in +#register+
       # because every mutation funnels through that single method — there is

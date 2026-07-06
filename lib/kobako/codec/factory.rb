@@ -16,7 +16,7 @@ module Kobako
     # § Ext Types).
     #
     # The factory is the single place in the host gem that touches the
-    # msgpack API — both {Encoder} and {Decoder} delegate through it, so
+    # msgpack API — both Encoder and Decoder delegate through it, so
     # the three kobako ext codes (0x00 Symbol, 0x01 Capability Handle,
     # 0x02 Exception envelope) are configured exactly once at first use.
     #
@@ -93,11 +93,11 @@ module Kobako
       end
 
       # Validate the ext-0x00 payload as UTF-8 and intern. Raises
-      # {InvalidEncoding} on invalid bytes — SPEC forbids the
+      # InvalidEncoding on invalid bytes — SPEC forbids the
       # binary-encoding fallback that msgpack-gem's default unpacker
       # would otherwise apply. The re-tag step lives here because the
       # msgpack ext-type unpacker hands us binary bytes; the assertion
-      # itself is shared with {Decoder} via {Utils.assert_utf8!}. The
+      # itself is shared with Decoder via Utils.assert_utf8!. The
       # +"Symbol"+ label keeps the error message in Ruby vocabulary
       # rather than wire-ext-code vocabulary.
       def unpack_symbol(payload)
@@ -125,7 +125,7 @@ module Kobako
       # Peel off the fixext-4 frame, hand the bytes to the
       # Host-Gem-internal +Kobako::Handle.restore+ factory, and
       # translate the +ArgumentError+ raised by Handle's invariants
-      # into a wire-layer +InvalidType+ via {Codec::Utils.with_boundary}.
+      # into a wire-layer +InvalidType+ via Codec::Utils.with_boundary.
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape.
       def unpack_handle(payload)
@@ -136,11 +136,11 @@ module Kobako
         Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
       end
 
-      # Encode the inner ext-0x02 map via {Encoder} (not +factory.dump+) so
+      # Encode the inner ext-0x02 map via Encoder (not +factory.dump+) so
       # the embedded payload flows through the same boundary as a top-level
       # encode — nested kobako values (Handle, nested Fault) reach the
       # registered ext-type packers via the cached singleton. A +details+
-      # chain nested past {MAX_EXT_DEPTH} has no wire representation and
+      # chain nested past MAX_EXT_DEPTH has no wire representation and
       # surfaces as +UnsupportedType+.
       def pack_fault(fault)
         within_ext_frame(UnsupportedType) do
@@ -149,12 +149,12 @@ module Kobako
       end
 
       # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
-      # inside {Decoder.decode}'s block form, so the value-object's
+      # inside Decoder.decode's block form, so the value-object's
       # +ArgumentError+ invariants surface as +InvalidType+ through the
-      # decoder boundary. Inner decode goes through {Decoder} (not
+      # decoder boundary. Inner decode goes through Decoder (not
       # +factory.load+) so the embedded +str+ payloads flow through the
       # same UTF-8 validation as a top-level decode. A nested ext 0x02 in
-      # +details+ re-enters this method, so {#within_ext_frame} bounds the
+      # +details+ re-enters this method, so #within_ext_frame bounds the
       # chain depth to keep it from exhausting the native stack.
       def unpack_fault(payload)
         within_ext_frame(InvalidType) do
@@ -167,7 +167,7 @@ module Kobako
       end
 
       # Track ext-envelope re-entry depth and refuse a chain past
-      # {MAX_EXT_DEPTH}, raising +over_limit+ so the failure lands in the
+      # MAX_EXT_DEPTH, raising +over_limit+ so the failure lands in the
       # caller's existing wire-error class. The counter is thread-scoped and
       # balanced by the +ensure+, so a raise mid-chain still unwinds it to
       # its entry value.

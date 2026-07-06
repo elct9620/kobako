@@ -13,7 +13,7 @@ module Kobako
     # Each guest call that carries +block_given: true+ gets a Yielder
     # that the Dispatcher hands to the Service method as +&block+. The
     # Service method observes it as an ordinary Ruby Proc through
-    # {#to_proc}; +yield val+ / +block.call(val)+ invokes {#yield}, which
+    # #to_proc; +yield val+ / +block.call(val)+ invokes #yield, which
     # serialises the positional args, re-enters the guest via the injected
     # +yield_to_guest+ lambda, and reifies the +YieldResponse+ into Ruby
     # control flow:
@@ -24,13 +24,13 @@ module Kobako
     #   * +tag 0x04+ error — raise the +{class, message}+ payload at the
     #     Service's yield site
     #
-    # The Dispatcher calls {#invalidate!} from its +ensure+ block once
+    # The Dispatcher calls #invalidate! from its +ensure+ block once
     # dispatch completes; any later call to a stashed Yielder then raises
     # +LocalJumpError+ — the observable shape of an escaped Yielder.
     class Yielder
       # +yield_to_guest+ is a +String → String+ callable (the ext's
       # per-dispatch +Kobako::Runtime::GuestYielder+) that
-      # {#yield} invokes to re-enter the guest; +break_tag+ is the +catch+
+      # #yield invokes to re-enter the guest; +break_tag+ is the +catch+
       # throw tag the Dispatcher matches against to unwind the Service on
       # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,
       # used to restore a Capability Handle in the block's ok value back to
@@ -44,7 +44,7 @@ module Kobako
 
       # Re-enter the guest with +args+ and reify the YieldResponse into
       # Ruby control flow. Raises +LocalJumpError+ if called after
-      # {#invalidate!}. The ok value is consumed by the host Service
+      # #invalidate!. The ok value is consumed by the host Service
       # method, so a Capability Handle in it is restored to its host object.
       # The break value unwinds past the Service back to the guest
       # Member call, so it passes through verbatim — a Handle stays a
@@ -60,14 +60,14 @@ module Kobako
         raise yield_failure(response.value, default: "yield error")
       end
 
-      # The Proc the Dispatcher passes as +&block+, binding {#yield} so a
+      # The Proc the Dispatcher passes as +&block+, binding #yield so a
       # Service method's +yield+ / +block.call+ drives the round-trip.
       def to_proc
         method(:yield).to_proc
       end
 
       # Mark this Yielder dead. Called by the Dispatcher's +ensure+ block
-      # when the originating dispatch frame returns; any later {#yield}
+      # when the originating dispatch frame returns; any later #yield
       # call then raises +LocalJumpError+.
       def invalidate!
         @active = false

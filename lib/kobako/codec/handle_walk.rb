@@ -5,16 +5,16 @@ require_relative "../handle"
 module Kobako
   module Codec
     # Substitutes Capability Handles into and out of a Ruby value tree at
-    # the host↔guest boundary. {deep_wrap} allocates a +Kobako::Handle+ for
+    # the host↔guest boundary. #deep_wrap allocates a +Kobako::Handle+ for
     # each non-wire-representable leaf on the host→guest +#run+ argument
-    # path; {deep_restore} resolves each wire-decoded Handle back to its
-    # host object on every guest→host value path. {representable?} is the
-    # by-value codec-type predicate that decides which leaves {deep_wrap}
+    # path; #deep_restore resolves each wire-decoded Handle back to its
+    # host object on every guest→host value path. #representable? is the
+    # by-value codec-type predicate that decides which leaves #deep_wrap
     # must wrap: the closed 12-entry wire type set
     # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
     # Mapping).
     #
-    # All helpers are pure except {deep_wrap}, whose only side effect is
+    # All helpers are pure except #deep_wrap, whose only side effect is
     # allocating new Handle ids into the supplied table.
     module HandleWalk
       module_function
@@ -24,7 +24,7 @@ module Kobako
       # unsigned +uint 64+ maximum
       # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
       # Mapping #3, the +fixint+ / +int 8..64+ / +uint 8..64+ union).
-      # Anchored as a +Range+ so {primitive_type?} stays a single
+      # Anchored as a +Range+ so #primitive_type? stays a single
       # dispatch line. This is the codec's encode domain — not to
       # be confused with the Handle id range, which lives on
       # +Kobako::Handle+ as +MIN_ID+ / +MAX_ID+ (1..2^31 − 1) and
@@ -41,13 +41,13 @@ module Kobako
       # representable. Integers outside the codec's signed-64 /
       # unsigned-64 union are rejected so the predicate agrees with the
       # msgpack gem's encode-time +RangeError+ behaviour the codec
-      # already surfaces as {UnsupportedType}.
+      # already surfaces as UnsupportedType.
       def representable?(value)
         primitive_type?(value) || container_representable?(value)
       end
 
       # Deep-walk Array / Hash containers in +value+ and replace every
-      # leaf that fails {representable?} with a +Kobako::Handle+
+      # leaf that fails #representable? with a +Kobako::Handle+
       # allocated from +handler+. The
       # walk only descends through representable container shapes
       # (Array, Hash) one structural level at a time; a non-representable
@@ -75,7 +75,7 @@ module Kobako
 
       # Deep-walk Array / Hash containers in +value+ and replace every
       # +Kobako::Handle+ leaf with the host-side object +handler+ resolves
-      # it to. The symmetric inverse of {deep_wrap}: that walk allocates objects
+      # it to. The symmetric inverse of #deep_wrap: that walk allocates objects
       # into Handles on the host→guest argument path; this walk resolves
       # Handles back to their objects wherever a guest→host payload carries
       # one — an invocation result, a yield-block result, or a dispatch
@@ -103,9 +103,9 @@ module Kobako
         end
       end
 
-      # The non-container branch of {representable?}: returns +true+ for
+      # The non-container branch of #representable?: returns +true+ for
       # the scalar leaves and an existing Handle. Not part of the
-      # public surface; reach for {representable?} instead.
+      # public surface; reach for #representable? instead.
       def primitive_type?(value)
         case value
         when ::NilClass, ::TrueClass, ::FalseClass, ::Float, ::String, ::Symbol, Kobako::Handle then true
@@ -114,10 +114,10 @@ module Kobako
         end
       end
 
-      # The container branch of {representable?}: recurses into Array
+      # The container branch of #representable?: recurses into Array
       # elements and Hash key+value pairs through the public
-      # {representable?}. Not part of the public surface; reach for
-      # {representable?} instead.
+      # #representable?. Not part of the public surface; reach for
+      # #representable? instead.
       def container_representable?(value)
         case value
         when ::Array then value.all? { |element| HandleWalk.representable?(element) }

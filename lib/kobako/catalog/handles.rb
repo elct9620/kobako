@@ -95,7 +95,7 @@ module Kobako
         end
       end
 
-      # Guard {#alloc} against issuing an ID past the cap. Returns +nil+
+      # Guard #alloc against issuing an ID past the cap. Returns +nil+
       # on success; raises +Kobako::HandleExhaustedError+ at exhaustion.
       def ensure_capacity!
         cap = Kobako::Handle::MAX_ID
@@ -107,7 +107,7 @@ module Kobako
       end
 
       # Single source of truth for the "unknown Handle id" raise used by
-      # {#fetch}. Returns +nil+ on success; raises +Kobako::SandboxError+
+      # #fetch. Returns +nil+ on success; raises +Kobako::SandboxError+
       # when +id+ is not currently bound.
       def require_bound!(id)
         return if @entries.key?(id)

@@ -281,7 +281,7 @@ module Kobako
 
     # Read the per-last-invocation output captures from the ext and wrap
     # them as +Kobako::Capture+ value objects. Runs in the +invoke!+
-    # +ensure+ block next to {#read_usage!} for the same reason: the ext
+    # +ensure+ block next to #read_usage! for the same reason: the ext
     # stashes the captures on every outcome, so the readout also covers
     # the trap path, where +Runtime#eval+ / +#run+ raise instead of
     # returning outcome bytes — +#stdout+ / +#stderr+ keep the guest's
@@ -302,7 +302,7 @@ module Kobako
     # The yielded block must return the invocation's raw outcome bytes —
     # i.e. the value of +Runtime#eval+ / +#run+ — which the success path
     # feeds to +Outcome.decode+. Captures and usage are populated by the
-    # +ensure+ readouts ({#read_usage!} / {#read_captures!}) on every
+    # +ensure+ readouts (#read_usage! / #read_captures!) on every
     # outcome, so +#stdout+ / +#stderr+ / +#usage+ stay readable after a
     # rescued trap.
     # The rescue chain is the single trap-translation boundary —

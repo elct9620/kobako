@@ -27,7 +27,7 @@ module Kobako
     #   Kobako::Transport::Dispatcher.dispatch(request_bytes, namespaces, handler, yield_to_guest)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
-      # Throw tag for the {Yielder}'s break unwind back to the
+      # Throw tag for the Yielder's break unwind back to the
       # dispatcher's +catch+ frame. +private_constant+ is a
       # convention boundary — not a defence.
       BREAK_THROW = :__kobako_break__
@@ -54,12 +54,12 @@ module Kobako
       # Callable gadget types whose own public methods are reflection surface
       # (+Proc#binding+ reaches +Binding#eval+, +Method#receiver+ / +#unbind+
       # hand back the underlying object) rather than Service behaviour. Only
-      # {CALLABLE_ALLOW} is reachable on a target of these types; a bound
+      # CALLABLE_ALLOW is reachable on a target of these types; a bound
       # lambda stays invocable, its reflective surface does not.
       GADGET_OWNERS = [Proc, Method, UnboundMethod, Binding].freeze
       private_constant :GADGET_OWNERS
 
-      # The sole methods reachable on a {GADGET_OWNERS} target: invoking it
+      # The sole methods reachable on a GADGET_OWNERS target: invoking it
       # (+call+ / +[]+ / +yield+) and the harmless +arity+ / +lambda?+
       # describers that aid guest-side debugging.
       CALLABLE_ALLOW = %i[call [] yield arity lambda?].freeze
@@ -91,7 +91,7 @@ module Kobako
       end
 
       # Resolve positional and keyword arguments off +request+ in one
-      # step. Both pass through {#resolve_arg} so Capability Handles
+      # step. Both pass through #resolve_arg so Capability Handles
       # round-trip back to the host-side Ruby object before the call
       # reaches +public_send+.
       def resolve_call_args(request, handler)
@@ -101,7 +101,7 @@ module Kobako
 
       # Map an error caught at the dispatch boundary to a +Response.error+
       # envelope (binary msgpack). +error+ is the +StandardError+ caught by
-      # {#dispatch}'s rescue; the +type+ field tells the guest which kind
+      # #dispatch's rescue; the +type+ field tells the guest which kind
       # of failure it was so it can raise the matching proxy-side error.
       def encode_caught_error(error)
         case error
@@ -119,8 +119,8 @@ module Kobako
       # reject calls to no-kwarg methods when the wire carries the
       # uniform empty-map shape.
       #
-      # +yielder+ is the host-side {Yielder} materialised when the guest
-      # call site supplied a block; its {Yielder#to_proc}
+      # +yielder+ is the host-side Yielder materialised when the guest
+      # call site supplied a block; its Yielder#to_proc
       # rides the +&block+ slot. +&nil+ is a no-op block argument in Ruby,
       # so the same call site handles both cases without an explicit
       # conditional.
@@ -137,8 +137,8 @@ module Kobako
       end
 
       # Guard the +public_send+ below against ambient reflection methods.
-      # A public method whose owner is a {META_OWNERS} or {GADGET_OWNERS} module is
-      # rejected, except {CALLABLE_ALLOW} on a gadget target (a bound lambda
+      # A public method whose owner is a META_OWNERS or GADGET_OWNERS module is
+      # rejected, except CALLABLE_ALLOW on a gadget target (a bound lambda
       # stays invocable). A name with no concrete public method is allowed
       # only when the target opts into it via +respond_to?+ (dynamic
       # +method_missing+ Services), since the dangerous methods are all
@@ -159,7 +159,7 @@ module Kobako
       # Consult the target's opt-in narrowing predicate. A bound object
       # may define a private +respond_to_guest?(name)+ to restrict which of its
       # methods the guest reaches; a falsy answer rejects the dispatch.
-      # The predicate composes beneath {#reject_meta_method!} — it only narrows,
+      # The predicate composes beneath #reject_meta_method! — it only narrows,
       # never re-opening the reflection surface the floor rejects — and is
       # consulted with the private surface included so the guest's +public_send+
       # dispatch can never reach +respond_to_guest?+ itself.
@@ -213,7 +213,7 @@ module Kobako
       # Encode +value+ as a +Response.ok+ envelope. When the value is not
       # wire-representable per the codec's type mapping, the
       # +UnsupportedType+ rescue routes it through the
-      # Catalog::Handles via {#wrap_as_handle} and re-encodes with the Capability
+      # Catalog::Handles via #wrap_as_handle and re-encodes with the Capability
       # Handle in place. The happy path encodes exactly once.
       def encode_ok(value, handler)
         response = Kobako::Transport::Response.ok(value)
@@ -224,7 +224,7 @@ module Kobako
 
       # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
       # that the wire codec can carry. Used as the fallback path of
-      # {#encode_ok} when +value+ has no wire representation.
+      # #encode_ok when +value+ has no wire representation.
       def wrap_as_handle(value, handler)
         handler.alloc(value)
       end

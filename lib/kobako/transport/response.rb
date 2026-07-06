@@ -20,7 +20,7 @@ module Kobako
     #
     # 2-element msgpack array: +[status, value-or-fault]+. +status+ is 0
     # (success) or 1 (fault). For success the second element is the return
-    # value; for fault it is a {Fault} (ext 0x02 envelope).
+    # value; for fault it is a Fault (ext 0x02 envelope).
     #
     # Built on the +class X < Data.define(...)+ subclass form so the
     # class body is fully Steep-visible; see +lib/kobako/outcome/panic.rb+
@@ -58,7 +58,7 @@ module Kobako
         Codec::Encoder.encode([status, payload])
       end
 
-      # Decode +bytes+ into a {Response}. Raises +Codec::InvalidType+ when the
+      # Decode +bytes+ into a Response. Raises +Codec::InvalidType+ when the
       # envelope is not the expected 2-element msgpack array, or when the
       # Value Object's construction invariants reject the decoded fields.
       def self.decode(bytes)

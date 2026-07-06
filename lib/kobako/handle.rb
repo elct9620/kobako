@@ -15,7 +15,7 @@ module Kobako
   # privatised so Host App code cannot fabricate a Handle from a bare
   # integer; legitimate Handle instances enter Host App code only as
   # fields on raised error objects. The Host Gem itself constructs
-  # Handles through {.restore}, which exists at exactly two call
+  # Handles through +.restore+, which exists at exactly two call
   # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
   # +Kobako::Codec::HandleWalk.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
   # (allocator paths). Both live inside +lib/kobako/+ and are not part
