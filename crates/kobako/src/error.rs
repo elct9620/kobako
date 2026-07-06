@@ -52,20 +52,22 @@ pub enum Error {
     /// A registration verb arrived after the first invocation sealed
     /// the Sandbox's tables.
     Sealed(&'static str),
-    /// The seam exists but this SDK build does not implement it yet.
-    Unimplemented(&'static str),
+    /// A host-side pre-flight refusal — malformed snippet or entrypoint
+    /// name, duplicate snippet name, or unencodable arguments (Ruby:
+    /// `ArgumentError`).
+    Argument(String),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Timeout(msg) | Error::MemoryLimit(msg) | Error::Trap(msg) => f.write_str(msg),
+            Error::Argument(msg) => f.write_str(msg),
             Error::Sandbox(failure) | Error::Bytecode(failure) | Error::Service(failure) => {
                 write!(f, "{failure}")
             }
             Error::Setup(setup) => write!(f, "{setup:?}"),
             Error::Sealed(what) => write!(f, "Sandbox is sealed; {what}"),
-            Error::Unimplemented(seam) => write!(f, "not implemented in this SDK build: {seam}"),
         }
     }
 }

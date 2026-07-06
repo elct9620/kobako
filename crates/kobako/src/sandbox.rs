@@ -1,28 +1,30 @@
 //! The Sandbox: one guest, its Services, and the invocation verbs.
 //!
-//! The Rust counterpart of `Kobako::Sandbox`: registrations fill the
-//! Catalog until the first invocation seals it, `eval` runs a
-//! one-shot source on a fresh guest instance and yields the decoded
-//! value or a taxonomy `Error`, and the capture / usage readers expose
-//! the per-invocation observables. `run`, `preload`, and the
-//! capability-Handle table are seams of a later build.
+//! The Rust counterpart of `Kobako::Sandbox`: registrations and
+//! preloads fill the Catalog until the first invocation seals it,
+//! `eval` / `run` execute on a fresh guest instance and yield the
+//! decoded value or a taxonomy `Error`, and the capture / usage
+//! readers expose the per-invocation observables. The
+//! capability-Handle table is a seam of a later build.
 
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kobako_codec::codec::Value;
+use kobako_codec::codec::{Encode as _, Value};
+use kobako_codec::transport::Run;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::catalog::{empty_frame, Catalog};
+use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::Error;
 use crate::member::Member;
 use crate::outcome;
+use crate::snippet;
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
@@ -133,11 +135,25 @@ impl Sandbox {
         Ok(())
     }
 
-    /// Register a snippet for per-invocation replay. Seam of a later
-    /// build.
-    pub fn preload(&mut self, _name: &str, _source: &str) -> Result<(), Error> {
-        self.registry.open_mut()?;
-        Err(Error::Unimplemented("Sandbox::preload"))
+    /// Register a source snippet for per-invocation replay under its
+    /// canonical backtrace name. Refused once sealed, on a
+    /// non-constant name, or on a duplicate name.
+    pub fn preload(&mut self, name: &str, source: &str) -> Result<(), Error> {
+        self.registry
+            .open_mut()?
+            .snippets
+            .register_source(name, source)
+    }
+
+    /// Register precompiled RITE bytecode for per-invocation replay.
+    /// The bytes stay opaque host-side; the guest validates them at
+    /// first replay. Refused once sealed.
+    pub fn preload_binary(&mut self, bytecode: impl Into<Vec<u8>>) -> Result<(), Error> {
+        self.registry
+            .open_mut()?
+            .snippets
+            .register_binary(bytecode.into());
+        Ok(())
     }
 
     /// Run one mruby source on a fresh guest instance and return its
@@ -145,7 +161,7 @@ impl Sandbox {
     pub fn eval(&mut self, source: &str) -> Result<Value, Error> {
         let catalog = self.registry.seal();
         let preamble = catalog.preamble();
-        let snippets = empty_frame();
+        let snippets = catalog.snippets.frame();
         let handler = Arc::new(CatalogHandler::new(catalog));
         let snapshot = self.driver.invoke(
             Entry::Eval {
@@ -160,10 +176,50 @@ impl Sandbox {
         self.read_snapshot(snapshot)
     }
 
-    /// Dispatch into a preloaded entrypoint. Seam of a later build —
-    /// the Run envelope encoder lands with `preload`.
-    pub fn run(&mut self, _target: &str) -> Result<Value, Error> {
-        Err(Error::Unimplemented("Sandbox::run"))
+    /// Dispatch into a preloaded entrypoint without arguments; the
+    /// guest resolves `target` as a top-level constant and invokes its
+    /// `call`.
+    pub fn run(&mut self, target: &str) -> Result<Value, Error> {
+        self.run_with(target, Vec::new(), Vec::new())
+    }
+
+    /// Dispatch into a preloaded entrypoint with positional and
+    /// keyword arguments. Host pre-flight refuses a non-constant
+    /// `target` before the invocation seals the tables, matching the
+    /// Ruby frontend's ordering.
+    pub fn run_with(
+        &mut self,
+        target: &str,
+        args: Vec<Value>,
+        kwargs: Vec<(String, Value)>,
+    ) -> Result<Value, Error> {
+        if !snippet::constant_name(target) {
+            return Err(Error::Argument(format!(
+                "entrypoint must be a Ruby constant name (got {target:?})"
+            )));
+        }
+        let catalog = self.registry.seal();
+        let preamble = catalog.preamble();
+        let snippets = catalog.snippets.frame();
+        let envelope = Run {
+            entrypoint: target.to_string(),
+            args,
+            kwargs,
+        }
+        .encode()
+        .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
+        let handler = Arc::new(CatalogHandler::new(catalog));
+        let snapshot = self.driver.invoke(
+            Entry::Run {
+                envelope: &envelope,
+            },
+            Frames {
+                preamble: &preamble,
+                snippets: &snippets,
+            },
+            Some(handler),
+        )?;
+        self.read_snapshot(snapshot)
     }
 
     /// Stash the invocation's observables, then classify its

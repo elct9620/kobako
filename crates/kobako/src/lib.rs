@@ -14,6 +14,7 @@ pub mod error;
 pub mod member;
 mod outcome;
 pub mod sandbox;
+mod snippet;
 
 pub use error::{Error, GuestFailure};
 pub use kobako_codec::codec::Value;

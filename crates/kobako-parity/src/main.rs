@@ -266,7 +266,7 @@ fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
         Error::Service(failure) => ("service", Some(failure)),
         Error::Setup(_) => ("setup", None),
         Error::Sealed(_) => ("sealed", None),
-        Error::Unimplemented(_) => ("unimplemented", None),
+        Error::Argument(_) => ("argument", None),
     }
 }
 

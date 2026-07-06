@@ -1,22 +1,26 @@
-//! Per-Sandbox Service registry: Namespaces, bound Members, and the
-//! Frame 1 preamble they encode into.
+//! Per-Sandbox Service registry: Namespaces, bound Members, the
+//! Frame 1 preamble they encode into, and the preloaded snippet table
+//! sealed alongside them.
 //!
-//! The SDK twin of the Ruby gem's `Kobako::Catalog::Namespaces`: the
-//! registry fills during setup, seals on the first invocation, and
-//! from then on every dispatch and preamble read sees one immutable
-//! table. The per-invocation capability Handle table will sit beside
-//! it in a later build.
+//! The SDK twin of the Ruby gem's `Kobako::Catalog`: the registration
+//! tables fill during setup, seal on the first invocation, and from
+//! then on every dispatch and frame read sees one immutable state. The
+//! per-invocation capability Handle table will sit beside them in a
+//! later build.
 
 use std::sync::Arc;
 
 use kobako_codec::codec::{Encoder, Value};
 
 use crate::member::Member;
+use crate::snippet::Snippets;
 
-/// Registration-ordered Service registry for one Sandbox.
+/// Registration-ordered Service registry plus the snippet table for
+/// one Sandbox.
 #[derive(Default)]
 pub(crate) struct Catalog {
     namespaces: Vec<Namespace>,
+    pub(crate) snippets: Snippets,
 }
 
 struct Namespace {
@@ -90,15 +94,6 @@ impl Catalog {
     }
 }
 
-/// Marker for an encodable empty frame (no registrations / snippets).
-pub(crate) fn empty_frame() -> Vec<u8> {
-    let mut encoder = Encoder::new();
-    encoder
-        .write_value(&Value::Array(Vec::new()))
-        .expect("an empty array always encodes");
-    encoder.into_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use kobako_codec::codec::Value;
@@ -160,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_catalog_preamble_is_the_empty_frame() {
-        assert_eq!(Catalog::default().preamble(), empty_frame());
+    fn empty_catalog_preamble_is_the_explicit_empty_array() {
+        assert_eq!(Catalog::default().preamble(), vec![0x90]);
     }
 }
