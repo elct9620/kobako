@@ -3,8 +3,8 @@
 require "test_helper"
 
 # Differential parity — Service dispatch (SPEC.md B-12, E-11, E-12,
-# E-15; B-50 / E-48 pending): a guest call on a bound Member must
-# produce the same value or the same fault class on both sides.
+# E-15, B-50, E-48): a guest call on a bound Member must produce the
+# same value or the same fault class on both sides.
 class TestParityDispatch < Parity::Case
   ECHO_SERVICE = [
     { namespace: "MyService", member: "KV",
@@ -68,9 +68,28 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md B-50 / E-48: the respond_to_guest? narrowing predicate is
-  # not modeled on the SDK Member seam yet.
-  def test_respond_to_guest_pending
-    skip "pending SDK respond_to_guest? seam (B-50 E-48)"
+  # SPEC.md B-50 / E-48: a service's +exposed+ list narrows the
+  # guest-reachable surface on both frontends — an unexposed method is
+  # the undefined fault before it runs, an exposed one is unchanged,
+  # and the predicate itself is never guest-dispatchable.
+  NARROWED_SERVICE = [
+    { namespace: "MyService", member: "KV",
+      methods: { visible: { behavior: "echo" }, hidden: { behavior: "echo" } },
+      exposed: ["visible"] }
+  ].freeze
+
+  NARROWED_INVOCATIONS = [
+    { verb: "eval", source: "MyService::KV.visible(1)" },
+    { verb: "eval", source: "MyService::KV.hidden(1)" },
+    { verb: "eval", source: "begin; MyService::KV.hidden(1); rescue => e; e.class.to_s; end" },
+    { verb: "eval", source: "MyService::KV.respond_to_guest?(:visible)" }
+  ].freeze
+
+  def test_respond_to_guest
+    assert_parity Parity::Scenario.new(
+      name: "dispatch-guest-surface-narrowing", anchors: %w[B-50 E-48],
+      services: NARROWED_SERVICE,
+      invocations: NARROWED_INVOCATIONS
+    )
   end
 end

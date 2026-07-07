@@ -31,7 +31,8 @@ diagnostic-only). Stub behaviors (`echo` / `echo_positional` / `value`
 `undefined` / `argument` faults must arise from the scenario's shape
 on both sides, never from a stub declaration (`echo_positional`
 declares a positional-only signature, so kwargs on the wire fail its
-binding on both sides).
+binding on both sides). A service's optional `exposed` list declares
+the `respond_to_guest?` narrowing both stubs enforce.
 
 Capability Handles compare by **identity, not id**: an `opaque` stub
 (or `run` argument) is a labeled non-wire host object, and a crossed

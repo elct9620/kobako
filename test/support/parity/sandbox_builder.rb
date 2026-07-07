@@ -54,7 +54,7 @@ module Parity
 
     def bind_service(sandbox, service)
       sandbox.define(service.fetch(:namespace))
-             .bind(service.fetch(:member), stub_object(service[:methods]))
+             .bind(service.fetch(:member), stub_object(service[:methods], service[:exposed]))
     end
 
     # The closed preload-kind set. Snippet failures are invocation-time
@@ -80,12 +80,22 @@ module Parity
       translated
     end
 
-    def stub_object(methods)
+    def stub_object(methods, exposed)
       stub = Object.new
       (methods || {}).each do |name, behavior|
         stub.define_singleton_method(name, &stub_body(behavior))
       end
+      narrow_guest_surface(stub, exposed) if exposed
       stub
+    end
+
+    # A service's optional +exposed+ list is the scenario's
+    # +respond_to_guest?+ narrowing: the predicate is defined private,
+    # so the guest can never dispatch to it.
+    def narrow_guest_surface(stub, exposed)
+      allowed = exposed.map(&:to_s)
+      stub.define_singleton_method(:respond_to_guest?) { |name| allowed.include?(name.to_s) }
+      stub.singleton_class.class_eval { private :respond_to_guest? }
     end
 
     def stub_body(behavior)
