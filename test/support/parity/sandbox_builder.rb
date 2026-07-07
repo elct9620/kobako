@@ -7,7 +7,7 @@ module Parity
   # same closed tag sets on its side.
   class SandboxBuilder
     # The closed stub-behavior set, one builder per tag; the Rust
-    # runner's StubMember is the other interpreter of the same tags.
+    # runner's StubReceiver is the other interpreter of the same tags.
     # +echo_positional+ takes no keyword arguments on purpose — kwargs
     # on the wire must fail its parameter binding; +yield_each+ yields
     # each positional argument and returns the array of block results;
