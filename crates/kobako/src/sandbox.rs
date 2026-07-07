@@ -25,8 +25,8 @@ use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::{Error, GuestFailure};
 use crate::handles::{HandleTable, Handles};
-use crate::host_object::HostObject;
 use crate::outcome;
+use crate::receiver::Receiver;
 use crate::snippet;
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
@@ -93,7 +93,7 @@ impl Registry {
 /// the top-level argument position).
 pub enum RunArg {
     Value(Value),
-    Object(Arc<dyn HostObject>),
+    Object(Arc<dyn Receiver>),
 }
 
 impl From<Value> for RunArg {
@@ -149,7 +149,7 @@ impl Sandbox {
         &mut self,
         namespace: &str,
         member: &str,
-        object: Arc<dyn HostObject>,
+        object: Arc<dyn Receiver>,
     ) -> Result<(), Error> {
         self.registry.open_mut()?.bind(namespace, member, object);
         Ok(())
@@ -258,7 +258,7 @@ impl Sandbox {
     /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
     /// concrete type. `None` for a non-Handle value; the table stays
     /// readable until the next invocation resets it.
-    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn HostObject>> {
+    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         Handles::new(&self.handles).resolve(value)
     }
 

@@ -12,10 +12,10 @@ differential parity harness rather than by mirrored API shapes:
   fill the registration tables until the first invocation seals them,
   `eval` / `run` execute on a fresh guest instance and return a
   decoded wire `Value` or a taxonomy `Error`
-- `HostObject` — the host object a guest reaches as
-  `<Namespace>::<Member>` or through a capability Handle, with a
-  `respond_to_guest` narrowing predicate and `Fault` as its refusal
-  channel
+- `Receiver` — the host object a guest dispatch resolves its target
+  to, reached as `<Namespace>::<Member>` or through a capability
+  Handle, with a `respond_to_guest` narrowing predicate and `Fault`
+  as its refusal channel
 - `Yielder` — the host-side stand-in for a guest-supplied block,
   riding the `block` parameter; each call is a synchronous yield
   round-trip into the in-flight guest

@@ -1,7 +1,7 @@
-//! The host-object seam: what a Rust embedder binds under a
-//! `<Namespace>::<Member>` name.
+//! The Receiver seam: the host object a guest dispatch resolves its
+//! target to — a bound Member path or a capability Handle.
 //!
-//! A `HostObject` answers the guest's dispatches with wire `Value`s
+//! A `Receiver` answers the guest's dispatches with wire `Value`s
 //! or a `Fault` — the three refusal kinds the dispatch contract lets
 //! a Service surface. The dispatcher folds everything else (decode
 //! failures, unencodable responses) itself, so implementations never
@@ -58,12 +58,12 @@ impl Fault {
     }
 }
 
-/// A host object the guest reaches as `<Namespace>::<Member>` or
-/// through a capability Handle.
+/// The host object a dispatch runs the Request's method on, reached
+/// as `<Namespace>::<Member>` or through a capability Handle.
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine
-/// boundary behind an `Arc`; calls take `&self`, so a stateful host
-/// object carries its state behind interior mutability (a `Mutex`
+/// boundary behind an `Arc`; calls take `&self`, so a stateful
+/// receiver carries its state behind interior mutability (a `Mutex`
 /// field).
 ///
 /// Expected refusals return a `Fault`. A panic is a programming
@@ -83,7 +83,7 @@ impl Fault {
 /// concrete type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>`
 /// and `downcast` — the Rust spelling of the Ruby frontend's
 /// restore-to-original-object.
-pub trait HostObject: Any + Send + Sync {
+pub trait Receiver: Any + Send + Sync {
     fn call(
         &self,
         method: &str,

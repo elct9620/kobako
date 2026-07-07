@@ -1,19 +1,19 @@
-//! Per-invocation capability-Handle table and its host-object-facing
+//! Per-invocation capability-Handle table and its receiver-facing
 //! view.
 //!
 //! Guests never hold host objects — they hold opaque `ext 0x01` Handle
 //! ids that resolve against this table. Ids are issued by a
 //! monotonically increasing counter starting at 1 and the whole table
 //! resets at every invocation entry, so no Handle survives an
-//! invocation boundary. The entries are `Arc<dyn HostObject>` — the
-//! SDK's dispatchable unit — so a Handle used as a dispatch target
-//! answers methods the same way a bound Service does.
+//! invocation boundary. The entries are `Arc<dyn Receiver>`, so a
+//! Handle used as a dispatch target answers methods the same way a
+//! bound Service does.
 
 use std::sync::{Arc, Mutex};
 
 use kobako_codec::codec::Value;
 
-use crate::host_object::{Fault, FaultKind, HostObject};
+use crate::receiver::{Fault, FaultKind, Receiver};
 
 /// Maximum legal Capability Handle ID — the wire pins ids to the
 /// positive i32 range (docs/wire-codec.md § Ext Types → ext 0x01).
@@ -24,13 +24,13 @@ const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 /// the entry vector doubles as the id map.
 #[derive(Default)]
 pub(crate) struct HandleTable {
-    entries: Vec<Arc<dyn HostObject>>,
+    entries: Vec<Arc<dyn Receiver>>,
 }
 
 impl HandleTable {
     /// Bind `object` and return its fresh id, or refuse at the id cap
     /// with the message the Ruby allocator raises.
-    pub(crate) fn alloc(&mut self, object: Arc<dyn HostObject>) -> Result<u32, String> {
+    pub(crate) fn alloc(&mut self, object: Arc<dyn Receiver>) -> Result<u32, String> {
         if self.entries.len() as u32 >= HANDLE_ID_MAX {
             return Err(format!(
                 "Out of handle allocations: too many host objects were \
@@ -42,7 +42,7 @@ impl HandleTable {
     }
 
     /// Resolve a live id to its bound object.
-    pub(crate) fn get(&self, id: u32) -> Option<Arc<dyn HostObject>> {
+    pub(crate) fn get(&self, id: u32) -> Option<Arc<dyn Receiver>> {
         let index = (id as usize).checked_sub(1)?;
         self.entries.get(index).cloned()
     }
@@ -54,8 +54,8 @@ impl HandleTable {
     }
 }
 
-/// The host-object-facing view of the invocation's Handle table,
-/// handed to every dispatch alongside the call.
+/// The receiver-facing view of the invocation's Handle table, handed
+/// to every dispatch alongside the call.
 ///
 /// `alloc` is how a member hands the guest a stateful host object: the
 /// returned `Value::Handle` rides the wire as an opaque token, and the
@@ -73,7 +73,7 @@ impl<'a> Handles<'a> {
 
     /// Bind a host object into the invocation's table and return the
     /// `Value::Handle` token that reaches the guest in its place.
-    pub fn alloc(&self, object: Arc<dyn HostObject>) -> Result<Value, Fault> {
+    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<Value, Fault> {
         self.table
             .lock()
             .expect("the Handle table mutex is never poisoned")
@@ -86,7 +86,7 @@ impl<'a> Handles<'a> {
     /// stands for; `None` for a non-Handle value or an id with no live
     /// binding. Upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
     /// `downcast` to recover the concrete member type.
-    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn HostObject>> {
+    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         let Value::Handle(id) = value else {
             return None;
         };
@@ -103,7 +103,7 @@ mod tests {
 
     struct Probe;
 
-    impl HostObject for Probe {
+    impl Receiver for Probe {
         fn call(
             &self,
             _method: &str,
@@ -144,7 +144,7 @@ mod tests {
     fn facade_round_trips_an_object_through_alloc_and_resolve() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
-        let object: Arc<dyn HostObject> = Arc::new(Probe);
+        let object: Arc<dyn Receiver> = Arc::new(Probe);
         let token = handles.alloc(object.clone()).unwrap();
         let resolved = handles.resolve(&token).expect("the id is live");
         assert!(

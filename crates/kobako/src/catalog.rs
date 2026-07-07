@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use kobako_codec::codec::{Encoder, Value};
 
-use crate::host_object::HostObject;
+use crate::receiver::Receiver;
 use crate::snippet::Snippets;
 
 /// Registration-ordered Service registry plus the snippet table for
@@ -26,7 +26,7 @@ pub(crate) struct Catalog {
 
 struct Namespace {
     name: String,
-    members: Vec<(String, Arc<dyn HostObject>)>,
+    members: Vec<(String, Arc<dyn Receiver>)>,
 }
 
 impl Catalog {
@@ -46,7 +46,7 @@ impl Catalog {
     /// object — the
     /// Ruby frontend refuses this at its own surface, so the registry
     /// itself stays permissive.
-    pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn HostObject>) {
+    pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn Receiver>) {
         self.define(namespace);
         let ns = self
             .position(namespace)
@@ -60,7 +60,7 @@ impl Catalog {
 
     /// Resolve a dispatch target path (`"<Namespace>::<Member>"`) to
     /// its bound object.
-    pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn HostObject>> {
+    pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn Receiver>> {
         let (namespace, member) = path.split_once("::")?;
         let ns = &self.namespaces[self.position(namespace)?];
         ns.members
@@ -100,13 +100,13 @@ impl Catalog {
 mod tests {
     use kobako_codec::codec::Value;
 
-    use crate::host_object::{Fault, HostObject};
+    use crate::receiver::{Fault, Receiver};
 
     use super::*;
 
     struct Probe;
 
-    impl HostObject for Probe {
+    impl Receiver for Probe {
         fn call(
             &self,
             _method: &str,

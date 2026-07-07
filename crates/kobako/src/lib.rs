@@ -12,16 +12,16 @@ mod catalog;
 mod dispatch;
 pub mod error;
 pub mod handles;
-pub mod host_object;
 mod outcome;
+pub mod receiver;
 pub mod sandbox;
 mod snippet;
 pub mod yielder;
 
 pub use error::{Error, GuestFailure};
 pub use handles::Handles;
-pub use host_object::{Fault, FaultKind, HostObject};
 pub use kobako_codec::codec::Value;
 pub use kobako_runtime::profile::Profile;
+pub use receiver::{Fault, FaultKind, Receiver};
 pub use sandbox::{Options, RunArg, Sandbox, Usage};
 pub use yielder::{YieldError, Yielder};

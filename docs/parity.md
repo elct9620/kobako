@@ -72,9 +72,10 @@ carries the concept's own name.
 
 | SPEC concept | Ruby frontend | Rust SDK |
 |---|---|---|
-| Service — the host object bound under a two-level name | any Ruby object bound via `bind` (duck-typed) | the `HostObject` trait — one dispatchable unit covering both bound Services and Handle-allocated objects |
+| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached by reflection under the B-42 floor | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque (B-50) |
+| Service — the host object bound under a two-level name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
 | Member — the leaf name of a `<Namespace>::<Member>` path | `bind(member, object)` on a `Kobako::Namespace` | `Sandbox::bind(namespace, member, object)` |
-| Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `HostObject::call`, so the yield site still reads `block.call(args)` |
+| Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |
 | Block — the guest-side block body | never crosses the wire; only the Request's `block_given` flag travels | same — the wire contract is shared |
 
 ## Coverage gate
