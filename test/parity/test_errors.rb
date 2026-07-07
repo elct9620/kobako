@@ -49,7 +49,11 @@ class TestParityErrors < Parity::Case
 
   # SPEC.md E-01: a raw engine trap (not a cap) has no deterministic
   # pure-mruby trigger — the guest turns deep recursion into its own
-  # SystemStackError before wasm faults.
+  # SystemStackError before wasm faults, and the one live E-01 path (a
+  # host exception escaping the dispatch callback) is frontend-specific
+  # by nature. Ruby-side E-01 behavior is pinned end-to-end in
+  # test/e2e/test_capability_exception_safety.rb; trap-kind routing is
+  # unit-pinned in the driver's classify_trap tests.
   def test_engine_trap_pending
     skip "pending a deterministic guest trap trigger (E-01)"
   end
