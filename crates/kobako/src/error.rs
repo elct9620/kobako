@@ -29,7 +29,12 @@ impl fmt::Display for GuestFailure {
 }
 
 /// What a `Sandbox` invocation raises instead of returning a value.
+///
+/// Non-exhaustive because the taxonomy grows append-only alongside
+/// the SPEC error anchors; match the variants you handle and keep a
+/// wildcard arm for the ones a future kobako adds.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// The wall-clock cap fired (Ruby: `Kobako::TimeoutError`).
     Timeout(String),

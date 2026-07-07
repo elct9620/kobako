@@ -443,7 +443,10 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
 }
 
 /// The neutral parity status of each error variant, plus the guest
-/// failure record when the variant carries one.
+/// failure record when the variant carries one. The wildcard arm
+/// answers a status the Ruby executor never produces, so an SDK error
+/// variant this runner does not yet classify surfaces as a loud
+/// parity mismatch instead of a silent bucket.
 fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
     match error {
         Error::Timeout(_) => ("timeout", None),
@@ -455,6 +458,7 @@ fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
         Error::Setup(_) => ("setup", None),
         Error::Sealed(_) => ("sealed", None),
         Error::Argument(_) => ("argument", None),
+        _ => ("unclassified_error_variant", None),
     }
 }
 
