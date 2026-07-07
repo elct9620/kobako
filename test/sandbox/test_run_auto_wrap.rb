@@ -11,9 +11,7 @@ require "test_helper"
 # error coverage; this file is the e2e elevation of the auto-wrap
 # happy path against the real data/kobako.wasm.
 class TestRunAutoWrap < Minitest::Test
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-  end
+  include E2eGuestHelper
 
   # A StringIO arrives as a positional argument. The host wraps it as
   # a Handle; the guest receives a proxy at the same arg position and

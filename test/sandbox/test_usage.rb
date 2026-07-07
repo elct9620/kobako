@@ -15,12 +15,7 @@ require "test_helper"
 # the record from any rescue branch. `memory_peak` never exceeds the
 # configured `memory_limit` even on the E-20 trap.
 class TestSandboxUsage < Minitest::Test
-  REAL_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
-
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`" unless File.exist?(REAL_WASM)
-  end
+  include E2eGuestHelper
 
   # B-35: a fresh Sandbox returns the pre-invocation sentinel, so Host
   # Apps that read `#usage` before any invocation get a stable value

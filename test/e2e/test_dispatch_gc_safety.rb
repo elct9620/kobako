@@ -29,9 +29,7 @@ require "stringio"
 # movement path. Both are restored in teardown so the global GC knobs do
 # not leak into the rest of the suite.
 class TestDispatchGcSafety < Minitest::Test
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-  end
+  include E2eGuestHelper
 
   def teardown
     GC.stress = false

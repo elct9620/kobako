@@ -9,8 +9,9 @@ require "test_helper"
 # exceptions synchronously and do not need the real guest binary; the
 # fixture-driven tests at the top of the class exercise those paths.
 # Guest-detected cases (E-27 / E-28) and the success/exception envelopes
-# (B-31 result / E-04 reuse) drive the real data/kobako.wasm and are
-# guarded by `defined?(Kobako::Runtime)`.
+# (B-31 result / E-04 reuse) drive the real data/kobako.wasm through
+# +real_guest_sandbox+, which additionally skips when the Guest Binary
+# is unbuilt so the fixture-driven cases above keep running.
 class TestSandboxRun < Minitest::Test
   FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
 
@@ -70,14 +71,14 @@ class TestSandboxRun < Minitest::Test
   # B-31: a preloaded snippet defines a top-level constant responding to
   # #call; #run dispatches into it and returns the call's value.
   def test_b31_runs_preloaded_entrypoint_with_no_args
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 42 }", name: :Worker)
 
     assert_equal 42, sandbox.run(:Worker)
   end
 
   def test_b31_passes_positional_args_to_entrypoint
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)
 
     assert_equal 5, sandbox.run(:Adder, 2, 3)
@@ -93,21 +94,21 @@ class TestSandboxRun < Minitest::Test
   # positional-Hash convention instead of routing every #run through an
   # eval shim.
   def test_b31_passes_keyword_args_as_trailing_positional_hash
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)
 
     assert_equal "hello world", sandbox.run(:Greeter, name: "world")
   end
 
   def test_b31_normalizes_string_target_to_symbol
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 7 }", name: :Worker)
 
     assert_equal 7, sandbox.run("Worker")
   end
 
   def test_b31_preloaded_snippets_replay_before_dispatch
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "BASE = 10", name: :Alpha)
     sandbox.preload(code: "Worker = ->(*_a, **_k) { BASE * 4 }", name: :Beta)
 
@@ -117,7 +118,7 @@ class TestSandboxRun < Minitest::Test
   # E-27: target Symbol does not resolve to a defined top-level constant.
   # Surfaces as Kobako::SandboxError via the guest's Panic envelope path.
   def test_e27_undefined_entrypoint_raises_sandbox_error
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
     assert_match(/undefined entrypoint: Missing/, err.message)
   end
@@ -144,7 +145,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-28: entrypoint constant is defined but does not respond to #call.
   def test_e28_entrypoint_without_call_raises_sandbox_error
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "Worker = 42", name: :Worker)
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Worker) }
@@ -153,7 +154,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-04 reuse: entrypoint raises an uncaught exception.
   def test_entrypoint_runtime_exception_surfaces_as_sandbox_error
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: 'Worker = ->(*_) { raise "boom from worker" }', name: :Worker)
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Worker) }
@@ -162,8 +163,17 @@ class TestSandboxRun < Minitest::Test
 
   private
 
+  # Guest-driven cases construct the Sandbox here so they skip — rather
+  # than error — on a checkout where the ext is compiled but the Guest
+  # Binary is not built.
+  def real_guest_sandbox
+    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`" unless File.exist?(E2eGuestHelper::REAL_WASM)
+
+    Kobako::Sandbox.new
+  end
+
   def run_missing_against_sandbox_with_preloads
-    sandbox = Kobako::Sandbox.new
+    sandbox = real_guest_sandbox
     sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
     sandbox.preload(code: "Helper = Module.new", name: :Helper)
     assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
