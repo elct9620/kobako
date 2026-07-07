@@ -1,27 +1,27 @@
 //! The guest-supplied block as a Member observes it.
 //!
 //! When a guest call site supplies a block, the dispatch frame hands
-//! the Member a `Block`; each `call` is a synchronous yield round-trip
-//! into the in-flight guest. A `Block` borrows its dispatch frame, so
-//! it cannot outlive the dispatch — where the Ruby frontend refuses an
-//! escaped Yielder at runtime, this API makes the escape a compile
-//! error.
+//! the Member a `Yielder` in the `block` parameter; each `call` is a
+//! synchronous yield round-trip into the in-flight guest. A `Yielder`
+//! borrows its dispatch frame, so it cannot outlive the dispatch —
+//! where the Ruby frontend refuses an escaped Yielder at runtime, this
+//! API makes the escape a compile error.
 
 use std::fmt;
 
 use kobako_codec::codec::{Decode as _, Encoder, Value};
 use kobako_codec::transport::{Yield, TAG_BREAK, TAG_OK};
-use kobako_runtime::yielder::Yielder;
+use kobako_runtime::yielder::Yielder as RawYielder;
 
 use crate::member::{Fault, FaultKind};
 
 /// A yield round-trip that did not come back with a plain value.
 ///
-/// `From<BlockError> for Fault` lets a member propagate with `?`; the
+/// `From<YieldError> for Fault` lets a member propagate with `?`; the
 /// dispatch frame gives each variant its contractual meaning, so a
 /// member only ever needs to stop and hand the error up.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BlockError {
+pub enum YieldError {
     /// The guest block terminated the call with `break`: the member
     /// must stop; the dispatch answers the guest with the break value
     /// no matter what the member returns after this.
@@ -35,38 +35,38 @@ pub enum BlockError {
     Aborted(String),
 }
 
-impl fmt::Display for BlockError {
+impl fmt::Display for YieldError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BlockError::Break => f.write_str("guest block break crossed the member"),
-            BlockError::Failure { class, message } => write!(f, "{class}: {message}"),
-            BlockError::Aborted(message) => f.write_str(message),
+            YieldError::Break => f.write_str("guest block break crossed the member"),
+            YieldError::Failure { class, message } => write!(f, "{class}: {message}"),
+            YieldError::Aborted(message) => f.write_str(message),
         }
     }
 }
 
-impl std::error::Error for BlockError {}
+impl std::error::Error for YieldError {}
 
-impl From<BlockError> for Fault {
+impl From<YieldError> for Fault {
     /// Every variant folds to a `runtime` fault: a propagated block
     /// failure is a Service-layer failure to the guest, and a
     /// propagated `Break` never reaches the guest at all — the
     /// dispatch answers with the break value first.
-    fn from(err: BlockError) -> Self {
+    fn from(err: YieldError) -> Self {
         Fault::new(FaultKind::Runtime, err.to_string())
     }
 }
 
 /// Host-side stand-in for the guest block of one dispatch frame.
-pub struct Block<'y> {
-    yielder: &'y mut dyn Yielder,
+pub struct Yielder<'y> {
+    channel: &'y mut dyn RawYielder,
     broke: Option<Value>,
 }
 
-impl<'y> Block<'y> {
-    pub(crate) fn new(yielder: &'y mut dyn Yielder) -> Self {
-        Block {
-            yielder,
+impl<'y> Yielder<'y> {
+    pub(crate) fn new(channel: &'y mut dyn RawYielder) -> Self {
+        Yielder {
+            channel,
             broke: None,
         }
     }
@@ -79,24 +79,24 @@ impl<'y> Block<'y> {
     /// automatic restore at the yield site.
     ///
     /// A `break` in the block ends the member call: this returns
-    /// `BlockError::Break` now and on every later call, without
+    /// `YieldError::Break` now and on every later call, without
     /// re-entering the guest.
-    pub fn call(&mut self, args: &[Value]) -> Result<Value, BlockError> {
+    pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
         if self.broke.is_some() {
-            return Err(BlockError::Break);
+            return Err(YieldError::Break);
         }
         let payload = encode_args(args)?;
         let bytes = self
-            .yielder
+            .channel
             .yield_block(&payload)
-            .map_err(|trap| BlockError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
+            .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         let response = Yield::decode(&bytes)
-            .map_err(|err| BlockError::Aborted(format!("malformed YieldResponse: {err}")))?;
+            .map_err(|err| YieldError::Aborted(format!("malformed YieldResponse: {err}")))?;
         match response.tag {
             TAG_OK => Ok(response.value),
             TAG_BREAK => {
                 self.broke = Some(response.value);
-                Err(BlockError::Break)
+                Err(YieldError::Break)
             }
             // `Yield::decode` admits only live tags; the remainder is
             // the error tag.
@@ -113,18 +113,18 @@ impl<'y> Block<'y> {
 
 /// Positional yield arguments ride as one msgpack array, the same
 /// shape the Ruby Yielder encodes.
-fn encode_args(args: &[Value]) -> Result<Vec<u8>, BlockError> {
+fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
     let mut encoder = Encoder::new();
     encoder
         .write_value(&Value::Array(args.to_vec()))
-        .map_err(|err| BlockError::Aborted(format!("yield arguments are not encodable: {err}")))?;
+        .map_err(|err| YieldError::Aborted(format!("yield arguments are not encodable: {err}")))?;
     Ok(encoder.into_bytes())
 }
 
 /// Reify a tag `0x04` payload — a `{"class", "message", "backtrace"}`
 /// map — with the same fallbacks the Ruby Yielder applies to a
 /// malformed payload.
-fn failure(payload: Value) -> BlockError {
+fn failure(payload: Value) -> YieldError {
     let mut class = None;
     let mut message = None;
     if let Value::Map(pairs) = payload {
@@ -138,7 +138,7 @@ fn failure(payload: Value) -> BlockError {
             }
         }
     }
-    BlockError::Failure {
+    YieldError::Failure {
         class: class.unwrap_or_else(|| "RuntimeError".into()),
         message: message.unwrap_or_else(|| "yield error".into()),
     }
@@ -154,8 +154,8 @@ mod tests {
 
     use super::*;
 
-    /// A yielder answering from a canned script, recording what the
-    /// Block sent into the guest.
+    /// A raw yield channel answering from a canned script, recording
+    /// what the Yielder sent into the guest.
     struct Scripted {
         responses: VecDeque<Result<Vec<u8>, Trap>>,
         sent: Vec<Vec<u8>>,
@@ -170,7 +170,7 @@ mod tests {
         }
     }
 
-    impl Yielder for Scripted {
+    impl RawYielder for Scripted {
         fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
             self.sent.push(args.to_vec());
             self.responses.pop_front().expect("script exhausted")
@@ -183,22 +183,26 @@ mod tests {
 
     #[test]
     fn call_ships_args_as_one_msgpack_array_and_returns_the_ok_value() {
-        let mut yielder = Scripted::new(vec![Ok(response(TAG_OK, Value::Int(42)))]);
-        let mut block = Block::new(&mut yielder);
+        let mut channel = Scripted::new(vec![Ok(response(TAG_OK, Value::Int(42)))]);
+        let mut block = Yielder::new(&mut channel);
         let value = block.call(&[Value::Int(21)]).unwrap();
         assert_eq!(value, Value::Int(42));
         // msgpack fixarray of one element: 0x91, then int 21 (0x15).
-        assert_eq!(yielder.sent, vec![vec![0x91, 0x15]]);
+        assert_eq!(channel.sent, vec![vec![0x91, 0x15]]);
     }
 
     #[test]
     fn break_records_the_value_and_stops_re_entering_the_guest() {
-        let mut yielder = Scripted::new(vec![Ok(response(TAG_BREAK, Value::Sym("stop".into())))]);
-        let mut block = Block::new(&mut yielder);
-        assert_eq!(block.call(&[]), Err(BlockError::Break));
-        assert_eq!(block.call(&[]), Err(BlockError::Break));
+        let mut channel = Scripted::new(vec![Ok(response(TAG_BREAK, Value::Sym("stop".into())))]);
+        let mut block = Yielder::new(&mut channel);
+        assert_eq!(block.call(&[]), Err(YieldError::Break));
+        assert_eq!(block.call(&[]), Err(YieldError::Break));
         assert_eq!(block.into_break(), Some(Value::Sym("stop".into())));
-        assert_eq!(yielder.sent.len(), 1, "a broken Block must not yield again");
+        assert_eq!(
+            channel.sent.len(),
+            1,
+            "a broken Yielder must not yield again"
+        );
     }
 
     #[test]
@@ -210,11 +214,11 @@ mod tests {
             ),
             (Value::Str("message".into()), Value::Str("boom".into())),
         ]);
-        let mut yielder = Scripted::new(vec![Ok(response(TAG_ERROR, payload))]);
-        let mut block = Block::new(&mut yielder);
+        let mut channel = Scripted::new(vec![Ok(response(TAG_ERROR, payload))]);
+        let mut block = Yielder::new(&mut channel);
         assert_eq!(
             block.call(&[]),
-            Err(BlockError::Failure {
+            Err(YieldError::Failure {
                 class: "LocalJumpError".into(),
                 message: "boom".into(),
             })
@@ -223,11 +227,11 @@ mod tests {
 
     #[test]
     fn error_tag_with_a_non_map_payload_falls_back_to_the_defaults() {
-        let mut yielder = Scripted::new(vec![Ok(response(TAG_ERROR, Value::Nil))]);
-        let mut block = Block::new(&mut yielder);
+        let mut channel = Scripted::new(vec![Ok(response(TAG_ERROR, Value::Nil))]);
+        let mut block = Yielder::new(&mut channel);
         assert_eq!(
             block.call(&[]),
-            Err(BlockError::Failure {
+            Err(YieldError::Failure {
                 class: "RuntimeError".into(),
                 message: "yield error".into(),
             })
@@ -236,30 +240,30 @@ mod tests {
 
     #[test]
     fn trap_during_re_entry_aborts() {
-        let mut yielder = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
-        let mut block = Block::new(&mut yielder);
-        assert!(matches!(block.call(&[]), Err(BlockError::Aborted(_))));
+        let mut channel = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
+        let mut block = Yielder::new(&mut channel);
+        assert!(matches!(block.call(&[]), Err(YieldError::Aborted(_))));
     }
 
     #[test]
     fn malformed_response_bytes_abort() {
-        let mut yielder = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
-        let mut block = Block::new(&mut yielder);
-        assert!(matches!(block.call(&[]), Err(BlockError::Aborted(_))));
+        let mut channel = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
+        let mut block = Yielder::new(&mut channel);
+        assert!(matches!(block.call(&[]), Err(YieldError::Aborted(_))));
     }
 
     #[test]
-    fn every_block_error_folds_to_a_runtime_fault() {
-        let failure = BlockError::Failure {
+    fn every_yield_error_folds_to_a_runtime_fault() {
+        let failure = YieldError::Failure {
             class: "LocalJumpError".into(),
             message: "crossed".into(),
         };
         let fault = Fault::from(failure);
         assert_eq!(fault.kind, FaultKind::Runtime);
         assert_eq!(fault.message, "LocalJumpError: crossed");
-        assert_eq!(Fault::from(BlockError::Break).kind, FaultKind::Runtime);
+        assert_eq!(Fault::from(YieldError::Break).kind, FaultKind::Runtime);
         assert_eq!(
-            Fault::from(BlockError::Aborted("gone".into())).kind,
+            Fault::from(YieldError::Aborted("gone".into())).kind,
             FaultKind::Runtime
         );
     }

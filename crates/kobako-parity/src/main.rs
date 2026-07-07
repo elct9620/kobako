@@ -17,7 +17,7 @@ use std::time::Duration;
 use serde_json::{json, Map, Value as Json};
 
 use kobako::{
-    Block, Error, Fault, FaultKind, Handles, Member, Options, Profile, RunArg, Sandbox, Value,
+    Error, Fault, FaultKind, Handles, Member, Options, Profile, RunArg, Sandbox, Value, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -254,7 +254,7 @@ impl Member for OpaqueStub {
         method: &str,
         _args: &[Value],
         _kwargs: &[(String, Value)],
-        _block: Option<&mut Block<'_>>,
+        _block: Option<&mut Yielder<'_>>,
         _handles: &Handles<'_>,
     ) -> Result<Value, Fault> {
         match method {
@@ -281,7 +281,7 @@ impl Member for StubMember {
         method: &str,
         args: &[Value],
         kwargs: &[(String, Value)],
-        block: Option<&mut Block<'_>>,
+        block: Option<&mut Yielder<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Value, Fault> {
         match self.methods.get(method) {
@@ -341,7 +341,7 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
 /// Yield each positional argument, collecting the block results. A
 /// call without a block mirrors the Ruby stub's `nil.call` crash — a
 /// runtime fault, never a stub-declared one.
-fn yield_each(args: &[Value], block: Option<&mut Block<'_>>) -> Result<Value, Fault> {
+fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, Fault> {
     let Some(block) = block else {
         return Err(Fault::new(
             FaultKind::Runtime,

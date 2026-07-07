@@ -111,7 +111,7 @@ mod tests {
             _method: &str,
             _args: &[Value],
             _kwargs: &[(String, Value)],
-            _block: Option<&mut crate::block::Block<'_>>,
+            _block: Option<&mut crate::yielder::Yielder<'_>>,
             _handles: &crate::handles::Handles<'_>,
         ) -> Result<Value, Fault> {
             Ok(Value::Nil)

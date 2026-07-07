@@ -8,7 +8,6 @@
 //! `test/parity/` suite; the API shape itself is deliberately
 //! idiomatic Rust, not a Ruby mirror.
 
-pub mod block;
 mod catalog;
 mod dispatch;
 pub mod error;
@@ -17,11 +16,12 @@ pub mod member;
 mod outcome;
 pub mod sandbox;
 mod snippet;
+pub mod yielder;
 
-pub use block::{Block, BlockError};
 pub use error::{Error, GuestFailure};
 pub use handles::Handles;
 pub use kobako_codec::codec::Value;
 pub use kobako_runtime::profile::Profile;
 pub use member::{Fault, FaultKind, Member};
 pub use sandbox::{Options, RunArg, Sandbox, Usage};
+pub use yielder::{YieldError, Yielder};

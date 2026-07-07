@@ -11,12 +11,12 @@ use std::sync::{Arc, Mutex};
 use kobako_codec::codec::{Decode, Encode, Encoder, Value};
 use kobako_codec::transport::{Request, Response, Target};
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::yielder::Yielder;
+use kobako_runtime::yielder::Yielder as RawYielder;
 
-use crate::block::Block;
 use crate::catalog::Catalog;
 use crate::handles::{HandleTable, Handles};
 use crate::member::{Fault, FaultKind, Member};
+use crate::yielder::Yielder;
 
 /// `DispatchHandler` over a sealed Catalog and the invocation's Handle
 /// table: route each Request to its bound Member or live Handle entry
@@ -31,7 +31,7 @@ impl CatalogHandler {
         CatalogHandler { catalog, handles }
     }
 
-    fn handle(&self, request: &Request, yielder: &mut dyn Yielder) -> Response {
+    fn handle(&self, request: &Request, channel: &mut dyn RawYielder) -> Response {
         let member = match self.resolve_target(&request.target) {
             Ok(member) => member,
             Err(fault) => return fault_response(&fault),
@@ -46,7 +46,7 @@ impl CatalogHandler {
             ));
         }
         let handles = Handles::new(&self.handles);
-        let mut block = request.block_given.then(|| Block::new(yielder));
+        let mut block = request.block_given.then(|| Yielder::new(channel));
         let result = member.call(
             &request.method,
             &request.args,
@@ -57,7 +57,7 @@ impl CatalogHandler {
         // A break unwinds the member transparently: the guest receives
         // the break value no matter what the member returned, and the
         // value rides back verbatim rather than through host code.
-        if let Some(value) = block.and_then(Block::into_break) {
+        if let Some(value) = block.and_then(Yielder::into_break) {
             return Response::Ok(value);
         }
         match result {
@@ -89,9 +89,9 @@ impl CatalogHandler {
 impl DispatchHandler for CatalogHandler {
     /// `None` is reserved for "the handler itself failed"; this
     /// handler reifies every failure as an envelope instead.
-    fn dispatch(&self, request: &[u8], yielder: &mut dyn Yielder) -> Option<Vec<u8>> {
+    fn dispatch(&self, request: &[u8], channel: &mut dyn RawYielder) -> Option<Vec<u8>> {
         let response = match Request::decode(request) {
-            Ok(request) => self.handle(&request, yielder),
+            Ok(request) => self.handle(&request, channel),
             Err(err) => fault_response(&Fault::new(
                 FaultKind::Runtime,
                 format!("Sandbox received a malformed request: {err}"),
@@ -140,16 +140,17 @@ mod tests {
 
     use super::*;
 
-    /// A yielder for tests: the handler under test never yields.
+    /// A yield channel for tests: the handler under test never yields.
     struct NoYield;
 
-    impl Yielder for NoYield {
+    impl RawYielder for NoYield {
         fn yield_block(&mut self, _args: &[u8]) -> Result<Vec<u8>, kobako_runtime::error::Trap> {
             panic!("dispatch under test must not yield");
         }
     }
 
-    /// A yielder answering from a canned script of YieldResponse bytes.
+    /// A yield channel answering from a canned script of YieldResponse
+    /// bytes.
     struct Scripted(std::collections::VecDeque<Vec<u8>>);
 
     impl Scripted {
@@ -163,7 +164,7 @@ mod tests {
         }
     }
 
-    impl Yielder for Scripted {
+    impl RawYielder for Scripted {
         fn yield_block(&mut self, _args: &[u8]) -> Result<Vec<u8>, kobako_runtime::error::Trap> {
             Ok(self.0.pop_front().expect("script exhausted"))
         }
@@ -179,7 +180,7 @@ mod tests {
             method: &str,
             _args: &[Value],
             _kwargs: &[(String, Value)],
-            _block: Option<&mut Block<'_>>,
+            _block: Option<&mut Yielder<'_>>,
             _handles: &Handles<'_>,
         ) -> Result<Value, Fault> {
             match method {
@@ -197,7 +198,7 @@ mod tests {
             method: &str,
             args: &[Value],
             kwargs: &[(String, Value)],
-            block: Option<&mut Block<'_>>,
+            block: Option<&mut Yielder<'_>>,
             handles: &Handles<'_>,
         ) -> Result<Value, Fault> {
             match method {
@@ -244,17 +245,17 @@ mod tests {
         roundtrip_with(request, &mut NoYield)
     }
 
-    fn roundtrip_with(request: &Request, yielder: &mut dyn Yielder) -> Response {
-        roundtrip_on(&handler(), request, yielder)
+    fn roundtrip_with(request: &Request, channel: &mut dyn RawYielder) -> Response {
+        roundtrip_on(&handler(), request, channel)
     }
 
     fn roundtrip_on(
         handler: &CatalogHandler,
         request: &Request,
-        yielder: &mut dyn Yielder,
+        channel: &mut dyn RawYielder,
     ) -> Response {
         let bytes = handler
-            .dispatch(&request.encode().unwrap(), yielder)
+            .dispatch(&request.encode().unwrap(), channel)
             .expect("this handler never returns None");
         Response::decode(&bytes).unwrap()
     }
@@ -368,7 +369,7 @@ mod tests {
             method: &str,
             args: &[Value],
             kwargs: &[(String, Value)],
-            block: Option<&mut Block<'_>>,
+            block: Option<&mut Yielder<'_>>,
             handles: &Handles<'_>,
         ) -> Result<Value, Fault> {
             Echo.call(method, args, kwargs, block, handles)
@@ -462,9 +463,9 @@ mod tests {
     #[test]
     fn yield_results_flow_back_through_the_member_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
-        let mut yielder = Scripted::new(vec![(TAG_OK, Value::Int(10)), (TAG_OK, Value::Int(20))]);
+        let mut channel = Scripted::new(vec![(TAG_OK, Value::Int(10)), (TAG_OK, Value::Int(20))]);
         assert_eq!(
-            roundtrip_with(&req, &mut yielder),
+            roundtrip_with(&req, &mut channel),
             Response::Ok(Value::Array(vec![Value::Int(10), Value::Int(20)]))
         );
     }
@@ -475,12 +476,12 @@ mod tests {
             "yield_each",
             vec![Value::Int(1), Value::Int(2), Value::Int(3)],
         );
-        let mut yielder = Scripted::new(vec![
+        let mut channel = Scripted::new(vec![
             (TAG_OK, Value::Int(10)),
             (TAG_BREAK, Value::Sym("stop".into())),
         ]);
         assert_eq!(
-            roundtrip_with(&req, &mut yielder),
+            roundtrip_with(&req, &mut channel),
             Response::Ok(Value::Sym("stop".into()))
         );
     }
@@ -488,11 +489,11 @@ mod tests {
     #[test]
     fn break_overrides_even_a_member_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
-        let mut yielder = Scripted::new(vec![(TAG_BREAK, Value::Sym("stop".into()))]);
+        let mut channel = Scripted::new(vec![(TAG_BREAK, Value::Sym("stop".into()))]);
         assert_eq!(
-            roundtrip_with(&req, &mut yielder),
+            roundtrip_with(&req, &mut channel),
             Response::Ok(Value::Sym("stop".into())),
-            "the guest must receive the break value even when the member discards BlockError::Break"
+            "the guest must receive the break value even when the member discards YieldError::Break"
         );
     }
 
@@ -508,7 +509,7 @@ mod tests {
     #[test]
     fn propagated_block_failure_folds_into_a_runtime_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
-        let mut yielder = Scripted::new(vec![(
+        let mut channel = Scripted::new(vec![(
             TAG_ERROR,
             Value::Map(vec![
                 (
@@ -519,7 +520,7 @@ mod tests {
             ]),
         )]);
         assert_eq!(
-            fault_type(&roundtrip_with(&req, &mut yielder)),
+            fault_type(&roundtrip_with(&req, &mut channel)),
             "runtime",
             "a propagated block failure must fold into the runtime fault envelope"
         );

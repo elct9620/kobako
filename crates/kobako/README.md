@@ -15,8 +15,9 @@ differential parity harness rather than by mirrored API shapes:
 - `Member` — the host object a guest reaches as
   `<Namespace>::<Member>`, with a `respond_to_guest` narrowing
   predicate and `Fault` as its refusal channel
-- `Block` — the guest-supplied block as a host-side callable; each
-  call is a synchronous yield round-trip into the in-flight guest
+- `Yielder` — the host-side stand-in for a guest-supplied block,
+  riding the `block` parameter; each call is a synchronous yield
+  round-trip into the in-flight guest
 - `Handles` — the per-invocation capability-Handle table: stateful
   host objects cross as opaque tokens the guest can call back into
 

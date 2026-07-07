@@ -149,7 +149,7 @@ Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc 
       │           (neutral channels → Kobako::* classes)
       │
 Rust SDK        crates/kobako — Sandbox(seal-once eval/run/preload) · Member/
-      │           Fault seam (+respond_to_guest narrowing) · Block(frame-
+      │           Fault seam (+respond_to_guest narrowing) · Yielder(frame-
       │           borrowed yield channel) · Handles(per-invocation
       │           capability table) · CatalogHandler(never-fail dispatch)
       │           · snippet table · outcome classification (parity-pinned)

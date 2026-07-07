@@ -52,7 +52,7 @@ The suite rides `rake test`; on a checkout without cargo the families
 skip. A family whose SDK seam has not landed yet carries `skip`
 entries citing its anchors, so coverage stays visible while the seam
 is pending. Three permanent entries share that shape, each pinned
-per-frontend instead: E-23 (the SDK's `Block` borrows its dispatch
+per-frontend instead: E-23 (the SDK's `Yielder` borrows its dispatch
 frame, so the escaped-Yielder misuse is a compile error — Ruby's
 runtime refusal lives in `test/e2e/test_yield_unwind.rb`); B-18 / E-13
 (one fresh guest instance per invocation means no scenario can present

@@ -11,8 +11,8 @@ use std::any::Any;
 
 use kobako_codec::codec::Value;
 
-use crate::block::Block;
 use crate::handles::Handles;
+use crate::yielder::Yielder;
 
 /// The refusal kinds a dispatch can come back with; each maps to the
 /// proxy-side error the guest raises.
@@ -69,9 +69,10 @@ impl Fault {
 /// into a fault envelope — the counterpart of a non-`StandardError`
 /// escaping the Ruby dispatcher's rescue.
 ///
-/// `block` is present when the guest call site supplied a block; each
-/// `Block::call` is a synchronous yield round-trip into the guest, and
-/// its errors propagate with `?`. `handles` is the invocation's
+/// `block` is present when the guest call site supplied a block; the
+/// `Yielder` riding it is the block's host-side stand-in, and each
+/// `Yielder::call` is a synchronous yield round-trip into the guest
+/// whose errors propagate with `?`. `handles` is the invocation's
 /// capability-Handle view: `Handles::alloc` hands the guest a stateful
 /// host object as an opaque token, `Handles::resolve` turns a
 /// `Value::Handle` argument back into the live object.
@@ -86,7 +87,7 @@ pub trait Member: Any + Send + Sync {
         method: &str,
         args: &[Value],
         kwargs: &[(String, Value)],
-        block: Option<&mut Block<'_>>,
+        block: Option<&mut Yielder<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
 
