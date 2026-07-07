@@ -9,8 +9,6 @@ module Kobako
 
     def self.restore: (Integer id) -> Handle
 
-    def with: (?id: Integer) -> Handle
-
     def ==: (untyped other) -> bool
 
     def hash: () -> Integer

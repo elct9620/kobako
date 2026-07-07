@@ -14,7 +14,9 @@ module Kobako
   # The constructor is internal to the Host Gem. +Kobako::Handle.new+ is
   # privatised so Host App code cannot fabricate a Handle from a bare
   # integer; legitimate Handle instances enter Host App code only as
-  # fields on raised error objects. The Host Gem itself constructs
+  # fields on raised error objects. +#with+ — Data's copy-with-changes
+  # constructor — is removed for the same reason: a legitimate Handle
+  # must not derive a sibling with a caller-chosen id. The Host Gem itself constructs
   # Handles through +.restore+, which exists at exactly two call
   # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
   # +Kobako::Codec::HandleWalk.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
@@ -41,6 +43,7 @@ module Kobako
     end
 
     private_class_method :new
+    undef_method :with
 
     # Host Gem–internal factory. Allocates the Data instance through
     # +Class#allocate+ and dispatches +#initialize+ explicitly so the
