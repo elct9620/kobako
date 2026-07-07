@@ -8,6 +8,11 @@ require "test_helper"
 class TestRegexpMatchPosition < Minitest::Test
   include RegexpGuestHelper
 
+  def test_match_with_position_starts_search_at_offset
+    assert_equal %w[2], eval_regexp('/\d/.match("a1b2c3", 3).to_a'),
+                 "Regexp#match starts searching at the given byte position"
+  end
+
   def test_match_returns_nil_when_position_past_end
     assert_equal "nil", eval_regexp('//.match("abc", 5) ? "matched" : "nil"'),
                  "Regexp#match returns nil when pos is past the end of the string"

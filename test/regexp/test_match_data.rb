@@ -75,11 +75,6 @@ class TestRegexpMatchData < Minitest::Test
                  "MatchData#size counts the full match plus each group"
   end
 
-  def test_match_with_position_starts_search_at_offset
-    assert_equal %w[2], eval_regexp('/\d/.match("a1b2c3", 3).to_a'),
-                 "Regexp#match starts searching at the given byte position"
-  end
-
   # MatchData.new is not constructible — a MatchData only ever arises from a
   # match, never direct construction. Resolve the error inside the guest (a
   # returned MatchData would surface a host codec error regardless, so this

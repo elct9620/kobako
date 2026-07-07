@@ -46,7 +46,7 @@ class TestMatchOperand < Minitest::Test
   end
 
   def test_match_accepts_regexp_pattern
-    assert_equal %w[123 123], eval_regexp('"abc123".match(/(\d+)/).to_a'),
+    assert_equal %w[x9 x 9], eval_regexp('"wx9z".match(/([a-z])(\d)/).to_a'),
                  "a Regexp pattern through String#match must match and return its MatchData"
   end
 
