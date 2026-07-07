@@ -18,7 +18,11 @@ use crate::handles::Handles;
 /// proxy-side error the guest raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaultKind {
-    /// No such member / method (Ruby dispatcher's `undefined`).
+    /// No such member / method (Ruby dispatcher's `undefined`). The
+    /// arm of `call` that answers an unrouted method with this kind is
+    /// also what stands in for the Ruby dispatcher's reflection floor:
+    /// a Rust member has no ambient `send` / `instance_eval` surface,
+    /// so an unrouted name simply does not exist.
     Undefined,
     /// The call shape does not fit the method (`argument`).
     Argument,
