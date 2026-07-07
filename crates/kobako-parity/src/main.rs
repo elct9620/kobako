@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
-use kobako::{Error, Fault, FaultKind, Member, Options, Profile, Sandbox, Value};
+use kobako::{Block, Error, Fault, FaultKind, Member, Options, Profile, Sandbox, Value};
 
 /// High bit of the frame length word: the payload is a harness-level
 /// error message, not an observables object.
@@ -160,16 +160,24 @@ fn bind_service(sandbox: &mut Sandbox, service: &Json) -> Result<(), String> {
 enum Behavior {
     /// Return the first positional argument (or nil).
     Echo,
+    /// Like `Echo`, but the declared signature takes no keyword
+    /// arguments: kwargs on the wire are a parameter binding failure,
+    /// mirroring the Ruby stub's positional-only lambda.
+    EchoPositional,
     /// Return a constant tagged value.
     Value(Value),
     /// The member itself fails (the Ruby stub raises; this side
     /// surfaces the SDK's member-failure channel).
     Raise(String),
+    /// Yield each positional argument to the guest block and return
+    /// the array of block results.
+    YieldEach,
 }
 
 fn parse_behavior(behavior: &Json) -> Result<Behavior, String> {
     match behavior["behavior"].as_str() {
         Some("echo") => Ok(Behavior::Echo),
+        Some("echo_positional") => Ok(Behavior::EchoPositional),
         Some("value") => Ok(Behavior::Value(untag_value(&behavior["value"])?)),
         Some("raise") => {
             // The Ruby stub raises a RuntimeError and its dispatcher
@@ -179,6 +187,7 @@ fn parse_behavior(behavior: &Json) -> Result<Behavior, String> {
             let message = behavior["message"].as_str().unwrap_or("stub failure");
             Ok(Behavior::Raise(format!("RuntimeError: {message}")))
         }
+        Some("yield_each") => Ok(Behavior::YieldEach),
         other => Err(format!("unknown stub behavior {other:?}")),
     }
 }
@@ -193,18 +202,52 @@ impl Member for StubMember {
         &self,
         method: &str,
         args: &[Value],
-        _kwargs: &[(String, Value)],
+        kwargs: &[(String, Value)],
+        block: Option<&mut Block<'_>>,
     ) -> Result<Value, Fault> {
         match self.methods.get(method) {
             Some(Behavior::Echo) => Ok(args.first().cloned().unwrap_or(Value::Nil)),
+            Some(Behavior::EchoPositional) => {
+                if kwargs.is_empty() {
+                    Ok(args.first().cloned().unwrap_or(Value::Nil))
+                } else {
+                    // Ruby's binding failure counts the kwargs as one
+                    // trailing positional hash; mirror the wording.
+                    Err(Fault::new(
+                        FaultKind::Argument,
+                        format!(
+                            "wrong number of arguments (given {}, expected 0..1)",
+                            args.len() + 1
+                        ),
+                    ))
+                }
+            }
             Some(Behavior::Value(value)) => Ok(value.clone()),
             Some(Behavior::Raise(message)) => Err(Fault::new(FaultKind::Runtime, message.clone())),
+            Some(Behavior::YieldEach) => yield_each(args, block),
             None => Err(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{method} is not a Service method"),
             )),
         }
     }
+}
+
+/// Yield each positional argument, collecting the block results. A
+/// call without a block mirrors the Ruby stub's `nil.call` crash — a
+/// runtime fault, never a stub-declared one.
+fn yield_each(args: &[Value], block: Option<&mut Block<'_>>) -> Result<Value, Fault> {
+    let Some(block) = block else {
+        return Err(Fault::new(
+            FaultKind::Runtime,
+            "NoMethodError: undefined method 'call' for nil",
+        ));
+    };
+    let mut out = Vec::with_capacity(args.len());
+    for arg in args {
+        out.push(block.call(std::slice::from_ref(arg))?);
+    }
+    Ok(Value::Array(out))
 }
 
 /// Run one invocation and emit its raw observable object.

@@ -9,6 +9,8 @@
 
 use kobako_codec::codec::Value;
 
+use crate::block::Block;
+
 /// The refusal kinds a dispatch can come back with; each maps to the
 /// proxy-side error the guest raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,11 +55,16 @@ impl Fault {
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine
 /// boundary behind an `Arc`.
+///
+/// `block` is present when the guest call site supplied a block; each
+/// `Block::call` is a synchronous yield round-trip into the guest, and
+/// its errors propagate with `?`.
 pub trait Member: Send + Sync {
     fn call(
         &self,
         method: &str,
         args: &[Value],
         kwargs: &[(String, Value)],
+        block: Option<&mut Block<'_>>,
     ) -> Result<Value, Fault>;
 }
