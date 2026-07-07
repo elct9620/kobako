@@ -23,7 +23,12 @@ module Parity
 
     def ensure_runner!
       build = rust_executor.ensure_built
-      skip "cargo unavailable — parity runner cannot build" if build.status == :no_cargo
+      if build.status == :no_cargo
+        # CI provisions the Rust toolchain before the suite runs, so a
+        # missing cargo there is a broken pipeline, never a skip.
+        flunk "cargo unavailable — parity must run in CI" if ENV["CI"]
+        skip "cargo unavailable — parity runner cannot build"
+      end
       flunk "parity runner build failed:\n#{build.error}" if build.status == :build_failed
     end
 

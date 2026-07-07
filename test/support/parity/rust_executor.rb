@@ -13,7 +13,8 @@ module Parity
     end
 
     # Memoised release build of the runner; callers skip on
-    # +:no_cargo+ and flunk on +:build_failed+ (CargoOracle contract).
+    # +:no_cargo+ (flunk under CI, where the toolchain is provisioned)
+    # and flunk on +:build_failed+ (CargoOracle contract).
     def ensure_built
       @oracle.ensure_built
     end
