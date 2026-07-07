@@ -318,10 +318,9 @@ impl ResourceLimiter for MemoryLimiter {
 
 /// Marker error returned from `MemoryLimiter::memory_growing` when the
 /// per-invocation memory cap is exceeded. Downcast from the wasmtime
-/// trap error to surface as
-/// `Kobako::MemoryLimitError` on the Ruby side. Callers use the
-/// `Display` impl below — no field is read directly — so the inner
-/// state stays private.
+/// trap error to classify the failure as a memory-limit `Trap`. Callers
+/// use the `Display` impl below — no field is read directly — so the
+/// inner state stays private.
 #[derive(Debug)]
 pub(crate) struct MemoryLimitTrap {
     desired: usize,
@@ -354,7 +353,7 @@ impl std::error::Error for MemoryLimitTrap {}
 
 /// Marker error returned from the epoch-deadline callback when the
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
-/// error to surface as `Kobako::TimeoutError` on the Ruby side.
+/// error to classify the failure as a timeout `Trap`.
 #[derive(Debug)]
 pub(crate) struct TimeoutTrap;
 

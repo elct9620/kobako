@@ -1,12 +1,13 @@
 //! Trap classification for the run path.
 //!
-//! Maps a `wasmtime` run error to the right top-level `Kobako::*` Ruby
-//! exception (`TimeoutError` / `MemoryLimitError` / `TrapError`), and
-//! hosts the epoch-deadline callback that raises the wall-clock
-//! `TimeoutTrap`. The classification is a pure function over the error's
-//! downcast chain so it can be exercised from `cargo test` without the
-//! magnus surface; the trap marker types themselves live in
-//! `crate::invocation` (where the limiter / callback construct them).
+//! Classifies a `wasmtime` run error into the engine-neutral `Trap`
+//! kind (`Timeout` / `MemoryLimit` / `Other`) that each frontend maps
+//! onto its own error surface, and hosts the epoch-deadline callback
+//! that raises the wall-clock `TimeoutTrap`. The classification is a
+//! pure function over the error's downcast chain so it can be exercised
+//! from `cargo test` without any frontend; the trap marker types
+//! themselves live in `crate::invocation` (where the limiter / callback
+//! construct them).
 
 use std::time::Instant;
 
@@ -42,24 +43,21 @@ pub(crate) fn epoch_deadline_callback(
 }
 
 /// Configured-cap path classification for a wasmtime error. The
-/// downcast logic stays in a pure helper so the
-/// `Kobako::TimeoutError` / `MemoryLimitError` /
-/// `Kobako::TrapError` mapping can be exercised from `cargo test`
-/// without the magnus surface.
+/// downcast logic stays in a pure helper so the `Trap` kind routing
+/// can be exercised from `cargo test` without any frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrapClass {
     /// Wall-clock cap path.
     Timeout,
     /// Linear-memory cap path.
     MemoryLimit,
-    /// Any other wasmtime error — surfaces as the base
-    /// `Kobako::TrapError`.
+    /// Any other wasmtime error — surfaces as the base `Trap::Other`.
     Other,
 }
 
-/// Inspect a wasmtime error to decide which top-level `Kobako::*` trap
-/// class it should map to. Pure function — operates on the error's
-/// downcast chain only, no magnus / Ruby state required.
+/// Inspect a wasmtime error to decide which neutral trap kind it
+/// belongs to. Pure function — operates on the error's downcast chain
+/// only, no frontend state required.
 fn classify_trap(err: &wasmtime::Error) -> TrapClass {
     if err.downcast_ref::<TimeoutTrap>().is_some() {
         TrapClass::Timeout
