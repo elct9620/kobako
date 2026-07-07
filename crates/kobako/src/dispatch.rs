@@ -133,6 +133,7 @@ fn fault_response(fault: &Fault) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use kobako_codec::codec::Decoder;
     use kobako_codec::transport::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
 
     use crate::member::Member;
@@ -285,22 +286,53 @@ mod tests {
         assert_eq!(roundtrip(&req), Response::Ok(Value::Int(9)));
     }
 
+    /// The fault payload's `type` field — the discriminator the guest
+    /// uses to pick the proxy-side error, so a test can tell a
+    /// rejection kind apart from a member that ran and failed.
+    fn fault_type(response: &Response) -> String {
+        let Response::Err(bytes) = response else {
+            panic!("expected a fault envelope, got a success response");
+        };
+        let Ok(Value::Map(pairs)) = Decoder::new(bytes).read_only_value() else {
+            panic!("a fault payload is always a msgpack map");
+        };
+        pairs
+            .into_iter()
+            .find_map(|(key, value)| match (key, value) {
+                (Value::Str(key), Value::Str(text)) if key == "type" => Some(text),
+                _ => None,
+            })
+            .expect("a fault payload always carries a type field")
+    }
+
     #[test]
-    fn member_fault_folds_into_an_err_envelope() {
+    fn member_fault_folds_into_a_runtime_fault() {
         let req = request(Target::Path("MyService::KV".into()), "explode", vec![]);
-        assert!(matches!(roundtrip(&req), Response::Err(_)));
+        assert_eq!(
+            fault_type(&roundtrip(&req)),
+            "runtime",
+            "a member failure through dispatch must fold into the runtime fault envelope"
+        );
     }
 
     #[test]
     fn unknown_path_folds_into_an_undefined_fault() {
         let req = request(Target::Path("Nope::Nada".into()), "echo", vec![]);
-        assert!(matches!(roundtrip(&req), Response::Err(_)));
+        assert_eq!(
+            fault_type(&roundtrip(&req)),
+            "undefined",
+            "an unbound path target through dispatch must fold into the undefined fault"
+        );
     }
 
     #[test]
     fn unknown_handle_target_folds_into_an_undefined_fault() {
         let req = request(Target::Handle(1), "echo", vec![]);
-        assert!(matches!(roundtrip(&req), Response::Err(_)));
+        assert_eq!(
+            fault_type(&roundtrip(&req)),
+            "undefined",
+            "an unissued Handle target through dispatch must fold into the undefined fault"
+        );
     }
 
     #[test]
@@ -347,6 +379,10 @@ mod tests {
         }
     }
 
+    // The hidden method in both narrowing tests is `explode`, whose
+    // body fails as a *runtime* fault when it runs: only the fault
+    // type can tell "rejected before running" (undefined) apart from
+    // "ran and failed" (runtime).
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
@@ -363,12 +399,10 @@ mod tests {
             "a truthy predicate answer leaves the call unchanged"
         );
         let hidden = request(Target::Path("MyService::Narrow".into()), "explode", vec![]);
-        assert!(
-            matches!(
-                roundtrip_on(&handler, &hidden, &mut NoYield),
-                Response::Err(_)
-            ),
-            "a falsy predicate answer must reject the dispatch before the method runs"
+        assert_eq!(
+            fault_type(&roundtrip_on(&handler, &hidden, &mut NoYield)),
+            "undefined",
+            "a falsy predicate answer must reject the dispatch as undefined before the method runs"
         );
     }
 
@@ -383,12 +417,10 @@ mod tests {
             Response::Ok(Value::Int(7))
         );
         let hidden = request(Target::Handle(id), "explode", vec![]);
-        assert!(
-            matches!(
-                roundtrip_on(&handler, &hidden, &mut NoYield),
-                Response::Err(_)
-            ),
-            "a Handle-table entry's narrowing predicate must reject the dispatch like a bound Service's"
+        assert_eq!(
+            fault_type(&roundtrip_on(&handler, &hidden, &mut NoYield)),
+            "undefined",
+            "a Handle-table entry's narrowing predicate must reject the dispatch as undefined like a bound Service's"
         );
     }
 
@@ -412,12 +444,13 @@ mod tests {
     }
 
     #[test]
-    fn malformed_request_bytes_fold_into_a_fault_envelope() {
+    fn malformed_request_bytes_fold_into_a_runtime_fault() {
         let bytes = handler().dispatch(&[0xd9], &mut NoYield).unwrap();
-        assert!(matches!(
-            Response::decode(&bytes).unwrap(),
-            Response::Err(_)
-        ));
+        assert_eq!(
+            fault_type(&Response::decode(&bytes).unwrap()),
+            "runtime",
+            "undecodable request bytes must fold into the runtime fault envelope"
+        );
     }
 
     fn block_request(method: &str, args: Vec<Value>) -> Request {
@@ -473,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn propagated_block_failure_folds_into_an_err_envelope() {
+    fn propagated_block_failure_folds_into_a_runtime_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
         let mut yielder = Scripted::new(vec![(
             TAG_ERROR,
@@ -485,9 +518,10 @@ mod tests {
                 (Value::Str("message".into()), Value::Str("crossed".into())),
             ]),
         )]);
-        assert!(matches!(
-            roundtrip_with(&req, &mut yielder),
-            Response::Err(_)
-        ));
+        assert_eq!(
+            fault_type(&roundtrip_with(&req, &mut yielder)),
+            "runtime",
+            "a propagated block failure must fold into the runtime fault envelope"
+        );
     }
 }
