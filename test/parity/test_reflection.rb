@@ -25,9 +25,12 @@ class TestParityReflection < Parity::Case
   end
 
   # SPEC.md B-43 / E-44: a Service returning a reflective gadget
-  # (Method / Binding) is refused rather than wrapped into a Handle —
-  # needs the SDK Handle table to compare.
+  # (Method / Binding) is refused rather than wrapped into a Handle.
+  # Reflective gadgets are Ruby surface with no Rust counterpart, so no
+  # stub behavior can express a gadget return from the SDK; the Ruby
+  # refusal is pinned by test/transport/test_dispatcher_gadget_return.rb
+  # and test/catalog/test_handles.rb.
   def test_gadget_return_pending
-    skip "pending SDK Handle table (B-43 E-44)"
+    skip "B-43 E-44 gadgets have no Rust counterpart; the refusal is pinned on the Ruby side"
   end
 end

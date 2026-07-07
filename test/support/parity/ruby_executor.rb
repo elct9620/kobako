@@ -44,10 +44,16 @@ module Parity
     def invoke(sandbox, invocation)
       case invocation.fetch(:verb)
       when "eval" then capture_outcome { sandbox.eval(invocation.fetch(:source)) }
-      when "run" then capture_outcome { sandbox.run(invocation.fetch(:target)) }
+      when "run" then capture_outcome { sandbox.run(invocation.fetch(:target), *run_args(invocation)) }
       when "late_bind" then late_bind(sandbox, invocation)
       else raise ArgumentError, "unknown invocation verb: #{invocation.inspect}"
       end
+    end
+
+    # Tagged +run+ arguments; an +opaque+ tag becomes a labeled host
+    # object the encoding auto-wraps into a capability Handle.
+    def run_args(invocation)
+      (invocation[:args] || []).map { |tagged| ValueTags.untag(tagged) }
     end
 
     def capture_outcome

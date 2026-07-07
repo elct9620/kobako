@@ -6,6 +6,38 @@ module Parity
   # observation stays in +RubyExecutor+; the Rust runner interprets the
   # same closed tag sets on its side.
   class SandboxBuilder
+    # The closed stub-behavior set, one builder per tag; the Rust
+    # runner's StubMember is the other interpreter of the same tags.
+    # +echo_positional+ takes no keyword arguments on purpose — kwargs
+    # on the wire must fail its parameter binding; +yield_each+ yields
+    # each positional argument and returns the array of block results;
+    # +opaque+ hands back the same labeled non-wire object on every
+    # call so identity is observable, and +read_label+ reads it off a
+    # (possibly Array-nested) restored argument.
+    STUB_BODIES = {
+      "echo" => ->(_behavior) { ->(arg = nil, *, **) { arg } },
+      "echo_positional" => ->(_behavior) { ->(arg = nil) { arg } },
+      "value" => lambda { |behavior|
+        constant = ValueTags.untag(behavior.fetch(:value))
+        ->(*, **) { constant }
+      },
+      "raise" => lambda { |behavior|
+        message = behavior.fetch(:message, "stub failure")
+        ->(*, **) { raise message }
+      },
+      "yield_each" => ->(_behavior) { ->(*args, **, &blk) { args.map { |arg| blk.call(arg) } } },
+      "opaque" => lambda { |behavior|
+        constant = OpaqueObject.new(behavior.fetch(:label))
+        ->(*, **) { constant }
+      },
+      "read_label" => lambda { |_behavior|
+        lambda { |arg, *, **|
+          arg = arg.first while arg.is_a?(Array)
+          arg.label
+        }
+      }
+    }.freeze
+
     def initialize(wasm_path)
       @wasm_path = wasm_path
     end
@@ -56,22 +88,11 @@ module Parity
       stub
     end
 
-    # The closed stub-behavior set; the Rust runner's StubMember is
-    # the other interpreter of the same tags. +echo_positional+ takes
-    # no keyword arguments on purpose — kwargs on the wire must fail
-    # its parameter binding; +yield_each+ yields each positional
-    # argument and returns the array of block results.
     def stub_body(behavior)
-      case behavior.fetch(:behavior)
-      when "echo" then ->(arg = nil, *, **) { arg }
-      when "echo_positional" then ->(arg = nil) { arg }
-      when "value" then constant = ValueTags.untag(behavior.fetch(:value))
-                        ->(*, **) { constant }
-      when "raise" then message = behavior.fetch(:message, "stub failure")
-                        ->(*, **) { raise message }
-      when "yield_each" then ->(*args, **, &blk) { args.map { |arg| blk.call(arg) } }
-      else raise ArgumentError, "unknown stub behavior: #{behavior.inspect}"
+      builder = STUB_BODIES.fetch(behavior.fetch(:behavior)) do
+        raise ArgumentError, "unknown stub behavior: #{behavior.inspect}"
       end
+      builder.call(behavior)
     end
   end
 end

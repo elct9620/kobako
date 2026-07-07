@@ -13,6 +13,7 @@ module Parity
       when Array then { "t" => "array", "v" => value.map { |item| tag(item) } }
       when Hash then { "t" => "map", "v" => value.map { |k, v| [tag(k), tag(v)] } }
       when String then tag_string(value)
+      when OpaqueObject then { "t" => "opaque", "label" => value.label }
       else tag_scalar(value)
       end
     end
@@ -54,6 +55,7 @@ module Parity
       when "int" then Integer(tagged.fetch("v"))
       when "sym" then tagged.fetch("v").to_sym
       when "bin" then [tagged.fetch("hex")].pack("H*")
+      when "opaque" then OpaqueObject.new(tagged.fetch("label"))
       else raise ArgumentError, "malformed tagged value: #{tagged.inspect}"
       end
     end

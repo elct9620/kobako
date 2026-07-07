@@ -25,21 +25,35 @@ value, capture bytes and truncation predicates, usage — and the test
 asserts equality after normalization (`test/support/parity/case.rb`:
 host-generated `message` wording and raw usage numbers are
 diagnostic-only). Stub behaviors (`echo` / `echo_positional` / `value`
-/ `raise` / `yield_each`), invocation verbs (`eval` / `run` /
-`late_bind`), and preload kinds (`source` / `bytecode`) are closed
-sets that grow append-only with the corpus; `undefined` / `argument`
-faults must arise from the scenario's shape on both sides, never from
-a stub declaration (`echo_positional` declares a positional-only
-signature, so kwargs on the wire fail its binding on both sides).
+/ `raise` / `yield_each` / `opaque` / `read_label`), invocation verbs
+(`eval` / `run` / `late_bind`), and preload kinds (`source` /
+`bytecode`) are closed sets that grow append-only with the corpus;
+`undefined` / `argument` faults must arise from the scenario's shape
+on both sides, never from a stub declaration (`echo_positional`
+declares a positional-only signature, so kwargs on the wire fail its
+binding on both sides).
+
+Capability Handles compare by **identity, not id**: an `opaque` stub
+(or `run` argument) is a labeled non-wire host object, and a crossed
+object tags as `{"t": "opaque", "label": …}` on both sides — the Ruby
+executor reads the label off the restored object, the Rust runner
+resolves the result Handle against the Sandbox's table and recovers
+the label by object identity. A raw Handle id never appears in an
+observable.
 
 The suite rides `rake test`; on a checkout without cargo the families
 skip. A family whose SDK seam has not landed yet carries `skip`
 entries citing its anchors, so coverage stays visible while the seam
-is pending. E-23 carries a permanent entry of that shape: the SDK's
-`Block` borrows its dispatch frame, so the escaped-Yielder misuse is a
-compile error on the Rust side — no scenario can express it, and the
-Ruby frontend's runtime refusal is pinned by its own e2e suite
-(`test/e2e/test_yield_unwind.rb`).
+is pending. Three permanent entries share that shape, each pinned
+per-frontend instead: E-23 (the SDK's `Block` borrows its dispatch
+frame, so the escaped-Yielder misuse is a compile error — Ruby's
+runtime refusal lives in `test/e2e/test_yield_unwind.rb`); B-18 / E-13
+(one fresh guest instance per invocation means no scenario can present
+a stale Handle — staleness is unit-pinned by
+`test/transport/test_dispatcher_invalidity.rb` and the SDK's
+handles/dispatch unit tests); B-43 / E-44 (reflective gadgets are Ruby
+surface with no Rust counterpart — the refusal is pinned by
+`test/transport/test_dispatcher_gadget_return.rb`).
 
 ## Coverage gate
 

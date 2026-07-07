@@ -5,6 +5,7 @@
 # observables compared after normalization. The Rust half lives in
 # `crates/kobako-parity`.
 require_relative "parity/scenario"
+require_relative "parity/opaque_object"
 require_relative "parity/value_tags"
 require_relative "parity/sandbox_builder"
 require_relative "parity/ruby_executor"
