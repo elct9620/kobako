@@ -70,12 +70,13 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
     // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
     // § ABI Signatures:
     //   (req_ptr: i32, req_len: i32) -> i64
-    // Decodes the Request bytes, dispatches via the Ruby-side
-    // dispatch Proc (bound per-Sandbox through `Runtime#on_dispatch=`),
-    // allocates a guest buffer through `__kobako_alloc`, writes
-    // the Response bytes there, and returns the packed
-    // `(ptr<<32)|len`. The dispatcher returns 0 on any wire-layer
-    // fault (including no Proc bound); see `dispatch::handle`.
+    // Reads the Request bytes from guest memory and hands them —
+    // undecoded — to the bound `DispatchHandler` (the frontend's
+    // dispatch bridge, e.g. a Ruby Proc), then allocates a guest
+    // buffer through `__kobako_alloc`, writes the handler's Response
+    // bytes there, and returns the packed `(ptr<<32)|len`. The
+    // dispatcher returns 0 on any wire-layer fault (including no
+    // handler bound); see `dispatch::handle`.
     linker
         .func_wrap(
             "env",
