@@ -7,6 +7,8 @@
 //! failures, unencodable responses) itself, so implementations never
 //! need to think about the wire.
 
+use std::any::Any;
+
 use kobako_codec::codec::Value;
 
 use crate::block::Block;
@@ -69,7 +71,12 @@ impl Fault {
 /// capability-Handle view: `Handles::alloc` hands the guest a stateful
 /// host object as an opaque token, `Handles::resolve` turns a
 /// `Value::Handle` argument back into the live object.
-pub trait Member: Send + Sync {
+///
+/// `Any` is a supertrait so a resolved member recovers its concrete
+/// type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
+/// `downcast` — the Rust spelling of the Ruby frontend's
+/// restore-to-original-object.
+pub trait Member: Any + Send + Sync {
     fn call(
         &self,
         method: &str,

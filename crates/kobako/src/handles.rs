@@ -83,7 +83,8 @@ impl<'a> Handles<'a> {
 
     /// Resolve a `Value::Handle` argument to the live host object it
     /// stands for; `None` for a non-Handle value or an id with no live
-    /// binding.
+    /// binding. Upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
+    /// `downcast` to recover the concrete member type.
     pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Member>> {
         let Value::Handle(id) = value else {
             return None;
@@ -150,5 +151,18 @@ mod tests {
             "resolve must yield the very object alloc bound"
         );
         assert!(handles.resolve(&Value::Int(1)).is_none());
+    }
+
+    #[test]
+    fn resolved_member_downcasts_to_its_concrete_type() {
+        let table = Mutex::new(HandleTable::default());
+        let handles = Handles::new(&table);
+        let token = handles.alloc(Arc::new(Probe)).unwrap();
+        let resolved = handles.resolve(&token).expect("the id is live");
+        let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
+        assert!(
+            any.downcast::<Probe>().is_ok(),
+            "a resolved Handle must recover the concrete member type through the Any upcast"
+        );
     }
 }

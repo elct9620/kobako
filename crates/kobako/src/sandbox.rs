@@ -254,9 +254,10 @@ impl Sandbox {
 
     /// Resolve a `Value::Handle` from the last invocation's result to
     /// the live host object it stands for — the Rust spelling of the
-    /// Ruby frontend's restore-to-original-object. `None` for a
-    /// non-Handle value; the table stays readable until the next
-    /// invocation resets it.
+    /// Ruby frontend's restore-to-original-object; upcast the `Arc` to
+    /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
+    /// concrete type. `None` for a non-Handle value; the table stays
+    /// readable until the next invocation resets it.
     pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Member>> {
         Handles::new(&self.handles).resolve(value)
     }
