@@ -11,11 +11,7 @@
 //! only the language-neutral wire shapes.
 
 use kobako_codec::codec::{Decoder, Value};
-
-/// Allocation guard on the frame channel: a length prefix beyond any
-/// legitimate frame fails as a clean Panic envelope instead of an
-/// allocation abort. Matches the cap the codec oracle bins apply.
-const MAX_FRAME: usize = 64 * 1024 * 1024;
+use kobako_codec::MAX_FRAME_LEN;
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF, short
 /// read, or an over-cap length prefix; callers turn that into a Panic
@@ -30,7 +26,7 @@ fn read_frame_from<R: std::io::Read>(input: &mut R) -> Option<Vec<u8>> {
     let mut len_buf = [0u8; kobako_codec::FRAME_LEN_SIZE];
     input.read_exact(&mut len_buf).ok()?;
     let len = u32::from_be_bytes(len_buf) as usize;
-    if len > MAX_FRAME {
+    if len > MAX_FRAME_LEN {
         return None;
     }
     let mut payload = vec![0u8; len];
@@ -125,7 +121,7 @@ mod tests {
 
     #[test]
     fn read_frame_from_rejects_an_over_cap_length_prefix() {
-        let mut framed = ((MAX_FRAME as u32) + 1).to_be_bytes().to_vec();
+        let mut framed = ((MAX_FRAME_LEN as u32) + 1).to_be_bytes().to_vec();
         framed.extend_from_slice(b"x");
         let mut cursor = std::io::Cursor::new(framed);
         assert_eq!(read_frame_from(&mut cursor), None);

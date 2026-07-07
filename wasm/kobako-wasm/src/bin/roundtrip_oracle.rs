@@ -30,9 +30,8 @@
 use std::io::{self, Read, Write};
 
 use kobako_codec::codec::{self, Decoder, Encoder};
-use kobako_codec::FRAME_LEN_SIZE;
+use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
-const MAX_FRAME: usize = 64 * 1024 * 1024; // 64 MiB hard cap (well above SPEC's 16 MiB single-call limit)
 const ERROR_FLAG: u32 = 0x8000_0000;
 
 fn main() {
@@ -56,10 +55,10 @@ fn run() -> io::Result<()> {
             Err(e) => return Err(e),
         }
         let len = u32::from_be_bytes(hdr) as usize;
-        if len > MAX_FRAME {
+        if len > MAX_FRAME_LEN {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("frame length {len} exceeds {MAX_FRAME}"),
+                format!("frame length {len} exceeds {MAX_FRAME_LEN}"),
             ));
         }
         let mut payload = vec![0u8; len];

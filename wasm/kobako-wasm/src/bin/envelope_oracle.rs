@@ -32,9 +32,8 @@ use kobako_codec::codec;
 use kobako_codec::codec::{Decode, Encode};
 use kobako_codec::outcome::{Outcome, Panic};
 use kobako_codec::transport::{Request, Response};
-use kobako_codec::FRAME_LEN_SIZE;
+use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
-const MAX_FRAME: usize = 64 * 1024 * 1024;
 const ERROR_FLAG: u32 = 0x8000_0000;
 
 fn main() {
@@ -58,7 +57,7 @@ fn run() -> io::Result<()> {
             Err(e) => return Err(e),
         }
         let len = u32::from_be_bytes(hdr) as usize;
-        if len == 0 || len > MAX_FRAME {
+        if len == 0 || len > MAX_FRAME_LEN {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("frame length {len} out of range"),

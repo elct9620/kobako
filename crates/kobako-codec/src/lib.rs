@@ -13,6 +13,12 @@
 /// and outcome buffer (docs/wire-codec.md § Invocation channels).
 pub const FRAME_LEN_SIZE: usize = 4;
 
+/// Allocation cap on a length-prefixed frame: a prefix beyond any
+/// legitimate frame is rejected before the payload is allocated. Sits
+/// well above SPEC's 16 MiB single-call payload bound so every frame
+/// reader and oracle applies the same ceiling.
+pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
+
 pub mod codec;
 pub mod outcome;
 pub mod transport;
