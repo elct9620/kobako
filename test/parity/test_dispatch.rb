@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# Differential parity — Service dispatch (SPEC.md B-12, E-11, E-12;
-# E-15 / B-50 / E-48 pending): a guest call on a bound Member must
+# Differential parity — Service dispatch (SPEC.md B-12, E-11, E-12,
+# E-15; B-50 / E-48 pending): a guest call on a bound Member must
 # produce the same value or the same fault class on both sides.
 class TestParityDispatch < Parity::Case
   ECHO_SERVICE = [
@@ -44,10 +44,28 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-15: unknown-kwarg param binding faults need signature
-  # awareness the SDK's Member seam does not model yet.
-  def test_argument_fault_pending
-    skip "pending SDK Member signatures (E-15)"
+  # SPEC.md E-15: keyword arguments offered to a method whose signature
+  # accepts none fail the parameter binding as an +argument+ fault on
+  # both sides — derived from the stub's positional-only shape, never
+  # declared.
+  STRICT_SERVICE = [
+    { namespace: "MyService", member: "KV",
+      methods: { strict_echo: { behavior: "echo_positional" } } }
+  ].freeze
+
+  STRICT_INVOCATIONS = [
+    { verb: "eval", source: "MyService::KV.strict_echo(1, limit: 2)" },
+    { verb: "eval",
+      source: "begin; MyService::KV.strict_echo(1, limit: 2); rescue => e; e.class.to_s; end" },
+    { verb: "eval", source: "MyService::KV.strict_echo(1)" }
+  ].freeze
+
+  def test_argument_fault
+    assert_parity Parity::Scenario.new(
+      name: "dispatch-kwargs-binding-fault", anchors: %w[E-15],
+      services: STRICT_SERVICE,
+      invocations: STRICT_INVOCATIONS
+    )
   end
 
   # SPEC.md B-50 / E-48: the respond_to_guest? narrowing predicate is

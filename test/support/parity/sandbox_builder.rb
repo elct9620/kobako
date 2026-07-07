@@ -57,14 +57,19 @@ module Parity
     end
 
     # The closed stub-behavior set; the Rust runner's StubMember is
-    # the other interpreter of the same tags.
+    # the other interpreter of the same tags. +echo_positional+ takes
+    # no keyword arguments on purpose — kwargs on the wire must fail
+    # its parameter binding; +yield_each+ yields each positional
+    # argument and returns the array of block results.
     def stub_body(behavior)
       case behavior.fetch(:behavior)
       when "echo" then ->(arg = nil, *, **) { arg }
+      when "echo_positional" then ->(arg = nil) { arg }
       when "value" then constant = ValueTags.untag(behavior.fetch(:value))
                         ->(*, **) { constant }
       when "raise" then message = behavior.fetch(:message, "stub failure")
                         ->(*, **) { raise message }
+      when "yield_each" then ->(*args, **, &blk) { args.map { |arg| blk.call(arg) } }
       else raise ArgumentError, "unknown stub behavior: #{behavior.inspect}"
       end
     end

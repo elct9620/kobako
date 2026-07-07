@@ -24,16 +24,22 @@ Both emit raw observables per invocation — neutral status, tagged
 value, capture bytes and truncation predicates, usage — and the test
 asserts equality after normalization (`test/support/parity/case.rb`:
 host-generated `message` wording and raw usage numbers are
-diagnostic-only). Stub behaviors (`echo` / `value` / `raise`),
-invocation verbs (`eval` / `run` / `late_bind`), and preload kinds
-(`source` / `bytecode`) are closed sets that grow append-only with the
-corpus; `undefined` / `argument` faults must arise from the scenario's
-shape on both sides, never from a stub declaration.
+diagnostic-only). Stub behaviors (`echo` / `echo_positional` / `value`
+/ `raise` / `yield_each`), invocation verbs (`eval` / `run` /
+`late_bind`), and preload kinds (`source` / `bytecode`) are closed
+sets that grow append-only with the corpus; `undefined` / `argument`
+faults must arise from the scenario's shape on both sides, never from
+a stub declaration (`echo_positional` declares a positional-only
+signature, so kwargs on the wire fail its binding on both sides).
 
 The suite rides `rake test`; on a checkout without cargo the families
 skip. A family whose SDK seam has not landed yet carries `skip`
 entries citing its anchors, so coverage stays visible while the seam
-is pending.
+is pending. E-23 carries a permanent entry of that shape: the SDK's
+`Block` borrows its dispatch frame, so the escaped-Yielder misuse is a
+compile error on the Rust side — no scenario can express it, and the
+Ruby frontend's runtime refusal is pinned by its own e2e suite
+(`test/e2e/test_yield_unwind.rb`).
 
 ## Coverage gate
 
