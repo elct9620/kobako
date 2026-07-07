@@ -10,6 +10,7 @@
 use kobako_codec::codec::Value;
 
 use crate::block::Block;
+use crate::handles::Handles;
 
 /// The refusal kinds a dispatch can come back with; each maps to the
 /// proxy-side error the guest raises.
@@ -58,7 +59,10 @@ impl Fault {
 ///
 /// `block` is present when the guest call site supplied a block; each
 /// `Block::call` is a synchronous yield round-trip into the guest, and
-/// its errors propagate with `?`.
+/// its errors propagate with `?`. `handles` is the invocation's
+/// capability-Handle view: `Handles::alloc` hands the guest a stateful
+/// host object as an opaque token, `Handles::resolve` turns a
+/// `Value::Handle` argument back into the live object.
 pub trait Member: Send + Sync {
     fn call(
         &self,
@@ -66,5 +70,6 @@ pub trait Member: Send + Sync {
         args: &[Value],
         kwargs: &[(String, Value)],
         block: Option<&mut Block<'_>>,
+        handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
 }

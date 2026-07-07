@@ -16,7 +16,14 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
-use kobako::{Block, Error, Fault, FaultKind, Member, Options, Profile, Sandbox, Value};
+use kobako::{
+    Block, Error, Fault, FaultKind, Handles, Member, Options, Profile, RunArg, Sandbox, Value,
+};
+
+/// The scenario's opaque host objects by declared label, shared by the
+/// stub behaviors (allocation), the run-argument auto-wrap, and the
+/// observable tagger (identity lookup via `Arc::ptr_eq`).
+type Opaques = Vec<(String, Arc<dyn Member>)>;
 
 /// High bit of the frame length word: the payload is a harness-level
 /// error message, not an observables object.
@@ -73,8 +80,9 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
             .define(name)
             .map_err(|err| format!("define failed: {err}"))?;
     }
+    let mut opaques: Opaques = Vec::new();
     for service in scenario["services"].as_array().unwrap_or(&Vec::new()) {
-        bind_service(&mut sandbox, service)?;
+        bind_service(&mut sandbox, service, &mut opaques)?;
     }
     for preload in scenario["preloads"].as_array().unwrap_or(&Vec::new()) {
         apply_preload(&mut sandbox, preload)?;
@@ -85,7 +93,7 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         .ok_or("scenario must carry invocations")?;
     let mut observables = Vec::with_capacity(invocations.len());
     for invocation in invocations {
-        observables.push(observe(&mut sandbox, invocation)?);
+        observables.push(observe(&mut sandbox, invocation, &mut opaques)?);
     }
     Ok(Json::Array(observables))
 }
@@ -133,7 +141,11 @@ fn parse_options(options: &Json) -> Result<Options, String> {
     Ok(parsed)
 }
 
-fn bind_service(sandbox: &mut Sandbox, service: &Json) -> Result<(), String> {
+fn bind_service(
+    sandbox: &mut Sandbox,
+    service: &Json,
+    opaques: &mut Opaques,
+) -> Result<(), String> {
     let namespace = service["namespace"]
         .as_str()
         .ok_or("service must carry namespace")?;
@@ -143,7 +155,7 @@ fn bind_service(sandbox: &mut Sandbox, service: &Json) -> Result<(), String> {
     let mut methods = HashMap::new();
     if let Some(entries) = service["methods"].as_object() {
         for (name, behavior) in entries {
-            methods.insert(name.clone(), parse_behavior(behavior)?);
+            methods.insert(name.clone(), parse_behavior(behavior, opaques)?);
         }
     }
     sandbox
@@ -172,9 +184,16 @@ enum Behavior {
     /// Yield each positional argument to the guest block and return
     /// the array of block results.
     YieldEach,
+    /// Hand the guest a labeled opaque host object as a capability
+    /// Handle — the same instance on every call, so identity is
+    /// observable.
+    Opaque(Arc<dyn Member>),
+    /// Answer with the label of the opaque object a (possibly
+    /// Array-nested) Handle argument resolves to.
+    ReadLabel,
 }
 
-fn parse_behavior(behavior: &Json) -> Result<Behavior, String> {
+fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, String> {
     match behavior["behavior"].as_str() {
         Some("echo") => Ok(Behavior::Echo),
         Some("echo_positional") => Ok(Behavior::EchoPositional),
@@ -188,7 +207,50 @@ fn parse_behavior(behavior: &Json) -> Result<Behavior, String> {
             Ok(Behavior::Raise(format!("RuntimeError: {message}")))
         }
         Some("yield_each") => Ok(Behavior::YieldEach),
+        Some("opaque") => {
+            let label = behavior["label"]
+                .as_str()
+                .ok_or("opaque behavior must carry label")?;
+            Ok(Behavior::Opaque(register_opaque(opaques, label)))
+        }
+        Some("read_label") => Ok(Behavior::ReadLabel),
         other => Err(format!("unknown stub behavior {other:?}")),
+    }
+}
+
+/// Create and register a labeled opaque object so the tagger can
+/// recover its identity from a resolved Handle.
+fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn Member> {
+    let object: Arc<dyn Member> = Arc::new(OpaqueStub {
+        label: label.to_string(),
+    });
+    opaques.push((label.to_string(), object.clone()));
+    object
+}
+
+/// A deliberately non-wire host object with a scenario-declared
+/// identity; its only Service surface is `label`, mirroring the Ruby
+/// executor's `Parity::OpaqueObject` struct.
+struct OpaqueStub {
+    label: String,
+}
+
+impl Member for OpaqueStub {
+    fn call(
+        &self,
+        method: &str,
+        _args: &[Value],
+        _kwargs: &[(String, Value)],
+        _block: Option<&mut Block<'_>>,
+        _handles: &Handles<'_>,
+    ) -> Result<Value, Fault> {
+        match method {
+            "label" => Ok(Value::Str(self.label.clone())),
+            _ => Err(Fault::new(
+                FaultKind::Undefined,
+                format!("method :{method} is not a Service method"),
+            )),
+        }
     }
 }
 
@@ -204,6 +266,7 @@ impl Member for StubMember {
         args: &[Value],
         kwargs: &[(String, Value)],
         block: Option<&mut Block<'_>>,
+        handles: &Handles<'_>,
     ) -> Result<Value, Fault> {
         match self.methods.get(method) {
             Some(Behavior::Echo) => Ok(args.first().cloned().unwrap_or(Value::Nil)),
@@ -225,12 +288,32 @@ impl Member for StubMember {
             Some(Behavior::Value(value)) => Ok(value.clone()),
             Some(Behavior::Raise(message)) => Err(Fault::new(FaultKind::Runtime, message.clone())),
             Some(Behavior::YieldEach) => yield_each(args, block),
+            Some(Behavior::Opaque(object)) => handles.alloc(object.clone()),
+            Some(Behavior::ReadLabel) => read_label(args, handles),
             None => Err(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{method} is not a Service method"),
             )),
         }
     }
+}
+
+/// Resolve the first (possibly Array-nested) Handle argument and
+/// answer with its object's label — the Ruby stub reads `arg.label`
+/// off the restored object the dispatcher handed it.
+fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
+    let mut arg = args
+        .first()
+        .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs an argument"))?;
+    while let Value::Array(items) = arg {
+        arg = items
+            .first()
+            .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label got an empty Array"))?;
+    }
+    let object = handles
+        .resolve(arg)
+        .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs a live Handle"))?;
+    object.call("label", &[], &[], None, handles)
 }
 
 /// Yield each positional argument, collecting the block results. A
@@ -251,7 +334,11 @@ fn yield_each(args: &[Value], block: Option<&mut Block<'_>>) -> Result<Value, Fa
 }
 
 /// Run one invocation and emit its raw observable object.
-fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
+fn observe(
+    sandbox: &mut Sandbox,
+    invocation: &Json,
+    opaques: &mut Opaques,
+) -> Result<Json, String> {
     let result = match invocation["verb"].as_str() {
         Some("eval") => {
             let source = invocation["source"]
@@ -263,7 +350,14 @@ fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
             let target = invocation["target"]
                 .as_str()
                 .ok_or("run invocation must carry target")?;
-            sandbox.run(target)
+            let args = match invocation["args"].as_array() {
+                Some(tagged) => tagged
+                    .iter()
+                    .map(|tag| untag_run_arg(tag, opaques))
+                    .collect::<Result<_, _>>()?,
+                None => Vec::new(),
+            };
+            sandbox.run_with(target, args, Vec::new())
         }
         Some("late_bind") => late_bind(sandbox, invocation)?,
         other => return Err(format!("unknown invocation verb {other:?}")),
@@ -273,7 +367,7 @@ fn observe(sandbox: &mut Sandbox, invocation: &Json) -> Result<Json, String> {
     match result {
         Ok(value) => {
             observable.insert("status".into(), json!("ok"));
-            observable.insert("value".into(), tag_value(&value));
+            observable.insert("value".into(), tag_value(&value, sandbox, opaques));
         }
         Err(error) => {
             let (status, failure) = classify(&error);
@@ -336,8 +430,10 @@ fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
 
 /// Tagged JSON form of a wire `Value` — lossless (ints ride as
 /// strings, bytes as hex, map order preserved) so both executors
-/// render byte-identical tags.
-fn tag_value(value: &Value) -> Json {
+/// render byte-identical tags. A Handle tags as the identity of the
+/// host object it resolves to — the Ruby executor sees the restored
+/// object itself, so a raw id would never compare.
+fn tag_value(value: &Value, sandbox: &Sandbox, opaques: &Opaques) -> Json {
     match value {
         Value::Nil => json!({"t": "nil"}),
         Value::Bool(b) => json!({"t": "bool", "v": b}),
@@ -348,18 +444,42 @@ fn tag_value(value: &Value) -> Json {
         Value::Bin(bytes) => json!({"t": "bin", "hex": hex(bytes)}),
         Value::Sym(name) => json!({"t": "sym", "v": name}),
         Value::Array(items) => {
-            json!({"t": "array", "v": items.iter().map(tag_value).collect::<Vec<_>>()})
+            json!({"t": "array", "v": items.iter().map(|v| tag_value(v, sandbox, opaques)).collect::<Vec<_>>()})
         }
         Value::Map(pairs) => json!({
             "t": "map",
             "v": pairs
                 .iter()
-                .map(|(k, v)| json!([tag_value(k), tag_value(v)]))
+                .map(|(k, v)| json!([tag_value(k, sandbox, opaques), tag_value(v, sandbox, opaques)]))
                 .collect::<Vec<_>>(),
         }),
-        Value::Handle(id) => json!({"t": "handle", "id": id}),
+        Value::Handle(_) => json!({"t": "opaque", "label": handle_label(value, sandbox, opaques)}),
         Value::ErrEnv(bytes) => json!({"t": "errenv", "hex": hex(bytes)}),
     }
+}
+
+/// The declared label of the opaque object a result Handle resolves
+/// to; `None` for an object outside the scenario's opaque set (no
+/// closed-DSL scenario produces one).
+fn handle_label(value: &Value, sandbox: &Sandbox, opaques: &Opaques) -> Option<String> {
+    let resolved = sandbox.resolve(value)?;
+    opaques
+        .iter()
+        .find(|(_, object)| Arc::ptr_eq(object, &resolved))
+        .map(|(label, _)| label.clone())
+}
+
+/// A `run` argument off its tagged form: the `opaque` tag becomes a
+/// fresh labeled host object (registered so the tagger can recover its
+/// identity), every other tag stays a wire value.
+fn untag_run_arg(tagged: &Json, opaques: &mut Opaques) -> Result<RunArg, String> {
+    if tagged["t"].as_str() == Some("opaque") {
+        let label = tagged["label"]
+            .as_str()
+            .ok_or_else(|| format!("malformed tagged value: {tagged}"))?;
+        return Ok(RunArg::Object(register_opaque(opaques, label)));
+    }
+    untag_value(tagged).map(RunArg::Value)
 }
 
 /// Tagged JSON back to a wire `Value` (stub constants in scenarios).

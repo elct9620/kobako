@@ -4,10 +4,9 @@
 //! **never fails** — every refusal, decode fault, and unencodable
 //! response folds into a `Response::Err` fault envelope the guest
 //! re-raises as a rescuable exception, so a Service misuse can never
-//! become a wasm trap. Capability-Handle targets are a seam of a later
-//! build and fold into `runtime` faults for now.
+//! become a wasm trap.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kobako_codec::codec::{Decode, Encode, Encoder, Value};
 use kobako_codec::transport::{Request, Response, Target};
@@ -16,38 +15,35 @@ use kobako_runtime::yielder::Yielder;
 
 use crate::block::Block;
 use crate::catalog::Catalog;
-use crate::member::{Fault, FaultKind};
+use crate::handles::{HandleTable, Handles};
+use crate::member::{Fault, FaultKind, Member};
 
-/// `DispatchHandler` over a sealed Catalog: route each Request to its
-/// bound Member and fold every failure into a fault envelope.
+/// `DispatchHandler` over a sealed Catalog and the invocation's Handle
+/// table: route each Request to its bound Member or live Handle entry
+/// and fold every failure into a fault envelope.
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
+    handles: Arc<Mutex<HandleTable>>,
 }
 
 impl CatalogHandler {
-    pub(crate) fn new(catalog: Arc<Catalog>) -> Self {
-        CatalogHandler { catalog }
+    pub(crate) fn new(catalog: Arc<Catalog>, handles: Arc<Mutex<HandleTable>>) -> Self {
+        CatalogHandler { catalog, handles }
     }
 
     fn handle(&self, request: &Request, yielder: &mut dyn Yielder) -> Response {
-        let Target::Path(path) = &request.target else {
-            return fault_response(&Fault::new(
-                FaultKind::Runtime,
-                "capability Handle dispatch is not yet implemented in this SDK build",
-            ));
+        let member = match self.resolve_target(&request.target) {
+            Ok(member) => member,
+            Err(fault) => return fault_response(&fault),
         };
-        let Some(member) = self.catalog.lookup(path) else {
-            return fault_response(&Fault::new(
-                FaultKind::Undefined,
-                format!("unknown constant {path}"),
-            ));
-        };
+        let handles = Handles::new(&self.handles);
         let mut block = request.block_given.then(|| Block::new(yielder));
         let result = member.call(
             &request.method,
             &request.args,
             &request.kwargs,
             block.as_mut(),
+            &handles,
         );
         // A break unwinds the member transparently: the guest receives
         // the break value no matter what the member returned, and the
@@ -58,6 +54,25 @@ impl CatalogHandler {
         match result {
             Ok(value) => Response::Ok(value),
             Err(fault) => fault_response(&fault),
+        }
+    }
+
+    /// Resolve the Request target: a path against the sealed Catalog,
+    /// a Handle id against the invocation's table. Either miss is the
+    /// `undefined` fault the guest re-raises.
+    fn resolve_target(&self, target: &Target) -> Result<Arc<dyn Member>, Fault> {
+        match target {
+            Target::Path(path) => self.catalog.lookup(path).ok_or_else(|| {
+                Fault::new(FaultKind::Undefined, format!("unknown constant {path}"))
+            }),
+            Target::Handle(id) => self
+                .handles
+                .lock()
+                .expect("the Handle table mutex is never poisoned")
+                .get(*id)
+                .ok_or_else(|| {
+                    Fault::new(FaultKind::Undefined, format!("unknown Handle id: {id}"))
+                }),
         }
     }
 }
@@ -144,6 +159,26 @@ mod tests {
         }
     }
 
+    /// A Handle-table entry for the chaining tests: answers `label`
+    /// with its tag.
+    struct Tagged(&'static str);
+
+    impl Member for Tagged {
+        fn call(
+            &self,
+            method: &str,
+            _args: &[Value],
+            _kwargs: &[(String, Value)],
+            _block: Option<&mut Block<'_>>,
+            _handles: &Handles<'_>,
+        ) -> Result<Value, Fault> {
+            match method {
+                "label" => Ok(Value::Str(self.0.into())),
+                _ => Err(Fault::new(FaultKind::Undefined, "no such method")),
+            }
+        }
+    }
+
     struct Echo;
 
     impl Member for Echo {
@@ -153,6 +188,7 @@ mod tests {
             args: &[Value],
             kwargs: &[(String, Value)],
             block: Option<&mut Block<'_>>,
+            handles: &Handles<'_>,
         ) -> Result<Value, Fault> {
             match method {
                 "echo" => Ok(args.first().cloned().unwrap_or(Value::Nil)),
@@ -175,6 +211,14 @@ mod tests {
                     let _ = block.call(&[Value::Int(0)]);
                     Ok(Value::Sym("swallowed".into()))
                 }
+                "make" => handles.alloc(Arc::new(Tagged("bob"))),
+                "read_label" => {
+                    let object = args
+                        .first()
+                        .and_then(|arg| handles.resolve(arg))
+                        .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
+                    object.call("label", &[], &[], None, handles)
+                }
                 _ => Err(Fault::new(FaultKind::Undefined, "no such method")),
             }
         }
@@ -183,7 +227,7 @@ mod tests {
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
         catalog.bind("MyService", "KV", Arc::new(Echo));
-        CatalogHandler::new(Arc::new(catalog))
+        CatalogHandler::new(Arc::new(catalog), Arc::default())
     }
 
     fn roundtrip(request: &Request) -> Response {
@@ -191,7 +235,15 @@ mod tests {
     }
 
     fn roundtrip_with(request: &Request, yielder: &mut dyn Yielder) -> Response {
-        let bytes = handler()
+        roundtrip_on(&handler(), request, yielder)
+    }
+
+    fn roundtrip_on(
+        handler: &CatalogHandler,
+        request: &Request,
+        yielder: &mut dyn Yielder,
+    ) -> Response {
+        let bytes = handler
             .dispatch(&request.encode().unwrap(), yielder)
             .expect("this handler never returns None");
         Response::decode(&bytes).unwrap()
@@ -237,9 +289,52 @@ mod tests {
     }
 
     #[test]
-    fn handle_target_folds_into_a_fault_not_a_panic() {
+    fn unknown_handle_target_folds_into_an_undefined_fault() {
         let req = request(Target::Handle(1), "echo", vec![]);
         assert!(matches!(roundtrip(&req), Response::Err(_)));
+    }
+
+    #[test]
+    fn allocated_handle_routes_the_next_dispatch_to_its_object() {
+        let handler = handler();
+        let make = request(Target::Path("MyService::KV".into()), "make", vec![]);
+        let Response::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
+            panic!("make must answer with a Handle token");
+        };
+        assert_eq!(
+            token,
+            Value::Handle(1),
+            "the first id of an invocation is 1"
+        );
+
+        let Value::Handle(id) = token else {
+            unreachable!("asserted above");
+        };
+        let chained = request(Target::Handle(id), "label", vec![]);
+        assert_eq!(
+            roundtrip_on(&handler, &chained, &mut NoYield),
+            Response::Ok(Value::Str("bob".into())),
+            "a Handle target must route to the very object the allocation bound"
+        );
+    }
+
+    #[test]
+    fn handle_argument_resolves_to_the_live_object() {
+        let handler = handler();
+        let make = request(Target::Path("MyService::KV".into()), "make", vec![]);
+        let Response::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
+            panic!("make must answer with a Handle token");
+        };
+        let read = request(
+            Target::Path("MyService::KV".into()),
+            "read_label",
+            vec![token],
+        );
+        assert_eq!(
+            roundtrip_on(&handler, &read, &mut NoYield),
+            Response::Ok(Value::Str("bob".into())),
+            "a Handle passed back as an argument must resolve to the bound object"
+        );
     }
 
     #[test]
