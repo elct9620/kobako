@@ -25,6 +25,7 @@ jobs:
       codec_release_created: ${{ steps.release.outputs['crates/kobako-codec--release_created'] }}
       runtime_release_created: ${{ steps.release.outputs['crates/kobako-runtime--release_created'] }}
       wasmtime_release_created: ${{ steps.release.outputs['crates/kobako-wasmtime--release_created'] }}
+      sdk_release_created: ${{ steps.release.outputs['crates/kobako--release_created'] }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -48,7 +49,7 @@ jobs:
   # keeps the chain alive if one output ever drops.
   release-crate:
     needs: release-please
-    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.mruby_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.json_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created || needs.release-please.outputs.codec_release_created || needs.release-please.outputs.runtime_release_created || needs.release-please.outputs.wasmtime_release_created }}
+    if: ${{ needs.release-please.outputs.core_release_created || needs.release-please.outputs.mruby_release_created || needs.release-please.outputs.io_release_created || needs.release-please.outputs.json_release_created || needs.release-please.outputs.regexp_release_created || needs.release-please.outputs.baker_release_created || needs.release-please.outputs.codec_release_created || needs.release-please.outputs.runtime_release_created || needs.release-please.outputs.wasmtime_release_created || needs.release-please.outputs.sdk_release_created }}
     uses: ./.github/workflows/release-crate.yml
     secrets: inherit
 
@@ -83,7 +84,7 @@ jobs:
         run: cargo update -p kobako-baker --offline || cargo update -p kobako-baker
       - name: Regenerate crates/Cargo.lock entries
         working-directory: crates
-        run: cargo update -p kobako-codec -p kobako-runtime -p kobako-wasmtime --workspace --offline || cargo update -p kobako-codec -p kobako-runtime -p kobako-wasmtime
+        run: cargo update -p kobako -p kobako-codec -p kobako-runtime -p kobako-wasmtime --workspace --offline || cargo update -p kobako -p kobako-codec -p kobako-runtime -p kobako-wasmtime
       - name: Commit lockfile updates as a verified commit
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:

@@ -6,26 +6,22 @@
 # Ruby gem exposes — Service dispatch, capability Handles, snippet
 # replay, seal-once registration. The Ruby-parity behavior surface is
 # pinned by the differential harness under `test/parity/`.
-#
-# `publish = false` until the release wiring lands: the crates.io name
-# is reserved (all guest-era versions yanked) and first publish goes
-# through release-please + Trusted Publishing, not by hand.
 
 [package]
 name = "kobako"
 version = "0.7.0"
 edition = "2021"
-publish = false
 description = "kobako host SDK — run untrusted mruby in an in-process Wasm sandbox."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
+readme = "README.md"
 
 [dependencies]
 # Wire tier: value model, envelopes, and the Outcome the guest returns.
-kobako-codec = { path = "../kobako-codec" }
+kobako-codec = { path = "../kobako-codec", version = "0.7.0" }
 
 # Engine-neutral contract the Sandbox drives an engine through.
-kobako-runtime = { path = "../kobako-runtime" }
+kobako-runtime = { path = "../kobako-runtime", version = "0.7.0" }
 
 # Default engine: the wasmtime driver implementing the contract.
-kobako-wasmtime = { path = "../kobako-wasmtime" }
+kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.7.0" }
