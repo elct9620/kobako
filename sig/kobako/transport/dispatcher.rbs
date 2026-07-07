@@ -12,9 +12,9 @@ module Kobako
 
       CALLABLE_ALLOW: Array[Symbol]
 
-      def self?.dispatch: (String request_bytes, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler, Kobako::Transport::_GuestYielder yield_to_guest) -> String
+      def self?.dispatch: (String request_bytes, Kobako::Transport::_NamespaceRegistry namespaces, Kobako::Codec::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> String
 
-      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Catalog::Handles handler) -> [Array[untyped], Hash[Symbol, untyped]]
+      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Codec::_HandleTable handler) -> [Array[untyped], Hash[Symbol, untyped]]
 
       def self?.encode_caught_error: (StandardError error) -> String
 
@@ -24,17 +24,17 @@ module Kobako
 
       def self?.reject_unexposed!: (untyped target, Symbol name) -> void
 
-      def self?.resolve_arg: (untyped value, Kobako::Catalog::Handles handler) -> untyped
+      def self?.resolve_arg: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Catalog::Namespaces namespaces, Kobako::Catalog::Handles handler) -> untyped
+      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Transport::_NamespaceRegistry namespaces, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.resolve_path: (String path, Kobako::Catalog::Namespaces namespaces) -> untyped
+      def self?.resolve_path: (String path, Kobako::Transport::_NamespaceRegistry namespaces) -> untyped
 
-      def self?.require_live_object!: (Integer id, Kobako::Catalog::Handles handler) -> untyped
+      def self?.require_live_object!: (Integer id, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.encode_ok: (untyped value, Kobako::Catalog::Handles handler) -> String
+      def self?.encode_ok: (untyped value, Kobako::Codec::_HandleTable handler) -> String
 
-      def self?.wrap_as_handle: (untyped value, Kobako::Catalog::Handles handler) -> Kobako::Handle
+      def self?.wrap_as_handle: (untyped value, Kobako::Codec::_HandleTable handler) -> Kobako::Handle
 
       def self?.encode_error: (String type, String message) -> String
     end

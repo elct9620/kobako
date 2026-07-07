@@ -5,9 +5,9 @@ module Kobako
 
       def self?.representable?: (untyped value) -> bool
 
-      def self?.deep_wrap: (untyped value, Kobako::Catalog::Handles handler) -> untyped
+      def self?.deep_wrap: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.deep_restore: (untyped value, Kobako::Catalog::Handles handler) -> untyped
+      def self?.deep_restore: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
       def self?.primitive_type?: (untyped value) -> bool
 

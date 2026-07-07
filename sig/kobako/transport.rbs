@@ -8,5 +8,13 @@ module Kobako
     interface _GuestYielder
       def call: (String) -> String
     end
+
+    # The Service registry a dispatch resolves constant-path targets
+    # against. The Sandbox's Kobako::Catalog::Namespaces is the
+    # production conformer; modelled structurally so the Transport
+    # layer needs no upward dependency on Catalog.
+    interface _NamespaceRegistry
+      def lookup: (String target) -> untyped
+    end
   end
 end

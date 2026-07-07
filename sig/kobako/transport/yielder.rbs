@@ -3,10 +3,10 @@ module Kobako
     class Yielder
       @yield_to_guest: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
-      @handler: Kobako::Catalog::Handles
+      @handler: Kobako::Codec::_HandleTable
       @active: bool
 
-      def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Catalog::Handles handler) -> void
+      def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Codec::_HandleTable handler) -> void
 
       def yield: (*untyped args) -> untyped
 

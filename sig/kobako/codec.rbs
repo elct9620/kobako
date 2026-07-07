@@ -1,4 +1,15 @@
 module Kobako
   module Codec
+    # The Handle allocator/resolver a wire walk works against: alloc
+    # registers a non-wire-representable object and returns its Handle,
+    # fetch resolves a wire Handle id back to the live object. The
+    # Sandbox's Kobako::Catalog::Handles is the production conformer;
+    # modelled structurally so the Codec and Transport tiers need no
+    # upward dependency on Catalog.
+    interface _HandleTable
+      def alloc: (untyped object) -> Kobako::Handle
+
+      def fetch: (Integer id) -> untyped
+    end
   end
 end
