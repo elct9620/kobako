@@ -117,7 +117,7 @@ The envelope is a tag-prefixed binary structure: a single byte tag followed by a
 |-----|---------|---------|---------|
 | `0x01` | **ok** | wire-legal value | The block body completed normally. `payload` is the block's last expression value (or the value supplied to `next val`). The host yield expression returns this value to the Service method. |
 | `0x02` | **break** | wire-legal value | The block executed `break val` from a non-lambda, non-orphan context. The host yield site terminates the Service method's invocation with `payload` as the effective return value (B-25). |
-| `0x03` | RESERVED | — | Reserved tag value. Receivers reject this tag as a wire violation. |
+| `0x03` | RESERVED | — | Reserved tag value. Either endpoint rejects this tag as a wire violation. |
 | `0x04` | **error** | map `{class, message, backtrace}` | The block raised an exception, returned a value with no wire representation (E-22), used `return` from a non-lambda block (E-21), or invoked an escaped Yielder (E-23). The host yield site re-raises a Ruby exception with the named class and message. |
 
 The `0x01` ok payload follows the same wire type mapping as any Response success value (→ [`docs/wire-codec.md`](wire-codec.md) § Type Mapping). Capability Handle references (ext 0x01) are legal in the payload position; because host code consumes the ok value, the host restores them to their original objects before the `yield` expression returns (→ [`docs/behavior/dispatch.md`](behavior/dispatch.md) § B-37).

@@ -200,7 +200,7 @@ The YieldResponse envelope is the byte layout returned from `__kobako_yield_to_b
 
 | Byte offset | Content |
 |-------------|---------|
-| 0 | Tag byte: `0x01` (ok), `0x02` (break), `0x03` (reserved — receivers reject as a wire violation), or `0x04` (error) |
+| 0 | Tag byte: `0x01` (ok), `0x02` (break), `0x03` (reserved — either endpoint rejects as a wire violation), or `0x04` (error) |
 | 1 onwards | msgpack payload (omitted entirely when the variant has no payload — currently no such variant) |
 
 Tag `0x01` example (block returned `:done`):
