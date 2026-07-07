@@ -379,7 +379,14 @@ fn observe(
                     .collect::<Result<_, _>>()?,
                 None => Vec::new(),
             };
-            sandbox.run_with(target, args, Vec::new())
+            let kwargs = match invocation["kwargs"].as_object() {
+                Some(tagged) => tagged
+                    .iter()
+                    .map(|(key, tag)| Ok((key.clone(), untag_run_arg(tag, opaques)?)))
+                    .collect::<Result<_, String>>()?,
+                None => Vec::new(),
+            };
+            sandbox.run_with(target, args, kwargs)
         }
         Some("late_bind") => late_bind(sandbox, invocation)?,
         other => return Err(format!("unknown invocation verb {other:?}")),

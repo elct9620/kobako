@@ -35,7 +35,9 @@ binding on both sides). A service's optional `exposed` list declares
 the `respond_to_guest?` narrowing both stubs enforce.
 
 Capability Handles compare by **identity, not id**: an `opaque` stub
-(or `run` argument) is a labeled non-wire host object, and a crossed
+(or `run` argument — the `run` verb carries tagged `args` and
+`kwargs`, exercising the auto-wrap in both positions) is a labeled
+non-wire host object, and a crossed
 object tags as `{"t": "opaque", "label": …}` on both sides — the Ruby
 executor reads the label off the restored object, the Rust runner
 resolves the result Handle against the Sandbox's table and recovers

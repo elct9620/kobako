@@ -63,17 +63,26 @@ class TestParityHandles < Parity::Case
   end
 
   # SPEC.md B-34: a non-wire `#run` argument auto-wraps into a Handle
-  # the entrypoint can call back into.
+  # the entrypoint can call back into — in the positional and in the
+  # keyword position alike (the kwargs Hash reaches the entrypoint as
+  # its trailing parameter per B-31).
+  AUTO_WRAP_PRELOADS = [
+    { kind: "source", name: "Entry",
+      code: "class Entry; def self.call(h); h.label; end; end" },
+    { kind: "source", name: "KwEntry",
+      code: "class KwEntry; def self.call(opts); opts[:tok].label; end; end" }
+  ].freeze
+
+  AUTO_WRAP_INVOCATIONS = [
+    { verb: "run", target: "Entry", args: [{ t: "opaque", label: "tok" }] },
+    { verb: "run", target: "KwEntry", kwargs: { tok: { t: "opaque", label: "kw-tok" } } }
+  ].freeze
+
   def test_run_auto_wrap
     assert_parity Parity::Scenario.new(
       name: "run-auto-wrap", anchors: %w[B-34],
-      preloads: [
-        { kind: "source", name: "Entry",
-          code: "class Entry; def self.call(h); h.label; end; end" }
-      ],
-      invocations: [
-        { verb: "run", target: "Entry", args: [{ t: "opaque", label: "tok" }] }
-      ]
+      preloads: AUTO_WRAP_PRELOADS,
+      invocations: AUTO_WRAP_INVOCATIONS
     )
   end
 end
