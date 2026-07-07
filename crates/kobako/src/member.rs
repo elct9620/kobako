@@ -55,7 +55,13 @@ impl Fault {
 /// A host object the guest reaches as `<Namespace>::<Member>`.
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine
-/// boundary behind an `Arc`.
+/// boundary behind an `Arc`; calls take `&self`, so a stateful member
+/// carries its state behind interior mutability (a `Mutex` field).
+///
+/// Expected refusals return a `Fault`. A panic is a programming
+/// error: it unwinds out of the invocation verb instead of folding
+/// into a fault envelope — the counterpart of a non-`StandardError`
+/// escaping the Ruby dispatcher's rescue.
 ///
 /// `block` is present when the guest call site supplied a block; each
 /// `Block::call` is a synchronous yield round-trip into the guest, and
