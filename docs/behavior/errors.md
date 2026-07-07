@@ -151,17 +151,17 @@ These error scenarios are specific to the `#run(target, *args, **kwargs)` entryp
 
 ### Preload errors (`#preload`)
 
-These error scenarios are specific to the `#preload` setup verb (B-32) — covering both the `code:` source form and the `binary:` bytecode form — and the sealing rule (B-33). Host pre-flight API-misuse cases raise `ArgumentError` synchronously. Content failures originating in user-supplied snippets surface as `Kobako::SandboxError`, with the `Kobako::BytecodeError` subclass reserved for `binary:` form structural failures; backtrace attribution uses the snippet's filename when one is available (always for `code:`; for `binary:` only when the bytecode carries `debug_info`).
+These error scenarios are specific to the `#preload` setup verb (B-32) — covering both the `code:` source form and the `binary:` bytecode form — and the sealing rule (B-33). Host pre-flight API-misuse cases raise `ArgumentError` synchronously. Content failures originating in user-supplied snippets surface as `Kobako::SandboxError`, with the `Kobako::BytecodeError` subclass reserved for `binary:` form structural failures. A failure raised by executing snippet code carries backtrace attribution under the snippet's filename (always for `code:`; for `binary:` only when the bytecode carries `debug_info`); a snippet that fails to load at all (E-32, E-37, E-38) runs no snippet code and raises with an empty backtrace.
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
-| E-32 | `#preload(code:)` source fails mruby compilation during the trial load at preload time | guest trial load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)`) |
+| E-32 | `#preload(code:)` source fails mruby compilation when a subsequent invocation replays the snippet | guest replay (first invocation) | `Kobako::SandboxError` (mruby's generic syntax-error message; compilation runs no snippet code, so the backtrace is empty) |
 | E-33 | `#preload(code:)` `name:` matches the name of a `code:` form snippet already registered on the Sandbox | host pre-flight | `ArgumentError` |
 | E-34 | `#preload(code:)` `name:` does not match `/\A[A-Z]\w*\z/` | host pre-flight | `ArgumentError` |
 | E-35 | `#preload` is called after the first invocation (`#eval` or `#run`) — the snippet table is sealed per B-33 | host pre-flight | `ArgumentError` |
 | E-36 | A preloaded snippet's top-level expression raises during replay inside a subsequent invocation. Covers both `#preload(code:)` and `#preload(binary:)` forms — `binary:` form structural failures (E-37 / E-38) are separate. | guest static load | `Kobako::SandboxError` (backtrace attributed to `(snippet:Name)` when the snippet carries a filename) |
 | E-37 | `#preload(binary:)` bytecode's RITE version does not match the version the guest mruby was built against | guest replay (first invocation) | `Kobako::BytecodeError` |
-| E-38 | `#preload(binary:)` bytecode body is corrupt or malformed and fails to load during snippet replay | guest replay (first invocation) | `Kobako::BytecodeError` (backtrace attributed to the bytecode's `debug_info` filename when the bytecode carries one) |
+| E-38 | `#preload(binary:)` bytecode body is corrupt or malformed and fails to load during snippet replay | guest replay (first invocation) | `Kobako::BytecodeError` |
 
 E-33 is scoped to `code:` form snippets: duplicate `code:` form names would produce ambiguous `(snippet:Name):line` attribution in backtraces, so two `code:` snippets with the same `name:` are never permitted on a single Sandbox. The host does not extract names from `binary:` form bytecode, so cross-form name collisions are not detected at preload — users who need class reopening across multiple bodies must concatenate the sources under one snippet or use distinct names per layer.
 

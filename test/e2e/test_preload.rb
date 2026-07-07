@@ -36,6 +36,23 @@ class TestE2EPreload < Minitest::Test
     assert_equal 20, sandbox.eval("EXTENDED")
   end
 
+  # docs/behavior/errors.md E-32: an uncompilable `code:` snippet is
+  # accepted at #preload — detection timing is uniform with the binary:
+  # form — and the compile failure surfaces on the first invocation's
+  # snippet replay. Compilation runs no snippet code, so the failure
+  # carries mruby's generic syntax-error message and an empty backtrace.
+  def test_e32_snippet_compile_failure_surfaces_on_first_invocation_replay
+    sandbox = Kobako::Sandbox.new
+    assert_same sandbox, sandbox.preload(code: "def broken(", name: :Broken),
+                "E-32: an uncompilable code: snippet through #preload must register without raising"
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
+    assert_equal "sandbox", err.origin
+    assert_match(/syntax error/, err.message,
+                 "E-32: a snippet compile failure through the first #eval must surface " \
+                 "mruby's syntax-error message")
+  end
+
   # E-36: a preloaded snippet whose top-level expression raises during
   # replay surfaces as Kobako::SandboxError with the backtrace attributed
   # to the snippet's `(snippet:Name)` filename.

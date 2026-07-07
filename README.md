@@ -302,10 +302,10 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
 
 | Form     | Signature                            | Snippet name source                   | Validation timing                                                          |
 |----------|--------------------------------------|---------------------------------------|----------------------------------------------------------------------------|
-| Source   | `preload(code: "...", name: :Const)` | The `name:` keyword                   | Trial-compiled at preload; compile errors raise immediately                |
-| Bytecode | `preload(binary: bytes)`             | Read from the bytecode's `debug_info` | Deferred to first invocation; failure raises `Kobako::BytecodeError`       |
+| Source   | `preload(code: "...", name: :Const)` | The `name:` keyword                   | First invocation's replay; compile errors raise `Kobako::SandboxError`     |
+| Bytecode | `preload(binary: bytes)`             | Read from the bytecode's `debug_info` | First invocation's replay; structural failure raises `Kobako::BytecodeError` |
 
-Use the source form for snippets authored in your repo (compile errors fail fast at `#preload`); use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Both replay through the same per-invocation path.
+Use the source form for snippets authored in your repo; use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Both replay through the same per-invocation path, so no snippet content failure surfaces at `#preload` — force the first replay with a no-op invocation (e.g. `sandbox.eval("nil")`) when you want validation before real traffic.
 
 ## Security
 

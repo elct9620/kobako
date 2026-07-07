@@ -120,7 +120,9 @@ module Kobako
     # Register a snippet on this Sandbox in one of two forms:
     #
     #   * +preload(code: source, name: Name)+ — +source+ is mruby source
-    #     as a +String+ and +Name+ matches +/\A[A-Z]\w*\z/+. The +name+
+    #     as a +String+ and +Name+ matches +/\A[A-Z]\w*\z/+. Compile
+    #     failures surface as +Kobako::SandboxError+ on the first
+    #     invocation's replay. The +name+
     #     becomes the snippet's +(snippet:Name)+ backtrace filename and
     #     is the dedupe key that rejects a duplicate +code:+ snippet.
     #   * +preload(binary: bytes)+ — +bytes+ is precompiled RITE
