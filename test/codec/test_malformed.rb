@@ -63,6 +63,18 @@ class TestCodecMalformed < Minitest::Test
     assert_raises(UnsupportedType) { Encoder.encode(Object.new) }
   end
 
+  # Decoder-wide half of the single-msgpack-value rule (SPEC.md § Wire
+  # Codec): envelope-level rejection is pinned per envelope (e.g.
+  # test/transport/test_request.rb); this case pins that the property
+  # comes from the Decoder itself, for every payload shape.
+  def test_trailing_bytes_after_a_complete_value_rejected
+    bytes = Encoder.encode(42) + Encoder.encode(nil)
+    assert_raises(InvalidType,
+                  "bytes past one complete msgpack value through Decoder.decode must be a wire violation") do
+      Decoder.decode(bytes)
+    end
+  end
+
   # A hostile guest can chain ext 0x02 (Fault) envelopes through each
   # other's +details+ field. Every nested Fault re-enters the decoder with
   # a fresh msgpack unpacker, so the gem's per-unpacker stack guard resets
