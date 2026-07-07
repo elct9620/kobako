@@ -271,7 +271,7 @@ impl Receiver for OpaqueStub {
     }
 }
 
-/// A bound Member whose behavior is fully described by the scenario.
+/// A bound receiver whose behavior is fully described by the scenario.
 /// An `exposed` list is the scenario's respond_to_guest? narrowing —
 /// absent means the surface stays unchanged.
 struct StubReceiver {
