@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use kobako_codec::codec::{Encoder, Value};
 
-use crate::member::Member;
+use crate::host_object::HostObject;
 use crate::snippet::Snippets;
 
 /// Registration-ordered Service registry plus the snippet table for
@@ -26,7 +26,7 @@ pub(crate) struct Catalog {
 
 struct Namespace {
     name: String,
-    members: Vec<(String, Arc<dyn Member>)>,
+    members: Vec<(String, Arc<dyn HostObject>)>,
 }
 
 impl Catalog {
@@ -41,11 +41,12 @@ impl Catalog {
         }
     }
 
-    /// Bind a Member under `namespace`, declaring the Namespace when
-    /// absent. Rebinding an existing name replaces the object — the
+    /// Bind a host object under `namespace` as a named Member,
+    /// declaring the Namespace when absent. Rebinding replaces the
+    /// object — the
     /// Ruby frontend refuses this at its own surface, so the registry
     /// itself stays permissive.
-    pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn Member>) {
+    pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn HostObject>) {
         self.define(namespace);
         let ns = self
             .position(namespace)
@@ -59,7 +60,7 @@ impl Catalog {
 
     /// Resolve a dispatch target path (`"<Namespace>::<Member>"`) to
     /// its bound object.
-    pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn Member>> {
+    pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn HostObject>> {
         let (namespace, member) = path.split_once("::")?;
         let ns = &self.namespaces[self.position(namespace)?];
         ns.members
@@ -99,13 +100,13 @@ impl Catalog {
 mod tests {
     use kobako_codec::codec::Value;
 
-    use crate::member::{Fault, Member};
+    use crate::host_object::{Fault, HostObject};
 
     use super::*;
 
     struct Probe;
 
-    impl Member for Probe {
+    impl HostObject for Probe {
         fn call(
             &self,
             _method: &str,

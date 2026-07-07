@@ -1,9 +1,9 @@
 //! The host-object seam: what a Rust embedder binds under a
 //! `<Namespace>::<Member>` name.
 //!
-//! A `Member` answers the guest's dispatches with wire `Value`s or a
-//! `Fault` — the three refusal kinds the dispatch contract lets a
-//! Service surface. The dispatcher folds everything else (decode
+//! A `HostObject` answers the guest's dispatches with wire `Value`s
+//! or a `Fault` — the three refusal kinds the dispatch contract lets
+//! a Service surface. The dispatcher folds everything else (decode
 //! failures, unencodable responses) itself, so implementations never
 //! need to think about the wire.
 
@@ -21,12 +21,12 @@ pub enum FaultKind {
     /// No such member / method (Ruby dispatcher's `undefined`). The
     /// arm of `call` that answers an unrouted method with this kind is
     /// also what stands in for the Ruby dispatcher's reflection floor:
-    /// a Rust member has no ambient `send` / `instance_eval` surface,
-    /// so an unrouted name simply does not exist.
+    /// a Rust host object has no ambient `send` / `instance_eval`
+    /// surface, so an unrouted name simply does not exist.
     Undefined,
     /// The call shape does not fit the method (`argument`).
     Argument,
-    /// The member itself failed (`runtime`).
+    /// The host object itself failed (`runtime`).
     Runtime,
 }
 
@@ -58,11 +58,13 @@ impl Fault {
     }
 }
 
-/// A host object the guest reaches as `<Namespace>::<Member>`.
+/// A host object the guest reaches as `<Namespace>::<Member>` or
+/// through a capability Handle.
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine
-/// boundary behind an `Arc`; calls take `&self`, so a stateful member
-/// carries its state behind interior mutability (a `Mutex` field).
+/// boundary behind an `Arc`; calls take `&self`, so a stateful host
+/// object carries its state behind interior mutability (a `Mutex`
+/// field).
 ///
 /// Expected refusals return a `Fault`. A panic is a programming
 /// error: it unwinds out of the invocation verb instead of folding
@@ -77,11 +79,11 @@ impl Fault {
 /// host object as an opaque token, `Handles::resolve` turns a
 /// `Value::Handle` argument back into the live object.
 ///
-/// `Any` is a supertrait so a resolved member recovers its concrete
-/// type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
-/// `downcast` — the Rust spelling of the Ruby frontend's
+/// `Any` is a supertrait so a resolved host object recovers its
+/// concrete type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>`
+/// and `downcast` — the Rust spelling of the Ruby frontend's
 /// restore-to-original-object.
-pub trait Member: Any + Send + Sync {
+pub trait HostObject: Any + Send + Sync {
     fn call(
         &self,
         method: &str,

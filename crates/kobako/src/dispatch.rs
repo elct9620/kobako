@@ -15,12 +15,12 @@ use kobako_runtime::yielder::Yielder as RawYielder;
 
 use crate::catalog::Catalog;
 use crate::handles::{HandleTable, Handles};
-use crate::member::{Fault, FaultKind, Member};
+use crate::host_object::{Fault, FaultKind, HostObject};
 use crate::yielder::Yielder;
 
 /// `DispatchHandler` over a sealed Catalog and the invocation's Handle
-/// table: route each Request to its bound Member or live Handle entry
-/// and fold every failure into a fault envelope.
+/// table: route each Request to its bound host object or live Handle
+/// entry and fold every failure into a fault envelope.
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
     handles: Arc<Mutex<HandleTable>>,
@@ -32,14 +32,14 @@ impl CatalogHandler {
     }
 
     fn handle(&self, request: &Request, channel: &mut dyn RawYielder) -> Response {
-        let member = match self.resolve_target(&request.target) {
-            Ok(member) => member,
+        let object = match self.resolve_target(&request.target) {
+            Ok(object) => object,
             Err(fault) => return fault_response(&fault),
         };
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
-        if !member.respond_to_guest(&request.method) {
+        if !object.respond_to_guest(&request.method) {
             return fault_response(&Fault::new(
                 FaultKind::Undefined,
                 format!("method :{} is not exposed to the guest", request.method),
@@ -47,7 +47,7 @@ impl CatalogHandler {
         }
         let handles = Handles::new(&self.handles);
         let mut block = request.block_given.then(|| Yielder::new(channel));
-        let result = member.call(
+        let result = object.call(
             &request.method,
             &request.args,
             &request.kwargs,
@@ -69,7 +69,7 @@ impl CatalogHandler {
     /// Resolve the Request target: a path against the sealed Catalog,
     /// a Handle id against the invocation's table. Either miss is the
     /// `undefined` fault the guest re-raises.
-    fn resolve_target(&self, target: &Target) -> Result<Arc<dyn Member>, Fault> {
+    fn resolve_target(&self, target: &Target) -> Result<Arc<dyn HostObject>, Fault> {
         match target {
             Target::Path(path) => self.catalog.lookup(path).ok_or_else(|| {
                 Fault::new(FaultKind::Undefined, format!("unknown constant {path}"))
@@ -136,7 +136,7 @@ mod tests {
     use kobako_codec::codec::Decoder;
     use kobako_codec::transport::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
 
-    use crate::member::Member;
+    use crate::host_object::HostObject;
 
     use super::*;
 
@@ -174,7 +174,7 @@ mod tests {
     /// with its tag.
     struct Tagged(&'static str);
 
-    impl Member for Tagged {
+    impl HostObject for Tagged {
         fn call(
             &self,
             method: &str,
@@ -192,7 +192,7 @@ mod tests {
 
     struct Echo;
 
-    impl Member for Echo {
+    impl HostObject for Echo {
         fn call(
             &self,
             method: &str,
@@ -363,7 +363,7 @@ mod tests {
     /// An Echo narrowed to its `echo` method by the opt-in predicate.
     struct Narrowed;
 
-    impl Member for Narrowed {
+    impl HostObject for Narrowed {
         fn call(
             &self,
             method: &str,

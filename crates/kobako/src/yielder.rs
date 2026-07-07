@@ -1,7 +1,7 @@
-//! The guest-supplied block as a Member observes it.
+//! The guest-supplied block as a host object observes it.
 //!
 //! When a guest call site supplies a block, the dispatch frame hands
-//! the Member a `Yielder` in the `block` parameter; each `call` is a
+//! the host object a `Yielder` in the `block` parameter; each `call` is a
 //! synchronous yield round-trip into the in-flight guest. A `Yielder`
 //! borrows its dispatch frame, so it cannot outlive the dispatch —
 //! where the Ruby frontend refuses an escaped Yielder at runtime, this
@@ -13,7 +13,7 @@ use kobako_codec::codec::{Decode as _, Encoder, Value};
 use kobako_codec::transport::{Yield, TAG_BREAK, TAG_OK};
 use kobako_runtime::yielder::Yielder as RawYielder;
 
-use crate::member::{Fault, FaultKind};
+use crate::host_object::{Fault, FaultKind};
 
 /// A yield round-trip that did not come back with a plain value.
 ///

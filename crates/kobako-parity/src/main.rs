@@ -17,13 +17,13 @@ use std::time::Duration;
 use serde_json::{json, Map, Value as Json};
 
 use kobako::{
-    Error, Fault, FaultKind, Handles, Member, Options, Profile, RunArg, Sandbox, Value, Yielder,
+    Error, Fault, FaultKind, Handles, HostObject, Options, Profile, RunArg, Sandbox, Value, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
 /// stub behaviors (allocation), the run-argument auto-wrap, and the
 /// observable tagger (identity lookup via `Arc::ptr_eq`).
-type Opaques = Vec<(String, Arc<dyn Member>)>;
+type Opaques = Vec<(String, Arc<dyn HostObject>)>;
 
 /// High bit of the frame length word: the payload is a harness-level
 /// error message, not an observables object.
@@ -200,7 +200,7 @@ enum Behavior {
     /// Hand the guest a labeled opaque host object as a capability
     /// Handle — the same instance on every call, so identity is
     /// observable.
-    Opaque(Arc<dyn Member>),
+    Opaque(Arc<dyn HostObject>),
     /// Answer with the label of the opaque object a (possibly
     /// Array-nested) Handle argument resolves to.
     ReadLabel,
@@ -233,8 +233,8 @@ fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, St
 
 /// Create and register a labeled opaque object so the tagger can
 /// recover its identity from a resolved Handle.
-fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn Member> {
-    let object: Arc<dyn Member> = Arc::new(OpaqueStub {
+fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn HostObject> {
+    let object: Arc<dyn HostObject> = Arc::new(OpaqueStub {
         label: label.to_string(),
     });
     opaques.push((label.to_string(), object.clone()));
@@ -248,7 +248,7 @@ struct OpaqueStub {
     label: String,
 }
 
-impl Member for OpaqueStub {
+impl HostObject for OpaqueStub {
     fn call(
         &self,
         method: &str,
@@ -275,7 +275,7 @@ struct StubMember {
     exposed: Option<Vec<String>>,
 }
 
-impl Member for StubMember {
+impl HostObject for StubMember {
     fn call(
         &self,
         method: &str,

@@ -148,7 +148,7 @@ Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc 
       │           (RubyDispatchHandler + GuestYielder) · runtime/errors.rs
       │           (neutral channels → Kobako::* classes)
       │
-Rust SDK        crates/kobako — Sandbox(seal-once eval/run/preload) · Member/
+Rust SDK        crates/kobako — Sandbox(seal-once eval/run/preload) · HostObject/
       │           Fault seam (+respond_to_guest narrowing) · Yielder(frame-
       │           borrowed yield channel) · Handles(per-invocation
       │           capability table) · CatalogHandler(never-fail dispatch)
