@@ -56,7 +56,7 @@ impl codec::Decode for Run {
     /// this decoder pins what a conforming host must have emitted.)
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
-        let frame = dec.read_value()?;
+        let frame = dec.read_only_value()?;
         let Value::Map(pairs) = frame else {
             return Err(codec::Error::Malformed("Run must be a map"));
         };
@@ -195,6 +195,21 @@ mod tests {
         .unwrap();
         assert!(matches!(
             Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn run_decode_rejects_trailing_bytes() {
+        let run = Run {
+            entrypoint: "Handler".into(),
+            args: vec![],
+            kwargs: vec![],
+        };
+        let mut bytes = run.encode().unwrap();
+        bytes.push(0xc0); // a second msgpack value after the envelope
+        assert!(matches!(
+            Run::decode(&bytes),
             Err(codec::Error::Malformed(_))
         ));
     }

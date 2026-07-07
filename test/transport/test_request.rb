@@ -109,6 +109,16 @@ class TestTransportRequest < Minitest::Test
     end
   end
 
+  def test_request_decode_rejects_trailing_bytes
+    # An envelope payload is exactly one msgpack value (docs/wire-codec.md
+    # § Envelope Encoding); a second value after it signals framing desync.
+    bytes = Encoder.encode(["G::M", "x", [], {}, false]) + Encoder.encode(nil)
+    assert_raises(InvalidType,
+                  "decoding a Request envelope with trailing bytes must be rejected as a wire InvalidType") do
+      Envelope::Request.decode(bytes)
+    end
+  end
+
   # ---------- Request golden vector ----------
 
   def test_request_golden_empty_args_and_kwargs

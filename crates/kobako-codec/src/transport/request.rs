@@ -71,7 +71,7 @@ impl codec::Decode for Request {
     /// Decode bytes to a `Request`.
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
-        let frame = dec.read_value()?;
+        let frame = dec.read_only_value()?;
         // `try_into` on a Vec succeeds iff length matches; the preceding
         // guard makes that condition true, so the unwrap is unreachable.
         let [target_v, method_v, args_v, kwargs_v, block_given_v]: [Value; 5] = match frame {
@@ -220,6 +220,23 @@ mod tests {
         .unwrap();
         assert!(matches!(
             Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn request_decode_rejects_trailing_bytes() {
+        let req = Request {
+            target: Target::Path("G::M".into()),
+            method: "x".into(),
+            args: vec![],
+            kwargs: vec![],
+            block_given: false,
+        };
+        let mut bytes = req.encode().unwrap();
+        bytes.push(0xc0); // a second msgpack value after the envelope
+        assert!(matches!(
+            Request::decode(&bytes),
             Err(codec::Error::Malformed(_))
         ));
     }
