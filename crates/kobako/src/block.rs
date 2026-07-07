@@ -73,6 +73,11 @@ impl<'y> Block<'y> {
 
     /// Run the guest block once with `args` and return its value.
     ///
+    /// The value arrives as the raw wire `Value`: a `Value::Handle`
+    /// inside it stays a token until the member resolves it through
+    /// `Handles` — the explicit spelling of the Ruby frontend's
+    /// automatic restore at the yield site.
+    ///
     /// A `break` in the block ends the member call: this returns
     /// `BlockError::Break` now and on every later call, without
     /// re-entering the guest.
