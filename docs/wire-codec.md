@@ -119,6 +119,8 @@ ext 0x02 may appear only in the Response fault variant's envelope field. It must
 
 Multi-field envelope frames — Request and Response — use msgpack **array** framing (not map). Fields are read and written by positional index; the wire carries no key strings. This means both sides must agree on field order; field order is fixed by this section and may not change within a release. The Panic envelope is encoded as a msgpack **map** keyed by name (see Panic Envelope below) because its fields (`origin`, `class`, `message`, `backtrace`, `details`) are forward-compatibility points where unknown keys must be silently ignored. The Result envelope carries a single value and is emitted as that value's msgpack encoding directly, without an enclosing array — the Outcome tag byte already discriminates the variant.
 
+An envelope payload is exactly one msgpack value. Bytes remaining after that value are a wire violation; the receiving side rejects the message instead of ignoring the excess, so a framing desync fails loudly rather than silently dropping data. Both codec implementations enforce this on every envelope decode.
+
 ### Request
 
 A 5-element msgpack array with fixed field positions:
