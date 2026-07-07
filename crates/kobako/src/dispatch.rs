@@ -37,8 +37,8 @@ impl CatalogHandler {
             Err(fault) => return fault_response(&fault),
         };
         // The target's own narrowing predicate answers before any
-        // method runs; the rejection matches the unresolved-target
-        // fault so an opaque target discloses nothing.
+        // method runs; the rejection shares the `undefined` fault kind
+        // of an unresolved target and the Ruby frontend's wording.
         if !member.respond_to_guest(&request.method) {
             return fault_response(&Fault::new(
                 FaultKind::Undefined,
@@ -369,6 +369,26 @@ mod tests {
                 Response::Err(_)
             ),
             "a falsy predicate answer must reject the dispatch before the method runs"
+        );
+    }
+
+    #[test]
+    fn narrowing_predicate_applies_to_a_handle_target() {
+        let handles: Arc<Mutex<HandleTable>> = Arc::default();
+        let id = handles.lock().unwrap().alloc(Arc::new(Narrowed)).unwrap();
+        let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles);
+        let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);
+        assert_eq!(
+            roundtrip_on(&handler, &visible, &mut NoYield),
+            Response::Ok(Value::Int(7))
+        );
+        let hidden = request(Target::Handle(id), "explode", vec![]);
+        assert!(
+            matches!(
+                roundtrip_on(&handler, &hidden, &mut NoYield),
+                Response::Err(_)
+            ),
+            "a Handle-table entry's narrowing predicate must reject the dispatch like a bound Service's"
         );
     }
 

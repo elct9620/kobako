@@ -32,7 +32,11 @@ diagnostic-only). Stub behaviors (`echo` / `echo_positional` / `value`
 on both sides, never from a stub declaration (`echo_positional`
 declares a positional-only signature, so kwargs on the wire fail its
 binding on both sides). A service's optional `exposed` list declares
-the `respond_to_guest?` narrowing both stubs enforce.
+the `respond_to_guest?` narrowing both stubs enforce; the scenarios
+narrow bound Services only — both dispatchers run the same narrowing
+check for Handle targets, but opaque stubs expose just `label`, so
+that rejection path stays pinned by each frontend's dispatch unit
+tests.
 
 Capability Handles compare by **identity, not id**: an `opaque` stub
 (or `run` argument — the `run` verb carries tagged `args` and

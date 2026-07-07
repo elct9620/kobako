@@ -47,7 +47,9 @@ class TestParityHandles < Parity::Case
 
   # SPEC.md B-20: the guest cannot mint a Handle from a raw integer —
   # both construction entries raise, and the failure attributes as an
-  # uncaught guest exception on both frontends.
+  # uncaught guest exception on both frontends. The refusal is a
+  # property of the guest's Kobako::Handle class itself, so the
+  # scenario binds no services.
   FORGE_INVOCATIONS = [
     { verb: "eval", source: "Kobako::Handle.new(1)" },
     { verb: "eval", source: "Kobako::Handle.allocate" },
@@ -57,7 +59,6 @@ class TestParityHandles < Parity::Case
   def test_forged_handle
     assert_parity Parity::Scenario.new(
       name: "handle-forge-rejected", anchors: %w[B-20],
-      services: OPAQUE_SERVICE,
       invocations: FORGE_INVOCATIONS
     )
   end
