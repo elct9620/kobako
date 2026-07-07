@@ -54,8 +54,8 @@ impl CatalogHandler {
             block.as_mut(),
             &handles,
         );
-        // A break unwinds the member transparently: the guest receives
-        // the break value no matter what the member returned, and the
+        // A break unwinds the receiver transparently: the guest receives
+        // the break value no matter what the receiver returned, and the
         // value rides back verbatim rather than through host code.
         if let Some(value) = block.and_then(Yielder::into_break) {
             return Response::Ok(value);
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn routed_call_returns_the_member_value() {
+    fn routed_call_returns_the_receiver_value() {
         let req = request(
             Target::Path("MyService::KV".into()),
             "echo",
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn kwargs_reach_the_member_intact() {
+    fn kwargs_reach_the_receiver_intact() {
         let mut req = request(Target::Path("MyService::KV".into()), "first_kwarg", vec![]);
         req.kwargs = vec![("limit".into(), Value::Int(9))];
         assert_eq!(roundtrip(&req), Response::Ok(Value::Int(9)));
@@ -289,7 +289,7 @@ mod tests {
 
     /// The fault payload's `type` field — the discriminator the guest
     /// uses to pick the proxy-side error, so a test can tell a
-    /// rejection kind apart from a member that ran and failed.
+    /// rejection kind apart from a receiver that ran and failed.
     fn fault_type(response: &Response) -> String {
         let Response::Err(bytes) = response else {
             panic!("expected a fault envelope, got a success response");
@@ -307,12 +307,12 @@ mod tests {
     }
 
     #[test]
-    fn member_fault_folds_into_a_runtime_fault() {
+    fn receiver_fault_folds_into_a_runtime_fault() {
         let req = request(Target::Path("MyService::KV".into()), "explode", vec![]);
         assert_eq!(
             fault_type(&roundtrip(&req)),
             "runtime",
-            "a member failure through dispatch must fold into the runtime fault envelope"
+            "a receiver failure through dispatch must fold into the runtime fault envelope"
         );
     }
 
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn yield_results_flow_back_through_the_member_value() {
+    fn yield_results_flow_back_through_the_receiver_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
         let mut channel = Scripted::new(vec![(TAG_OK, Value::Int(10)), (TAG_OK, Value::Int(20))]);
         assert_eq!(
@@ -487,18 +487,18 @@ mod tests {
     }
 
     #[test]
-    fn break_overrides_even_a_member_that_swallows_it() {
+    fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
         let mut channel = Scripted::new(vec![(TAG_BREAK, Value::Sym("stop".into()))]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
             Response::Ok(Value::Sym("stop".into())),
-            "the guest must receive the break value even when the member discards YieldError::Break"
+            "the guest must receive the break value even when the receiver discards YieldError::Break"
         );
     }
 
     #[test]
-    fn member_that_never_yields_discards_the_block() {
+    fn receiver_that_never_yields_discards_the_block() {
         let req = block_request("ignores_block", vec![]);
         assert_eq!(
             roundtrip_with(&req, &mut NoYield),

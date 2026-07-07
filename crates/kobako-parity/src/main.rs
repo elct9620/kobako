@@ -172,7 +172,11 @@ fn bind_service(
         None => None,
     };
     sandbox
-        .bind(namespace, member, Arc::new(StubMember { methods, exposed }))
+        .bind(
+            namespace,
+            member,
+            Arc::new(StubReceiver { methods, exposed }),
+        )
         .map_err(|err| format!("bind failed: {err}"))
 }
 
@@ -191,8 +195,8 @@ enum Behavior {
     EchoPositional,
     /// Return a constant tagged value.
     Value(Value),
-    /// The member itself fails (the Ruby stub raises; this side
-    /// surfaces the SDK's member-failure channel).
+    /// The receiver itself fails (the Ruby stub raises; this side
+    /// surfaces the SDK's receiver-failure channel).
     Raise(String),
     /// Yield each positional argument to the guest block and return
     /// the array of block results.
@@ -270,12 +274,12 @@ impl Receiver for OpaqueStub {
 /// A bound Member whose behavior is fully described by the scenario.
 /// An `exposed` list is the scenario's respond_to_guest? narrowing —
 /// absent means the surface stays unchanged.
-struct StubMember {
+struct StubReceiver {
     methods: HashMap<String, Behavior>,
     exposed: Option<Vec<String>>,
 }
 
-impl Receiver for StubMember {
+impl Receiver for StubReceiver {
     fn call(
         &self,
         method: &str,
@@ -433,7 +437,7 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
     let member = invocation["member"]
         .as_str()
         .ok_or("late_bind invocation must carry member")?;
-    let stub = StubMember {
+    let stub = StubReceiver {
         methods: HashMap::new(),
         exposed: None,
     };

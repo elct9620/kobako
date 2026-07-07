@@ -57,7 +57,7 @@ impl HandleTable {
 /// The receiver-facing view of the invocation's Handle table, handed
 /// to every dispatch alongside the call.
 ///
-/// `alloc` is how a member hands the guest a stateful host object: the
+/// `alloc` is how a receiver hands the guest a stateful host object: the
 /// returned `Value::Handle` rides the wire as an opaque token, and the
 /// guest routes later calls on it back to the object. `resolve` is the
 /// inverse for arguments: a `Value::Handle` the guest passed resolves
@@ -85,7 +85,7 @@ impl<'a> Handles<'a> {
     /// Resolve a `Value::Handle` argument to the live host object it
     /// stands for; `None` for a non-Handle value or an id with no live
     /// binding. Upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
-    /// `downcast` to recover the concrete member type.
+    /// `downcast` to recover the concrete receiver type.
     pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         let Value::Handle(id) = value else {
             return None;
@@ -155,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_member_downcasts_to_its_concrete_type() {
+    fn resolved_receiver_downcasts_to_its_concrete_type() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
         let token = handles.alloc(Arc::new(Probe)).unwrap();
@@ -163,7 +163,7 @@ mod tests {
         let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
         assert!(
             any.downcast::<Probe>().is_ok(),
-            "a resolved Handle must recover the concrete member type through the Any upcast"
+            "a resolved Handle must recover the concrete receiver type through the Any upcast"
         );
     }
 }

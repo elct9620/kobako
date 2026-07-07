@@ -14,7 +14,7 @@ use kobako_codec::codec::{Decoder, Value};
 /// `debug_info` section (docs/wire-codec.md § Invocation channels).
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Snippet {
-    /// Source form: `name` writes the compile ccontext filename;
+    /// Source form: `name` writes the compile context filename;
     /// `body` is UTF-8 mruby source.
     Source { name: String, body: String },
     /// Bytecode form: `body` is RITE bytecode bytes. The host does not

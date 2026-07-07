@@ -17,17 +17,17 @@ use crate::receiver::{Fault, FaultKind};
 
 /// A yield round-trip that did not come back with a plain value.
 ///
-/// `From<YieldError> for Fault` lets a member propagate with `?`; the
+/// `From<YieldError> for Fault` lets a receiver propagate with `?`; the
 /// dispatch frame gives each variant its contractual meaning, so a
-/// member only ever needs to stop and hand the error up.
+/// receiver only ever needs to stop and hand the error up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum YieldError {
-    /// The guest block terminated the call with `break`: the member
+    /// The guest block terminated the call with `break`: the receiver
     /// must stop; the dispatch answers the guest with the break value
-    /// no matter what the member returns after this.
+    /// no matter what the receiver returns after this.
     Break,
     /// The block body raised, or its value could not ride the wire.
-    /// The member observes it at the yield site and may recover or
+    /// The receiver observes it at the yield site and may recover or
     /// propagate.
     Failure { class: String, message: String },
     /// The re-entry itself failed — the guest trapped mid-block or
@@ -38,7 +38,7 @@ pub enum YieldError {
 impl fmt::Display for YieldError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            YieldError::Break => f.write_str("guest block break crossed the member"),
+            YieldError::Break => f.write_str("guest block break crossed the receiver"),
             YieldError::Failure { class, message } => write!(f, "{class}: {message}"),
             YieldError::Aborted(message) => f.write_str(message),
         }
@@ -74,11 +74,11 @@ impl<'y> Yielder<'y> {
     /// Run the guest block once with `args` and return its value.
     ///
     /// The value arrives as the raw wire `Value`: a `Value::Handle`
-    /// inside it stays a token until the member resolves it through
+    /// inside it stays a token until the receiver resolves it through
     /// `Handles` — the explicit spelling of the Ruby frontend's
     /// automatic restore at the yield site.
     ///
-    /// A `break` in the block ends the member call: this returns
+    /// A `break` in the block ends the receiver call: this returns
     /// `YieldError::Break` now and on every later call, without
     /// re-entering the guest.
     pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
@@ -105,7 +105,7 @@ impl<'y> Yielder<'y> {
     }
 
     /// The recorded break value, consumed by the dispatch frame once
-    /// the member returns.
+    /// the receiver returns.
     pub(crate) fn into_break(self) -> Option<Value> {
         self.broke
     }
