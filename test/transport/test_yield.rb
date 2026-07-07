@@ -25,7 +25,10 @@ module Kobako
 
     def test_response_construction_rejects_reserved_and_unknown_tags
       [T::TAG_RESERVED, 0x00, 0x05, 0xff].each do |bad|
-        assert_raises(ArgumentError) { Yield.new(tag: bad, value: nil) }
+        assert_raises(ArgumentError,
+                      format("tag 0x%02x through Yield.new must be rejected — only live tags construct", bad)) do
+          Yield.new(tag: bad, value: nil)
+        end
       end
     end
 
@@ -36,15 +39,15 @@ module Kobako
     def test_round_trip_ok_with_primitive
       resp = Yield.new(tag: T::TAG_OK, value: 42)
       decoded = Yield.decode(resp.encode)
-      assert decoded.ok?
-      assert_equal 42, decoded.value
+      assert decoded.ok?, "an ok-tagged YieldResponse through encode/decode must stay ok"
+      assert_equal 42, decoded.value, "a primitive ok value through encode/decode must round-trip unchanged"
     end
 
     def test_round_trip_break_with_symbol
       resp = Yield.new(tag: T::TAG_BREAK, value: :stop)
       decoded = Yield.decode(resp.encode)
-      assert decoded.break?
-      assert_equal :stop, decoded.value
+      assert decoded.break?, "a break-tagged YieldResponse through encode/decode must stay break"
+      assert_equal :stop, decoded.value, "a Symbol break value through encode/decode must round-trip unchanged"
     end
 
     def test_round_trip_error_with_class_message_backtrace
@@ -55,8 +58,9 @@ module Kobako
       }
       resp = Yield.new(tag: T::TAG_ERROR, value: payload)
       decoded = Yield.decode(resp.encode)
-      assert decoded.error?
-      assert_equal payload, decoded.value
+      assert decoded.error?, "an error-tagged YieldResponse through encode/decode must stay error"
+      assert_equal payload, decoded.value,
+                   "a class/message/backtrace error payload through encode/decode must round-trip unchanged"
     end
 
     # ------------------------------------------------------------
@@ -66,17 +70,23 @@ module Kobako
     def test_decode_rejects_reserved_tag_0x03
       # Forge bytes: tag 0x03 followed by msgpack nil.
       bytes = [T::TAG_RESERVED].pack("C") + Encoder.encode(nil)
-      err = assert_raises(InvalidType) { Yield.decode(bytes) }
-      assert_match(/reserved/i, err.message)
+      err = assert_raises(InvalidType, "reserved tag 0x03 through Yield.decode must be a wire violation") do
+        Yield.decode(bytes)
+      end
+      assert_match(/reserved/i, err.message, "the rejection must name the reserved tag")
     end
 
     def test_decode_rejects_unknown_tag
       bytes = [0x7e].pack("C") + Encoder.encode(nil)
-      assert_raises(InvalidType) { Yield.decode(bytes) }
+      assert_raises(InvalidType, "an unknown tag through Yield.decode must be a wire violation") do
+        Yield.decode(bytes)
+      end
     end
 
     def test_decode_rejects_empty_bytes
-      assert_raises(InvalidType) { Yield.decode("".b) }
+      assert_raises(InvalidType, "a zero-length YieldResponse through Yield.decode must be a wire violation") do
+        Yield.decode("".b)
+      end
     end
 
     # ------------------------------------------------------------
@@ -85,12 +95,12 @@ module Kobako
 
     def test_encode_ok_with_int_42_golden
       bytes = Yield.new(tag: T::TAG_OK, value: 42).encode
-      assert_equal "012a", hex(bytes) # tag 0x01 + msgpack int 42
+      assert_equal "012a", hex(bytes), "ok(42) through encode must emit tag 0x01 + msgpack int 42"
     end
 
     def test_encode_break_with_nil_golden
       bytes = Yield.new(tag: T::TAG_BREAK, value: nil).encode
-      assert_equal "02c0", hex(bytes) # tag 0x02 + msgpack nil
+      assert_equal "02c0", hex(bytes), "break(nil) through encode must emit tag 0x02 + msgpack nil"
     end
   end
 end

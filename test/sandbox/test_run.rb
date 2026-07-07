@@ -2,86 +2,30 @@
 
 require "test_helper"
 
-# Coverage for Kobako::Sandbox#run — the entrypoint dispatch verb
-# (docs/behavior/invocation.md B-31 + E-24..E-31).
-#
-# Host pre-flight cases (E-24 / E-25 / E-29 / E-30) raise standard Ruby
-# exceptions synchronously and do not need the real guest binary; the
-# fixture-driven tests at the top of the class exercise those paths.
-# Guest-detected cases (E-27 / E-28) and the success/exception envelopes
-# (B-31 result / E-04 reuse) drive the real data/kobako.wasm through
-# +real_guest_sandbox+, which additionally skips when the Guest Binary
-# is unbuilt so the fixture-driven cases above keep running.
+# Coverage for Kobako::Sandbox#run dispatch against the real Guest
+# Binary (docs/behavior/invocation.md B-31 + E-27 / E-28, E-04 reuse):
+# the success envelope, guest-detected entrypoint failures, and the
+# exception envelope. Host pre-flight rejection (E-24 / E-25 / E-29 /
+# E-30) needs no guest and lives in test_run_preflight.rb.
 class TestSandboxRun < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
-
-  def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
-    @fixture_sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-  end
-
-  # --- Host pre-flight (E-24 / E-25 / E-29 / E-30) ---
-
-  # E-24
-  def test_e24_target_must_be_symbol_or_string
-    err = assert_raises(TypeError) { @fixture_sandbox.run(42) }
-    assert_match(/Symbol or String/, err.message)
-  end
-
-  # E-25
-  def test_e25_target_must_match_constant_pattern
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:lowercase) }
-    assert_match(/must match/, err.message)
-  end
-
-  # E-25: `::`-segmented names fail the pattern check at host pre-flight.
-  def test_e25_target_rejects_double_colon_segmented_name
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run("Outer::Inner") }
-    assert_match(/must match/, err.message)
-  end
-
-  # E-29 — host pre-flight rejects a forged Handle arriving in args.
-  # Legitimate Handles only surface through error fields; a Handle
-  # constructed by the caller can only be smuggled, so the wire layer
-  # never sees one in this position.
-  def test_e29_args_must_not_contain_handle
-    handle = Kobako::Handle.restore(1)
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, handle) }
-    assert_match(/Handle/, err.message)
-  end
-
-  # E-29 — kwargs branch of the same rule. A Handle reaching a kwargs
-  # value is rejected with the same message structure as the args
-  # branch (both go through Transport::Run#forged_handle_message).
-  def test_e29_kwargs_values_must_not_contain_handle
-    handle = Kobako::Handle.restore(1)
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, env: handle) }
-    assert_match(/Handle/, err.message)
-  end
-
-  # E-30
-  def test_e30_kwargs_keys_must_be_symbols
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, **{ "bad" => 1 }) }
-    assert_match(/keyword argument keys must be Symbols/, err.message)
-  end
-
-  # --- Guest-driven (real data/kobako.wasm) ---
+  include E2eGuestHelper
 
   # B-31: a preloaded snippet defines a top-level constant responding to
   # #call; #run dispatches into it and returns the call's value.
   def test_b31_runs_preloaded_entrypoint_with_no_args
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 42 }", name: :Worker)
 
-    assert_equal 42, sandbox.run(:Worker)
+    assert_equal 42, sandbox.run(:Worker),
+                 "a preloaded callable entrypoint through #run must return its call value"
   end
 
   def test_b31_passes_positional_args_to_entrypoint
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)
 
-    assert_equal 5, sandbox.run(:Adder, 2, 3)
+    assert_equal 5, sandbox.run(:Adder, 2, 3),
+                 "positional arguments through #run must reach the entrypoint in order"
   end
 
   # B-31 (mruby C API limitation): kwargs are delivered to the entrypoint as
@@ -94,31 +38,34 @@ class TestSandboxRun < Minitest::Test
   # positional-Hash convention instead of routing every #run through an
   # eval shim.
   def test_b31_passes_keyword_args_as_trailing_positional_hash
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)
 
-    assert_equal "hello world", sandbox.run(:Greeter, name: "world")
+    assert_equal "hello world", sandbox.run(:Greeter, name: "world"),
+                 "kwargs through #run must reach the entrypoint as a trailing positional Hash"
   end
 
   def test_b31_normalizes_string_target_to_symbol
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 7 }", name: :Worker)
 
-    assert_equal 7, sandbox.run("Worker")
+    assert_equal 7, sandbox.run("Worker"),
+                 "a String target through #run must dispatch like its Symbol form"
   end
 
   def test_b31_preloaded_snippets_replay_before_dispatch
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "BASE = 10", name: :Alpha)
     sandbox.preload(code: "Worker = ->(*_a, **_k) { BASE * 4 }", name: :Beta)
 
-    assert_equal 40, sandbox.run(:Worker)
+    assert_equal 40, sandbox.run(:Worker),
+                 "every preloaded snippet through #run must replay before the entrypoint dispatches"
   end
 
   # E-27: target Symbol does not resolve to a defined top-level constant.
   # Surfaces as Kobako::SandboxError via the guest's Panic envelope path.
   def test_e27_undefined_entrypoint_raises_sandbox_error
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
     assert_match(/undefined entrypoint: Missing/, err.message)
   end
@@ -145,7 +92,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-28: entrypoint constant is defined but does not respond to #call.
   def test_e28_entrypoint_without_call_raises_sandbox_error
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = 42", name: :Worker)
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Worker) }
@@ -154,7 +101,7 @@ class TestSandboxRun < Minitest::Test
 
   # E-04 reuse: entrypoint raises an uncaught exception.
   def test_entrypoint_runtime_exception_surfaces_as_sandbox_error
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Worker = ->(*_) { raise "boom from worker" }', name: :Worker)
 
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Worker) }
@@ -163,17 +110,8 @@ class TestSandboxRun < Minitest::Test
 
   private
 
-  # Guest-driven cases construct the Sandbox here so they skip — rather
-  # than error — on a checkout where the ext is compiled but the Guest
-  # Binary is not built.
-  def real_guest_sandbox
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`" unless File.exist?(E2eGuestHelper::REAL_WASM)
-
-    Kobako::Sandbox.new
-  end
-
   def run_missing_against_sandbox_with_preloads
-    sandbox = real_guest_sandbox
+    sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
     sandbox.preload(code: "Helper = Module.new", name: :Helper)
     assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
