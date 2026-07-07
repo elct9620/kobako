@@ -62,6 +62,21 @@ handles/dispatch unit tests); B-43 / E-44 (reflective gadgets are Ruby
 surface with no Rust counterpart — the refusal is pinned by
 `test/transport/test_dispatcher_gadget_return.rb`).
 
+## Frontend vocabulary
+
+SPEC's Internal Concepts glossary words each concept against the Ruby
+frontend; the SDK reifies the same concepts under Rust names. One rule
+keeps the two surfaces coherent: the surface a Service author touches
+keeps the guest-visible word (`block`), while the reified machinery
+carries the concept's own name.
+
+| SPEC concept | Ruby frontend | Rust SDK |
+|---|---|---|
+| Service — the host object bound under a two-level name | any Ruby object bound via `bind` (duck-typed) | the `HostObject` trait — one dispatchable unit covering both bound Services and Handle-allocated objects |
+| Member — the leaf name of a `<Namespace>::<Member>` path | `bind(member, object)` on a `Kobako::Namespace` | `Sandbox::bind(namespace, member, object)` |
+| Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `HostObject::call`, so the yield site still reads `block.call(args)` |
+| Block — the guest-side block body | never crosses the wire; only the Request's `block_given` flag travels | same — the wire contract is shared |
+
 ## Coverage gate
 
 `rake parity:coverage` cross-checks the manifest below against the
