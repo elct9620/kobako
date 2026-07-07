@@ -43,8 +43,6 @@ The Host Gem represents `Integer` at arbitrary precision; the Guest Binary repre
 
 Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit. Every decoder enforces it: the Host Gem's codec library on its decode path, and the Guest Binary's decoder on every inbound payload, so a host→guest value nesting deeper than the bound fails as a clean wire error rather than overflowing the wasm stack. The Guest Binary encoder caps its recursive walk at the same depth: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as E-06 / E-22 (→ [`behavior/errors.md`](behavior/errors.md)) rather than a hard trap. A `#run` argument that nests deeper is encoded best-effort — the over-deep subtree is rendered through `Object#to_s` at the cap, the same fallback an unknown argument type takes — so the dispatch stays bounded rather than trapping. The guest cap and the host library's limit sit at the same depth; a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
 
-The cap doubles as a native-stack safety guard: 128 sits far below the depth at which the guest's recursive walks — encode and decode alike — would overflow the wasm stack, and matches the limit established serialization formats impose, so it is never the restrictive outlier.
-
 ---
 
 ## str / bin Encoding Rules
@@ -112,6 +110,8 @@ ext 0x01 may appear in: Request `target` field (Handle reference form), Request 
 | `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
 
 ext 0x02 may appear only in the Response fault variant's envelope field. It must not appear in Request `args` or any other position.
+
+A `details` value may itself contain ext-encoded values, and every decoder bounds that ext nesting with the same 128-level discipline as structural nesting (→ § Structural Nesting Depth); whether an implementation counts ext frames against the structural budget or against a separate 128-level budget is implementation-defined, so a payload mixing deep structural nesting with nested Faults may be rejected at different combined depths by different implementers — always as a clean wire error, never a trap.
 
 ---
 
