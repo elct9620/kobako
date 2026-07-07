@@ -36,6 +36,15 @@ impl CatalogHandler {
             Ok(member) => member,
             Err(fault) => return fault_response(&fault),
         };
+        // The target's own narrowing predicate answers before any
+        // method runs; the rejection matches the unresolved-target
+        // fault so an opaque target discloses nothing.
+        if !member.respond_to_guest(&request.method) {
+            return fault_response(&Fault::new(
+                FaultKind::Undefined,
+                format!("method :{} is not exposed to the guest", request.method),
+            ));
+        }
         let handles = Handles::new(&self.handles);
         let mut block = request.block_given.then(|| Block::new(yielder));
         let result = member.call(
@@ -315,6 +324,51 @@ mod tests {
             roundtrip_on(&handler, &chained, &mut NoYield),
             Response::Ok(Value::Str("bob".into())),
             "a Handle target must route to the very object the allocation bound"
+        );
+    }
+
+    /// An Echo narrowed to its `echo` method by the opt-in predicate.
+    struct Narrowed;
+
+    impl Member for Narrowed {
+        fn call(
+            &self,
+            method: &str,
+            args: &[Value],
+            kwargs: &[(String, Value)],
+            block: Option<&mut Block<'_>>,
+            handles: &Handles<'_>,
+        ) -> Result<Value, Fault> {
+            Echo.call(method, args, kwargs, block, handles)
+        }
+
+        fn respond_to_guest(&self, method: &str) -> bool {
+            method == "echo"
+        }
+    }
+
+    #[test]
+    fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
+        let mut catalog = Catalog::default();
+        catalog.bind("MyService", "Narrow", Arc::new(Narrowed));
+        let handler = CatalogHandler::new(Arc::new(catalog), Arc::default());
+        let visible = request(
+            Target::Path("MyService::Narrow".into()),
+            "echo",
+            vec![Value::Int(7)],
+        );
+        assert_eq!(
+            roundtrip_on(&handler, &visible, &mut NoYield),
+            Response::Ok(Value::Int(7)),
+            "a truthy predicate answer leaves the call unchanged"
+        );
+        let hidden = request(Target::Path("MyService::Narrow".into()), "explode", vec![]);
+        assert!(
+            matches!(
+                roundtrip_on(&handler, &hidden, &mut NoYield),
+                Response::Err(_)
+            ),
+            "a falsy predicate answer must reject the dispatch before the method runs"
         );
     }
 

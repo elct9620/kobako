@@ -72,4 +72,13 @@ pub trait Member: Send + Sync {
         block: Option<&mut Block<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
+
+    /// Opt-in least-privilege narrowing of the guest-reachable method
+    /// surface: a `false` answer rejects the dispatch as `undefined`
+    /// before `call` runs, and the guest cannot reach the predicate
+    /// itself. The default leaves the surface unchanged.
+    fn respond_to_guest(&self, method: &str) -> bool {
+        let _ = method;
+        true
+    }
 }

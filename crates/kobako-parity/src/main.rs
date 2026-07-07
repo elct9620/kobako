@@ -158,8 +158,21 @@ fn bind_service(
             methods.insert(name.clone(), parse_behavior(behavior, opaques)?);
         }
     }
+    let exposed = match service["exposed"].as_array() {
+        Some(names) => Some(
+            names
+                .iter()
+                .map(|name| {
+                    name.as_str()
+                        .map(str::to_string)
+                        .ok_or("exposed entries must be strings")
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        None => None,
+    };
     sandbox
-        .bind(namespace, member, Arc::new(StubMember { methods }))
+        .bind(namespace, member, Arc::new(StubMember { methods, exposed }))
         .map_err(|err| format!("bind failed: {err}"))
 }
 
@@ -255,8 +268,11 @@ impl Member for OpaqueStub {
 }
 
 /// A bound Member whose behavior is fully described by the scenario.
+/// An `exposed` list is the scenario's respond_to_guest? narrowing —
+/// absent means the surface stays unchanged.
 struct StubMember {
     methods: HashMap<String, Behavior>,
+    exposed: Option<Vec<String>>,
 }
 
 impl Member for StubMember {
@@ -295,6 +311,12 @@ impl Member for StubMember {
                 format!("method :{method} is not a Service method"),
             )),
         }
+    }
+
+    fn respond_to_guest(&self, method: &str) -> bool {
+        self.exposed
+            .as_ref()
+            .is_none_or(|names| names.iter().any(|name| name == method))
     }
 }
 
@@ -406,6 +428,7 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
         .ok_or("late_bind invocation must carry member")?;
     let stub = StubMember {
         methods: HashMap::new(),
+        exposed: None,
     };
     Ok(sandbox
         .bind(namespace, member, Arc::new(stub))
