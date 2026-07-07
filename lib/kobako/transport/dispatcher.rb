@@ -229,10 +229,13 @@ module Kobako
         handler.alloc(value)
       end
 
+      # +message+ folds to UTF-8 first: Ruby core builds some exception
+      # messages as ASCII-8BIT (the arity ArgumentError, for one), and
+      # the codec would ride those as bin — a shape the guest refuses.
       def encode_error(type, message)
+        message = message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
         fault = Kobako::Fault.new(type: type, message: message)
-        response = Kobako::Transport::Response.error(fault)
-        response.encode
+        Kobako::Transport::Response.error(fault).encode
       end
     end
   end

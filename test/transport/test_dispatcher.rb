@@ -86,7 +86,10 @@ class TestTransportDispatchUnit < Minitest::Test
   # SPEC E-15 explicit: "Passing keyword arguments to a method whose
   # signature accepts no keyword arguments is treated as a parameter
   # binding failure (type=\"argument\", E-15), not a Ruby runtime
-  # exception (E-11)."
+  # exception (E-11)." Ruby core builds the arity ArgumentError message
+  # as ASCII-8BIT and the guest proxy refuses a bin message field, so
+  # the message's decoded encoding (str decodes UTF-8, bin ASCII-8BIT)
+  # is asserted alongside the fault type.
   def test_kwargs_to_no_kwarg_method_returns_argument_exception
     @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], { extra: 1 })
@@ -95,6 +98,8 @@ class TestTransportDispatchUnit < Minitest::Test
 
     assert_predicate resp, :error?
     assert_equal "argument", resp.payload.type
+    assert_equal Encoding::UTF_8, resp.payload.message.encoding,
+                 "a binding-failure fault through Dispatcher.dispatch must carry its message as a wire str, not bin"
   end
 
   # SPEC E-15 explicit example: "unknown keyword" → type="argument".
