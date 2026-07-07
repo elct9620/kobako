@@ -218,7 +218,7 @@ module Kobako
     # runtime that cannot honor the request never runs guest code.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                          @options.stdout_limit, @options.stderr_limit, profile)
+                                          @options.stdout_limit, @options.stderr_limit, @options.profile)
       @options.enforce_floor!(runtime.profile)
       runtime
     end

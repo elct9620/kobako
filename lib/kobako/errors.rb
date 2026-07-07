@@ -4,38 +4,13 @@
 module Kobako
   # Error taxonomy.
   #
-  # Every +Kobako::Sandbox+ invocation (+#eval+ or +#run+) either returns a value or raises
-  # exactly one of three invocation-outcome classes. Attribution is decided after the
-  # guest binary returns control to the host: first the Wasm-trap layer, then
-  # the outcome-envelope tag.
-  #
-  # Three invocation-outcome branches:
-  #
-  #   * TrapError     — Wasm engine layer (trap, OOM, unreachable, or a
-  #                     wire-violation fallback signalling a corrupted
-  #                     guest runtime).
-  #   * SandboxError  — sandbox / wire layer (mruby script error,
-  #                     wire-decode failure on an otherwise valid tag,
-  #                     Catalog::Handles exhaustion, output buffer overrun).
-  #   * ServiceError  — service / capability layer (a Service capability
-  #                     call that failed and was not rescued inside the
-  #                     script).
-  #
-  # Two further branches sit outside the invocation taxonomy:
-  #
-  #   * SetupError    — construction layer. Raised by +Kobako::Sandbox.new+
-  #                     when the wasm runtime cannot be built from the
-  #                     configured +wasm_path+ before any invocation runs.
-  #                     Not an invocation outcome, so it never passes
-  #                     through the two-step attribution decision.
-  #   * PoolTimeoutError — pool checkout layer. Raised by +Kobako::Pool#with+
-  #                     when the checkout wait exceeds +checkout_timeout+.
-  #
-  # Named subclasses:
-  #
-  #   * ModuleNotBuiltError < SetupError — Guest Binary artifact absent
-  #                     at +wasm_path+.
-  #   * HandleExhaustedError < SandboxError — Handle id cap hit.
+  # Every +Kobako::Sandbox+ invocation (+#eval+ or +#run+) either returns a
+  # value or raises exactly one of TrapError, SandboxError, or ServiceError.
+  # Attribution is decided after the guest binary returns control to the
+  # host: first the Wasm-trap layer, then the outcome-envelope tag.
+  # SetupError and PoolTimeoutError sit outside the invocation taxonomy and
+  # never pass through that attribution decision. Each class below
+  # documents its own layer.
 
   # Base for all kobako-raised errors so callers that want to ignore the
   # taxonomy can rescue a single class.
