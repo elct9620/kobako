@@ -10,9 +10,17 @@ module E2eGuestHelper
   REAL_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
+    # The default task compiles the ext and builds the guest before the
+    # suite (`rake test` depends on `wasm:build`), so under CI a missing
+    # prerequisite is a broken pipeline, never a skip — mirroring the
+    # parity runner's cargo guard. A clean local checkout still skips.
+    unless defined?(Kobako::Runtime)
+      flunk "native ext not compiled under CI" if ENV["CI"]
+      skip "native ext not compiled (run `bundle exec rake compile`)"
+    end
     return if File.exist?(REAL_WASM)
 
+    flunk "data/kobako.wasm missing under CI" if ENV["CI"]
     skip "data/kobako.wasm missing — run `bundle exec rake wasm:build` " \
          "(requires `rake vendor:setup` + `rake mruby:build` first)"
   end
