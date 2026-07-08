@@ -20,7 +20,11 @@ use crate::receiver::{Fault, FaultKind};
 /// `From<YieldError> for Fault` lets a receiver propagate with `?`; the
 /// dispatch frame gives each variant its contractual meaning, so a
 /// receiver only ever needs to stop and hand the error up.
+///
+/// Non-exhaustive because a receiver matches it to recover, and the
+/// yield-outcome kinds grow append-only; keep a wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum YieldError {
     /// The guest block terminated the call with `break`: the receiver
     /// must stop; the dispatch answers the guest with the break value
