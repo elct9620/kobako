@@ -49,18 +49,9 @@ the label by object identity. A raw Handle id never appears in an
 observable.
 
 The suite rides `rake test`; on a checkout without cargo the families
-skip. A family whose SDK seam has not landed yet carries `skip`
-entries citing its anchors, so coverage stays visible while the seam
-is pending. Three permanent entries share that shape, each pinned
-per-frontend instead: E-23 (the SDK's `Yielder` borrows its dispatch
-frame, so the escaped-Yielder misuse is a compile error — Ruby's
-runtime refusal lives in `test/e2e/test_yield_unwind.rb`); B-18 / E-13
-(one fresh guest instance per invocation means no scenario can present
-a stale Handle — staleness is unit-pinned by
-`test/transport/test_dispatcher_invalidity.rb` and the SDK's
-handles/dispatch unit tests); B-43 / E-44 (reflective gadgets are Ruby
-surface with no Rust counterpart — the refusal is pinned by
-`test/transport/test_dispatcher_gadget_return.rb`).
+skip. A CORE anchor with no guest-expressible differential scenario is
+listed under Pending anchors instead and pinned per-frontend — see
+that section.
 
 ## Frontend vocabulary
 
@@ -80,12 +71,15 @@ carries the concept's own name.
 
 ## Coverage gate
 
-`rake parity:coverage` cross-checks the manifest below against the
-anchors actually cited under `test/parity/` and fails on any CORE
-anchor with no scenario or pending entry — the guard that keeps a new
-host-observable anchor from landing on one frontend only. (`rake
-anchors` separately guarantees every ID below resolves to a real
-definition.)
+`rake parity:coverage` requires every CORE anchor below to be either
+**asserted** — named in a scenario's `anchors:` list, so a scenario
+actually runs it through both frontends — or **pending** — listed in
+the Pending anchors block, where no guest-expressible differential
+scenario exists and the behavior is pinned per-frontend instead. An
+anchor mentioned only in a comment or a `skip` message counts as
+neither, so a scenario that silently degrades to comment-only fails
+the gate. (`rake anchors` separately guarantees every ID resolves to a
+real definition.)
 
 ## CORE anchor manifest
 
@@ -100,6 +94,34 @@ E-01 E-04 E-05 E-06 E-11 E-12 E-13 E-15 E-19 E-20 E-21 E-22 E-23
 E-27 E-28 E-32 E-36 E-37 E-38 E-43 E-44 E-48
 ```
 
+## Pending anchors
+
+CORE anchors with no guest-expressible differential scenario. The
+coverage gate accepts these in place of an asserted scenario; each is
+pinned per-frontend where its behavior is actually verified:
+
+```
+E-01 E-23 B-18 E-13 B-43 E-44
+```
+
+- **E-01** — a raw engine trap has no deterministic pure-guest trigger:
+  the guest turns deep recursion into its own `SystemStackError`, and
+  the live host-callback path is frontend-specific. Ruby-side behavior
+  is pinned by `test/e2e/test_capability_exception_safety.rb`, trap-kind
+  routing by the driver's `classify_trap` unit tests.
+- **E-23** — the SDK's `Yielder` borrows its dispatch frame, so an
+  escaped-Yielder misuse is a compile error with no runnable scenario;
+  the Ruby frontend's runtime refusal is pinned by
+  `test/e2e/test_yield_unwind.rb`.
+- **B-18 / E-13** — one fresh guest instance per invocation means no
+  scenario can present a stale Handle; staleness is unit-pinned by
+  `test/transport/test_dispatcher_invalidity.rb` and the SDK's
+  handles/dispatch unit tests.
+- **B-43 / E-44** — reflective gadgets are Ruby surface with no Rust
+  counterpart, so no stub can express a gadget return; the refusal is
+  pinned by `test/transport/test_dispatcher_gadget_return.rb` and
+  `test/catalog/test_handles.rb`.
+
 ## Out of the manifest
 
 - **Language surface** — setup-time validation (`ArgumentError` /
@@ -107,7 +129,10 @@ E-27 E-28 E-32 E-36 E-37 E-38 E-43 E-44 E-48
   failures (E-39..E-42, E-49, B-05, B-07..B-11, B-19, B-22, B-33's
   exception class, B-40, B-46..B-48, B-54): each frontend spells these
   in its own idiom; the seal's *timing* (B-33) stays in the manifest,
-  its spelling does not.
+  its spelling does not. The hermetic family does exercise the
+  successful profile *switch* (B-54) — a requested posture resolves
+  identically on both frontends — leaving only its floor-refusal
+  spelling per-frontend.
 - **Guest-internal** — behavior the shared Guest Binary fixes
   regardless of frontend (B-15, B-36, B-38, B-39, B-41, B-44, B-51,
   B-52, B-53): pinned by the guest E2E suites and the codec oracles.
