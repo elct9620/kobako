@@ -33,9 +33,13 @@ use crate::snippet;
 /// `SandboxOptions` value object. `None` means "no cap".
 #[derive(Clone)]
 pub struct Options {
+    /// Wall-clock cap for one invocation.
     pub timeout: Option<Duration>,
+    /// Guest linear-memory cap, in bytes.
     pub memory_limit: Option<usize>,
+    /// Captured-stdout cap, in bytes.
     pub stdout_limit: Option<usize>,
+    /// Captured-stderr cap, in bytes.
     pub stderr_limit: Option<usize>,
     /// Requested isolation floor; the driver declares its posture and
     /// construction fails below the floor.

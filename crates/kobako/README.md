@@ -32,6 +32,25 @@ no mruby toolchain is needed to build an embedder.
 kobako = "0.7.0" # x-release-please-version
 ```
 
+```rust
+use kobako::{Options, Sandbox};
+
+fn main() -> Result<(), kobako::Error> {
+    // Load a prebuilt Guest Binary. Options::default() is secure by
+    // default: no caps, hermetic isolation (frozen clocks and entropy).
+    let mut sandbox = Sandbox::new("kobako.wasm", Options::default())?;
+
+    // Run untrusted mruby on a fresh instance; the last expression
+    // comes back as a decoded wire Value.
+    let squares = sandbox.eval("[1, 2, 3].map { |n| n * n }")?;
+    println!("{squares:?}");
+    Ok(())
+}
+```
+
+Bind host Services with `Sandbox::bind` and pass capability Handles
+through the `Receiver` seam to let guest code call back into the host.
+
 ## License
 
 Apache-2.0
