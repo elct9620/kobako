@@ -83,12 +83,12 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # SPEC.md E-23: the SDK's +Block+ borrows its dispatch frame, so a
-  # Service stashing the block for a later dispatch is a compile error
-  # on the Rust side — no scenario can express the escape there. The
-  # Ruby frontend's runtime refusal is pinned by
+  # SPEC.md E-23: the SDK's +Yielder+ borrows its dispatch frame, so a
+  # Service stashing it for a later dispatch is a compile error on the
+  # Rust side — no scenario can express the escape there. The Ruby
+  # frontend's runtime refusal is pinned by
   # test/e2e/test_yield_unwind.rb.
   def test_escaped_yielder_pending
-    skip "E-23 is compile-time-prevented on the SDK Block seam; no differential scenario exists"
+    skip "E-23 is compile-time-prevented on the SDK Yielder seam; no differential scenario exists"
   end
 end
