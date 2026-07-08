@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "kobako-runtime",
  "kobako-wasmtime",
@@ -938,11 +938,11 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.7.0"
+version = "0.8.0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "kobako-runtime",
  "libc",
