@@ -125,14 +125,15 @@ E-01 E-23 B-18 E-13 B-43 E-44
 ## Out of the manifest
 
 - **Language surface** — setup-time validation (`ArgumentError` /
-  `TypeError` shapes), `Kobako::Pool`, option readers, construction
-  failures (E-39..E-42, E-49, B-05, B-07..B-11, B-19, B-22, B-33's
-  exception class, B-40, B-46..B-48, B-54): each frontend spells these
-  in its own idiom; the seal's *timing* (B-33) stays in the manifest,
-  its spelling does not. The hermetic family does exercise the
-  successful profile *switch* (B-54) — a requested posture resolves
-  identically on both frontends — leaving only its floor-refusal
-  spelling per-frontend.
+  `TypeError` shapes), host pre-flight refusals, `Kobako::Pool`, option
+  readers, construction failures (E-16..E-18, E-24, E-25, E-29, E-30,
+  E-33..E-35, E-39..E-42, E-45..E-47, E-49, B-05, B-07..B-11, B-19,
+  B-22, B-33's exception class, B-40, B-46..B-48, B-54): each frontend
+  spells these in its own idiom; the seal's *timing* (B-33) stays in
+  the manifest, its spelling does not. The hermetic family does
+  exercise the successful profile *switch* (B-54) — a requested posture
+  resolves identically on both frontends — leaving only its
+  floor-refusal spelling per-frontend.
 - **Guest-internal** — behavior the shared Guest Binary fixes
   regardless of frontend (B-15, B-36, B-38, B-39, B-41, B-44, B-51,
   B-52, B-53): pinned by the guest E2E suites and the codec oracles.
@@ -140,3 +141,5 @@ E-01 E-23 B-18 E-13 B-43 E-44
   no deterministic trigger through the real guest (B-21, E-02, E-03,
   E-07..E-10, E-26, E-31): revisit if a legitimate trigger appears;
   parallel fixture guests stay off the table.
+- **Retired** — E-14 (N-8: reserved and never reassigned) names no
+  behavior, so it neither appears in a scenario nor needs one.
