@@ -62,3 +62,11 @@ impl fmt::Display for Trap {
         f.write_str(msg)
     }
 }
+
+impl fmt::Display for SetupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (SetupError::ModuleNotBuilt(msg) | SetupError::Dead(msg) | SetupError::Intact(msg)) =
+            self;
+        f.write_str(msg)
+    }
+}
