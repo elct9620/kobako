@@ -282,7 +282,7 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior/runtime.md`](docs/behavior/runtime.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
-`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~30 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work).
+`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~28 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work).
 
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
@@ -418,15 +418,15 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Phase                                                        | Cost                  |
 |--------------------------------------------------------------|-----------------------|
 | First `Sandbox.new` ever for a Guest Binary (Module JIT, then disk-cached) | ~500 ms once per machine |
-| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~5 ms one-time        |
-| Subsequent `Sandbox.new` (caches warm)                       | ~30 µs                |
-| Warm `#eval("nil")` on a reused Sandbox                      | ~73 µs                |
-| Warm `#run(:Entrypoint, ...)` dispatch                       | ~104 µs               |
+| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~3 ms one-time        |
+| Subsequent `Sandbox.new` (caches warm)                       | ~28 µs                |
+| Warm `#eval("nil")` on a reused Sandbox                      | ~71 µs                |
+| Warm `#run(:Entrypoint, ...)` dispatch                       | ~97 µs                |
 | Service call amortized inside one invocation                 | ~6.8 µs               |
-| Snippet replay per invocation                                | ~8 µs each            |
+| Snippet replay per invocation                                | ~7.6 µs each          |
 | Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~32 MB total. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 17k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
 
 Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#10` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4× `match?` (~1.2 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
 
