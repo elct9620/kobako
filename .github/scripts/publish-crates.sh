@@ -32,9 +32,20 @@ crate_version() {
     | jq -r ".packages[] | select(.name == \"$1\") | .version"
 }
 
+# A version number counts as published only when a live (non-yanked)
+# release occupies it. A 404 (never published) or a yanked-only slot is
+# not published: the publish proceeds and cargo surfaces a genuine
+# collision loudly, instead of the release skipping the crate in silence
+# — the reused `kobako` name carries yanked guest-era versions. The
+# `local` split keeps curl's exit status; `local body="$(…)"` would mask
+# it behind local's own success.
 already_published() {
-  curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
-    "https://crates.io/api/v1/crates/$1/$2" >/dev/null 2>&1
+  local body
+  if ! body="$(curl -fsSL -A "kobako-release (github.com/elct9620/kobako)" \
+    "https://crates.io/api/v1/crates/$1/$2" 2>/dev/null)"; then
+    return 1
+  fi
+  [ "$(printf '%s' "$body" | jq -r '.version.yanked')" = "false" ]
 }
 
 # The shared wire tier lives in the crates/ workspace but every guest
