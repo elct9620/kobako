@@ -30,7 +30,7 @@ cargo run -- ../../data/kobako.wasm
 cargo run -- ../../data/kobako.wasm 'Notes::Store.open("draft").tag("idea")'
 
 # A Service misuse surfaces in the plugin as a rescuable Kobako::ServiceError
-cargo run -- ../../data/kobako.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.name; end'
+cargo run -- ../../data/kobako.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.to_s; end'
 
 # An uncaught guest exception comes back as a decoded failure, exit code 1
 cargo run -- ../../data/kobako.wasm 'raise ArgumentError, "boom"'
