@@ -140,7 +140,7 @@ Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOption
 
 The magnus surface lives only in `ext/kobako`; the engine mechanics live in `crates/kobako-wasmtime` behind the engine-free `crates/kobako-runtime` contract — the surface a non-Ruby host consumes. Both crates ship inside the gem as the ext's path dependencies (the `crates/` workspace manifest never ships, so member manifests use no `workspace = true` inheritance). The third `crates/` member, `kobako-codec`, is the wire tier: the ext never touches it (the wasmtime driver shuttles raw bytes; Ruby owns the host codec), so it stays outside the gem's crate closure.
 
-**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Member` glue over the same driver; released with the linked crate group under the `kobako-sdk` component). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism and the CORE anchor manifest, `rake parity:coverage` gates manifest coverage, and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
+**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Receiver` glue over the same driver; released with the linked crate group under the `kobako-sdk` component). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism and the CORE anchor manifest, `rake parity:coverage` gates manifest coverage, and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
 
 ```
 Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc GC
@@ -151,8 +151,9 @@ Ruby shim       ext/kobako — runtime.rs (Kobako::Runtime class, dispatch-Proc 
 Rust SDK        crates/kobako — Sandbox(seal-once eval/run/preload) · Receiver/
       │           Fault seam (+respond_to_guest narrowing) · Yielder(frame-
       │           borrowed yield channel) · Handles(per-invocation
-      │           capability table) · CatalogHandler(never-fail dispatch)
-      │           · snippet table · outcome classification (parity-pinned)
+      │           capability table) · Catalog(per-Sandbox Service registry)
+      │           + CatalogHandler(never-fail dispatch) · snippet table
+      │           · outcome classification (parity-pinned)
       │
 Driver          crates/kobako-wasmtime — Driver (impl Runtime) + engine mechanics
       │           driver (caps bracket, ABI probe) · dispatch (__kobako_dispatch)
