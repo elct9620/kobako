@@ -2,9 +2,9 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/elct9620/kobako)
 
-Kobako is a Ruby gem that embeds a Wasm-isolated mruby interpreter inside your application, so you can execute untrusted Ruby scripts (LLM-generated code, user formulas, student submissions, third-party plugins) in-process without giving them access to host memory, files, network, or credentials.
+Kobako is a Ruby gem that embeds a Wasm-isolated mruby interpreter inside your application, so you can execute untrusted Ruby scripts (LLM-generated code, user formulas, student submissions, third-party plugins) in-process without giving them access to host memory, files, network, or credentials. Its home is the Ruby ecosystem; a Rust SDK offers the same sandbox to hosts written in other languages.
 
-The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and a Transport proxy. The only way a guest script can reach the outside world is through Host App-declared **Services** — named Ruby objects you explicitly inject into the sandbox; the guest sees each one as a proxy that forwards calls back to the host over the Transport wire.
+The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and a Transport proxy. The only way a guest script can reach the outside world is through Host App-declared **Services** — named host objects you explicitly inject into the sandbox; the guest sees each one as a proxy that forwards calls back to the host over the Transport wire.
 
 ```
         Host process                       Wasm guest
@@ -39,26 +39,102 @@ gem install kobako
 
 ## Quick Start
 
+The same untrusted script runs identically from either host frontend. It executes inside the Wasm guest and cannot read your filesystem, open sockets, or touch your environment.
+
 ```ruby
 require "kobako"
 
 sandbox = Kobako::Sandbox.new
-
-result = sandbox.eval(<<~RUBY)
-  1 + 2
-RUBY
-
-result # => 3
+sandbox.eval("1 + 2")  # => 3
 ```
 
-The script executes inside the Wasm guest. It cannot read your filesystem, open sockets, or touch your `ENV`.
+```rust
+use kobako::{Options, Sandbox};
+
+// Options::default() is secure by default: no caps, hermetic isolation.
+let mut sandbox = Sandbox::new("kobako.wasm", Options::default())?;
+sandbox.eval("1 + 2")?;  // => Value::Int(3)
+```
+
+The gem bundles its Guest Binary; a Rust host loads one explicitly — see [Frontends & Guest Binaries](#frontends--guest-binaries) for the packages and the Guest Binary variants.
+
+## Frontends & Guest Binaries
+
+Embedding kobako is two independent choices: the **host frontend** you build against, and the **Guest Binary** it runs. They compose freely — any frontend loads any Guest Binary, so a Ruby host can run a JSON-enabled guest and a Rust host can run the pure default.
+
+### Host frontends
+
+The host embeds the sandbox and owns the SPEC wire codec. Choose by your host language and how much of the contract you want pre-assembled.
+
+| Frontend | Package | Add it | Best for |
+|----------|---------|--------|----------|
+| Ruby gem | `kobako` (RubyGems) | `gem install kobako` | A Ruby host — Services, Handles, snippets, and pooling out of the box |
+| Rust SDK | `kobako` (crates.io) | `kobako = "0.8"` | A Rust host — the same behavior contract behind an idiomatic Rust API |
+| Low-level crates | `kobako-wasmtime` + `kobako-runtime` + `kobako-codec` | Cargo deps | A custom host, a swapped engine, or driving the wire directly — see [`examples/rust-host`](examples/rust-host) |
+
+The Rust crates are documented on [crates.io](https://crates.io/crates/kobako); the Ruby gem is this README.
+
+### Pre-built Guest Binaries
+
+The gem bundles the pure `kobako.wasm`. Regexp and JSON are opt-in capabilities compiled into separate variants, each attached to every [GitHub Release](https://github.com/elct9620/kobako/releases). Download a variant and point your host at it — `Sandbox.new(wasm_path:)` in Ruby, `Sandbox::new(path, ...)` in Rust.
+
+| Variant | File | Adds | Distribution |
+|---------|------|------|--------------|
+| Pure (default) | `kobako.wasm` | mruby + IO | Bundled in the gem, and a Release asset |
+| +regexp | `kobako+regexp.wasm` | Regexp / MatchData (ASCII) | Release asset |
+| +regexp-unicode | `kobako+regexp-unicode.wasm` | Regexp / MatchData (Unicode) | Release asset |
+| +json | `kobako+json.wasm` | JSON | Release asset |
+| +full | `kobako+full.wasm` | JSON + Regexp (ASCII) | Release asset |
+
+```ruby
+sandbox = Kobako::Sandbox.new(wasm_path: "kobako+full.wasm")
+sandbox.eval('JSON.generate({ n: "42".to_i })')  # => "{\"n\":42}"
+```
+
+### Custom Guest Binaries
+
+When no pre-built variant matches your capability set, assemble a guest in Rust. `kobako-mruby` is the harness; its `init_gems` hook is where you install exactly the capability gems you want — the shipped `kobako-io` / `kobako-regexp` / `kobako-json`, or your own `beni::Gem`. `kobako-core`'s `export_guest!` emits the wasm ABI. `wasm/kobako-wasm/src/guest.rs` is the worked example.
+
+| Guest crate | Role |
+|-------------|------|
+| `kobako-mruby` | mruby guest harness — the `MrbGuest` trait and provided flows |
+| `kobako-core` | Guest ABI contract — the `Guest` trait and the `export_guest!` macro |
+| `kobako-io` | IO / Kernel capability gem |
+| `kobako-regexp` | Regexp / MatchData capability gem |
+| `kobako-json` | JSON capability gem |
+
+```rust
+use beni::{Error, Mrb};
+
+struct MyGuest;
+
+// Pick the capability gems the guest exposes.
+impl kobako_mruby::MrbGuest for MyGuest {
+    fn init_gems(mrb: &Mrb) -> Result<(), Error> {
+        mrb.init_gem::<kobako_io::KobakoIo>()?;
+        mrb.init_gem::<kobako_json::KobakoJson>()?;
+        Ok(())
+    }
+}
+
+// Forward the ABI contract to the harness flows.
+impl kobako_core::Guest for MyGuest {
+    fn eval() { <MyGuest as kobako_mruby::MrbGuest>::eval() }
+    fn run(env: &[u8]) { <MyGuest as kobako_mruby::MrbGuest>::run(env) }
+    fn yield_to_block(req: &[u8]) -> u64 { <MyGuest as kobako_mruby::MrbGuest>::yield_to_block(req) }
+}
+
+kobako_core::export_guest!(MyGuest);
+```
+
+Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot state into the artifact (see [`CLAUDE.md`](CLAUDE.md) § Build Pipeline).
 
 ## Glossary
 
 | Term | Meaning |
 |------|---------|
 | Sandbox | The runtime unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. |
-| Service | A host Ruby object injected under `<Namespace>::<Member>` — the guest's only path to host resources. |
+| Service | A host object injected under `<Namespace>::<Member>` — the guest's only path to host resources. |
 | Namespace / Member | A guest-visible Ruby module, and a named binding (a module constant) within it. |
 | Invocation | One `#eval` or `#run`; capability state resets between invocations. |
 | Snippet | Named mruby code (source or bytecode) replayed into a fresh state before every invocation. |
@@ -188,7 +264,7 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
           :Adder     → defines Adder
           :Greeter   → defines Greeter
 
-     3. dispatch:  eval(source)  or  run(:Target, *args)
+     3. dispatch:  eval(source)  or  run(:Target, *args, **kwargs)
 
      4. return value to host
 
