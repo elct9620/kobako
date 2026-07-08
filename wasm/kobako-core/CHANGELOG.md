@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.7.0...kobako-core-v0.8.0) (2026-07-08)
+
+
+### Bug Fixes
+
+* **wasm:** guard the frame reader against an over-cap length prefix ([26c6526](https://github.com/elct9620/kobako/commit/26c6526e235d085684c3123b08c5b0319bde1232))
+
 ## [0.7.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.6.1...kobako-core-v0.7.0) (2026-07-03)
 
 

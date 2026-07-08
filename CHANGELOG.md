@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.0](https://github.com/elct9620/kobako/compare/v0.13.0...v0.14.0) (2026-07-08)
+
+
+### Features
+
+* **codec:** add the Run invocation envelope to the wire tier ([dbdd760](https://github.com/elct9620/kobako/commit/dbdd760ddc258681669f7f620f63b75f36322687))
+* **crates:** add the kobako host SDK skeleton ([8a99d09](https://github.com/elct9620/kobako/commit/8a99d09ef7068a6738d44f1a735d39516b24156b))
+* **crates:** add the parity runner to the kobako SDK ([998f059](https://github.com/elct9620/kobako/commit/998f059abd308ef921c295658aaf8377febb44e2))
+* **crates:** grow the SDK capability-Handle table ([f93fe8f](https://github.com/elct9620/kobako/commit/f93fe8f3dce2509cfa527229f8f593f4d816b940))
+* **crates:** grow the SDK Member block-yield seam ([4404713](https://github.com/elct9620/kobako/commit/44047130f309a2c935198077fb4f7f86839355e7))
+* **crates:** grow the SDK preload and run invocation seams ([d8d5fe2](https://github.com/elct9620/kobako/commit/d8d5fe268a56d45dad4f8b35a25e942a559dcd5f))
+* **crates:** honor the respond_to_guest narrowing on the SDK Member seam ([0f5eff1](https://github.com/elct9620/kobako/commit/0f5eff16a1e9f2229ad9d9c9316bf94e92035301))
+* **crates:** let a resolved Handle recover its concrete member type ([abd5502](https://github.com/elct9620/kobako/commit/abd55029a44a7631d323c3aec3b625d9692f9c5b))
+* **crates:** mark the SDK Error taxonomy non_exhaustive ([001fc69](https://github.com/elct9620/kobako/commit/001fc69e637d2c046f55cb517f9d9cf931793715))
+* **examples:** add the guest→host dispatch half to the Rust host ([5cdde68](https://github.com/elct9620/kobako/commit/5cdde68824352c5685aaa94ae464e909705a4648))
+* **examples:** assemble a minimal Rust host on the published crates ([6b98680](https://github.com/elct9620/kobako/commit/6b98680bcb625f9790f44df839035427a576e266))
+* **tasks:** add a rails-stats-style rake stats size report ([c02d530](https://github.com/elct9620/kobako/commit/c02d530d43a85594323b7801fdbe75aa95ae7f8c))
+* **tasks:** gate parity coverage over the CORE anchor manifest ([d26972c](https://github.com/elct9620/kobako/commit/d26972c1ad51e05df951643e17d66a6c811ba862))
+
+
+### Bug Fixes
+
+* **crates:** give SetupError a Display so Error::Setup reads cleanly ([bc8b128](https://github.com/elct9620/kobako/commit/bc8b128c9e296319c7fef47441b412d2ce345dff))
+* **crates:** keep the no-timeout epoch deadline within range ([a3255df](https://github.com/elct9620/kobako/commit/a3255df98a77825bb39b571a60fe6ff83d269d19))
+* **crates:** reject trailing bytes on Request and Run decode ([8e4929b](https://github.com/elct9620/kobako/commit/8e4929b64f3ea690f38211888070c2511da84754))
+* **lib:** close the Data #with seam on Handle construction ([c0b50ae](https://github.com/elct9620/kobako/commit/c0b50aec659e32a72c905aaf94c939ac009ad621))
+* **release:** resume the gem push loop past already-live versions ([170ee9b](https://github.com/elct9620/kobako/commit/170ee9bae6da3a65b4016040259e31e4721dfcfb))
+* **release:** treat a yanked-only version as unpublished when publishing ([3111cc0](https://github.com/elct9620/kobako/commit/3111cc072a7c9d18b129fd2762f267d855b48d55))
+* **transport:** fold fault messages to UTF-8 before they ride the wire ([0be8d40](https://github.com/elct9620/kobako/commit/0be8d4068dc5647f86746e80b356b0b9d52051f7))
+
 ## [0.13.0](https://github.com/elct9620/kobako/compare/v0.12.2...v0.13.0) (2026-07-03)
 
 

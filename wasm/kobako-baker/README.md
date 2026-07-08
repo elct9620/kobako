@@ -33,7 +33,7 @@ As a library, for third-party guest shells built on
 
 ```toml
 [dependencies]
-kobako-baker = "0.7.0" # x-release-please-version
+kobako-baker = "0.8.0" # x-release-please-version
 ```
 
 ```rust
