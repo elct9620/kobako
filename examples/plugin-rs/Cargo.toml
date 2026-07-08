@@ -1,0 +1,24 @@
+# plugin-rs — a Rust host that runs untrusted mruby *plugins* on the
+# `kobako` SDK crate, the idiomatic Rust counterpart of the Ruby gem's
+# `Kobako::Sandbox`. The host grants a plugin exactly three capabilities
+# and nothing else: a `Notes::Store` service, the note Handle `open`
+# hands back, and a block the host yields into — the SDK conveniences a
+# low-level host would otherwise assemble by hand.
+#
+# Standalone workspace (the empty `[workspace]` table) consuming the
+# crates.io release, the exact path a third-party embedder takes, so it
+# builds from this directory alone and never joins the repository's ext
+# workspace.
+
+[package]
+name = "kobako-plugin-host"
+version = "0.0.0"
+edition = "2021"
+# Trait-upcasting `Arc<dyn Receiver>` to `Arc<dyn Any>` in `resolve`.
+rust-version = "1.86"
+publish = false
+
+[workspace]
+
+[dependencies]
+kobako = "0.8"
