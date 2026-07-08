@@ -178,9 +178,22 @@ jobs:
       - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
       - name: Push all gems
         run: |
+          # A version already live on rubygems.org is not a failure on a
+          # re-run after a partial push: skip it and keep going, while
+          # still failing loudly on any other push error. `gem push`
+          # targets the exact name-version-platform, so this stays
+          # per-gem precise across the plain and native builds.
           for gem in pkg/*.gem; do
             echo "Pushing $gem"
-            gem push "$gem"
+            if output="$(gem push "$gem" 2>&1)"; then
+              echo "$output"
+            elif grep -q "Repushing of gem versions is not allowed" <<<"$output"; then
+              echo "$output"
+              echo "$gem is already on rubygems.org; skipping"
+            else
+              echo "$output" >&2
+              exit 1
+            fi
           done
 
   release-assets:
