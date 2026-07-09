@@ -1,7 +1,6 @@
 module Kobako
   module Codec
     class Factory
-      include Singleton
       extend Forwardable
       extend SingleForwardable
 
@@ -9,15 +8,17 @@ module Kobako
       EXT_HANDLE: Integer
       EXT_ERRENV: Integer
       MAX_EXT_DEPTH: Integer
-      EXT_DEPTH_KEY: Symbol
-      SAW_HANDLE_KEY: Symbol
+      FACTORY_KEY: Symbol
+
+      def self.instance: () -> Factory
 
       def dump: (untyped value) -> String
       def load: (String bytes) -> untyped
+      def reset_handle_tracking!: () -> void
+      def saw_handle?: () -> bool
 
       def self.dump: (untyped value) -> String
       def self.load: (String bytes) -> untyped
-
       def self.reset_handle_tracking!: () -> void
       def self.saw_handle?: () -> bool
 
