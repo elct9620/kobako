@@ -26,7 +26,9 @@ class TestCodecContainers < Minitest::Test
   def test_array_crosses_array16_boundary
     [Array.new(15, 0), Array.new(16, 0), Array.new(0xffff, 0), Array.new(0x1_0000, 0)].each do |a|
       _, decoded = roundtrip(a)
-      assert_equal a, decoded
+      assert_equal a, decoded,
+                   "a #{a.length}-element Array across the fixarray/array16/array32 tag boundaries " \
+                   "must round-trip unchanged"
     end
   end
 
@@ -60,7 +62,8 @@ class TestCodecContainers < Minitest::Test
       [{ "deep" => [{ "deeper" => [h] }] }]
     ]
     _, decoded = roundtrip(value)
-    assert_equal value, decoded
+    assert_equal value, decoded,
+                 "a mixed tree of Handles and Faults nested in Arrays and Hashes must round-trip unchanged"
   end
 
   # A structure nested beyond the codec's depth bound (the MessagePack
