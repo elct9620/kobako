@@ -109,7 +109,7 @@ ext 0x01 may appear in: Request `target` field (Handle reference form), Request 
 | `"message"` | str | Human-readable description |
 | `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
 
-ext 0x02 may appear only in the Response fault variant's envelope field. It must not appear in Request `args` or any other position.
+ext 0x02 may appear only in the Response fault variant's envelope field — including nested within that envelope's own `details` chain — and must not appear in any other wire position. A guest→host payload (a Request, a YieldResponse, or an Outcome envelope) carrying ext 0x02 anywhere is a wire violation the Host Gem rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). The Host Gem never emits one outside the legal position: a `Kobako::Fault` in a host→guest payload position is not wire-representable there and follows that path's non-representable handling — auto-wrap on a dispatch return value (→ [`behavior/dispatch.md`](behavior/dispatch.md) § B-14), refusal on a yield argument.
 
 A `details` value may itself contain ext-encoded values, and every decoder bounds that ext nesting with the same 128-level discipline as structural nesting (→ § Structural Nesting Depth); whether an implementation counts ext frames against the structural budget or against a separate 128-level budget is implementation-defined, so a payload mixing deep structural nesting with nested Faults may be rejected at different combined depths by different implementers — always as a clean wire error, never a trap.
 
@@ -142,7 +142,7 @@ A 2-element msgpack array with fixed field positions:
 | Index | Field | Type |
 |-------|-------|------|
 | 0 | `status` | int — `0` (success) or `1` (error) |
-| 1 | `value` (status=0) or fault envelope (status=1) | any wire-legal type including ext 0x01, or ext 0x02 |
+| 1 | `value` (status=0) or fault envelope (status=1) | status=0: any wire-legal type including ext 0x01, except ext 0x02; status=1: ext 0x02 fault envelope |
 
 ### Result Envelope (Outcome payload — success)
 

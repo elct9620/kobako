@@ -1,7 +1,7 @@
 # Error scenarios
 
 Every Sandbox invocation terminates in exactly one of four outcomes; this file
-details E-01..E-48 and the two-step attribution decision. The governing summary
+details E-01..E-50 and the two-step attribution decision. The governing summary
 lives in [`SPEC.md`](../../SPEC.md) § Behavior. `E-xx` anchors are global and
 append-only across the corpus (N-8).
 
@@ -61,6 +61,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire-codec.md`](../wire-codec.md) § Type Mapping, or that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth) | B-24 — yield round-trip |
 | E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
+| E-50 | A guest→host payload carries an ext 0x02 Fault envelope — in a dispatch Request, a YieldResponse value, a Result envelope value, or a Panic envelope — violating the fault envelope's sole legal wire position (the Response `status=1` fault field, → [`docs/wire-codec.md`](../wire-codec.md) § ext 0x02). The Result / Panic envelope paths raise `Kobako::Transport::Error`; the Request path rejects the dispatch through the malformed-payload channel (`type="runtime"`), and the YieldResponse path raises at the Service yield site — both surfacing as `Kobako::ServiceError` when the script leaves the failure unrescued | B-06 — return value; B-12 — dispatch; B-24 — yield round-trip |
 
 ---
 
