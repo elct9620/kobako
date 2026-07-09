@@ -16,7 +16,7 @@ module Kobako
 
       private
 
-      def restore: (untyped value) -> untyped
+      def restore: (untyped value, bool carried_handle) -> untyped
 
       def yield_failure: (untyped payload, default: String) -> RuntimeError
     end

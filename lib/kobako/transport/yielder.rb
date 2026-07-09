@@ -52,8 +52,12 @@ module Kobako
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
-        response = Kobako::Transport::Yield.decode(@yield_to_guest.call(Kobako::Codec::Encoder.encode(args)))
-        return restore(response.value) if response.ok?
+        # The tracking bracket opens only around the decode: the guest
+        # re-entry above it may run nested dispatches whose own brackets
+        # would otherwise pollute the signal.
+        bytes = @yield_to_guest.call(Kobako::Codec::Encoder.encode(args))
+        response, carried_handle = Kobako::Codec.track_handles { Kobako::Transport::Yield.decode(bytes) }
+        return restore(response.value, carried_handle) if response.ok?
 
         throw @break_tag, response.value if response.break?
 
@@ -78,10 +82,12 @@ module Kobako
       # Restore any Capability Handle in a block's ok value to its host
       # object via the injected +Catalog::Handles+. Only the
       # ok path calls this — host code consumes the ok value, whereas a
-      # break value returns to the guest and stays a Handle. Walks nested
-      # Array / Hash one level at a time; a plain value passes through
-      # unchanged.
-      def restore(value)
+      # break value returns to the guest and stays a Handle. A response
+      # whose decode carried no Handle resolves to itself, so the walk is
+      # skipped entirely.
+      def restore(value, carried_handle)
+        return value unless carried_handle
+
         Kobako::Codec::HandleWalk.deep_restore(value, @handler)
       end
 
