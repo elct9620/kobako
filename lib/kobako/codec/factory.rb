@@ -58,6 +58,17 @@ module Kobako
       EXT_DEPTH_KEY = :__kobako_codec_ext_depth__
       private_constant :MAX_EXT_DEPTH, :EXT_DEPTH_KEY
 
+      # Decode-time signal that the value tree carried at least one ext 0x01
+      # Capability Handle. #unpack_handle is the sole chokepoint every Handle
+      # passes through, so setting the flag there records the whole tree in one
+      # decode pass; a caller that #reset_handle_tracking! before the decode and
+      # reads #saw_handle? straight after can skip an all-identity Handle walk
+      # when none was present. Thread-scoped for the same reason as the ext-depth
+      # counter: the Factory is a process-wide Singleton but host decodes run
+      # synchronously per thread.
+      SAW_HANDLE_KEY = :__kobako_codec_saw_handle__
+      private_constant :SAW_HANDLE_KEY
+
       # Instance-level pass-through onto the wrapped +MessagePack::Factory+.
       # Spelled +def_instance_delegators+ rather than +def_delegators+ because
       # the class also extends +SingleForwardable+ (see the +extend+ block
@@ -69,6 +80,20 @@ module Kobako
       # Class-level shortcuts so callers can write +Factory.dump(v)+ instead
       # of +Factory.instance.dump(v)+; both resolve to the same singleton.
       def_single_delegators :instance, :dump, :load
+
+      # Clear the decode-time Handle signal ahead of a decode; pair with
+      # #saw_handle? read straight after to learn whether the tree carried a
+      # Capability Handle. See SAW_HANDLE_KEY.
+      def self.reset_handle_tracking!
+        Thread.current[SAW_HANDLE_KEY] = false
+      end
+
+      # Whether the most recent decode on this thread carried an ext 0x01
+      # Handle. Only meaningful immediately after a decode bracketed by
+      # #reset_handle_tracking!.
+      def self.saw_handle?
+        Thread.current[SAW_HANDLE_KEY] || false
+      end
 
       def initialize
         @factory = MessagePack::Factory.new
@@ -129,6 +154,7 @@ module Kobako
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape.
       def unpack_handle(payload)
+        Thread.current[SAW_HANDLE_KEY] = true
         bytes = payload.b
         raise InvalidType, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 

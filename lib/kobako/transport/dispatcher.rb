@@ -77,24 +77,32 @@ module Kobako
       # returns a binary String — every failure path is reified as a
       # Response.error envelope so the guest sees a transport error rather
       # than a wasm trap.
+      #
+      # The decode is bracketed by the Factory's Handle tracking so
+      # #resolve_call_args can skip the argument walk when no Capability
+      # Handle crossed the wire.
       def dispatch(request_bytes, namespaces, handler, yield_to_guest)
+        Kobako::Codec::Factory.reset_handle_tracking!
         request = Kobako::Transport::Request.decode(request_bytes)
         target = resolve_target(request.target, namespaces, handler)
-        args, kwargs = resolve_call_args(request, handler)
+        args, kwargs = resolve_call_args(request, handler, Kobako::Codec::Factory.saw_handle?)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if request.block_given
-        value = catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }
-        encode_ok(value, handler)
+        encode_ok(catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }, handler)
       rescue StandardError => e
         encode_caught_error(e)
       ensure
         yielder&.invalidate!
       end
 
-      # Resolve positional and keyword arguments off +request+ in one
-      # step. Both pass through #resolve_arg so Capability Handles
-      # round-trip back to the host-side Ruby object before the call
-      # reaches +public_send+.
-      def resolve_call_args(request, handler)
+      # Resolve positional and keyword arguments off +request+ in one step.
+      # +saw_handle+ reports whether the decode carried any Capability Handle;
+      # when it did not, every argument resolves to itself, so the decoded
+      # values pass straight through and the walk is skipped entirely. Otherwise
+      # both go through #resolve_arg so Handles round-trip back to the host-side
+      # Ruby object before the call reaches +public_send+.
+      def resolve_call_args(request, handler, saw_handle)
+        return [request.args, request.kwargs] unless saw_handle
+
         [request.args.map { |v| resolve_arg(v, handler) },
          request.kwargs.transform_values { |v| resolve_arg(v, handler) }]
       end
