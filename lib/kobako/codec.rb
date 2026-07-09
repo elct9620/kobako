@@ -3,6 +3,7 @@
 require_relative "codec/error"
 require_relative "codec/utils"
 require_relative "codec/handle_walk"
+require_relative "codec/ext_types"
 require_relative "codec/factory"
 require_relative "codec/encoder"
 require_relative "codec/decoder"
@@ -18,12 +19,12 @@ module Kobako
   # the kobako root so the codec can register them without depending
   # upward on Transport.
   #
-  # Backed by the official +msgpack+ gem via Factory; Encoder and
-  # Decoder are thin wrappers that register the three kobako-specific
-  # ext types (0x00 Symbol, 0x01 Capability Handle, 0x02 Exception
-  # envelope) on a cached +MessagePack::Factory+ instance. The Rust side
+  # Backed by the official +msgpack+ gem: ExtTypes registers the three
+  # kobako-specific ext types (0x00 Symbol, 0x01 Capability Handle,
+  # 0x02 Exception envelope) on one process-wide +MessagePack::Factory+,
+  # and Encoder / Decoder are thin wrappers over it. The Rust side
   # mirrors this layer as the +codec+ module in the +kobako-codec+ crate;
-  # the ext-code constants live as module-private values on Factory
+  # the ext-code constants live as module-private values on ExtTypes
   # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ /
   # +codec::EXT_ERRENV+ on that side.
   module Codec

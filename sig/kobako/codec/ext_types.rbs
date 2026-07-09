@@ -1,0 +1,31 @@
+module Kobako
+  module Codec
+    module ExtTypes
+      EXT_SYMBOL: Integer
+      EXT_HANDLE: Integer
+      EXT_ERRENV: Integer
+
+      def self?.build_factory: () -> MessagePack::Factory
+
+      def self?.pack_symbol: (Symbol symbol) -> String
+
+      def self?.unpack_symbol: (String payload) -> Symbol
+
+      def self?.pack_handle: (Kobako::Handle handle) -> String
+
+      def self?.unpack_handle: (String payload, Factory state) -> Kobako::Handle
+
+      def self?.pack_fault: (Kobako::Fault fault, Factory state) -> String
+
+      def self?.unpack_fault: (String payload, Factory state) -> Kobako::Fault
+
+      def self?.register_symbol: (MessagePack::Factory factory) -> void
+
+      def self?.register_handle: (MessagePack::Factory factory) -> void
+
+      def self?.register_fault: (MessagePack::Factory factory) -> void
+    end
+
+    FACTORY: MessagePack::Factory
+  end
+end
