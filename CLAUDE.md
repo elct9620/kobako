@@ -125,7 +125,7 @@ Catalog         Kobako::Catalog::{Namespaces, Snippets, Handles}
 Transport ──┐   Kobako::Transport::{Request, Response, Run, Yield, Dispatcher, Yielder}
 Outcome ────┤   Kobako::Outcome (decode + Panic)
       │     │
-Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, ExtTypes, State, Utils, HandleWalk}   (byte-level wire)
+Codec ◄─────┘   Kobako::Codec::{Encoder, Decoder, ExtTypes, State, Utils, HandleWalk, Error}   (byte-level wire)
       │
 Root            Kobako::{Handle, Fault, Capture, Usage, Namespace, SandboxOptions},
                 Kobako::Snippet::{Source, Binary}, Kobako::Outcome::Panic, Kobako::*Error
