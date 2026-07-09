@@ -45,9 +45,21 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Value, Error> {
 /// codec detail preserved for operator triage.
 fn decode_value(body: &[u8]) -> Result<Value, Error> {
     let mut decoder = Decoder::new(body);
-    decoder
+    let value = decoder
         .read_only_value()
-        .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))
+        .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))?;
+    // A Result envelope is a payload position: the Fault envelope's only
+    // home is the Response fault field, so an ext 0x02 in the carried
+    // value is a wire violation.
+    if value.contains_errenv() {
+        return Err(wire_violation(
+            "Sandbox produced an invalid result value",
+            &kobako_codec::codec::Error::Malformed(
+                "Fault envelope (ext 0x02) is not a legal value in a Result envelope",
+            ),
+        ));
+    }
+    Ok(value)
 }
 
 /// Panic branch: a well-formed record maps onto the taxonomy by its
@@ -110,6 +122,21 @@ mod tests {
     fn value_branch_decodes_to_the_carried_value() {
         let bytes = Outcome::Value(Value::Int(42)).encode().unwrap();
         assert_eq!(decode(&bytes).unwrap(), Value::Int(42));
+    }
+
+    // E-50: a Result envelope smuggling an ext 0x02 surfaces through the
+    // invalid-result wire-violation channel, matching the Ruby frontend.
+    #[test]
+    fn value_branch_rejects_errenv_as_wire_violation() {
+        let mut bytes = vec![0x01];
+        let mut enc = kobako_codec::codec::Encoder::new();
+        enc.write_value(&Value::ErrEnv(vec![0x80])).unwrap();
+        bytes.extend_from_slice(&enc.into_bytes());
+        let result = decode(&bytes);
+        assert!(
+            matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("invalid result value")),
+            "expected the invalid-result wire violation, got {result:?}"
+        );
     }
 
     #[test]

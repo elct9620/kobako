@@ -118,6 +118,16 @@ impl codec::Decode for Request {
             Value::Bool(b) => b,
             _ => return Err(codec::Error::Malformed("Request block_given must be bool")),
         };
+        // A Request is a payload position: the Fault envelope's only home
+        // is the Response fault field, so an ext 0x02 anywhere in the
+        // argument trees is a wire violation.
+        if args.iter().any(Value::contains_errenv)
+            || kwargs.iter().any(|(_, v)| v.contains_errenv())
+        {
+            return Err(codec::Error::Malformed(
+                "Fault envelope (ext 0x02) is not a legal value in a Request",
+            ));
+        }
         Ok(Request {
             target,
             method,
@@ -132,6 +142,27 @@ impl codec::Decode for Request {
 mod tests {
     use super::*;
     use crate::codec::{Decode, Encode};
+
+    // E-50: the Fault envelope's only home is the Response fault field; a
+    // Request smuggling one in an argument tree must fail decode.
+    #[test]
+    fn decode_rejects_errenv_in_args() {
+        let req = Request {
+            target: Target::Path("Store::Users".into()),
+            method: "find".into(),
+            args: vec![Value::Map(vec![(
+                Value::Str("e".into()),
+                Value::ErrEnv(vec![0x80]),
+            )])],
+            kwargs: vec![],
+            block_given: false,
+        };
+        let bytes = req.encode().unwrap();
+        assert!(matches!(
+            Request::decode(&bytes),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
 
     #[test]
     fn request_round_trip_with_path_target() {

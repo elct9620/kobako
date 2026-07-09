@@ -115,6 +115,23 @@ pub enum Value {
     ErrEnv(Vec<u8>),
 }
 
+impl Value {
+    /// Whether this tree carries an `ErrEnv` leaf anywhere. The Fault
+    /// envelope's sole legal wire position is the Response fault field,
+    /// so the host-side envelope decoders reject a payload-position
+    /// tree this answers `true` for.
+    pub fn contains_errenv(&self) -> bool {
+        match self {
+            Value::ErrEnv(_) => true,
+            Value::Array(items) => items.iter().any(Value::contains_errenv),
+            Value::Map(pairs) => pairs
+                .iter()
+                .any(|(k, v)| k.contains_errenv() || v.contains_errenv()),
+            _ => false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // rmp error mapping
 // ---------------------------------------------------------------------------

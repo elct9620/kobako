@@ -134,6 +134,14 @@ impl Decode for Panic {
                     }
                     _ => return Err(codec::Error::Malformed("Panic backtrace must be array")),
                 },
+                // A Panic envelope is a payload position: the Fault
+                // envelope's only home is the Response fault field, so an
+                // ext 0x02 in `details` is a wire violation.
+                "details" if v.contains_errenv() => {
+                    return Err(codec::Error::Malformed(
+                        "Fault envelope (ext 0x02) is not a legal value in Panic details",
+                    ))
+                }
                 "details" => details = Some(v),
                 _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
             }
@@ -184,7 +192,16 @@ impl Decode for Outcome {
         match tag {
             OUTCOME_TAG_RESULT => {
                 let mut dec = Decoder::new(body);
-                Ok(Outcome::Value(dec.read_only_value()?))
+                let value = dec.read_only_value()?;
+                // A Result envelope is a payload position: the Fault
+                // envelope's only home is the Response fault field, so an
+                // ext 0x02 in the carried value is a wire violation.
+                if value.contains_errenv() {
+                    return Err(codec::Error::Malformed(
+                        "Fault envelope (ext 0x02) is not a legal value in a Result envelope",
+                    ));
+                }
+                Ok(Outcome::Value(value))
             }
             OUTCOME_TAG_PANIC => Ok(Outcome::Panic(Panic::decode(body)?)),
             _ => Err(codec::Error::Malformed("Outcome tag must be 0x01 or 0x02")),
@@ -201,6 +218,36 @@ mod tests {
     use super::*;
 
     // ---------------- Panic envelope ----------------
+
+    // E-50: the Fault envelope's only home is the Response fault field; a
+    // Panic envelope smuggling one in `details` must fail decode.
+    #[test]
+    fn panic_decode_rejects_errenv_in_details() {
+        let p = Panic {
+            origin: "sandbox".into(),
+            class: "RuntimeError".into(),
+            message: "boom".into(),
+            backtrace: vec![],
+            details: Some(Value::ErrEnv(vec![0x80])),
+        };
+        let bytes = p.encode().unwrap();
+        assert!(matches!(
+            Panic::decode(&bytes),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
+
+    // E-50: a Result envelope smuggling an ext 0x02 — even nested — must
+    // fail decode.
+    #[test]
+    fn outcome_value_decode_rejects_errenv() {
+        let o = Outcome::Value(Value::Array(vec![Value::ErrEnv(vec![0x80])]));
+        let bytes = o.encode().unwrap();
+        assert!(matches!(
+            Outcome::decode(&bytes),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
 
     #[test]
     fn panic_round_trip_minimum() {

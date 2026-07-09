@@ -78,6 +78,14 @@ impl Decode for Yield {
 
         let mut dec = Decoder::new(body);
         let value = dec.read_only_value()?;
+        // A YieldResponse is a payload position: the Fault envelope's only
+        // home is the Response fault field, so an ext 0x02 in the value is
+        // a wire violation.
+        if value.contains_errenv() {
+            return Err(codec::Error::Malformed(
+                "Fault envelope (ext 0x02) is not a legal value in a YieldResponse",
+            ));
+        }
         Ok(Yield { tag, value })
     }
 }
@@ -94,6 +102,21 @@ mod tests {
         };
         let bytes = resp.encode().unwrap();
         assert_eq!(Yield::decode(&bytes).unwrap(), resp);
+    }
+
+    // E-50: the Fault envelope's only home is the Response fault field; a
+    // YieldResponse smuggling one — bare or nested — must fail decode.
+    #[test]
+    fn decode_rejects_errenv_in_ok_value() {
+        let resp = Yield {
+            tag: TAG_OK,
+            value: Value::Array(vec![Value::Int(1), Value::ErrEnv(vec![0x80])]),
+        };
+        let bytes = resp.encode().unwrap();
+        assert!(matches!(
+            Yield::decode(&bytes),
+            Err(codec::Error::Malformed(_))
+        ));
     }
 
     #[test]
