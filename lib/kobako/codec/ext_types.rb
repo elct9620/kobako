@@ -4,6 +4,7 @@ require "msgpack"
 
 require_relative "error"
 require_relative "utils"
+require_relative "state"
 require_relative "../handle"
 require_relative "../fault"
 
@@ -130,15 +131,15 @@ module Kobako
         factory.register_type(
           EXT_HANDLE, Kobako::Handle,
           packer: ->(handle) { ExtTypes.pack_handle(handle) },
-          unpacker: ->(payload) { ExtTypes.unpack_handle(payload, Factory.instance) }
+          unpacker: ->(payload) { ExtTypes.unpack_handle(payload, State.current) }
         )
       end
 
       def register_fault(factory)
         factory.register_type(
           EXT_ERRENV, Kobako::Fault,
-          packer: ->(fault) { ExtTypes.pack_fault(fault, Factory.instance) },
-          unpacker: ->(payload) { ExtTypes.unpack_fault(payload, Factory.instance) }
+          packer: ->(fault) { ExtTypes.pack_fault(fault, State.current) },
+          unpacker: ->(payload) { ExtTypes.unpack_fault(payload, State.current) }
         )
       end
     end

@@ -3,7 +3,7 @@
 require "msgpack"
 
 require_relative "error"
-require_relative "factory"
+require_relative "ext_types"
 require_relative "utils"
 
 module Kobako
@@ -31,7 +31,7 @@ module Kobako
       # surfaces as InvalidType without a separate Utils.with_boundary
       # wrapper at the call site.
       def self.decode(bytes)
-        value = Factory.load(bytes.b)
+        value = FACTORY.load(bytes.b)
         validate_utf8!(value)
         block_given? ? yield(value) : value
       # msgpack gem raises the format/type errors below; +ArgumentError+
@@ -54,7 +54,7 @@ module Kobako
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any
       # str-typed leaf via Utils.assert_utf8!. Kobako::Fault
-      # payloads are validated transitively: +Factory.unpack_fault+
+      # payloads are validated transitively: +ExtTypes#unpack_fault+
       # feeds the inner ext-0x02 bytes back through this Decoder, so their
       # +str+ fields are already covered by the time control returns here.
       class << self

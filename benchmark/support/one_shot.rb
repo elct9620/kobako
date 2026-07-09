@@ -12,8 +12,8 @@ module Kobako
       # Record a one-shot CPU-time measurement. +label+ identifies the
       # observation; the block is executed exactly once and the CPU
       # seconds it consumes are recorded.
-      def one_shot(label, &)
-        record_one_shot(label, cpu_time(&))
+      def one_shot(label, &block)
+        record_one_shot(label, cpu_time(&block))
       end
 
       # Run the block +rounds+ times and record the MEDIAN CPU seconds.
@@ -29,8 +29,8 @@ module Kobako
       # per-round setup outside the timer (catalog_handles 5b rebuilds a
       # table per round) collect samples here and record the median via
       # {#record_one_shot}.
-      def time_once(&)
-        cpu_time(&)
+      def time_once(&block)
+        cpu_time(&block)
       end
 
       # Record an already-measured one-shot observation. +rounds+ > 1

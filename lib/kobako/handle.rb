@@ -18,7 +18,7 @@ module Kobako
   # constructor — is removed for the same reason: a legitimate Handle
   # must not derive a sibling with a caller-chosen id. The Host Gem itself constructs
   # Handles through +.restore+, which exists at exactly two call
-  # sites: +Kobako::Codec::Factory#unpack_handle+ (wire decode) and
+  # sites: +Kobako::Codec::ExtTypes#unpack_handle+ (wire decode) and
   # +Kobako::Codec::HandleWalk.deep_wrap+ / +Kobako::Transport::Dispatcher#wrap_as_handle+
   # (allocator paths). Both live inside +lib/kobako/+ and are not part
   # of any public surface.

@@ -94,9 +94,9 @@ module Kobako
       # {#annotate_usage!} point sample, this surfaces the guest budget
       # as a distribution, so a single GC-inflated invocation does not
       # become the row's recorded +wall_time+.
-      def case_with_usage(label, sandbox, &)
-        self.case(label, &)
-        @results.last.merge!(UsageSampler.sample(sandbox, &))
+      def case_with_usage(label, sandbox, &block)
+        self.case(label, &block)
+        @results.last.merge!(UsageSampler.sample(sandbox, &block))
       end
 
       # Persist the collected results to

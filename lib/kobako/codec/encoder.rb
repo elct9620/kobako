@@ -3,7 +3,7 @@
 require "msgpack"
 
 require_relative "error"
-require_relative "factory"
+require_relative "ext_types"
 
 module Kobako
   module Codec
@@ -32,7 +32,7 @@ module Kobako
       # +NoMethodError+ is likewise reported as +UnsupportedType+ rather than
       # propagating.
       def self.encode(value)
-        Factory.dump(value)
+        FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e
         raise UnsupportedType, e.message
       end

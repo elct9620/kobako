@@ -14,7 +14,7 @@ module Kobako
 
       def self?.dispatch: (String request_bytes, Kobako::Transport::_NamespaceRegistry namespaces, Kobako::Codec::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> String
 
-      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Codec::_HandleTable handler, bool saw_handle) -> [Array[untyped], Hash[Symbol, untyped]]
+      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Codec::_HandleTable handler, bool carried_handle) -> [Array[untyped], Hash[Symbol, untyped]]
 
       def self?.encode_caught_error: (StandardError error) -> String
 

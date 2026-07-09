@@ -5,7 +5,7 @@ module Kobako
   #
   # Top-level shared wire primitive: like +Kobako::Handle+ (ext 0x01),
   # +Fault+ is a MessagePack ext-type leaf registered by
-  # +Kobako::Codec::Factory+ and rides nested inside other envelopes (a
+  # +Kobako::Codec::ExtTypes+ and rides nested inside other envelopes (a
   # +Kobako::Transport::Response+ error payload, or another Fault's
   # +details+). It lives at the kobako root rather than under +Transport+
   # because the Codec layer must register it, and Codec must not depend

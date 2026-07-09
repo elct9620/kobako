@@ -1,0 +1,18 @@
+module Kobako
+  module Codec
+    class State
+      MAX_EXT_DEPTH: Integer
+      STATE_KEY: Symbol
+
+      def self.current: () -> State
+
+      def track_handles: [T] { () -> T } -> [T, bool]
+      def record_handle!: () -> void
+      def within_ext_frame: [T] (singleton(Kobako::Codec::Error) over_limit) { () -> T } -> T
+
+      private
+
+      def initialize: () -> void
+    end
+  end
+end

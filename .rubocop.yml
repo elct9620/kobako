@@ -44,3 +44,11 @@ Layout/LineLength:
 # https://github.com/ruby/rbs/blob/master/docs/data_and_struct.md
 Style/DataInheritance:
   Enabled: false
+
+# Steep cannot type anonymous block forwarding at the call site
+# (Ruby::RequiredBlockMissing), and this cop's default auto-corrects
+# every `&block` pass-through into that form. We pick Steep over
+# Rubocop here; the only visible cost is a named block parameter.
+# https://github.com/soutaro/steep/issues/1273
+Naming/BlockForwarding:
+  EnforcedStyle: explicit
