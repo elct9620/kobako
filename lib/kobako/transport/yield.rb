@@ -70,7 +70,10 @@ module Kobako
         body = bytes.byteslice(1, bytes.bytesize - 1) # : String
 
         reject_dead_tag!(tag)
-        new(tag: tag, value: Codec::Decoder.decode(body))
+        # A YieldResponse is a payload position: an ext 0x02 Fault in its
+        # value is a wire violation (the Response fault field is the
+        # envelope's only home).
+        new(tag: tag, value: Codec.forbid_faults { Codec::Decoder.decode(body) })
       end
 
       def self.reject_dead_tag!(tag)

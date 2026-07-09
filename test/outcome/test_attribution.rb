@@ -92,4 +92,33 @@ class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
     assert_kind_of String, err.details,
                    "operator-side codec diagnostic must be preserved in details"
   end
+
+  # --- Result envelope carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
+  #
+  # The Fault envelope's sole legal wire position is the Response status=1
+  # field; a Result envelope smuggling one would hand host code a Fault
+  # whose details can nest Handles nothing outside the wire layer can
+  # resolve. The bare codec stays permissive — the positional rule lives
+  # on the envelope decode.
+  def test_result_envelope_carrying_fault_raises_transport_error
+    fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
+    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, Kobako::Codec::Encoder.encode(fault))
+
+    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
+    assert_match(/Sandbox produced an invalid result value/, err.message,
+                 "E-50: a Result envelope carrying ext 0x02 must surface as an invalid result value")
+  end
+
+  # --- Panic envelope carrying an ext 0x02 Fault in details raises Transport::Error (E-50) ---
+  def test_panic_envelope_carrying_fault_in_details_raises_transport_error
+    fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
+    raw_map = Kobako::Codec::Encoder.encode(
+      "origin" => "sandbox", "class" => "RuntimeError", "message" => "boom", "details" => fault
+    )
+    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
+
+    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
+    assert_match(/Sandbox produced an invalid panic record/, err.message,
+                 "E-50: a Panic envelope carrying ext 0x02 in details must surface as an invalid panic record")
+  end
 end

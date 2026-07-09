@@ -1,6 +1,7 @@
 module Kobako
   module Codec
     def self.track_handles: [T] { () -> T } -> [T, bool]
+    def self.forbid_faults: [T] { () -> T } -> T
 
     # The Handle allocator/resolver a wire walk works against: alloc
     # registers a non-wire-representable object and returns its Handle,

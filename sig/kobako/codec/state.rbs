@@ -8,6 +8,8 @@ module Kobako
 
       def track_handles: [T] { () -> T } -> [T, bool]
       def record_handle!: () -> void
+      def forbid_faults: [T] { () -> T } -> T
+      def faults_forbidden?: () -> bool
       def within_ext_frame: [T] (singleton(Kobako::Codec::Error) over_limit) { () -> T } -> T
 
       private

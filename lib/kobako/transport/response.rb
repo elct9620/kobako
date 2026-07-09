@@ -53,9 +53,16 @@ module Kobako
       def error? = status == STATUS_ERROR
 
       # Encode this Response to msgpack bytes as the 2-element
-      # +[status, payload]+ array.
+      # +[status, payload]+ array. The ok variant's value is a payload
+      # position, so a +Kobako::Fault+ inside it has no wire
+      # representation and surfaces as +UnsupportedType+ — the
+      # Dispatcher's auto-wrap rescue turns it into a Capability Handle.
+      # The error variant carries the Fault envelope in its one legal
+      # position and encodes it plainly.
       def encode
-        Codec::Encoder.encode([status, payload])
+        return Codec::Encoder.encode([status, payload]) if error?
+
+        Codec.forbid_faults { Codec::Encoder.encode([status, payload]) }
       end
 
       # Decode +bytes+ into a Response. Raises +Codec::InvalidType+ when the

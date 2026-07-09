@@ -94,8 +94,16 @@ module Kobako
       # encode — nested kobako values (Handle, nested Fault) reach the
       # registered ext-type packers. A +details+ chain nested past the
       # +state+ depth cap has no wire representation and surfaces as
-      # +UnsupportedType+.
+      # +UnsupportedType+. In a payload position (+state+ inside a
+      # forbid_faults bracket) the envelope has no wire representation at
+      # all, so the refusal routes the value into the position's
+      # non-representable handling — the Dispatcher's auto-wrap rescue,
+      # or a raise at the yield site.
       def pack_fault(fault, state)
+        if state.faults_forbidden?
+          raise UnsupportedType, "Kobako::Fault has no wire representation in a payload position"
+        end
+
         state.within_ext_frame(UnsupportedType) do
           Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
         end
@@ -109,7 +117,14 @@ module Kobako
       # UTF-8 validation as a top-level decode. A nested ext 0x02 in
       # +details+ re-enters this method, so the +state+ ext-frame guard
       # bounds the chain depth to keep it from exhausting the native stack.
+      # In a payload position (+state+ inside a forbid_faults bracket) the
+      # envelope is a wire violation outright — its sole legal position is
+      # the Response fault field.
       def unpack_fault(payload, state)
+        if state.faults_forbidden?
+          raise InvalidType, "Fault envelope (ext 0x02) is not a legal value in a payload position"
+        end
+
         state.within_ext_frame(InvalidType) do
           Decoder.decode(payload) do |map|
             raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)

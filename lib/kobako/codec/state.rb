@@ -33,6 +33,7 @@ module Kobako
       def initialize
         @ext_depth = 0
         @carried_handle = false
+        @faults_forbidden = false
       end
 
       # Bracket a decode and return the block's result together with
@@ -51,6 +52,27 @@ module Kobako
       # decode; #track_handles reports it to the bracketing caller.
       def record_handle!
         @carried_handle = true
+      end
+
+      # Bracket a codec operation in a payload position, where an ext 0x02
+      # Fault envelope has no legal wire representation: the fault field of
+      # an error Response is its only home. The ext-type conversions
+      # consult #faults_forbidden? and refuse the envelope in both
+      # directions while the bracket is open. Save/restore keeps a nested
+      # legal operation on the same thread unaffected.
+      def forbid_faults
+        previous = @faults_forbidden
+        @faults_forbidden = true
+        yield
+      ensure
+        @faults_forbidden = previous
+      end
+
+      # Whether the operation in flight sits inside a #forbid_faults
+      # bracket — i.e. in a payload position where ext 0x02 is a wire
+      # violation.
+      def faults_forbidden?
+        @faults_forbidden
       end
 
       # Track ext-envelope re-entry depth and refuse a chain past

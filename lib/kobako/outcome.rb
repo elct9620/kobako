@@ -70,7 +70,9 @@ module Kobako
     # "Symbol payload must be …" wording, but operators triaging a
     # corrupted Sandbox runtime still need it.
     def decode_value(body)
-      Kobako::Codec::Decoder.decode(body)
+      # The Result envelope is a payload position: an ext 0x02 Fault in it
+      # is a wire violation routed into the invalid-result rescue below.
+      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(body) }
     rescue Kobako::Codec::Error => e
       raise build_transport_error(
         "Sandbox produced an invalid result value",
@@ -99,13 +101,17 @@ module Kobako
     # through the decoder boundary; the message itself is never user-
     # facing — it lands in +details+ via the rescue chain above.
     def build_panic_record(body)
-      Kobako::Codec::Decoder.decode(body) do |map|
-        raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
+      # The Panic envelope is a payload position: an ext 0x02 Fault in its
+      # +details+ is a wire violation routed into the invalid-panic rescue.
+      Kobako::Codec.forbid_faults do
+        Kobako::Codec::Decoder.decode(body) do |map|
+          raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
 
-        Panic.new(
-          origin: map["origin"], klass: map["class"], message: map["message"],
-          backtrace: map["backtrace"] || [], details: map["details"]
-        )
+          Panic.new(
+            origin: map["origin"], klass: map["class"], message: map["message"],
+            backtrace: map["backtrace"] || [], details: map["details"]
+          )
+        end
       end
     end
 

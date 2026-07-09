@@ -44,16 +44,21 @@ module Kobako
       end
 
       # Decode +bytes+ into a Request. Raises +Codec::InvalidType+ when the
-      # envelope is not the expected 5-element msgpack array, or when the
-      # Value Object's construction invariants reject the decoded fields.
+      # envelope is not the expected 5-element msgpack array, when any
+      # position carries an ext 0x02 Fault envelope (a Request is a payload
+      # position; the Response fault field is the envelope's only home), or
+      # when the Value Object's construction invariants reject the decoded
+      # fields.
       def self.decode(bytes)
-        Codec::Decoder.decode(bytes) do |arr|
-          unless arr.is_a?(Array) && arr.length == 5
-            raise Codec::InvalidType, "Request envelope is malformed (expected a 5-element array)"
-          end
+        Codec.forbid_faults do
+          Codec::Decoder.decode(bytes) do |arr|
+            unless arr.is_a?(Array) && arr.length == 5
+              raise Codec::InvalidType, "Request envelope is malformed (expected a 5-element array)"
+            end
 
-          target, method_name, args, kwargs, block_given = arr
-          new(target: target, method_name: method_name, args: args, kwargs: kwargs, block_given: block_given)
+            target, method_name, args, kwargs, block_given = arr
+            new(target: target, method_name: method_name, args: args, kwargs: kwargs, block_given: block_given)
+          end
         end
       end
 

@@ -35,5 +35,14 @@ module Kobako
     def self.track_handles(&block)
       State.current.track_handles(&block)
     end
+
+    # Bracket a codec operation in a payload position: an ext 0x02 Fault
+    # envelope is only legal in the Response fault field, so the envelope
+    # layers open this bracket around every other encode / decode and the
+    # ext-type conversions refuse the envelope while it is open — a wire
+    # violation on decode, no wire representation on encode.
+    def self.forbid_faults(&block)
+      State.current.forbid_faults(&block)
+    end
   end
 end
