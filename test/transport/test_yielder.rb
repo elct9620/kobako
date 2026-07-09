@@ -13,6 +13,9 @@ require "test_helper"
 #   * 0x02 break — the value unwinds past the Service back to the guest
 #                  Member call (B-25), so a Handle passes through unchanged;
 #                  restoring it would churn a fresh Catalog::Handles id.
+#
+# The Handle-free ok case pins the complement: a payload whose decode
+# carried no Handle reaches the yield site unchanged.
 class TestYielder < Minitest::Test
   Yielder = Kobako::Transport::Yielder
   BREAK_TAG = :__test_break__
@@ -24,9 +27,9 @@ class TestYielder < Minitest::Test
   end
 
   # Build a Yielder whose guest re-entry always answers with a YieldResponse
-  # of +tag+ carrying the bound Handle.
-  def yielder_answering(tag)
-    bytes = Kobako::Transport::Yield.new(tag: tag, value: @handle).encode
+  # of +tag+ carrying +value+ (the bound Handle unless overridden).
+  def yielder_answering(tag, value: @handle)
+    bytes = Kobako::Transport::Yield.new(tag: tag, value: value).encode
     Yielder.new(->(_args) { bytes }, BREAK_TAG, @table)
   end
 
@@ -35,6 +38,13 @@ class TestYielder < Minitest::Test
 
     assert_same @object, result,
                 "B-37: a Handle in a 0x01 ok payload reaches the Service yield site as its host object"
+  end
+
+  def test_handle_free_ok_value_passes_through_unchanged
+    result = yielder_answering(Kobako::Transport::TAG_OK, value: ["sum", { "count" => 42 }]).yield
+
+    assert_equal ["sum", { "count" => 42 }], result,
+                 "a Handle-free 0x01 ok payload reaches the Service yield site unchanged"
   end
 
   def test_break_value_handle_passes_through_without_restoration
