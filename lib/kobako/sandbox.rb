@@ -318,7 +318,10 @@ module Kobako
       # token; restore it to the host object the guest referenced before
       # handing the value to the Host App. @handler still holds this
       # invocation's table — reset only happens at the next #begin_invocation!.
-      Codec::HandleWalk.deep_restore(Outcome.decode(return_bytes), @handler)
+      # A Handle-free result resolves to itself, so the restoration walk is
+      # skipped when the decode carried none.
+      value, carried_handle = Codec.track_handles { Outcome.decode(return_bytes) }
+      carried_handle ? Codec::HandleWalk.deep_restore(value, @handler) : value
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
     ensure
