@@ -76,6 +76,25 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
     }
 }
 
+/// Serialize `result_val` as the invocation's Result envelope — or the
+/// matching Panic when the value has no wire representation or the
+/// envelope encode fails. The shared tail of the eval and run entry
+/// bodies, so the outcome attribution cannot drift between them.
+#[cfg(mruby_linked)]
+pub(super) fn write_value_outcome(kobako: &Kobako, result_val: beni::Value) {
+    use kobako_codec::codec::Encode;
+    use kobako_codec::outcome::Outcome;
+    use kobako_core::abi::{write_outcome, write_panic};
+
+    let Some(codec_value) = kobako.try_codec_value(result_val) else {
+        return write_panic(unrepresentable_return_panic(kobako, result_val));
+    };
+    match Outcome::Value(codec_value).encode() {
+        Ok(bytes) => write_outcome(bytes),
+        Err(_) => write_panic(transport_panic("result envelope encode failed")),
+    }
+}
+
 /// Decide which Panic `origin` field a given mruby exception class
 /// should produce. Mirrors the host-side attribution rules —
 /// a `Kobako::ServiceError` raised from a Service capability lands on
@@ -298,15 +317,19 @@ pub(super) fn take_pending_panic(kobako: &Kobako) -> Option<Panic> {
     Some(panic)
 }
 
-/// Build a Panic envelope from an mruby exception value — its class
-/// name, message, and backtrace, with `origin` chosen by
-/// `origin_for_class`. Shared by `take_pending_panic` (the
-/// `mrb->exc`-set path a source / bytecode load leaves) and
-/// `panic_from_error` (the `Err` a protected funcall returns). The
-/// `message` accessor itself raising degrades to the class name rather
-/// than recursing into another panic.
+/// Extract `(class, message, backtrace)` from an mruby exception value
+/// — the fields every host-visible error shape carries, whichever
+/// envelope wraps them (the Panic here, the yield error map in
+/// `yield_block`). Each step reads `exc_val` while it is still
+/// GC-reachable in mruby's arena; an empty classname degrades to
+/// `RuntimeError`, and the `message` accessor itself raising (or
+/// returning empty) degrades to the class name rather than recursing
+/// into another failure.
 #[cfg(mruby_linked)]
-fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
+pub(super) fn exception_fields(
+    kobako: &Kobako,
+    exc_val: beni::Value,
+) -> (String, String, Vec<String>) {
     let mrb = kobako.mrb();
     let class_name = {
         let cn = exc_val.classname(mrb);
@@ -328,9 +351,19 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
         }
     };
     let backtrace = kobako.extract_backtrace(exc_val);
+    (class_name, message, backtrace)
+}
+
+/// Build a Panic envelope from an mruby exception value, with `origin`
+/// chosen by `origin_for_class`. Shared by `take_pending_panic` (the
+/// `mrb->exc`-set path a source / bytecode load leaves) and
+/// `panic_from_error` (the `Err` a protected funcall returns).
+#[cfg(mruby_linked)]
+fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
+    let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
-        origin: origin_for_class(&class_name).into(),
-        class: class_name,
+        origin: origin_for_class(&class).into(),
+        class,
         message,
         backtrace,
         details: None,

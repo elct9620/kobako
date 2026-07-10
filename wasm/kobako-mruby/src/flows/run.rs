@@ -125,9 +125,9 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use kobako_codec::codec::{Decoder, Encode};
-    use kobako_codec::outcome::{Outcome, Panic};
-    use kobako_core::abi::{write_outcome, write_panic};
+    use kobako_codec::codec::Decoder;
+    use kobako_codec::outcome::Panic;
+    use kobako_core::abi::write_panic;
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -270,13 +270,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
     };
 
-    let Some(codec_value) = kobako.try_codec_value(result_val) else {
-        return write_panic(boot::unrepresentable_return_panic(&kobako, result_val));
-    };
-    match Outcome::Value(codec_value).encode() {
-        Ok(bytes) => write_outcome(bytes),
-        Err(_) => write_panic(boot::transport_panic("result envelope encode failed")),
-    }
+    boot::write_value_outcome(&kobako, result_val);
 }
 
 #[cfg(test)]

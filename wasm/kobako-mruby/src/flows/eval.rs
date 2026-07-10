@@ -26,9 +26,7 @@ pub(crate) fn eval<G: crate::MrbGuest>() {
 fn eval_body<G: crate::MrbGuest>() {
     use super::boot;
     use beni::Ccontext;
-    use kobako_codec::codec::Encode;
-    use kobako_codec::outcome::Outcome;
-    use kobako_core::abi::{write_outcome, write_panic};
+    use kobako_core::abi::write_panic;
     use kobako_core::frames;
 
     let preamble = match boot::read_preamble() {
@@ -80,13 +78,7 @@ fn eval_body<G: crate::MrbGuest>() {
         return;
     }
 
-    let Some(codec_value) = kobako.try_codec_value(result_val) else {
-        return write_panic(boot::unrepresentable_return_panic(&kobako, result_val));
-    };
-    match Outcome::Value(codec_value).encode() {
-        Ok(bytes) => write_outcome(bytes),
-        Err(_) => write_panic(boot::transport_panic("result envelope encode failed")),
-    }
+    boot::write_value_outcome(&kobako, result_val);
     // The VM stays in the slot — the host discards the whole instance
     // after draining the outcome (ABI v2 per-invocation discipline).
 }

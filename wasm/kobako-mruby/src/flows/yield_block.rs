@@ -109,7 +109,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // outcomes split on `ci_break_index` vs `enter_idx`.
     let bytes = match result {
         Ok(value) => encode_ok_response(&kobako, value),
-        Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, mrb, exc, enter_idx),
+        Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, exc, enter_idx),
         // A Rust panic inside the protected yield can only surface
         // here under unwinding panics; the guest builds with
         // `panic = "abort"`, so this arm is unreachable in production.
@@ -129,14 +129,13 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
 #[cfg(mruby_linked)]
 fn classify_protected_error(
     kobako: &crate::runtime::Kobako,
-    mrb: &beni::Mrb,
     exc: beni::Value,
     enter_idx: usize,
 ) -> Vec<u8> {
     use beni::sys;
     // A non-break exception is a plain raise — tag 0x04.
     let Some(brk) = exc.as_break() else {
-        return encode_error_response_from_exception(kobako, mrb, exc);
+        return encode_error_response_from_exception(kobako, exc);
     };
     // SAFETY: `exc` is RBreak-tagged (`as_break` returned `Some`); the
     // shim reads `RBreak.ci_break_index`, a VM-internal field with no
@@ -156,35 +155,51 @@ fn classify_protected_error(
     }
 }
 
+/// Encode a value-carrying YieldResponse (ok or break tag). A value
+/// with no wire representation surfaces as a 0x04 TypeError — the host
+/// Yielder reifies it at the Service's yield site — rather than being
+/// coerced to a String; `type_label` / `encode_fail_message` keep each
+/// tag's exact host-visible wording.
 #[cfg(mruby_linked)]
-fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
+fn encode_value_response(
+    kobako: &crate::runtime::Kobako,
+    value: beni::Value,
+    tag: u8,
+    type_label: &str,
+    encode_fail_message: &str,
+) -> Vec<u8> {
     use kobako_codec::codec::Encode;
-    use kobako_codec::transport::{Yield, TAG_BREAK};
+    use kobako_codec::transport::Yield;
     let Some(codec_value) = kobako.try_codec_value(value) else {
-        // `break val` whose value has no wire representation is the
-        // unrepresentable shape on the break path — surface it as a 0x04 error
-        // rather than coerce the value to a String.
         return encode_error_bytes(
             "TypeError",
             &format!(
-                "break value of type {} is not a supported sandbox value type",
+                "{type_label} of type {} is not a supported sandbox value type",
                 value.classname(kobako.mrb())
             ),
             Vec::new(),
         );
     };
     let resp = Yield {
-        tag: TAG_BREAK,
+        tag,
         value: codec_value,
     };
     match resp.encode() {
         Ok(bytes) => bytes,
-        Err(_) => encode_error_bytes(
-            "Kobako::Transport::Error",
-            "failed to encode break value",
-            Vec::new(),
-        ),
+        Err(_) => encode_error_bytes("Kobako::Transport::Error", encode_fail_message, Vec::new()),
     }
+}
+
+#[cfg(mruby_linked)]
+fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
+    use kobako_codec::transport::TAG_BREAK;
+    encode_value_response(
+        kobako,
+        value,
+        TAG_BREAK,
+        "break value",
+        "failed to encode break value",
+    )
 }
 
 #[cfg(mruby_linked)]
@@ -202,65 +217,23 @@ fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_codec::codec::Value>, Stri
 
 #[cfg(mruby_linked)]
 fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    use kobako_codec::codec::Encode;
-    use kobako_codec::transport::{Yield, TAG_OK};
-    let Some(codec_value) = kobako.try_codec_value(value) else {
-        // A block returning a value with no wire representation.
-        // The host Yielder reifies this 0x04 error as an exception at the
-        // Service's yield site instead of receiving a misleading String.
-        return encode_error_bytes(
-            "TypeError",
-            &format!(
-                "block return value of type {} is not a supported sandbox value type",
-                value.classname(kobako.mrb())
-            ),
-            Vec::new(),
-        );
-    };
-    let resp = Yield {
-        tag: TAG_OK,
-        value: codec_value,
-    };
-    match resp.encode() {
-        Ok(bytes) => bytes,
-        Err(_) => encode_error_bytes(
-            "Kobako::Transport::Error",
-            "failed to encode yield ok value",
-            Vec::new(),
-        ),
-    }
+    use kobako_codec::transport::TAG_OK;
+    encode_value_response(
+        kobako,
+        value,
+        TAG_OK,
+        "block return value",
+        "failed to encode yield ok value",
+    )
 }
 
 #[cfg(mruby_linked)]
 fn encode_error_response_from_exception(
     kobako: &crate::runtime::Kobako,
-    mrb: &beni::Mrb,
     exc: beni::Value,
 ) -> Vec<u8> {
-    // Mirror `boot::take_pending_panic` field order: classname →
-    // message → backtrace. Each step uses `exc` while it is still
-    // GC-reachable in mruby's arena.
-    let class_name = {
-        let cn = exc.classname(mrb);
-        if cn.is_empty() {
-            "RuntimeError".to_string()
-        } else {
-            cn.to_string()
-        }
-    };
-    let message = {
-        let msg_val = exc
-            .funcall(mrb, c"message", &[])
-            .unwrap_or(beni::Value::nil());
-        let m = msg_val.to_string(mrb);
-        if m.is_empty() {
-            class_name.clone()
-        } else {
-            m
-        }
-    };
-    let backtrace = kobako.extract_backtrace(exc);
-    encode_error_bytes(&class_name, &message, backtrace)
+    let (class, message, backtrace) = super::boot::exception_fields(kobako, exc);
+    encode_error_bytes(&class, &message, backtrace)
 }
 
 #[cfg(mruby_linked)]
