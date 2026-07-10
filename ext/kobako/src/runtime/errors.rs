@@ -55,48 +55,15 @@ pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }
 
-/// Construct a `Kobako::SetupError` magnus error. Used for every
-/// construction-time failure on the `Runtime.from_path` path before any
-/// invocation runs — unreadable artifact, bytes that are not a valid Wasm
-/// module, or engine / linker / instantiation setup failure. The
-/// `ModuleNotBuiltError` subclass (artifact absent) is
-/// raised through `MODULE_NOT_BUILT_ERROR` directly.
-pub(super) fn setup_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    error_in(ruby, &SETUP_ERROR, msg)
-}
-
-/// Construct a `Kobako::TimeoutError` magnus error. Surfaces the
-/// wall-clock cap path with the verb prefix added
-/// by `Kobako::Sandbox#invoke!`.
-fn timeout_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    error_in(ruby, &TIMEOUT_ERROR, msg)
-}
-
-/// Construct a `Kobako::MemoryLimitError` magnus error. Surfaces the
-/// linear-memory cap path with the verb prefix
-/// added by `Kobako::Sandbox#invoke!`.
-fn memory_limit_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    error_in(ruby, &MEMORY_LIMIT_ERROR, msg)
-}
-
-/// Construct a `Kobako::SandboxError` magnus error. Used for the
-/// host-side pre-call faults the SPEC attributes to the sandbox / wire
-/// layer rather than the Wasm engine — currently the `#run` invocation
-/// envelope reservation failure (`__kobako_alloc` returns 0).
-/// The runtime is intact, so this must not be a
-/// `TrapError`: no discard-and-recreate recovery is owed to the caller.
-fn sandbox_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
-    error_in(ruby, &SANDBOX_ERROR, msg)
-}
-
 /// Map a neutral `Trap` onto its `Kobako::TrapError`-family Ruby exception.
 /// The boundary between the magnus-free run mechanics and the Ruby surface:
 /// the run path classifies a fault into a `Trap`, and this is where it
-/// becomes a raised exception.
+/// becomes a raised exception. The verb prefix (`Sandbox#eval` / `#run`)
+/// is added by `Kobako::Sandbox#invoke!`.
 pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     match trap {
-        Trap::Timeout(msg) => timeout_err(ruby, msg),
-        Trap::MemoryLimit(msg) => memory_limit_err(ruby, msg),
+        Trap::Timeout(msg) => error_in(ruby, &TIMEOUT_ERROR, msg),
+        Trap::MemoryLimit(msg) => error_in(ruby, &MEMORY_LIMIT_ERROR, msg),
         Trap::Other(msg) => trap_err(ruby, msg),
     }
 }
@@ -106,8 +73,11 @@ pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
 pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
         SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
-        SetupError::Dead(msg) => setup_err(ruby, msg),
-        SetupError::Intact(msg) => sandbox_err(ruby, msg),
+        SetupError::Dead(msg) => error_in(ruby, &SETUP_ERROR, msg),
+        // Runtime intact means a host-side pre-call fault the SPEC
+        // attributes to the sandbox / wire layer, not the engine — no
+        // discard-and-recreate recovery is owed, so never a TrapError.
+        SetupError::Intact(msg) => error_in(ruby, &SANDBOX_ERROR, msg),
     }
 }
 

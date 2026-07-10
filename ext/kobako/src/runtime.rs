@@ -58,12 +58,9 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
-    // Error hierarchy lives in `lib/kobako/errors.rb` (top-level
-    // `Kobako::TrapError` / `TimeoutError` / `MemoryLimitError` /
-    // `SetupError` / `ModuleNotBuiltError`). The ext raises directly into
-    // those classes through `trap_err` / `timeout_err` / `memory_limit_err`
-    // / `sandbox_err` / `setup_err` / `MODULE_NOT_BUILT_ERROR`; no
-    // intermediate hierarchy is registered.
+    // Error hierarchy lives in `lib/kobako/errors.rb`; the ext raises
+    // directly into those classes through the constructors and mappers
+    // in `runtime/errors.rs` — no intermediate hierarchy is registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 6))?;
