@@ -78,6 +78,21 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "a private static must not"
   end
 
+  # Witnesses the corpus shape kobako-core's guest.rs holds: an
+  # exported macro is public surface exactly like a pub fn, while a
+  # bare macro_rules! stays crate-internal.
+  def test_pub_items_include_exported_macros_only
+    sources = { "src/guest.rs" => <<~RS }
+      #[macro_export]
+      macro_rules! export_guest { ($guest:ty) => {}; }
+      macro_rules! internal_helper { () => {}; }
+    RS
+
+    assert_equal [["export_guest", "src/guest.rs:2"]], Surface.pub_items(sources),
+                 "a #[macro_export] macro through pub_items must surface at its macro_rules! line; " \
+                 "a bare macro_rules! must not"
+  end
+
   def test_unconsumed_excludes_referenced_and_acknowledged_items
     items = [["pack_u64", "src/abi.rs:1"], ["take_outcome", "src/abi.rs:2"], ["orphan", "src/abi.rs:3"]]
     consumers = "let word = pack_u64(p, l);"
