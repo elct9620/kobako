@@ -8,9 +8,15 @@ module JsonGuestHelper
   JSON_WASM = File.expand_path("../../data/kobako+json.wasm", __dir__)
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
+    # `rake test` builds this variant, so under CI a missing prerequisite
+    # is a broken pipeline, never a skip — mirroring E2eGuestHelper.
+    unless defined?(Kobako::Runtime)
+      flunk "native ext not compiled under CI" if ENV["CI"]
+      skip "native ext not compiled (run `bundle exec rake compile`)"
+    end
     return if File.exist?(JSON_WASM)
 
+    flunk "data/kobako+json.wasm missing under CI" if ENV["CI"]
     skip "data/kobako+json.wasm missing — run `bundle exec rake wasm:build:json`"
   end
 
