@@ -20,7 +20,7 @@ pub mod request;
 pub mod response;
 pub mod run;
 
-pub use block::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK, TAG_RESERVED};
+pub use block::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
 pub use request::{Request, Target};
 pub use response::Response;
 pub use run::Run;

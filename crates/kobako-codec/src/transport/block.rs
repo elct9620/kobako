@@ -21,8 +21,9 @@ pub const TAG_OK: u8 = 0x01;
 /// First byte for `break val` — payload is the break value.
 pub const TAG_BREAK: u8 = 0x02;
 /// Reserved for future `return val` support; both sides reject this
-/// tag as a wire violation (YieldResponse envelope contract).
-pub const TAG_RESERVED: u8 = 0x03;
+/// tag as a wire violation (YieldResponse envelope contract), so it
+/// never leaves the decoder and stays private.
+const TAG_RESERVED: u8 = 0x03;
 /// First byte for an error / fault outcome — payload is a
 /// `{"class", "message", "backtrace"}` Hash.
 pub const TAG_ERROR: u8 = 0x04;
