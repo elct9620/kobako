@@ -68,10 +68,12 @@ namespace :stats do
     PUB_SURFACE_CRATES.each do |crate, consumers|
       sources = FileList["#{crate}/src/**/*.rs"].to_h { |path| [path, File.read(path)] }
       consumers_text = consumers.flat_map { |dir| FileList["#{dir}/src/**/*.rs"].map { |p| File.read(p) } }.join
-      unconsumed = KobakoPubSurface.unconsumed(
-        KobakoPubSurface.pub_items(sources), consumers_text,
-        acknowledged: PUB_SURFACE_ACKNOWLEDGED.fetch(crate, {})
-      )
+      items = KobakoPubSurface.pub_items(sources)
+      acknowledged = PUB_SURFACE_ACKNOWLEDGED.fetch(crate, {})
+      stale = KobakoPubSurface.stale_acknowledgements(items, acknowledged)
+      abort "stats:surface: stale acknowledgement(s) in #{crate}: #{stale.join(", ")}" unless stale.empty?
+
+      unconsumed = KobakoPubSurface.unconsumed(items, consumers_text, acknowledged: acknowledged)
       next if unconsumed.empty?
 
       puts "#{crate} — pub items with no in-repo downstream consumer:"

@@ -41,6 +41,13 @@ module KobakoPubSurface
     roster - analyzed - consumers - exempt
   end
 
+  # The acknowledged names no current pub item carries — the ledger's
+  # staleness half, mirroring the Pending-anchors rule so a renamed or
+  # demoted item cannot leave dead weight behind.
+  def stale_acknowledgements(items, acknowledged)
+    acknowledged.keys - items.map { |name, _location| name }
+  end
+
   # The items with no word-boundary reference anywhere in
   # +consumers_text+ and no acknowledgement entry. Macro-expanded
   # consumption (+$crate::+ paths) is invisible to this scan — that is

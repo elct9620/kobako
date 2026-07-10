@@ -70,6 +70,18 @@ class KobakoPubSurfaceTest < Minitest::Test
     assert_equal [["orphan", "src/abi.rs:3"]], unconsumed
   end
 
+  # The staleness half of the ledger, mirroring the Pending-anchors
+  # rule: an acknowledgement whose pub item is gone is dead weight the
+  # ledger must shed.
+  def test_stale_acknowledgements_list_entries_no_pub_item_carries
+    items = [["pack_u64", "src/abi.rs:1"]]
+
+    stale = Surface.stale_acknowledgements(items, { "pack_u64" => "kept", "renamed_away" => "kept" })
+
+    assert_equal ["renamed_away"], stale,
+                 "an acknowledged name no current pub item carries must surface as stale"
+  end
+
   # The scope-drift guard: a crate directory that is neither analyzed,
   # consuming, nor exempt means the scan silently lags the repo.
   def test_unaccounted_crates_lists_only_unclassified_roster_entries

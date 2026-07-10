@@ -67,6 +67,18 @@ class KobakoWireSymmetryTest < Minitest::Test
     assert_empty violations
   end
 
+  # The staleness half of the ledger gate, mirroring the Pending-anchors
+  # rule: an entry the inventories no longer diverge on is dead weight
+  # the ledger must shed.
+  def test_ledger_entry_with_no_current_divergence_is_a_violation
+    violations = Symmetry.violations(
+      ruby_types: %w[Request], rust_types: %w[Request],
+      ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x01" }, accepted: %w[Probe]
+    )
+
+    assert_equal ["accepted asymmetry Probe no longer diverges — drop it from the ledger"], violations
+  end
+
   def test_ext_code_value_mismatch_is_a_violation_even_when_both_sides_name_it
     violations = Symmetry.violations(
       ruby_types: [], rust_types: [],

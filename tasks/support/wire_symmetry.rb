@@ -53,9 +53,21 @@ module KobakoWireSymmetry
   end
 
   # Violation strings for every one-sided type or ext-code divergence
-  # not carried by the Accepted asymmetries ledger.
+  # not carried by the Accepted asymmetries ledger, plus every ledger
+  # entry the inventories no longer diverge on.
   def violations(ruby_types:, rust_types:, ruby_ext:, rust_ext:, accepted:)
-    type_violations(ruby_types, rust_types, accepted) + ext_violations(ruby_ext, rust_ext, accepted)
+    one_sided = (ruby_types - rust_types) + (rust_types - ruby_types) +
+                (ruby_ext.keys - rust_ext.keys) + (rust_ext.keys - ruby_ext.keys)
+    type_violations(ruby_types, rust_types, accepted) +
+      ext_violations(ruby_ext, rust_ext, accepted) +
+      stale_accepted(accepted, one_sided)
+  end
+
+  # The ledger's staleness half, mirroring the Pending-anchors rule: an
+  # accepted entry with no current divergence is dead weight to shed.
+  def stale_accepted(accepted, one_sided)
+    (accepted - one_sided)
+      .map { |name| "accepted asymmetry #{name} no longer diverges — drop it from the ledger" }
   end
 
   def type_violations(ruby_types, rust_types, accepted)
