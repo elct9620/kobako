@@ -184,20 +184,12 @@ impl Sandbox {
     /// last expression as a decoded wire `Value`.
     pub fn eval(&mut self, source: &str) -> Result<Value, Error> {
         let catalog = self.begin_invocation();
-        let preamble = catalog.preamble();
-        let snippets = catalog.snippets.frame();
-        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone()));
-        let snapshot = self.driver.invoke(
+        self.invoke(
+            catalog,
             Entry::Eval {
                 source: source.as_bytes(),
             },
-            Frames {
-                preamble: &preamble,
-                snippets: &snippets,
-            },
-            Some(handler),
-        )?;
-        self.read_snapshot(snapshot)
+        )
     }
 
     /// Dispatch into a preloaded entrypoint without arguments; the
@@ -225,8 +217,6 @@ impl Sandbox {
             )));
         }
         let catalog = self.begin_invocation();
-        let preamble = catalog.preamble();
-        let snippets = catalog.snippets.frame();
         let args = args
             .into_iter()
             .map(|arg| self.wrap_run_arg(arg))
@@ -242,11 +232,24 @@ impl Sandbox {
         }
         .encode()
         .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
-        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone()));
-        let snapshot = self.driver.invoke(
+        self.invoke(
+            catalog,
             Entry::Run {
                 envelope: &envelope,
             },
+        )
+    }
+
+    /// Shared invocation core behind `eval` / `run_with`: assemble the
+    /// sealed catalog's frames and dispatch handler, drive `entry`
+    /// through the driver, and read the snapshot — one owner for the
+    /// wiring so a handler or frame change cannot drift between verbs.
+    fn invoke(&mut self, catalog: Arc<Catalog>, entry: Entry<'_>) -> Result<Value, Error> {
+        let preamble = catalog.preamble();
+        let snippets = catalog.snippets.frame();
+        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone()));
+        let snapshot = self.driver.invoke(
+            entry,
             Frames {
                 preamble: &preamble,
                 snippets: &snippets,
