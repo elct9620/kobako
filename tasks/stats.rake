@@ -15,9 +15,7 @@ task :stats do
   abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
 
   tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
-  uncategorized = KobakoRoster.uncategorized_dirs(
-    tracked, KobakoRoster::CATEGORIES.values.flat_map { |category| category[:paths] }
-  )
+  uncategorized = KobakoRoster.uncategorized_dirs(tracked)
   abort "stats: uncategorized top-level tree(s): #{uncategorized.join(", ")}" unless uncategorized.empty?
 
   stale = KobakoRoster.stale_categories(tracked)

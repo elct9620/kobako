@@ -33,11 +33,12 @@ module KobakoRoster
                      .flat_map { |category| category[:paths] }
   end
 
-  # The tracked top-level directories +categorized+ fails to place — a
+  # The tracked top-level directories the roster fails to place — a
   # new source tree must enter a tier before an instrument can claim
   # the whole repo. Dot-directories are repo meta, never a tier;
   # root-level files enter only through an explicit category entry.
-  def uncategorized_dirs(tracked_paths, categorized)
+  def uncategorized_dirs(tracked_paths, categories: CATEGORIES)
+    categorized = categories.values.flat_map { |category| category[:paths] }
     tracked_paths.filter_map { |path| path[%r{\A([^/.][^/]*)/}, 1] }.uniq - categorized
   end
 

@@ -48,8 +48,9 @@ class KobakoRosterTest < Minitest::Test
   # category entries.
   def test_uncategorized_dirs_list_only_unplaced_top_level_trees
     tracked = ["lib/kobako.rb", "scripts/new_tool.rb", ".github/ci.yml", "Rakefile"]
+    roster = { "Ruby API (lib/)" => { paths: %w[lib], kind: :code } }
 
-    assert_equal ["scripts"], Roster.uncategorized_dirs(tracked, ["lib"]),
+    assert_equal ["scripts"], Roster.uncategorized_dirs(tracked, categories: roster),
                  "a tracked top-level tree outside every category must surface as drift"
   end
 end
