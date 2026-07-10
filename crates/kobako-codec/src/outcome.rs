@@ -90,6 +90,15 @@ impl Decode for Panic {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let mut dec = Decoder::new(bytes);
         let frame = dec.read_only_value()?;
+        // The Panic envelope is a payload position: the Fault envelope's
+        // only home is the Response fault field, so an ext 0x02 anywhere
+        // in the frame — ignored keys included — is a wire violation,
+        // matching the Ruby peer's whole-frame forbid_faults bracket.
+        if frame.contains_errenv() {
+            return Err(codec::Error::Malformed(
+                "Fault envelope (ext 0x02) is not a legal value in a Panic envelope",
+            ));
+        }
         let pairs = match frame {
             Value::Map(p) => p,
             _ => return Err(codec::Error::Malformed("Panic must be a map")),
@@ -132,14 +141,6 @@ impl Decode for Panic {
                     }
                     _ => return Err(codec::Error::Malformed("Panic backtrace must be array")),
                 },
-                // A Panic envelope is a payload position: the Fault
-                // envelope's only home is the Response fault field, so an
-                // ext 0x02 in `details` is a wire violation.
-                "details" if v.contains_errenv() => {
-                    return Err(codec::Error::Malformed(
-                        "Fault envelope (ext 0x02) is not a legal value in Panic details",
-                    ))
-                }
                 "details" => details = Some(v),
                 _ => { /* SPEC: silently ignore unknown keys for forward-compat */ }
             }
@@ -225,6 +226,27 @@ mod tests {
             details: Some(Value::ErrEnv(vec![0x80])),
         };
         let bytes = p.encode().unwrap();
+        assert!(matches!(
+            Panic::decode(&bytes),
+            Err(codec::Error::Malformed(_))
+        ));
+    }
+
+    // E-50: the whole Panic frame is a payload position, so an ext 0x02
+    // hiding under a key the decoder ignores must fail decode too — the
+    // Ruby peer's whole-frame forbid_faults bracket rejects these bytes.
+    #[test]
+    fn panic_decode_rejects_errenv_under_ignored_key() {
+        let frame = Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+            (Value::Str("extra".into()), Value::ErrEnv(vec![0x80])),
+        ]);
+        let bytes = Encoder::encode(&frame).unwrap();
         assert!(matches!(
             Panic::decode(&bytes),
             Err(codec::Error::Malformed(_))
