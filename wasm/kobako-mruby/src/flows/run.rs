@@ -155,26 +155,16 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         match dec.read_only_value() {
             Ok(v) => v,
             Err(_) => {
-                return write_panic(Panic {
-                    origin: "sandbox".into(),
-                    class: "Kobako::Transport::Error".into(),
-                    message: "failed to decode the invocation request".into(),
-                    backtrace: Vec::new(),
-                    details: None,
-                });
+                return write_panic(boot::transport_panic(
+                    "failed to decode the invocation request",
+                ));
             }
         }
     };
     let invocation = match parse_invocation(envelope) {
         Ok(inv) => inv,
         Err(err) => {
-            return write_panic(Panic {
-                origin: "sandbox".into(),
-                class: "Kobako::Transport::Error".into(),
-                message: err.message().into(),
-                backtrace: Vec::new(),
-                details: None,
-            });
+            return write_panic(boot::transport_panic(err.message()));
         }
     };
 
@@ -249,22 +239,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let Value::Array(arg_items) = invocation.args else {
         // `parse_invocation` guarantees Array; the irrefutable shape
         // is reasserted here for the compiler.
-        return write_panic(Panic {
-            origin: "sandbox".into(),
-            class: "Kobako::Transport::Error".into(),
-            message: "invocation arguments must be an array".into(),
-            backtrace: Vec::new(),
-            details: None,
-        });
+        return write_panic(boot::transport_panic(
+            "invocation arguments must be an array",
+        ));
     };
     let Value::Map(kwargs_pairs) = invocation.kwargs else {
-        return write_panic(Panic {
-            origin: "sandbox".into(),
-            class: "Kobako::Transport::Error".into(),
-            message: "invocation keyword arguments must be a map".into(),
-            backtrace: Vec::new(),
-            details: None,
-        });
+        return write_panic(boot::transport_panic(
+            "invocation keyword arguments must be a map",
+        ));
     };
     let kwargs_present = !kwargs_pairs.is_empty();
     // An argument the guest cannot represent — an integer outside the
@@ -277,28 +259,12 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         .collect()
     {
         Ok(argv) => argv,
-        Err(err) => {
-            return write_panic(Panic {
-                origin: "sandbox".into(),
-                class: "Kobako::Transport::Error".into(),
-                message: err.message(),
-                backtrace: Vec::new(),
-                details: None,
-            })
-        }
+        Err(err) => return write_panic(boot::transport_panic(err.message())),
     };
     if kwargs_present {
         match kobako.to_mrb_value(Value::Map(kwargs_pairs)) {
             Ok(kwargs_val) => argv.push(kwargs_val),
-            Err(err) => {
-                return write_panic(Panic {
-                    origin: "sandbox".into(),
-                    class: "Kobako::Transport::Error".into(),
-                    message: err.message(),
-                    backtrace: Vec::new(),
-                    details: None,
-                })
-            }
+            Err(err) => return write_panic(boot::transport_panic(err.message())),
         }
     }
 
@@ -312,13 +278,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     };
     match Outcome::Value(codec_value).encode() {
         Ok(bytes) => write_outcome(bytes),
-        Err(_) => write_panic(Panic {
-            origin: "sandbox".into(),
-            class: "Kobako::Transport::Error".into(),
-            message: "result envelope encode failed".into(),
-            backtrace: Vec::new(),
-            details: None,
-        }),
+        Err(_) => write_panic(boot::transport_panic("result envelope encode failed")),
     }
 }
 

@@ -8,7 +8,7 @@
 //! steps fails, the failure surfaces as a Panic with
 //! `origin = "sandbox"` and `class = "Kobako::BootError"` — this module
 //! centralises both the orchestration and the Panic-construction
-//! shape.
+//! shapes the entry flows share (`boot_panic`, `transport_panic`).
 //!
 //! Snippet replay compiles each snippet under a
 //! `(snippet:Name)` filename so any uncaught exception's backtrace
@@ -33,6 +33,22 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
     Panic {
         origin: "sandbox".into(),
         class: "Kobako::BootError".into(),
+        message: message.into(),
+        backtrace: Vec::new(),
+        details: None,
+    }
+}
+
+/// Build a Panic envelope for a wire-layer failure at the invocation
+/// boundary (`origin = "sandbox"`, `class = "Kobako::Transport::Error"`,
+/// empty backtrace, no details). The exclusive constructor for the
+/// `Kobako::Transport::Error` panic shape — the sibling of `boot_panic`
+/// for decode / encode faults on the invocation envelope, so the
+/// host-visible attribution stays uniform.
+pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
+    Panic {
+        origin: "sandbox".into(),
+        class: "Kobako::Transport::Error".into(),
         message: message.into(),
         backtrace: Vec::new(),
         details: None,
@@ -345,6 +361,16 @@ mod tests {
         assert_eq!(p.origin, "sandbox");
         assert_eq!(p.class, "Kobako::BootError");
         assert_eq!(p.message, "failed to read preamble frame");
+        assert!(p.backtrace.is_empty());
+        assert!(p.details.is_none());
+    }
+
+    #[test]
+    fn transport_panic_carries_kobako_transport_defaults() {
+        let p = transport_panic("failed to decode the invocation request");
+        assert_eq!(p.origin, "sandbox");
+        assert_eq!(p.class, "Kobako::Transport::Error");
+        assert_eq!(p.message, "failed to decode the invocation request");
         assert!(p.backtrace.is_empty());
         assert!(p.details.is_none());
     }
