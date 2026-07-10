@@ -57,6 +57,19 @@ module KobakoAnchorCoverage
     profile.sort_by { |anchor, files| [-files.size, sort_key(anchor)] }.first(limit)
   end
 
+  # The printable report: the thin end (a Pending entry reads +pending+,
+  # a bare zero reads +UNCITED+) followed by the most-cited end.
+  def report_lines(profile, pending)
+    thin_lines = thin(profile).map do |anchor, files|
+      detail = files.first || (pending.include?(anchor) ? "pending" : "UNCITED")
+      format("  %<anchor>-6s %<detail>s", anchor: anchor, detail: detail)
+    end
+    top_lines = top(profile).map do |anchor, files|
+      format("  %<anchor>-6s %<count>d files", anchor: anchor, count: files.size)
+    end
+    ["thin (at most one citing file):", *thin_lines, "most cited:", *top_lines]
+  end
+
   def name(prefix, number)
     format("%<prefix>s-%<number>02d", prefix: prefix, number: number)
   end

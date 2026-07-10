@@ -16,6 +16,16 @@ WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport/*.rs"]
 WIRE_RUBY_EXT = "lib/kobako/codec/ext_types.rb"
 WIRE_RUST_EXT = "crates/kobako-codec/src/codec.rs"
 
+# Both sides' inventories, keyed for +KobakoWireSymmetry.violations+.
+def wire_symmetry_inventories
+  {
+    ruby_types: KobakoWireSymmetry.ruby_types(KobakoAnchors.read_sources(WIRE_RUBY_TRANSPORT, WIRE_SYMMETRY_ROOT)),
+    rust_types: KobakoWireSymmetry.rust_types(KobakoAnchors.read_sources(WIRE_RUST_TRANSPORT, WIRE_SYMMETRY_ROOT)),
+    ruby_ext: KobakoWireSymmetry.ruby_ext_codes(File.read(WIRE_RUBY_EXT)),
+    rust_ext: KobakoWireSymmetry.rust_ext_codes(File.read(WIRE_RUST_EXT))
+  }
+end
+
 namespace :wire do
   namespace :symmetry do
     desc "Run the symmetry comparator's unit coverage."
@@ -29,18 +39,11 @@ namespace :wire do
     accepted = KobakoWireSymmetry.accepted_asymmetries(File.read(WIRE_SYMMETRY_DOC))
     abort "wire:symmetry: #{WIRE_SYMMETRY_DOC} has no 'Accepted asymmetries' block" unless accepted
 
-    ruby_types = KobakoWireSymmetry.ruby_types(KobakoAnchors.read_sources(WIRE_RUBY_TRANSPORT, WIRE_SYMMETRY_ROOT))
-    rust_types = KobakoWireSymmetry.rust_types(KobakoAnchors.read_sources(WIRE_RUST_TRANSPORT, WIRE_SYMMETRY_ROOT))
-    violations = KobakoWireSymmetry.violations(
-      ruby_types: ruby_types, rust_types: rust_types,
-      ruby_ext: KobakoWireSymmetry.ruby_ext_codes(File.read(WIRE_RUBY_EXT)),
-      rust_ext: KobakoWireSymmetry.rust_ext_codes(File.read(WIRE_RUST_EXT)),
-      accepted: accepted
-    )
-
+    inventories = wire_symmetry_inventories
+    violations = KobakoWireSymmetry.violations(**inventories, accepted: accepted)
     if violations.empty?
-      puts "wire:symmetry: OK — #{ruby_types.size} envelope types on both sides " \
-           "(#{ruby_types.join(", ")}), #{accepted.size} accepted asymmetries"
+      puts "wire:symmetry: OK — #{inventories[:ruby_types].size} envelope types on both sides " \
+           "(#{inventories[:ruby_types].join(", ")}), #{accepted.size} accepted asymmetries"
     else
       violations.each { |violation| warn "  wire:symmetry: #{violation}" }
       abort "wire:symmetry: #{violations.size} divergence(s)"

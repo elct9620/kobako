@@ -87,6 +87,16 @@ class KobakoAnchorCoverageTest < Minitest::Test
     assert_equal [["B-02", ["test/a_test.rb"]], ["E-01", []]], Coverage.thin(profile)
   end
 
+  def test_report_lines_mark_pending_and_uncited_thin_anchors
+    profile = { "E-01" => [], "E-02" => [], "B-01" => ["test/a_test.rb"] }
+
+    lines = Coverage.report_lines(profile, ["E-01"])
+
+    assert_includes lines, "  E-01   pending"
+    assert_includes lines, "  E-02   UNCITED"
+    assert_includes lines, "  B-01   test/a_test.rb"
+  end
+
   def test_top_lists_the_most_cited_anchors_first
     profile = { "B-01" => ["test/a_test.rb"], "B-02" => %w[test/a_test.rb test/b_test.rb] }
 

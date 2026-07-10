@@ -43,7 +43,7 @@ jobs:
             wasm/kobako-wasm
       - name: Run the default task
         run: bundle exec rake
-      - name: Release-tooling unit tests (anchor checker + bench gate)
+      - name: Release-tooling unit tests (every tasks/support suite)
         run: .github/scripts/report-tooling-tests.sh
       - name: Rust unit tests (kobako-wasm, host target)
         run: bundle exec rake wasm:test

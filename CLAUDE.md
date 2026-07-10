@@ -67,6 +67,9 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | Characterization + release-gate bench tasks | `rake -T bench` lists them; gate workflow in `benchmark/README.md` |
 | Per-tier code statistics (polish signal) | `bundle exec rake stats` |
 | Per-file line coverage for `lib/kobako/` | `bundle exec rake coverage` |
+| Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake anchors:coverage` |
+| Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake wire:symmetry` |
+| Polish signals: churn hotspots / unconsumed pub surface | `rake stats:hotspots` / `rake stats:surface` |
 
 ## Layering
 

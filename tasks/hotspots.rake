@@ -22,12 +22,11 @@ namespace :stats do
 
     churn = KobakoHotspots.churn(`git log #{tag}..HEAD --name-only --pretty=format:`)
     sizes = churn.keys.select { |path| File.exist?(path) }
-                 .to_h { |path| [path, File.foreach(path).count] }
+                      .to_h { |path| [path, File.foreach(path).count] }
     lib_sources = FileList["lib/**/*.rb"].to_h { |path| [path, File.read(path)] }
 
     puts "hotspots since #{tag}:"
-    puts format("  %<path>-52s %<edits>5s %<lines>6s %<fan>4s", path: "file", edits: "edits", lines: "lines",
-                                                                fan: "fan-in")
+    puts "  file                                                 edits  lines fan-in"
     KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(lib_sources)).each do |row|
       path, edits, lines, fan = row
       puts format("  %<path>-52s %<edits>5d %<lines>6d %<fan>4d", path: path, edits: edits, lines: lines, fan: fan)

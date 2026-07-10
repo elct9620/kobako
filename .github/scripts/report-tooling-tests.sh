@@ -1,7 +1,7 @@
 #!/bin/bash
-# Run the release-tooling unit tests (the anchor checker and bench-gate
-# logic under tasks/support/) and report each suite to the GitHub job
-# summary as a Markdown table.
+# Run the release-tooling unit tests (every *_test.rb suite under
+# tasks/support/, discovered by glob) and report each suite to the
+# GitHub job summary as a Markdown table.
 #
 # Non-blocking by design: the gates themselves block in `rake default`,
 # so a failed suite here raises a warning annotation and is recorded in
@@ -51,7 +51,7 @@ if [ -n "$details" ]; then
 fi
 
 if [ "$failed" -ne 0 ]; then
-  echo "::warning title=Release-tooling tests::anchor checker / bench gate unit tests failed (non-blocking) — see job summary"
+  echo "::warning title=Release-tooling tests::a tasks/support unit suite failed (non-blocking) — see job summary"
 fi
 
 exit 0
