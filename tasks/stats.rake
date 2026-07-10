@@ -14,11 +14,14 @@ desc "Report code statistics per architectural tier (rails-stats-style; not in r
 task :stats do
   abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
 
+  tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
   uncategorized = KobakoRoster.uncategorized_dirs(
-    KobakoStats.tracked_files([], root: STATS_ROOT),
-    KobakoRoster::CATEGORIES.values.flat_map { |category| category[:paths] }
+    tracked, KobakoRoster::CATEGORIES.values.flat_map { |category| category[:paths] }
   )
   abort "stats: uncategorized top-level tree(s): #{uncategorized.join(", ")}" unless uncategorized.empty?
+
+  stale = KobakoRoster.stale_categories(tracked)
+  abort "stats: stale roster tier(s) with no tracked file: #{stale.join(", ")}" unless stale.empty?
 
   rows = KobakoRoster::CATEGORIES.map do |name, category|
     row = KobakoStats.measure(category[:paths], root: STATS_ROOT)

@@ -28,6 +28,20 @@ class KobakoRosterTest < Minitest::Test
                  "a kind no roster entry carries must select no paths"
   end
 
+  # The roster's staleness half, mirroring the ledger rule of the other
+  # instruments: a tier is live while any of its paths still holds a
+  # tracked file — directory paths match by prefix, file paths (the
+  # SPEC.md shape) exactly.
+  def test_stale_categories_name_only_tiers_with_no_tracked_file
+    tracked = ["lib/kobako.rb", "SPEC.md"]
+    roster = { "Ruby API (lib/)" => { paths: %w[lib], kind: :code },
+               "Docs (docs/ + SPEC.md)" => { paths: %w[docs SPEC.md], kind: :other },
+               "Examples (examples/)" => { paths: %w[examples], kind: :other } }
+
+    assert_equal ["Examples (examples/)"], Roster.stale_categories(tracked, categories: roster),
+                 "a roster tier none of whose paths matches a tracked file must surface as stale"
+  end
+
   # The roster's completeness guard: a new top-level source tree must
   # enter a tier before the instruments can claim the whole repo;
   # dot-directories are repo meta and root files ride their explicit

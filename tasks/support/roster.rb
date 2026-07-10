@@ -7,8 +7,9 @@
 # +kind+ places the tier — +:code+ / +:test+ weigh the stats ratio,
 # +:code+ / +:tooling+ enter the hotspot scan, +:code+ carries the
 # Rust crate trees the pub-surface scan reads, +:other+ is reported
-# only. The completeness guard holds the table to the repo's top-level
-# trees.
+# only. The table is pinned to the repo from both sides: the
+# completeness guard flags an unplaced top-level tree, the staleness
+# guard flags a tier the repo no longer holds.
 module KobakoRoster
   module_function
 
@@ -38,5 +39,17 @@ module KobakoRoster
   # root-level files enter only through an explicit category entry.
   def uncategorized_dirs(tracked_paths, categorized)
     tracked_paths.filter_map { |path| path[%r{\A([^/.][^/]*)/}, 1] }.uniq - categorized
+  end
+
+  # The staleness half of the completeness guard, mirroring the
+  # instruments' ledger rule: a tier none of whose paths matches a
+  # tracked file names a tree the repo no longer holds — dead weight to
+  # shed. Directory paths match by prefix, file paths exactly.
+  def stale_categories(tracked_paths, categories: CATEGORIES)
+    categories.reject do |_name, category|
+      category[:paths].any? do |root|
+        tracked_paths.any? { |path| path == root || path.start_with?("#{root}/") }
+      end
+    end.keys
   end
 end
