@@ -15,7 +15,8 @@
 //! ```text
 //! 4-byte BE length (of payload, including the kind tag)
 //! 1-byte kind: 'Q' Request, 'P' Response, 'R' Result envelope,
-//!              'X' Panic envelope, 'O' Outcome envelope
+//!              'X' Panic envelope, 'O' Outcome envelope,
+//!              'I' Invocation (Run) envelope
 //! N bytes: msgpack payload for the specified envelope kind
 //! ```
 //!
@@ -31,7 +32,7 @@ use std::io::{self, Read, Write};
 use kobako_codec::codec;
 use kobako_codec::codec::{Decode, Encode};
 use kobako_codec::outcome::{Outcome, Panic};
-use kobako_codec::transport::{Request, Response};
+use kobako_codec::transport::{Request, Response, Run};
 use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
 const ERROR_FLAG: u32 = 0x8000_0000;
@@ -111,6 +112,10 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
         b'O' => {
             let o = Outcome::decode(body).map_err(stringify)?;
             o.encode().map_err(stringify)
+        }
+        b'I' => {
+            let run = Run::decode(body).map_err(stringify)?;
+            run.encode().map_err(stringify)
         }
         other => Err(format!("unknown envelope kind {:#04x}", other)),
     }

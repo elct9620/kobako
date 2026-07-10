@@ -50,7 +50,8 @@ class TestEnvelopeRoundtrip < Minitest::Test
 
   # Send one envelope frame to the oracle and read its response.
   # +kind+ is a single-byte tag picked by the oracle protocol
-  # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome).
+  # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome,
+  # 'I' Invocation/Run).
   def oracle_roundtrip(kind, payload)
     @channel.send_frame(+"".b << kind << payload.b)
     body, error = @channel.read_frame
@@ -101,6 +102,26 @@ class TestEnvelopeRoundtrip < Minitest::Test
     bytes = Envelope::Response.error(exc).encode
     assert_equal bytes, oracle_roundtrip("P", bytes)
   end
+
+  # ---------- Run (Invocation) envelope ----------
+
+  def test_run_envelope_round_trips
+    run = Envelope::Run.new(entrypoint: :Handler, args: [42, "alice"], kwargs: { active: true })
+    bytes = run.encode(Kobako::Catalog::Handles.new)
+    assert_equal bytes, oracle_roundtrip("I", bytes)
+  end
+
+  def test_run_envelope_with_wrapped_leaf_round_trips
+    # A non-wire-representable arg auto-wraps into the Handles table and
+    # rides as ext 0x01 in its args position — the Invocation-envelope
+    # Handle position docs/wire-codec.md § ext 0x01 licenses.
+    run = Envelope::Run.new(entrypoint: :Main, args: [Object.new], kwargs: {})
+    bytes = run.encode(Kobako::Catalog::Handles.new)
+    assert_equal bytes, oracle_roundtrip("I", bytes)
+  end
+
+  # The empty-args/kwargs Run shape is byte-pinned cross-language by the
+  # Rust golden (run_golden_empty_args_and_kwargs), so no oracle case here.
 
   # ---------- Result envelope (bare codec value) ----------
 
