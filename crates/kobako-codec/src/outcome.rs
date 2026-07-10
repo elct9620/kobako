@@ -20,13 +20,14 @@
 use crate::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 
 /// Outcome envelope tag for a Result envelope (docs/wire-contract.md § Outcome
-/// Envelope). Module-private — `Outcome::Value` is the public surface
-/// and reifies this value.
-const OUTCOME_TAG_RESULT: u8 = 0x01;
+/// Envelope). `Outcome::Value` reifies this value; the constant is
+/// exposed for frontends that split the tag themselves to own their
+/// per-stage failure attribution.
+pub const OUTCOME_TAG_RESULT: u8 = 0x01;
 
 /// Outcome envelope tag for a Panic envelope (docs/wire-contract.md § Outcome
-/// Envelope). Module-private.
-const OUTCOME_TAG_PANIC: u8 = 0x02;
+/// Envelope). Exposed alongside `OUTCOME_TAG_RESULT`.
+pub const OUTCOME_TAG_PANIC: u8 = 0x02;
 
 // ============================================================
 // Value objects

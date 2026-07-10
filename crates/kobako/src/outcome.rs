@@ -8,14 +8,9 @@
 //! wire-level error class name, not a Ruby leakage.
 
 use kobako_codec::codec::{Decoder, Value};
-use kobako_codec::outcome::Panic;
+use kobako_codec::outcome::{Panic, OUTCOME_TAG_PANIC, OUTCOME_TAG_RESULT};
 
 use crate::error::{Error, GuestFailure};
-
-/// Outcome-buffer tag for the success branch.
-const TAG_VALUE: u8 = 0x01;
-/// Outcome-buffer tag for the Panic branch.
-const TAG_PANIC: u8 = 0x02;
 
 /// SPEC-pinned wire-level error class, carried as the attribution of
 /// host-detected wire violations on both frontends.
@@ -30,8 +25,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Value, Error> {
         ));
     };
     match tag {
-        TAG_VALUE => decode_value(body),
-        TAG_PANIC => Err(decode_panic(body)),
+        OUTCOME_TAG_RESULT => decode_value(body),
+        OUTCOME_TAG_PANIC => Err(decode_panic(body)),
         _ => Err(Error::Trap(
             "Sandbox produced an unrecognised result; the runtime is corrupted, \
              discard this Sandbox before another invocation"
@@ -170,14 +165,14 @@ mod tests {
     #[test]
     fn malformed_value_body_is_a_wire_violation_sandbox_error() {
         // Tag 0x01 followed by a truncated msgpack str header.
-        let result = decode(&[TAG_VALUE, 0xd9]);
+        let result = decode(&[OUTCOME_TAG_RESULT, 0xd9]);
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.class == WIRE_ERROR_CLASS));
     }
 
     #[test]
     fn malformed_panic_body_is_a_wire_violation_sandbox_error() {
         // Tag 0x02 followed by a non-map payload.
-        let mut bad = vec![TAG_PANIC];
+        let mut bad = vec![OUTCOME_TAG_PANIC];
         bad.push(0x2a);
         let result = decode(&bad);
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.class == WIRE_ERROR_CLASS));
