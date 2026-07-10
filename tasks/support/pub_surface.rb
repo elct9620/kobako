@@ -10,10 +10,10 @@ module KobakoPubSurface
 
   # A crate's public Rust surface; +pub(crate)+ and narrower stay out,
   # as do the +pub extern "C"+ templates inside +export_guest!+ — those
-  # expand in the consumer's crate, not here. +pub use+ / +pub mod+ /
-  # +pub static+ are deliberate exclusions: re-exports are caught at
-  # their definition site, and no real source holds the other two.
-  PUB_ITEM = /^\s*pub (?:(?:unsafe|const|async) )*(?:fn|struct|enum|trait|const|type) (\w+)/
+  # expand in the consumer's crate, not here. +pub use+ / +pub mod+ are
+  # namespace shapes, not surface: their consumption is their items',
+  # counted where each item is defined.
+  PUB_ITEM = /^\s*pub (?:(?:unsafe|const|async) )*(?:fn|struct|enum|trait|const|type|static(?: mut)?) (\w+)/
 
   # A +#[cfg(test)]+ gate that opens a test module — the only shape that
   # truncates the scan; an inline cfg(test) item must not hide the

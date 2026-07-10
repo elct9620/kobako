@@ -61,6 +61,23 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "an inline cfg(test) item must not hide the public items that follow it"
   end
 
+  # A +pub static+ is consumable surface exactly like a +pub const+;
+  # scanning it directly keeps the item-kind list free of "no source
+  # holds one today" claims that nothing guards.
+  def test_pub_items_include_statics
+    sources = { "src/state.rs" => <<~RS }
+      pub static BOOT_STATE: u8 = 0;
+      pub static mut SCRATCH: u8 = 0;
+      static PRIVATE_STATE: u8 = 0;
+    RS
+
+    expected = [["BOOT_STATE", "src/state.rs:1"], ["SCRATCH", "src/state.rs:2"]]
+
+    assert_equal expected, Surface.pub_items(sources),
+                 "a pub static must surface under its own name (never the mut keyword); " \
+                 "a private static must not"
+  end
+
   def test_unconsumed_excludes_referenced_and_acknowledged_items
     items = [["pack_u64", "src/abi.rs:1"], ["take_outcome", "src/abi.rs:2"], ["orphan", "src/abi.rs:3"]]
     consumers = "let word = pack_u64(p, l);"
