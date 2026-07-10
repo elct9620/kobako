@@ -240,7 +240,7 @@ impl Encoder {
                 self.buf.extend_from_slice(bytes);
             }
             Value::Handle(id) => {
-                if *id > HANDLE_ID_MAX {
+                if *id == 0 || *id > HANDLE_ID_MAX {
                     return Err(Error::InvalidHandle);
                 }
                 write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| Error::Truncated)?;
@@ -468,7 +468,7 @@ fn read_ext(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error
             }
             let payload = take(cursor, 4)?;
             let id = u32::from_be_bytes(payload.try_into().unwrap());
-            if id > HANDLE_ID_MAX {
+            if id == 0 || id > HANDLE_ID_MAX {
                 return Err(Error::InvalidHandle);
             }
             Ok(Value::Handle(id))
@@ -1070,6 +1070,30 @@ mod tests {
         let bytes = [0xd6, 0x01, 0x80, 0x00, 0x00, 0x00];
         let mut dec = Decoder::new(&bytes);
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
+    }
+
+    #[test]
+    fn decode_handle_zero_returns_invalid_handle() {
+        // ID 0 is the reserved invalid sentinel (docs/wire-codec.md
+        // § ext 0x01); forged bytes carrying it must be a wire violation,
+        // matching the Ruby peer's Handle::MIN_ID floor.
+        let bytes = [0xd6, 0x01, 0x00, 0x00, 0x00, 0x00];
+        let mut dec = Decoder::new(&bytes);
+        assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
+    }
+
+    #[test]
+    fn encode_handle_outside_id_range_returns_invalid_handle() {
+        // The encoder refuses to emit what the decoder would reject, so
+        // an invalid Handle value fails at its origin, not at the peer.
+        assert_eq!(
+            Encoder::encode(&Value::Handle(0)),
+            Err(Error::InvalidHandle)
+        );
+        assert_eq!(
+            Encoder::encode(&Value::Handle(HANDLE_ID_MAX + 1)),
+            Err(Error::InvalidHandle)
+        );
     }
 
     #[test]
