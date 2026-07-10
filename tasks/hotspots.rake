@@ -7,6 +7,7 @@
 # rides the test suite (+test/tasks/test_hotspots.rb+).
 
 require_relative "support/hotspots"
+require_relative "support/roster"
 
 namespace :stats do
   desc "Report churn x size x fan-in hotspots since the last release tag (signal; not in release gate)."
@@ -14,9 +15,7 @@ namespace :stats do
     tag = `git describe --tags --abbrev=0 --match "v*"`.strip
     abort "stats:hotspots: no v* release tag found" if tag.empty?
 
-    roots = STATS_CATEGORIES.values
-                            .select { |category| %i[code tooling].include?(category[:kind]) }
-                            .flat_map { |category| category[:paths] }
+    roots = KobakoRoster.tier_paths(%i[code tooling])
     churn = KobakoHotspots.churn(`git log #{tag}..HEAD --name-only --pretty=format:`, roots: roots)
     sizes = churn.keys.select { |path| File.exist?(path) }
                       .to_h { |path| [path, File.foreach(path).count] }

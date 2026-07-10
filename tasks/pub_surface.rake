@@ -8,12 +8,15 @@
 # (+test/tasks/test_pub_surface.rb+).
 
 require_relative "support/pub_surface"
+require_relative "support/roster"
 
 # Analyzed crate => consumers is derived from the Cargo.toml path
 # dependencies (transitively, so consumption through a re-exporting
 # frontend still counts); a leaf with no in-repo dependent — the
-# frontends, the parity runner, the baker — is never analyzed.
-PUB_SURFACE_MANIFESTS = FileList["{crates,wasm,ext}/*/Cargo.toml"]
+# frontends, the parity runner, the baker — is never analyzed. The
+# crate trees come from the shared tier roster, so a new code tier
+# enters this scan the day it enters the roster.
+PUB_SURFACE_MANIFESTS = FileList[KobakoRoster.tier_paths(%i[code]).map { |root| "#{root}/*/Cargo.toml" }]
 
 # The kobako-mruby bridge cluster is crate-internal to the flows, but
 # on mruby-less host builds the flows that use it are compiled out

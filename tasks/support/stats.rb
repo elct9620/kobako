@@ -7,8 +7,8 @@ require "tempfile"
 # Code-statistics helper backing +tasks/stats.rake+ — a rails-stats-style
 # size report over the tracked source tree. cloc owns the per-file line
 # classification; this module owns file selection (git-tracked, minus
-# generated artifacts) and the report shape, so the category table in the
-# rake file can grow without touching the counting logic.
+# generated artifacts) and the report shape, so the tier roster
+# (+tasks/support/roster.rb+) can grow without touching the counting logic.
 module KobakoStats
   module_function
 
@@ -27,14 +27,6 @@ module KobakoStats
 
   def excluded?(path)
     path.match?(EXCLUDED)
-  end
-
-  # The tracked top-level directories +categorized+ fails to place — a
-  # new source tree must enter a tier before the report can claim the
-  # whole repo. Dot-directories are repo meta, never a tier; root-level
-  # files enter only through an explicit category entry.
-  def uncategorized_dirs(tracked_paths, categorized)
-    tracked_paths.filter_map { |path| path[%r{\A([^/.][^/]*)/}, 1] }.uniq - categorized
   end
 
   # Count the git-tracked files under +paths+ with cloc, returning one

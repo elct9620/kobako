@@ -41,17 +41,6 @@ class KobakoStatsTest < Minitest::Test
     end
   end
 
-  # The category table's completeness guard: a new top-level source
-  # tree must enter a tier before the report can claim the whole repo;
-  # dot-directories are repo meta and root files ride their explicit
-  # category entries.
-  def test_uncategorized_dirs_list_only_unplaced_top_level_trees
-    tracked = ["lib/kobako.rb", "scripts/new_tool.rb", ".github/ci.yml", "Rakefile"]
-
-    assert_equal ["scripts"], Stats.uncategorized_dirs(tracked, ["lib"]),
-                 "a tracked top-level tree outside every category must surface as drift"
-  end
-
   def test_source_files_are_not_excluded
     %w[lib/kobako.rb crates/kobako-codec/Cargo.toml docs/wire-codec.md benchmark/support/gate.rb].each do |path|
       refute Stats.excluded?(path),
