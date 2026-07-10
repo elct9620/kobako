@@ -15,15 +15,11 @@ ANCHOR_COVERAGE_DOC = "docs/anchor-coverage.md"
 ANCHOR_COVERAGE_TESTS = FileList["test/**/*.rb"].exclude(%r{\Atest/(tasks|bench)/})
 
 # The full citation profile over the same definition corpus +rake
-# anchors+ audits.
+# anchors+ audits (+anchor_behavior_def_sources+; the SPEC-local
+# F/J/N families stay out — their witnesses are not test citations).
 def anchor_coverage_profile
-  behavior = KobakoAnchors.read_sources(ANCHOR_DEF_BEHAVIOR, ANCHOR_ROOT)
   KobakoAnchorCoverage.profile(
-    def_sources: {
-      "B" => behavior, "E" => behavior,
-      "RX" => KobakoAnchors.read_sources(ANCHOR_DEF_REGEXP, ANCHOR_ROOT),
-      "JS" => KobakoAnchors.read_sources(ANCHOR_DEF_JSON, ANCHOR_ROOT)
-    },
+    def_sources: anchor_behavior_def_sources,
     test_sources: KobakoAnchors.read_sources(ANCHOR_COVERAGE_TESTS, ANCHOR_ROOT)
   )
 end
