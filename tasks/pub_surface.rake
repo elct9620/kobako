@@ -30,13 +30,28 @@ PUB_SURFACE_EXEMPT = {
   "wasm/kobako-baker" => "standalone bake tool — its lib feeds its own bin, no downstream tree to grep"
 }.freeze
 
-# Confirmed-deliberate third-party API the in-repo scan cannot see,
-# each with the reason it stays public.
+# The kobako-mruby bridge cluster is crate-internal to the flows, but
+# on mruby-less host builds the flows that use it are compiled out
+# (beni placeholder rule) and pub reachability is what keeps the
+# dead-code analysis quiet — demoting it trades a clean surface for
+# 20+ dead_code warnings or banned #[allow]s.
+PUB_SURFACE_BRIDGE_REASON = "placeholder-rule liveness — pub keeps the mruby-less host build " \
+                            "warning-free; crate-internal to the flows, not third-party API"
+
+# Pub items confirmed to stay public for a reason the in-repo grep
+# cannot see — macro-expanded third-party API, or pub reachability a
+# placeholder-rule crate relies on.
 PUB_SURFACE_ACKNOWLEDGED = {
   "wasm/kobako-core" => {
     "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)",
     "ABI_VERSION" => "reached via export_guest! expansion ($crate::abi::ABI_VERSION)"
-  }
+  },
+  "wasm/kobako-mruby" => %w[
+    InstallGroupsError Kobako init resolve_raw install_groups raise_transport_error
+    raise_service_error collection_len extract_backtrace top_level_constants
+    set_handle_id extract_handle_id extract_hash_kwargs unpack_args_kwargs
+    to_codec_value try_codec_value
+  ].to_h { |name| [name, PUB_SURFACE_BRIDGE_REASON] }
 }.freeze
 
 namespace :stats do
