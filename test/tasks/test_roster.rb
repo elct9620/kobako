@@ -3,12 +3,14 @@
 require "test_helper"
 
 require_relative "../../tasks/support/roster"
+require_relative "../../tasks/support/stats"
 
 # Unit coverage for the tier roster shared by the size, churn, and
 # pub-surface instruments: kind-based path selection and the
 # completeness guard that holds the table to the repo's top-level
-# trees. Fixture rosters keep each test about the rule, not the real
-# tier set.
+# trees. Fixture rosters keep the rule tests about the rule; the live
+# tests then pin the real table to the real repo inside the gated
+# suite.
 class KobakoRosterTest < Minitest::Test
   Roster = KobakoRoster
 
@@ -52,5 +54,28 @@ class KobakoRosterTest < Minitest::Test
 
     assert_equal ["scripts"], Roster.uncategorized_dirs(tracked, categories: roster),
                  "a tracked top-level tree outside every category must surface as drift"
+  end
+
+  # The gate half of the roster's repo pinning: the fixture tests above
+  # hold the rules, these two hold the real table to the real repo on
+  # every `rake test` run — `rake stats` alone guards only when someone
+  # runs it, and it needs cloc besides.
+  def test_live_roster_places_every_tracked_top_level_tree
+    assert_empty Roster.uncategorized_dirs(live_tracked_paths),
+                 "every tracked top-level tree through uncategorized_dirs must belong to a roster tier"
+  end
+
+  def test_live_roster_holds_no_stale_tier
+    assert_empty Roster.stale_categories(live_tracked_paths),
+                 "every roster tier through stale_categories must still hold a tracked file"
+  end
+
+  private
+
+  # The same corpus the stats guard reads — tracked files minus the
+  # non-implementation artifacts, so a +.keep+ mount for a gitignored
+  # build product (+data/+) never reads as an unplaced tree.
+  def live_tracked_paths
+    KobakoStats.tracked_files([], root: File.expand_path("../..", __dir__))
   end
 end
