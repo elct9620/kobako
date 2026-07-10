@@ -12,17 +12,24 @@
 module KobakoAnchors
   module_function
 
-  # A reference token (+B-07+, +E-19+, +RX-03+, +JS-08+). The surrounding
-  # boundaries keep it from binding inside a longer token such as a date
-  # (+2026-06+) or an identifier, so prose, ranges, and tables all read the
-  # same anchors a human would.
-  REFERENCE = /(?<![A-Za-z0-9])(RX|JS|B|E)-(\d{1,3})(?![0-9])/
+  # A reference token (+B-07+, +E-19+, +RX-03+, +JS-08+, +F-10+, +J-06+,
+  # +N-8+). The surrounding boundaries keep it from binding inside a longer
+  # token such as a date (+2026-06+) or an identifier, so prose, ranges, and
+  # tables all read the same anchors a human would.
+  REFERENCE = /(?<![A-Za-z0-9])(RX|JS|B|E|F|J|N)-(\d{1,3})(?![0-9])/
 
-  # The numbers a prefix defines in +text+: +B+ / +RX+ from their
-  # +## B-07 — +-style headings, +E+ from +| E-04 |+ table rows so an
-  # inline +(E-04)+ reference is never mistaken for a definition.
+  # The prefixes whose definition site is a +| E-04 |+-style table row —
+  # the others define by a +## B-07 — +-style heading — so an inline
+  # +(E-04)+ reference is never mistaken for a definition.
+  TABLE_DEFINED = %w[E F N].freeze
+
+  # The numbers a prefix defines in +text+, read from its definition shape.
   def definitions(text, prefix)
-    pattern = prefix == "E" ? /^\|\s*E-(\d+)\s*\|/ : /^#+\s+#{prefix}-(\d+)\s+—/
+    pattern = if TABLE_DEFINED.include?(prefix)
+                /^\|\s*#{prefix}-(\d+)\s*\|/
+              else
+                /^#+\s+#{prefix}-(\d+)\s+—/
+              end
     text.scan(pattern).flatten.map(&:to_i)
   end
 

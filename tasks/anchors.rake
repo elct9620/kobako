@@ -11,7 +11,9 @@
 require_relative "support/anchors"
 
 # Anchor definitions live in the behavior spec (+B+ / +E+), the regexp spec
-# (+RX+), and the JSON spec (+JS+). Anchors are cited only where traceability
+# (+RX+), the JSON spec (+JS+), and SPEC.md itself for the SPEC-local
+# families (+F+ features, +J+ journeys, +N+ naming principles). Anchors are
+# cited only where traceability
 # belongs — the spec corpus and the tests that verify each behavior;
 # implementation comments state intent rather than anchors, so the source
 # trees are not scanned. The tooling suites (+test/tasks/+, +test/bench/+)
@@ -25,21 +27,23 @@ ANCHOR_REF_GLOBS = FileList[
   "SPEC.md", "README.md", "docs/**/*.md", "test/**/*.rb", "benchmark/**/*.md"
 ].exclude(%r{/(target|vendor|tmp)/}, %r{\Atest/(tasks|bench)/})
 
-desc "Check B-/E-/RX-/JS- anchors are unique, contiguous, and resolvable (N-8)."
+desc "Check B-/E-/RX-/JS-/F-/J-/N- anchors are unique, contiguous, and resolvable (N-8)."
 task :anchors do
   behavior = KobakoAnchors.read_sources(ANCHOR_DEF_BEHAVIOR, ANCHOR_ROOT)
+  spec = KobakoAnchors.read_sources(FileList["SPEC.md"], ANCHOR_ROOT)
   violations = KobakoAnchors.audit(
     def_sources: {
       "B" => behavior, "E" => behavior,
       "RX" => KobakoAnchors.read_sources(ANCHOR_DEF_REGEXP, ANCHOR_ROOT),
-      "JS" => KobakoAnchors.read_sources(ANCHOR_DEF_JSON, ANCHOR_ROOT)
+      "JS" => KobakoAnchors.read_sources(ANCHOR_DEF_JSON, ANCHOR_ROOT),
+      "F" => spec, "J" => spec, "N" => spec
     },
     ref_sources: KobakoAnchors.read_sources(ANCHOR_REF_GLOBS, ANCHOR_ROOT),
     ceilings: KobakoAnchors.parse_ceilings(File.read("SPEC.md"))
   )
 
   if violations.empty?
-    puts "anchors: OK — B/E/RX/JS unique, contiguous, and resolvable"
+    puts "anchors: OK — B/E/RX/JS/F/J/N unique, contiguous, and resolvable"
   else
     violations.sort.each { |v| warn "  #{v}" }
     abort "anchors: #{violations.size} violation(s)"

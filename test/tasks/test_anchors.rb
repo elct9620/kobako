@@ -31,6 +31,17 @@ class KobakoAnchorsTest < Minitest::Test
                  "a table row defines an E anchor; an inline (E-04) reference does not"
   end
 
+  # SPEC-local families: +F+ / +N+ define by table row like +E+, +J+ by
+  # heading like +B+ — a typo'd F-99 / J-99 / N-9 reference must resolve
+  # against these definitions instead of passing silently.
+  def test_spec_local_families_define_by_table_row_or_heading
+    table = "| F-01 | Sandbox instantiation | Host Gem |\n| N-1 | Role names are PascalCase | All |\n"
+
+    assert_equal [1], Anchors.definitions(table, "F")
+    assert_equal [1], Anchors.definitions(table, "N")
+    assert_equal [1], Anchors.definitions("#### J-01 — LLM agent author runs code\n", "J")
+  end
+
   def test_tombstone_prose_marks_a_number_as_retired
     text = "E-14 is a retired anchor — permanently reserved and never reassigned (N-8)."
 
@@ -38,16 +49,12 @@ class KobakoAnchorsTest < Minitest::Test
   end
 
   def test_references_extract_anchor_tokens_including_range_endpoints
-    text = "See B-07..B-12 and E-19; RX-03 and JS-08 cover it. Not an anchor: rev-2026."
+    text = "See B-07..B-12 and E-19; RX-03, JS-08, and F-10 cover it (J-06, N-8). Not one: rev-2026."
 
-    refs = Anchors.references(text)
+    expected = [["B", 7], ["B", 12], ["E", 19], ["RX", 3], ["JS", 8], ["F", 10], ["J", 6], ["N", 8]]
 
-    assert_includes refs, ["B", 7]
-    assert_includes refs, ["B", 12]
-    assert_includes refs, ["E", 19]
-    assert_includes refs, ["RX", 3]
-    assert_includes refs, ["JS", 8]
-    refute_includes refs, ["E", 2026], "a hyphenated number inside a word is not an anchor reference"
+    assert_equal expected, Anchors.references(text),
+                 "every family token must extract; a hyphenated number inside a word is not an anchor"
   end
 
   def test_clean_corpus_reports_no_violations
