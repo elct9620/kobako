@@ -170,6 +170,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             }
         }
     };
+    // Envelope faults reject here, before entrypoint resolution: a
+    // request that is both malformed and aimed at a missing entrypoint
+    // reports its wire-shape violation, not the entrypoint miss.
     let invocation = match parse_invocation(envelope) {
         Ok(inv) => inv,
         Err(err) => {
