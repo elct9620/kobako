@@ -180,6 +180,14 @@ impl Encoder {
         Self { buf: Vec::new() }
     }
 
+    /// Encode one `Value` to its wire bytes — the single-value entry the
+    /// transport envelopes share, peer of the Ruby codec's `Encoder.encode`.
+    pub fn encode(value: &Value) -> Result<Vec<u8>, Error> {
+        let mut enc = Encoder::new();
+        enc.write_value(value)?;
+        Ok(enc.into_bytes())
+    }
+
     pub fn into_bytes(self) -> Vec<u8> {
         self.buf
     }
@@ -191,11 +199,7 @@ impl Encoder {
     /// Encode one `Value` at nesting level `depth`. Recursing past
     /// `MAX_NESTING_DEPTH` is refused as a clean error, mirroring the
     /// decoder's `read_value_from` guard so an over-deep `Value` tree cannot
-    /// overflow the wasm stack on the way out either. Today's callers bound
-    /// the tree before it reaches here (the codec-conversion walk caps at the
-    /// same depth), so this is the encoder's own backstop, not the primary
-    /// cap — it keeps the limit true at the codec layer the const's doc
-    /// already promises it on.
+    /// overflow the wasm stack on the way out either.
     fn write_value_at(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
         if depth > MAX_NESTING_DEPTH {
             return Err(Error::Malformed("nesting exceeds maximum depth"));
@@ -512,9 +516,7 @@ mod tests {
     use super::*;
 
     fn roundtrip(v: Value) -> Value {
-        let mut enc = Encoder::new();
-        enc.write_value(&v).expect("encode");
-        let bytes = enc.into_bytes();
+        let bytes = encode(&v);
         let mut dec = Decoder::new(&bytes);
         let out = dec.read_value().expect("decode");
         assert!(dec.at_end(), "decoder must consume all bytes");
@@ -522,9 +524,7 @@ mod tests {
     }
 
     fn encode(v: &Value) -> Vec<u8> {
-        let mut enc = Encoder::new();
-        enc.write_value(v).expect("encode");
-        enc.into_bytes()
+        Encoder::encode(v).expect("encode")
     }
 
     #[test]

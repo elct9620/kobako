@@ -82,9 +82,7 @@ impl Encode for Panic {
         if let Some(d) = &self.details {
             pairs.push((Value::Str("details".into()), d.clone()));
         }
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Map(pairs))?;
-        Ok(enc.into_bytes())
+        Encoder::encode(&Value::Map(pairs))
     }
 }
 
@@ -170,11 +168,7 @@ impl Encode for Outcome {
     /// to `Panic`'s own codec.
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         let (tag, body) = match self {
-            Outcome::Value(v) => {
-                let mut enc = Encoder::new();
-                enc.write_value(v)?;
-                (OUTCOME_TAG_RESULT, enc.into_bytes())
-            }
+            Outcome::Value(v) => (OUTCOME_TAG_RESULT, Encoder::encode(v)?),
             Outcome::Panic(p) => (OUTCOME_TAG_PANIC, p.encode()?),
         };
         let mut out = Vec::with_capacity(1 + body.len());

@@ -50,9 +50,7 @@ impl Encode for Yield {
             LIVE_TAGS.contains(&self.tag),
             "Yield.tag must be a live tag — caller invariant"
         );
-        let mut enc = Encoder::new();
-        enc.write_value(&self.value)?;
-        let payload = enc.into_bytes();
+        let payload = Encoder::encode(&self.value)?;
         let mut out = Vec::with_capacity(1 + payload.len());
         out.push(self.tag);
         out.extend_from_slice(&payload);

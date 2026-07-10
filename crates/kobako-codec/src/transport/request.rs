@@ -61,9 +61,7 @@ impl codec::Encode for Request {
             Value::Map(kwargs_pairs),
             Value::Bool(self.block_given),
         ]);
-        let mut enc = Encoder::new();
-        enc.write_value(&frame)?;
-        Ok(enc.into_bytes())
+        Encoder::encode(&frame)
     }
 }
 
