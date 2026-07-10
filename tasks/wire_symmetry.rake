@@ -13,16 +13,18 @@ WIRE_SYMMETRY_ROOT = File.expand_path("..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport/*.rb"]
 WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport/*.rs"]
-WIRE_RUBY_EXT = "lib/kobako/codec/ext_types.rb"
-WIRE_RUST_EXT = "crates/kobako-codec/src/codec.rs"
+# Ext-code registrations are scanned tier-wide, not pinned to one file,
+# so a moved registration cannot symmetrically vanish from the gate.
+WIRE_RUBY_EXT = FileList["lib/kobako/codec/*.rb"]
+WIRE_RUST_EXT = FileList["crates/kobako-codec/src/**/*.rs"]
 
 # Both sides' inventories, keyed for +KobakoWireSymmetry.violations+.
 def wire_symmetry_inventories
   {
     ruby_types: KobakoWireSymmetry.ruby_types(KobakoAnchors.read_sources(WIRE_RUBY_TRANSPORT, WIRE_SYMMETRY_ROOT)),
     rust_types: KobakoWireSymmetry.rust_types(KobakoAnchors.read_sources(WIRE_RUST_TRANSPORT, WIRE_SYMMETRY_ROOT)),
-    ruby_ext: KobakoWireSymmetry.ruby_ext_codes(File.read(WIRE_RUBY_EXT)),
-    rust_ext: KobakoWireSymmetry.rust_ext_codes(File.read(WIRE_RUST_EXT))
+    ruby_ext: KobakoWireSymmetry.ruby_ext_codes(WIRE_RUBY_EXT.map { |path| File.read(path) }.join),
+    rust_ext: KobakoWireSymmetry.rust_ext_codes(WIRE_RUST_EXT.map { |path| File.read(path) }.join)
   }
 end
 
