@@ -25,6 +25,23 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "pub(crate) items and test-module helpers are not public surface"
   end
 
+  # Witnesses the two qualifier shapes the corpus actually holds:
+  # kobako-mruby's raise helpers are +pub unsafe fn+, and a +pub const
+  # fn+ must yield the function name, never the +fn+ keyword.
+  def test_pub_items_read_through_fn_qualifiers
+    sources = { "src/runtime.rs" => <<~RS }
+      pub unsafe fn resolve_raw(mrb: &Mrb) -> Self {}
+      pub const fn packed_len() -> usize {}
+      pub const MAX_DEPTH: usize = 128;
+    RS
+
+    expected = [["resolve_raw", "src/runtime.rs:1"], ["packed_len", "src/runtime.rs:2"],
+                ["MAX_DEPTH", "src/runtime.rs:3"]]
+
+    assert_equal expected, Surface.pub_items(sources),
+                 "a qualified pub fn must surface under its own name alongside plain const items"
+  end
+
   def test_unconsumed_excludes_referenced_and_acknowledged_items
     items = [["pack_u64", "src/abi.rs:1"], ["take_outcome", "src/abi.rs:2"], ["orphan", "src/abi.rs:3"]]
     consumers = "let word = pack_u64(p, l);"

@@ -8,8 +8,10 @@
 module KobakoPubSurface
   module_function
 
-  # A crate's public Rust surface; +pub(crate)+ and narrower stay out.
-  PUB_ITEM = /^\s*pub (?:fn|struct|enum|trait|const|type) (\w+)/
+  # A crate's public Rust surface; +pub(crate)+ and narrower stay out,
+  # as do the +pub extern "C"+ templates inside +export_guest!+ — those
+  # expand in the consumer's crate, not here.
+  PUB_ITEM = /^\s*pub (?:(?:unsafe|const|async) )*(?:fn|struct|enum|trait|const|type) (\w+)/
 
   # +[[name, "path:line"], ...]+ for every pub item in a
   # +{ path => text }+ map, with each file's +#[cfg(test)]+ tail
