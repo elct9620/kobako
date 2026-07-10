@@ -31,7 +31,8 @@ desc "Check B-/E-/RX-/JS-/F-/J-/N- anchors are unique, contiguous, and resolvabl
 task :anchors do
   behavior = KobakoAnchors.read_sources(ANCHOR_DEF_BEHAVIOR, ANCHOR_ROOT)
   spec = KobakoAnchors.read_sources(FileList["SPEC.md"], ANCHOR_ROOT)
-  violations = KobakoAnchors.audit(
+  ceilings = KobakoAnchors.parse_ceilings(File.read("SPEC.md"))
+  violations = KobakoAnchors.ceiling_statement_violations(ceilings) + KobakoAnchors.audit(
     def_sources: {
       "B" => behavior, "E" => behavior,
       "RX" => KobakoAnchors.read_sources(ANCHOR_DEF_REGEXP, ANCHOR_ROOT),
@@ -39,7 +40,7 @@ task :anchors do
       "F" => spec, "J" => spec, "N" => spec
     },
     ref_sources: KobakoAnchors.read_sources(ANCHOR_REF_GLOBS, ANCHOR_ROOT),
-    ceilings: KobakoAnchors.parse_ceilings(File.read("SPEC.md"))
+    ceilings: ceilings
   )
 
   if violations.empty?

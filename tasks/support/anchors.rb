@@ -60,6 +60,15 @@ module KobakoAnchors
     { "B" => match[1].to_i, "E" => match[2].to_i }
   end
 
+  # The gate's own liveness check: an empty +parse_ceilings+ result
+  # means the SPEC statement moved or was reworded, and letting it pass
+  # would silently disarm the ceiling and sequence enforcement.
+  def ceiling_statement_violations(ceilings)
+    return [] unless ceilings.empty?
+
+    ['no SPEC ceiling parsed — expected "current ceiling is B-nn / E-nn" in SPEC.md']
+  end
+
   # Audit a corpus and return the list of violation strings (empty = clean).
   # +def_sources+ maps each prefix to its authoritative +{ path => text }+
   # definition files; +ref_sources+ is every +{ path => text }+ scanned for

@@ -128,6 +128,14 @@ class KobakoAnchorsTest < Minitest::Test
     assert_equal({ "B" => 50, "E" => 48 }, Anchors.parse_ceilings(text))
   end
 
+  # The gate's own liveness: a reworded ceiling statement must fail the
+  # audit, not silently disable ceiling and sequence enforcement.
+  def test_an_unparseable_ceiling_statement_is_a_violation
+    assert_empty Anchors.ceiling_statement_violations({ "B" => 50, "E" => 48 })
+    refute_empty Anchors.ceiling_statement_violations({}),
+                 "an empty ceiling parse must surface as a violation instead of disarming the gate"
+  end
+
   def test_rx_ceiling_is_derived_from_its_own_definitions
     text = "### RX-01 — a\n### RX-02 — b\n### RX-04 — d\nRX-03 is a retired anchor (N-8).\n"
 
