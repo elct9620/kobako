@@ -30,16 +30,16 @@
 use kobako_codec::codec::Value;
 
 /// Decoded invocation envelope. `target` is the entrypoint constant
-/// name (a Symbol on the codec side); `args` is always a
-/// `Value::Array` and `kwargs` always a `Value::Map` — callers can
-/// hand them straight to `crate::runtime::Kobako::to_mrb_value`
-/// without re-checking.
+/// name (a Symbol on the codec side); the parser has already narrowed
+/// `args` to the array's elements and `kwargs` to the map's pairs, so
+/// callers hand them straight to
+/// `crate::runtime::Kobako::to_mrb_value` without re-checking.
 #[cfg(any(mruby_linked, test))]
 #[derive(Debug, PartialEq)]
 pub(super) struct Invocation {
     pub target: String,
-    pub args: Value,
-    pub kwargs: Value,
+    pub args: Vec<Value>,
+    pub kwargs: Vec<(Value, Value)>,
 }
 
 /// Reasons the invocation envelope failed to decode. Each variant
@@ -53,6 +53,10 @@ pub(super) enum InvocationError {
     NotMap,
     /// `entrypoint` key was absent or its value was not a Symbol.
     MissingEntrypoint,
+    /// `args` key was present but its value was not an Array.
+    ArgsNotArray,
+    /// `kwargs` key was present but its value was not a Map.
+    KwargsNotMap,
 }
 
 #[cfg(any(mruby_linked, test))]
@@ -61,14 +65,16 @@ impl InvocationError {
         match self {
             Self::NotMap => "malformed invocation request",
             Self::MissingEntrypoint => "invocation request is missing an entrypoint",
+            Self::ArgsNotArray => "invocation arguments must be an array",
+            Self::KwargsNotMap => "invocation keyword arguments must be a map",
         }
     }
 }
 
 /// Parse a decoded msgpack `Value` into an `Invocation`. Unknown
 /// keys are silently ignored for forward compatibility; `args` /
-/// `kwargs` default to empty array / empty map when absent. Pure
-/// parser — host-buildable for unit testing.
+/// `kwargs` default to empty when absent but must carry their wire
+/// shape when present. Pure parser — host-buildable for unit testing.
 #[cfg(any(mruby_linked, test))]
 pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, InvocationError> {
     let pairs = match envelope {
@@ -76,8 +82,8 @@ pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, Invocation
         _ => return Err(InvocationError::NotMap),
     };
     let mut target: Option<String> = None;
-    let mut args_val: Option<Value> = None;
-    let mut kwargs_val: Option<Value> = None;
+    let mut args: Option<Vec<Value>> = None;
+    let mut kwargs: Option<Vec<(Value, Value)>> = None;
     for (k, v) in pairs {
         let key = match k {
             Value::Str(s) => s,
@@ -89,18 +95,22 @@ pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, Invocation
                     target = Some(name);
                 }
             }
-            "args" => args_val = Some(v),
-            "kwargs" => kwargs_val = Some(v),
+            "args" => match v {
+                Value::Array(items) => args = Some(items),
+                _ => return Err(InvocationError::ArgsNotArray),
+            },
+            "kwargs" => match v {
+                Value::Map(entries) => kwargs = Some(entries),
+                _ => return Err(InvocationError::KwargsNotMap),
+            },
             _ => {}
         }
     }
     let target = target.ok_or(InvocationError::MissingEntrypoint)?;
-    let args = args_val.unwrap_or(Value::Array(Vec::new()));
-    let kwargs = kwargs_val.unwrap_or(Value::Map(Vec::new()));
     Ok(Invocation {
         target,
-        args,
-        kwargs,
+        args: args.unwrap_or_default(),
+        kwargs: kwargs.unwrap_or_default(),
     })
 }
 
@@ -236,24 +246,12 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // positional argument and must accept it as a plain `Hash` (e.g.
     // `def call(req, opts = {})` rather than `def call(req,
     // multiplier: 1)`).
-    let Value::Array(arg_items) = invocation.args else {
-        // `parse_invocation` guarantees Array; the irrefutable shape
-        // is reasserted here for the compiler.
-        return write_panic(boot::transport_panic(
-            "invocation arguments must be an array",
-        ));
-    };
-    let Value::Map(kwargs_pairs) = invocation.kwargs else {
-        return write_panic(boot::transport_panic(
-            "invocation keyword arguments must be a map",
-        ));
-    };
-    let kwargs_present = !kwargs_pairs.is_empty();
     // An argument the guest cannot represent — an integer outside the
     // 32-bit range — fails the invocation rather than reaching the
     // entrypoint with a saturated value (docs/wire-codec.md § Integer
     // Range).
-    let mut argv: Vec<beni::Value> = match arg_items
+    let mut argv: Vec<beni::Value> = match invocation
+        .args
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
         .collect()
@@ -261,8 +259,8 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Ok(argv) => argv,
         Err(err) => return write_panic(boot::transport_panic(err.message())),
     };
-    if kwargs_present {
-        match kobako.to_mrb_value(Value::Map(kwargs_pairs)) {
+    if !invocation.kwargs.is_empty() {
+        match kobako.to_mrb_value(Value::Map(invocation.kwargs)) {
             Ok(kwargs_val) => argv.push(kwargs_val),
             Err(err) => return write_panic(boot::transport_panic(err.message())),
         }
@@ -304,8 +302,11 @@ mod tests {
         ]);
         let inv = parse_invocation(envelope).unwrap();
         assert_eq!(inv.target, "Greeter");
-        assert_eq!(inv.args, Value::Array(vec![Value::Int(42)]));
-        assert!(matches!(inv.kwargs, Value::Map(_)));
+        assert_eq!(inv.args, vec![Value::Int(42)]);
+        assert_eq!(
+            inv.kwargs,
+            vec![(Value::Sym("flag".into()), Value::Bool(true))]
+        );
     }
 
     #[test]
@@ -315,8 +316,38 @@ mod tests {
             Value::Sym("Greeter".into()),
         )]);
         let inv = parse_invocation(envelope).unwrap();
-        assert_eq!(inv.args, Value::Array(Vec::new()));
-        assert_eq!(inv.kwargs, Value::Map(Vec::new()));
+        assert!(inv.args.is_empty());
+        assert!(inv.kwargs.is_empty());
+    }
+
+    #[test]
+    fn parse_invocation_rejects_non_array_args() {
+        let envelope = Value::Map(vec![
+            (
+                Value::Str("entrypoint".into()),
+                Value::Sym("Greeter".into()),
+            ),
+            (Value::Str("args".into()), Value::Int(1)),
+        ]);
+        assert_eq!(
+            parse_invocation(envelope),
+            Err(InvocationError::ArgsNotArray)
+        );
+    }
+
+    #[test]
+    fn parse_invocation_rejects_non_map_kwargs() {
+        let envelope = Value::Map(vec![
+            (
+                Value::Str("entrypoint".into()),
+                Value::Sym("Greeter".into()),
+            ),
+            (Value::Str("kwargs".into()), Value::Array(Vec::new())),
+        ]);
+        assert_eq!(
+            parse_invocation(envelope),
+            Err(InvocationError::KwargsNotMap)
+        );
     }
 
     #[test]
@@ -371,6 +402,14 @@ mod tests {
         assert_eq!(
             InvocationError::MissingEntrypoint.message(),
             "invocation request is missing an entrypoint"
+        );
+        assert_eq!(
+            InvocationError::ArgsNotArray.message(),
+            "invocation arguments must be an array"
+        );
+        assert_eq!(
+            InvocationError::KwargsNotMap.message(),
+            "invocation keyword arguments must be a map"
         );
     }
 }
