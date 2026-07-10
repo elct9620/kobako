@@ -76,8 +76,12 @@ pub fn pack_u64(ptr: u32, len: u32) -> u64 {
 }
 
 /// Unpack a u64 produced by `pack_u64` back into `(ptr, len)`.
+/// Crate-internal — the unpacking side of the ABI lives in the
+/// wasm32-only `transport::proxy`; guests only ever pack, so on host
+/// builds only the round-trip tests need it.
+#[cfg(any(test, target_arch = "wasm32"))]
 #[inline]
-pub fn unpack_u64(packed: u64) -> (u32, u32) {
+pub(crate) fn unpack_u64(packed: u64) -> (u32, u32) {
     let ptr = (packed >> 32) as u32;
     let len = packed as u32;
     (ptr, len)
