@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 # Pure-Ruby reporter backing +tasks/coverage.rake+. Walks the stdlib
-# +Coverage+ result and prints a per-file line-coverage table scoped
-# to +lib/kobako/+. Characterization tooling — not part of the
-# release gate, no thresholds enforced.
+# +Coverage+ result into per-file line-coverage report lines scoped to
+# +lib/kobako/+, worst-covered first; the rake task owns the printing.
+# Characterization tooling — not part of the release gate, no
+# thresholds enforced.
 module KobakoCoverage
   module_function
 
@@ -12,14 +13,16 @@ module KobakoCoverage
   # filtered out of the report.
   LIB_ROOT = File.expand_path("../../lib/kobako", __dir__)
 
-  # Render the coverage report for +result+ — the hash returned by
+  # The printable report for +result+ — the hash returned by
   # +Coverage.result+ keyed by absolute source path.
-  def report(result)
+  def report_lines(result)
     entries = collect(result)
-    return puts "No lib/kobako/ source files were loaded — empty suite?" if entries.empty?
+    return ["No lib/kobako/ source files were loaded — empty suite?"] if entries.empty?
 
-    print_table(entries)
-    print_totals(entries)
+    width = column_width(entries)
+    [*header_lines(entries.size, width),
+     *entries.map { |entry| row_line(entry, width) },
+     *total_lines(entries, width)]
   end
 
   # Convert a +Coverage.result+ hash into a sorted array of per-file
@@ -39,8 +42,6 @@ module KobakoCoverage
     relevant.empty? ? nil : build_entry(path, hits, relevant)
   end
 
-  # Materialise the per-file entry once +entry_for+ has confirmed the
-  # path is in scope and has executable lines.
   def build_entry(path, hits, relevant)
     covered = relevant.count(&:positive?)
     {
@@ -52,37 +53,29 @@ module KobakoCoverage
     }
   end
 
-  # Return the 1-based line numbers where +Coverage+ reported zero
-  # hits. +nil+ entries (blank lines, comments, non-executable code)
-  # are skipped.
+  # The 1-based line numbers where +Coverage+ reported zero hits.
+  # +nil+ entries (blank lines, comments, non-executable code) are
+  # skipped.
   def uncovered_lines(hits)
     hits.each_with_index.filter_map { |h, i| h.is_a?(Integer) && h.zero? ? i + 1 : nil }
   end
 
-  def print_table(entries)
-    width = column_width(entries)
-    puts ""
-    puts "=" * (width + 32)
-    puts "Coverage — lib/kobako/  (#{entries.size} files)"
-    puts "=" * (width + 32)
-    entries.each { |e| puts format_row(e, width) }
+  def header_lines(count, width)
+    rule = "=" * (width + 32)
+    ["", rule, "Coverage — lib/kobako/  (#{count} files)", rule]
   end
 
-  # Format a single table row. Uncovered line numbers ride at the end
-  # of the row, truncated to the first eight with an ellipsis when
-  # the list is longer — keeps the row scannable while still pointing
-  # the reader at where to look.
-  def format_row(entry, width)
-    base = format_base(entry, width)
+  # A single table row. Uncovered line numbers ride at the end,
+  # truncated to the first eight with an ellipsis when the list is
+  # longer — keeps the row scannable while still pointing the reader
+  # at where to look.
+  def row_line(entry, width)
+    base = "#{entry[:name].ljust(width)}  " \
+           "#{entry[:covered].to_s.rjust(3)}/#{entry[:relevant].to_s.rjust(3)}  " \
+           "#{entry[:pct].to_s.rjust(5)}%"
     return base if entry[:uncov].empty?
 
     "#{base}  uncovered: #{format_uncov(entry[:uncov])}"
-  end
-
-  def format_base(entry, width)
-    "#{entry[:name].ljust(width)}  " \
-      "#{entry[:covered].to_s.rjust(3)}/#{entry[:relevant].to_s.rjust(3)}  " \
-      "#{entry[:pct].to_s.rjust(5)}%"
   end
 
   def format_uncov(lines)
@@ -90,12 +83,11 @@ module KobakoCoverage
     lines.size > 8 ? "#{sample}…" : sample
   end
 
-  def print_totals(entries)
+  def total_lines(entries, width)
     totals = compute_totals(entries)
-    width = column_width(entries)
-    puts "-" * (width + 32)
-    puts "TOTAL: #{totals[:covered]}/#{totals[:relevant]} (#{totals[:pct]}%)"
-    puts "=" * (width + 32)
+    ["-" * (width + 32),
+     "TOTAL: #{totals[:covered]}/#{totals[:relevant]} (#{totals[:pct]}%)",
+     "=" * (width + 32)]
   end
 
   def compute_totals(entries)

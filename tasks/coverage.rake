@@ -26,5 +26,5 @@ task :coverage do
 
   Dir.glob(File.expand_path("../test/**/test_*.rb", __dir__)).each { |f| require f }
 
-  Minitest.after_run { KobakoCoverage.report(Coverage.result) }
+  Minitest.after_run { puts KobakoCoverage.report_lines(Coverage.result) }
 end
