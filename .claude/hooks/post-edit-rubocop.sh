@@ -1,9 +1,9 @@
 #!/bin/bash
-# PostToolUse(Edit|Write): auto-correct the edited Ruby file; a remaining
-# offense blocks the edit.
+# PostToolUse(Edit|Write): auto-correct the edited Ruby or rake file; a
+# remaining offense blocks the edit.
 set -euo pipefail
 
-file=$(jq -r '.tool_input.file_path | select(endswith(".rb"))')
+file=$(jq -r '.tool_input.file_path | select(test("\\.(rb|rake)$") or endswith("/Rakefile"))')
 [ -n "$file" ] || exit 0
 
 cd "${CLAUDE_PROJECT_DIR:?}"

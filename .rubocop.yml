@@ -26,9 +26,16 @@ Naming/VariableNumber:
   Exclude:
     - "test/support/wire_value_generator.rb"
 
+# Rake namespace/task blocks are declarative registries — their length
+# tracks how many tasks a file declares, not code complexity, so the
+# rake DSL is exempt from block-length budgeting. Real logic still
+# belongs in tasks/support/ modules (tested under test/tasks/), where
+# every Metrics cop applies in full.
 Metrics/BlockLength:
   Exclude:
     - "*.gemspec"
+    - "Rakefile"
+    - "tasks/**/*.rake"
 
 Layout/LineLength:
   Exclude:
