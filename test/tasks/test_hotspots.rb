@@ -76,4 +76,17 @@ class KobakoHotspotsTest < Minitest::Test
 
     assert_equal 1, Hotspots.rows(churn: churn, sizes: sizes, fan_in: {}, limit: 1).size
   end
+
+  # Rust carries its tests inline while Ruby's live in the excluded
+  # test/ tree — sizing whole .rs files would skew the cross-language
+  # churn × size ranking by the weight of their test tails.
+  def test_impl_lines_strip_a_rust_test_tail_and_keep_ruby_whole
+    rust = "pub fn shipped() {}\n#[cfg(test)]\nmod tests {\n    fn helper() {}\n}\n"
+    ruby = "def shipped\nend\n"
+
+    assert_equal 1, Hotspots.impl_lines("crates/kobako-codec/src/codec.rs", rust),
+                 "a Rust file through impl_lines must count only the lines before its cfg(test) tail"
+    assert_equal 2, Hotspots.impl_lines("lib/kobako/sandbox.rb", ruby),
+                 "a Ruby file through impl_lines must count every line"
+  end
 end

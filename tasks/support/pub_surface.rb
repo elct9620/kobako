@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "rust_source"
+
 # Pub-surface consumption reader backing +tasks/pub_surface.rake+. A
 # +pub+ item with no in-repo downstream reference is either deliberate
 # third-party API (acknowledged with a reason) or an over-wide surface
@@ -15,17 +17,12 @@ module KobakoPubSurface
   # counted where each item is defined.
   PUB_ITEM = /^\s*pub (?:(?:unsafe|const|async) )*(?:fn|struct|enum|trait|const|type|static(?: mut)?) (\w+)/
 
-  # A +#[cfg(test)]+ gate that opens a test module — the only shape that
-  # truncates the scan; an inline cfg(test) item must not hide the
-  # public surface that follows it.
-  TEST_MODULE = /^\s*#\[cfg\(test\)\]\s*\n\s*mod\b/
-
   # +[[name, "path:line"], ...]+ for every pub item in a
   # +{ path => text }+ map, with each file's +#[cfg(test)]+ tail module
-  # excluded (test modules sit at the end of a file by convention).
+  # excluded via the shared source-shape rule.
   def pub_items(sources)
     sources.flat_map do |path, text|
-      body = text.split(TEST_MODULE, 2).first
+      body = KobakoRustSource.impl_body(text)
       body.each_line.with_index(1).filter_map do |line, lineno|
         name = line[PUB_ITEM, 1]
         [name, "#{path}:#{lineno}"] if name

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "rust_source"
+
 # Churn × size scorer backing +tasks/hotspots.rake+, with fan-in as a
 # reference column: a large, frequently edited file is where polish
 # effort pays most, and wide require reach raises the stakes without
@@ -31,6 +33,15 @@ module KobakoHotspots
       end
     end
     counts
+  end
+
+  # The size a hotspot is judged by: implementation lines only. Rust
+  # carries its tests inline while Ruby's live in the excluded test/
+  # tree, so a .rs file sheds its +#[cfg(test)]+ tail before entering
+  # the cross-language churn × size ranking.
+  def impl_lines(path, text)
+    body = path.end_with?(".rs") ? KobakoRustSource.impl_body(text) : text
+    body.lines.count
   end
 
   # The +limit+ hottest rows, scored by churn × size:
