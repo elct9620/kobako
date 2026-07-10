@@ -1,45 +1,20 @@
 //! Guest transport proxy — the guest-side dispatch pipeline.
 //!
 //! This module is the glue between the interpreter-side bridge of the
-//! consuming guest crate (for the bundled guest: the mruby proxy the
-//! `kobako-wasm` crate installs in-VM) and the wasm-level
+//! consuming guest crate (for the bundled guest: the `method_missing`
+//! shims in `kobako-mruby`'s bridge module, whose shared
+//! `forward_to_dispatch` body calls `invoke` here) and the wasm-level
 //! `__kobako_dispatch` host import declared in `crate::abi`.
 //! docs/wire-contract.md § Request / Response pins the contract this
 //! module implements.
 //!
-//! ## Layered responsibilities
-//!
-//! `invoke` — full round-trip. Builds a `Request`, encodes it via
-//! its `kobako_codec::codec::Encode` impl, calls the host via
-//! `__kobako_dispatch` on `wasm32`, then decodes the `Response`. On the
-//! host target (`#[cfg(not(target_arch = "wasm32"))]`) a thread-local
-//! **loopback** hook stands in for the host so that integration-style
-//! tests can drive the full transport path without a real wasm runtime.
-//! The envelope codec itself is exhaustively tested at the value-object
-//! layer (`request.rs` / `response.rs` golden vectors); this module only
-//! adds the demux logic.
-//!
-//! ## Why the loopback indirection on host
-//!
-//! The codec and envelope layers are exhaustively tested on the host
-//! target already (see `request.rs` / `response.rs` and `codec/mod.rs`).
-//! What this
-//! module adds is the *demux* logic that turns a `Response::Ok(value)`
-//! into a returnable mruby value, and a `Response::Err(payload)` into
-//! an mruby exception. We test that demux without a real wasm runtime
-//! by feeding the function a canned response via the loopback hook.
-//!
-//! ## Where the mruby C-side bridge lives
-//!
-//! In the bundled guest, user-script transport calls land in C via two
-//! `method_missing` shims, one per `Kobako::Transport::Proxy` subclass:
-//! the singleton-class shim on `Kobako::Member` (Member classes) and
-//! the instance shim on `Kobako::Handle` for the Handle chaining path.
-//! Both shims live in the `kobako-wasm`
-//! crate's bridge module; their shared `forward_to_dispatch` body calls
-//! `invoke` here. This module's role is the Rust-level
-//! encode/transport/decode pipeline that interpreter-side bridges
-//! delegate to.
+//! `invoke` builds a `Request`, encodes it, calls the host, and
+//! demuxes the decoded `Response` — `Ok(value)` back to the bridge,
+//! `Err(payload)` into the exception the bridge raises. The envelope
+//! codec is already pinned at the value-object layer (`request.rs` /
+//! `response.rs` golden vectors); on the host target a thread-local
+//! loopback hook stands in for `__kobako_dispatch` so the demux logic
+//! tests without a real wasm runtime.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_dispatch;
@@ -52,10 +27,11 @@ use kobako_codec::transport::{Request, Response, Target};
 // Exception payload returned to mruby on the error path.
 // ---------------------------------------------------------------------
 
-/// The shape of a Response.err payload after envelope-level decoding.
-/// The mruby C-bridge raises this as a `Kobako::ServiceError` /
-/// host-mapped exception; the bridge does not need to inspect more than
-/// `kind` and `message` to do so.
+/// The shape of a Response.err payload after envelope-level decoding —
+/// exactly the fields the consuming bridge needs to raise the guest
+/// exception (SPEC pins every Response.err to the single guest-side
+/// `Kobako::ServiceError`, so nothing beyond `kind` and `message` is
+/// carried).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExceptionPayload {
     /// The envelope `type` field of the inner ext 0x02 map (e.g.
@@ -67,10 +43,6 @@ pub struct ExceptionPayload {
     pub kind: String,
     /// Human-readable message (`message` field of the inner map).
     pub message: String,
-    /// Raw payload bytes — preserved so the mruby bridge can hand them
-    /// back to Ruby code that wants to inspect `details` without
-    /// re-decoding.
-    pub raw: Vec<u8>,
 }
 
 /// Error variants returned by `invoke`.
@@ -208,11 +180,7 @@ fn classify_response(resp: Response) -> Result<Value, InvokeError> {
             let message = msg.ok_or(InvokeError::Codec(codec::Error::Malformed(
                 "error response from the host is missing the field: message",
             )))?;
-            Err(InvokeError::Service(ExceptionPayload {
-                kind,
-                message,
-                raw: payload_bytes,
-            }))
+            Err(InvokeError::Service(ExceptionPayload { kind, message }))
         }
     }
 }
@@ -258,15 +226,6 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
         ))),
     })
 }
-
-// ---------------------------------------------------------------------
-// mruby C-bridge — lives in the `kobako-wasm` crate.
-// ---------------------------------------------------------------------
-//
-// The C-side dispatch entries are the `Kobako::Member` singleton-class
-// `method_missing` shim and the `Kobako::Handle` instance `method_missing`
-// shim. Both live in the `kobako-wasm` crate's bridge module and reach
-// this module through their shared `forward_to_dispatch` body.
 
 // ---------------------------------------------------------------------
 // Tests — fast tier (host target, always runs).
@@ -384,7 +343,6 @@ mod tests {
             Err(InvokeError::Service(ex)) => {
                 assert_eq!(ex.kind, "runtime");
                 assert_eq!(ex.message, "boom");
-                assert!(!ex.raw.is_empty(), "raw payload bytes must be preserved");
             }
             other => panic!("expected Service, got {other:?}"),
         }
