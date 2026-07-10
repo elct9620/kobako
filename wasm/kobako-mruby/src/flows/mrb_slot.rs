@@ -13,7 +13,9 @@
 //!
 //! 1. The bake (or the first entry's `boot_vm`) installs an opened,
 //!    Kobako-initialised `Mrb` via `MRB.install`.
-//! 2. Entry bodies borrow the live VM via `MRB.as_ref`.
+//! 2. Entry bodies reach the VM through the `Kobako` returned by
+//!    `acquire_vm` (`Kobako::mrb`); the yield entry, which has no
+//!    acquire step, borrows via `MRB.as_ref`.
 //! 3. The slot is cleared only when a lazy boot fails mid-way; on
 //!    every other path the VM stays installed — the host discards the
 //!    whole instance after each invocation (ABI v2 per-invocation

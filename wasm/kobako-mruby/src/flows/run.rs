@@ -125,7 +125,6 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use super::mrb_slot::MRB;
     use kobako_codec::codec::{Decoder, Encode};
     use kobako_codec::outcome::{Outcome, Panic};
     use kobako_core::abi::{write_outcome, write_panic};
@@ -143,7 +142,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
-    let mrb = MRB.as_ref().expect("MRB live after acquire_vm");
+    let mrb = kobako.mrb();
 
     if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
         return write_panic(panic);
@@ -156,7 +155,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // constants the preloaded snippets contributed.
     let baseline_constants = kobako.top_level_constants();
 
-    if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
+    if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
         return write_panic(panic);
     }
 

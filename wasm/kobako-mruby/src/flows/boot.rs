@@ -178,9 +178,9 @@ pub(super) fn install_preamble(
     })
 }
 
-/// Replay every snippet in `snippets` against `mrb` in insertion order
-/// so any uncaught exception's backtrace attributes back to the
-/// originating `#preload` call. Source entries
+/// Replay every snippet in `snippets` against `kobako`'s VM in
+/// insertion order so any uncaught exception's backtrace attributes
+/// back to the originating `#preload` call. Source entries
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
 /// entries load through beni's `Mrb::load_bytecode` (the filename,
 /// when present, is baked into their RITE `debug_info` section). The first
@@ -193,10 +193,10 @@ pub(super) fn install_preamble(
 /// natural mruby class.
 #[cfg(mruby_linked)]
 pub(super) fn replay_snippets(
-    mrb: &Mrb,
     kobako: &Kobako,
     snippets: &[super::snippets::Snippet],
 ) -> Result<(), Panic> {
+    let mrb = kobako.mrb();
     for entry in snippets {
         let load = match entry {
             super::snippets::Snippet::Source { name, body } => {
@@ -205,7 +205,7 @@ pub(super) fn replay_snippets(
             }
             super::snippets::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
         };
-        if let Some(panic) = take_pending_panic(mrb, kobako) {
+        if let Some(panic) = take_pending_panic(kobako) {
             return Err(reshape_replay_panic(panic, load));
         }
     }
@@ -281,17 +281,19 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
     }
 }
 
-/// If an mruby exception is pending on `mrb`, extract its class name,
-/// message, and backtrace into a Panic envelope (with `origin` chosen
-/// by `origin_for_class`). Returns `None` when no exception is
-/// pending. Clears `mrb->exc` via `Mrb::clear_exc` before returning.
+/// If an mruby exception is pending on `kobako`'s VM, extract its
+/// class name, message, and backtrace into a Panic envelope (with
+/// `origin` chosen by `origin_for_class`). Returns `None` when no
+/// exception is pending. Clears `mrb->exc` via `Mrb::clear_exc`
+/// before returning.
 #[cfg(mruby_linked)]
-pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
+pub(super) fn take_pending_panic(kobako: &Kobako) -> Option<Panic> {
+    let mrb = kobako.mrb();
     let exc_val = mrb.pending_exc();
     if exc_val.is_nil() {
         return None;
     }
-    let panic = panic_from_exception(mrb, kobako, exc_val);
+    let panic = panic_from_exception(kobako, exc_val);
     mrb.clear_exc();
     Some(panic)
 }
@@ -304,7 +306,8 @@ pub(super) fn take_pending_panic(mrb: &Mrb, kobako: &Kobako) -> Option<Panic> {
 /// `message` accessor itself raising degrades to the class name rather
 /// than recursing into another panic.
 #[cfg(mruby_linked)]
-fn panic_from_exception(mrb: &Mrb, kobako: &Kobako, exc_val: beni::Value) -> Panic {
+fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
+    let mrb = kobako.mrb();
     let class_name = {
         let cn = exc_val.classname(mrb);
         if cn.is_empty() {
@@ -340,7 +343,7 @@ fn panic_from_exception(mrb: &Mrb, kobako: &Kobako, exc_val: beni::Value) -> Pan
 #[cfg(mruby_linked)]
 pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
     match err {
-        beni::Error::Exception(exc) => panic_from_exception(kobako.mrb(), kobako, exc),
+        beni::Error::Exception(exc) => panic_from_exception(kobako, exc),
         beni::Error::Panic(message) => Panic {
             origin: "sandbox".into(),
             class: "RuntimeError".into(),

@@ -25,7 +25,6 @@ pub(crate) fn eval<G: crate::MrbGuest>() {
 
 fn eval_body<G: crate::MrbGuest>() {
     use super::boot;
-    use super::mrb_slot::MRB;
     use beni::Ccontext;
     use kobako_codec::codec::Encode;
     use kobako_codec::outcome::Outcome;
@@ -51,13 +50,13 @@ fn eval_body<G: crate::MrbGuest>() {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
-    let mrb = MRB.as_ref().expect("MRB live after acquire_vm");
+    let mrb = kobako.mrb();
 
     if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
         return write_panic(panic);
     }
 
-    if let Err(panic) = boot::replay_snippets(mrb, &kobako, &snippets) {
+    if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
         return write_panic(panic);
     }
 
@@ -76,7 +75,7 @@ fn eval_body<G: crate::MrbGuest>() {
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
 
-    if let Some(panic) = boot::take_pending_panic(mrb, &kobako) {
+    if let Some(panic) = boot::take_pending_panic(&kobako) {
         write_panic(panic);
         return;
     }
