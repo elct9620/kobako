@@ -145,3 +145,16 @@ Consequently:
 - **No in-band version field**: the wire envelopes do not carry a version number or negotiation field. Version alignment is enforced once at Sandbox construction, not at the message level.
 - **No negotiation mechanism**: there is no handshake, capability advertisement, or version dispatch. Each side implements exactly one wire shape — the one its ABI version names.
 - **Evolution path**: adding, removing, or changing field semantics increments the ABI version and updates both the Host Gem and the bundled Guest Binary simultaneously; an independently-built Guest Binary conforms by rebuilding against the new version. One-sided evolution is not permitted. Release notes and CHANGELOG document wire-affecting changes under Breaking Changes.
+
+---
+
+## Wire-Symmetric Peers
+
+The Host Gem (`lib/kobako/`) and `crates/kobako-codec` implement this contract independently: every envelope this document specifies exists as a wire-codable type on both sides under the same name, both sides register the same ext type codes, and byte-level round-trips are pinned by the oracle fuzz checks. `rake wire:symmetry` compares the two inventories mechanically — a wire-codable type or ext code present on one side only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift. An empty block is the target state.
+
+Two standing divergences live outside the inventory comparison: success/failure is a value on the guest (`Outcome`) but return-or-raise on the host, and the `Yield` envelope's Rust file is named `block.rs` — `yield` is a Rust keyword and cannot name a module — while the type itself is `Yield` on both sides.
+
+### Accepted asymmetries
+
+```
+```
