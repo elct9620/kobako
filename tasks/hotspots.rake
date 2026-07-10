@@ -2,19 +2,12 @@
 
 # +rake stats:hotspots+ — churn × size × fan-in over the source trees
 # since the last release tag. Characterization signal, not part of the
-# release gate (+rake default+); +rake stats:hotspots:test+ runs the
-# scorer's own unit coverage.
+# release gate (+rake default+); the scorer's unit coverage rides the
+# test suite (+test/tasks/test_hotspots.rb+).
 
 require_relative "support/hotspots"
 
 namespace :stats do
-  namespace :hotspots do
-    desc "Run the hotspot scorer's unit coverage."
-    task :test do
-      sh "bundle exec ruby tasks/support/hotspots_test.rb"
-    end
-  end
-
   desc "Report churn x size x fan-in hotspots since the last release tag (signal; not in release gate)."
   task :hotspots do
     tag = `git describe --tags --abbrev=0 --match "v*"`.strip

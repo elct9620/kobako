@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "hotspots"
+require_relative "../../tasks/support/hotspots"
 
 # Unit coverage for the hotspot scorer: churn parses only tracked source
 # trees out of the git log stream, fan-in follows require_relative edges

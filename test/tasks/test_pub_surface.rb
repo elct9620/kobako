@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "pub_surface"
+require_relative "../../tasks/support/pub_surface"
 
 # Unit coverage for the pub-surface reader: extraction takes only truly
 # public items outside the cfg(test) tail, and the unconsumed filter

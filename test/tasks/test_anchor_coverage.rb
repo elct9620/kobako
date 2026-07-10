@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "anchor_coverage"
+require_relative "../../tasks/support/anchor_coverage"
 
 # Unit coverage for the citation-profile reader (docs/anchor-coverage.md):
 # the profile counts distinct citing files rather than mentions, the

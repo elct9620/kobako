@@ -2,8 +2,8 @@
 
 # +rake stats+ — a rails-stats-style size report over the tracked source
 # tree, one row per architectural tier. Characterization task, not part of
-# the release gate (+rake default+); +rake stats:test+ runs the helper's
-# own unit coverage.
+# the release gate (+rake default+); the helper's unit coverage rides the
+# test suite (+test/tasks/test_stats.rb+).
 
 require_relative "support/stats"
 
@@ -24,13 +24,6 @@ STATS_CATEGORIES = {
   "Rake tasks (tasks/)" => { paths: %w[tasks], kind: :other },
   "Docs (docs/ + SPEC.md)" => { paths: %w[docs SPEC.md], kind: :other }
 }.freeze
-
-namespace :stats do
-  desc "Run the stats helper's unit coverage."
-  task :test do
-    sh "bundle exec ruby tasks/support/stats_test.rb"
-  end
-end
 
 desc "Report code statistics per architectural tier (rails-stats-style; not in release gate)."
 task :stats do

@@ -4,7 +4,8 @@
 # reference. Characterization signal for the published-crate surface
 # (not in the release gate): each listed item is either deliberate
 # third-party API to acknowledge below, or an over-wide surface to
-# demote. +rake stats:surface:test+ runs the reader's own unit coverage.
+# demote. The reader's unit coverage rides the test suite
+# (+test/tasks/test_pub_surface.rb+).
 
 require_relative "support/pub_surface"
 
@@ -33,13 +34,6 @@ PUB_SURFACE_ACKNOWLEDGED = {
 }.freeze
 
 namespace :stats do
-  namespace :surface do
-    desc "Run the pub-surface reader's unit coverage."
-    task :test do
-      sh "bundle exec ruby tasks/support/pub_surface_test.rb"
-    end
-  end
-
   desc "Report pub items with no in-repo downstream consumer (signal; not in release gate)."
   task :surface do
     PUB_SURFACE_CRATES.each do |crate, consumers|

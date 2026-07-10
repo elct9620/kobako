@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "stats"
+require_relative "../../tasks/support/stats"
 
 # Unit coverage for the code-statistics helper backing +tasks/stats.rake+:
 # the pure pieces — cloc JSON aggregation, the tracked-file exclusion rule,

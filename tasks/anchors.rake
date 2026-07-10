@@ -5,8 +5,8 @@
 # defined once, runs contiguous to the ceiling +SPEC.md+ states (holes only
 # where a retired tombstone declares one), and that every reference resolves
 # — the guard that keeps the +docs/behavior/+ split from re-allocating an
-# ID. Part of the release gate (+rake default+); +rake anchors:test+ runs
-# the checker's own unit coverage.
+# ID. Part of the release gate (+rake default+); the checker's unit
+# coverage rides the test suite (+test/tasks/test_anchors.rb+).
 
 require_relative "support/anchors"
 
@@ -22,13 +22,6 @@ ANCHOR_DEF_JSON = FileList["docs/json.md"]
 ANCHOR_REF_GLOBS = FileList[
   "SPEC.md", "README.md", "docs/**/*.md", "test/**/*.rb", "benchmark/**/*.md"
 ].exclude(%r{/(target|vendor|tmp)/})
-
-namespace :anchors do
-  desc "Run the anchor checker's unit coverage."
-  task :test do
-    sh "bundle exec ruby tasks/support/anchors_test.rb"
-  end
-end
 
 desc "Check B-/E-/RX-/JS- anchors are unique, contiguous, and resolvable (N-8)."
 task :anchors do

@@ -4,8 +4,8 @@
 # (docs/anchor-coverage.md): prints the thin and most-cited ends of the
 # per-anchor profile, and fails when a zero-cited anchor lacks its
 # Pending entry or a Pending entry has gone stale. Definition sources
-# are the +ANCHOR_DEF_*+ corpus +rake anchors+ audits; +rake
-# anchors:coverage:test+ runs the reader's own unit coverage.
+# are the +ANCHOR_DEF_*+ corpus +rake anchors+ audits; the reader's unit
+# coverage rides the test suite (+test/tasks/test_anchor_coverage.rb+).
 
 require_relative "support/anchor_coverage"
 
@@ -27,13 +27,6 @@ def anchor_coverage_profile
 end
 
 namespace :anchors do
-  namespace :coverage do
-    desc "Run the coverage reader's unit coverage."
-    task :test do
-      sh "bundle exec ruby tasks/support/anchor_coverage_test.rb"
-    end
-  end
-
   desc "Report the per-anchor citation profile and check the Pending ledger (docs/anchor-coverage.md)."
   task :coverage do
     profile = anchor_coverage_profile

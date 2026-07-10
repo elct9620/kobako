@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "wire_symmetry"
+require_relative "../../tasks/support/wire_symmetry"
 
 # Unit coverage for the wire-symmetric peer comparator
 # (docs/wire-contract.md § Wire-Symmetric Peers): type extraction on

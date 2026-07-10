@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "anchors"
+require_relative "../../tasks/support/anchors"
 
 # Unit coverage for the append-only anchor invariant (N-8): the checker
 # that keeps +B-xx+ / +E-xx+ / +RX-xx+ allocations unique, contiguous, and

@@ -3,8 +3,8 @@
 # Wire-symmetric peer gate (docs/wire-contract.md § Wire-Symmetric
 # Peers): the transport envelope types and ext type codes of +lib/+ and
 # +crates/kobako-codec+ must match name-for-name, with one-sided entries
-# carried by the Accepted asymmetries ledger. +rake wire:symmetry:test+
-# runs the comparator's own unit coverage.
+# carried by the Accepted asymmetries ledger. The comparator's unit
+# coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
 
 require_relative "support/anchors"
 require_relative "support/wire_symmetry"
@@ -27,13 +27,6 @@ def wire_symmetry_inventories
 end
 
 namespace :wire do
-  namespace :symmetry do
-    desc "Run the symmetry comparator's unit coverage."
-    task :test do
-      sh "bundle exec ruby tasks/support/wire_symmetry_test.rb"
-    end
-  end
-
   desc "Check lib/ and kobako-codec wire inventories match (docs/wire-contract.md § Wire-Symmetric Peers)."
   task :symmetry do
     accepted = KobakoWireSymmetry.accepted_asymmetries(File.read(WIRE_SYMMETRY_DOC))
