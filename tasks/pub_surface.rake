@@ -24,6 +24,12 @@ PUB_SURFACE_CRATES = {
   "wasm/kobako-json" => %w[wasm/kobako-wasm]
 }.freeze
 
+# Crates outside the analysis map for a structural reason, not by
+# omission; the roster check below holds every other crate to the map.
+PUB_SURFACE_EXEMPT = {
+  "wasm/kobako-baker" => "standalone bake tool — its lib feeds its own bin, no downstream tree to grep"
+}.freeze
+
 # Confirmed-deliberate third-party API the in-repo scan cannot see,
 # each with the reason it stays public.
 PUB_SURFACE_ACKNOWLEDGED = {
@@ -36,6 +42,14 @@ PUB_SURFACE_ACKNOWLEDGED = {
 namespace :stats do
   desc "Report pub items with no in-repo downstream consumer (signal; not in release gate)."
   task :surface do
+    unaccounted = KobakoPubSurface.unaccounted_crates(
+      roster: FileList["{crates,wasm}/*/Cargo.toml"].map { |path| File.dirname(path) },
+      analyzed: PUB_SURFACE_CRATES.keys,
+      consumers: PUB_SURFACE_CRATES.values.flatten.uniq,
+      exempt: PUB_SURFACE_EXEMPT.keys
+    )
+    abort "stats:surface: unclassified crate(s): #{unaccounted.join(", ")}" unless unaccounted.empty?
+
     PUB_SURFACE_CRATES.each do |crate, consumers|
       sources = FileList["#{crate}/src/**/*.rs"].to_h { |path| [path, File.read(path)] }
       consumers_text = consumers.flat_map { |dir| FileList["#{dir}/src/**/*.rs"].map { |p| File.read(p) } }.join

@@ -51,6 +51,20 @@ class KobakoPubSurfaceTest < Minitest::Test
     assert_equal [["orphan", "src/abi.rs:3"]], unconsumed
   end
 
+  # The scope-drift guard: a crate directory that is neither analyzed,
+  # consuming, nor exempt means the scan silently lags the repo.
+  def test_unaccounted_crates_lists_only_unclassified_roster_entries
+    unaccounted = Surface.unaccounted_crates(
+      roster: ["crates/a", "crates/b", "wasm/c", "wasm/d"],
+      analyzed: ["crates/a"],
+      consumers: ["wasm/c"],
+      exempt: ["wasm/d"]
+    )
+
+    assert_equal ["crates/b"], unaccounted,
+                 "a roster crate with no analyzed/consumer/exempt classification must surface as drift"
+  end
+
   def test_unconsumed_requires_a_word_boundary_match
     items = [["pack", "src/abi.rs:1"]]
 

@@ -27,6 +27,14 @@ module KobakoPubSurface
     end
   end
 
+  # The roster crates the analysis map fails to classify. Every crate
+  # directory must be analyzed, serve as a consumer, or carry a reasoned
+  # exemption — anything else means the scan's scope has drifted behind
+  # the repo.
+  def unaccounted_crates(roster:, analyzed:, consumers:, exempt:)
+    roster - analyzed - consumers - exempt
+  end
+
   # The items with no word-boundary reference anywhere in
   # +consumers_text+ and no acknowledgement entry. Macro-expanded
   # consumption (+$crate::+ paths) is invisible to this scan — that is
