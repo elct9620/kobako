@@ -10,7 +10,9 @@
 require_relative "support/anchor_coverage"
 
 ANCHOR_COVERAGE_DOC = "docs/anchor-coverage.md"
-ANCHOR_COVERAGE_TESTS = FileList["test/**/*.rb"]
+# The tooling suites are excluded as citation sources: their
+# anchor-shaped tokens are hand-built fixtures, not witnesses.
+ANCHOR_COVERAGE_TESTS = FileList["test/**/*.rb"].exclude(%r{\Atest/(tasks|bench)/})
 
 # The full citation profile over the same definition corpus +rake
 # anchors+ audits.

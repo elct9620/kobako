@@ -17,7 +17,9 @@ gate block.
   [`docs/regexp.md`](regexp.md), `JS-xx` from [`docs/json.md`](json.md).
   Retired anchors (tombstones, e.g. `E-14`) are outside the profile —
   a permanently reserved number has no behavior left to witness.
-- **Citations** — textual anchor references in `test/**/*.rb`. A
+- **Citations** — textual anchor references in `test/**/*.rb`, with the
+  tooling suites (`test/tasks/`, `test/bench/`) excluded: their
+  anchor-shaped tokens are hand-built fixtures, not witnesses. A
   citation is the naming convention itself (a comment block, an
   assertion message, a parity `anchors:` list), so any textual
   reference counts, and the counting unit is the **citing file** —

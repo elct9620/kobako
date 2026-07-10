@@ -14,14 +14,16 @@ require_relative "support/anchors"
 # (+RX+), and the JSON spec (+JS+). Anchors are cited only where traceability
 # belongs — the spec corpus and the tests that verify each behavior;
 # implementation comments state intent rather than anchors, so the source
-# trees are not scanned.
+# trees are not scanned. The tooling suites (+test/tasks/+, +test/bench/+)
+# are excluded: their anchor-shaped tokens are hand-built fixtures, not
+# references.
 ANCHOR_ROOT = File.expand_path("..", __dir__)
 ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior/*.md"]
 ANCHOR_DEF_REGEXP = FileList["docs/regexp.md"]
 ANCHOR_DEF_JSON = FileList["docs/json.md"]
 ANCHOR_REF_GLOBS = FileList[
   "SPEC.md", "README.md", "docs/**/*.md", "test/**/*.rb", "benchmark/**/*.md"
-].exclude(%r{/(target|vendor|tmp)/})
+].exclude(%r{/(target|vendor|tmp)/}, %r{\Atest/(tasks|bench)/})
 
 desc "Check B-/E-/RX-/JS- anchors are unique, contiguous, and resolvable (N-8)."
 task :anchors do
