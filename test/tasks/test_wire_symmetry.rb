@@ -23,6 +23,23 @@ class KobakoWireSymmetryTest < Minitest::Test
                  "a dispatcher helper named encode_ok must not count as a wire-codable envelope"
   end
 
+  # The envelope is the class that carries the codec surface — a
+  # preceding sibling class in the same file must never take its place.
+  def test_ruby_types_name_the_class_carrying_the_codec_surface
+    sources = { "run.rb" => <<~RB }
+      class EntrypointError < Error
+      end
+
+      class Run
+        def encode(handler)
+        end
+      end
+    RB
+
+    assert_equal %w[Run], Symmetry.ruby_types(sources),
+                 "the inventory must name the encode/decode-bearing class, not the file's first class"
+  end
+
   def test_rust_types_read_both_bare_and_qualified_impls
     sources = {
       "block.rs" => "impl Encode for Yield {\n}\nimpl Decode for Yield {\n}\n",

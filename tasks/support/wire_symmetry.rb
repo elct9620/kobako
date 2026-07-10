@@ -14,10 +14,13 @@ module KobakoWireSymmetry
   RUBY_CODEC_DEF = /^\s*def (?:self\.)?(?:encode|decode)\b/
 
   # The wire-codable class names in a +{ path => text }+ map of
-  # +lib/kobako/transport/*.rb+ sources (one envelope class per file).
+  # +lib/kobako/transport/*.rb+ sources: the class carrying the codec
+  # surface — the nearest +class+ above the first encode/decode — so a
+  # preceding sibling class never takes the envelope's place.
   def ruby_types(sources)
     sources.values.filter_map do |text|
-      text[/^\s*class (\w+)\b/, 1] if text =~ RUBY_CODEC_DEF
+      codec_at = text =~ RUBY_CODEC_DEF
+      text[0...codec_at].scan(/^\s*class (\w+)\b/).flatten.last if codec_at
     end.uniq.sort
   end
 
