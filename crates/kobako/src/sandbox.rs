@@ -135,8 +135,8 @@ impl Sandbox {
             driver,
             registry: Registry::Open(Catalog::default()),
             handles: Arc::default(),
-            stdout: empty_capture(),
-            stderr: empty_capture(),
+            stdout: Capture::default(),
+            stderr: Capture::default(),
             usage: None,
         })
     }
@@ -364,13 +364,6 @@ impl Sandbox {
     /// Resource usage of the last invocation; `None` before any.
     pub fn usage(&self) -> Option<Usage> {
         self.usage
-    }
-}
-
-fn empty_capture() -> Capture {
-    Capture {
-        bytes: Vec::new(),
-        truncated: false,
     }
 }
 

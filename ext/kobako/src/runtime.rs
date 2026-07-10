@@ -53,15 +53,6 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
     unsafe { s.as_slice() }.to_vec()
 }
 
-/// The pre-invocation sentinel for one capture channel: no bytes, cap
-/// not reached. Fresh `Vec`s per call because `Capture` owns its buffer.
-fn empty_capture() -> Capture {
-    Capture {
-        bytes: Vec::new(),
-        truncated: false,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Ruby init
 // ---------------------------------------------------------------------------
@@ -210,11 +201,8 @@ impl Runtime {
         Ok(Self {
             driver,
             on_dispatch: Cell::new(None),
-            last_usage: Cell::new(Usage {
-                wall_time: 0.0,
-                memory_peak: 0,
-            }),
-            last_captures: RefCell::new((empty_capture(), empty_capture())),
+            last_usage: Cell::new(Usage::default()),
+            last_captures: RefCell::new((Capture::default(), Capture::default())),
         })
     }
 
