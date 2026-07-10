@@ -82,18 +82,40 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "an acknowledged name no current pub item carries must surface as stale"
   end
 
-  # The scope-drift guard: a crate directory that is neither analyzed,
-  # consuming, nor exempt means the scan silently lags the repo.
-  def test_unaccounted_crates_lists_only_unclassified_roster_entries
-    unaccounted = Surface.unaccounted_crates(
-      roster: ["crates/a", "crates/b", "wasm/c", "wasm/d"],
-      analyzed: ["crates/a"],
-      consumers: ["wasm/c"],
-      exempt: ["wasm/d"]
-    )
+  # Witnesses the two path-bearing shapes a manifest holds: an
+  # inline-table dependency (an in-repo edge) and a [[bin]] target path
+  # (a source file, never an edge).
+  def test_path_dependencies_resolve_inline_deps_and_ignore_target_paths
+    manifests = { "wasm/kobako-mruby" => <<~TOML }
+      [[bin]]
+      path = "src/main.rs"
+      [dependencies]
+      kobako-codec = { path = "../../crates/kobako-codec", version = "0.8.0" }
+      kobako-core = { version = "0.8.0", path = "../kobako-core" }
+    TOML
 
-    assert_equal ["crates/b"], unaccounted,
-                 "a roster crate with no analyzed/consumer/exempt classification must surface as drift"
+    assert_equal({ "wasm/kobako-mruby" => ["crates/kobako-codec", "wasm/kobako-core"] },
+                 Surface.path_dependencies(manifests),
+                 "only path-bearing dependencies resolve to repo-relative crate dirs")
+  end
+
+  def test_transitive_consumers_close_over_reexport_chains
+    edges = { "crates/kobako-parity" => ["crates/kobako"],
+              "crates/kobako" => ["crates/kobako-codec"] }
+
+    consumers = Surface.transitive_consumers(edges)
+
+    assert_equal ["crates/kobako", "crates/kobako-parity"], consumers["crates/kobako-codec"],
+                 "a crate reached only through a re-exporting middle crate still counts as a consumer"
+  end
+
+  # A leaf (nothing depends on it) has no surface to hold downstream:
+  # it must stay out of the analyzed set entirely.
+  def test_transitive_consumers_key_only_consumed_crates
+    edges = { "crates/kobako" => ["crates/kobako-codec"], "wasm/kobako-baker" => [] }
+
+    assert_equal ["crates/kobako-codec"], Surface.transitive_consumers(edges).keys,
+                 "a crate with no in-repo dependent is a leaf, never an analyzed entry"
   end
 
   def test_unconsumed_requires_a_word_boundary_match

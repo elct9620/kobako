@@ -9,26 +9,11 @@
 
 require_relative "support/pub_surface"
 
-# Analyzed crate => the in-repo source trees that consume it. The two
-# frontends (crates/kobako, ext/kobako) are leaves whose surface is the
-# product itself, so they are consumers here, never analyzed.
-PUB_SURFACE_CRATES = {
-  "crates/kobako-codec" => %w[wasm/kobako-core wasm/kobako-mruby wasm/kobako-wasm
-                              crates/kobako crates/kobako-parity crates/kobako-wasmtime],
-  "crates/kobako-runtime" => %w[crates/kobako-wasmtime crates/kobako ext/kobako],
-  "crates/kobako-wasmtime" => %w[crates/kobako ext/kobako],
-  "wasm/kobako-core" => %w[wasm/kobako-mruby wasm/kobako-wasm],
-  "wasm/kobako-mruby" => %w[wasm/kobako-wasm],
-  "wasm/kobako-io" => %w[wasm/kobako-wasm],
-  "wasm/kobako-regexp" => %w[wasm/kobako-wasm],
-  "wasm/kobako-json" => %w[wasm/kobako-wasm]
-}.freeze
-
-# Crates outside the analysis map for a structural reason, not by
-# omission; the roster check below holds every other crate to the map.
-PUB_SURFACE_EXEMPT = {
-  "wasm/kobako-baker" => "standalone bake tool — its lib feeds its own bin, no downstream tree to grep"
-}.freeze
+# Analyzed crate => consumers is derived from the Cargo.toml path
+# dependencies (transitively, so consumption through a re-exporting
+# frontend still counts); a leaf with no in-repo dependent — the
+# frontends, the parity runner, the baker — is never analyzed.
+PUB_SURFACE_MANIFESTS = FileList["{crates,wasm,ext}/*/Cargo.toml"]
 
 # The kobako-mruby bridge cluster is crate-internal to the flows, but
 # on mruby-less host builds the flows that use it are compiled out
@@ -42,6 +27,10 @@ PUB_SURFACE_BRIDGE_REASON = "placeholder-rule liveness — pub keeps the mruby-l
 # cannot see — macro-expanded third-party API, or pub reachability a
 # placeholder-rule crate relies on.
 PUB_SURFACE_ACKNOWLEDGED = {
+  "crates/kobako" => {
+    "YieldError" => "SDK third-party API — the yield-arm error embedders match on; " \
+                    "the in-repo parity runner never names it"
+  },
   "wasm/kobako-core" => {
     "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)",
     "ABI_VERSION" => "reached via export_guest! expansion ($crate::abi::ABI_VERSION)"
@@ -57,15 +46,10 @@ PUB_SURFACE_ACKNOWLEDGED = {
 namespace :stats do
   desc "Report pub items with no in-repo downstream consumer (signal; not in release gate)."
   task :surface do
-    unaccounted = KobakoPubSurface.unaccounted_crates(
-      roster: FileList["{crates,wasm}/*/Cargo.toml"].map { |path| File.dirname(path) },
-      analyzed: PUB_SURFACE_CRATES.keys,
-      consumers: PUB_SURFACE_CRATES.values.flatten.uniq,
-      exempt: PUB_SURFACE_EXEMPT.keys
-    )
-    abort "stats:surface: unclassified crate(s): #{unaccounted.join(", ")}" unless unaccounted.empty?
+    manifests = PUB_SURFACE_MANIFESTS.to_h { |path| [File.dirname(path), File.read(path)] }
+    graph = KobakoPubSurface.transitive_consumers(KobakoPubSurface.path_dependencies(manifests))
 
-    PUB_SURFACE_CRATES.each do |crate, consumers|
+    graph.each do |crate, consumers|
       sources = FileList["#{crate}/src/**/*.rs"].to_h { |path| [path, File.read(path)] }
       consumers_text = consumers.flat_map { |dir| FileList["#{dir}/src/**/*.rs"].map { |p| File.read(p) } }.join
       items = KobakoPubSurface.pub_items(sources)

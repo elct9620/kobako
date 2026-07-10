@@ -33,12 +33,36 @@ module KobakoPubSurface
     end
   end
 
-  # The roster crates the analysis map fails to classify. Every crate
-  # directory must be analyzed, serve as a consumer, or carry a reasoned
-  # exemption — anything else means the scan's scope has drifted behind
-  # the repo.
-  def unaccounted_crates(roster:, analyzed:, consumers:, exempt:)
-    roster - analyzed - consumers - exempt
+  # In-repo dependency edges from a +{ crate_dir => manifest_text }+
+  # map of Cargo.toml sources — the graph cargo actually links, so the
+  # consumer map cannot drift behind the repo. Only an inline-table
+  # dependency carries an edge; a bare +path+ line names a build target,
+  # never a dependency.
+  def path_dependencies(manifests)
+    manifests.to_h do |dir, text|
+      deps = text.scan(/^\s*[\w-]+\s*=\s*\{[^}]*path\s*=\s*"([^"]+)"/).flatten
+      [dir, deps.map { |rel| File.expand_path(rel, "/#{dir}").delete_prefix("/") }.uniq]
+    end
+  end
+
+  # +{ crate_dir => [dependent dirs] }+ for every crate at least one
+  # edge consumes, closed transitively so consumption through a
+  # re-exporting middle crate still counts; a crate with no dependent
+  # is a leaf whose surface is the product itself, never analyzed.
+  def transitive_consumers(edges)
+    direct = Hash.new { |hash, dep| hash[dep] = [] }
+    edges.each { |consumer, deps| deps.each { |dep| direct[dep] << consumer } }
+    direct.keys.sort.to_h { |dep| [dep, expand_consumers(dep, direct).sort] }
+  end
+
+  def expand_consumers(dep, direct, seen = Set.new)
+    direct[dep].each do |consumer|
+      next if seen.include?(consumer)
+
+      seen << consumer
+      expand_consumers(consumer, direct, seen)
+    end
+    seen.to_a
   end
 
   # The acknowledged names no current pub item carries — the ledger's
