@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "comparator"
+require_relative "../../benchmark/support/comparator"
 
 # Unit coverage for the pure release-gate judgment
 # ({SPEC.md Regression benchmarks}): regression direction, the quadrature

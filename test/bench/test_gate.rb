@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 require "tmpdir"
 
-require_relative "gate"
+require_relative "../../benchmark/support/gate"
 
 # Unit coverage for the release-gate runner ({SPEC.md Regression
 # benchmarks}): path resolution defaulting to the committed anchor, and

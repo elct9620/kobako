@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "report"
+require_relative "../../benchmark/support/report"
 
 # Unit coverage for the head-vs-base PR report ({SPEC.md Regression
 # benchmarks}): the per-row verdict (regression / improvement / within

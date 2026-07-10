@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
+require "test_helper"
 
-require_relative "guest"
+require_relative "../../benchmark/support/guest"
 
 # The injection seam +bench:confirm+ relies on to run an arm against a
 # baseline Guest Binary without swapping data/kobako.wasm: KOBAKO_BENCH_WASM

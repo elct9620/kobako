@@ -18,11 +18,6 @@ namespace :bench do
   desc "Stage-2 arbiter: paired alternation against a released Guest Binary (version or wasm path)."
   task(:confirm, %i[baseline]) { |_t, args| Kobako::Bench.confirm(args[:baseline]) }
 
-  desc "Run the release-gate unit tests (comparator + runner)."
-  task :gate_test do
-    Dir["benchmark/support/*_test.rb"].each { |file| sh "bundle exec ruby #{file}" }
-  end
-
   desc "Render a head-vs-base benchmark comparison as Markdown (PR job summary)."
   task(:report, %i[current baseline]) do |_t, args|
     puts Kobako::Bench.report(args.fetch(:current), args.fetch(:baseline))
