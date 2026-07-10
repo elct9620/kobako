@@ -67,7 +67,7 @@ impl Kobako {
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { beni::Hash::from_value_unchecked(hash) };
         let keys_ary = hash.keys(self.mrb());
-        let keys_len = self.collection_len(keys_ary.as_value());
+        let keys_len = keys_ary.len();
         for i in 0..keys_len {
             let key_val = keys_ary.entry(i as isize);
             // A hostile Hash subclass whose `[]` raises reads as `nil`
@@ -126,7 +126,7 @@ impl Kobako {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
-        let len = self.collection_len(val);
+        let len = ary.len();
         let mut items = Vec::with_capacity(len);
         for i in 0..len {
             let elem = ary.entry(i as isize);
@@ -152,7 +152,7 @@ impl Kobako {
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { beni::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
-        let len = self.collection_len(keys_ary.as_value());
+        let len = keys_ary.len();
         let mut pairs = Vec::with_capacity(len);
         for i in 0..len {
             let key = keys_ary.entry(i as isize);
@@ -332,10 +332,7 @@ impl Kobako {
                 n32.into_value(mrb)
             }
             CodecValue::Float(f) => f.into_value(mrb),
-            CodecValue::Str(s) => match std::ffi::CString::new(s.as_str()) {
-                Ok(cs) => mrb.str_new_cstr(&cs).as_value(),
-                Err(_) => mrb.str_new(s.as_bytes()).as_value(),
-            },
+            CodecValue::Str(s) => mrb.str_new(s.as_bytes()).as_value(),
             CodecValue::Handle(id) => self
                 .handle_class
                 .obj_new(mrb, &[(id as i32).into_value(mrb)])

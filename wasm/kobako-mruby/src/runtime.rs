@@ -260,17 +260,27 @@ impl Kobako {
     // Collection / hash / handle helpers.
     // ----------------------------------------------------------------
 
-    /// Return the element count of an mruby Array via the C array length,
-    /// not a `.length` method dispatch. Untrusted guest mruby can override
-    /// `length` per-instance to return an arbitrary value; reading the C
-    /// length keeps that out of the downstream `Vec::with_capacity`, which
-    /// would otherwise reserve a guest-chosen size. Returns 0 for any value
-    /// that is not an Array — every caller passes an Array or a C-built keys
-    /// array, so a non-Array here reads as "empty" rather than faulting the
-    /// conversion it feeds.
-    pub fn collection_len(&self, col: Value) -> usize {
-        use beni::FromValue;
-        beni::Array::from_value(col).map_or(0, |ary| ary.len())
+    /// Collect the Array-of-String a `recv.method` funcall returns into
+    /// a `Vec<String>`; empty when the call raises or returns a
+    /// non-Array, so the Panic envelope still serialises cleanly under
+    /// guest-class shenanigans. The element count is the C array
+    /// length, not a `.length` dispatch — a hostile subclass cannot
+    /// feed a guest-chosen size into `Vec::with_capacity`.
+    fn strings_from_funcall(&self, recv: Value, method: &std::ffi::CStr) -> Vec<String> {
+        let Ok(val) = recv.funcall(self.mrb(), method, &[]) else {
+            return Vec::new();
+        };
+        if val.classname(self.mrb()) != "Array" {
+            return Vec::new();
+        }
+        // SAFETY: classname check above proves Array-tagged.
+        let ary = unsafe { beni::Array::from_value_unchecked(val) };
+        let len = ary.len();
+        let mut out = Vec::with_capacity(len);
+        for i in 0..len {
+            out.push(ary.entry(i as isize).to_string(self.mrb()));
+        }
+        out
     }
 
     /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
@@ -282,23 +292,9 @@ impl Kobako {
     /// mruby's default build keeps the backtrace, so `.backtrace`
     /// returns an Array of String. If the runtime is ever rebuilt
     /// without keep-mode the call yields a non-Array value (typically
-    /// `nil`); fall back to an empty vec so the Panic envelope still
-    /// serializes cleanly.
+    /// `nil`), which reads as an empty backtrace.
     pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
-        let Ok(bt_val) = exc_val.funcall(self.mrb(), c"backtrace", &[]) else {
-            return Vec::new();
-        };
-        if bt_val.classname(self.mrb()) != "Array" {
-            return Vec::new();
-        }
-        // SAFETY: classname check above proves Array-tagged.
-        let bt_ary = unsafe { beni::Array::from_value_unchecked(bt_val) };
-        let len = self.collection_len(bt_val);
-        let mut lines = Vec::with_capacity(len);
-        for i in 0..len {
-            lines.push(bt_ary.entry(i as isize).to_string(self.mrb()));
-        }
-        lines
+        self.strings_from_funcall(exc_val, c"backtrace")
     }
 
     /// Snapshot every top-level constant currently defined on `Object`
@@ -308,30 +304,12 @@ impl Kobako {
     /// install + preamble materialise (before snippet replay) is
     /// subtracted from a post-replay snapshot, yielding the constants
     /// the preloaded snippets contributed.
-    ///
-    /// Returns an empty vec when `Object.constants` does not return an
-    /// Array — Ruby core guarantees it does, but the defensive fallback
-    /// matches `Self::extract_backtrace`'s style and keeps the Panic
-    /// envelope serialising cleanly under guest-class shenanigans.
     pub fn top_level_constants(&self) -> Vec<String> {
         // SAFETY: `mrb->object_class` lives until `mrb_close`; the
         // shim behind `RClass::to_value` reuses mruby's own boxing
         // logic.
         let object_value = unsafe { self.mrb().object_class().to_value(self.mrb()) };
-        let Ok(consts) = object_value.funcall(self.mrb(), c"constants", &[]) else {
-            return Vec::new();
-        };
-        if consts.classname(self.mrb()) != "Array" {
-            return Vec::new();
-        }
-        // SAFETY: classname check above proves Array-tagged.
-        let consts_ary = unsafe { beni::Array::from_value_unchecked(consts) };
-        let len = self.collection_len(consts);
-        let mut names = Vec::with_capacity(len);
-        for i in 0..len {
-            names.push(consts_ary.entry(i as isize).to_string(self.mrb()));
-        }
-        names
+        self.strings_from_funcall(object_value, c"constants")
     }
 
     /// Store `id_val` into a fresh `Kobako::Handle` instance's
