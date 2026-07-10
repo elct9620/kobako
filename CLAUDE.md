@@ -32,7 +32,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 7. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `Kobako::Outcome` / `Kobako::Transport::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
 
-8. **`test/` holds gem runtime behavior only.** Build/packaging/lint/static-check wrappers belong in `tasks/*.rake` or top-level scripts. Cross-language integration tests (host↔guest fuzz, ABI invariants) do belong in `test/`.
+8. **`test/` holds every Ruby test; `tasks/` holds no tests.** The suite's subject is gem runtime behavior — including cross-language integration (host↔guest fuzz, ABI invariants) — plus the tooling unit suites: `test/tasks/` covers the `tasks/support/` readers, `test/bench/` the `benchmark/support/` gate logic (grouped runs: `rake test:tasks` / `test:bench`). Build/packaging/lint/static-check *wrapper tasks* stay in `tasks/*.rake` or top-level scripts and never move into `test/`.
 
 9. **Commit lock files.** Every workspace's `Cargo.lock` (root, `crates/`, `wasm/`) and `Gemfile.lock` ship alongside the dependency changes that produced them.
 
