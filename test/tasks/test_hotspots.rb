@@ -42,7 +42,8 @@ class KobakoHotspotsTest < Minitest::Test
 
     fan_in = Hotspots.fan_in(sources)
 
-    assert_equal 1, fan_in["lib/kobako/codec.rb"]
+    assert_equal 1, fan_in["lib/kobako/codec.rb"],
+                 "a sibling require through fan_in must count toward the required file's path"
     assert_equal 1, fan_in["lib/kobako/handle.rb"],
                  "a ../-relative require must resolve against the requiring file's directory"
   end
@@ -74,7 +75,8 @@ class KobakoHotspotsTest < Minitest::Test
     churn = { "lib/a.rb" => 2, "lib/b.rb" => 1 }
     sizes = { "lib/a.rb" => 10, "lib/b.rb" => 10 }
 
-    assert_equal 1, Hotspots.rows(churn: churn, sizes: sizes, fan_in: {}, limit: 1).size
+    assert_equal 1, Hotspots.rows(churn: churn, sizes: sizes, fan_in: {}, limit: 1).size,
+                 "scored rows through rows must cut to the requested limit"
   end
 
   # Rust carries its tests inline while Ruby's live in the excluded

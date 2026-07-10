@@ -99,7 +99,8 @@ class KobakoPubSurfaceTest < Minitest::Test
 
     unconsumed = Surface.unconsumed(items, consumers, acknowledged: { "take_outcome" => "macro-expanded" })
 
-    assert_equal [["orphan", "src/abi.rs:3"]], unconsumed
+    assert_equal [["orphan", "src/abi.rs:3"]], unconsumed,
+                 "an item through unconsumed must drop out on a downstream reference or a ledger entry"
   end
 
   # The staleness half of the ledger, mirroring the Pending-anchors

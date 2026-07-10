@@ -64,24 +64,28 @@ class KobakoWireSymmetryTest < Minitest::Test
       "request.rs" => "impl codec::Encode for Request {\n}\n"
     }
 
-    assert_equal %w[Request Yield], Symmetry.rust_types(sources)
+    assert_equal %w[Request Yield], Symmetry.rust_types(sources),
+                 "bare and codec-qualified impls through rust_types must inventory each type once, sorted"
   end
 
   def test_ext_codes_extract_name_to_code_maps
     ruby = "EXT_SYMBOL = 0x00\nEXT_HANDLE = 0x01\n"
     rust = "const EXT_SYMBOL: i8 = 0x00;\nconst EXT_HANDLE: i8 = 0x01;\n"
 
-    assert_equal Symmetry.ruby_ext_codes(ruby), Symmetry.rust_ext_codes(rust)
+    assert_equal Symmetry.ruby_ext_codes(ruby), Symmetry.rust_ext_codes(rust),
+                 "matching EXT_ registrations through both ext-code readers must yield one name => code map"
   end
 
   def test_accepted_asymmetries_parse_the_fenced_block_even_when_empty
     markdown = "### Accepted asymmetries\n\n```\n```\n"
 
-    assert_empty Symmetry.accepted_asymmetries(markdown)
+    assert_empty Symmetry.accepted_asymmetries(markdown),
+                 "an empty fenced block through accepted_asymmetries must read as no accepted entries"
   end
 
   def test_accepted_asymmetries_is_nil_without_the_block
-    assert_nil Symmetry.accepted_asymmetries("# No ledger here\n")
+    assert_nil Symmetry.accepted_asymmetries("# No ledger here\n"),
+               "a contract doc without the ledger block through accepted_asymmetries must read as nil"
   end
 
   def test_one_sided_type_without_ledger_entry_is_a_violation
@@ -90,7 +94,8 @@ class KobakoWireSymmetryTest < Minitest::Test
       ruby_ext: {}, rust_ext: {}, accepted: []
     )
 
-    assert_equal ["Yield is wire-codable only in lib/ — missing its kobako-codec peer"], violations
+    assert_equal ["Yield is wire-codable only in lib/ — missing its kobako-codec peer"], violations,
+                 "a type on one side with no ledger entry through violations must surface as a missing peer"
   end
 
   def test_ledger_entry_silences_a_one_sided_type
@@ -99,7 +104,8 @@ class KobakoWireSymmetryTest < Minitest::Test
       ruby_ext: {}, rust_ext: {}, accepted: %w[Probe]
     )
 
-    assert_empty violations
+    assert_empty violations,
+                 "a one-sided type carried by the ledger through violations must not surface"
   end
 
   # The staleness half of the ledger gate, mirroring the Pending-anchors
@@ -111,7 +117,8 @@ class KobakoWireSymmetryTest < Minitest::Test
       ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x01" }, accepted: %w[Probe]
     )
 
-    assert_equal ["accepted asymmetry Probe no longer diverges — drop it from the ledger"], violations
+    assert_equal ["accepted asymmetry Probe no longer diverges — drop it from the ledger"], violations,
+                 "a ledger entry with no current divergence through violations must surface as stale"
   end
 
   def test_ext_code_value_mismatch_is_a_violation_even_when_both_sides_name_it
@@ -120,6 +127,7 @@ class KobakoWireSymmetryTest < Minitest::Test
       ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x02" }, accepted: []
     )
 
-    assert_equal ["ext type EXT_HANDLE differs: 0x01 in lib/, 0x02 in kobako-codec"], violations
+    assert_equal ["ext type EXT_HANDLE differs: 0x01 in lib/, 0x02 in kobako-codec"], violations,
+                 "an ext code differing across sides through violations must surface even when both name it"
   end
 end
