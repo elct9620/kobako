@@ -10,7 +10,7 @@ module Kobako
     #   - UTF-8 assertion at the codec boundary
     #     ({docs/wire-codec.md}[link:../../../docs/wire-codec.md]
     #     § str/bin Encoding Rules and § Ext Types → ext 0x00). Used by
-    #     Decoder when walking +str+ family payloads and by Factory
+    #     Decoder when walking +str+ family payloads and by ExtTypes
     #     when validating the +ext 0x00+ Symbol payload.
     #   - +ArgumentError+ translation at the codec boundary
     #     (#with_boundary) so the public taxonomy stays
@@ -38,7 +38,7 @@ module Kobako
       #
       # Reach for this only where a value object is constructed outside a
       # Decoder.decode block, whose rescue already performs the same
-      # mapping (worked example: Factory#unpack_handle building
+      # mapping (worked example: ExtTypes#unpack_handle building
       # +Handle.restore+ from a raw fixext payload). Do not use it for
       # general-purpose validation outside the codec boundary —
       # host-layer +ArgumentError+ values should propagate unchanged.
