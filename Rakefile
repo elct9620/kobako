@@ -67,7 +67,7 @@ end
 Dir.glob("tasks/**/*.rake").each { |t| load t }
 
 # Every variant a suite drives is a test prerequisite: the journey tests
-# (test/test_e2e_journeys.rb) drive the pure data/kobako.wasm, the focused
+# (test/e2e/test_journeys.rb) drive the pure data/kobako.wasm, the focused
 # regexp suite (test/regexp/) the regexp variants, and the json suite
 # (test/json/) the json variant — omitting one lets its whole suite skip
 # silently under CI. All four are gitignored and mtime-idempotent, so this

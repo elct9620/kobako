@@ -25,14 +25,6 @@ class TestSandbox < Minitest::Test
     assert_equal FIXTURE_PATH, sandbox.wasm_path
   end
 
-  def test_default_construction_exposes_default_output_limits
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, sandbox.stdout_limit
-    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, sandbox.stderr_limit
-    assert_equal 1 << 20, sandbox.stdout_limit
-  end
-
   # SPEC.md B-05: reading the capture channels before any +#run+ returns
   # an empty UTF-8 String; the truncation predicates default to +false+.
   def test_pre_run_capture_state_matches_b05
@@ -46,9 +38,18 @@ class TestSandbox < Minitest::Test
     refute sandbox.stderr_truncated?
   end
 
-  def test_custom_limits_reflected
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, stdout_limit: 100, stderr_limit: 200)
+  # Sandbox.new delegates cap normalization to SandboxOptions, whose
+  # per-rule matrix (defaults, nil-disable, rejection, coercion) is
+  # pinned ext-free in TestSandboxOptions; one witness reading every
+  # cap back — with the Integer timeout observed as its coerced Float —
+  # proves the normalized values flow through, so the matrix is not
+  # re-pinned behind the ext.
+  def test_caps_delegate_to_sandbox_options
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 5, memory_limit: 2 << 20,
+                                  stdout_limit: 100, stderr_limit: 200)
 
+    assert_equal 5.0, sandbox.timeout
+    assert_equal 2 << 20, sandbox.memory_limit
     assert_equal 100, sandbox.stdout_limit
     assert_equal 200, sandbox.stderr_limit
   end
@@ -112,49 +113,5 @@ class TestSandbox < Minitest::Test
 
     assert_instance_of Kobako::Namespace, namespace
     assert_same namespace, namespace.bind(:Bar, :member)
-  end
-
-  # SPEC.md B-01: `timeout` defaults to 60 s (Float), `memory_limit`
-  # to 1 MiB. Both surface as readonly attributes for introspection
-  # by Host Apps that need to log policy. Pin the literal SPEC values
-  # so the test catches a drift in either direction.
-  def test_default_caps_match_spec_b01
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    assert_equal 60.0, sandbox.timeout
-    assert_equal 1 << 20, sandbox.memory_limit
-  end
-
-  def test_custom_caps_reflected
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 1.5, memory_limit: 2 << 20)
-
-    assert_in_delta 1.5, sandbox.timeout, 1e-9
-    assert_equal 2 << 20, sandbox.memory_limit
-  end
-
-  def test_nil_caps_disable_enforcement
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: nil, memory_limit: nil)
-
-    assert_nil sandbox.timeout
-    assert_nil sandbox.memory_limit
-  end
-
-  def test_integer_timeout_is_coerced_to_float
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 5)
-
-    assert_kind_of Float, sandbox.timeout
-    assert_equal 5.0, sandbox.timeout
-  end
-
-  def test_invalid_timeout_raises_argument_error
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 0) }
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: -1.0) }
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: "60") }
-  end
-
-  def test_invalid_memory_limit_raises_argument_error
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: 0) }
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: -1) }
-    assert_raises(ArgumentError) { Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, memory_limit: 1.5) }
   end
 end

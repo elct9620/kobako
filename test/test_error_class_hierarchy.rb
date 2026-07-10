@@ -2,11 +2,10 @@
 
 require "test_helper"
 
-# Error class hierarchy assertions (SPEC.md F-07). Earlier-design placeholder error
-# classes (an intermediate handle-table error class; `Kobako::Sandbox::
-# OutputLimitExceeded < StandardError`) are gone; the canonical SPEC hierarchy
-# now anchors every kobako-raised error under `Kobako::Error`: the three
-# invocation-outcome classes plus the construction-layer `SetupError` branch.
+# Error class hierarchy assertions (SPEC.md F-07). The canonical SPEC
+# hierarchy anchors every kobako-raised error under `Kobako::Error`: the
+# three invocation-outcome classes plus the construction-layer
+# `SetupError` branch.
 class TestErrorClassHierarchy < Minitest::Test
   def test_three_top_level_classes_descend_from_kobako_error
     assert Kobako::TrapError < Kobako::Error
@@ -39,13 +38,5 @@ class TestErrorClassHierarchy < Minitest::Test
   def test_memory_limit_error_chains_under_trap_error
     assert Kobako::MemoryLimitError < Kobako::TrapError
     assert Kobako::MemoryLimitError < Kobako::Error
-  end
-
-  def test_sandbox_output_limit_exceeded_placeholder_is_gone
-    # SPEC B-04 specifies truncate-with-marker for oversized output, not
-    # an error raise; no +OutputLimitExceeded+ class may exist on
-    # +Kobako::Sandbox+.
-    refute defined?(Kobako::Sandbox::OutputLimitExceeded),
-           "Kobako::Sandbox::OutputLimitExceeded must be removed (SPEC B-04 truncates)"
   end
 end

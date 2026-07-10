@@ -186,12 +186,12 @@ class TestE2ECaps < Minitest::Test
 
   # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
   # the corresponding cap. With caps off, a small script must complete
-  # normally — the guards are dormant rather than always-firing.
+  # normally — the guards are dormant rather than always-firing. The
+  # nil readback itself is pinned at the SandboxOptions tier.
   def test_disabled_caps_allow_normal_execution
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
 
-    assert_nil sandbox.timeout
-    assert_nil sandbox.memory_limit
-    assert_equal 3, sandbox.eval("1 + 2")
+    assert_equal 3, sandbox.eval("1 + 2"),
+                 "a small #eval with both caps disabled must complete normally"
   end
 end

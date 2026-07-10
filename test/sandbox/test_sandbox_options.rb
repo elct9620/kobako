@@ -14,13 +14,15 @@ require "test_helper"
 # request is an explicit :permissive — so nil is rejected with the other
 # non-ladder values (E-39).
 class TestSandboxOptions < Minitest::Test
-  def test_absent_caps_take_their_defaults
+  # Pins the literal SPEC B-01 values (60 s / 1 MiB), not just the
+  # DEFAULT_* constants, so a drift in either direction is caught here.
+  def test_absent_caps_take_their_spec_defaults
     options = Kobako::SandboxOptions.new
 
-    assert_equal Kobako::SandboxOptions::DEFAULT_TIMEOUT_SECONDS, options.timeout
-    assert_equal Kobako::SandboxOptions::DEFAULT_MEMORY_LIMIT, options.memory_limit
-    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, options.stdout_limit
-    assert_equal Kobako::SandboxOptions::DEFAULT_OUTPUT_LIMIT, options.stderr_limit
+    assert_equal 60.0, options.timeout
+    assert_equal 1 << 20, options.memory_limit
+    assert_equal 1 << 20, options.stdout_limit
+    assert_equal 1 << 20, options.stderr_limit
   end
 
   def test_explicit_nil_disables_each_cap
@@ -33,31 +35,39 @@ class TestSandboxOptions < Minitest::Test
     assert_nil options.stderr_limit, "an explicit nil stderr_limit must leave stderr uncapped"
   end
 
-  def test_positive_output_limits_pass_through
-    options = Kobako::SandboxOptions.new(stdout_limit: 100, stderr_limit: 200)
+  def test_set_caps_pass_through_normalized
+    options = Kobako::SandboxOptions.new(timeout: 1.5, memory_limit: 2 << 20,
+                                         stdout_limit: 100, stderr_limit: 200)
 
+    assert_in_delta 1.5, options.timeout, 1e-9
+    assert_equal 2 << 20, options.memory_limit
     assert_equal 100, options.stdout_limit
     assert_equal 200, options.stderr_limit
   end
 
-  def test_rejects_zero_or_negative_output_limit
-    [0, -1].each do |bad|
-      assert_raises(ArgumentError, "stdout_limit #{bad.inspect} must be rejected as not a positive Integer") do
-        Kobako::SandboxOptions.new(stdout_limit: bad)
-      end
-      assert_raises(ArgumentError, "stderr_limit #{bad.inspect} must be rejected as not a positive Integer") do
-        Kobako::SandboxOptions.new(stderr_limit: bad)
-      end
-    end
+  def test_integer_timeout_is_coerced_to_float
+    options = Kobako::SandboxOptions.new(timeout: 5)
+
+    assert_kind_of Float, options.timeout
+    assert_equal 5.0, options.timeout
   end
 
-  def test_rejects_non_integer_output_limit
-    [1.5, "100"].each do |bad|
-      assert_raises(ArgumentError, "stdout_limit #{bad.inspect} must be rejected as not an Integer") do
-        Kobako::SandboxOptions.new(stdout_limit: bad)
-      end
-      assert_raises(ArgumentError, "stderr_limit #{bad.inspect} must be rejected as not an Integer") do
-        Kobako::SandboxOptions.new(stderr_limit: bad)
+  # timeout accepts any positive finite Numeric; the byte caps demand a
+  # positive Integer — the matrix keeps the four caps' reject rules
+  # pinned side by side so an asymmetry cannot creep in unnoticed.
+  INVALID_CAP_VALUES = {
+    timeout: [0, -1.0, "60"],
+    memory_limit: [0, -1, 1.5, "100"],
+    stdout_limit: [0, -1, 1.5, "100"],
+    stderr_limit: [0, -1, 1.5, "100"]
+  }.freeze
+
+  def test_rejects_invalid_cap_values
+    INVALID_CAP_VALUES.each do |cap, values|
+      values.each do |bad|
+        assert_raises(ArgumentError, "#{cap} #{bad.inspect} through SandboxOptions.new must be rejected") do
+          Kobako::SandboxOptions.new(cap => bad)
+        end
       end
     end
   end

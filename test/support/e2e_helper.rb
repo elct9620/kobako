@@ -21,7 +21,6 @@ module E2eGuestHelper
     return if File.exist?(REAL_WASM)
 
     flunk "data/kobako.wasm missing under CI" if ENV["CI"]
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build` " \
-         "(requires `rake vendor:setup` + `rake mruby:build` first)"
+    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`"
   end
 end
