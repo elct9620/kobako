@@ -2,8 +2,9 @@
 
 require "test_helper"
 
-# MatchData#[] argument forms beyond a single group index (SPEC.md B-41): a
-# start+length or a Range slices the group list (whole match then captures); a
+# MatchData#[] argument forms beyond a single group index (SPEC.md B-41;
+# docs/regexp.md RX-03): a start+length or a Range slices the group list
+# (whole match then captures); a
 # negative index counts from the end; an undefined capture name raises.
 class TestRegexpMatchDataAref < Minitest::Test
   include RegexpGuestHelper

@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# MatchData accessor contract (SPEC.md B-41). Match offsets and slices are
-# byte-based.
+# MatchData accessor contract (SPEC.md B-41; docs/regexp.md RX-03). Match
+# offsets and slices are byte-based.
 class TestRegexpMatchData < Minitest::Test
   include RegexpGuestHelper
 

@@ -10,6 +10,10 @@ Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_
 
 Hand-written text-format modules around the B-40 construction-time ABI version check; the ext's wasmtime `wat` feature loads them through the same `wasm_path:` path as binary artifacts. `minimal_abi_ok.wat` reports the current ABI version plus the `minimal.wasm` no-op stubs — the construction stand-in for tests that never invoke end-to-end (update its `i32.const` by hand on an ABI version bump). `minimal_abi_mismatch.wat` reports `9999` — the E-42 mismatch branch, deterministic regardless of future bumps (same convention as `snippet_wrong_version.mrb`).
 
+## `minimal_alloc_zero.wat`
+
+Hand-written text-format module that passes the B-40 ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for the `docs/behavior/errors.md` E-31 branch: the host cannot reserve the `#run` invocation envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).

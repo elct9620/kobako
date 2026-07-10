@@ -2,7 +2,8 @@
 
 require "test_helper"
 
-# MatchData#begin / #end / #offset index handling (SPEC.md B-41): an index
+# MatchData#begin / #end / #offset index handling (SPEC.md B-41;
+# docs/regexp.md RX-03): an index
 # past the group count (or an undefined capture name) raises IndexError; a
 # capture name resolves to its group; a valid-but-non-participating group is
 # nil (MRI-aligned).

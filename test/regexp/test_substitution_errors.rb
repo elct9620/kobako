@@ -2,7 +2,8 @@
 
 require "test_helper"
 
-# Error and Enumerator behaviour of scan / gsub / sub (SPEC.md B-41): a block
+# Error and Enumerator behaviour of scan / gsub / sub (SPEC.md B-41;
+# docs/regexp.md RX-04): a block
 # that raises propagates to the caller; gsub without a block or a replacement
 # yields an Enumerator via to_enum (which the curated guest only provides when
 # mruby-enumerator is added), while sub requires a block or a replacement.

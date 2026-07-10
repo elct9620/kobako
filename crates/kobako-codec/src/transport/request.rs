@@ -164,6 +164,29 @@ mod tests {
         ));
     }
 
+    // E-10: a Request target that is neither a path string nor a Handle
+    // (e.g. a raw integer) is an invalid wire payload in a dispatch
+    // position; the guest-side decoder refuses it before any dispatch
+    // reaches the host.
+    #[test]
+    fn decode_rejects_non_handle_target() {
+        let frame = Value::Array(vec![
+            Value::Int(7),
+            Value::Str("find".into()),
+            Value::Array(vec![]),
+            Value::Map(vec![]),
+            Value::Bool(false),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame).unwrap();
+        assert!(matches!(
+            Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed(
+                "Request target must be str or Handle"
+            ))
+        ));
+    }
+
     #[test]
     fn request_round_trip_with_path_target() {
         let req = Request {
