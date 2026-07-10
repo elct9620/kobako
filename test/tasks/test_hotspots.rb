@@ -40,6 +40,18 @@ class KobakoHotspotsTest < Minitest::Test
                  "a ../-relative require must resolve against the requiring file's directory"
   end
 
+  # The zero/unmeasured split: a scanned source nobody requires reads 0,
+  # while a path outside the scan stays absent so the report can render
+  # it as unmeasured instead of "no dependents".
+  def test_fan_in_reports_zero_for_scanned_sources_and_omits_unscanned_paths
+    fan_in = Hotspots.fan_in({ "lib/kobako/sandbox.rb" => "# no requires" })
+
+    assert_equal 0, fan_in.fetch("lib/kobako/sandbox.rb"),
+                 "a scanned file with no dependents must read fan-in 0, not unmeasured"
+    assert_nil fan_in["crates/kobako-codec/src/codec.rs"],
+               "a file outside the require_relative scan must read unmeasured, not fan-in 0"
+  end
+
   def test_rows_rank_by_churn_times_size_and_drop_vanished_files
     rows = Hotspots.rows(
       churn: { "lib/a.rb" => 10, "lib/b.rb" => 2, "lib/gone.rb" => 99 },
@@ -47,7 +59,7 @@ class KobakoHotspotsTest < Minitest::Test
       fan_in: { "lib/b.rb" => 3 }
     )
 
-    assert_equal [["lib/b.rb", 2, 500, 3], ["lib/a.rb", 10, 10, 0]], rows,
+    assert_equal [["lib/b.rb", 2, 500, 3], ["lib/a.rb", 10, 10, nil]], rows,
                  "a deleted file must not appear even with the highest churn"
   end
 

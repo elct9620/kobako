@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-# +rake stats:hotspots+ — churn × size × fan-in over the source trees
-# since the last release tag. Characterization signal, not part of the
-# release gate (+rake default+); the scorer's unit coverage rides the
-# test suite (+test/tasks/test_hotspots.rb+).
+# +rake stats:hotspots+ — churn × size over the source trees since the
+# last release tag, with require fan-in as a reference column (+-+ where
+# the Ruby require scan does not reach). Characterization signal, not
+# part of the release gate (+rake default+); the scorer's unit coverage
+# rides the test suite (+test/tasks/test_hotspots.rb+).
 
 require_relative "support/hotspots"
 
@@ -22,7 +23,8 @@ namespace :stats do
     puts "  file                                                 edits  lines fan-in"
     KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(lib_sources)).each do |row|
       path, edits, lines, fan = row
-      puts format("  %<path>-52s %<edits>5d %<lines>6d %<fan>4d", path: path, edits: edits, lines: lines, fan: fan)
+      puts format("  %<path>-52s %<edits>5d %<lines>6d %<fan>4s",
+                  path: path, edits: edits, lines: lines, fan: fan || "-")
     end
   end
 end
