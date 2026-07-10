@@ -11,11 +11,12 @@ require_relative "support/wire_symmetry"
 
 WIRE_SYMMETRY_ROOT = File.expand_path("..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
-WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport/*.rb"]
-WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport/*.rs"]
-# Ext-code registrations are scanned tier-wide, not pinned to one file,
-# so a moved registration cannot symmetrically vanish from the gate.
-WIRE_RUBY_EXT = FileList["lib/kobako/codec/*.rb"]
+# Every inventory scans its whole tier — façade file plus the recursive
+# subtree — so an envelope or registration that moves within the tier
+# cannot vanish from the gate, even when both peers move together.
+WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport.rb", "lib/kobako/transport/**/*.rb"]
+WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport.rs", "crates/kobako-codec/src/transport/**/*.rs"]
+WIRE_RUBY_EXT = FileList["lib/kobako/codec.rb", "lib/kobako/codec/**/*.rb"]
 WIRE_RUST_EXT = FileList["crates/kobako-codec/src/**/*.rs"]
 
 # Both sides' inventories, keyed for +KobakoWireSymmetry.violations+.
