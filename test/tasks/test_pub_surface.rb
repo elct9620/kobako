@@ -42,6 +42,25 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "a qualified pub fn must surface under its own name alongside plain const items"
   end
 
+  # Witnesses the mid-file shape the corpus actually holds:
+  # kobako-wasmtime's invocation.rs carries an inline +#[cfg(test)]+
+  # constructor above its tail test module, and the pub items that
+  # follow it are still public surface.
+  def test_pub_items_survive_an_inline_cfg_test_item
+    sources = { "src/invocation.rs" => <<~RS }
+      #[cfg(test)]
+      pub(crate) fn new(desired: usize, limit: usize) -> Self {}
+      pub fn after_inline_gate() {}
+      #[cfg(test)]
+      mod tests {
+          pub fn helper_in_tests() {}
+      }
+    RS
+
+    assert_equal [["after_inline_gate", "src/invocation.rs:3"]], Surface.pub_items(sources),
+                 "an inline cfg(test) item must not hide the public items that follow it"
+  end
+
   def test_unconsumed_excludes_referenced_and_acknowledged_items
     items = [["pack_u64", "src/abi.rs:1"], ["take_outcome", "src/abi.rs:2"], ["orphan", "src/abi.rs:3"]]
     consumers = "let word = pack_u64(p, l);"
