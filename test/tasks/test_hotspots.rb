@@ -11,20 +11,25 @@ require_relative "../../tasks/support/hotspots"
 class KobakoHotspotsTest < Minitest::Test
   Hotspots = KobakoHotspots
 
+  # A git-log --name-only stream mixing every tier the churn scan must
+  # include with the doc and test paths it must not.
+  CHURN_LOG = <<~LOG
+    lib/kobako/sandbox.rb
+    lib/kobako/sandbox.rb
+
+    docs/wire-contract.md
+    test/sandbox/test_run.rb
+    crates/kobako-codec/src/codec.rs
+    tasks/hotspots.rake
+    benchmark/support/gate.rb
+  LOG
+
   def test_churn_counts_source_files_and_ignores_other_paths
-    log = <<~LOG
-      lib/kobako/sandbox.rb
-      lib/kobako/sandbox.rb
+    expected = { "lib/kobako/sandbox.rb" => 2, "crates/kobako-codec/src/codec.rs" => 1,
+                 "tasks/hotspots.rake" => 1, "benchmark/support/gate.rb" => 1 }
 
-      docs/wire-contract.md
-      test/sandbox/test_run.rb
-      crates/kobako-codec/src/codec.rs
-    LOG
-
-    churn = Hotspots.churn(log)
-
-    assert_equal({ "lib/kobako/sandbox.rb" => 2, "crates/kobako-codec/src/codec.rs" => 1 }, churn,
-                 "docs and test paths must stay outside the hotspot churn")
+    assert_equal expected, Hotspots.churn(CHURN_LOG),
+                 "the tooling tiers churn like any source tree; docs and test paths stay outside"
   end
 
   def test_fan_in_resolves_require_relative_to_root_relative_paths

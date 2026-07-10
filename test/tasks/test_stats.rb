@@ -33,15 +33,16 @@ class KobakoStatsTest < Minitest::Test
                  "empty cloc output through sum must yield an all-zero totals row")
   end
 
-  def test_lock_files_and_vector_assets_are_excluded
-    %w[Gemfile.lock crates/Cargo.lock docs/diagram.svg].each do |path|
+  def test_lock_files_vector_assets_and_bench_results_are_excluded
+    %w[Gemfile.lock crates/Cargo.lock docs/diagram.svg
+       benchmark/results/2026-07-01-abc1234.json benchmark/baseline.json].each do |path|
       assert Stats.excluded?(path),
              "generated artifact #{path} through excluded? must be excluded from the count"
     end
   end
 
   def test_source_files_are_not_excluded
-    %w[lib/kobako.rb crates/kobako-codec/Cargo.toml docs/wire-codec.md].each do |path|
+    %w[lib/kobako.rb crates/kobako-codec/Cargo.toml docs/wire-codec.md benchmark/support/gate.rb].each do |path|
       refute Stats.excluded?(path),
              "tracked source #{path} through excluded? must be counted"
     end

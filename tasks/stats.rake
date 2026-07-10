@@ -21,7 +21,8 @@ STATS_CATEGORIES = {
   "RBS signatures (sig/)" => { paths: %w[sig], kind: :other },
   "Tests (test/)" => { paths: %w[test], kind: :test },
   "Examples (examples/)" => { paths: %w[examples], kind: :other },
-  "Rake tasks (tasks/)" => { paths: %w[tasks], kind: :other },
+  "Build tooling (tasks/ + build_config/)" => { paths: %w[tasks build_config], kind: :other },
+  "Benchmarks (benchmark/)" => { paths: %w[benchmark], kind: :other },
   "Docs (docs/ + SPEC.md)" => { paths: %w[docs SPEC.md], kind: :other }
 }.freeze
 

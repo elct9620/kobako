@@ -13,8 +13,8 @@ module KobakoStats
   module_function
 
   # Tracked-for-reproducibility artifacts that are not implementation:
-  # dependency lock files and vector images.
-  EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z}
+  # dependency lock files, vector images, and recorded benchmark results.
+  EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z|\Abenchmark/(?:results/|baseline\.json)}
 
   HEADER = %w[Name Files Lines LOC Comments].freeze
 
