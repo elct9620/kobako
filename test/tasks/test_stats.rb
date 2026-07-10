@@ -33,12 +33,23 @@ class KobakoStatsTest < Minitest::Test
                  "empty cloc output through sum must yield an all-zero totals row")
   end
 
-  def test_lock_files_vector_assets_and_bench_results_are_excluded
-    %w[Gemfile.lock crates/Cargo.lock docs/diagram.svg
+  def test_non_implementation_artifacts_are_excluded
+    %w[Gemfile.lock crates/Cargo.lock docs/diagram.svg data/.keep
        benchmark/results/2026-07-01-abc1234.json benchmark/baseline.json].each do |path|
       assert Stats.excluded?(path),
              "generated artifact #{path} through excluded? must be excluded from the count"
     end
+  end
+
+  # The category table's completeness guard: a new top-level source
+  # tree must enter a tier before the report can claim the whole repo;
+  # dot-directories are repo meta and root files ride their explicit
+  # category entries.
+  def test_uncategorized_dirs_list_only_unplaced_top_level_trees
+    tracked = ["lib/kobako.rb", "scripts/new_tool.rb", ".github/ci.yml", "Rakefile"]
+
+    assert_equal ["scripts"], Stats.uncategorized_dirs(tracked, ["lib"]),
+                 "a tracked top-level tree outside every category must surface as drift"
   end
 
   def test_source_files_are_not_excluded

@@ -13,8 +13,9 @@ module KobakoStats
   module_function
 
   # Tracked-for-reproducibility artifacts that are not implementation:
-  # dependency lock files, vector images, and recorded benchmark results.
-  EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z|\Abenchmark/(?:results/|baseline\.json)}
+  # dependency lock files, vector images, recorded benchmark results,
+  # and the +.keep+ placeholders that mount gitignored artifact dirs.
+  EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z|/\.keep\z|\Abenchmark/(?:results/|baseline\.json)}
 
   HEADER = %w[Name Files Lines LOC Comments].freeze
 
@@ -26,6 +27,14 @@ module KobakoStats
 
   def excluded?(path)
     path.match?(EXCLUDED)
+  end
+
+  # The tracked top-level directories +categorized+ fails to place — a
+  # new source tree must enter a tier before the report can claim the
+  # whole repo. Dot-directories are repo meta, never a tier; root-level
+  # files enter only through an explicit category entry.
+  def uncategorized_dirs(tracked_paths, categorized)
+    tracked_paths.filter_map { |path| path[%r{\A([^/.][^/]*)/}, 1] }.uniq - categorized
   end
 
   # Count the git-tracked files under +paths+ with cloc, returning one

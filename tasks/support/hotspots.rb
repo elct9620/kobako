@@ -10,9 +10,10 @@ module KobakoHotspots
   module_function
 
   # Per-file edit counts from +git log --name-only --pretty=format:+
-  # output, kept to the source trees under +roots+ — the tooling tiers
-  # (+tasks+, +benchmark+) count so the instruments measure themselves.
-  def churn(log_output, roots: %w[lib crates wasm ext tasks benchmark])
+  # output, kept to the source trees under +roots+ — the tier roster is
+  # the caller's knowledge, shared with the stats category table so the
+  # two instruments cannot drift apart.
+  def churn(log_output, roots:)
     pattern = %r{\A(?:#{Regexp.union(roots)})/.*\.(?:rb|rs|rake)\z}
     log_output.each_line(chomp: true).map(&:strip).grep(pattern).tally
   end

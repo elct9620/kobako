@@ -14,7 +14,10 @@ namespace :stats do
     tag = `git describe --tags --abbrev=0 --match "v*"`.strip
     abort "stats:hotspots: no v* release tag found" if tag.empty?
 
-    churn = KobakoHotspots.churn(`git log #{tag}..HEAD --name-only --pretty=format:`)
+    roots = STATS_CATEGORIES.values
+                            .select { |category| %i[code tooling].include?(category[:kind]) }
+                            .flat_map { |category| category[:paths] }
+    churn = KobakoHotspots.churn(`git log #{tag}..HEAD --name-only --pretty=format:`, roots: roots)
     sizes = churn.keys.select { |path| File.exist?(path) }
                       .to_h { |path| [path, File.foreach(path).count] }
     lib_sources = FileList["lib/**/*.rb"].to_h { |path| [path, File.read(path)] }

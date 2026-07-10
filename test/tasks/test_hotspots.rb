@@ -28,7 +28,9 @@ class KobakoHotspotsTest < Minitest::Test
     expected = { "lib/kobako/sandbox.rb" => 2, "crates/kobako-codec/src/codec.rs" => 1,
                  "tasks/hotspots.rake" => 1, "benchmark/support/gate.rb" => 1 }
 
-    assert_equal expected, Hotspots.churn(CHURN_LOG),
+    churn = Hotspots.churn(CHURN_LOG, roots: %w[lib crates tasks benchmark])
+
+    assert_equal expected, churn,
                  "the tooling tiers churn like any source tree; docs and test paths stay outside"
   end
 
