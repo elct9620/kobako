@@ -44,6 +44,13 @@ impl Yielder for CallerYielder<'_, '_> {
 const RUNTIME_INCOMPATIBLE: &str =
     "the Sandbox runtime is incompatible; rebuild data/kobako.wasm against the installed version";
 
+/// User-facing message for the "the loaded Wasm module is not a
+/// Kobako-shaped runtime at all" failure mode — no linear memory export
+/// here, no `memory` module export on the instantiation path in
+/// `frames`. One constant so the two detection sites cannot drift.
+pub(crate) const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
+    "the loaded Wasm module is not a Kobako-compatible runtime";
+
 /// Resolve the guest's exported linear `memory`. The lookup shape (and its
 /// diagnostic) is shared by every Caller-based path here — the write side
 /// (`alloc_and_write`), the read side (`read`), and the yield round-trip
@@ -52,7 +59,7 @@ const RUNTIME_INCOMPATIBLE: &str =
 fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
     match caller.get_export("memory") {
         Some(Extern::Memory(m)) => Ok(m),
-        _ => Err("the loaded Wasm module is not a Kobako-compatible runtime"),
+        _ => Err(SANDBOX_RUNTIME_NOT_KOBAKO),
     }
 }
 

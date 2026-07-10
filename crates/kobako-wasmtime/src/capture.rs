@@ -18,15 +18,19 @@ pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
     }
 }
 
-/// Pure slicing core shared by the snapshot readback: given the unclipped
-/// pipe snapshot and the configured cap, return the bytes Ruby should
-/// observe (clipped to `cap`) plus the truncation flag. `truncated` is
-/// `true` only when the snapshot strictly exceeded the cap — this is the
-/// "wrote `cap + 1` bytes into a `cap + 1`-sized pipe" case; "wrote
-/// exactly `cap` bytes" stays `false`.
-pub(crate) fn clip_capture(raw: &[u8], cap: Option<usize>) -> (&[u8], bool) {
+/// Pure clipping core shared by the snapshot readback: given the
+/// unclipped pipe snapshot (owned — truncated in place, so the readback
+/// costs one copy out of the pipe, not two), return the bytes Ruby
+/// should observe plus the truncation flag. `truncated` is `true` only
+/// when the snapshot strictly exceeded the cap — this is the "wrote
+/// `cap + 1` bytes into a `cap + 1`-sized pipe" case; "wrote exactly
+/// `cap` bytes" stays `false`.
+pub(crate) fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {
     match cap {
-        Some(c) if raw.len() > c => (&raw[..c], true),
+        Some(c) if raw.len() > c => {
+            raw.truncate(c);
+            (raw, true)
+        }
         _ => (raw, false),
     }
 }
@@ -53,14 +57,14 @@ mod tests {
 
     #[test]
     fn clip_capture_returns_full_bytes_when_under_cap() {
-        let (bytes, truncated) = clip_capture(b"abc", Some(5));
+        let (bytes, truncated) = clip_capture(b"abc".to_vec(), Some(5));
         assert_eq!(bytes, b"abc");
         assert!(!truncated);
     }
 
     #[test]
     fn clip_capture_does_not_flag_truncation_at_exactly_cap_bytes() {
-        let (bytes, truncated) = clip_capture(b"abcde", Some(5));
+        let (bytes, truncated) = clip_capture(b"abcde".to_vec(), Some(5));
         assert_eq!(bytes, b"abcde");
         assert!(!truncated);
     }
@@ -70,21 +74,21 @@ mod tests {
         // The pipe is sized `cap + 1`, so the snapshot can be at most
         // 6 bytes when `cap == 5`; that surface is what triggers the
         // truncation flag.
-        let (bytes, truncated) = clip_capture(b"abcdef", Some(5));
+        let (bytes, truncated) = clip_capture(b"abcdef".to_vec(), Some(5));
         assert_eq!(bytes, b"abcde");
         assert!(truncated);
     }
 
     #[test]
     fn clip_capture_treats_none_as_uncapped() {
-        let (bytes, truncated) = clip_capture(b"abcdef", None);
+        let (bytes, truncated) = clip_capture(b"abcdef".to_vec(), None);
         assert_eq!(bytes, b"abcdef");
         assert!(!truncated);
     }
 
     #[test]
     fn clip_capture_handles_empty_input() {
-        let (bytes, truncated) = clip_capture(b"", Some(5));
+        let (bytes, truncated) = clip_capture(Vec::new(), Some(5));
         assert_eq!(bytes, b"");
         assert!(!truncated);
     }

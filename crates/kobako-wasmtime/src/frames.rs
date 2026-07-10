@@ -18,11 +18,11 @@ use kobako_runtime::profile::Profile;
 
 /// Return the resolved `memory` export handle, or a `Trap` when the loaded
 /// module exports no linear memory — the "not a Kobako-shaped runtime"
-/// failure mode (`SANDBOX_RUNTIME_NOT_KOBAKO`).
+/// failure mode (`guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO`).
 fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
     exports
         .memory
-        .ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
+        .ok_or_else(|| Trap::Other(guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
 }
 
 /// Allocate a `len`-byte buffer in guest linear memory via
@@ -159,13 +159,6 @@ pub(crate) fn fetch_outcome_bytes(
 /// diagnosis is "your data/kobako.wasm is out of sync; rebuild it".
 const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required hooks; \
      rebuild data/kobako.wasm against the installed version";
-
-/// User-facing message for the "the loaded Wasm module is not a
-/// Kobako-shaped runtime at all" failure mode (no linear memory
-/// export). Same phrasing philosophy as
-/// `SANDBOX_RUNTIME_MISSING_HOOKS`.
-const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
-    "the loaded Wasm module is not a Kobako-compatible runtime";
 
 /// Return the resolved `TypedFunc` for an ABI export, or a `Trap`
 /// (boundary → `Kobako::TrapError`) when the option is `None`. Both

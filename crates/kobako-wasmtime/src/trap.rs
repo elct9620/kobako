@@ -42,60 +42,29 @@ pub(crate) fn epoch_deadline_callback(
     }
 }
 
-/// Configured-cap path classification for a wasmtime error. The
-/// downcast logic stays in a pure helper so the `Trap` kind routing
-/// can be exercised from `cargo test` without any frontend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrapClass {
-    /// Wall-clock cap path.
-    Timeout,
-    /// Linear-memory cap path.
-    MemoryLimit,
-    /// Any other wasmtime error — surfaces as the base `Trap::Other`.
-    Other,
-}
-
-/// Inspect a wasmtime error to decide which neutral trap kind it
-/// belongs to. Pure function — operates on the error's downcast chain
-/// only, no frontend state required.
-fn classify_trap(err: &wasmtime::Error) -> TrapClass {
-    if err.downcast_ref::<TimeoutTrap>().is_some() {
-        TrapClass::Timeout
-    } else if err.downcast_ref::<MemoryLimitTrap>().is_some() {
-        TrapClass::MemoryLimit
-    } else {
-        TrapClass::Other
-    }
-}
-
-/// Classify a wasmtime call error into a neutral `Trap`. The ABI export
-/// symbol (`__kobako_eval` / `__kobako_run`) is deliberately omitted from
-/// the message — the Sandbox layer attaches the user-facing verb
+/// Classify a wasmtime call error into a neutral `Trap`. Pure function
+/// over the error's downcast chain, so the kind routing is exercisable
+/// from `cargo test` without any frontend. The ABI export symbol
+/// (`__kobako_eval` / `__kobako_run`) is deliberately omitted from the
+/// message — the Sandbox layer attaches the user-facing verb
 /// (`Sandbox#eval` / `Sandbox#run`) so the message reads in caller
 /// vocabulary rather than ABI vocabulary.
 ///
-/// For the configured-cap paths (`TrapClass::Timeout` /
-/// `TrapClass::MemoryLimit`) the trap's own `std::fmt::Display`
+/// For the configured-cap paths the trap's own `std::fmt::Display`
 /// carries the user-facing reason (`"wall-clock deadline exceeded"`,
-/// `"linear memory growth exceeded memory_limit: ..."`). The wasmtime
-/// outer wrapper at `format!("{err}")` would otherwise surface only
-/// the `"error while executing at wasm backtrace: ..."` framing, which
-/// is operator noise on a cap trap. For `TrapClass::Other` the framing
-/// is kept but the chain's root cause is appended (see
-/// `other_trap_message`) so the real trap reason survives.
+/// `"linear memory growth exceeded memory_limit: ..."`); the wasmtime
+/// outer wrapper would otherwise surface only the `"error while
+/// executing at wasm backtrace: ..."` framing, which is operator noise
+/// on a cap trap. For any other error the framing is kept but the
+/// chain's root cause is appended (see `other_trap_message`) so the
+/// real trap reason survives.
 pub(crate) fn trap_from(err: wasmtime::Error) -> Trap {
-    match classify_trap(&err) {
-        TrapClass::Timeout => Trap::Timeout(
-            err.downcast_ref::<TimeoutTrap>()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| format!("{err}")),
-        ),
-        TrapClass::MemoryLimit => Trap::MemoryLimit(
-            err.downcast_ref::<MemoryLimitTrap>()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| format!("{err}")),
-        ),
-        TrapClass::Other => Trap::Other(other_trap_message(&err)),
+    if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
+        Trap::Timeout(t.to_string())
+    } else if let Some(t) = err.downcast_ref::<MemoryLimitTrap>() {
+        Trap::MemoryLimit(t.to_string())
+    } else {
+        Trap::Other(other_trap_message(&err))
     }
 }
 
@@ -129,8 +98,9 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_trap, other_trap_message, TrapClass, NO_TIMEOUT_EPOCH_DELTA};
+    use super::{other_trap_message, trap_from, NO_TIMEOUT_EPOCH_DELTA};
     use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+    use kobako_runtime::error::Trap;
 
     // The no-timeout priming delta is added to the engine's current
     // epoch inside wasmtime, and the process-wide ticker advances that
@@ -148,21 +118,24 @@ mod tests {
     }
 
     #[test]
-    fn classify_trap_routes_timeout_trap_to_timeout() {
+    fn trap_from_routes_timeout_trap_to_timeout() {
         let err = wasmtime::Error::new(TimeoutTrap);
-        assert_eq!(classify_trap(&err), TrapClass::Timeout);
+        let expected = TimeoutTrap.to_string();
+        assert!(matches!(trap_from(err), Trap::Timeout(msg) if msg == expected));
     }
 
     #[test]
-    fn classify_trap_routes_memory_limit_trap_to_memory_limit() {
-        let err = wasmtime::Error::new(MemoryLimitTrap::new(1 << 20, 1 << 19));
-        assert_eq!(classify_trap(&err), TrapClass::MemoryLimit);
+    fn trap_from_routes_memory_limit_trap_to_memory_limit() {
+        let trap = MemoryLimitTrap::new(1 << 20, 1 << 19);
+        let expected = trap.to_string();
+        let err = wasmtime::Error::new(trap);
+        assert!(matches!(trap_from(err), Trap::MemoryLimit(msg) if msg == expected));
     }
 
     #[test]
-    fn classify_trap_falls_back_to_other_for_unknown_errors() {
+    fn trap_from_falls_back_to_other_for_unknown_errors() {
         let err = wasmtime::Error::msg("some other wasmtime fault");
-        assert_eq!(classify_trap(&err), TrapClass::Other);
+        assert!(matches!(trap_from(err), Trap::Other(_)));
     }
 
     // A guest hard trap reaches the host as a wasmtime error whose Display is

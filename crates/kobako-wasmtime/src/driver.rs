@@ -203,19 +203,18 @@ impl Driver {
             wall_time: data.wall_time().as_secs_f64(),
             memory_peak: data.memory_peak(),
         };
-        let (stdout_raw, stderr_raw) = (data.stdout_bytes(), data.stderr_bytes());
-        let (stdout_visible, stdout_truncated) =
-            capture::clip_capture(&stdout_raw, self.config.stdout_limit_bytes);
-        let (stderr_visible, stderr_truncated) =
-            capture::clip_capture(&stderr_raw, self.config.stderr_limit_bytes);
+        let (stdout_bytes, stdout_truncated) =
+            capture::clip_capture(data.stdout_bytes(), self.config.stdout_limit_bytes);
+        let (stderr_bytes, stderr_truncated) =
+            capture::clip_capture(data.stderr_bytes(), self.config.stderr_limit_bytes);
         Snapshot {
             completion,
             stdout: Capture {
-                bytes: stdout_visible.to_vec(),
+                bytes: stdout_bytes,
                 truncated: stdout_truncated,
             },
             stderr: Capture {
-                bytes: stderr_visible.to_vec(),
+                bytes: stderr_bytes,
                 truncated: stderr_truncated,
             },
             usage,
