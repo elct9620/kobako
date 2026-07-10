@@ -40,6 +40,24 @@ class KobakoWireSymmetryTest < Minitest::Test
                  "the inventory must name the encode/decode-bearing class, not the file's first class"
   end
 
+  # A second codec-bearing class in the same file must not vanish
+  # behind the first: a Ruby-only envelope added there would otherwise
+  # pass the gate without its kobako-codec peer.
+  def test_ruby_types_inventory_every_codec_class_in_one_file
+    sources = { "pair.rb" => <<~RB }
+      class Ping
+        def encode = nil
+      end
+
+      class Pong
+        def self.decode(bytes) = nil
+      end
+    RB
+
+    assert_equal %w[Ping Pong], Symmetry.ruby_types(sources),
+                 "a file holding two codec-bearing classes through ruby_types must inventory both"
+  end
+
   def test_rust_types_read_both_bare_and_qualified_impls
     sources = {
       "block.rs" => "impl Encode for Yield {\n}\nimpl Decode for Yield {\n}\n",
