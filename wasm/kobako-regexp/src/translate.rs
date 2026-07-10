@@ -10,13 +10,13 @@
 
 /// MRI `Regexp` option bits. The Rust gem exposes these rather than
 /// the engine's internal mask, so `Regexp#options` reads back as MRI does.
-pub const IGNORECASE: i64 = 1;
-pub const EXTENDED: i64 = 2;
-pub const MULTILINE: i64 = 4;
+pub(crate) const IGNORECASE: i64 = 1;
+pub(crate) const EXTENDED: i64 = 2;
+pub(crate) const MULTILINE: i64 = 4;
 
 /// Parse the letter flags a regexp literal carries (`"imx"`) into the MRI
 /// option bitmask. Unknown letters are ignored.
-pub fn parse_flag_string(flags: &str) -> i64 {
+pub(crate) fn parse_flag_string(flags: &str) -> i64 {
     let mut options = 0;
     for letter in flags.chars() {
         match letter {
@@ -32,7 +32,7 @@ pub fn parse_flag_string(flags: &str) -> i64 {
 /// Build a `fancy-regex` pattern string from a Ruby `source` and MRI
 /// `options`. The multiline (`m`) flag is always set so `^` / `$` match per
 /// line as in Ruby; Ruby's `/m` maps to the regex `s` (DOTALL) flag.
-pub fn build_pattern(source: &str, options: i64) -> String {
+pub(crate) fn build_pattern(source: &str, options: i64) -> String {
     let mut out = String::with_capacity(source.len() + 8);
     out.push_str("(?m");
     if options & IGNORECASE != 0 {
