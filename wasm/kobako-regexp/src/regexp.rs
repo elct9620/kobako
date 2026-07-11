@@ -159,7 +159,7 @@ const BACKTRACK_LIMIT: usize = 1_000_000;
 /// `Regexp.new` / `Regexp.compile` / literal compilation. The flags
 /// argument is an Integer option mask, a letter String (`"im"`), or nil.
 fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     if args.is_empty() {
         return Err(argument_error(
             mrb,
@@ -279,7 +279,6 @@ fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
 
 fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (args, block) = mrb.get_args::<format::RestBlock>();
-    let args = args.to_vec();
     let Some(&arg) = args.first() else {
         return Ok(Value::nil());
     };
@@ -287,7 +286,7 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::nil());
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, &args) else {
+    let Some(pos) = match_pos(&subject, args) else {
         return Ok(Value::nil());
     };
     let md = do_match(mrb, self_, subject, pos)?;
@@ -305,7 +304,7 @@ pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Value) -> Result<Value, E
 }
 
 fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     let Some(&arg) = args.first() else {
         return Ok(Value::false_());
     };
@@ -313,7 +312,7 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::false_());
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, &args) else {
+    let Some(pos) = match_pos(&subject, args) else {
         return Ok(Value::false_());
     };
     let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
@@ -489,7 +488,7 @@ fn rx_set_last_match(mrb: &Mrb, _self: Value) -> Value {
 }
 
 fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     if args.is_empty() {
         return Err(argument_error(
             mrb,

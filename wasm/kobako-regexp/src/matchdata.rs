@@ -153,14 +153,14 @@ fn md_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(state) = self_.data_get(mrb, &MATCH_TYPE) else {
         return Ok(Value::nil());
     };
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     let array = to_a(mrb, state)?.as_value();
-    if let [arg] = args.as_slice() {
+    if let [arg] = args {
         if let Some(index) = numeric_index(mrb, state, *arg)? {
             return array.funcall(mrb, c"[]", &[index.into_value(mrb)]);
         }
     }
-    array.funcall(mrb, c"[]", &args)
+    array.funcall(mrb, c"[]", args)
 }
 
 /// The byte span the begin/end/offset argument names, or `None` when the
@@ -246,7 +246,7 @@ fn md_named_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// option Hash; a truthy value (Ruby semantics: anything but nil/false) turns
 /// the keys into Symbols, as in MRI.
 fn symbolize_names_requested(mrb: &Mrb) -> Result<bool, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     let Some(options) = args.last().copied().filter(|arg| arg.is_hash()) else {
         return Ok(false);
     };

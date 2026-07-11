@@ -36,7 +36,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
 /// into native mruby values. A non-`String` source is a `TypeError`;
 /// malformed input is a `JSON::ParserError`.
 fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let args = mrb.get_args::<format::Rest>();
     let source = args.first().copied().unwrap_or(Value::nil());
     let rstr = RString::from_value(source)
         .ok_or_else(|| errors::type_error(mrb, "no implicit conversion of argument into String"))?;

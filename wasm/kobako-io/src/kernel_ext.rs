@@ -42,10 +42,10 @@ fn delegate_rest(
     target: &core::ffi::CStr,
     method: &core::ffi::CStr,
 ) -> Result<Value, Error> {
-    // Copy out of the VM-stack arg window before the funcall can
-    // reallocate it.
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    global(mrb, target).funcall(mrb, method, &argv)
+    // `format::Rest` yields an arena-rooted copy that survives the funcall
+    // below, so the borrow needs no defensive copy.
+    let argv = mrb.get_args::<format::Rest>();
+    global(mrb, target).funcall(mrb, method, argv)
 }
 
 fn kernel_print(mrb: &Mrb, _self: Value) -> Result<Value, Error> {

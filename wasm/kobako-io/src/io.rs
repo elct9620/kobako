@@ -136,12 +136,13 @@ fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
         ));
     }
-    // Copy out of the VM-stack arg window before any funcall
-    // (`obj_as_string` on a user type) can reallocate it.
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    // `format::Rest` yields an arena-rooted copy of the rest slot, so the
+    // borrow survives the `obj_as_string` funcalls below — no defensive
+    // copy needed (raw `Mrb::argv` is the read that cannot cross re-entry).
+    let argv = mrb.get_args::<format::Rest>();
 
     let mut total: i32 = 0;
-    for val in argv {
+    for &val in argv {
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
         let s = val.obj_as_string(mrb)?;
@@ -184,8 +185,8 @@ fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
 /// `IO#print(*args)` — write each argument's `to_s` form, nothing
 /// between or after. Returns `nil`.
 fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    for val in argv {
+    let argv = mrb.get_args::<format::Rest>();
+    for &val in argv {
         let _scope = mrb.arena_scope();
         let s = val.obj_as_string(mrb)?;
         write_one(mrb, self_, s)?;
@@ -197,12 +198,12 @@ fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// recursing into Arrays element-wise; no arguments writes a bare
 /// newline. Returns `nil`.
 fn io_puts(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
+    let argv = mrb.get_args::<format::Rest>();
     if argv.is_empty() {
         write_newline(mrb, self_)?;
         return Ok(Value::nil());
     }
-    for val in argv {
+    for &val in argv {
         puts_one(mrb, self_, val)?;
     }
     Ok(Value::nil())
@@ -244,8 +245,8 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
 /// `MRB_METHOD_PRIVATE_FL`) — the same implicit-self call the
 /// previous mrblib body made.
 fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    let formatted = self_.funcall(mrb, c"sprintf", &argv)?;
+    let argv = mrb.get_args::<format::Rest>();
+    let formatted = self_.funcall(mrb, c"sprintf", argv)?;
     write_one(mrb, self_, formatted)?;
     Ok(Value::nil())
 }
@@ -280,8 +281,8 @@ fn io_putc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// newline. Returns `nil` for no arguments, the argument itself for
 /// one, and the argument Array for several — mirroring `Kernel#p`.
 fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv: Vec<Value> = mrb.get_args::<format::Rest>().to_vec();
-    for &val in &argv {
+    let argv = mrb.get_args::<format::Rest>();
+    for &val in argv {
         let _scope = mrb.arena_scope();
         let insp = val.funcall(mrb, c"inspect", &[])?;
         let nl = mrb.str_new(b"\n").as_value();
@@ -292,7 +293,7 @@ fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         1 => argv[0],
         _ => {
             let ary = mrb.ary_new();
-            for &val in &argv {
+            for &val in argv {
                 ary.push(mrb, val)?;
             }
             ary.as_value()
