@@ -15,7 +15,7 @@
 
 [package]
 name = "kobako-wasmtime"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 description = "wasmtime implementation of the kobako host runtime contract."
 license = "Apache-2.0"
@@ -28,7 +28,7 @@ categories = ["wasm", "virtualization"]
 # The engine-neutral contract this crate implements. The version pin
 # rides the linked release group; the path keeps in-tree builds (and
 # the Ruby gem, which ships both crates) resolving locally.
-kobako-runtime = { version = "0.8.0", path = "../kobako-runtime" }
+kobako-runtime = { version = "0.9.0", path = "../kobako-runtime" }
 # wasmtime — host-side embedder for kobako.wasm. We disable default-features
 # and opt back in only what kobako needs: a Cranelift-backed runtime that can
 # compile a pre-built wasm32-wasip1 module on the host triple, plus the `wat`

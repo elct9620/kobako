@@ -25,7 +25,7 @@ target.
 
 ```toml
 [dependencies]
-kobako-codec = "0.8.0" # x-release-please-version
+kobako-codec = "0.9.0" # x-release-please-version
 ```
 
 ```rust

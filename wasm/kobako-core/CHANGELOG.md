@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.8.0...kobako-core-v0.9.0) (2026-07-11)
+
+
+### Features
+
+* **sandbox:** flatten Service registration to path-valued bind ([0876006](https://github.com/elct9620/kobako/commit/0876006455544fd82eb7555ee80c149d98843719))
+
 ## [0.8.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.7.0...kobako-core-v0.8.0) (2026-07-08)
 
 
