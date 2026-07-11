@@ -74,7 +74,7 @@ Raised when the guest execution environment ran to completion, the mruby script 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
 | E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — Transport dispatch |
-| E-12 | The dispatch `target` path (e.g., `"<Namespace>::<Member>"`) does not match any registered Member; error `type="undefined"` returned; mruby script does not rescue it | B-07, B-12 — undefined member |
+| E-12 | The dispatch `target` path (e.g., `"<Namespace>::<Member>"`) does not match any registered Service; error `type="undefined"` returned; mruby script does not rescue it | B-08, B-12 — undefined target |
 | E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); error `type="undefined"` | B-18 — stale Handle cross-invocation |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |
 | E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; error `type="undefined"` returned; mruby script does not rescue it | B-42 — reflection rejection |
@@ -91,7 +91,7 @@ E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ### `Kobako::SetupError`
 
-Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from the configured `wasm_path` (B-01), the Guest Binary fails the ABI version check (B-40), or the runtime's declared isolation profile falls below the requested floor (B-54) — before any invocation entry point runs. Construction is a setup verb, not an invocation: `SetupError` is therefore not one of the four invocation outcomes and does not pass through the two-step attribution decision, mirroring the E-16..E-18 setup-time treatment. Because no Sandbox instance is produced, the `TrapError` "discard and recreate" recovery contract does not apply — a `SetupError` reflects a deterministic artifact or environment fault, and retrying `Sandbox.new` against the same `wasm_path` fails identically until the underlying cause is fixed.
+Raised by `Kobako::Sandbox.new` when the wasm runtime cannot be constructed from the configured `wasm_path` (B-01), the Guest Binary fails the ABI version check (B-40), or the runtime's declared isolation profile falls below the requested floor (B-54) — before any invocation entry point runs. Construction is a setup verb, not an invocation: `SetupError` is therefore not one of the four invocation outcomes and does not pass through the two-step attribution decision, mirroring the E-16 / E-45 setup-time treatment. Because no Sandbox instance is produced, the `TrapError` "discard and recreate" recovery contract does not apply — a `SetupError` reflects a deterministic artifact or environment fault, and retrying `Sandbox.new` against the same `wasm_path` fails identically until the underlying cause is fixed.
 
 `Kobako::ModuleNotBuiltError` is the named subclass for the common, actionable case: the Guest Binary artifact has not been built yet. A Host App that only needs "the Sandbox could not be set up" can rescue `Kobako::SetupError`; one that wants to special-case the unbuilt-artifact state can rescue `Kobako::ModuleNotBuiltError` first.
 
@@ -118,16 +118,16 @@ Raised by `Kobako::Pool#with` when the checkout wait exceeds the configured `che
 
 ---
 
-### Registration errors (`define` / `bind`)
+### Registration errors (`bind`)
 
-These error scenarios cover Namespace declaration and Member binding (B-07..B-11) and the sealing rule (B-33). All are Host App programming errors detected at setup time, before or between guest executions; they raise `ArgumentError` synchronously and do not engage the attribution pipeline.
+These error scenarios cover Service binding (B-08, B-09, B-11) and the sealing rule (B-33). All are Host App programming errors detected at setup time, before or between guest executions; they raise `ArgumentError` synchronously and do not engage the attribution pipeline.
 
 | # | Trigger | Detection point | Raised class |
 |---|---------|-----------------|--------------|
-| E-16 | `sandbox.define(name)` with `name` not matching the `/\A[A-Z]\w*\z/` constant pattern (B-07) | host pre-flight | `ArgumentError` |
-| E-17 | `namespace.bind(name, obj)` with `name` not matching the `/\A[A-Z]\w*\z/` constant pattern (B-08) | host pre-flight | `ArgumentError` |
-| E-18 | `sandbox.define` after the first invocation (`#eval` or `#run`) has sealed Service registration (B-07, B-33) | host pre-flight | `ArgumentError` |
-| E-45 | `namespace.bind` after the first invocation has sealed Service registration (B-08, B-33); the existing bindings and the Frame 1 preamble of subsequent invocations are unchanged | host pre-flight | `ArgumentError` |
+| E-16 | `sandbox.bind(path, obj)` with a `path` segment not matching the `/\A[A-Z]\w*\z/` constant pattern (B-08) | host pre-flight | `ArgumentError` |
+| E-45 | `sandbox.bind` after the first invocation (`#eval` or `#run`) has sealed Service registration (B-08, B-33); the existing bindings and the Frame 1 preamble of subsequent invocations are unchanged | host pre-flight | `ArgumentError` |
+
+E-17 is a retired anchor — permanently reserved and never reassigned (N-8). E-18 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 

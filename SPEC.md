@@ -48,14 +48,14 @@ These five roles describe the system. All design and behavior content in later l
 | **Host App** | The Ruby application (Rails / Rack / CLI) that uses kobako; holds all credentials and policy | Out of scope — must be named but not designed here |
 | **Host Gem** | The kobako gem itself: Ruby API layer (`lib/`) + private native extension (`ext/`); exposes the sandbox interface, routes Transport requests, and manages Handle lifecycle | In scope |
 | **Guest Binary** | `kobako.wasm` — compiled from the `wasm/` Rust crate; contains the mruby interpreter and the guest-side Transport proxy; is the isolation boundary | In scope |
-| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`<Namespace>::<Member>`, e.g., `MyService::KV`); the only mechanism by which guest code can access host resources | In scope |
+| **Service** | A Host Ruby object bound into the sandbox at a constant-path name (`MyService::KV`, or a top-level `File`); the only mechanism by which guest code can access host resources | In scope |
 | **Wire Spec** | The MessagePack contract governing all host↔guest Transport messages; not a runtime object but a shared protocol both sides implement | In scope |
 
 **Key internal concepts** (refined in later layers):
 
 - **Sandbox** (`Kobako::Sandbox`): the runtime unit that instantiates the Guest Binary, injects Services, optionally registers preloaded snippets (mruby source or RITE bytecode), executes either a one-shot mruby source (`#eval`) or an entrypoint dispatch into a preloaded constant (`#run`), and returns a structured outcome or raises a typed error.
 - **Handle**: an opaque integer token the guest holds to reference a Ruby object the wire codec cannot transmit directly. A Handle enters the guest in one of two symmetric ways: as a Service method's return value (guest→host return path) or as a `#run` argument that the host auto-wraps (host→guest argument path). The guest can use it as a dispatch target, pass it as an argument, or invoke methods on it — which dispatch back to the host as further Transport requests — but cannot dereference it to a Ruby value. Handle lifecycle is fully managed by the Host Gem.
-- **Namespace / Member**: `Namespace` is a declared grouping visible to guest as a Ruby module; `Member` is a named binding within a Namespace visible to guest as a module constant.
+- **Member**: a Host object bound at a constant-path name via `Sandbox#bind`, visible to guest as a constant that forwards its method calls to the host. A multi-segment path (`MyService::KV`) nests the constant under a guest module named by the path prefix; a single-segment path (`File`) binds it at top level.
 - **Pool** (`Kobako::Pool`): a bounded set of warm, identically set-up Sandboxes handed out one exclusive holder at a time via `#with`. Construction forwards Sandbox keywords and runs a per-Sandbox setup block; checkout blocks when all slots are held.
 - **Block / Yield**: A guest-side mruby block passed to a Service method call. The block lives inside the Guest Binary; the Host Gem represents it on the host side as a Yielder that the Service method can invoke via `yield` or `block.call`. Each yield is a synchronous round-trip into the guest that executes the block body and returns its result. Blocks are scoped to the dispatch call they were passed to and are not reusable beyond it.
 - **Three-layer error taxonomy**: `Kobako::TrapError` (Wasm trap), `Kobako::SandboxError` (wire or runtime fault), `Kobako::ServiceError` (guest application error) — each with distinct attribution and handling semantics.
@@ -72,7 +72,7 @@ These five roles describe the system. All design and behavior content in later l
 - Provide an in-process mruby execution environment isolated by a Wasm boundary
 - Bundle a curated guest standard library composed from two sources: allowlisted mruby core-extension mrbgems (Array / Enum / Hash / Numeric / Object / Proc / Range / String / sprintf / Symbol / Error / Metaprog) and Rust capability gems linked into the Guest Binary shell (the worked examples are the IO / Kernel surface, the Regexp / MatchData surface, and the JSON parse / generate surface). The mrbgem half is gated by a strict allowlist — the single source of truth for which mrbgems enter the binary — whose security rationale is documented inline with the build config. Both sources obey the same constraint: pure compute plus the explicitly mediated capabilities, never ambient I/O, network, sleep, or random-seed access.
 - Deny the guest every ambient nondeterminism source — wall-clock time, monotonic time, and host entropy — at the Wasm/WASI boundary under the default `hermetic` profile, so guest execution depends only on its source, snippets, and injected Service responses (B-45); the `permissive` profile trades this denial away explicitly (B-54)
-- Expose a Ruby API for Host Apps to declare Namespaces and bind host objects as callable Members
+- Expose a Ruby API for Host Apps to bind host objects as callable Services at constant-path names
 - Execute a mruby source synchronously via `Sandbox#eval` and return its last expression as a deserialized Ruby value
 - Register snippets on a Sandbox via `Sandbox#preload` (mruby source via `code:` plus `name:`, or RITE bytecode via `binary:` alone), then dispatch into a named entrypoint constant via `Sandbox#run(target, *args, **kwargs)` and return the entrypoint's `#call` value
 - Route guest-initiated Transport requests to the correct host Service object and return the serialized result
@@ -107,9 +107,7 @@ These five roles describe the system. All design and behavior content in later l
 
   | Stable public surface | Members |
   |-----------------------|---------|
-  | `Kobako::Sandbox` | `#define`, `#preload`, `#eval`, `#run`; output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage` (B-35); configuration readers `#wasm_path` and `#options` (the `Kobako::SandboxOptions` value object), and the five option readers `#timeout` / `#memory_limit` / `#stdout_limit` / `#stderr_limit` / `#profile` (B-54) that forward to it |
-  | `Kobako::Namespace` | `#bind` |
-  | `Kobako::Pool` | `.new(slots:, checkout_timeout:, **sandbox_keywords)` — the splat forwards every `Kobako::Sandbox.new` keyword verbatim — with a per-Sandbox setup block; checkout verb `#with` (B-46..B-48) |
+  | `Kobako::Sandbox` | `#bind`, `#preload`, `#eval`, `#run`; output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage` (B-35); configuration readers `#wasm_path` and `#options` (the `Kobako::SandboxOptions` value object), and the five option readers `#timeout` / `#memory_limit` / `#stdout_limit` / `#stderr_limit` / `#profile` (B-54) that forward to it |  | `Kobako::Pool` | `.new(slots:, checkout_timeout:, **sandbox_keywords)` — the splat forwards every `Kobako::Sandbox.new` keyword verbatim — with a per-Sandbox setup block; checkout verb `#with` (B-46..B-48) |
   | Error classes | `Kobako::TrapError`, `Kobako::TimeoutError`, `Kobako::MemoryLimitError`, `Kobako::SandboxError`, `Kobako::BytecodeError`, `Kobako::HandleExhaustedError`, `Kobako::ServiceError`, `Kobako::SetupError`, `Kobako::ModuleNotBuiltError`, `Kobako::PoolTimeoutError` |
   | `Kobako::Handle` | Named publicly so Host Apps can pattern-match on it inside a `rescue` block; its constructor is internal to the Host Gem — Handles enter Host App code only as fields on raised error instances, never via direct construction |
 
@@ -137,8 +135,7 @@ The following features constitute the complete observable surface of the `kobako
 | # | Feature | Role |
 |---|---------|------|
 | F-01 | Sandbox instantiation | Host Gem |
-| F-02 | Namespace declaration | Host Gem |
-| F-03 | Member binding | Host Gem |
+| F-02 | Service binding (`Sandbox#bind`) | Host Gem |
 | F-04 | Synchronous mruby source execution (`#eval`) | Host Gem + Guest Binary |
 | F-05 | Guest-initiated Transport dispatch | Host Gem + Wire Spec |
 | F-06 | Capability Handle encoding and referencing | Host Gem + Wire Spec |
@@ -151,6 +148,8 @@ The following features constitute the complete observable surface of the `kobako
 | F-13 | Snippet preloading — source or bytecode (`#preload`) | Host Gem + Guest Binary |
 | F-14 | Synchronous entrypoint dispatch (`#run`) | Host Gem + Guest Binary |
 | F-15 | Warm Sandbox pool checkout (`Kobako::Pool`) | Host Gem |
+
+F-03 is a retired feature anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
@@ -166,7 +165,7 @@ The following journeys describe the primary ways actors use kobako end-to-end. E
 An LLM agent framework author has a pipeline that feeds model-generated Ruby sources to kobako at runtime. The Host App holds credentials (API keys, database connections); the generated sources are untrusted and structurally unknown in advance. The author needs structured results back and must ensure no generated source can exfiltrate credentials or corrupt host state.
 
 **Action**
-1. The Host App creates a `Kobako::Sandbox` and declares Namespaces for the capabilities the generated sources may legally call (e.g., a key-value lookup, a write-access log sink).
+1. The Host App creates a `Kobako::Sandbox` and binds Services for the capabilities the generated sources may legally call (e.g., a key-value lookup, a write-access log sink).
 2. For each model-generated source, the Host App calls `Sandbox#eval` with the source string, passing no additional configuration at call time.
 3. The Host App reads the return value of `#eval` as the structured result of the source's final expression.
 
@@ -182,7 +181,7 @@ A Host App developer is adding kobako to a running Rails or Rack application for
 
 **Action**
 1. The developer adds kobako to the project's gem dependencies and installs it; the native extension compiles from source.
-2. The developer creates a `Kobako::Sandbox`, calls `define` to declare one or more Namespaces, and calls `bind` on each namespace to attach host objects as named Members.
+2. The developer creates a `Kobako::Sandbox` and calls `bind` to attach host objects as Services at constant-path names.
 3. At request time, the developer calls `Sandbox#eval` with a source string and uses the return value as the execution result; they also read `Sandbox#stdout` and `Sandbox#stderr` for any guest log output.
 4. The developer repeats step 3 for subsequent requests on the same Sandbox instance.
 
@@ -259,7 +258,7 @@ The Service method's `yield x` invokes the guest block once per iteration, retur
 A Host App developer is building a request handler whose business logic is supplied as a Ruby source loaded from disk or a config store. The source defines a stable "worker" entrypoint that processes one request per invocation. The developer wants to pay parsing cost once at setup time, then dispatch many requests through the same Sandbox without re-sending the source on every call.
 
 **Action**
-1. The developer creates a `Kobako::Sandbox`, calls `define` and `bind` to expose Services, then calls `sandbox.preload(code: source, name: :Worker)` once at startup. The `:Worker` source defines a top-level constant `Worker` that responds to `#call(request, opts = {})`.
+1. The developer creates a `Kobako::Sandbox`, calls `bind` to expose Services, then calls `sandbox.preload(code: source, name: :Worker)` once at startup. The `:Worker` source defines a top-level constant `Worker` that responds to `#call(request, opts = {})`.
 2. At request time, the developer calls `sandbox.run(:Worker, request, **opts)` for each incoming request.
 3. The developer reads the return value as the worker's response and reads `Sandbox#stdout` / `Sandbox#stderr` for any guest log output.
 
@@ -274,7 +273,7 @@ The `Worker` snippet replays into every invocation's canonical boot state (B-49)
 A Host App developer runs the J-07 worker pattern inside a multi-threaded web server. Each request needs an exclusively-held, already-set-up Sandbox, and the request rate makes per-request `Sandbox.new` plus `define` / `preload` setup an unacceptable cost. The number of concurrently live Sandboxes must stay bounded.
 
 **Action**
-1. At boot, the developer creates `Kobako::Pool.new(slots: 5) { |sandbox| ... }`, performing all `define` / `bind` / `preload` setup inside the block.
+1. At boot, the developer creates `Kobako::Pool.new(slots: 5) { |sandbox| ... }`, performing all `bind` / `preload` setup inside the block.
 2. Each request handler wraps its work in `pool.with { |sandbox| sandbox.run(:Worker, request) }`.
 3. The handler reads the return value, `#stdout` / `#stderr`, and `#usage` from the checked-out Sandbox exactly as it would from a directly constructed one.
 
@@ -292,7 +291,7 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 - **`stdout` / `stderr` never participate in attribution.** They are captured separately and remain readable after error-raising invocations.
 - **Setup-time errors split by trigger:** API-misuse cases are Host App programming errors that raise `ArgumentError` or `TypeError` and bypass the attribution pipeline; content-failure cases — snippet compile, replay, or bytecode structural failures — raise `Kobako::SandboxError` (or its `Kobako::BytecodeError` subclass) with backtrace attribution to the snippet's canonical name when one is available. The per-anchor assignment lives in the error-class table below.
 - **Construction-time setup failures are a separate class:** `Kobako::Sandbox.new` builds the wasm runtime from `wasm_path` before any invocation runs. An absent or unconstructable artifact (E-40, E-41), an ABI mismatch (E-42), or a runtime whose declared isolation profile falls below the requested floor (E-49) raises `Kobako::SetupError` — with the `Kobako::ModuleNotBuiltError` subclass for the unbuilt-artifact case (E-40) — rather than a `TrapError`: no Sandbox is produced, so the four-outcome guarantee and the `TrapError` discard-and-recreate recovery contract apply only after construction succeeds.
-- **Snippet replay is uniform across verbs:** preloaded snippets (B-32) replay into every invocation's canonical boot state (B-49), whether the invocation is `#eval` (then user source loads) or `#run` (then entrypoint resolution happens). B-33 seals the snippet table on the first invocation, parallel to B-07's Service-registration sealing.
+- **Snippet replay is uniform across verbs:** preloaded snippets (B-32) replay into every invocation's canonical boot state (B-49), whether the invocation is `#eval` (then user source loads) or `#run` (then entrypoint resolution happens). B-33 seals the snippet table on the first invocation, parallel to B-08's Service-registration sealing.
 - **Isolation is defined by the canonical boot state:** every invocation observes the deterministic post-boot interpreter state of the Guest Binary (B-49) — identical across invocations on either isolation profile (B-54), since the state is fixed before any ambient source is consulted, and carrying no artifact of prior invocations (B-03). How that state is produced — booted per invocation or baked into the artifact at build time — is unobservable and left to the implementation.
 - **Pool checkout is a pool verb, outside the invocation outcomes:** `Kobako::Pool` hands out exclusively-held warm Sandboxes (B-46..B-48); a pooled Sandbox satisfies every behavior anchor identically to a directly constructed one. The checkout-wait bound raises `Kobako::PoolTimeoutError` (E-46) without touching any Sandbox state, and the pool itself applies the `TrapError` discard-and-recreate recovery contract at checkin (B-47).
 
@@ -301,7 +300,7 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 | Anchors | Cover | Specification |
 |---------|-------|---------------|
 | B-01..B-06 | Sandbox construction, `#eval` invocation lifecycle, and output capture | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
-| B-07..B-11 | Namespace / Member registration | [`behavior/registration.md`](docs/behavior/registration.md) |
+| B-07..B-11 | Service binding registration | [`behavior/registration.md`](docs/behavior/registration.md) |
 | B-12..B-21 | Guest-initiated Transport dispatch and `Catalog::Handles` lifecycle | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
 | B-22 | Per-Thread isolation | [`behavior/runtime.md`](docs/behavior/runtime.md) |
 | B-23..B-30 | Block / Yield re-entry | [`behavior/yield.md`](docs/behavior/yield.md) |
@@ -334,7 +333,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 | `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44, E-48 |
 | `Kobako::SetupError` | E-40, E-41, E-42, E-49 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
 | `Kobako::PoolTimeoutError` | E-46 |
-| Setup-time `TypeError` / `ArgumentError` | E-16, E-17, E-18, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45, E-47 |
+| Setup-time `TypeError` / `ArgumentError` | E-16, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45, E-47 |
 
 ---
 
@@ -357,7 +356,7 @@ These five roles describe every actor and artifact in the system. All sections o
 | **Host App** | The Ruby application (Rails / Rack / Sidekiq / CLI) that uses kobako; holds all credentials, policy, and Service objects. Out of scope for design but referenced throughout. | External |
 | **Host Gem** | The `kobako` gem itself: the Ruby API layer (`lib/`) plus the private native extension (`ext/`). Exposes the sandbox interface to the Host App, routes Transport requests, and manages Handle lifecycle. | In scope |
 | **Guest Binary** | The file `kobako.wasm`, compiled from the `wasm/` Rust crate. Contains the mruby interpreter and the guest-side Transport proxy. Is the isolation boundary between host and guest execution environments. | In scope |
-| **Service** | A Host Ruby object injected into the sandbox under a two-level name (`<Namespace>::<Member>`, e.g., `MyService::KV`). The only mechanism by which guest code can access host resources. | In scope |
+| **Service** | A Host Ruby object bound into the sandbox at a constant-path name (`MyService::KV`, or a top-level `File`). The only mechanism by which guest code can access host resources. | In scope |
 | **Wire Spec** | The MessagePack contract governing all host↔guest Transport messages. Not a runtime object — it is a protocol that both Host Gem and Guest Binary implement independently. | In scope |
 
 *Layer values: **In scope** — designed in this specification; **External** — outside this design, referenced for contract completeness.*
@@ -373,14 +372,14 @@ These are sub-components and runtime concepts internal to kobako. They are not e
 | **Sandbox** | The runtime unit instantiated by `Kobako::Sandbox`. Owns one `Runtime`, the three `Catalog` registries (`Namespaces`, `Snippets`, `Handles`), and the output buffers for a single logical execution context. Exposes two invocation verbs — `#eval(code)` for one-shot mruby source execution (B-02 / B-03 / B-06) and `#run(target, *args, **kwargs)` for entrypoint dispatch into a preloaded constant (B-31) — plus the setup verb `#preload` accepting either `code:` plus `name:` for mruby source or `binary:` for RITE bytecode (B-32). Enforces three configurable per-invocation caps — wall-clock timeout, linear memory cap, and per-channel output cap — each independently disableable with `nil`. Exposes per-last-invocation usage observability via `#usage` (B-35) that mirrors the timeout / memory-cap accounting. Maps to the Ruby class `Kobako::Sandbox`. | Yes — `Kobako::Sandbox` is stable public API |
 | **Pool** | The bounded warm-Sandbox checkout unit instantiated by `Kobako::Pool`. Owns up to `slots` Sandboxes, each constructed lazily with the forwarded `Sandbox.new` keywords and set up once by the per-Sandbox block (B-46); hands them out one exclusive holder at a time via `#with`, blocking up to `checkout_timeout` when all slots are held (B-47, E-46); releases everything with its own reachability (B-48). Maps to the Ruby class `Kobako::Pool`. | Yes — `Kobako::Pool` is stable public API |
 | **Runtime** | The magnus shell over the `kobako-wasmtime` driver that drives `data/kobako.wasm` through the engine-neutral `kobako-runtime` contract. Builds the isolation profile requested at construction and declares the built posture (B-54), which Sandbox construction refuses when it falls below the request. Holds at most one active Invocation per OS thread (Single-Invocation Slot invariant; see `### Implementation Standards` § Invariants for the per-thread statics and per-invocation state it licenses). Each invocation entry point returns the guest's raw outcome bytes on completion; the per-invocation output captures and usage are recorded on Runtime on every outcome, so the Sandbox's `#stdout` / `#stderr` (B-04) and `#usage` (B-35) readouts are populated even on the trap path, where the entry point raises instead of returning. Receives a dispatch Proc from the Sandbox at construction; the Proc bridges Runtime to the Transport / Catalog layers without Runtime knowing either name. Maps to Ruby class `Kobako::Runtime`. | No |
-| **Catalog::Namespaces** | The host-side registry of `Kobako::Namespace` entities. Routes incoming Transport Requests to their resolved Receiver. Receives the Sandbox's `Catalog::Handles` by injection so dispatch can resolve Handle targets and arguments without re-owning the table. Maps to Ruby class `Kobako::Catalog::Namespaces`. | No |
+| **Catalog::Namespaces** | The host-side registry of path→Service bindings. Routes incoming Transport Requests to their resolved Receiver. Receives the Sandbox's `Catalog::Handles` by injection so dispatch can resolve Handle targets and arguments without re-owning the table. Maps to Ruby class `Kobako::Catalog::Namespaces`. | No |
 | **Catalog::Snippets** | The host-side table of `Kobako::Snippet::Source` / `Kobako::Snippet::Binary` entries, holding source (`code:`) and bytecode (`binary:`) preloads in insertion order. Sealed by the first invocation simultaneously with `Catalog::Namespaces` (B-33). Maps to Ruby class `Kobako::Catalog::Snippets`. | No |
 | **Catalog::Handles** | The host-side table allocating `Kobako::Handle` tokens, mapping Handle IDs to Ruby objects. Owned by the Sandbox (B-19) and injected into `Catalog::Namespaces` so dispatch shares the same table the wire layer allocates into. Reset at the start of every invocation (`#eval` or `#run`) and fully discarded when the owning Sandbox is collected. Maps to Ruby class `Kobako::Catalog::Handles`. | No |
-| **Transport::Proxy** | The abstract base mruby class for the two guest-side proxy kinds, `Kobako::Member` and `Kobako::Handle`. Maps to mruby class `Kobako::Transport::Proxy`. Guest code does not reference it directly; it sees Member constants under their declared Namespace plus Handle proxies returned from prior dispatches. Proxy defines the shared dispatch path by which a method call on either subclass is forwarded to the host as a Transport Request, and holds no per-instance state of its own. | No |
-| **Member** | The guest-side base mruby class for the proxy a bound Member presents to guest code — `Kobako::Member`, a subclass of `Kobako::Transport::Proxy` paralleling `Kobako::Handle`. Each bound Member is installed as a `Kobako::Member` subclass bound to a constant under its Namespace module (e.g., `MyService::KV`); a method call on that constant is forwarded to the host as a Transport Request whose `target` is the constant's `<Namespace>::<Member>` path. Has no host-side counterpart — the host represents a Member as a binding entry in `Kobako::Namespace`, not as a class. | No |
+| **Transport::Proxy** | The abstract base mruby class for the two guest-side proxy kinds, `Kobako::Member` and `Kobako::Handle`. Maps to mruby class `Kobako::Transport::Proxy`. Guest code does not reference it directly; it sees Member constants at their bound paths plus Handle proxies returned from prior dispatches. Proxy defines the shared dispatch path by which a method call on either subclass is forwarded to the host as a Transport Request, and holds no per-instance state of its own. | No |
+| **Member** | The guest-side base mruby class for the proxy a bound Service presents to guest code — `Kobako::Member`, a subclass of `Kobako::Transport::Proxy` paralleling `Kobako::Handle`. Each bound Service is installed as a `Kobako::Member` subclass at the constant its path spells — nested under a module for a multi-segment path (`MyService::KV`), at top level for a single-segment path (`File`); a method call on that constant is forwarded to the host as a Transport Request whose `target` is the constant's full path. Has no host-side counterpart — the host represents a bound Service as a path entry in `Catalog::Namespaces`, not as a class. | No |
 | **Handle** | An opaque integer token used on either side of the wire to reference a Ruby object that is not directly wire-representable — a host-side stateful object returned by a Service call (host→guest return path), or a host-side argument passed into `#run` that requires auto-wrap (host→guest argument path). The guest can pass it as a dispatch target or argument in subsequent calls, and invoking methods on it dispatches as a guest→host Transport request; the guest never sees the underlying Ruby value. Maps to two independent implementations with the same canonical name `Kobako::Handle`: the Ruby class runs in the host process; the mruby class runs inside the Wasm guest as a `Kobako::Transport::Proxy` subclass paralleling `Kobako::Member`, its instances carrying the Handle ID and forwarding method calls to the host as Transport Requests whose `target` is that ID. They share neither code nor instances. | Partially — `Kobako::Handle` instances may surface as fields on raised `SandboxError` or `ServiceError` instances; the Host Gem holds the only constructor (no public `.new`) and Handles enter Host App code only through error fields |
 | **Capability Handle** | A Handle that represents a Ruby object outside the wire 12-entry type mapping — either a stateful resource (session, connection, any object the wire codec cannot transmit by value) returned from a Service call, or a non-wire-representable value (`StringIO`, a custom Env / Context object) supplied as a `#run` argument. Transmitted on the wire as MessagePack ext type `0x01`. "Capability Handle" is used when emphasizing the capability-granting semantics; "Handle" is used for brevity elsewhere — both refer to the same concept. | No — same visibility as Handle; no distinct class exists |
-| **Receiver** | The host object a dispatch resolves its Request `target` to — the object the Request's `method` runs on. A `<Namespace>::<Member>` path target resolves to the Service bound at that Member; a Handle target resolves to the object its ID references in `Catalog::Handles`. Both target kinds resolve to a Receiver under the same dispatch constraints — the reflection floor (B-42) and the `respond_to_guest?` narrowing (B-50) bind Member and Handle receivers identically; a Receiver whose predicate denies every name is opaque: the guest holds it, passes it, and returns it, but can call nothing on it. Names the role an ordinary host object occupies during a dispatch — no class of its own exists on either side. | No |
+| **Receiver** | The host object a dispatch resolves its Request `target` to — the object the Request's `method` runs on. A constant-path target resolves to the Service bound at that path; a Handle target resolves to the object its ID references in `Catalog::Handles`. Both target kinds resolve to a Receiver under the same dispatch constraints — the reflection floor (B-42) and the `respond_to_guest?` narrowing (B-50) bind Member and Handle receivers identically; a Receiver whose predicate denies every name is opaque: the guest holds it, passes it, and returns it, but can call nothing on it. Names the role an ordinary host object occupies during a dispatch — no class of its own exists on either side. | No |
 | **Block** | A mruby block (or Proc/lambda) the guest passes alongside a Service method call. The block body lives inside the Guest Binary and is never serialized; only its presence is signalled on the wire (Request `block_given` field). Scoped to the single dispatch call that received it — not reusable after that dispatch returns. | No — surfaces only as the `&block` argument the Service method receives |
 | **Yield** | A single synchronous round-trip from a Service method into the Block it received. The host Service method invokes `yield` or `block.call` on its block argument; the Host Gem re-enters the Guest Binary, executes the block body, and returns the block's result to the host yield site. Each `yield` is an independent round-trip; a Service method may yield zero or more times during a single dispatch. | No |
 | **Yielder** | The host-side object the Host Gem materialises to represent the guest block to the Service method. It rides the `&block` slot, so the Service method observes it as an ordinary Ruby Proc with loose arity (matches `&block` conventions) and invokes it via `yield` or `block.call`; each invocation is a synchronous round-trip into the guest (B-24). Valid only for the duration of the dispatch that produced it; invocation after that dispatch frame returns raises (E-23). Maps to Ruby class `Kobako::Transport::Yielder`. | No |
@@ -417,14 +416,9 @@ The three classes above cover every failure outcome of a Sandbox *invocation*. C
 
 ---
 
-#### Namespace and Member
+#### Member
 
-These terms describe the two-level injection model used to expose host capabilities to guest code.
-
-| Term | Definition | Guest-visible form |
-|------|-----------|-------------------|
-| **Namespace** | A named grouping declared by the Host App via `sandbox.define(:Name)`. Namespaces are declared at setup time before the first invocation (`#eval` or `#run`). The namespace itself holds no state — it is a container for Members. Maps to Ruby class `Kobako::Namespace`. | Ruby module (e.g., `MyService`) |
-| **Member** | A name→Service binding slot within a Namespace, declared via `namespace.bind(:Name, service)`. The Member is the binding, not the object: it pairs a constant-form name with the Service bound into it. The bound Service (see Roles) is what receives Transport requests dispatched from guest code. | Module constant bound to a `Kobako::Member` subclass (e.g., `MyService::KV`) |
+A **Member** is the binding of a Host object at a constant-path name via `sandbox.bind(path, service)` — it pairs a constant-path name with the Service bound into it (see Roles), and that Service receives the Transport requests guest code dispatches. Guest code sees the Member as a `Kobako::Member` subclass at the constant its path spells: a multi-segment path nests the leaf constant under a module named by its prefix (`MyService::KV`), a single-segment path binds it at top level (`File`). A path prefix holds no binding of its own — it exists only as the guest module that groups the Members bound beneath it.
 
 ---
 
@@ -481,7 +475,7 @@ The following principles govern how all names in this specification and in the `
 | # | Principle | Applies to |
 |---|----------|-----------|
 | N-1 | Role names are PascalCase with every word capitalized: `Host App`, `Host Gem`, `Guest Binary`, `Wire Spec` | All role names in this document and in code comments |
-| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle`, `Kobako::Namespace` |
+| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle` |
 | N-3 | The gem name is always lowercase: `kobako` | Gemspec, `require` statements, Bundler references |
 | N-4 | The Wasm artifact name is fixed: `kobako.wasm` for the pure default; a capability variant adds a `+<cap>` suffix (`kobako+<cap>.wasm`, e.g. `kobako+regexp.wasm`), the composition convention detailed in [`docs/variants.md`](docs/variants.md) | Build output, gem packaging, documentation |
 | N-5 | The Guest Binary crate is `kobako-wasm`; the native extension crate package is `kobako`, matching the `lib/kobako/kobako.<ext>` artifact that rb_sys / rake-compiler loads. Neither crate name is exposed to Ruby. | `Cargo.toml` package names |
@@ -524,8 +518,8 @@ The following invariants hold across every layer of the system. Each is a hard r
 
 | Invariant | Applies to | Enforcement |
 |-----------|-----------|-------------|
-| The terms `Namespace` and `Member` (not "tool" or generic names) are used everywhere in code, documentation, and wire values | All layers | Documentation |
-| Wire `target` for dispatch requests uses the Ruby constant-path form `"<Namespace>::<Member>"` (e.g., `"MyService::KV"`); Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
+| The term `Member` (not "tool" or generic names) names a bound Service; a path prefix is a grouping that materializes as a guest module | All layers | Documentation |
+| Wire `target` for dispatch requests uses the Ruby constant-path form (`"MyService::KV"`, or a single segment `"File"`); Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
 | Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling | Test-time |
 | stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem | Test-time |
 | `#stdout` and `#stderr` byte content never includes truncation sentinels; truncation status is observable only via `#stdout_truncated?` / `#stderr_truncated?` | Host Gem | Test-time |
@@ -542,7 +536,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | Handle lifecycle is per-invocation: `Catalog::Handles` is fully cleared and the counter reset to 1 at the start of every invocation (`#eval` or `#run`); Handles from invocation N are invalid in invocation N+1 | Host Gem, Wire Spec | Test-time |
 | Handles are never individually released by the guest; the host implementation does not use `ObjectSpace.define_finalizer` for `Catalog::Handles` entries | Host Gem | Documentation |
 | Single-Invocation Slot: Runtime holds at most one active Invocation per OS thread for the duration of any invocation (`#eval` or `#run`). Nested host→guest dispatch (Service calls Service via a yielded block which calls another Service) shares the same Invocation; nested dispatch frames stack within it (B-28). There is no stack of Invocations — at most one per thread. The slot licenses the guest-side per-thread statics (`MRB` slot, `BLOCK_STACK`, `OUTCOME_BUFFER`) and the host-side per-invocation state (active caller pointer, deadline, wall-clock entry, memory peak, captures) | Runtime, Host Gem | Runtime |
-| `Kobako::Sandbox#preload` accepts `code:` plus `name:` (matching `/\A[A-Z]\w*\z/`) for source, or `binary:` alone for RITE bytecode treated as opaque bytes whose canonical name, when present, lives in the bytecode's `debug_info` (B-32); structural failures surface as `Kobako::BytecodeError` during the first invocation's replay (E-37 / E-38); the snippet table is sealed by the first invocation simultaneously with Service registration (B-07 / B-33) | Host Gem | Runtime |
+| `Kobako::Sandbox#preload` accepts `code:` plus `name:` (matching `/\A[A-Z]\w*\z/`) for source, or `binary:` alone for RITE bytecode treated as opaque bytes whose canonical name, when present, lives in the bytecode's `debug_info` (B-32); structural failures surface as `Kobako::BytecodeError` during the first invocation's replay (E-37 / E-38); the snippet table is sealed by the first invocation simultaneously with Service registration (B-08 / B-33) | Host Gem | Runtime |
 | `Kobako::Sandbox#run(target, ...)` resolves `target` (Symbol or String, normalized to Symbol) only as a top-level `Object` constant; `::`-segmented names and any other multi-segment form fail the constant pattern at host pre-flight | Host Gem | Runtime |
 | Wire ABI is a closed enumerated set: exactly one host import (`__kobako_dispatch`) and exactly six guest exports (`__kobako_eval`, `__kobako_run`, `__kobako_alloc`, `__kobako_take_outcome`, `__kobako_yield_to_block`, `__kobako_abi_version`); each entry's name and Wasm signature is fixed across an ABI version. Adding a new import or export requires a new SPEC anchor that lifts the enumeration — the closed-set rule itself is unchanged. | Wire Spec, both codec implementations | Build-time |
 | Yield round-trip nests strictly within the dispatch frame whose Service method initiated it; nested dispatch frames each receive at most one Yielder and the Yielders stack in LIFO order — they are not interchangeable across frames | Wire Spec, Host Gem | Runtime |

@@ -1,53 +1,46 @@
-# Registration — Namespaces and Members
+# Registration — binding Services at constant-path names
 
-Declaring Namespaces and binding Members as the guest-reachable Service surface. The governing summary lives in [`SPEC.md`](../../SPEC.md)
+Binding Host objects at constant-path names as the guest-reachable Service
+surface. The governing summary lives in [`SPEC.md`](../../SPEC.md)
 § Behavior; this file is the per-anchor reference. `B-xx` anchors are global
 and append-only across the corpus (N-8).
 
-## B-07 — Declare a Namespace on a Sandbox
+## B-07 — retired
 
-| Field | Value |
-|-------|-------|
-| **Initial State** | A Sandbox instance on which no invocation (`#eval` or `#run`) has yet been called. No Namespace named `Name` exists on this Sandbox. |
-| **Operation** | `sandbox.define(:Name)` where `:Name` is a Symbol matching `/\A[A-Z]\w*\z/` (Ruby constant-name form). |
-| **Result / Final State** | A `Kobako::Namespace` instance is created and associated with this Sandbox under the name `Name`. The namespace has no members yet. The method returns the new `Kobako::Namespace` instance. The Sandbox's `Catalog::Namespaces` now tracks one additional namespace entry. Declaration is a design-time operation sealed by the first invocation (B-33): a non-conforming name raises `ArgumentError` (E-16), and `define` after the seal raises `ArgumentError` (E-18) while the Sandbox stays usable with the registrations that existed at sealing. A namespace may have zero members at declaration; members are added via B-08. |
+B-07 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
-## B-08 — Bind a Member to a declared Namespace
+## B-08 — Bind a Service at a constant-path name
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Namespace` instance (returned by `sandbox.define`) with no member bound under the name `MemberName`. The owning Sandbox has not yet run its first invocation (B-33). |
-| **Operation** | `namespace.bind(:MemberName, object)` where `:MemberName` matches `/\A[A-Z]\w*\z/` and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
-| **Result / Final State** | `object` is registered as the Member named `MemberName` within the namespace. Guest code can now reach this object via the two-level path `<Namespace>::<Member>`. The method returns the `Kobako::Namespace` instance (`self`) to allow chaining. The bound object must remain valid for the Sandbox's lifetime; the Host App manages its lifecycle. A non-conforming `MemberName` raises `ArgumentError` (E-17). Binding is sealed by the first invocation alongside declaration and preload (B-33): after the seal `bind` raises `ArgumentError` (E-45), and every subsequent invocation carries exactly the bindings that existed at sealing. |
+| **Initial State** | A Sandbox instance whose first invocation (`#eval` or `#run`) has not yet sealed Service registration (B-33). No Service is bound at `path`. |
+| **Operation** | `sandbox.bind(path, object)` where `path` is a Symbol or String of one or more `::`-separated segments, each matching `/\A[A-Z]\w*\z/` (Ruby constant form) — e.g. `"MyService::KV"` or a top-level `"File"` — and `object` is any Ruby object (class, instance, or module) that responds to the methods guest code will invoke. |
+| **Result / Final State** | `object` is registered as the Service reachable at `path`. Guest code reaches it through the constant path the segments spell: a multi-segment path nests the leaf constant under a module named by its prefix (`MyService::KV`), a single-segment path binds it at top level (`File`). The bound object handles class, instance, and module receivers identically — dispatch forwards the guest's method call to it without distinguishing the three. The method returns the Sandbox (`self`) to allow chaining. The bound object must remain valid for the Sandbox's lifetime; the Host App manages its lifecycle. A segment that does not match the constant pattern raises `ArgumentError` (E-16). Binding is sealed by the first invocation alongside preload (B-33): after the seal `bind` raises `ArgumentError` (E-45), and every subsequent invocation carries exactly the bindings that existed at sealing. |
 
 ---
 
-## B-09 — Declare multiple Namespaces on the same Sandbox
+## B-09 — Multiple Services coexist independently on one Sandbox
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox instance with one or more Namespaces already declared. |
-| **Operation** | `sandbox.define(:OtherName)` with a name distinct from all already-declared namespaces on this Sandbox. |
-| **Result / Final State** | A new, independent `Kobako::Namespace` is created alongside the existing namespaces. Each namespace's members are accessible to guest code only via that namespace's own path (e.g., `NamespaceA::Member` and `NamespaceB::Member` are distinct paths with no cross-namespace visibility). Namespaces on different Sandbox instances are fully isolated from each other. There is no declared upper limit on the number of namespaces per Sandbox; each namespace name within a Sandbox must be unique (idempotent re-declaration is specified in B-10). |
+| **Initial State** | A Sandbox instance with one or more Services already bound. |
+| **Operation** | `sandbox.bind(other_path, object)` with a `path` distinct from every bound path and colliding with none of them (B-11). |
+| **Result / Final State** | The new Service is registered alongside the existing ones. Each Service is reachable only at its own path; paths that share a prefix segment (`MyService::KV`, `MyService::Log`) present that prefix as one shared guest module, while unrelated paths stay independent with no cross-visibility. Services on different Sandbox instances are fully isolated. There is no declared upper limit on the number of Services per Sandbox. |
 
 ---
 
-## B-10 — Re-declare a Namespace that already exists (idempotent define)
+## B-10 — retired
 
-| Field | Value |
-|-------|-------|
-| **Initial State** | A Sandbox instance with a Namespace already declared under the name `Name`. |
-| **Operation** | `sandbox.define(:Name)` — same name as an existing namespace. |
-| **Result / Final State** | No new namespace is created. `sandbox.define(:Name)` returns the identical `Kobako::Namespace` object previously created — the same object identity (Ruby `equal?`), not a new instance wrapping the same `Catalog::Namespaces` entry. All previously bound members remain in place. The Sandbox's `Catalog::Namespaces` is not modified. |
+B-10 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
-## B-11 — Attempt to bind a Member name that is already bound in the same Namespace
+## B-11 — Bind a path that duplicates or collides with an existing binding
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A `Kobako::Namespace` instance with a member already bound under the name `MemberName`. |
-| **Operation** | `namespace.bind(:MemberName, new_object)` — same member name as an already-bound member. |
-| **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten. The namespace's member registry is unchanged. |
+| **Initial State** | A Sandbox instance with a Service already bound at `path`. |
+| **Operation** | `sandbox.bind(conflicting, object)` where `conflicting` either equals `path` or, on the `::` segment boundary, is an ancestor or descendant of it (e.g. `path` is `"MyService::KV"` and `conflicting` is `"MyService"` or `"MyService::KV::Sub"`). |
+| **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten and the registry is unchanged. A name is either a bound Service or a prefix that groups other bindings, never both — so a bind is refused when its path equals an existing path, is a prefix of one (`MyService` while `MyService::KV` is bound), or extends one (`MyService::KV::Sub` while `MyService::KV` is bound). Sibling paths under a shared prefix (`MyService::KV` and `MyService::Log`) do not collide. |
