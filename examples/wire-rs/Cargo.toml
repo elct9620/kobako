@@ -20,6 +20,6 @@ publish = false
 [workspace]
 
 [dependencies]
-kobako-codec = "0.8"
-kobako-runtime = "0.8"
-kobako-wasmtime = "0.8"
+kobako-codec = "0.9"
+kobako-runtime = "0.9"
+kobako-wasmtime = "0.9"

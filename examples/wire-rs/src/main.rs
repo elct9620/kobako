@@ -82,9 +82,9 @@ fn main() -> ExitCode {
         }
     };
 
-    // Frame 1 carries the registration preamble
-    // `[["Namespace", ["Member", ...]], ...]`; the guest installs a
-    // proxy constant for each entry, so guest code reaches the store as
+    // Frame 1 carries the registration preamble: a flat array of the
+    // bound constant paths (`["MyService::KV"]`). The guest installs a
+    // proxy constant for each path, so guest code reaches the store as
     // plain `MyService::KV` calls. Frame 3 (preloaded snippets) is
     // mandatory-presence too: this host preloads nothing, an empty
     // msgpack array rather than an absent frame.
@@ -122,17 +122,12 @@ fn main() -> ExitCode {
     exit
 }
 
-/// The Frame 1 preamble registering `MyService::KV`, encoded by hand:
-/// the guest installs a proxy constant for each `[Namespace, [Member,
-/// ...]]` entry.
+/// The Frame 1 preamble registering `MyService::KV`, encoded by hand: a
+/// flat array of the bound constant paths, one `Str` per path.
 fn kv_preamble() -> Vec<u8> {
-    let group = Value::Array(vec![
-        Value::Str("MyService".into()),
-        Value::Array(vec![Value::Str("KV".into())]),
-    ]);
     let mut enc = Encoder::new();
-    enc.write_value(&Value::Array(vec![group]))
-        .expect("a str/array preamble always encodes");
+    enc.write_value(&Value::Array(vec![Value::Str("MyService::KV".into())]))
+        .expect("a str-array preamble always encodes");
     enc.into_bytes()
 }
 
