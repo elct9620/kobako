@@ -85,7 +85,7 @@ const REFLECTION_DENYLIST: &[&str] = &[
 /// to forward, naming the method without leaking host detail.
 fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
     let nomethod = mrb
-        .class_get(c"NoMethodError")
+        .exc_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
     let message = std::ffi::CString::new(format!("{method_name} is not a Kobako Service method"))
         .unwrap_or_default();
@@ -200,7 +200,7 @@ pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
 /// fires regardless of arguments instead of tripping an arity check first.
 pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
     let nomethod = mrb
-        .class_get(c"NoMethodError")
+        .exc_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
     // SAFETY: `self_` is the Member class receiver of a singleton-class
     // method — class-tagged by mruby itself.
@@ -225,7 +225,7 @@ pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
 /// and is unaffected.
 pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
     let nomethod = mrb
-        .class_get(c"NoMethodError")
+        .exc_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
     unsafe {
