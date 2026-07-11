@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.8.0...kobako-sdk-v0.9.0) (2026-07-11)
+
+
+### Features
+
+* **sandbox:** flatten Service registration to path-valued bind ([0876006](https://github.com/elct9620/kobako/commit/0876006455544fd82eb7555ee80c149d98843719))
+
+
+### Bug Fixes
+
+* **codec:** reject the Fault envelope in Rust host payload positions ([bdf2ed7](https://github.com/elct9620/kobako/commit/bdf2ed78fde2798bdc15f4e969bda228cf482f4b))
+
 ## [0.8.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.7.0...kobako-sdk-v0.8.0) (2026-07-08)
 
 

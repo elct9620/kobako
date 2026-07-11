@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/v0.14.0...v0.15.0) (2026-07-11)
+
+
+### Features
+
+* **claude:** cover rake files in the post-edit rubocop hook ([416cd42](https://github.com/elct9620/kobako/commit/416cd42009e7888fb0662e91719f4d7d61713cf8))
+* **examples:** add plugin-rs, a Rust SDK narrative example ([8263096](https://github.com/elct9620/kobako/commit/8263096876900aa2c3ffeebbd24f7cca3571b893))
+* **examples:** add wire-rs, a low-level host without the SDK ([d9edea8](https://github.com/elct9620/kobako/commit/d9edea8ed025e4b7ffe58be8c376c7fb0a65ac04))
+* **sandbox:** flatten Service registration to path-valued bind ([0876006](https://github.com/elct9620/kobako/commit/0876006455544fd82eb7555ee80c149d98843719))
+* **tasks:** add grouped test:tasks / test:bench runs ([1153c43](https://github.com/elct9620/kobako/commit/1153c43416363d7cc03b696eb2762b7281a68e93))
+* **tasks:** compare the wire-symmetric peer inventories mechanically ([50d4fe5](https://github.com/elct9620/kobako/commit/50d4fe523bf85406931fa9611b6528c3de1a3f50))
+* **tasks:** flag stale ledger entries in the surface and symmetry instruments ([d18054f](https://github.com/elct9620/kobako/commit/d18054f5daa6ce277154c288d5c3085133f441b4))
+* **tasks:** hold the pub-surface crate map to the repo's crate roster ([4f65e79](https://github.com/elct9620/kobako/commit/4f65e79c3aa37ed1fc47a5002c8a567c3df8cc84))
+* **tasks:** hold the tier roster to the repo and share it across instruments ([9a75586](https://github.com/elct9620/kobako/commit/9a755866236c134ea7601006211338eefae0a348))
+* **tasks:** inventory exported macros in the pub-surface scan ([e4457ea](https://github.com/elct9620/kobako/commit/e4457eafecfa24eb5fc9aade086f2be9b0862818))
+* **tasks:** measure the tooling tiers in stats and hotspots ([8def9ff](https://github.com/elct9620/kobako/commit/8def9ff96d36c2020e04d7e9bb0d9cd3fdad3e43))
+* **tasks:** pin the tier roster to the repo from both sides ([3b7a154](https://github.com/elct9620/kobako/commit/3b7a154ebbfe8629392a81599df37d136a0eec99))
+* **tasks:** rank churn x size x fan-in hotspots since the last release ([73b3bc8](https://github.com/elct9620/kobako/commit/73b3bc8fdee19f8c09a91ccf96348688ea3ccd1c))
+* **tasks:** read the anchor citation profile back as an instrument ([47961cb](https://github.com/elct9620/kobako/commit/47961cb689d9c681f5c697af7e6bca52a4c7817f))
+* **tasks:** report pub items no in-repo downstream consumes ([3eb0481](https://github.com/elct9620/kobako/commit/3eb048199a0e2e41509513750bec4fcbc6b7cc69))
+* **tasks:** resolve the SPEC-local F/J/N families in the anchors gate ([33d3118](https://github.com/elct9620/kobako/commit/33d31181be3a800a4cc3d4eb32324d840473401f))
+* **tasks:** scan pub statics in the pub-surface instrument ([72cff5e](https://github.com/elct9620/kobako/commit/72cff5ef369a73c353ecdd25c1d4688ec8dd2f82))
+* **tasks:** score hotspots on impl-only lines for Rust files ([704b419](https://github.com/elct9620/kobako/commit/704b41971eac9e284b570bd0ac2fdd9af656bbca))
+* **tasks:** seat anchors:coverage and wire:symmetry in the release gate ([ab035bb](https://github.com/elct9620/kobako/commit/ab035bb3c4e049e6319d33cdaf1d715d4e83eedb))
+* **tasks:** widen the fan-in and ext-code scans to their whole tiers ([43d2bad](https://github.com/elct9620/kobako/commit/43d2badfea3c13cb062e67d5ded8410a339862d3))
+
+
+### Bug Fixes
+
+* **codec:** reject ext 0x02 anywhere in the Panic frame, not only details ([062e29d](https://github.com/elct9620/kobako/commit/062e29d6ee15264e1bd942502b751cfe7610acad))
+* **codec:** reject the Fault envelope in Rust host payload positions ([bdf2ed7](https://github.com/elct9620/kobako/commit/bdf2ed78fde2798bdc15f4e969bda228cf482f4b))
+* **codec:** reject the reserved Handle id 0 on the Rust wire tier ([5f7e482](https://github.com/elct9620/kobako/commit/5f7e4821680e553da355d5257b0619e4a1cdce72))
+* **tasks:** fail the anchors gate when no SPEC ceiling parses ([8d185f5](https://github.com/elct9620/kobako/commit/8d185f59afc28b5334d934f6916fd64e458e9359))
+* **tasks:** inventory every codec-bearing class per transport file ([e553ae1](https://github.com/elct9620/kobako/commit/e553ae1578245d9bfca63cf4e8429666857dbb92))
+* **tasks:** keep tooling-suite fixture tokens out of the anchor scans ([58a78b9](https://github.com/elct9620/kobako/commit/58a78b990684d4ad87d4db18b21eb8bd1c98713a))
+* **tasks:** mark unmeasured fan-in as '-' in the hotspot report ([a4959fe](https://github.com/elct9620/kobako/commit/a4959fe0c93546711dd16002e38d993e350bcb8f))
+* **tasks:** read pub fn qualifiers in the pub-surface scan ([ac0e7d3](https://github.com/elct9620/kobako/commit/ac0e7d3030729ad981b6a8de504c5837daf2038d))
+* **tasks:** read the codec-bearing class in the wire-symmetry inventory ([85ce937](https://github.com/elct9620/kobako/commit/85ce937fdb35953b26fee5fa4ee55f53988147ea))
+* **tasks:** scan the whole tier in every wire-symmetry inventory ([c2bba5c](https://github.com/elct9620/kobako/commit/c2bba5c02ca20dca14d061a03f8f4581d0995a66))
+* **tasks:** truncate the pub-surface scan only at the test module ([9c6dc05](https://github.com/elct9620/kobako/commit/9c6dc054bfa1fe79c3410fa794290a1ce5b85f4d))
+* **test:** flunk instead of skip when CI lacks a built guest prerequisite ([f7818f6](https://github.com/elct9620/kobako/commit/f7818f68c8114e5f9b0012a4dd4b069695bc3e32))
+* **transport:** refuse the Fault envelope outside its legal position (E-50) ([58c5069](https://github.com/elct9620/kobako/commit/58c50691d32e245f41c2f8041dfb7e92b05b80e9))
+
+
+### Performance Improvements
+
+* **bench:** re-bless the anchor onto the wasmtime 46 round ([9225702](https://github.com/elct9620/kobako/commit/9225702106c0c4caf90425ac08c11452b6388b55))
+* **dispatch:** skip the Handle walk when the request carried none ([cd63514](https://github.com/elct9620/kobako/commit/cd6351459c492084a401fd1b6a8e4293761de93f))
+* **sandbox:** skip the Handle walk when the invocation result carried none ([d2c4947](https://github.com/elct9620/kobako/commit/d2c494782d316df3bbf5fc223a8beaa1f04f5718))
+* **transport:** skip the Handle walk when the yield result carried none ([bca463b](https://github.com/elct9620/kobako/commit/bca463bce0b8913941b3e3ba11c31cb41b843545))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/v0.13.0...v0.14.0) (2026-07-08)
 
 

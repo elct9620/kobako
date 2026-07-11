@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.8.0...kobako-codec-v0.9.0) (2026-07-11)
+
+
+### Bug Fixes
+
+* **codec:** reject ext 0x02 anywhere in the Panic frame, not only details ([062e29d](https://github.com/elct9620/kobako/commit/062e29d6ee15264e1bd942502b751cfe7610acad))
+* **codec:** reject the Fault envelope in Rust host payload positions ([bdf2ed7](https://github.com/elct9620/kobako/commit/bdf2ed78fde2798bdc15f4e969bda228cf482f4b))
+* **codec:** reject the reserved Handle id 0 on the Rust wire tier ([5f7e482](https://github.com/elct9620/kobako/commit/5f7e4821680e553da355d5257b0619e4a1cdce72))
+
 ## [0.8.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.7.0...kobako-codec-v0.8.0) (2026-07-08)
 
 
