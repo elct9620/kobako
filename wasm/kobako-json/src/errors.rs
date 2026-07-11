@@ -3,7 +3,7 @@
 //! `Err(errors::parser_error(mrb, "..."))` without re-deriving the class
 //! lookup.
 
-use beni::{Error, Module, Mrb, RClass};
+use beni::{Error, Module, Mrb};
 use core::ffi::CStr;
 
 /// Define the `JSON` error tree: `JSON::JSONError < StandardError`, with
@@ -34,10 +34,10 @@ pub(crate) fn generator_error(mrb: &Mrb, message: &str) -> Error {
 /// `TypeError` carrying `message` — a `parse` argument that is not a
 /// `String`.
 pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
-    let cls = mrb
-        .class_get(c"TypeError")
-        .expect("TypeError is an mruby core class");
-    exception(mrb, cls, message)
+    match mrb.exc_get(c"TypeError") {
+        Ok(cls) => Error::new(mrb, cls, message),
+        Err(err) => err,
+    }
 }
 
 /// Resolve the class named `member` nested under `JSON`. `init` defines
@@ -49,12 +49,5 @@ fn json_exception(mrb: &Mrb, member: &CStr, message: &str) -> Error {
     let cls = json
         .class_get(mrb, member)
         .expect("JSON error class is defined at gem init");
-    exception(mrb, cls, message)
-}
-
-/// Wrap `cls` and `message` into an `Error::Exception` a handler returns,
-/// so the bridge frame raises it only after the Rust frame unwinds —
-/// unlike a direct `mrb_raise` long-jump.
-fn exception(mrb: &Mrb, cls: RClass, message: &str) -> Error {
-    Error::Exception(cls.exc_new(mrb, message))
+    Error::new(mrb, cls, message)
 }

@@ -363,10 +363,10 @@ fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
 /// `Err`, so the bridge frame raises it to the guest only after the
 /// Rust frame has unwound — unlike a direct `mrb_raise` long-jump.
 fn argument_error(mrb: &Mrb, msg: &str) -> Error {
-    let cls = mrb
-        .class_get(c"ArgumentError")
-        .expect("ArgumentError is an mruby core class");
-    Error::Exception(cls.exc_new(mrb, msg))
+    match mrb.exc_get(c"ArgumentError") {
+        Ok(cls) => Error::new(mrb, cls, msg),
+        Err(err) => err,
+    }
 }
 
 /// Read the `@__kobako_fd__` ivar back to an `i32`, or 0 when the ivar is

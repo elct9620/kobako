@@ -95,12 +95,10 @@ fn md_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
 /// match, never direct construction. Raising `NoMethodError` follows the
 /// raising-bridge pattern for non-constructible types.
 fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let cls = mrb
-        .class_get(c"NoMethodError")
-        .expect("NoMethodError is an mruby core class");
-    Err(Error::Exception(
-        cls.exc_new(mrb, "undefined method 'new' for MatchData"),
-    ))
+    Err(match mrb.exc_get(c"NoMethodError") {
+        Ok(cls) => Error::new(mrb, cls, "undefined method 'new' for MatchData"),
+        Err(err) => err,
+    })
 }
 
 /// Borrow the snapshot, or return `nil` from the calling bridge when the

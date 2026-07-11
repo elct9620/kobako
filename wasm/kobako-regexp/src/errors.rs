@@ -39,11 +39,12 @@ pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
     exception(mrb, c"TypeError", message)
 }
 
-/// Build an `Error::Exception` of the named class. Every caller names a core
-/// class or `RegexpError` (defined at gem init), so the lookup cannot miss.
+/// Build an exception of the named class. On the impossible miss (a broken
+/// build), surface mruby's own lookup error rather than degrading the raise
+/// to a different class.
 fn exception(mrb: &Mrb, class: &CStr, message: &str) -> Error {
-    let cls = mrb
-        .class_get(class)
-        .expect("exception class is an mruby core class or defined at gem init");
-    Error::Exception(cls.exc_new(mrb, message))
+    match mrb.exc_get(class) {
+        Ok(cls) => Error::new(mrb, cls, message),
+        Err(err) => err,
+    }
 }
