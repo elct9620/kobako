@@ -21,4 +21,4 @@ publish = false
 [workspace]
 
 [dependencies]
-kobako = "0.8"
+kobako = "0.9"

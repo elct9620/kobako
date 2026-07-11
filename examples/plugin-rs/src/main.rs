@@ -77,7 +77,7 @@ fn main() -> ExitCode {
     // the same store the plugin dispatches into outlives the invocation,
     // so the edits are ordinary host state afterwards.
     let store = Arc::new(Store::seeded());
-    if let Err(err) = sandbox.bind("Notes", "Store", store.clone()) {
+    if let Err(err) = sandbox.bind("Notes::Store", store.clone()) {
         eprintln!("cannot bind Notes::Store: {err}");
         return ExitCode::FAILURE;
     }

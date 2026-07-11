@@ -855,9 +855,9 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a446b0b2f64c18fb2d0011b4d14a7aad3982ca5f8da2ff16daa874ee159b8ad"
+checksum = "05c915e8518f8f7aaa734c65a8edf757ac1be049b0b584cac832f21197fcf518"
 dependencies = [
  "kobako-codec",
  "kobako-runtime",
@@ -866,9 +866,9 @@ dependencies = [
 
 [[package]]
 name = "kobako-codec"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89d9ee2c7413651f94c238e64c5a7889f2881aeb348929eabcaf350a45fe5af8"
+checksum = "a7ef7243ec96e66b40e4d422d15505bbdd67cdb74784521afb56344a218f6a69"
 dependencies = [
  "rmp",
 ]
@@ -882,15 +882,15 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ec864abe25dc559c5423ea7d89cb5d5ea7cf2118ce3504fd87277e964a11717"
+checksum = "13c1f3fd9636c32afc1eb782990581dbbfd90c03fafa6d01a16b4bf35be3b2e0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "559ba19987e0e01ef38588244f0a7e8e5feffbb7723574987d7b16c948719c82"
+checksum = "dee6fbe6b003c34860a1442713bcbb86c6ff9cb56bbb078daebf28474ea64c7d"
 dependencies = [
  "kobako-runtime",
  "libc",
