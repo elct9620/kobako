@@ -33,8 +33,8 @@ class TestSandboxPreload < Minitest::Test
   # fixture stubs the entry points without __kobako_take_outcome, so
   # #eval raises TrapError — but seal! has already fired by then, so
   # the subsequent #preload must raise. The seal-mechanism observable
-  # lives on the Sandbox surface; Namespaces#seal! itself is covered in
-  # test/catalog/test_namespaces.rb.
+  # lives on the Sandbox surface; Services#seal! itself is covered in
+  # test/catalog/test_services.rb.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)
 

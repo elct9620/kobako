@@ -65,17 +65,17 @@ class TestDispatchGuestNarrowing < Minitest::Test
   end
 
   def setup
-    @handler    = Kobako::Catalog::Handles.new
-    @namespaces = Kobako::Catalog::Services.new(handler: @handler)
+    @handler = Kobako::Catalog::Handles.new
+    @services = Kobako::Catalog::Services.new(handler: @handler)
     { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
-      .each { |name, service| @namespaces.bind("Cfg::#{name}", service) }
-    @namespaces.seal!
+      .each { |name, service| @services.bind("Cfg::#{name}", service) }
+    @services.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 
   def dispatch(target, method, args = [])
     req = Kobako::Transport::Request.new(target: target, method_name: method, args: args)
-    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @namespaces, @handler, @yield)
+    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @services, @handler, @yield)
     Kobako::Transport::Response.decode(bytes)
   end
 

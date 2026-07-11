@@ -13,7 +13,7 @@ class TestE2EJourneys < Minitest::Test
 
   # ── J-01 — LLM agent author runs model-generated code with curated capabilities ──
   #
-  # SPEC.md L146-158: The Host App declares Service namespaces; generated
+  # SPEC.md L146-158: The Host App declares Services; generated
   # scripts that exceed declared capabilities receive ServiceError; scripts
   # with Ruby errors raise SandboxError; Wasm-level failures raise TrapError.
 

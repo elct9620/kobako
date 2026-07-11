@@ -3,7 +3,7 @@
 //! Both entry points acquire a VM in the canonical boot state —
 //! reusing the slot a build-time pre-initialized image baked, or
 //! booting lazily — then materialise
-//! the Frame 1 preamble namespaces and replay any preloaded Frame 3
+//! the Frame 1 preamble's proxy classes and replay any preloaded Frame 3
 //! snippets before running the entry-specific body. When any of those
 //! steps fails, the failure surfaces as a Panic with
 //! `origin = "sandbox"` and `class = "Kobako::BootError"` — this module

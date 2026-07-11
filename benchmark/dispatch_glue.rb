@@ -53,12 +53,12 @@ runner = Kobako::Bench::Runner.new("dispatch_glue")
 # Per-Sandbox registry + Handle table, wired exactly as
 # Kobako::Sandbox#initialize wires them into the on_dispatch Proc.
 handler = Kobako::Catalog::Handles.new
-namespaces = Kobako::Catalog::Services.new(handler: handler)
-namespaces.bind("Bench::Noop",   ->        {})
-          .bind("Bench::Echo",   ->(x)     { x })
-          .bind("Bench::Greet", ->(name:) { name })
-          .bind("Bench::Small", ->        { Array.new(16) { |i| i } })
-          .bind("Bench::Large", ->        { Array.new(256) { |i| i } })
+services = Kobako::Catalog::Services.new(handler: handler)
+services.bind("Bench::Noop", -> {})
+        .bind("Bench::Echo", ->(x) { x })
+        .bind("Bench::Greet", ->(name:) { name })
+        .bind("Bench::Small", ->        { Array.new(16) { |i| i } })
+        .bind("Bench::Large", ->        { Array.new(256) { |i| i } })
 
 # block_given is false on every case below, so yield_to_guest is never
 # invoked; a raising stub localises any accidental block path.
@@ -80,26 +80,26 @@ LARGE_REQ = request_bytes(:Large, "call")
 
 # Warm process-wide codec / inline caches so the first measured case
 # does not pay cold-cache cost. Mirrors the warm-up in the other suites.
-Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, namespaces, handler, yield_to_guest)
+Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, services, handler, yield_to_guest)
 
 runner.case("10a-empty-call") do
-  Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, namespaces, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, services, handler, yield_to_guest)
 end
 
 runner.case("10b-primitive-arg") do
-  Kobako::Transport::Dispatcher.dispatch(ECHO_REQ, namespaces, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(ECHO_REQ, services, handler, yield_to_guest)
 end
 
 runner.case("10c-kwargs") do
-  Kobako::Transport::Dispatcher.dispatch(GREET_REQ, namespaces, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(GREET_REQ, services, handler, yield_to_guest)
 end
 
 runner.case("10d-small-return-16") do
-  Kobako::Transport::Dispatcher.dispatch(SMALL_REQ, namespaces, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(SMALL_REQ, services, handler, yield_to_guest)
 end
 
 runner.case("10e-large-return-256") do
-  Kobako::Transport::Dispatcher.dispatch(LARGE_REQ, namespaces, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(LARGE_REQ, services, handler, yield_to_guest)
 end
 
 puts runner.write!

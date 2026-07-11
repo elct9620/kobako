@@ -8,7 +8,7 @@
 //! invocation, frame reading, codec
 //! conversion, block-yield re-entry) and the build-time `bake_boot`
 //! hook the wizer pre-initialization entry calls. The crate ships
-//! exactly one built-in gem — the wire-tied `KobakoBridge` (Namespace
+//! exactly one built-in gem — the wire-tied `KobakoBridge` (Service
 //! / Handle dispatch + block machinery) — which the boot path
 //! installs itself; IO-style capabilities are separate gems (the
 //! sibling `kobako-io` crate is the worked example).

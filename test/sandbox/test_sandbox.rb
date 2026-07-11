@@ -106,7 +106,7 @@ class TestSandbox < Minitest::Test
   # Sandbox#bind returns the Sandbox so binds chain — the Sandbox-tier proof
   # that #bind delegates to Catalog::Services rather than dropping the call
   # on the floor. Catalog::Services's own contract is pinned in
-  # test/catalog/test_namespaces.rb.
+  # test/catalog/test_services.rb.
   def test_bind_returns_sandbox_for_chaining
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 

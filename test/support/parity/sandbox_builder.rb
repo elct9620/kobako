@@ -2,7 +2,7 @@
 
 module Parity
   # Assembles a +Kobako::Sandbox+ from a Scenario's declarative setup —
-  # caps, Namespaces, Service stubs, preloads. Invocation-side
+  # caps, Services, stubs, preloads. Invocation-side
   # observation stays in +RubyExecutor+; the Rust runner interprets the
   # same closed tag sets on its side.
   class SandboxBuilder

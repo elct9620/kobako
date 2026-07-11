@@ -15,16 +15,16 @@ class TestDispatchGadgetReturn < Minitest::Test
   end
 
   def setup
-    @handler    = Kobako::Catalog::Handles.new
-    @namespaces = Kobako::Catalog::Services.new(handler: @handler)
-    @namespaces.bind("Cfg::S", Service.new)
-    @namespaces.seal!
+    @handler = Kobako::Catalog::Handles.new
+    @services = Kobako::Catalog::Services.new(handler: @handler)
+    @services.bind("Cfg::S", Service.new)
+    @services.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 
   def dispatch(method)
     req = Kobako::Transport::Request.new(target: "Cfg::S", method_name: method, args: [])
-    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @namespaces, @handler, @yield)
+    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @services, @handler, @yield)
     Kobako::Transport::Response.decode(bytes)
   end
 

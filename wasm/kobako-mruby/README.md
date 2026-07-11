@@ -16,7 +16,7 @@ contract over mruby:
   and the build-time `bake_boot` hook behind the wizer
   pre-initialization entry
 - `KobakoBridge` — the single built-in gem, installed by the provided
-  flows themselves: the `Kobako` module, Namespace / Handle dispatch
+  flows themselves: the `Kobako` module, Service / Handle dispatch
   to the host, and the block machinery
 - mruby ↔ wire value conversion between `beni` values and the
   [kobako-codec](https://crates.io/crates/kobako-codec) codec

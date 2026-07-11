@@ -9,7 +9,7 @@
 //! Body sequence:
 //!
 //! 1. Read preamble + snippets; init mrb; install kobako runtime +
-//!    namespaces; replay snippets. Any failure writes a Panic envelope
+//!    preamble proxy classes; replay snippets. Any failure writes a Panic envelope
 //!    with the snippet's backtrace attribution
 //!    and returns.
 //! 2. Decode the invocation envelope from `(env_ptr, env_len)` via

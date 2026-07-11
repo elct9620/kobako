@@ -2,7 +2,7 @@
 #
 # The `MrbGuest` trait harness (required `init_gems` hook +
 # provided `eval` / `run` / `yield_to_block` flows over mruby), the
-# wire-tied `KobakoBridge` built-in gem (Namespace / Handle dispatch,
+# wire-tied `KobakoBridge` built-in gem (Service / Handle dispatch,
 # block/yield machinery), and the mruby ↔ wire codec conversion. A
 # guest shell implements `MrbGuest`, forwards `kobako_core::Guest` to
 # it, and emits the exports with `kobako_core::export_guest!` — the
