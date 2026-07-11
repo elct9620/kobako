@@ -1,7 +1,7 @@
 //! kobako host SDK — run untrusted mruby in an in-process Wasm sandbox.
 //!
 //! The Rust counterpart of the Ruby gem's `Kobako::Sandbox`: one
-//! `Sandbox` per guest, Services bound under `<Namespace>::<Member>`
+//! `Sandbox` per guest, Services bound under `MyService::KV`
 //! names, `eval` / `run` invocations returning a decoded wire `Value`
 //! or a typed `Error`. Behavior parity with the Ruby frontend is
 //! pinned by the differential harness in the repository's

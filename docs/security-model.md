@@ -11,7 +11,7 @@ entropy are denied at the WASI layer too — the guest's `wasi:clocks` is frozen
 Unix epoch and `wasi:random` is a constant stream — so the no-ambient-authority guarantee
 holds even if a future guest gem reaches for libc time or randomness, not only because the
 mrbgem allowlist omits those gems. **The real authorization gate is your
-host-side allowlist:** guest code can name any `<Namespace>::<Member>` path, but a forged
+host-side allowlist:** guest code can name any `MyService::KV` path, but a forged
 name only ever resolves to something you bound.
 
 ```
@@ -76,7 +76,7 @@ agent session, or submission — bind only what that context may touch, and fini
 ```ruby
 def sandbox_for(session)
   Kobako::Sandbox.new.tap do |s|
-    s.define(:KV).bind(:Store, ScopedStore.new(session.id))  # only this session's keys
+    s.bind("KV::Store", ScopedStore.new(session.id))  # only this session's keys
   end
 end
 ```
@@ -89,12 +89,12 @@ Bind a purpose-built object rather than a capable one whose other methods leak m
 you intend.
 
 ```ruby
-sandbox.define(:Cfg).bind(:Settings, AppConfig)        # reachable: secret_key, database_url, writers, ...
+sandbox.bind("Cfg::Settings", AppConfig)        # reachable: secret_key, database_url, writers, ...
 
 class ThemeReader
   def color = AppConfig.theme.color
 end
-sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # reachable: only #color
+sandbox.bind("Cfg::Settings", ThemeReader.new)  # reachable: only #color
 ```
 
 > **Gotcha:** a Service method named after Ruby's reflection / eval surface (`send`, `eval`,
@@ -126,7 +126,7 @@ class ApiCredential
 end
 
 # A Service issues the credential; being non-wire it crosses as an opaque Handle (B-14).
-sandbox.define(:Secret).bind(:Issue, -> { ApiCredential.new })
+sandbox.bind("Secret::Issue", -> { ApiCredential.new })
 
 # guest:  cred = Secret::Issue.call            # a Handle it holds but cannot read
 #         WebFetch::Get.call(url, cred: cred)  # forwards it to another Service (B-16)
@@ -147,7 +147,7 @@ range, and encoding (CR/LF, NUL) at the method entry rather than coercing silent
 quiet coercion is a host-side defect the sandbox cannot catch for you.
 
 ```ruby
-sandbox.define(:Text).bind(:Repeat, ->(str, n) {
+sandbox.bind("Text::Repeat", ->(str, n) {
   raise ArgumentError, "n must be 1..100" unless n.is_a?(Integer) && (1..100).cover?(n)
   str.to_str * n
 })
@@ -163,7 +163,7 @@ the guest handed you, re-checking on every redirect hop.
 ```ruby
 ALLOWED = { "api.example.com" => 443 }.freeze
 
-sandbox.define(:Net).bind(:Get, ->(url) {
+sandbox.bind("Net::Get", ->(url) {
   uri = URI(url)
   ip  = Resolv.getaddress(uri.host)                       # resolve first
   raise "host not allowed" unless ALLOWED[uri.host] == uri.port && public_ip?(ip)  # then verify the IP
@@ -181,7 +181,7 @@ another Service rather than reads — give it a `respond_to_guest?` that seals o
 surface (above) instead of leaving every method reachable.
 
 ```ruby
-sandbox.define(:Search).bind(:Docs, ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]
+sandbox.bind("Search::Docs", ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]
 #                                            index.query(q)                 # => a Handle whose every method dispatches back
 ```
 
@@ -198,7 +198,7 @@ Handles a single invocation can create.
 
 ```ruby
 calls = 0
-sandbox.define(:Cur).bind(:Next, -> {
+sandbox.bind("Cur::Next", -> {
   raise "budget exhausted" if (calls += 1) > 1_000
   cursor.advance  # a fresh Handle each call
 })

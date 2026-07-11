@@ -13,7 +13,7 @@ differential parity harness rather than by mirrored API shapes:
   `eval` / `run` execute on a fresh guest instance and return a
   decoded wire `Value` or a taxonomy `Error`
 - `Receiver` — the host object a guest dispatch resolves its target
-  to, reached as `<Namespace>::<Member>` or through a capability
+  to, reached as `MyService::KV` or through a capability
   Handle, with a `respond_to_guest` narrowing predicate and `Fault`
   as its refusal channel
 - `Yielder` — the host-side stand-in for a guest-supplied block,

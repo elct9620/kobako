@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for the Kobako::Catalog::Namespaces registry. Pure
+# Layer 3 unit tests for the Kobako::Catalog::Services registry. Pure
 # Ruby — does NOT require the native extension. Behavioural coverage that
 # needs a real Sandbox wiring (seal! triggered by the first invocation)
 # lives in test/sandbox/test_preload.rb; this file pins the registry
@@ -19,9 +19,9 @@
 require "test_helper"
 
 module Kobako
-  class CatalogNamespacesTest < Minitest::Test
+  class CatalogServicesTest < Minitest::Test
     def setup
-      @namespaces = Kobako::Catalog::Namespaces.new
+      @namespaces = Kobako::Catalog::Services.new
     end
 
     # ---------- B-08: bind resolves; returns self for chaining ----------
@@ -136,9 +136,9 @@ module Kobako
   # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot
   # — every invocation after the seal ships the bindings that existed at
   # that moment.
-  class CatalogNamespacesPreambleTest < Minitest::Test
+  class CatalogServicesPreambleTest < Minitest::Test
     def setup
-      @namespaces = Kobako::Catalog::Namespaces.new
+      @namespaces = Kobako::Catalog::Services.new
     end
 
     def test_encoded_preamble_decodes_to_a_flat_array_of_bind_paths

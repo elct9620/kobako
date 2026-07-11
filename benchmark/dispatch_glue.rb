@@ -53,13 +53,12 @@ runner = Kobako::Bench::Runner.new("dispatch_glue")
 # Per-Sandbox registry + Handle table, wired exactly as
 # Kobako::Sandbox#initialize wires them into the on_dispatch Proc.
 handler = Kobako::Catalog::Handles.new
-namespaces = Kobako::Catalog::Namespaces.new(handler: handler)
-namespaces.define(:Bench)
-          .bind(:Noop,   ->        {})
-          .bind(:Echo,   ->(x)     { x })
-          .bind(:Greet,  ->(name:) { name })
-          .bind(:Small,  ->        { Array.new(16) { |i| i } })
-          .bind(:Large,  ->        { Array.new(256) { |i| i } })
+namespaces = Kobako::Catalog::Services.new(handler: handler)
+namespaces.bind("Bench::Noop",   ->        {})
+          .bind("Bench::Echo",   ->(x)     { x })
+          .bind("Bench::Greet", ->(name:) { name })
+          .bind("Bench::Small", ->        { Array.new(16) { |i| i } })
+          .bind("Bench::Large", ->        { Array.new(256) { |i| i } })
 
 # block_given is false on every case below, so yield_to_guest is never
 # invoked; a raising stub localises any accidental block path.

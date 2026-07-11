@@ -10,8 +10,7 @@ output capture, and a warm Sandbox pool.
 | Feature | Entry Points | Notes |
 |---------|-------------|-------|
 | ✅ [F-01 Sandbox instantiation](docs/behavior/lifecycle.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | B-22 (per-Thread isolation) is exercised only indirectly through the pool contention tests; no test cites it |
-| ✅ [F-02 Namespace declaration](docs/behavior/registration.md) | [lib/kobako/catalog/namespaces.rb](lib/kobako/catalog/namespaces.rb) | — |
-| ✅ [F-03 Member binding](docs/behavior/registration.md) | [lib/kobako/namespace.rb](lib/kobako/namespace.rb) | — |
+| ✅ [F-02 Service binding](docs/behavior/registration.md) | [lib/kobako/catalog/services.rb](lib/kobako/catalog/services.rb) | — |
 | ✅ [F-04 Synchronous mruby source execution (`#eval`)](docs/behavior/lifecycle.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
 | ✅ [F-05 Guest-initiated Transport dispatch](docs/behavior/dispatch.md) | [lib/kobako/transport/dispatcher.rb](lib/kobako/transport/dispatcher.rb) | — |
 | ✅ [F-06 Capability Handle encoding and referencing](docs/behavior/dispatch.md) | [lib/kobako/catalog/handles.rb](lib/kobako/catalog/handles.rb) | — |

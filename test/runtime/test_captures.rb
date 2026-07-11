@@ -70,7 +70,7 @@ class TestRuntimeCaptures < Minitest::Test
   private
 
   # Minimal Runtime driver that mirrors +Sandbox#eval+'s wiring without
-  # the Sandbox wrapper. Builds an empty Catalog::Namespaces / Snippet table
+  # the Sandbox wrapper. Builds an empty Catalog::Services / Snippet table
   # so the encoded preamble + encoded snippets are both wire-valid, registers
   # a guard Proc on +on_dispatch=+ (no Service callbacks expected from
   # the simple eval sources used by these tests), stashes the returned
@@ -78,7 +78,7 @@ class TestRuntimeCaptures < Minitest::Test
   # can read +#captures+ afterwards.
   def drive_eval(code)
     handler = Kobako::Catalog::Handles.new
-    services = Kobako::Catalog::Namespaces.new(handler: handler)
+    services = Kobako::Catalog::Services.new(handler: handler)
     snippets = Kobako::Catalog::Snippets.new
 
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)

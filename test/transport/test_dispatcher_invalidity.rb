@@ -74,7 +74,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
   # live Sandbox (B-19).
   def sandbox_b
     table = Kobako::Catalog::Handles.new
-    server = Kobako::Catalog::Namespaces.new(handler: table)
+    server = Kobako::Catalog::Services.new(handler: table)
     [server, table]
   end
 

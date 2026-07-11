@@ -66,7 +66,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   def setup
     @handler    = Kobako::Catalog::Handles.new
-    @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
+    @namespaces = Kobako::Catalog::Services.new(handler: @handler)
     { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
       .each { |name, service| @namespaces.bind("Cfg::#{name}", service) }
     @namespaces.seal!

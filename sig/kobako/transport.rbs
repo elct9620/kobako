@@ -10,10 +10,10 @@ module Kobako
     end
 
     # The Service registry a dispatch resolves constant-path targets
-    # against. The Sandbox's Kobako::Catalog::Namespaces is the
+    # against. The Sandbox's Kobako::Catalog::Services is the
     # production conformer; modelled structurally so the Transport
     # layer needs no upward dependency on Catalog.
-    interface _NamespaceRegistry
+    interface _ServiceRegistry
       def lookup: (String target) -> untyped
     end
   end

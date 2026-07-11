@@ -1,6 +1,6 @@
 module Kobako
   module Catalog
-    class Namespaces
+    class Services
       NAME_PATTERN: Regexp
 
       def initialize: (?handler: Kobako::Catalog::Handles) -> void

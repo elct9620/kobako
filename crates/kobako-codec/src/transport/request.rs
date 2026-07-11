@@ -13,7 +13,7 @@ use crate::codec::{self, Decoder, Encoder, Value};
 
 /// docs/wire-codec.md § Envelope Encoding → Request: 5-element msgpack
 /// array `[target, method, args, kwargs, block_given]`. `target` is
-/// either a Member constant path (str of the form `"<Namespace>::<Member>"`,
+/// either a Member constant path (str of the form `"MyService::KV"`,
 /// e.g. `"MyService::KV"`) or a Capability Handle. `block_given` is a
 /// Boolean signalling whether the
 /// guest call site supplied a block; the block body itself never
@@ -32,7 +32,7 @@ pub struct Request {
 /// the wire").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    /// Member constant path of the form `"<Namespace>::<Member>"`
+    /// Member constant path of the form `"MyService::KV"`
     /// (e.g. `"MyService::KV"`).
     Path(String),
     /// Capability Handle reference (ext 0x01).

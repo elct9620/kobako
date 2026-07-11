@@ -6,7 +6,7 @@ module Kobako
   module Catalog
     # Host-side mapping from opaque integer Handle IDs to Ruby objects.
     # The table is owned by +Kobako::Sandbox+ and injected
-    # into the per-Sandbox +Kobako::Catalog::Namespaces+ so guest→host dispatch
+    # into the per-Sandbox +Kobako::Catalog::Services+ so guest→host dispatch
     # resolves Handle targets and arguments against the same table that
     # host→guest wire encoding allocates into.
     #

@@ -369,9 +369,9 @@ RubyLLM.configure do |config|
 end
 
 sandbox = Kobako::Sandbox.new
-sandbox.define(:KV).bind(:Store, CodeMode::KvStore.new)
+sandbox.bind("KV::Store", CodeMode::KvStore.new)
 allowlist = CodeMode::DomainAllowlist.new
-sandbox.define(:WebFetch).bind(:Client, CodeMode::WebFetchClient.new(allowlist))
+sandbox.bind("WebFetch::Client", CodeMode::WebFetchClient.new(allowlist))
 
 model = ENV.fetch("OPENAI_DEFAULT_MODEL", "gpt-5.4-mini")
 chat = RubyLLM

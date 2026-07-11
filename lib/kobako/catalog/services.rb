@@ -6,16 +6,16 @@ require_relative "../errors"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Namespaces — per-Sandbox registry of Service
+    # Kobako::Catalog::Services — per-Sandbox registry of Service
     # bindings keyed by their constant-path name. Holds the flat
     # path→object table and the preamble emitted on Frame 1.
     #
     # Public API:
     #
-    #   namespaces = Kobako::Catalog::Namespaces.new
-    #   namespaces.bind("MyService::KV", kv_object)  # => namespaces (chainable)
-    #   namespaces.encode                            # => msgpack bytes for Frame 1
-    #   namespaces.lookup("MyService::KV")           # => kv_object
+    #   services = Kobako::Catalog::Services.new
+    #   services.bind("MyService::KV", kv_object)  # => services (chainable)
+    #   services.encode                            # => msgpack bytes for Frame 1
+    #   services.lookup("MyService::KV")           # => kv_object
     #
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
     # responsibility — the Dispatcher receives this registry and the
@@ -23,7 +23,7 @@ module Kobako
     # that +Kobako::Sandbox#initialize+ installs. The registry holds an
     # injected +Catalog::Handles+ reference so dispatch target resolution
     # and host→guest auto-wrap share the same Sandbox-owned allocator.
-    class Namespaces
+    class Services
       # Ruby constant-name pattern each +::+-separated bind-path segment
       # must match.
       NAME_PATTERN = /\A[A-Z]\w*\z/

@@ -25,11 +25,11 @@ class TestE2EBindPaths < Minitest::Test
   # segment, exercising the intermediate module walk.
   def test_deeply_nested_path_binds_under_a_module_chain
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Acme::Geo::Lookup", ->(city) { "@#{city}" })
+    sandbox.bind("MyService::Nested::KV", ->(city) { "@#{city}" })
 
-    result = sandbox.eval('Acme::Geo::Lookup.call("paris")')
+    result = sandbox.eval('MyService::Nested::KV.call("paris")')
 
     assert_equal "@paris", result,
-                 "a 3-segment bind path must nest the leaf under Acme::Geo (B-08)"
+                 "a 3-segment bind path must nest the leaf under MyService::Nested (B-08)"
   end
 end

@@ -14,7 +14,7 @@ module DispatcherHelpers
 
   def setup
     @handler = Kobako::Catalog::Handles.new
-    @registry = Kobako::Catalog::Namespaces.new(handler: @handler)
+    @registry = Kobako::Catalog::Services.new(handler: @handler)
   end
 
   # Drive the Dispatcher directly with the configured registry / handler

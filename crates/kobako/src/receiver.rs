@@ -59,7 +59,7 @@ impl Fault {
 }
 
 /// The host object a dispatch runs the Request's method on, reached
-/// as `<Namespace>::<Member>` or through a capability Handle.
+/// as `MyService::KV` or through a capability Handle.
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine
 /// boundary behind an `Arc`; calls take `&self`, so a stateful

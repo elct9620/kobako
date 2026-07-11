@@ -38,11 +38,10 @@ runner = Kobako::Bench::Runner.new("yield_roundtrip")
 # measures yield re-entry throughput, so we keep the per-invocation
 # memory limiter callback out of the wasmtime hot loop.
 sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
-sandbox.define(:Bench)
-       .bind(:YieldOnce, ->(x, &blk)     { blk.call(x) })
-       .bind(:Ignore,    ->(*, &_blk)    {})
-       .bind(:MapEach,   ->(items, &blk) { items.map(&blk) })
-       .bind(:EachBreak, ->(items, &blk) { items.each(&blk) })
+sandbox.bind("Bench::YieldOnce", ->(x, &blk)     { blk.call(x) })
+       .bind("Bench::Ignore",    ->(*, &_blk)    {})
+       .bind("Bench::MapEach", ->(items, &blk) { items.map(&blk) })
+       .bind("Bench::EachBreak", ->(items, &blk) { items.each(&blk) })
 
 # Warm the engine + module cache so the first measured iteration does
 # not pay one-shot init cost.

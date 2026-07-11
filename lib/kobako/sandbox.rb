@@ -17,7 +17,7 @@ module Kobako
   #
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
   # +Kobako::Catalog::Handles+, the per-instance
-  # +Kobako::Catalog::Namespaces+ (which receives the +Catalog::Handles+ by
+  # +Kobako::Catalog::Services+ (which receives the +Catalog::Handles+ by
   # injection so guest→host dispatch and host→guest auto-wrap share one
   # allocator), and the dispatch +Proc+ / +yield_to_guest+ lambda installed
   # on the Runtime via +Runtime#on_dispatch=+. The underlying wasmtime Engine
@@ -100,7 +100,7 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(**)
       @handler = Catalog::Handles.new
-      @services = Kobako::Catalog::Namespaces.new(handler: @handler)
+      @services = Kobako::Catalog::Services.new(handler: @handler)
       @snippets = Catalog::Snippets.new
       @runtime = build_runtime!
       install_dispatch_proc!

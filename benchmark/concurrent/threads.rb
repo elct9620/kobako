@@ -97,7 +97,7 @@ end
 
 def build_synced_long_sandbox(ready)
   Kobako::Sandbox.new(wasm_path: GUEST).tap do |s|
-    s.define(:Sync).bind(:Ready, lambda {
+    s.bind("Sync::Ready", lambda {
       ready << :go
       nil
     })

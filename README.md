@@ -405,7 +405,7 @@ place: a private `respond_to_guest?(name)` answers, per method, whether the gues
 it. Returning `false` for every name makes the object opaque — a credential the guest
 forwards to another Service but never reads — while a named subset becomes an allow-list.
 
-Guest code can name any `<Namespace>::<Member>` path, but a forged name only resolves to
+Guest code can name any `MyService::KV` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
 trust context its own Sandbox, and see [`docs/security-model.md`](docs/security-model.md) for the rest
 as security-design concerns: validating untrusted input, default-deny external effects,

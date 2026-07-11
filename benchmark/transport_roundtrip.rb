@@ -56,12 +56,11 @@ end
 # suite measures Transport throughput, so we keep the limiter callback out
 # of the wasmtime hot loop.
 sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
-sandbox.define(:Bench)
-       .bind(:Noop,    ->        {})
-       .bind(:Echo,    ->(x)     { x })
-       .bind(:Greet,   ->(name:) { name })
-       .bind(:Factory, ->(_)     { greeter.new })
-       .bind(:Allow,   allowlist.new)
+sandbox.bind("Bench::Noop",    ->        {})
+       .bind("Bench::Echo",    ->(x)     { x })
+       .bind("Bench::Greet", ->(name:) { name })
+       .bind("Bench::Factory", ->(_)     { greeter.new })
+       .bind("Bench::Allow", allowlist.new)
 
 # Warm the engine + module cache so the first measured iteration
 # does not pay one-shot init cost.
