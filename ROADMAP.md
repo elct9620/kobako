@@ -3,7 +3,7 @@
 kobako is a Ruby gem providing an in-process Wasm sandbox for untrusted mruby
 code: a wasmtime host runs a precompiled `kobako.wasm` guest, with host↔guest
 Transport over a MessagePack wire. Features cover one-shot `#eval`, preload +
-`#run` dispatch, Service injection through Namespaces / Members, opaque
+`#run` dispatch, Service injection at constant-path names, opaque
 Capability Handles, block yield re-entry, three-class error attribution,
 output capture, and a warm Sandbox pool.
 

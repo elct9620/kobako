@@ -25,7 +25,7 @@ ask to stay anonymous.
 
 In scope is anything that lets guest code cross the isolation boundary it should not:
 reaching host memory, the filesystem, the network, or `ENV`; obtaining ambient time or
-entropy the host froze; reaching a `Namespace::Member` you never bound; or a
+entropy the host froze; reaching a Service you never bound; or a
 memory-safety fault in the host codec or wasmtime driver.
 
 Out of scope is what a bound Service is *designed* to expose: if guest code reaches a

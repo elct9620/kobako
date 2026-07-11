@@ -135,7 +135,6 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 |------|---------|
 | Sandbox | The runtime unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. |
 | Service | A host object bound at a constant-path name (`MyService::KV`) — the guest's only path to host resources. |
-| Namespace / Member | A guest-visible Ruby module, and a named binding (a module constant) within it. |
 | Invocation | One `#eval` or `#run`; capability state resets between invocations. |
 | Snippet | Named mruby code (source or bytecode) replayed into a fresh state before every invocation. |
 | Handle | An opaque token the guest holds for a host object the wire cannot transmit directly. |
@@ -326,7 +325,7 @@ sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-t
 sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
 ```
 
-A `break` value from a guest block is the one exception: it unwinds back to the guest Member call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
+A `break` value from a guest block is the one exception: it unwinds back to the guest Service call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
 
 Each dispatch that hands back a non-wire-representable object allocates a *new* Handle — kobako never deduplicates by object identity (B-15, B-17). This is most visible with fluent / builder APIs. An `ActiveRecord::Relation` chain `spawn`s a fresh relation at each step, so every hop is an independent dispatch that binds its own Handle:
 
