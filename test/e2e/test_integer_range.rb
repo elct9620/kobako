@@ -19,7 +19,7 @@ class TestE2EIntegerRange < Minitest::Test
   # saturated value.
   def test_service_return_above_i32_range_is_refused_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Clock).bind(:Millis, -> { OVER_I32 })
+    sandbox.bind("Clock::Millis", -> { OVER_I32 })
 
     assert_raises(Kobako::SandboxError,
                   "a Service return above the guest's 32-bit range must be refused, not saturated") do
@@ -31,7 +31,7 @@ class TestE2EIntegerRange < Minitest::Test
   # refusal does not over-reach.
   def test_service_return_at_i32_max_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Clock).bind(:Max, -> { I32_MAX })
+    sandbox.bind("Clock::Max", -> { I32_MAX })
 
     assert_equal I32_MAX, sandbox.eval("Clock::Max.call"),
                  "an inbound integer at the 32-bit ceiling must round-trip, not be refused"

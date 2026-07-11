@@ -27,7 +27,7 @@
 //! immediately after `Mrb::open`. It registers every boot-time entity
 //! and returns a `Kobako` carrying the resolved class handles. The
 //! returned value is then used to drive the Frame 1 preamble through
-//! `Kobako::install_groups`.
+//! `Kobako::install_bindings`.
 //!
 //! C-bridges enter on a raw `*mut mrb_state` — the
 //! `beni::sys::mrb_func_t` ABI mandates it — but `beni::method!`
@@ -52,39 +52,34 @@ use kobako_core::transport::proxy::ExceptionPayload;
 /// silently when the ivar layout changes.
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
-/// Failures returned by `Kobako::install_groups` when a preamble entry
-/// cannot be registered — a name that cannot pass through the mruby C
-/// API (which expects NUL-terminated strings), or a registration mruby
-/// itself rejected.
+/// Failures returned by `Kobako::install_bindings` when a preamble entry
+/// cannot be registered — a path segment that cannot pass through the
+/// mruby C API (which expects NUL-terminated strings), or a registration
+/// mruby itself rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstallGroupsError {
-    /// A Group name contained an interior NUL byte.
-    NulInGroupName,
-    /// A Member name contained an interior NUL byte.
-    NulInMemberName,
+pub enum InstallError {
+    /// A bind path segment contained an interior NUL byte.
+    NulInName,
     /// mruby rejected the module / class registration (e.g. a name
     /// that is not a valid constant); carries the rendered exception
     /// message.
     Rejected(String),
 }
 
-impl std::fmt::Display for InstallGroupsError {
+impl std::fmt::Display for InstallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InstallGroupsError::NulInGroupName => {
-                f.write_str("namespace name contains an invalid character")
+            InstallError::NulInName => {
+                f.write_str("bind path segment contains an invalid character")
             }
-            InstallGroupsError::NulInMemberName => {
-                f.write_str("member name contains an invalid character")
-            }
-            InstallGroupsError::Rejected(msg) => {
-                write!(f, "namespace registration rejected: {msg}")
+            InstallError::Rejected(msg) => {
+                write!(f, "bind path registration rejected: {msg}")
             }
         }
     }
 }
 
-impl std::error::Error for InstallGroupsError {}
+impl std::error::Error for InstallError {}
 
 /// Handle to a Kobako runtime installed on a live mruby VM.
 ///
@@ -110,7 +105,7 @@ impl std::error::Error for InstallGroupsError {}
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Member` base class — parent of every bound Member proxy
-    /// installed via `Kobako::install_groups`.
+    /// installed via `Kobako::install_bindings`.
     member_class: beni::RClass,
     handle_class: beni::RClass,
     service_error_class: beni::RClass,
@@ -180,30 +175,42 @@ impl Kobako {
         }
     }
 
-    /// Install Namespace / Member proxy classes from a Frame 1
-    /// preamble. Each Group becomes a top-level Ruby module; each Member
-    /// becomes a subclass of `Kobako::Member` under its Namespace so the
-    /// singleton-class `method_missing` shim is inherited.
-    pub fn install_groups(
-        &self,
-        preamble: &[(String, Vec<String>)],
-    ) -> Result<(), InstallGroupsError> {
+    /// Install a `Kobako::Member` proxy class for each bind path from a
+    /// Frame 1 preamble. A multi-segment path nests the leaf class under
+    /// a module per prefix segment — idempotent, so paths sharing a
+    /// prefix share one module — while a single-segment path binds the
+    /// class at top level. The host guarantees no path is a prefix of
+    /// another, so a segment is never both a module and a leaf.
+    pub fn install_bindings(&self, paths: &[String]) -> Result<(), InstallError> {
         use beni::Module;
 
         let mrb = self.mrb();
-        for (group_name, members) in preamble {
-            let group_cstr = std::ffi::CString::new(group_name.as_str())
-                .map_err(|_| InstallGroupsError::NulInGroupName)?;
-            let group_mod = mrb
-                .define_module(group_cstr.as_c_str())
-                .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
-            for member_name in members {
-                let member_cstr = std::ffi::CString::new(member_name.as_str())
-                    .map_err(|_| InstallGroupsError::NulInMemberName)?;
-                group_mod
-                    .define_class(mrb, member_cstr.as_c_str(), self.member_class)
-                    .map_err(|e| InstallGroupsError::Rejected(e.message(mrb)))?;
+        for path in paths {
+            let Some((prefix, leaf)) = path.rsplit_once("::") else {
+                let name =
+                    std::ffi::CString::new(path.as_str()).map_err(|_| InstallError::NulInName)?;
+                mrb.define_class(name.as_c_str(), self.member_class)
+                    .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+                continue;
+            };
+
+            let mut segments = prefix.split("::");
+            let first = segments.next().expect("split yields at least one segment");
+            let first_cstr = std::ffi::CString::new(first).map_err(|_| InstallError::NulInName)?;
+            let mut module = mrb
+                .define_module(first_cstr.as_c_str())
+                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+            for segment in segments {
+                let segment_cstr =
+                    std::ffi::CString::new(segment).map_err(|_| InstallError::NulInName)?;
+                module = module
+                    .define_module(mrb, segment_cstr.as_c_str())
+                    .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
             }
+            let leaf_cstr = std::ffi::CString::new(leaf).map_err(|_| InstallError::NulInName)?;
+            module
+                .define_class(mrb, leaf_cstr.as_c_str(), self.member_class)
+                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
         }
         Ok(())
     }

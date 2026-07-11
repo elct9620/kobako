@@ -3,112 +3,120 @@
 require_relative "handles"
 require_relative "../codec"
 require_relative "../errors"
-require_relative "../namespace"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Namespaces — per-Sandbox registry of
-    # +Kobako::Namespace+ entities. Holds the Namespace / Member bindings
-    # and the preamble emitted on Frame 1.
+    # Kobako::Catalog::Namespaces — per-Sandbox registry of Service
+    # bindings keyed by their constant-path name. Holds the flat
+    # path→object table and the preamble emitted on Frame 1.
     #
     # Public API:
     #
     #   namespaces = Kobako::Catalog::Namespaces.new
-    #   namespace = namespaces.define(:MyService)  # => Kobako::Namespace
-    #   namespace.bind(:KV, kv_object)             # => namespace (chainable)
-    #   namespaces.encode                          # => msgpack bytes for Frame 1
-    #   namespaces.lookup("MyService::KV")         # => kv_object
+    #   namespaces.bind("MyService::KV", kv_object)  # => namespaces (chainable)
+    #   namespaces.encode                            # => msgpack bytes for Frame 1
+    #   namespaces.lookup("MyService::KV")           # => kv_object
     #
-    # Namespaces live at +Kobako::Namespace+. Per-dispatch routing is
-    # +Kobako::Transport::Dispatcher+'s responsibility — the Dispatcher
-    # receives this registry and the +Catalog::Handles+ as arguments from
-    # the +Runtime#on_dispatch+ Proc that +Kobako::Sandbox#initialize+
-    # installs. The registry holds an injected +Catalog::Handles+ reference so
-    # dispatch target resolution and host→guest auto-wrap share the same
-    # Sandbox-owned allocator.
+    # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
+    # responsibility — the Dispatcher receives this registry and the
+    # +Catalog::Handles+ as arguments from the +Runtime#on_dispatch+ Proc
+    # that +Kobako::Sandbox#initialize+ installs. The registry holds an
+    # injected +Catalog::Handles+ reference so dispatch target resolution
+    # and host→guest auto-wrap share the same Sandbox-owned allocator.
     class Namespaces
+      # Ruby constant-name pattern each +::+-separated bind-path segment
+      # must match.
+      NAME_PATTERN = /\A[A-Z]\w*\z/
+
       # Build a fresh registry. +handler+ is an internal seam that injects
       # a pre-configured +Catalog::Handles+; tests pass one whose +next_id+
       # is pinned near +MAX_ID+ to exercise the cap-exhaustion path
       # without 2³¹ allocations. Production callers leave it at the default.
       def initialize(handler: Catalog::Handles.new)
-        @namespaces = {} # : Hash[String, Kobako::Namespace]
+        @bindings = {} # : Hash[String, untyped]
         @handler = handler
         @sealed = false
         @encoded = nil # : String?
       end
 
-      # Declare or retrieve the Namespace named +name+ (idempotent).
-      # +name+ is a constant-form name as a +Symbol+ or +String+ (must satisfy
-      # +Namespace::NAME_PATTERN+). Returns the +Kobako::Namespace+ for that
-      # name, creating it if it does not exist. Raises +ArgumentError+ when
-      # +name+ is malformed, or when called after the owning Sandbox has been
-      # sealed by its first invocation.
-      def define(name)
-        raise ArgumentError, "cannot define after first Sandbox invocation" if @sealed
+      # Bind +object+ as the Service reachable at +path+ — a +Symbol+ or
+      # +String+ of one or more +::+-separated constant-form segments
+      # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
+      # chaining. Raises +ArgumentError+ when a segment is malformed, when
+      # +path+ collides with an existing binding (a name is a bound Service
+      # or a grouping prefix, never both), or when the owning Sandbox has
+      # been sealed by its first invocation.
+      def bind(path, object)
+        raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
 
-        name_str = name.to_s
-        unless Namespace::NAME_PATTERN.match?(name_str)
-          raise ArgumentError,
-                "Namespace name must match #{Namespace::NAME_PATTERN.inspect} (got #{name.inspect})"
-        end
+        path_str = validate_path!(path)
+        raise ArgumentError, "Service path #{path_str} conflicts with an existing binding" if collision?(path_str)
 
-        @namespaces[name_str] ||= Namespace.new(name_str)
+        @bindings[path_str] = object
+        self
       end
 
-      # Resolve a +target+ path of the form +"<Namespace>::<Member>"+
-      # (e.g. +"MyService::KV"+) to the bound Host object. +target+ is a
-      # two-level path using the +::+ separator. Returns the bound Host
-      # object. Raises +KeyError+ when the namespace or the member is not
-      # bound.
+      # Resolve a +target+ constant path to the bound Service. Raises
+      # +KeyError+ when no Service is bound at +target+.
       def lookup(target)
-        namespace_name, member_name = target.to_s.split("::", 2)
-        namespace = @namespaces[namespace_name]
-        raise KeyError, "no namespace named #{namespace_name.inspect}" if namespace.nil?
-        raise KeyError, "no member in target #{target.inspect}" unless member_name
+        target_str = target.to_s
+        raise KeyError, "no service bound at #{target_str.inspect}" unless @bindings.key?(target_str)
 
-        namespace.fetch(member_name)
+        @bindings[target_str]
       end
 
-      # Encode the preamble as msgpack bytes for stdin Frame 1 delivery.
-      # Routes through Kobako::Codec::Encoder like every other host-side
-      # wire encode so there is a single codec path; the preamble carries
-      # only Strings and Arrays, so none of the kobako ext types actually
-      # fire. Structure: +[["Namespace", ["MemberA", "MemberB"]], ...]+.
-      # Returns a binary +String+ of msgpack bytes.
+      # Encode the preamble as msgpack bytes for stdin Frame 1 delivery —
+      # a flat array of the bound constant paths, in bind order:
+      # +["MyService::KV", "File"]+. Routes through Kobako::Codec::Encoder
+      # like every other host-side wire encode; the preamble carries only
+      # Strings, so none of the kobako ext types fire. Returns a binary
+      # +String+ of msgpack bytes.
       #
       # Once sealed, the bytes are computed once and reused for every
       # subsequent invocation: sealing freezes Service registration at the
-      # first invocation, so the preamble is exactly the bindings that
-      # existed at that moment — a bind reaching a +Kobako::Namespace+
-      # after the seal raises +ArgumentError+ and never alters Frame 1.
-      # The memo is gated on the seal rather than dropped per mutation (the
-      # +Catalog::Snippets#encode+ approach) because a +Member+ bind lands
-      # on a child +Kobako::Namespace+, invisible to this collection; only
-      # the seal guarantees nothing further can change.
+      # first invocation, so a bind reaching the registry after the seal
+      # raises +ArgumentError+ and never alters Frame 1.
       def encode
         return @encoded if @encoded
 
-        bytes = Codec::Encoder.encode(@namespaces.values.map(&:to_preamble)).freeze
+        bytes = Codec::Encoder.encode(@bindings.keys).freeze
         @encoded = bytes if @sealed
         bytes
       end
 
-      # Mark the registry as sealed and propagate the seal to every
-      # declared +Kobako::Namespace+. Called by +Sandbox+ on the first
-      # invocation. After sealing, both #define and +Namespace#bind+
-      # raise ArgumentError. Idempotent.
+      # Mark the registry as sealed. Called by +Sandbox+ on the first
+      # invocation; afterwards #bind raises ArgumentError. Idempotent;
+      # returns +self+.
       def seal!
-        return self if @sealed
-
         @sealed = true
-        @namespaces.each_value(&:seal!)
         self
       end
 
       # Returns +true+ when #seal! has been called, +false+ otherwise.
       def sealed?
         @sealed
+      end
+
+      private
+
+      def validate_path!(path)
+        path_str = path.to_s
+        segments = path_str.split("::", -1)
+        return path_str if !segments.empty? && segments.all? { |seg| NAME_PATTERN.match?(seg) }
+
+        raise ArgumentError,
+              "bind path must be constant-form segments joined by '::' (got #{path.inspect})"
+      end
+
+      # A path collides when it equals, is a prefix of, or extends an
+      # existing binding on the +::+ segment boundary — the guardrail that
+      # keeps a name from being both a bound Service and a grouping prefix.
+      def collision?(path)
+        @bindings.each_key.any? do |existing|
+          existing == path ||
+            existing.start_with?("#{path}::") ||
+            path.start_with?("#{existing}::")
+        end
       end
     end
   end

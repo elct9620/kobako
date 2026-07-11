@@ -16,7 +16,7 @@ class TestE2EYield < Minitest::Test
   def test_b23_block_given_reaches_host_when_guest_supplies_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
-    sandbox.define(:Probe).bind(:Sees, ->(*, &block) { observed << !block.nil? })
+    sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
 
     sandbox.eval("Probe::Sees.call { |x| x }")
 
@@ -28,7 +28,7 @@ class TestE2EYield < Minitest::Test
   def test_b23_no_block_means_block_given_false_on_host
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
-    sandbox.define(:Probe).bind(:Sees, ->(*, &block) { observed << !block.nil? })
+    sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
 
     sandbox.eval("Probe::Sees.call")
 
@@ -38,7 +38,7 @@ class TestE2EYield < Minitest::Test
 
   def test_b24_single_yield_returns_block_value_to_service
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
     result = sandbox.eval("Probe::OnceX.call(21) { |x| x * 2 }")
 
@@ -49,7 +49,7 @@ class TestE2EYield < Minitest::Test
 
   def test_b29_multi_yield_runs_block_once_per_iteration
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:MapEach, ->(items, &blk) { items.map(&blk) })
+    sandbox.bind("Probe::MapEach", ->(items, &blk) { items.map(&blk) })
 
     result = sandbox.eval("Probe::MapEach.call([1, 2, 3]) { |x| x * 10 }")
 
@@ -68,8 +68,8 @@ class TestE2EYield < Minitest::Test
     # value reaches the outer Service's yield site. The break-carrying
     # nested variant lives in test_yield_unwind.rb.
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:A).bind(:Step, ->(name:, &blk) { "A[#{name}]:#{blk.call}" })
-    sandbox.define(:B).bind(:Fetch, ->(key) { "fetched:#{key}" })
+    sandbox.bind("A::Step", ->(name:, &blk) { "A[#{name}]:#{blk.call}" })
+    sandbox.bind("B::Fetch", ->(key) { "fetched:#{key}" })
 
     result = sandbox.eval("A::Step.call(name: 'outer') { B::Fetch.call('k1') }")
 
@@ -81,7 +81,7 @@ class TestE2EYield < Minitest::Test
 
   def test_b24_block_raise_surfaces_to_service_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:Boom, ->(&blk) { blk.call })
+    sandbox.bind("Probe::Boom", ->(&blk) { blk.call })
 
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval('Probe::Boom.call { raise "from guest block" }')
@@ -94,7 +94,7 @@ class TestE2EYield < Minitest::Test
 
   def test_e22_block_returns_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
     # The guest block returns a bare Object — no MessagePack wire
     # representation. Per E-22 the yield round-trip emits tag 0x04 error
@@ -112,7 +112,7 @@ class TestE2EYield < Minitest::Test
 
   def test_e22_break_with_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+    sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
     # `break Object.new` is a real break (B-25), but the break value is
     # not a supported sandbox value type. The break value cannot ride the
@@ -130,7 +130,7 @@ class TestE2EYield < Minitest::Test
 
   def test_b30_service_with_block_that_never_yields_runs_clean
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:Ignores, ->(*, &_blk) { :ok })
+    sandbox.bind("Probe::Ignores", ->(*, &_blk) { :ok })
 
     result = sandbox.eval("Probe::Ignores.call { raise 'never runs' }")
 

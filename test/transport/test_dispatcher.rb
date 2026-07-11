@@ -10,7 +10,7 @@ class TestTransportDispatchUnit < Minitest::Test
   include DispatcherHelpers
 
   def test_dispatches_string_target_and_returns_response_ok_bytes
-    @registry.define(:Logger).bind(:Echo, lambda(&:upcase))
+    @registry.bind("Logger::Echo", lambda(&:upcase))
     req = encode_request("Logger::Echo", "call", ["hi"], {})
 
     resp = decode_response(dispatch(req))
@@ -21,7 +21,7 @@ class TestTransportDispatchUnit < Minitest::Test
 
   def test_passes_kwargs_as_symbols_to_bound_object
     capture = []
-    @registry.define(:Logger).bind(:Tag, kwarg_tag_recorder(capture))
+    @registry.bind("Logger::Tag", kwarg_tag_recorder(capture))
     req = encode_request("Logger::Tag", "tag", ["x"], { key: "value" })
 
     resp = decode_response(dispatch(req))
@@ -42,7 +42,7 @@ class TestTransportDispatchUnit < Minitest::Test
   end
 
   def test_method_raise_returns_runtime_exception
-    @registry.define(:Boom).bind(:Bang, ->(_) { raise "boom" })
+    @registry.bind("Boom::Bang", ->(_) { raise "boom" })
     req = encode_request("Boom::Bang", "call", ["x"], {})
 
     resp = decode_response(dispatch(req))
@@ -53,7 +53,7 @@ class TestTransportDispatchUnit < Minitest::Test
   end
 
   def test_argument_error_returns_argument_exception
-    @registry.define(:Service).bind(:M, ->(_a, _b) { :ok })
+    @registry.bind("Service::M", ->(_a, _b) { :ok })
     # Missing argument — Ruby ArgumentError on dispatch.
     req = encode_request("Service::M", "call", [], {})
 
@@ -74,7 +74,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # dispatch successfully when the wire carries an empty kwargs map —
   # the empty map is the wire-uniform shape for "no kwargs".
   def test_empty_kwargs_dispatches_to_no_kwarg_method
-    @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
+    @registry.bind("Math::Add", ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], {})
 
     resp = decode_response(dispatch(req))
@@ -91,7 +91,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # the message's decoded encoding (str decodes UTF-8, bin ASCII-8BIT)
   # is asserted alongside the fault type.
   def test_kwargs_to_no_kwarg_method_returns_argument_exception
-    @registry.define(:Math).bind(:Add, ->(a, b) { a + b })
+    @registry.bind("Math::Add", ->(a, b) { a + b })
     req = encode_request("Math::Add", "call", [2, 3], { extra: 1 })
 
     resp = decode_response(dispatch(req))
@@ -107,7 +107,7 @@ class TestTransportDispatchUnit < Minitest::Test
     klass = Class.new do
       define_method(:greet) { |name:| "hi,#{name}" }
     end
-    @registry.define(:Hello).bind(:Greet, klass.new)
+    @registry.bind("Hello::Greet", klass.new)
     req = encode_request("Hello::Greet", "greet", [], { name: "alice", bogus: "x" })
 
     resp = decode_response(dispatch(req))
@@ -122,7 +122,7 @@ class TestTransportDispatchUnit < Minitest::Test
     klass = Class.new do
       define_method(:set) { |key, value:| "#{key}=#{value}" }
     end
-    @registry.define(:KV).bind(:Set, klass.new)
+    @registry.bind("KV::Set", klass.new)
     req = encode_request("KV::Set", "set", ["k"], { value: "v" })
 
     resp = decode_response(dispatch(req))
@@ -135,7 +135,7 @@ class TestTransportDispatchUnit < Minitest::Test
   # unchanged to public_send.
   def test_keyrest_method_accepts_arbitrary_kwargs
     obj = keyrest_recorder
-    @registry.define(:K).bind(:Cap, obj)
+    @registry.bind("K::Cap", obj)
     req = encode_request("K::Cap", "capture", [], { a: 1, b: 2 })
 
     resp = decode_response(dispatch(req))

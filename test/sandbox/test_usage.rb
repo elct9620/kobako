@@ -137,7 +137,7 @@ class TestSandboxUsage < Minitest::Test
   # breaking subset of the contract.
   def test_service_error_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+    sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     assert_raises(Kobako::ServiceError) { sandbox.eval('Log::Sink.call("x")') }
 

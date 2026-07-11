@@ -7,7 +7,7 @@ require "test_helper"
 # same value or the same fault class on both sides.
 class TestParityDispatch < Parity::Case
   ECHO_SERVICE = [
-    { namespace: "MyService", member: "KV",
+    { name: "MyService::KV",
       methods: { echo: { behavior: "echo" }, explode: { behavior: "raise", message: "kaput" } } }
   ].freeze
 
@@ -49,7 +49,7 @@ class TestParityDispatch < Parity::Case
   # both sides — derived from the stub's positional-only shape, never
   # declared.
   STRICT_SERVICE = [
-    { namespace: "MyService", member: "KV",
+    { name: "MyService::KV",
       methods: { strict_echo: { behavior: "echo_positional" } } }
   ].freeze
 
@@ -73,7 +73,7 @@ class TestParityDispatch < Parity::Case
   # the undefined fault before it runs, an exposed one is unchanged,
   # and the predicate itself is never guest-dispatchable.
   NARROWED_SERVICE = [
-    { namespace: "MyService", member: "KV",
+    { name: "MyService::KV",
       methods: { visible: { behavior: "echo" }, hidden: { behavior: "echo" } },
       exposed: ["visible"] }
   ].freeze

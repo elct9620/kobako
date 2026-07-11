@@ -103,15 +103,13 @@ class TestSandbox < Minitest::Test
     assert_match(/must be a String/, err.message)
   end
 
-  # Sandbox#define returns a Namespace usable for the bind chain — the
-  # Sandbox-tier proof that #define delegates to Catalog::Namespaces rather
-  # than dropping the call on the floor. Catalog::Namespaces's own contract
-  # is pinned in test/catalog/test_namespaces.rb.
-  def test_define_returns_namespace_usable_for_binding
+  # Sandbox#bind returns the Sandbox so binds chain — the Sandbox-tier proof
+  # that #bind delegates to Catalog::Namespaces rather than dropping the call
+  # on the floor. Catalog::Namespaces's own contract is pinned in
+  # test/catalog/test_namespaces.rb.
+  def test_bind_returns_sandbox_for_chaining
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    namespace = sandbox.define(:Foo)
 
-    assert_instance_of Kobako::Namespace, namespace
-    assert_same namespace, namespace.bind(:Bar, :member)
+    assert_same sandbox, sandbox.bind("Foo::Bar", :member)
   end
 end

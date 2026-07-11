@@ -1,4 +1,4 @@
-//! Per-Sandbox Service registry: Namespaces, bound Members, the
+//! Per-Sandbox Service registry: the flat path→object bindings, the
 //! Frame 1 preamble they encode into, and the preloaded snippet table
 //! sealed alongside them.
 //!
@@ -16,83 +16,47 @@ use kobako_codec::codec::{Encoder, Value};
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
 
-/// Registration-ordered Service registry plus the snippet table for
-/// one Sandbox.
+/// Bind-ordered Service registry plus the snippet table for one Sandbox.
 #[derive(Default)]
 pub(crate) struct Catalog {
-    namespaces: Vec<Namespace>,
+    bindings: Vec<(String, Arc<dyn Receiver>)>,
     pub(crate) snippets: Snippets,
 }
 
-struct Namespace {
-    name: String,
-    members: Vec<(String, Arc<dyn Receiver>)>,
-}
-
 impl Catalog {
-    /// Declare a Namespace; declaring the same name again is a no-op,
-    /// like the Ruby `#define`.
-    pub(crate) fn define(&mut self, namespace: &str) {
-        if self.position(namespace).is_none() {
-            self.namespaces.push(Namespace {
-                name: namespace.to_string(),
-                members: Vec::new(),
-            });
-        }
-    }
-
-    /// Bind a host object under `namespace` as a named Member,
-    /// declaring the Namespace when absent. Rebinding replaces the
-    /// object — the
-    /// Ruby frontend refuses this at its own surface, so the registry
-    /// itself stays permissive.
-    pub(crate) fn bind(&mut self, namespace: &str, member: &str, object: Arc<dyn Receiver>) {
-        self.define(namespace);
-        let ns = self
-            .position(namespace)
-            .map(|i| &mut self.namespaces[i])
-            .expect("define above guarantees the namespace exists");
-        match ns.members.iter_mut().find(|(name, _)| name == member) {
+    /// Bind a host object as the Service reachable at `path`. Rebinding
+    /// an identical path replaces the object — the Ruby frontend refuses
+    /// a malformed or colliding path at its own surface, so this registry
+    /// stays permissive; a path that is a prefix of another is caught
+    /// fail-closed by the guest when it materializes the proxies.
+    pub(crate) fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) {
+        match self.bindings.iter_mut().find(|(p, _)| p == path) {
             Some((_, slot)) => *slot = object,
-            None => ns.members.push((member.to_string(), object)),
+            None => self.bindings.push((path.to_string(), object)),
         }
     }
 
-    /// Resolve a dispatch target path (`"<Namespace>::<Member>"`) to
-    /// its bound object.
+    /// Resolve a dispatch target path to its bound object.
     pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn Receiver>> {
-        let (namespace, member) = path.split_once("::")?;
-        let ns = &self.namespaces[self.position(namespace)?];
-        ns.members
+        self.bindings
             .iter()
-            .find(|(name, _)| name == member)
+            .find(|(p, _)| p == path)
             .map(|(_, object)| object.clone())
     }
 
-    /// Encode the Frame 1 registration preamble:
-    /// `[["Namespace", ["Member", ...]], ...]` in registration order.
+    /// Encode the Frame 1 registration preamble: a flat list of bind
+    /// paths (`["MyService::KV", "File"]`) in bind order.
     pub(crate) fn preamble(&self) -> Vec<u8> {
-        let groups = self
-            .namespaces
+        let paths = self
+            .bindings
             .iter()
-            .map(|ns| {
-                let members = ns
-                    .members
-                    .iter()
-                    .map(|(name, _)| Value::Str(name.clone()))
-                    .collect();
-                Value::Array(vec![Value::Str(ns.name.clone()), Value::Array(members)])
-            })
+            .map(|(path, _)| Value::Str(path.clone()))
             .collect();
         let mut encoder = Encoder::new();
         encoder
-            .write_value(&Value::Array(groups))
-            .expect("a str/array preamble always encodes");
+            .write_value(&Value::Array(paths))
+            .expect("a str preamble always encodes");
         encoder.into_bytes()
-    }
-
-    fn position(&self, namespace: &str) -> Option<usize> {
-        self.namespaces.iter().position(|ns| ns.name == namespace)
     }
 }
 
@@ -120,38 +84,34 @@ mod tests {
     }
 
     #[test]
-    fn bind_then_lookup_resolves_the_two_level_path() {
+    fn bind_then_lookup_resolves_the_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService", "KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("File", Arc::new(Probe));
         assert!(catalog.lookup("MyService::KV").is_some());
+        assert!(catalog.lookup("File").is_some());
         assert!(catalog.lookup("MyService::Other").is_none());
-        assert!(catalog.lookup("Elsewhere::KV").is_none());
-        assert!(catalog.lookup("NoSeparator").is_none());
     }
 
     #[test]
-    fn define_is_idempotent() {
+    fn rebind_replaces_the_object_at_the_same_path() {
         let mut catalog = Catalog::default();
-        catalog.define("MyService");
-        catalog.bind("MyService", "KV", Arc::new(Probe));
-        catalog.define("MyService");
+        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(Probe));
         assert!(catalog.lookup("MyService::KV").is_some());
     }
 
     // The preamble byte shape is the guest's registration input; pin
-    // the exact encoding for one namespace with one member so drift in
-    // the frame builder is caught here rather than inside an E2E run.
+    // the exact encoding for one bound path so drift in the frame
+    // builder is caught here rather than inside an E2E run.
     #[test]
-    fn preamble_encodes_registration_groups() {
+    fn preamble_encodes_the_flat_path_list() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService", "KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(Probe));
         let expected = {
             let mut encoder = Encoder::new();
             encoder
-                .write_value(&Value::Array(vec![Value::Array(vec![
-                    Value::Str("MyService".into()),
-                    Value::Array(vec![Value::Str("KV".into())]),
-                ])]))
+                .write_value(&Value::Array(vec![Value::Str("MyService::KV".into())]))
                 .unwrap();
             encoder.into_bytes()
         };

@@ -8,8 +8,8 @@ and append-only across the corpus (N-8).
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `<Namespace>::<Member>` (B-08) or a `Kobako::Handle` instance obtained from a prior dispatch (B-14) or `#run` auto-wrap (B-34). |
-| **Operation** | Guest code calls `<Namespace>::<Member>.respond_to?(:any_name)` on the Member constant, or `handle.respond_to?(:any_name)` on the Handle instance, for a name the proxy does not define locally. |
+| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `MyService::KV` (B-08) or a `Kobako::Handle` instance obtained from a prior dispatch (B-14) or `#run` auto-wrap (B-34). |
+| **Operation** | Guest code calls `MyService::KV.respond_to?(:any_name)` on the Member constant, or `handle.respond_to?(:any_name)` on the Handle instance, for a name the proxy does not define locally. |
 | **Result / Final State** | `respond_to?` returns `true` for every such probe, on both the Member constant and the Handle instance. The probe is answered entirely inside the guest — no Transport Request is sent. A following method call dispatches normally (B-12 for a Member, B-17 for a Handle). The answer is optimistic, not authoritative — `respond_to?` returns `true` because every call on a Member or Handle proxy is forwarded to the host, but it does not consult the host and does not confirm the bound object implements the method. An unimplemented method surfaces at dispatch as `type="runtime"` (E-11), distinct from the unresolvable-target `type="undefined"` (E-12 / E-13). Names the proxy defines locally resolve through their own methods and never reach this path. |
 
 ---
@@ -18,8 +18,8 @@ and append-only across the corpus (N-8).
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `<Namespace>::<Member>` (B-08) whose Host App binding is an object the guest reaches by calling methods on the constant (B-12). |
-| **Operation** | Guest code calls `<Namespace>::<Member>.new(...)` or `<Namespace>::<Member>.allocate` — any attempt to instantiate the Member constant. |
+| **Initial State** | A Sandbox executing mruby guest code. The guest holds a Member constant `MyService::KV` (B-08) whose Host App binding is an object the guest reaches by calling methods on the constant (B-12). |
+| **Operation** | Guest code calls `MyService::KV.new(...)` or `MyService::KV.allocate` — any attempt to instantiate the Member constant. |
 | **Result / Final State** | The call raises `NoMethodError` inside the guest. No instance is produced and no Transport Request is sent — the construction attempt never reaches the host. When the guest does not rescue it, the exception reaches the invocation top level and is attributed as `Kobako::SandboxError` per E-04, identical to any other uncaught guest exception. A Member is a dispatch target, not a constructible type; `new` and `allocate` are the two construction entries mruby exposes, and the proxy defines both locally as raising methods — so B-36's optimistic `respond_to?` answer does not apply to them. B-39 blocks the `Kobako::Handle` proxy through the same entries; a Handle is still constructed internally by the wire decoder (B-14 / B-34) through a path that bypasses these blocked Ruby entries. |
 
 ---

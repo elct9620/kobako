@@ -8,9 +8,9 @@ and append-only across the corpus (N-8).
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `<Namespace>::<Member>` (e.g., `MyService::KV`). The guest holds a reference to the constant `<Namespace>::<Member>` and calls a method on it. |
-| **Operation** | Guest code executes `<Namespace>::<Member>.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
-| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `<Namespace>::<Member>` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](../wire-codec.md) § Type Mapping) and reach `public_send` without further conversion. An unresolved target path surfaces per E-12; a method name that resolves to Ruby's ambient reflection / eval surface is rejected before dispatch (B-42). |
+| **Initial State** | A Sandbox executing mruby guest code. A Member is bound at `MyService::KV` (e.g., `MyService::KV`). The guest holds a reference to the constant `MyService::KV` and calls a method on it. |
+| **Operation** | Guest code executes `MyService::KV.method_name(arg1, arg2, key: value)` — a synchronous method call from within the mruby script. |
+| **Result / Final State** | The Host Gem resolves the target to the Ruby object bound at `MyService::KV` and invokes `object.public_send(:method_name, arg1, arg2, key: value)`. The Ruby return value is serialized and returned to the guest as the synchronous result of the call — from the guest's perspective, the call completes as an ordinary synchronous Ruby method invocation. Each dispatch invokes the bound object's method exactly once. Keyword argument names travel on the wire as Symbols (→ [`docs/wire-codec.md`](../wire-codec.md) § Type Mapping) and reach `public_send` without further conversion. An unresolved target path surfaces per E-12; a method name that resolves to Ruby's ambient reflection / eval surface is rejected before dispatch (B-42). |
 
 ---
 

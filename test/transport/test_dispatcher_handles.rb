@@ -16,7 +16,7 @@ class TestTransportDispatchHandles < Minitest::Test
   # type set (B-13) is automatically allocated a Catalog::Handles entry, and
   # the guest sees a Kobako::Handle in the Response.ok payload.
   def test_non_wire_return_value_is_wrapped_as_handle
-    @registry.define(:Factory).bind(:Make, ->(name) { greeter(name) })
+    @registry.bind("Factory::Make", ->(name) { greeter(name) })
     req = encode_request("Factory::Make", "call", ["Alice"], {})
 
     resp = decode_response(dispatch(req))
@@ -28,7 +28,7 @@ class TestTransportDispatchHandles < Minitest::Test
   end
 
   def test_primitive_return_value_is_not_wrapped
-    @registry.define(:Logger).bind(:Echo, ->(arg) { arg })
+    @registry.bind("Logger::Echo", ->(arg) { arg })
     req = encode_request("Logger::Echo", "call", ["plain"], {})
 
     resp = decode_response(dispatch(req))
@@ -49,7 +49,7 @@ class TestTransportDispatchHandles < Minitest::Test
       def greet = "hello,#{@name}"
     end.new("Alice")
     handle_id = alloc_id(greeter)
-    @registry.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g.greet}" })
+    @registry.bind("Echo::Wrap", ->(g) { "wrapped:#{g.greet}" })
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id)], {})
 
     resp = decode_response(dispatch(req))
@@ -63,7 +63,7 @@ class TestTransportDispatchHandles < Minitest::Test
     def obj.greet = "kw_ok"
     handle_id = alloc_id(obj)
     capture = []
-    @registry.define(:K).bind(:Run, target_kwarg_runner(capture))
+    @registry.bind("K::Run", target_kwarg_runner(capture))
     req = encode_request("K::Run", "run", [], { target: Kobako::Handle.restore(handle_id) })
 
     resp = decode_response(dispatch(req))
@@ -75,7 +75,7 @@ class TestTransportDispatchHandles < Minitest::Test
 
   def test_unknown_handle_arg_returns_undefined_exception
     req = encode_request("Logger::Echo", "call", [Kobako::Handle.restore(999)], {})
-    @registry.define(:Logger).bind(:Echo, ->(x) { x })
+    @registry.bind("Logger::Echo", ->(x) { x })
 
     resp = decode_response(dispatch(req))
 

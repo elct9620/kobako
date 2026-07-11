@@ -3,8 +3,8 @@
 //! Every invocation entry point consumes length-prefixed stdin frames
 //! (4-byte big-endian u32 length + payload — docs/wire-codec.md
 //! § Invocation channels): `read_frame` is the channel reader and
-//! `decode_preamble` parses Frame 1 (the host's Namespace Group /
-//! Member name lists every dispatching guest installs proxies from).
+//! `decode_preamble` parses Frame 1 (the flat list of bind paths every
+//! dispatching guest installs proxies from).
 //! Frame payload semantics that belong to a guest language — e.g. the
 //! bundled guest's Frame 3 snippet kinds (mruby source / RITE
 //! bytecode) — stay in the implementation crate; this module carries
@@ -34,41 +34,24 @@ fn read_frame_from<R: std::io::Read>(input: &mut R) -> Option<Vec<u8>> {
     Some(payload)
 }
 
-/// Decode the Frame 1 preamble: `[["Name", ["MemberA", ...]], ...]`.
-/// Each entry binds a Group name to its Member name list. Pure parser —
-/// host-buildable so the decoder can be unit-tested outside the wasm
-/// target.
-pub fn decode_preamble(bytes: &[u8]) -> Option<Vec<(String, Vec<String>)>> {
+/// Decode the Frame 1 preamble: a flat list of bind paths
+/// (`["MyService::KV", "File", ...]`). Each entry is the constant path a
+/// bound Service is installed at. Pure parser — host-buildable so the
+/// decoder can be unit-tested outside the wasm target.
+pub fn decode_preamble(bytes: &[u8]) -> Option<Vec<String>> {
     let mut dec = Decoder::new(bytes);
     let outer = dec.read_only_value().ok()?;
-    let outer_arr = match outer {
-        Value::Array(items) => items,
-        _ => return None,
+    let Value::Array(items) = outer else {
+        return None;
     };
-    let mut groups = Vec::with_capacity(outer_arr.len());
-    for item in outer_arr {
-        let pair = match item {
-            Value::Array(p) if p.len() == 2 => p,
+    let mut paths = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            Value::Str(s) => paths.push(s),
             _ => return None,
-        };
-        let group_name = match &pair[0] {
-            Value::Str(s) => s.clone(),
-            _ => return None,
-        };
-        let members_arr = match &pair[1] {
-            Value::Array(m) => m,
-            _ => return None,
-        };
-        let mut members = Vec::with_capacity(members_arr.len());
-        for m in members_arr {
-            match m {
-                Value::Str(s) => members.push(s.clone()),
-                _ => return None,
-            }
         }
-        groups.push((group_name, members));
     }
-    Some(groups)
+    Some(paths)
 }
 
 #[cfg(test)]
@@ -83,16 +66,14 @@ mod tests {
     }
 
     #[test]
-    fn decode_preamble_accepts_well_formed_groups() {
-        let bytes = encode(&Value::Array(vec![Value::Array(vec![
-            Value::Str("KV".into()),
-            Value::Array(vec![Value::Str("Get".into()), Value::Str("Set".into())]),
-        ])]));
+    fn decode_preamble_accepts_a_flat_path_list() {
+        let bytes = encode(&Value::Array(vec![
+            Value::Str("KV::Get".into()),
+            Value::Str("KV::Set".into()),
+            Value::Str("File".into()),
+        ]));
         let out = decode_preamble(&bytes).unwrap();
-        assert_eq!(
-            out,
-            vec![("KV".to_string(), vec!["Get".into(), "Set".into()])]
-        );
+        assert_eq!(out, vec!["KV::Get", "KV::Set", "File"]);
     }
 
     #[test]
@@ -102,11 +83,8 @@ mod tests {
     }
 
     #[test]
-    fn decode_preamble_rejects_non_string_group_name() {
-        let bytes = encode(&Value::Array(vec![Value::Array(vec![
-            Value::Int(1),
-            Value::Array(Vec::new()),
-        ])]));
+    fn decode_preamble_rejects_a_non_string_entry() {
+        let bytes = encode(&Value::Array(vec![Value::Int(1)]));
         assert!(decode_preamble(&bytes).is_none());
     }
 

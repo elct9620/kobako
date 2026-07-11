@@ -39,7 +39,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
   # surface a different outcome, not a JSON::GeneratorError.
   def test_b53_generate_refuses_a_bare_handle
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
-    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+    sandbox.bind("Source::Get", -> { Greeter.new })
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; JSON.generate(h)") }
 
@@ -52,7 +52,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
   # boundary fires.
   def test_b53_generate_refuses_a_handle_nested_in_an_as_json_result
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
-    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+    sandbox.bind("Source::Get", -> { Greeter.new })
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval(NESTED_HANDLE) }
 
@@ -67,7 +67,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
   # this pins shut.
   def test_b53_generate_refuses_a_handle_used_as_a_hash_key
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
-    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+    sandbox.bind("Source::Get", -> { Greeter.new })
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; JSON.generate({ h => 1 })") }
 
@@ -82,7 +82,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
   # error rather than the JSON::GeneratorError this asserts.
   def test_b53_calling_as_json_on_a_handle_raises_locally_without_host_dispatch
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
-    sandbox.define(:Source).bind(:Get, -> { Greeter.new })
+    sandbox.bind("Source::Get", -> { Greeter.new })
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; h.as_json") }
 

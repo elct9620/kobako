@@ -35,7 +35,7 @@ class TestParityValues < Parity::Case
     end
     assert_parity Parity::Scenario.new(
       name: "service-values", anchors: %w[B-13],
-      services: [{ namespace: "MyService", member: "KV", methods: }],
+      services: [{ name: "MyService::KV", methods: }],
       invocations: SERVICE_CONSTANTS.each_index.map { |i| { verb: "eval", source: "MyService::KV.value#{i}" } }
     )
   end
@@ -45,7 +45,7 @@ class TestParityValues < Parity::Case
   def test_echo_round_trip
     assert_parity Parity::Scenario.new(
       name: "echo-round-trip", anchors: %w[B-12 B-13],
-      services: [{ namespace: "MyService", member: "KV", methods: { echo: { behavior: "echo" } } }],
+      services: [{ name: "MyService::KV", methods: { echo: { behavior: "echo" } } }],
       invocations: [
         { verb: "eval", source: "MyService::KV.echo({ nested: [1, :a, { deep: true }] })" }
       ]

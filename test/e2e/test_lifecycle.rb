@@ -17,7 +17,7 @@ class TestE2ELifecycle < Minitest::Test
 
   def test_j02_setup_once_run_many_with_persistent_service_bindings
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Data).bind(:Fetch, ->(id) { "record:#{id}" })
+    sandbox.bind("Data::Fetch", ->(id) { "record:#{id}" })
 
     a = sandbox.eval('Data::Fetch.call("a")')
     b = sandbox.eval('Data::Fetch.call("b")')
@@ -89,7 +89,7 @@ class TestE2ELifecycle < Minitest::Test
 
   def test_j04_user_expression_evaluates_to_value_for_filter_logic
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Event).bind(:Amount, -> { 150 })
+    sandbox.bind("Event::Amount", -> { 150 })
 
     pass_branch = sandbox.eval("Event::Amount.call > 100")
     fail_branch = sandbox.eval("Event::Amount.call > 1000")

@@ -69,8 +69,7 @@ module Parity
     # A registration refused after the first invocation surfaces the
     # seal (B-33); the Ruby surface spells the refusal ArgumentError.
     def late_bind(sandbox, invocation)
-      sandbox.define(invocation.fetch(:namespace))
-             .bind(invocation.fetch(:member), Object.new)
+      sandbox.bind(invocation.fetch(:name), Object.new)
       { "status" => "ok", "value" => ValueTags.tag(nil) }
     rescue ArgumentError
       { "status" => "sealed" }

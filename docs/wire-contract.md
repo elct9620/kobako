@@ -21,13 +21,13 @@ Every host↔guest Transport request carries exactly five logical fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `target` | Member path (two-level string `"<Namespace>::<Member>"`, e.g. `"MyService::KV"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
+| `target` | Member path (constant-path string `"MyService::KV"`, or a single segment `"File"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ [`docs/wire-codec.md`](wire-codec.md) § Ext Types → ext 0x00); the host passes them to dispatch unchanged. Values, like `args` elements, may themselves be Capability Handle references. An empty kwargs map is always present (never absent) to keep field positions stable. |
 | `block_given` | bool | Whether the guest call site supplied a block. When `true`, the Host Gem materialises a Yielder and passes it to the resolved Service method as `&block` (B-23). When `false`, the Service method receives no block and `block_given?` returns `false`. The block body itself is never serialized — only this flag travels on the wire; the block remains inside the Guest Binary and is invoked through Yield Round-Trip. |
 
-The `target` string form uses Ruby constant-path syntax (`"<Namespace>::<Member>"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
+The `target` string form uses Ruby constant-path syntax (`"MyService::KV"`, or a top-level `"File"`) so the wire value is identical to the guest-side constant access expression — no cognitive translation between layers.
 
 ---
 

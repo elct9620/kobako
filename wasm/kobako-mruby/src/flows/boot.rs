@@ -17,7 +17,7 @@
 //! map to "service" — preloaded snippets are sandbox code.
 
 #[cfg(mruby_linked)]
-use crate::runtime::{InstallGroupsError, Kobako};
+use crate::runtime::{InstallError, Kobako};
 #[cfg(mruby_linked)]
 use beni::Ccontext;
 #[cfg(mruby_linked)]
@@ -111,7 +111,7 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 /// Read Frame 1 from stdin and decode it into the Group / Member list.
 /// Either step failing surfaces as a `boot_panic`.
 #[cfg(mruby_linked)]
-pub(super) fn read_preamble() -> Result<Vec<(String, Vec<String>)>, Panic> {
+pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
     kobako_core::frames::decode_preamble(&bytes)
@@ -177,22 +177,14 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
     }
 }
 
-/// Materialise the Group / Member proxy classes from the Frame 1
-/// `preamble` onto the invocation's VM.
+/// Materialise the `Kobako::Member` proxy classes from the Frame 1
+/// `paths` onto the invocation's VM.
 #[cfg(mruby_linked)]
-pub(super) fn install_preamble(
-    kobako: &Kobako,
-    preamble: &[(String, Vec<String>)],
-) -> Result<(), Panic> {
-    kobako.install_groups(preamble).map_err(|err| match err {
-        InstallGroupsError::NulInGroupName => {
-            boot_panic("namespace name contains an invalid character")
-        }
-        InstallGroupsError::NulInMemberName => {
-            boot_panic("member name contains an invalid character")
-        }
-        InstallGroupsError::Rejected(ref msg) => {
-            boot_panic(format!("namespace registration rejected: {msg}"))
+pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {
+    kobako.install_bindings(paths).map_err(|err| match err {
+        InstallError::NulInName => boot_panic("bind path segment contains an invalid character"),
+        InstallError::Rejected(ref msg) => {
+            boot_panic(format!("bind path registration rejected: {msg}"))
         }
     })
 }

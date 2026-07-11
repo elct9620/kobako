@@ -44,7 +44,6 @@ module Parity
 
     def build(scenario)
       sandbox = Kobako::Sandbox.new(wasm_path: @wasm_path, **sandbox_options(scenario.options))
-      scenario.defines.each { |name| sandbox.define(name) }
       scenario.services.each { |service| bind_service(sandbox, service) }
       scenario.preloads.each { |preload| apply_preload(sandbox, preload) }
       sandbox
@@ -53,8 +52,7 @@ module Parity
     private
 
     def bind_service(sandbox, service)
-      sandbox.define(service.fetch(:namespace))
-             .bind(service.fetch(:member), stub_object(service[:methods], service[:exposed]))
+      sandbox.bind(service.fetch(:name), stub_object(service[:methods], service[:exposed]))
     end
 
     # The closed preload-kind set. Snippet failures are invocation-time

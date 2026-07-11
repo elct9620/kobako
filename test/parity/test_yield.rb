@@ -8,7 +8,7 @@ require "test_helper"
 # escape hatches must observe identically through both frontends.
 class TestParityYield < Parity::Case
   YIELD_SERVICE = [
-    { namespace: "MyService", member: "KV",
+    { name: "MyService::KV",
       methods: { each: { behavior: "yield_each" },
                  answer: { behavior: "value", value: { t: "sym", v: "ok" } } } }
   ].freeze
@@ -56,8 +56,8 @@ class TestParityYield < Parity::Case
     assert_parity Parity::Scenario.new(
       name: "yield-nested-frames", anchors: %w[B-28],
       services: [
-        { namespace: "Outer", member: "A", methods: { each: { behavior: "yield_each" } } },
-        { namespace: "Inner", member: "B", methods: { each: { behavior: "yield_each" } } }
+        { name: "Outer::A", methods: { each: { behavior: "yield_each" } } },
+        { name: "Inner::B", methods: { each: { behavior: "yield_each" } } }
       ],
       invocations: [{ verb: "eval", source: B28_NESTED_SOURCE }]
     )

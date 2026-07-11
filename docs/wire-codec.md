@@ -51,7 +51,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 
 | Wire position | Accepted family | Violation handling |
 |---|---|---|
-| Request `target` field (Member constant path form `"<Namespace>::<Member>"`, e.g. `"MyService::KV"`) | str only | bin → wire violation, reject |
+| Request `target` field (Member constant path, e.g. `"MyService::KV"` or `"File"`) | str only | bin → wire violation, reject |
 | Request `method` field | str only | bin → wire violation, reject |
 | Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Response Fault Envelope `type` field value | str only | bin → wire violation, reject |
@@ -127,7 +127,7 @@ A 5-element msgpack array with fixed field positions:
 
 | Index | Field | Type |
 |-------|-------|------|
-| 0 | `target` | str (Member constant path of the form `"<Namespace>::<Member>"`, e.g. `"MyService::KV"`) or ext 0x01 (Capability Handle reference) |
+| 0 | `target` | str (Member constant path, e.g. `"MyService::KV"` or `"File"`) or ext 0x01 (Capability Handle reference) |
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
 | 3 | `kwargs` | map (Symbol keys as ext 0x00; values may include ext 0x01 Handles; empty kwargs is encoded as empty map `0x80`, never absent) |
@@ -284,7 +284,7 @@ Each invocation entry point consumes a fixed sequence of inputs across two host�
 
 Frame definitions:
 
-- **Frame 1 — preamble**: msgpack-encoded Service registration table (Namespace / Member metadata). Always present.
+- **Frame 1 — preamble**: msgpack-encoded Service registration table — a flat array of the bound constant paths (`["MyService::KV", "File"]`). Always present.
 - **Frame 2 — user source**: the `code` argument to `#eval`, as raw UTF-8 bytes. Read only by `__kobako_eval`. Loads with backtrace filename `(eval)`.
 - **Frame 3 — snippets**: msgpack array of snippet entries — one entry per snippet preloaded via `#preload` (B-32), in insertion order. **Mandatory-presence** even when empty: a Sandbox with no preloads sends an empty msgpack array, not an absent frame. Loads execute in insertion order before per-invocation logic (user source for `__kobako_eval`; entrypoint resolution for `__kobako_run`). The `kind` field carries one of two legal string values: `"source"` — entry shape `{name: <str>, kind: "source", body: <str>}` where `body` is UTF-8 mruby source and `name` is the filename the host writes into the compile ccontext before the guest compiles it; the guest loads the entry with backtrace filename `(snippet:<name>)`. Or `"bytecode"` — entry shape `{kind: "bytecode", body: <bin>}` where `body` is RITE bytecode bytes in the msgpack `bin` family; the entry carries no `name` field on the wire because the snippet's filename, when present, is read from the bytecode's embedded `debug_info` section by the guest at load time. A `"bytecode"` entry whose bytecode omits `debug_info` is a legal payload (B-32). Any other `kind` value, or a `"bytecode"` entry carrying a `name` field, is a wire violation.
 - **Invocation envelope** (`__kobako_run` only): msgpack map carrying entrypoint name + positional args + keyword args. Exact shape:

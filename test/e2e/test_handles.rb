@@ -20,7 +20,7 @@ class TestE2EHandles < Minitest::Test
   # next transport target → chain works.
   def test_handle_chain_b17_service_returns_handle_used_as_target
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
     result = sandbox.eval(<<~RUBY)
       g = Factory::Make.call("Bob")
@@ -38,8 +38,8 @@ class TestE2EHandles < Minitest::Test
   # (instance-level) registration — one assertion pins both paths.
   def test_b36_respond_to_probe_succeeds_on_member_and_handle
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:KV).bind(:Lookup, ->(key) { "value:#{key}" })
-    sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+    sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
+    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
     result = sandbox.eval(<<~RUBY)
       handle = Factory::Make.call("Bob")
@@ -63,7 +63,7 @@ class TestE2EHandles < Minitest::Test
   def test_b38_member_proxy_is_not_constructible
     ["Models::User.new", "Models::User.new(1, 2)", "Models::User.allocate"].each do |code|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-      sandbox.define(:Models).bind(:User, Greeter.new("bound"))
+      sandbox.bind("Models::User", Greeter.new("bound"))
 
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
 
@@ -105,7 +105,7 @@ class TestE2EHandles < Minitest::Test
   def test_b37_returned_handle_is_restored_to_the_original_host_object
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.bind("Source::Get", -> { greeter })
 
     result = sandbox.eval("Source::Get.call")
 
@@ -120,7 +120,7 @@ class TestE2EHandles < Minitest::Test
   def test_b37_returned_handle_is_restored_inside_nested_containers
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Source).bind(:Get, -> { greeter })
+    sandbox.bind("Source::Get", -> { greeter })
 
     result = sandbox.eval("g = Source::Get.call; { list: [g], pair: g }")
 
@@ -138,8 +138,8 @@ class TestE2EHandles < Minitest::Test
     greeter = Greeter.new("Bob")
     captured = nil
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Source).bind(:Get, -> { greeter })
-    sandbox.define(:Sink).bind(:Run, ->(&blk) { captured = blk.call })
+    sandbox.bind("Source::Get", -> { greeter })
+    sandbox.bind("Sink::Run", ->(&blk) { captured = blk.call })
 
     sandbox.eval("Sink::Run.call { Source::Get.call }")
 
@@ -155,8 +155,8 @@ class TestE2EHandles < Minitest::Test
   def test_b37_broken_handle_returns_to_guest_and_still_routes_to_host_object
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Source).bind(:Get, -> { greeter })
-    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+    sandbox.bind("Source::Get", -> { greeter })
+    sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
     result = sandbox.eval(
       "h = Source::Get.call; found = Probe::Each.call([1, 2, 3]) { |x| break h if x == 2 }; found.greet"

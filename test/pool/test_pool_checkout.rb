@@ -32,7 +32,7 @@ class TestPoolCheckout < Minitest::Test
     echo = Class.new do
       def call(value) = value
     end
-    pool = Kobako::Pool.new(slots: 1) { |sandbox| sandbox.define(:Pooled).bind(:Echo, echo.new) }
+    pool = Kobako::Pool.new(slots: 1) { |sandbox| sandbox.bind("Pooled::Echo", echo.new) }
     pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(1)") }
     assert_equal 2, pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(2)") },
                  "setup-block Service bindings through a reused pooled Sandbox must stay active (B-47)"

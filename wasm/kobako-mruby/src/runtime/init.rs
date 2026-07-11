@@ -52,7 +52,7 @@ impl Gem for KobakoBridge {
         let proxy_class = transport_mod.define_class(mrb, c"Proxy", object_class)?;
 
         // `Kobako::Member` — base of every bound-Member proxy installed via
-        // `Kobako::install_groups`. Member calls arrive class-level (the
+        // `Kobako::install_bindings`. Member calls arrive class-level (the
         // constant `MyService::KV` is a Member subclass), so `method_missing`
         // / `respond_to_missing?` are singleton-class methods routing to a
         // `Target::Path` derived from the class name. Subclasses inherit them

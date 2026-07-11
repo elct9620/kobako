@@ -15,7 +15,7 @@ class TestE2EYieldUnwind < Minitest::Test
 
   def test_b25_break_in_block_unwinds_service_to_break_value
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+    sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
     result = sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }")
 
@@ -26,7 +26,7 @@ class TestE2EYieldUnwind < Minitest::Test
 
   def test_b27_lambda_break_returns_value_silently
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
     # mruby treats lambda `break` as a silent normal return
     # (MRB_PROC_STRICT_P → NORMAL_RETURN, vm.c:2749) — `mrb->exc`
@@ -50,7 +50,7 @@ class TestE2EYieldUnwind < Minitest::Test
 
   def test_e21_proc_return_aimed_past_yield_boundary_raises_local_jump_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:OnceX, ->(x, &blk) { blk.call(x) })
+    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
     err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT) }
 
@@ -72,8 +72,8 @@ class TestE2EYieldUnwind < Minitest::Test
 
   def test_b28_nested_dispatch_frames_each_carry_their_own_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Probe).bind(:Outer, ->(items, &blk) { items.map(&blk) })
-    sandbox.define(:Probe).bind(:Inner, lambda { |items, &blk|
+    sandbox.bind("Probe::Outer", ->(items, &blk) { items.map(&blk) })
+    sandbox.bind("Probe::Inner", lambda { |items, &blk|
       items.each { |x| blk.call(x) }
       :inner_done
     })
@@ -101,7 +101,7 @@ class TestE2EYieldUnwind < Minitest::Test
       def stash(&block) = (@blk = block)
       def replay = @blk.call
     end.new
-    sandbox.define(:Probe).bind(:Stash, stash_service)
+    sandbox.bind("Probe::Stash", stash_service)
 
     err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT) }
 

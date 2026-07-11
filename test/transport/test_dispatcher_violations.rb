@@ -107,7 +107,7 @@ class TestTransportDispatchViolations < Minitest::Test
     # is explicitly intended for cap-exhaustion testing.
     exhausted = Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
     registry = Kobako::Catalog::Namespaces.new(handler: exhausted)
-    registry.define(:Factory).bind(:Make, object_factory)
+    registry.bind("Factory::Make", object_factory)
     req = encode_request("Factory::Make", "make", [], {})
 
     resp = decode_response(dispatch(req, server: registry, handler: exhausted))

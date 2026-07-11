@@ -237,7 +237,7 @@ mod tests {
 
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService", "KV", Arc::new(Echo));
+        catalog.bind("MyService::KV", Arc::new(Echo));
         CatalogHandler::new(Arc::new(catalog), Arc::default())
     }
 
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService", "Narrow", Arc::new(Narrowed));
+        catalog.bind("MyService::Narrow", Arc::new(Narrowed));
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default());
         let visible = request(
             Target::Path("MyService::Narrow".into()),

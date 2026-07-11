@@ -1,17 +1,25 @@
 module Kobako
   module Catalog
     class Namespaces
+      NAME_PATTERN: Regexp
+
       def initialize: (?handler: Kobako::Catalog::Handles) -> void
 
-      def define: (Symbol | String name) -> Kobako::Namespace
+      def bind: (Symbol | String path, untyped object) -> self
 
-      def lookup: (String target) -> untyped
+      def lookup: (Symbol | String target) -> untyped
 
       def encode: () -> String
 
       def seal!: () -> self
 
       def sealed?: () -> bool
+
+      private
+
+      def validate_path!: (Symbol | String path) -> String
+
+      def collision?: (String path) -> bool
     end
   end
 end

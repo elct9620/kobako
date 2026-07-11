@@ -28,7 +28,7 @@
 mod flows;
 mod runtime;
 
-pub use runtime::{InstallGroupsError, Kobako};
+pub use runtime::{InstallError, Kobako};
 
 use beni::{Error, Mrb};
 

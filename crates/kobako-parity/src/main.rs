@@ -72,14 +72,6 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     let mut sandbox = Sandbox::new(wasm_path, parse_options(&scenario["options"])?)
         .map_err(|err| format!("Sandbox construction failed: {err}"))?;
 
-    for namespace in scenario["defines"].as_array().unwrap_or(&Vec::new()) {
-        let name = namespace
-            .as_str()
-            .ok_or("defines entries must be strings")?;
-        sandbox
-            .define(name)
-            .map_err(|err| format!("define failed: {err}"))?;
-    }
     let mut opaques: Opaques = Vec::new();
     for service in scenario["services"].as_array().unwrap_or(&Vec::new()) {
         bind_service(&mut sandbox, service, &mut opaques)?;
@@ -146,12 +138,7 @@ fn bind_service(
     service: &Json,
     opaques: &mut Opaques,
 ) -> Result<(), String> {
-    let namespace = service["namespace"]
-        .as_str()
-        .ok_or("service must carry namespace")?;
-    let member = service["member"]
-        .as_str()
-        .ok_or("service must carry member")?;
+    let path = service["name"].as_str().ok_or("service must carry name")?;
     let mut methods = HashMap::new();
     if let Some(entries) = service["methods"].as_object() {
         for (name, behavior) in entries {
@@ -172,11 +159,7 @@ fn bind_service(
         None => None,
     };
     sandbox
-        .bind(
-            namespace,
-            member,
-            Arc::new(StubReceiver { methods, exposed }),
-        )
+        .bind(path, Arc::new(StubReceiver { methods, exposed }))
         .map_err(|err| format!("bind failed: {err}"))
 }
 
@@ -431,19 +414,14 @@ fn observe(
 /// A registration arriving after the first invocation: the seal
 /// refusal is the observable; a successful bind observes as ok.
 fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, Error>, String> {
-    let namespace = invocation["namespace"]
+    let path = invocation["name"]
         .as_str()
-        .ok_or("late_bind invocation must carry namespace")?;
-    let member = invocation["member"]
-        .as_str()
-        .ok_or("late_bind invocation must carry member")?;
+        .ok_or("late_bind invocation must carry name")?;
     let stub = StubReceiver {
         methods: HashMap::new(),
         exposed: None,
     };
-    Ok(sandbox
-        .bind(namespace, member, Arc::new(stub))
-        .map(|()| Value::Nil))
+    Ok(sandbox.bind(path, Arc::new(stub)).map(|()| Value::Nil))
 }
 
 /// The neutral parity status of each error variant, plus the guest

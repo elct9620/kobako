@@ -13,7 +13,7 @@ class TestParitySeal < Parity::Case
       name: "late-registration", anchors: %w[B-33],
       invocations: [
         { verb: "eval", source: "1" },
-        { verb: "late_bind", namespace: "LateService", member: "KV" }
+        { verb: "late_bind", name: "LateService::KV" }
       ]
     )
   end

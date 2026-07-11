@@ -8,7 +8,7 @@ require "test_helper"
 # Handles.
 class TestParityReflection < Parity::Case
   ECHO_SERVICE = [
-    { namespace: "MyService", member: "KV", methods: { echo: { behavior: "echo" } } }
+    { name: "MyService::KV", methods: { echo: { behavior: "echo" } } }
   ].freeze
 
   # SPEC.md B-42 / E-43: `send` / `instance_eval` on a bound Member

@@ -33,8 +33,8 @@ class TestE2EHandleArguments < Minitest::Test
   def record_handle_argument(greeter, code)
     recorder = Recorder.new
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Source).bind(:Get, -> { greeter })
-    sandbox.define(:Sink).bind(:Take, recorder)
+    sandbox.bind("Source::Get", -> { greeter })
+    sandbox.bind("Sink::Take", recorder)
     sandbox.eval(code)
     recorder
   end

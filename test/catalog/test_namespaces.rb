@@ -4,17 +4,17 @@
 # Ruby — does NOT require the native extension. Behavioural coverage that
 # needs a real Sandbox wiring (seal! triggered by the first invocation)
 # lives in test/sandbox/test_preload.rb; this file pins the registry
-# contract. The Kobako::Namespace entity is covered in
-# test/test_namespace.rb.
+# contract.
 #
 # Cross-references:
-#   - SPEC.md / docs/behavior/registration.md B-07 — Namespace declaration + name validation
-#   - SPEC.md / docs/behavior/registration.md B-08 — Member binding accepts class/instance/module
-#   - SPEC.md / docs/behavior/registration.md B-09 — Multiple Namespaces coexist independently
-#   - SPEC.md / docs/behavior/registration.md B-10 — define is idempotent
-#   - SPEC.md / docs/behavior/registration.md B-11 — Duplicate bind raises, existing binding preserved
-#   - SPEC.md / docs/behavior/errors.md E-16 — Malformed Namespace name
-#   - SPEC.md / docs/behavior/errors.md E-17 — Malformed Member name
+#   - SPEC.md / docs/behavior/registration.md B-08 — bind a Service at a
+#     constant path (1+ segments), accepts class/instance/module
+#   - SPEC.md / docs/behavior/registration.md B-09 — multiple Services
+#     coexist independently; siblings share a prefix
+#   - SPEC.md / docs/behavior/registration.md B-11 — duplicate or
+#     prefix-colliding path raises, existing binding preserved
+#   - SPEC.md / docs/behavior/errors.md E-16 — malformed path segment
+#   - SPEC.md / docs/behavior/errors.md E-45 — bind after the seal
 
 require "test_helper"
 
@@ -24,68 +24,44 @@ module Kobako
       @namespaces = Kobako::Catalog::Namespaces.new
     end
 
-    # ---------- B-07 / B-10: define returns Namespace; idempotent ----------
+    # ---------- B-08: bind resolves; returns self for chaining ----------
 
-    def test_define_returns_namespace_and_lookup_resolves_bound_member
+    def test_bind_resolves_a_multi_segment_path_and_chains
       logger = Object.new
       def logger.info(msg) = "logged:#{msg}"
 
-      namespace = @namespaces.define(:Logger)
-      assert_instance_of Namespace, namespace
-
-      chain = namespace.bind(:Info, logger)
-      assert_same namespace, chain, "bind must return self for chaining (B-08)"
+      chain = @namespaces.bind(:"Logger::Info", logger)
+      assert_same @namespaces, chain, "bind through the registry must return self for chaining (B-08)"
       assert_same logger, @namespaces.lookup("Logger::Info")
     end
 
-    def test_define_is_idempotent_returning_same_namespace_instance
-      first = @namespaces.define(:Auth)
-      first.bind(:Token, :original)
-
-      second = @namespaces.define(:Auth)
-      assert_same first, second
-      assert_equal :original, @namespaces.lookup("Auth::Token")
+    def test_bind_resolves_a_single_segment_top_level_path
+      fs = Object.new
+      @namespaces.bind("File", fs)
+      assert_same fs, @namespaces.lookup("File")
     end
 
-    def test_define_accepts_string_form
-      namespace = @namespaces.define("Logger")
-      assert_equal "Logger", namespace.name
-      namespace.bind("Info", :v)
-      assert_equal :v, @namespaces.lookup("Logger::Info")
+    def test_bind_accepts_symbol_and_string_paths
+      @namespaces.bind(:"Logger::Info", :sym)
+      @namespaces.bind("Auth::Token", :str)
+      assert_equal :sym, @namespaces.lookup("Logger::Info")
+      assert_equal :str, @namespaces.lookup("Auth::Token")
     end
 
-    # E-16: malformed Namespace names rejected at #define time.
-    def test_define_rejects_malformed_namespace_name
-      [:lower, :"Has-Dash", "9Numeric"].each do |bad|
-        assert_raises(ArgumentError) { @namespaces.define(bad) }
+    # E-16: a path with any malformed segment is rejected at bind time.
+    def test_bind_rejects_a_malformed_path_segment
+      ["lower::Ok", "Ok::lower", :"Has-Dash::X", "9Numeric", "A::", "::A", "A::B::"].each do |bad|
+        assert_raises(ArgumentError, "malformed path #{bad.inspect} must raise (E-16)") do
+          @namespaces.bind(bad, :obj)
+        end
       end
-    end
-
-    # B-07 Notes / E-18: define raises ArgumentError once Namespaces#seal!
-    # has fired. This is the mechanism Sandbox's first invocation rides on;
-    # the Sandbox-surface observable lives in test/sandbox/test_preload.rb.
-    def test_define_after_seal_raises
-      @namespaces.define(:Early)
-      @namespaces.seal!
-      err = assert_raises(ArgumentError) { @namespaces.define(:Late) }
-      assert_match(/after first Sandbox invocation/, err.message)
-    end
-
-    # B-33 / E-45: seal! propagates to every declared Namespace, so a Host
-    # App holding the Namespace reference cannot bind past the seal.
-    def test_seal_propagates_bind_rejection_to_declared_namespaces
-      namespace = @namespaces.define(:Early)
-      @namespaces.seal!
-
-      err = assert_raises(ArgumentError) { namespace.bind(:Late, :late) }
-      assert_match(/after first Sandbox invocation/, err.message)
     end
 
     # ---------- B-08: bind accepts class / instance / module uniformly ----------
 
-    def test_namespace_bind_accepts_class_instance_and_module
+    def test_bind_accepts_class_instance_and_module
       klass, instance, mod = b08_class_instance_module_triple
-      @namespaces.define(:Mixed).bind(:K, klass).bind(:I, instance).bind(:M, mod)
+      @namespaces.bind("Mixed::K", klass).bind("Mixed::I", instance).bind("Mixed::M", mod)
 
       assert_same klass,    @namespaces.lookup("Mixed::K")
       assert_same instance, @namespaces.lookup("Mixed::I")
@@ -99,54 +75,82 @@ module Kobako
       mod = Module.new do
         module_function
 
-              def ping = :mod
+        def ping = :mod
       end
       [klass, instance, mod]
     end
 
-    # ---------- B-09: multiple namespaces coexist; independent lookup ----------
+    # ---------- B-09: multiple Services coexist; siblings share a prefix ----------
 
-    def test_multiple_namespaces_resolve_independently
-      @namespaces.define(:Auth).bind(:Token, "tk")
-      @namespaces.define(:Logger).bind(:Info, "lg")
+    def test_multiple_services_resolve_independently
+      @namespaces.bind("Auth::Token", "tk")
+      @namespaces.bind("Logger::Info", "lg")
 
       assert_equal "tk", @namespaces.lookup("Auth::Token")
       assert_equal "lg", @namespaces.lookup("Logger::Info")
     end
 
-    # ---------- lookup error paths ----------
-
-    def test_lookup_raises_key_error_for_unknown_member
-      @namespaces.define(:Logger) # no members bound
-      err = assert_raises(KeyError) { @namespaces.lookup("Logger::Missing") }
-      assert_match(/Missing/, err.message)
+    def test_sibling_paths_under_a_shared_prefix_coexist
+      @namespaces.bind("KV::Get", :get)
+      @namespaces.bind("KV::Set", :set)
+      assert_equal :get, @namespaces.lookup("KV::Get")
+      assert_equal :set, @namespaces.lookup("KV::Set")
     end
 
-    def test_lookup_raises_key_error_for_unknown_namespace
-      err = assert_raises(KeyError) { @namespaces.lookup("Ghost::Member") }
-      assert_match(/Ghost/, err.message)
+    # ---------- B-11: duplicate / prefix collision raises ----------
+
+    def test_bind_rejects_an_exact_duplicate_path
+      @namespaces.bind("KV::Get", :first)
+      assert_raises(ArgumentError) { @namespaces.bind("KV::Get", :second) }
+      assert_equal :first, @namespaces.lookup("KV::Get"), "the existing binding must be preserved"
+    end
+
+    def test_bind_rejects_a_path_that_extends_an_existing_leaf
+      @namespaces.bind("KV", :leaf)
+      assert_raises(ArgumentError) { @namespaces.bind("KV::Get", :under) }
+    end
+
+    def test_bind_rejects_a_path_that_is_a_prefix_of_an_existing_binding
+      @namespaces.bind("KV::Get", :under)
+      assert_raises(ArgumentError) { @namespaces.bind("KV", :leaf) }
+    end
+
+    # ---------- seal / lookup error paths ----------
+
+    # E-45: bind raises ArgumentError once Namespaces#seal! has fired.
+    def test_bind_after_seal_raises
+      @namespaces.bind("Early::A", :a)
+      @namespaces.seal!
+      err = assert_raises(ArgumentError) { @namespaces.bind("Late::B", :b) }
+      assert_match(/after first Sandbox invocation/, err.message)
+    end
+
+    def test_lookup_raises_key_error_for_an_unbound_path
+      @namespaces.bind("Logger::Info", :v)
+      err = assert_raises(KeyError) { @namespaces.lookup("Logger::Missing") }
+      assert_match(/Logger::Missing/, err.message)
     end
   end
 
-  # Frame 1 wire shape: the preamble emitted by Namespaces#encode
-  # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot — every
-  # invocation after the seal ships the bindings that existed at that
-  # moment (B-07 Notes).
+  # Frame 1 wire shape: the flat preamble emitted by Namespaces#encode
+  # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot
+  # — every invocation after the seal ships the bindings that existed at
+  # that moment.
   class CatalogNamespacesPreambleTest < Minitest::Test
     def setup
       @namespaces = Kobako::Catalog::Namespaces.new
     end
 
-    def test_encoded_preamble_decodes_to_two_level_array_of_namespace_descriptors
-      @namespaces.define(:MyService).bind(:KV, :kv).bind(:Logger, :log)
-      @namespaces.define(:Auth).bind(:Token, :tk)
+    def test_encoded_preamble_decodes_to_a_flat_array_of_bind_paths
+      @namespaces.bind("MyService::KV", :kv).bind("MyService::Logger", :log)
+      @namespaces.bind("File", :fs)
 
       bytes = @namespaces.encode
       assert_kind_of String, bytes
       assert_equal Encoding::ASCII_8BIT, bytes.encoding
 
       decoded = MessagePack.unpack(bytes)
-      assert_equal [["MyService", %w[KV Logger]], ["Auth", %w[Token]]], decoded
+      assert_equal %w[MyService::KV MyService::Logger File], decoded
     end
 
     def test_encoded_preamble_empty_registry_is_valid_msgpack_array
@@ -154,36 +158,29 @@ module Kobako
       assert_equal [], decoded
     end
 
-    def test_encoded_preamble_with_only_empty_namespace_emits_empty_member_list
-      @namespaces.define(:Empty)
-      decoded = MessagePack.unpack(@namespaces.encode)
-      assert_equal [["Empty", []]], decoded
-    end
-
     def test_encoded_preamble_before_seal_reflects_new_bindings
-      namespace = @namespaces.define(:MyService).bind(:KV, :kv)
+      @namespaces.bind("MyService::KV", :kv)
       first = MessagePack.unpack(@namespaces.encode)
-      namespace.bind(:Logger, :log)
+      @namespaces.bind("MyService::Logger", :log)
 
-      assert_equal [["MyService", %w[KV]]], first
-      assert_equal [["MyService", %w[KV Logger]]], MessagePack.unpack(@namespaces.encode),
-                   "binding a member on an unsealed registry must surface in the next Frame 1 encode (B-08)"
+      assert_equal %w[MyService::KV], first
+      assert_equal %w[MyService::KV MyService::Logger], MessagePack.unpack(@namespaces.encode),
+                   "binding a Service on an unsealed registry must surface in the next Frame 1 encode (B-08)"
     end
 
-    # B-33 seals Service registration (B-07 / B-08) at the first
-    # invocation; B-07 Notes pin every later invocation to the bindings
-    # that existed at that moment. Binding past the seal raises (E-45),
-    # so the sealed Frame 1 preamble is stable by construction.
-    def test_encoded_preamble_after_seal_excludes_members_bound_later
-      namespace = @namespaces.define(:MyService).bind(:KV, :kv)
+    # B-33 seals Service registration (B-08) at the first invocation.
+    # Binding past the seal raises (E-45), so the sealed Frame 1 preamble
+    # is stable by construction.
+    def test_encoded_preamble_after_seal_excludes_paths_bound_later
+      @namespaces.bind("MyService::KV", :kv)
       @namespaces.seal!
       sealed_bytes = @namespaces.encode
 
-      assert_raises(ArgumentError) { namespace.bind(:Late, :late) }
+      assert_raises(ArgumentError) { @namespaces.bind("MyService::Late", :late) }
 
       assert_equal sealed_bytes, @namespaces.encode,
-                   "a bind rejected after the seal must not alter the Frame 1 preamble (B-07 / B-33 / E-45)"
-      assert_equal [["MyService", %w[KV]]], MessagePack.unpack(@namespaces.encode)
+                   "a bind rejected after the seal must not alter the Frame 1 preamble (B-33 / E-45)"
+      assert_equal %w[MyService::KV], MessagePack.unpack(@namespaces.encode)
     end
   end
 end

@@ -67,7 +67,7 @@ class TestDispatchGcSafety < Minitest::Test
 
     3.times do
       sandbox = Kobako::Sandbox.new
-      sandbox.define(:Probe).bind(:Each, ->(items, &blk) { items.each(&blk) })
+      sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
       # Force a compaction between Proc binding (in #initialize) and the
       # dispatch that uses it, so a moved-but-not-updated Proc is caught.

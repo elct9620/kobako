@@ -21,7 +21,7 @@ class TestE2EJourneys < Minitest::Test
   # and the Host App receives a deserialized return value.
   def test_j01_curated_capability_call_returns_deserialized_result
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:KV).bind(:Lookup, ->(key) { "value:#{key}" })
+    sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
 
     result = sandbox.eval(<<~RUBY)
       KV::Lookup.call("user_42")
@@ -86,7 +86,7 @@ class TestE2EJourneys < Minitest::Test
   # SPEC.md L157: Service capability call that errors → ServiceError.
   def test_j01_capability_error_raises_service_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+    sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval(<<~RUBY)
@@ -104,7 +104,7 @@ class TestE2EJourneys < Minitest::Test
   # would surface as ServiceError with no debugging context at all.
   def test_j01_unrescued_service_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Log).bind(:Sink, ->(_msg) { raise "capability denied" })
+    sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval(<<~RUBY)
@@ -124,7 +124,7 @@ class TestE2EJourneys < Minitest::Test
   def test_j05_developer_distinguishes_three_error_classes
     sandbox_a = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox_b = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox_b.define(:Svc).bind(:Call, ->(_) { raise "service exploded" })
+    sandbox_b.bind("Svc::Call", ->(_) { raise "service exploded" })
 
     # SPEC.md L215: SandboxError — script-level fault.
     assert_raises(Kobako::SandboxError) do
@@ -147,7 +147,7 @@ class TestE2EJourneys < Minitest::Test
 
   def test_j06_block_yielding_service_maps_each_element_through_the_guest_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Service).bind(:MyEach, ->(items, &blk) { items.map { |x| blk.call(x) } })
+    sandbox.bind("Service::MyEach", ->(items, &blk) { items.map { |x| blk.call(x) } })
 
     result = sandbox.eval("Service::MyEach.call([1, 2, 3]) { |x| x * 2 }")
 

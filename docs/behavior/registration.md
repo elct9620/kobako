@@ -5,7 +5,7 @@ surface. The governing summary lives in [`SPEC.md`](../../SPEC.md)
 § Behavior; this file is the per-anchor reference. `B-xx` anchors are global
 and append-only across the corpus (N-8).
 
-## B-07 — retired
+## B-07 (retired)
 
 B-07 is a retired anchor — permanently reserved and never reassigned (N-8).
 
@@ -31,7 +31,7 @@ B-07 is a retired anchor — permanently reserved and never reassigned (N-8).
 
 ---
 
-## B-10 — retired
+## B-10 (retired)
 
 B-10 is a retired anchor — permanently reserved and never reassigned (N-8).
 

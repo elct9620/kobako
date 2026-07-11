@@ -107,14 +107,18 @@ module Kobako
       reset_invocation_state!
     end
 
-    # Declare or retrieve the Namespace named +name+ on this Sandbox. +name+
-    # must be a Symbol or String in constant form. Returns the
-    # +Kobako::Namespace+.
+    # Bind +object+ as the Service reachable at +path+ — a Symbol or
+    # String of one or more +::+-separated constant-form segments
+    # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
+    # chaining.
     #
-    # Raises +ArgumentError+ when called after the first invocation, or
-    # when +name+ does not match the constant-name pattern.
-    def define(name)
-      @services.define(name)
+    # Raises +ArgumentError+ when a segment is malformed, when +path+
+    # collides with an existing binding (a name is a bound Service or a
+    # grouping prefix, never both), or when called after the first
+    # invocation has sealed Service registration.
+    def bind(path, object)
+      @services.bind(path, object)
+      self
     end
 
     # Register a snippet on this Sandbox in one of two forms:

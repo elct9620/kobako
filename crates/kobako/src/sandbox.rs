@@ -141,21 +141,11 @@ impl Sandbox {
         })
     }
 
-    /// Declare a Namespace (idempotent). Refused once sealed.
-    pub fn define(&mut self, namespace: &str) -> Result<(), Error> {
-        self.registry.open_mut()?.define(namespace);
-        Ok(())
-    }
-
-    /// Bind a host object as `<namespace>::<member>`, declaring the
-    /// Namespace when absent. Refused once sealed.
-    pub fn bind(
-        &mut self,
-        namespace: &str,
-        member: &str,
-        object: Arc<dyn Receiver>,
-    ) -> Result<(), Error> {
-        self.registry.open_mut()?.bind(namespace, member, object);
+    /// Bind a host object as the Service reachable at `path` — a
+    /// constant path of one or more `::`-separated segments
+    /// (`"MyService::KV"` or a top-level `"File"`). Refused once sealed.
+    pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
+        self.registry.open_mut()?.bind(path, object);
         Ok(())
     }
 

@@ -134,7 +134,7 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 | Term | Meaning |
 |------|---------|
 | Sandbox | The runtime unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. |
-| Service | A host object injected under `<Namespace>::<Member>` — the guest's only path to host resources. |
+| Service | A host object bound at a constant-path name (`MyService::KV`) — the guest's only path to host resources. |
 | Namespace / Member | A guest-visible Ruby module, and a named binding (a module constant) within it. |
 | Invocation | One `#eval` or `#run`; capability state resets between invocations. |
 | Snippet | Named mruby code (source or bytecode) replayed into a fresh state before every invocation. |
@@ -145,7 +145,7 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 
 ### Services
 
-Declare a Namespace, then `bind` any Ruby object as a Member; the guest reaches it as a `<Namespace>::<Member>` proxy and invokes its public methods through the Transport wire. See [`docs/behavior/registration.md`](docs/behavior/registration.md) B-07..B-12.
+`bind` any Ruby object as a Service at a constant-path name; the guest reaches it as a `MyService::KV` (or top-level `File`) proxy and invokes its public methods through the Transport wire. See [`docs/behavior/registration.md`](docs/behavior/registration.md) B-08..B-12.
 
 ```ruby
 class User
@@ -156,8 +156,8 @@ class User
   end
 end
 
-sandbox.define(:Project).bind(:User,   User.new(name: "alice"))
-sandbox.define(:KV)     .bind(:Lookup, ->(key) { redis.get(key) })
+sandbox.bind("Project::User", User.new(name: "alice"))
+sandbox.bind("KV::Lookup",     ->(key) { redis.get(key) })
 
 sandbox.eval(<<~RUBY)
   Project::User.name         # => "alice"
@@ -165,7 +165,7 @@ sandbox.eval(<<~RUBY)
 RUBY
 ```
 
-Names must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#define` raises `ArgumentError`.
+Each `::`-separated path segment must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#bind` raises `ArgumentError`.
 
 ### Output Capture
 
@@ -240,7 +240,7 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
    ───────────── setup phase (mutable) ─────────────
 
      sandbox = Kobako::Sandbox.new
-     sandbox.define(:KV).bind(:Lookup, ...)
+     sandbox.bind("KV::Lookup", ...)
      sandbox.preload(code: ..., name: :Adder)
      sandbox.preload(code: ..., name: :Greeter)
 
@@ -249,7 +249,7 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
    ═════════════════ seal point ═════════════════
    First #eval or #run freezes the Service registry
-   and snippet table. Further define / preload now
+   and snippet table. Further bind / preload now
    raise ArgumentError.
 
                           │
@@ -286,7 +286,7 @@ For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set 
 
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
-  sandbox.define(:KV).bind(:Lookup, ->(key) { redis.get(key) })
+  sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
 end
 
 pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))) }
@@ -304,7 +304,7 @@ Sandboxes construct lazily on first demand. `#with` yields a Sandbox with empty 
 A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch. See [`docs/behavior/yield.md`](docs/behavior/yield.md) B-23..B-30.
 
 ```ruby
-sandbox.define(:Seq).bind(:Map, ->(items, &blk) { items.map(&blk) })
+sandbox.bind("Seq::Map", ->(items, &blk) { items.map(&blk) })
 
 sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }')
 # => [2, 4, 6]
@@ -320,7 +320,7 @@ class Greeter
   def greet            = "hi, #{@name}"
 end
 
-sandbox.define(:Factory).bind(:Make, ->(name) { Greeter.new(name) })
+sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
 sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-trip inside guest)
 sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
@@ -395,7 +395,7 @@ class ThemeReader          # only #color is reachable; AppConfig.secret_key is n
 end
 
 sandbox = Kobako::Sandbox.new
-sandbox.define(:Cfg).bind(:Settings, ThemeReader.new)  # not: bind(:Settings, AppConfig)
+sandbox.bind("Cfg::Settings", ThemeReader.new)  # not: bind("Cfg::Settings", AppConfig)
 
 sandbox.eval('Cfg::Settings.color')  # => "#3366ff"  — every other method raises NoMethodError
 ```

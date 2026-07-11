@@ -20,7 +20,7 @@ class TestTransportFaultPosition < Minitest::Test
   # ---------- E-50 — inbound Request path ----------
 
   def test_request_carrying_fault_in_args_is_rejected_as_malformed
-    @registry.define(:Echo).bind(:Id, ->(x) { x })
+    @registry.bind("Echo::Id", ->(x) { x })
     # Hand-crafted via the bare codec: the raw wire tool stays permissive,
     # the positional rule lives on the envelope decode.
     req = Kobako::Codec::Encoder.encode(["Echo::Id", "call", [FAULT], {}, false])
@@ -49,7 +49,7 @@ class TestTransportFaultPosition < Minitest::Test
   # ---------- outbound — Fault has no wire representation in payload positions ----------
 
   def test_fault_return_value_is_wrapped_as_handle
-    @registry.define(:Errors).bind(:Last, -> { FAULT })
+    @registry.bind("Errors::Last", -> { FAULT })
     req = encode_request("Errors::Last", "call", [], {})
 
     resp = decode_response(dispatch(req))

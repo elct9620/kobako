@@ -17,7 +17,7 @@ class TestDispatchGadgetReturn < Minitest::Test
   def setup
     @handler    = Kobako::Catalog::Handles.new
     @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
-    @namespaces.define(:Cfg).bind(:S, Service.new)
+    @namespaces.bind("Cfg::S", Service.new)
     @namespaces.seal!
     @yield = ->(_bytes) { raise "no block" }
   end

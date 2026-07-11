@@ -310,7 +310,7 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 | B-35 | Per-last-invocation usage observability via `#usage` | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
 | B-36 | Guest-side `respond_to?` probing on Member / Handle proxies | [`behavior/security.md`](docs/behavior/security.md) |
 | B-37 | Guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
-| B-38 | The guest's inability to construct a Member proxy (`<Namespace>::<Member>.new` / `.allocate` raise `NoMethodError`, attributed via E-04) | [`behavior/security.md`](docs/behavior/security.md) |
+| B-38 | The guest's inability to construct a Member proxy (`MyService::KV.new` / `.allocate` raise `NoMethodError`, attributed via E-04) | [`behavior/security.md`](docs/behavior/security.md) |
 | B-39 | The same construction block extended to the `Kobako::Handle` proxy | [`behavior/security.md`](docs/behavior/security.md) |
 | B-40 | The host's ABI-version validation of the Guest Binary at construction | [`behavior/runtime.md`](docs/behavior/runtime.md) |
 | B-41 | Guest-side regexp matching as a guest-internal compute capability that projects to wire types when a result crosses the boundary | [`behavior/security.md`](docs/behavior/security.md) |

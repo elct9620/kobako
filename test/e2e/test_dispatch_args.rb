@@ -16,7 +16,7 @@ class TestE2EDispatchArgs < Minitest::Test
       define_method(:lookup) { |name:, region:| "#{region}/#{name}" }
     end
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Geo).bind(:Lookup, klass.new)
+    sandbox.bind("Geo::Lookup", klass.new)
 
     result = sandbox.eval('Geo::Lookup.lookup(name: "alice", region: "us")')
 
@@ -27,7 +27,7 @@ class TestE2EDispatchArgs < Minitest::Test
   # SPEC.md L1001 + E-15: empty kwargs path also exercised.
   def test_empty_kwargs_dispatch_to_no_kwargs_method
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Math).bind(:Pi, -> { 3.14 })
+    sandbox.bind("Math::Pi", -> { 3.14 })
 
     result = sandbox.eval("Math::Pi.call")
 
@@ -45,7 +45,7 @@ class TestE2EDispatchArgs < Minitest::Test
       define_method(:get) { |id, auth:| "#{id}:#{auth}" }
     end
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Http).bind(:Client, klass.new)
+    sandbox.bind("Http::Client", klass.new)
 
     result = sandbox.eval('Http::Client.get("u", auth: "tok")')
 
@@ -73,7 +73,7 @@ class TestE2EDispatchArgs < Minitest::Test
 
   def test_rpc_arg_unknown_type_uses_to_s_not_inspect
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg })
+    sandbox.bind("Sym::Echo", ->(arg) { arg })
 
     result = sandbox.eval(TRANSPORT_PROBE_SCRIPT)
 
@@ -87,7 +87,7 @@ class TestE2EDispatchArgs < Minitest::Test
   # as a Ruby Symbol (not as the +to_s+ string form).
   def test_rpc_arg_symbol_arrives_as_symbol
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:Sym).bind(:Echo, ->(arg) { arg.is_a?(Symbol) ? "sym:#{arg}" : "str:#{arg}" })
+    sandbox.bind("Sym::Echo", ->(arg) { arg.is_a?(Symbol) ? "sym:#{arg}" : "str:#{arg}" })
 
     result = sandbox.eval("Sym::Echo.call(:user_42)")
 
@@ -103,7 +103,7 @@ class TestE2EDispatchArgs < Minitest::Test
   # +nil+ inside the guest.
   def test_rpc_service_returning_array_arrives_as_array_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:KV).bind(:Keys, -> { %w[a b c] })
+    sandbox.bind("KV::Keys", -> { %w[a b c] })
 
     result = sandbox.eval("KV::Keys.call.length")
 
@@ -117,7 +117,7 @@ class TestE2EDispatchArgs < Minitest::Test
   # the host arrive as Symbols on the guest side.
   def test_rpc_service_returning_hash_arrives_as_hash_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:KV).bind(:Snapshot, -> { { a: 1, b: 2 } })
+    sandbox.bind("KV::Snapshot", -> { { a: 1, b: 2 } })
 
     result = sandbox.eval("KV::Snapshot.call[:a]")
 
@@ -135,7 +135,7 @@ class TestE2EDispatchArgs < Minitest::Test
   def test_rpc_nested_array_of_hash_round_trip
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []
-    sandbox.define(:Echo).bind(:Identity, ->(arg) { arg.tap { seen << arg } })
+    sandbox.bind("Echo::Identity", ->(arg) { arg.tap { seen << arg } })
 
     result = sandbox.eval("Echo::Identity.call([{x: 1}, {y: 2}])")
 
@@ -157,7 +157,7 @@ class TestE2EDispatchArgs < Minitest::Test
   def test_rpc_array_arg_ignores_guest_overridden_length
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []
-    sandbox.define(:Echo).bind(:Identity, ->(arg) { arg.tap { seen << arg } })
+    sandbox.bind("Echo::Identity", ->(arg) { arg.tap { seen << arg } })
 
     result = sandbox.eval(OVERRIDDEN_LENGTH_SCRIPT)
 

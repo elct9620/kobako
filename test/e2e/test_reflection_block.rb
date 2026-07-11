@@ -15,7 +15,7 @@ class TestE2EReflectionBlock < Minitest::Test
 
   def sandbox_with_fn
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.define(:KV).bind(:Fn, ->(x) { x * 2 })
+    sandbox.bind("KV::Fn", ->(x) { x * 2 })
     sandbox
   end
 

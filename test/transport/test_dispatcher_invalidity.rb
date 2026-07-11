@@ -53,7 +53,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
     # arg resolution fails when the id misses B's Catalog::Handles.
     handle_id_in_a = foreign_handle_id(Object.new)
     server_b, table_b = sandbox_b
-    server_b.define(:Echo).bind(:Wrap, ->(g) { "wrapped:#{g}" })
+    server_b.bind("Echo::Wrap", ->(g) { "wrapped:#{g}" })
 
     req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
     resp = decode_response(dispatch(req, server: server_b, handler: table_b))

@@ -10,7 +10,7 @@ require "test_helper"
 # both executors tag a crossed object by its identity.
 class TestParityHandles < Parity::Case
   OPAQUE_SERVICE = [
-    { namespace: "Factory", member: "Make",
+    { name: "Factory::Make",
       methods: { make: { behavior: "opaque", label: "bob" },
                  read_label: { behavior: "read_label" } } }
   ].freeze

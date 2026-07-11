@@ -22,9 +22,8 @@ class TestDispatchMethodAllowlist < Minitest::Test
   def setup
     @handler    = Kobako::Catalog::Handles.new
     @namespaces = Kobako::Catalog::Namespaces.new(handler: @handler)
-    cfg = @namespaces.define(:Cfg)
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new }
-      .each { |name, service| cfg.bind(name, service) }
+      .each { |name, service| @namespaces.bind("Cfg::#{name}", service) }
     @namespaces.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
