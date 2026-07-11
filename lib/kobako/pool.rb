@@ -24,7 +24,7 @@ module Kobako
     # seconds (+nil+ waits indefinitely); every other keyword is
     # forwarded verbatim to +Kobako::Sandbox.new+. The optional block
     # runs exactly once per constructed Sandbox — it is the setup window
-    # for +#define+ / +#preload+ before that Sandbox's first checkout.
+    # for +#bind+ / +#preload+ before that Sandbox's first checkout.
     # No Sandbox is constructed here. Raises +ArgumentError+ for an
     # invalid +slots+ / +checkout_timeout+.
     def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)

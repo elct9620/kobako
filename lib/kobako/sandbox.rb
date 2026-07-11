@@ -179,15 +179,15 @@ module Kobako
     #
     # Source delivery uses the WASI stdin three-frame protocol
     # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]):
-    # Frame 1 carries the msgpack-encoded preamble (Namespace / Member
-    # registry snapshot), Frame 2 carries the user source UTF-8 bytes, and
+    # Frame 1 carries the msgpack-encoded preamble (Service registry
+    # snapshot), Frame 2 carries the user source UTF-8 bytes, and
     # Frame 3 carries the snippet table registered via +#preload+.
     # Each frame is prefixed by a 4-byte big-endian u32 length; Frame 3 is
     # mandatory-presence — an empty snippet table sends an empty msgpack
     # array, never an absent frame.
     #
     # The first invocation seals the Service registry and snippet table;
-    # subsequent +#define+ / +#preload+ calls raise +ArgumentError+.
+    # subsequent +#bind+ / +#preload+ calls raise +ArgumentError+.
     #
     # Raises +Kobako::TrapError+ on a Wasm trap or wire-violation fallback;
     # +Kobako::SandboxError+ when the guest ran to completion but failed
