@@ -169,3 +169,17 @@ E-33 is scoped to `code:` form snippets: duplicate `code:` form names would prod
 The backtrace filename `(snippet:Name)` is the locator that ties a replay failure back to the specific `#preload` call; stripped `binary:` payloads omit the frame per B-32.
 
 Subsequent invocations on the same Sandbox replay the same bytecode into the canonical boot state (B-49) and raise the same `Kobako::BytecodeError` deterministically (B-33 seals the table). Bytecode that loads structurally but lacks `debug_info` is not a structural failure — see B-32 for its observable effect on backtrace attribution.
+
+---
+
+### Extension errors (`#install`)
+
+These error scenarios are specific to the `#install` setup verb (B-55..B-57). Each is a Host App programming error — a malformed Extension, a call after the seal, or an incomplete dependency set — raised as `ArgumentError` synchronously without engaging the attribution pipeline. Because `#install` composes `#preload` and `#bind`, a malformed `name` or `backend.path` surfaces through those verbs' own errors (E-34 for a non-constant snippet name, E-16 for a non-constant bind segment); the anchors below cover the shape checks specific to the Extension contract.
+
+| # | Trigger | Detection point | Raised class |
+|---|---------|-----------------|--------------|
+| E-51 | `#install` is called after the first invocation (`#eval` or `#run`) — registration is sealed per B-33 | host pre-flight | `ArgumentError` |
+| E-52 | An installed Extension names in `depends_on` an Extension that was not installed; detected when the first invocation seals the registries (B-57), before the guest runs, naming the missing dependency | host, at first-invocation seal | `ArgumentError` |
+| E-53 | An Extension is malformed for `#install`: its `source` is absent or not a String, or its `backend` is present but does not expose both `path` and `provider` | host pre-flight | `ArgumentError` |
+
+E-53 covers the Extension-shape checks `#preload` / `#bind` do not: `source` is mandatory (the install/bind boundary — a host object with no guest idiom is bound with `#bind`, not installed), and a present `backend` must expose a `path` / `provider` pair (duck-typed, like the Extension itself). A malformed `name` reuses E-34 and a malformed `backend.path` reuses E-16, since `#install` routes them through `#preload` and `#bind` respectively.
