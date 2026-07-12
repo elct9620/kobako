@@ -16,6 +16,17 @@ def stats_require_cloc!
   abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
 end
 
+# A module split into implementation and inline test LOC for the roll-up
+# and detail summary. The gem's tests live in test/ (external), so its
+# test share is left unmeasured rather than counting its ext crate's few
+# inline lines as the whole gem's test story.
+def stats_module_split(mod)
+  totals = KobakoStats.measure(mod[:paths], root: STATS_ROOT)
+  test = mod[:slug] == "gem" ? nil : KobakoStats.rust_test_loc(mod[:paths], root: STATS_ROOT)
+  impl = test.nil? ? totals[:code] : totals[:code] - test
+  { name: mod[:name], impl: impl, test: test, comment: totals[:comment] }
+end
+
 desc "Report code statistics per architectural tier (rails-stats-style; not in release gate)."
 task :stats do
   stats_require_cloc!
@@ -36,15 +47,13 @@ task :stats do
 end
 
 namespace :stats do
-  desc "Report code sizes per publishable module (the gem + each Cargo workspace member; not in release gate)."
+  desc "Report per-module code split into impl and inline test LOC (gem + each crate; not in release gate)."
   task :all do
     stats_require_cloc!
 
     tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
-    rows = KobakoRoster.modules(tracked).map do |mod|
-      KobakoStats.measure(mod[:paths], root: STATS_ROOT).merge(name: mod[:name])
-    end
-    puts KobakoStats.grid(rows)
+    rows = KobakoRoster.modules(tracked).map { |mod| stats_module_split(mod) }
+    puts KobakoStats.module_roll_up(rows)
   end
 
   # One +rake stats:<slug>+ per module (run +rake stats:all+ for the
@@ -57,6 +66,8 @@ namespace :stats do
 
       puts "#{mod[:name]}:"
       puts KobakoStats.grid(KobakoStats.measure_languages(mod[:paths], root: STATS_ROOT))
+      split = stats_module_split(mod)
+      puts KobakoStats.module_summary(impl: split[:impl], test: split[:test])
     end
   end
 end
