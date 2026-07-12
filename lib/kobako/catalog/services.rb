@@ -65,6 +65,18 @@ module Kobako
         @bindings[target_str]
       end
 
+      # Replace the object bound at an already-registered +path+ without the
+      # collision or seal checks +#bind+ applies. +Catalog::Extensions+ calls
+      # this during +begin_invocation!+ to swap a callable backend provider's
+      # per-invocation result behind a path whose Frame 1 membership was
+      # fixed at the seal. A path that was never registered is left untouched,
+      # so the sealed key set can never grow here.
+      def refresh(path, object)
+        key = path.to_s
+        @bindings[key] = object if @bindings.key?(key)
+        self
+      end
+
       # Encode the preamble as msgpack bytes for stdin Frame 1 delivery —
       # a flat array of the bound constant paths, in bind order:
       # +["MyService::KV", "File"]+. Routes through Kobako::Codec::Encoder

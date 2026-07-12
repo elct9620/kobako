@@ -9,6 +9,8 @@ module Kobako
 
       def lookup: (Symbol | String target) -> untyped
 
+      def refresh: (Symbol | String path, untyped object) -> self
+
       def encode: () -> String
 
       def seal!: () -> self

@@ -1,0 +1,25 @@
+module Kobako
+  module Catalog
+    class Extensions
+      def initialize: () -> void
+
+      def install: (untyped extension, snippets: Kobako::Catalog::Snippets, services: Kobako::Catalog::Services) -> self
+
+      def seal!: () -> self
+
+      def refresh_backends!: (Kobako::Catalog::Services services) -> self
+
+      private
+
+      def refresh_backend: (untyped extension, Kobako::Catalog::Services services, Hash[untyped, untyped] resolved) -> void
+
+      def validate!: (untyped extension) -> void
+
+      def assert_dependencies!: () -> void
+
+      def callable?: (untyped provider) -> bool
+
+      def initial_object: (untyped provider) -> untyped
+    end
+  end
+end

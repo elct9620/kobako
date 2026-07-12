@@ -48,29 +48,21 @@ module Kobako
     # so use +#stdout_truncated?+ to observe overflow. Populated on every
     # outcome — including a rescued +TrapError+, after which it holds the
     # bytes written before the trap fired — mirroring +#usage+.
-    def stdout
-      @stdout_capture.bytes
-    end
+    def stdout = @stdout_capture.bytes
 
     # Returns the bytes the guest wrote to stderr during the most recent
     # invocation as a UTF-8 String, clipped at +stderr_limit+. Empty before
     # any invocation. Mirror of +#stdout+.
-    def stderr
-      @stderr_capture.bytes
-    end
+    def stderr = @stderr_capture.bytes
 
     # Returns +true+ iff stdout capture during the most recent invocation
     # exceeded +stdout_limit+. Resets to +false+ at the start of the next
     # invocation.
-    def stdout_truncated?
-      @stdout_capture.truncated?
-    end
+    def stdout_truncated? = @stdout_capture.truncated?
 
     # Returns +true+ iff stderr capture during the most recent invocation
     # exceeded +stderr_limit+. Mirror of +#stdout_truncated?+.
-    def stderr_truncated?
-      @stderr_capture.truncated?
-    end
+    def stderr_truncated? = @stderr_capture.truncated?
 
     # Returns the +Kobako::Usage+ value object for the most recent
     # invocation. Carries +wall_time+ (Float seconds the guest export call spent
@@ -102,6 +94,7 @@ module Kobako
       @handler = Catalog::Handles.new
       @services = Kobako::Catalog::Services.new(handler: @handler)
       @snippets = Catalog::Snippets.new
+      @extensions = Catalog::Extensions.new
       @runtime = build_runtime!
       install_dispatch_proc!
       reset_invocation_state!
@@ -118,6 +111,22 @@ module Kobako
     # invocation has sealed Service registration.
     def bind(path, object)
       @services.bind(path, object)
+      self
+    end
+
+    # Install one or more Extensions — each a guest idiom (+source+) paired
+    # with an optional host +backend+, composed onto the Sandbox through
+    # +#preload+ and +#bind+. An Extension is any object exposing
+    # +name+ / +source+ / +backend+ / +depends_on+; +Kobako::Extension+ is
+    # the bundled value type. Returns +self+.
+    #
+    # Raises +ArgumentError+ for a malformed Extension, a call after the
+    # first invocation seals registration, or — at that first invocation —
+    # an unmet +depends_on+.
+    def install(*extensions)
+      raise ArgumentError, "cannot install after first Sandbox invocation" if @services.sealed?
+
+      extensions.each { |extension| @extensions.install(extension, snippets: @snippets, services: @services) }
       self
     end
 
@@ -241,14 +250,18 @@ module Kobako
       end
     end
 
-    # Per-invocation prologue. Seals the Service / snippet registries on
-    # first call (idempotent) and zeros the per-invocation capability
+    # Per-invocation prologue. Seals the Service / snippet / Extension
+    # registries on first call (idempotent — asserting Extension
+    # dependencies then), refreshes each callable Extension backend to this
+    # invocation's fresh object, and zeros the per-invocation capability
     # state — capture buffers, truncation predicates, and the
     # +Catalog::Handles+ counter — before the guest runs. The
     # +Catalog::Handles+ itself is held as +@handler+ and never exposed
     # beyond this class — it is not part of the Host App's surface.
     def begin_invocation!
       @services.seal!
+      @extensions.seal!
+      @extensions.refresh_backends!(@services)
       @handler.reset!
       reset_invocation_state!
     end

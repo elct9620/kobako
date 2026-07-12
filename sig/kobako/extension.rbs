@@ -1,0 +1,20 @@
+module Kobako
+  class Extension < Data
+    attr_reader name: Symbol
+    attr_reader source: String
+    attr_reader backend: Kobako::Extension::Backend?
+    attr_reader depends_on: Array[Symbol]
+
+    def self.new: (name: Symbol, source: String, ?backend: Kobako::Extension::Backend?, ?depends_on: Array[Symbol]) -> Kobako::Extension
+
+    def initialize: (name: Symbol, source: String, ?backend: Kobako::Extension::Backend?, ?depends_on: Array[Symbol]) -> void
+
+    class Backend < Data
+      attr_reader path: String
+      attr_reader provider: untyped
+
+      def self.new: (path: String, provider: untyped) -> Kobako::Extension::Backend
+                  | (String path, untyped provider) -> Kobako::Extension::Backend
+    end
+  end
+end

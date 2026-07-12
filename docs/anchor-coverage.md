@@ -50,10 +50,10 @@ where the behavior is actually verified:
 
 ```
 E-10 E-26
-B-55 B-56 B-57 E-51 E-52 E-53
+E-51
 ```
 
-- **B-55 B-56 B-57 E-51 E-52 E-53** — the Extension mechanism's behavior anchors, defined ahead of their witnesses: the `#install` E2E (B-55 / B-56) and the `#install` setup-error unit tests (B-57 / E-51 / E-52 / E-53) are in flight. Each entry drops from this list as its citing test lands.
+- **E-51** — `#install` after the first invocation seals registration is reachable only through a live Sandbox (the seal fires inside `#eval` / `#run`), so it is pinned by the `#install` E2E rather than a pure-registry unit test; the entry drops once that E2E lands.
 - **E-10** — the official guest never presents an invalid wire payload
   in a dispatch position (`kobako-mruby` only re-emits Handles it
   received), so no `test/` scenario reaches the rejection; the

@@ -31,6 +31,8 @@ module Kobako
 
     def bind: (Symbol | String path, untyped object) -> Kobako::Sandbox
 
+    def install: (*untyped extensions) -> Kobako::Sandbox
+
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
 
