@@ -11,13 +11,15 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
 use kobako::{
-    Error, Fault, FaultKind, Handles, Options, Profile, Receiver, RunArg, Sandbox, Value, Yielder,
+    Backend, Error, Extension, Fault, FaultKind, Handles, Options, Profile, Provider, Receiver,
+    RunArg, Sandbox, Value, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -79,6 +81,9 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     for preload in scenario["preloads"].as_array().unwrap_or(&Vec::new()) {
         apply_preload(&mut sandbox, preload)?;
     }
+    for extension in scenario["extensions"].as_array().unwrap_or(&Vec::new()) {
+        install_extension(&mut sandbox, extension)?;
+    }
 
     let invocations = scenario["invocations"]
         .as_array()
@@ -113,6 +118,103 @@ fn apply_preload(sandbox: &mut Sandbox, preload: &Json) -> Result<(), String> {
         other => return Err(format!("unknown preload kind {other:?}")),
     }
     .map_err(|err| format!("preload failed: {err}"))
+}
+
+/// Install an Extension from its scenario spec: a preloaded source plus an
+/// optional stub backend. depends_on stays empty here — the dependency
+/// assertion is per-frontend setup surface, not a differential observable.
+fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), String> {
+    let name = extension["name"]
+        .as_str()
+        .ok_or("extension must carry name")?
+        .to_string();
+    let source = extension["source"]
+        .as_str()
+        .ok_or("extension must carry source")?
+        .to_string();
+    let backend = match extension.get("backend") {
+        None | Some(Json::Null) => None,
+        Some(spec) => {
+            spec["path"].as_str().ok_or("backend must carry path")?;
+            build_provider(spec)?; // validate the provider shape at install
+            Some(spec.clone())
+        }
+    };
+    sandbox
+        .install(Arc::new(ScenarioExtension {
+            name,
+            source,
+            backend,
+        }))
+        .map_err(|err| format!("install failed: {err}"))
+}
+
+/// A scenario-driven Extension. `backend` rebuilds a fresh `Backend` on
+/// each call so a `per_invocation` provider's overlay resolves a fresh
+/// stub, mirroring the Ruby executor's `-> { stub_object(...) }`.
+struct ScenarioExtension {
+    name: String,
+    source: String,
+    backend: Option<Json>,
+}
+
+impl Extension for ScenarioExtension {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn source(&self) -> &str {
+        &self.source
+    }
+
+    fn backend(&self) -> Option<Backend> {
+        self.backend.as_ref().map(|spec| Backend {
+            path: spec["path"]
+                .as_str()
+                .expect("backend path validated at install")
+                .to_string(),
+            provider: build_provider(spec).expect("provider validated at install"),
+        })
+    }
+}
+
+/// Build a backend Provider from its spec: `fixed` binds one stub for the
+/// Sandbox's life; `per_invocation` captures the method spec and rebuilds a
+/// fresh stub each invocation, so a stateful `counter` resets between
+/// invocations.
+fn build_provider(backend: &Json) -> Result<Provider, String> {
+    match backend["provider"].as_str() {
+        Some("fixed") => Ok(Provider::Static(Arc::new(build_backend_stub(
+            &backend["methods"],
+        )?))),
+        Some("per_invocation") => {
+            let methods = backend["methods"].clone();
+            build_backend_stub(&methods)?; // validate; the closure rebuilds
+            Ok(Provider::PerInvocation(Arc::new(move || {
+                Arc::new(build_backend_stub(&methods).expect("methods validated at install"))
+                    as Arc<dyn Receiver>
+            })))
+        }
+        other => Err(format!("unknown provider kind {other:?}")),
+    }
+}
+
+/// Parse a backend's methods into a fresh StubReceiver — fresh state per
+/// build, so a `counter` resets when a `per_invocation` provider rebuilds
+/// it. Backends use the stateless / counter behaviors; opaque / read_label
+/// need the shared capability registry and are not backend behaviors.
+fn build_backend_stub(methods: &Json) -> Result<StubReceiver, String> {
+    let mut discard = Vec::new();
+    let mut parsed = HashMap::new();
+    if let Some(entries) = methods.as_object() {
+        for (name, behavior) in entries {
+            parsed.insert(name.clone(), parse_behavior(behavior, &mut discard)?);
+        }
+    }
+    Ok(StubReceiver {
+        methods: parsed,
+        exposed: None,
+    })
 }
 
 fn parse_options(options: &Json) -> Result<Options, String> {
@@ -191,6 +293,10 @@ enum Behavior {
     /// Answer with the label of the opaque object a (possibly
     /// Array-nested) Handle argument resolves to.
     ReadLabel,
+    /// A per-instance counter returning 1, 2, 3, ... on successive calls;
+    /// stateful, so a `per_invocation` backend that rebuilds it resets to 1
+    /// while a `fixed` backend keeps counting.
+    Counter(AtomicU64),
 }
 
 fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, String> {
@@ -214,6 +320,7 @@ fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, St
             Ok(Behavior::Opaque(register_opaque(opaques, label)))
         }
         Some("read_label") => Ok(Behavior::ReadLabel),
+        Some("counter") => Ok(Behavior::Counter(AtomicU64::new(0))),
         other => Err(format!("unknown stub behavior {other:?}")),
     }
 }
@@ -293,6 +400,9 @@ impl Receiver for StubReceiver {
             Some(Behavior::YieldEach) => yield_each(args, block),
             Some(Behavior::Opaque(object)) => handles.alloc(object.clone()),
             Some(Behavior::ReadLabel) => read_label(args, handles),
+            Some(Behavior::Counter(count)) => {
+                Ok(Value::Int(count.fetch_add(1, Ordering::Relaxed) as i64 + 1))
+            }
             None => Err(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{method} is not a Service method"),

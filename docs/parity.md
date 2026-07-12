@@ -89,7 +89,7 @@ the parity harness's target surface:
 ```
 B-01 B-02 B-03 B-04 B-06 B-12 B-13 B-14 B-16 B-17 B-18 B-20
 B-23 B-24 B-25 B-26 B-27 B-28 B-29 B-30 B-31 B-32 B-33 B-34 B-35 B-37
-B-42 B-43 B-45 B-49 B-50
+B-42 B-43 B-45 B-49 B-50 B-55 B-56
 E-01 E-04 E-05 E-06 E-11 E-12 E-13 E-15 E-19 E-20 E-21 E-22 E-23
 E-27 E-28 E-32 E-36 E-37 E-38 E-43 E-44 E-48
 ```
@@ -127,10 +127,14 @@ E-01 E-23 B-18 E-13 B-43 E-44
 - **Language surface** — setup-time validation (`ArgumentError` /
   `TypeError` shapes), host pre-flight refusals, `Kobako::Pool`, option
   readers, construction failures (E-16..E-18, E-24, E-25, E-29, E-30,
-  E-33..E-35, E-39..E-42, E-45..E-47, E-49, B-05, B-07..B-11, B-19,
-  B-22, B-33's exception class, B-40, B-46..B-48, B-54): each frontend
-  spells these in its own idiom; the seal's *timing* (B-33) stays in
-  the manifest, its spelling does not. The hermetic family does
+  E-33..E-35, E-39..E-42, E-45..E-47, E-49, E-51..E-53, B-05,
+  B-07..B-11, B-19, B-22, B-33's exception class, B-40, B-46..B-48,
+  B-54, B-57): each frontend spells these in its own idiom; the seal's
+  *timing* (B-33) stays in the manifest, its spelling does not. The
+  Extension install composition and its backend provider resolution
+  (B-55 / B-56) are in the manifest — a differential install scenario
+  runs them through both frontends — while the dependency assertion
+  (B-57) and the install-error shapes (E-51..E-53) stay per-frontend. The hermetic family does
   exercise the successful profile *switch* (B-54) — a requested posture
   resolves identically on both frontends — leaving only its
   floor-refusal spelling per-frontend.

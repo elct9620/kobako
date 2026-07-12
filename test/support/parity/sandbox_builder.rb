@@ -35,6 +35,10 @@ module Parity
           arg = arg.first while arg.is_a?(Array)
           arg.label
         }
+      },
+      "counter" => lambda { |_behavior|
+        count = 0
+        ->(*, **) { count += 1 }
       }
     }.freeze
 
@@ -46,10 +50,38 @@ module Parity
       sandbox = Kobako::Sandbox.new(wasm_path: @wasm_path, **sandbox_options(scenario.options))
       scenario.services.each { |service| bind_service(sandbox, service) }
       scenario.preloads.each { |preload| apply_preload(sandbox, preload) }
+      scenario.extensions.each { |extension| install_extension(sandbox, extension) }
       sandbox
     end
 
     private
+
+    # An Extension composes a preloaded source with an optional stub
+    # backend. A +fixed+ provider binds one stub for the Sandbox's life; a
+    # +per_invocation+ provider hands back a fresh stub each invocation, so
+    # a stateful backend (a +counter+) resets between invocations.
+    def install_extension(sandbox, extension)
+      backend = extension[:backend]
+      sandbox.install(
+        Kobako::Extension.new(
+          name: extension.fetch(:name).to_sym,
+          source: extension.fetch(:source),
+          backend: backend && extension_backend(backend),
+          depends_on: (extension[:depends_on] || []).map(&:to_sym)
+        )
+      )
+    end
+
+    def extension_backend(backend)
+      methods = backend[:methods]
+      provider =
+        case backend.fetch(:provider)
+        when "fixed" then stub_object(methods, nil)
+        when "per_invocation" then -> { stub_object(methods, nil) }
+        else raise ArgumentError, "unknown provider kind: #{backend.inspect}"
+        end
+      Kobako::Extension::Backend.new(path: backend.fetch(:path), provider: provider)
+    end
 
     def bind_service(sandbox, service)
       sandbox.bind(service.fetch(:name), stub_object(service[:methods], service[:exposed]))
