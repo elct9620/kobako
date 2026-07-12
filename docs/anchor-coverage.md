@@ -5,8 +5,8 @@ contract's witnesses — the test that verifies an anchor names it. This
 instrument reads that convention back as data: the per-anchor citation
 profile shows which contracts are thickly pinned, which are thin, and
 which have no witness at all. The profile is a signal for choosing
-where to spend maintenance effort; only the two rules under Coverage
-gate block.
+where to spend maintenance effort; only the rules under Coverage gate
+block.
 
 ## Mechanism
 
@@ -40,7 +40,27 @@ is signal, not gate:
 
 - a defined anchor has **zero citing files** under `test/` and is not
   listed under Pending anchors;
-- a Pending anchor **is cited** by a test — the entry is stale, drop it.
+- a Pending anchor **is cited** by a test — the entry is stale, drop it;
+- an anchor listed under **E2E-witnessed anchors** has no citing file
+  under `test/e2e/` — its invocation-boundary contract needs a witness
+  that drives the real guest, not a unit citation alone.
+
+## E2E-witnessed anchors
+
+An anchor whose contract is observable only across the invocation
+boundary — a guest-visible effect, or a raise at the first invocation —
+can be cited by a unit test that drives the collaborator in isolation
+while no test walks the real `install` / `#eval` path. The citation gate
+alone would pass over that unwalked seam, so these anchors require at
+least one citing file under `test/e2e/`, the suite that drives
+`data/kobako.wasm`:
+
+```
+B-55 B-56 E-51 E-52
+```
+
+The rule forces an end-to-end witness to exist; whether that witness
+walks the whole seam stays a review concern.
 
 ## Pending anchors
 
@@ -61,3 +81,14 @@ E-10 E-26
   envelope through the public API; guest-entry shape validation is
   pinned by the `parse_invocation` unit tests in
   `wasm/kobako-mruby/src/flows/run.rs` (`rake wasm:test`).
+
+## Frontend witness asymmetries
+
+The profile scans `test/**/*.rb` only; the Rust SDK's witnesses under
+`crates/**/tests/` are not cross-checked here. Two install-error anchors
+are deliberately not held to a matching Rust witness: **E-53** (malformed
+Extension shape) is unrepresentable through the Rust SDK's typed
+`Extension` / `Backend` API, so it has no Rust witness by construction;
+**E-51** (install after the seal) holds on both frontends, but the Rust
+side is pinned by a registry-level unit test rather than a
+through-the-SDK one.
