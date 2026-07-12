@@ -382,6 +382,34 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
 
 Use the source form for snippets authored in your repo; use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Both replay through the same per-invocation path, so no snippet content failure surfaces at `#preload` — force the first replay with a no-op invocation (e.g. `sandbox.eval("nil")`) when you want validation before real traffic.
 
+### Extensions
+
+An Extension teaches the guest a native-style constant by pairing a guest idiom (`source`) with an optional host `backend`. `Sandbox#install` composes the two through the existing `#preload` and `#bind` verbs, adding no wire or Guest Binary surface: pure operations run in-guest with no round-trip, while the rest dispatch to the backend under the same isolation and reflection guarantees as any bound Service ([`docs/extensions.md`](docs/extensions.md), [`docs/behavior/extension.md`](docs/behavior/extension.md) B-55..B-57).
+
+```ruby
+FILE = <<~'MRUBY'
+  class File < Kobako::Member
+    def self.basename(path) = path.split("/").last || ""  # pure: runs in-guest
+    # read / write are undefined here, so they dispatch to the backend
+  end
+MRUBY
+
+sandbox.install(
+  Kobako::Extension.new(
+    name: :File,
+    source: FILE,
+    backend: Kobako::Extension::Backend.new(
+      path: "File",
+      provider: -> { OverlayFileSystem.new(root) }  # callable → fresh per invocation
+    )
+  )
+)
+
+sandbox.eval('File.read("sample.txt")')  # dispatches to the backend's #read
+```
+
+The `backend.provider` sets the bound object's lifetime: a fixed object is shared across every invocation, while a callable is invoked once per invocation to yield a fresh object — the form a writable backend needs, so its state cannot leak across calls. kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked `File` that reads through to disk while protecting it from guest writes.
+
 ## Security
 
 kobako isolates the guest, but **what it may reach is whatever you `bind`** — and `bind`
