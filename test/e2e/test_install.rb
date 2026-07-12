@@ -120,7 +120,11 @@ class TestE2EInstall < Minitest::Test
 
     assert_equal "a/b", sandbox.eval('File.join("a", "b")'),
                  "a pure method runs even with no backend bound (B-55)"
-    assert_raises(Kobako::ServiceError) { sandbox.eval('File.read("x")') }
+    assert_raises(Kobako::ServiceError,
+                  "a privileged method must fail closed as an undefined-target ServiceError " \
+                  "when no backend is bound for the idiom (B-55)") do
+      sandbox.eval('File.read("x")')
+    end
   end
 
   private
