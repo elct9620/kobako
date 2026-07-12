@@ -11,6 +11,7 @@
 mod catalog;
 mod dispatch;
 pub mod error;
+pub mod extension;
 pub mod handles;
 mod outcome;
 pub mod receiver;
@@ -19,6 +20,7 @@ mod snippet;
 pub mod yielder;
 
 pub use error::{Error, GuestFailure};
+pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
 pub use kobako_codec::codec::Value;
 pub use kobako_runtime::profile::Profile;

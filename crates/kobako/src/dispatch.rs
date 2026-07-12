@@ -24,11 +24,23 @@ use crate::yielder::Yielder;
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
     handles: Arc<Mutex<HandleTable>>,
+    /// This invocation's Extension backend objects, resolved ahead of the
+    /// sealed Catalog so a `PerInvocation` provider's fresh object serves
+    /// its path while Frame 1 stays fixed.
+    overlay: Vec<(String, Arc<dyn Receiver>)>,
 }
 
 impl CatalogHandler {
-    pub(crate) fn new(catalog: Arc<Catalog>, handles: Arc<Mutex<HandleTable>>) -> Self {
-        CatalogHandler { catalog, handles }
+    pub(crate) fn new(
+        catalog: Arc<Catalog>,
+        handles: Arc<Mutex<HandleTable>>,
+        overlay: Vec<(String, Arc<dyn Receiver>)>,
+    ) -> Self {
+        CatalogHandler {
+            catalog,
+            handles,
+            overlay,
+        }
     }
 
     fn handle(&self, request: &Request, channel: &mut dyn RawYielder) -> Response {
@@ -71,9 +83,15 @@ impl CatalogHandler {
     /// `undefined` fault the guest re-raises.
     fn resolve_target(&self, target: &Target) -> Result<Arc<dyn Receiver>, Fault> {
         match target {
-            Target::Path(path) => self.catalog.lookup(path).ok_or_else(|| {
-                Fault::new(FaultKind::Undefined, format!("unknown constant {path}"))
-            }),
+            Target::Path(path) => self
+                .overlay
+                .iter()
+                .find(|(bound, _)| bound == path)
+                .map(|(_, object)| object.clone())
+                .or_else(|| self.catalog.lookup(path))
+                .ok_or_else(|| {
+                    Fault::new(FaultKind::Undefined, format!("unknown constant {path}"))
+                }),
             Target::Handle(id) => self
                 .handles
                 .lock()
@@ -238,7 +256,7 @@ mod tests {
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
         catalog.bind("MyService::KV", Arc::new(Echo));
-        CatalogHandler::new(Arc::new(catalog), Arc::default())
+        CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
     fn roundtrip(request: &Request) -> Response {
@@ -336,6 +354,29 @@ mod tests {
         );
     }
 
+    // The Extension per-invocation overlay resolves a path ahead of the
+    // sealed Catalog: the placeholder bound at install (Echo, no `label`)
+    // is shadowed by the overlay's fresh object.
+    #[test]
+    fn overlay_resolves_a_path_ahead_of_the_sealed_catalog() {
+        let mut catalog = Catalog::default();
+        catalog.bind("File", Arc::new(Echo));
+        let handler = CatalogHandler::new(
+            Arc::new(catalog),
+            Arc::default(),
+            vec![(
+                "File".to_string(),
+                Arc::new(Tagged("fresh")) as Arc<dyn Receiver>,
+            )],
+        );
+        let req = request(Target::Path("File".into()), "label", vec![]);
+        assert_eq!(
+            roundtrip_on(&handler, &req, &mut NoYield),
+            Response::Ok(Value::Str("fresh".into())),
+            "a per-invocation overlay must resolve a path ahead of the sealed Catalog"
+        );
+    }
+
     #[test]
     fn allocated_handle_routes_the_next_dispatch_to_its_object() {
         let handler = handler();
@@ -388,7 +429,7 @@ mod tests {
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
         catalog.bind("MyService::Narrow", Arc::new(Narrowed));
-        let handler = CatalogHandler::new(Arc::new(catalog), Arc::default());
+        let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
             Target::Path("MyService::Narrow".into()),
             "echo",
@@ -411,7 +452,7 @@ mod tests {
     fn narrowing_predicate_applies_to_a_handle_target() {
         let handles: Arc<Mutex<HandleTable>> = Arc::default();
         let id = handles.lock().unwrap().alloc(Arc::new(Narrowed)).unwrap();
-        let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles);
+        let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles, Vec::new());
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);
         assert_eq!(
             roundtrip_on(&handler, &visible, &mut NoYield),

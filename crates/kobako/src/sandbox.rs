@@ -24,6 +24,7 @@ use kobako_wasmtime::{Config, Driver};
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::{Error, GuestFailure};
+use crate::extension::{install_object, Extension, Extensions};
 use crate::handles::{HandleTable, Handles};
 use crate::outcome;
 use crate::receiver::Receiver;
@@ -112,6 +113,7 @@ impl From<Value> for RunArg {
 pub struct Sandbox {
     driver: Driver,
     registry: Registry,
+    extensions: Extensions,
     handles: Arc<Mutex<HandleTable>>,
     stdout: Capture,
     stderr: Capture,
@@ -134,6 +136,7 @@ impl Sandbox {
         Ok(Sandbox {
             driver,
             registry: Registry::Open(Catalog::default()),
+            extensions: Extensions::default(),
             handles: Arc::default(),
             stdout: Capture::default(),
             stderr: Capture::default(),
@@ -146,6 +149,24 @@ impl Sandbox {
     /// (`"MyService::KV"` or a top-level `"File"`). Refused once sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         self.registry.open_mut()?.bind(path, object);
+        Ok(())
+    }
+
+    /// Install an Extension — a guest idiom (`source`) paired with an
+    /// optional host backend — composing it over `preload` and `bind`. A
+    /// `Static` provider binds its object directly; a `PerInvocation`
+    /// provider is resolved fresh at every invocation. Refused once the
+    /// first invocation seals registration; an Extension whose `depends_on`
+    /// names one that was not installed surfaces at that first invocation.
+    pub fn install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error> {
+        let catalog = self.registry.open_mut()?;
+        catalog
+            .snippets
+            .register_source(extension.name(), extension.source())?;
+        if let Some(backend) = extension.backend() {
+            catalog.bind(&backend.path, install_object(&backend.provider));
+        }
+        self.extensions.record(extension);
         Ok(())
     }
 
@@ -173,7 +194,7 @@ impl Sandbox {
     /// Run one mruby source on a fresh guest instance and return its
     /// last expression as a decoded wire `Value`.
     pub fn eval(&mut self, source: &str) -> Result<Value, Error> {
-        let catalog = self.begin_invocation();
+        let catalog = self.begin_invocation()?;
         self.invoke(
             catalog,
             Entry::Eval {
@@ -206,7 +227,7 @@ impl Sandbox {
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));
         }
-        let catalog = self.begin_invocation();
+        let catalog = self.begin_invocation()?;
         let args = args
             .into_iter()
             .map(|arg| self.wrap_run_arg(arg))
@@ -235,9 +256,10 @@ impl Sandbox {
     /// through the driver, and read the snapshot — one owner for the
     /// wiring so a handler or frame change cannot drift between verbs.
     fn invoke(&mut self, catalog: Arc<Catalog>, entry: Entry<'_>) -> Result<Value, Error> {
+        let overlay = self.extensions.overlay();
         let preamble = catalog.preamble();
         let snippets = catalog.snippets.frame();
-        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone()));
+        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone(), overlay));
         let snapshot = self.driver.invoke(
             entry,
             Frames {
@@ -259,14 +281,18 @@ impl Sandbox {
         Handles::new(&self.handles).resolve(value)
     }
 
-    /// Per-invocation prologue: seal the registration tables and clear
-    /// the Handle table so no Handle survives the boundary.
-    fn begin_invocation(&mut self) -> Arc<Catalog> {
+    /// Per-invocation prologue: seal the registration tables, assert
+    /// Extension dependencies on the first invocation, and clear the Handle
+    /// table so no Handle survives the boundary. An unmet dependency raises
+    /// before the guest runs.
+    fn begin_invocation(&mut self) -> Result<Arc<Catalog>, Error> {
         self.handles
             .lock()
             .expect("the Handle table mutex is never poisoned")
             .reset();
-        self.registry.seal()
+        let catalog = self.registry.seal();
+        self.extensions.assert_dependencies()?;
+        Ok(catalog)
     }
 
     /// Encode one `run` argument, auto-wrapping a host object into the
