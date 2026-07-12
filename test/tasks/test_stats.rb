@@ -33,6 +33,21 @@ class KobakoStatsTest < Minitest::Test
                  "empty cloc output through sum must yield an all-zero totals row")
   end
 
+  def test_by_language_lists_each_language_heaviest_first_without_header_or_sum
+    assert_equal(
+      [{ name: "Ruby", files: 36, blank: 441, comment: 312, code: 1249 },
+       { name: "Rust", files: 6, blank: 40, comment: 95, code: 353 }],
+      Stats.by_language(CLOC_JSON),
+      "a cloc JSON report through by_language must yield one row per language, heaviest first, " \
+      "dropping the header and SUM sections"
+    )
+  end
+
+  def test_by_language_of_empty_cloc_output_is_no_rows
+    assert_empty Stats.by_language(""),
+                 "empty cloc output through by_language must yield no language rows"
+  end
+
   def test_non_implementation_artifacts_are_excluded
     %w[Gemfile.lock crates/Cargo.lock docs/diagram.svg data/.keep
        benchmark/results/2026-07-01-abc1234.json benchmark/baseline.json].each do |path|

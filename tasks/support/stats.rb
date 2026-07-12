@@ -30,18 +30,31 @@ module KobakoStats
   end
 
   # Count the git-tracked files under +paths+ with cloc, returning one
-  # totals row. +--force-lang+ folds +sig/*.rbs+ signatures into Ruby,
-  # which cloc does not recognize on its own.
+  # totals row for the tier or per-module roll-up.
   def measure(paths, root:)
+    sum(run_cloc(paths, root: root))
+  end
+
+  # The per-language rows under +paths+, heaviest first — a single
+  # module's composition for its +rake stats:<slug>+ detail table.
+  def measure_languages(paths, root:)
+    by_language(run_cloc(paths, root: root))
+  end
+
+  # Run cloc over the git-tracked files under +paths+, returning its raw
+  # +--json+ text (empty when no tracked file matches, which cloc emits
+  # nothing for). +--force-lang+ folds +sig/*.rbs+ signatures into Ruby,
+  # which cloc does not recognize on its own.
+  def run_cloc(paths, root:)
     files = tracked_files(paths, root: root)
-    return ZERO_ROW if files.empty?
+    return "" if files.empty?
 
     Tempfile.create("kobako-stats") do |list|
       list.puts(files)
       list.flush
       output, = Open3.capture2("cloc", "--list-file=#{list.path}", "--json",
                                "--quiet", "--force-lang=Ruby,rbs", chdir: root)
-      sum(output)
+      output
     end
   end
 
@@ -58,6 +71,17 @@ module KobakoStats
     totals = json_text.strip.empty? ? {} : JSON.parse(json_text).fetch("SUM", {})
     { files: totals.fetch("nFiles", 0), blank: totals.fetch("blank", 0),
       comment: totals.fetch("comment", 0), code: totals.fetch("code", 0) }
+  end
+
+  # The per-language rows of a cloc +--json+ report — every language
+  # section except the +header+ and +SUM+ totals, heaviest first.
+  def by_language(json_text)
+    report = json_text.strip.empty? ? {} : JSON.parse(json_text)
+    rows = report.except("header", "SUM").map do |name, totals|
+      { name: name, files: totals.fetch("nFiles", 0), blank: totals.fetch("blank", 0),
+        comment: totals.fetch("comment", 0), code: totals.fetch("code", 0) }
+    end
+    rows.sort_by { |row| [-row[:code], row[:name]] }
   end
 
   # Render category rows as an aligned table with a Total row and the

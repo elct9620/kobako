@@ -76,12 +76,13 @@ class KobakoRosterTest < Minitest::Test
   # standing as a second +kobako+ module.
   def test_modules_lead_with_the_gem_then_each_workspace_member
     assert_equal(
-      [{ name: "kobako (gem)", paths: %w[lib ext sig] },
-       { name: "kobako-codec", paths: %w[crates/kobako-codec] },
-       { name: "kobako", paths: %w[crates/kobako] },
-       { name: "kobako-core", paths: %w[wasm/kobako-core] }],
+      [{ name: "kobako (gem)", slug: "gem", paths: %w[lib ext sig] },
+       { name: "kobako-codec", slug: "kobako-codec", paths: %w[crates/kobako-codec] },
+       { name: "kobako", slug: "kobako", paths: %w[crates/kobako] },
+       { name: "kobako-core", slug: "kobako-core", paths: %w[wasm/kobako-core] }],
       Roster.modules(module_fixture_tracked, categories: MODULE_FIXTURE),
-      "modules through the roster must lead with the gem then one entry per Cargo workspace member"
+      "modules through the roster must lead with the gem then one entry per Cargo workspace member, " \
+      "each carrying a task slug"
     )
   end
 

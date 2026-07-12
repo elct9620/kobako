@@ -10,9 +10,15 @@ require_relative "support/stats"
 
 STATS_ROOT = File.expand_path("..", __dir__)
 
+# Every stats task needs cloc for the line classification; abort with an
+# install hint rather than a bare backtrace when it is off the PATH.
+def stats_require_cloc!
+  abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
+end
+
 desc "Report code statistics per architectural tier (rails-stats-style; not in release gate)."
 task :stats do
-  abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
+  stats_require_cloc!
 
   tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
   uncategorized = KobakoRoster.uncategorized_dirs(tracked)
@@ -31,12 +37,25 @@ end
 namespace :stats do
   desc "Report code sizes per publishable module (the gem + each Cargo workspace member; not in release gate)."
   task :all do
-    abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
+    stats_require_cloc!
 
     tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
     rows = KobakoRoster.modules(tracked).map do |mod|
       KobakoStats.measure(mod[:paths], root: STATS_ROOT).merge(name: mod[:name])
     end
     puts KobakoStats.grid(rows)
+  end
+
+  # One +rake stats:<slug>+ per module (run +rake stats:all+ for the
+  # roster); each breaks its module down by language. Defined from the
+  # tracked tree so a new crate's task appears without a roster edit,
+  # left out of +rake -T+ to keep the catalog to the two headline tasks.
+  KobakoRoster.modules(KobakoStats.tracked_files([], root: STATS_ROOT)).each do |mod|
+    task mod[:slug] do
+      stats_require_cloc!
+
+      puts "#{mod[:name]}:"
+      puts KobakoStats.grid(KobakoStats.measure_languages(mod[:paths], root: STATS_ROOT))
+    end
   end
 end
