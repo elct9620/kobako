@@ -4,11 +4,15 @@ require "json"
 require "open3"
 require "tempfile"
 
-# Code-statistics helper backing +tasks/stats.rake+ — a rails-stats-style
-# size report over the tracked source tree. cloc owns the per-file line
-# classification; this module owns file selection (git-tracked, minus
-# generated artifacts) and the report shape, so the tier roster
-# (+tasks/support/roster.rb+) can grow without touching the counting logic.
+require_relative "rust_source"
+require_relative "stats/report"
+
+# The measurement half of +KobakoStats+ backing +tasks/stats.rake+
+# (+tasks/support/stats/report.rb+ renders the rows it yields): cloc owns
+# the per-file line classification; this file owns file selection
+# (git-tracked, minus generated artifacts) and the cloc aggregation, so
+# the tier roster (+tasks/support/roster.rb+) can grow without touching
+# the counting logic.
 module KobakoStats
   module_function
 
@@ -16,10 +20,6 @@ module KobakoStats
   # dependency lock files, vector images, recorded benchmark results,
   # and the +.keep+ placeholders that mount gitignored artifact dirs.
   EXCLUDED = %r{(?:^|/)(?:Cargo|Gemfile)\.lock\z|\.svg\z|/\.keep\z|\Abenchmark/(?:results/|baseline\.json)}
-
-  HEADER = %w[Name Files Lines LOC Comments].freeze
-
-  ZERO_ROW = { files: 0, blank: 0, comment: 0, code: 0 }.freeze
 
   def cloc_available?
     system("cloc", "--version", out: File::NULL, err: File::NULL)
@@ -58,6 +58,38 @@ module KobakoStats
     end
   end
 
+  # The code-LOC of the Rust inline +#[cfg(test)]+ tails under +paths+,
+  # which cloc otherwise folds into each crate's production count because
+  # a test module shares its source file. Splitting every +.rs+ at its
+  # test module (+KobakoRustSource+) and clocing the tails alone recovers
+  # the figure the code-to-test ratio needs to count inline tests as
+  # tests.
+  def rust_test_loc(paths, root:)
+    tails = tracked_files(paths, root: root).filter_map do |rel|
+      next unless rel.end_with?(".rs")
+
+      body = File.read(File.join(root, rel))
+      tail = body.delete_prefix(KobakoRustSource.impl_body(body))
+      tail unless tail.empty?
+    end
+    return 0 if tails.empty?
+
+    sum(cloc_text(tails.join("\n"), suffix: ".rs"))[:code]
+  end
+
+  # cloc's report for a blob of source assembled in memory, written to a
+  # temp file whose +suffix+ cloc reads the language from — the way to
+  # count the concatenated Rust test tails, which have no path of their
+  # own.
+  def cloc_text(text, suffix:)
+    Tempfile.create(["kobako-stats", suffix]) do |file|
+      file.write(text)
+      file.flush
+      output, = Open3.capture2("cloc", file.path, "--json", "--quiet")
+      output
+    end
+  end
+
   # The countable files under +paths+: git-tracked (so gitignored build
   # products and vendored trees never enter), minus the exclusion rule.
   def tracked_files(paths, root:)
@@ -82,57 +114,5 @@ module KobakoStats
         comment: totals.fetch("comment", 0), code: totals.fetch("code", 0) }
     end
     rows.sort_by { |row| [-row[:code], row[:name]] }
-  end
-
-  # Render category rows as an aligned table with a Total row and the
-  # rails-stats-style code-to-test summary line.
-  def table(rows)
-    [grid(rows), ratio_line(rows), ""].join("\n")
-  end
-
-  # The framed table with its Total row, without the ratio summary — the
-  # per-module roll-up reports code sizes side by side, and the ratio
-  # weighs the code and test tiers, which no single module carries.
-  def grid(rows)
-    body = rows.map { |row| cells(row) }
-    foot = cells(total(rows))
-    widths = [HEADER, foot, *body].transpose.map { |column| column.map(&:length).max }
-    framed(body, foot, widths).join("\n")
-  end
-
-  def framed(body, foot, widths)
-    rule = "+#{widths.map { |width| "-" * (width + 2) }.join("+")}+"
-    [rule, line(HEADER, widths), rule,
-     *body.map { |row| line(row, widths) },
-     rule, line(foot, widths), rule]
-  end
-
-  def cells(row)
-    lines = row[:blank] + row[:comment] + row[:code]
-    [row[:name], row[:files].to_s, lines.to_s, row[:code].to_s, row[:comment].to_s]
-  end
-
-  def total(rows)
-    ZERO_ROW.to_h { |key, _| [key, rows.sum { |row| row[key] }] }.merge(name: "Total")
-  end
-
-  def line(values, widths)
-    padded = values.each_with_index.map do |value, index|
-      index.zero? ? value.ljust(widths[index]) : value.rjust(widths[index])
-    end
-    "| #{padded.join(" | ")} |"
-  end
-
-  # Only +:code+ and +:test+ rows enter the ratio — signatures, docs, and
-  # tooling are reported but not weighed against implementation.
-  def ratio_line(rows)
-    code = kind_loc(rows, :code)
-    test = kind_loc(rows, :test)
-    ratio = code.zero? ? 0.0 : test.fdiv(code).round(1)
-    "  Code LOC: #{code}    Test LOC: #{test}    Code to Test Ratio: 1:#{ratio}"
-  end
-
-  def kind_loc(rows, kind)
-    rows.sum { |row| row[:kind] == kind ? row[:code] : 0 }
   end
 end

@@ -100,6 +100,17 @@ class KobakoStatsTest < Minitest::Test
                     "a code-only row set through table must report a 1:0.0 ratio instead of failing"
   end
 
+  def test_ratio_line_reclassifies_rust_inline_test_loc_from_code_to_test
+    table = Stats.table([ruby_row, test_row], rust_test_loc: 249)
+
+    assert_includes table, "Code LOC: 1000    Test LOC: 5808    Code to Test Ratio: 1:5.8",
+                    "Rust inline #[cfg(test)] LOC through table must move from the code side to the " \
+                    "test side so the ratio counts inline tests as tests"
+    assert_includes table, "(Rust inline #[cfg(test)]: 249 LOC counted as test)",
+                    "the reclassified Rust inline-test LOC through table must be noted so the ratio's " \
+                    "code figure stays reconcilable with the code-tier rows"
+  end
+
   def test_grid_frames_rows_and_total_without_the_ratio_line
     grid = Stats.grid([ruby_row, test_row])
 

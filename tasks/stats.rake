@@ -31,7 +31,8 @@ task :stats do
     row = KobakoStats.measure(category[:paths], root: STATS_ROOT)
     row.merge(name: name, kind: category[:kind])
   end
-  puts KobakoStats.table(rows)
+  rust_test = KobakoStats.rust_test_loc(KobakoRoster.tier_paths(%i[code]), root: STATS_ROOT)
+  puts KobakoStats.table(rows, rust_test_loc: rust_test)
 end
 
 namespace :stats do
