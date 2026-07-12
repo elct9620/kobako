@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.16.0](https://github.com/elct9620/kobako/compare/v0.15.0...v0.16.0) (2026-07-12)
+
+
+### Features
+
+* **sandbox:** add the Extension install mechanism ([ad8e4da](https://github.com/elct9620/kobako/commit/ad8e4da703e4ceee85959663d77bb1e26c26791a))
+* **sdk:** add the Extension install mechanism to the Rust host SDK ([4043f76](https://github.com/elct9620/kobako/commit/4043f764b7038619a30c16542ed38d566e4a72a9))
+* **tasks:** break each module down by language in stats:&lt;slug&gt; ([b496e3c](https://github.com/elct9620/kobako/commit/b496e3cb23150f8f073cc1b972978cfbebfbb1e6))
+* **tasks:** report code sizes per publishable module in stats:all ([f554930](https://github.com/elct9620/kobako/commit/f554930e669a82bed0c7305c5cbbab96c3ae79da))
+* **tasks:** split impl vs inline test per module in stats:all ([cefa38d](https://github.com/elct9620/kobako/commit/cefa38d96ff79509b947269ea5c361ead0610bfa))
+
+
+### Bug Fixes
+
+* **tasks:** count Rust inline tests in the stats code-to-test ratio ([134c970](https://github.com/elct9620/kobako/commit/134c9704a5a9bb6fb01c1aa7968f907d1436e5f2))
+
 ## [0.15.0](https://github.com/elct9620/kobako/compare/v0.14.0...v0.15.0) (2026-07-11)
 
 

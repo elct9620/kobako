@@ -26,7 +26,7 @@ map the neutral types onto their own language surface.
 
 ```toml
 [dependencies]
-kobako-runtime = "0.9.0" # x-release-please-version
+kobako-runtime = "0.10.0" # x-release-please-version
 ```
 
 ## License

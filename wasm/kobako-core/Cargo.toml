@@ -13,7 +13,7 @@
 
 [package]
 name = "kobako-core"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "Contract crate for kobako Guest Binaries — the Guest ABI exports and dispatch proxy over the kobako wire."
 license = "Apache-2.0"
@@ -25,4 +25,4 @@ categories = ["wasm"]
 [dependencies]
 # The portable wire tier — codec, envelopes, outcome — shared with any
 # Rust host; this crate adds only the guest-bound ABI machinery on top.
-kobako-codec = { version = "0.9.0", path = "../../crates/kobako-codec" }
+kobako-codec = { version = "0.10.0", path = "../../crates/kobako-codec" }
