@@ -27,12 +27,16 @@ end
 namespace :anchors do
   desc "Report the per-anchor citation profile and check the Pending ledger (docs/anchor-coverage.md)."
   task :coverage do
+    doc = File.read(ANCHOR_COVERAGE_DOC)
     profile = anchor_coverage_profile
-    pending = KobakoAnchorCoverage.pending_anchors(File.read(ANCHOR_COVERAGE_DOC))
+    pending = KobakoAnchorCoverage.pending_anchors(doc)
     abort "anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'Pending anchors' block" unless pending
 
+    e2e_witnessed = KobakoAnchorCoverage.e2e_witnessed_anchors(doc)
+    abort "anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'E2E-witnessed anchors' block" unless e2e_witnessed
+
     puts KobakoAnchorCoverage.report_lines(profile, pending)
-    violations = KobakoAnchorCoverage.violations(profile, pending)
+    violations = KobakoAnchorCoverage.violations(profile, pending, e2e_witnessed)
     if violations.empty?
       puts "anchors:coverage: OK — #{profile.size} anchors, #{pending.size} pending"
     else
