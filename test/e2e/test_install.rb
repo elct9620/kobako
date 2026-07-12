@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "support/in_memory_file_system"
+require "support/extension_fixtures"
 
 # E2E (Layer 4) — the #install mechanism through real mruby. A guest `File`
 # idiom whose pure methods run in-guest and whose I/O dispatches to a host
@@ -13,43 +14,7 @@ require "support/in_memory_file_system"
 # kobako ships no concrete Extension.
 class TestE2EInstall < Minitest::Test
   include E2eGuestHelper
-
-  FILE_SOURCE = <<~RUBY
-    class File < Kobako::Member
-      def self.join(*parts)
-        parts.join("/")
-      end
-
-      def self.basename(path)
-        path.split("/").last || ""
-      end
-
-      def self.open(path)
-        buffer = Buffer.new(read(path))
-        return buffer unless block_given?
-
-        begin
-          yield buffer
-        ensure
-          buffer.close
-        end
-      end
-
-      class Buffer
-        def initialize(content)
-          @content = content
-        end
-
-        def read
-          @content
-        end
-
-        def close
-          nil
-        end
-      end
-    end
-  RUBY
+  include ExtensionFixtures
 
   # B-55: the pure method runs in-guest; the I/O method dispatches to the
   # bound backend.
@@ -110,6 +75,22 @@ class TestE2EInstall < Minitest::Test
                  "an unmet depends_on must raise at the first invocation, naming the missing Extension (E-52)")
     assert_equal "", sandbox.stdout,
                  "an unmet dependency must raise before the guest runs, so no guest output is produced (E-52)"
+  end
+
+  # B-57: with depends_on satisfied, both Extensions' snippets replay before
+  # the guest runs, so the dependent's method body resolves the depended-on
+  # Extension's constant at call time. Installed dependent-first to witness
+  # that depends_on asserts presence, not replay order.
+  def test_satisfied_dependency_composes_so_the_guest_cross_references_at_call_time
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.install(
+      Kobako::Extension.new(name: :Status, source: DEPENDENT_SOURCE, depends_on: [:Errno]),
+      Kobako::Extension.new(name: :Errno, source: ERRNO_SOURCE)
+    )
+
+    assert_equal 2, sandbox.eval("Status.missing_code"),
+                 "a satisfied depends_on must let the guest run and resolve the depended-on " \
+                 "Extension's constant at call time, independent of install order (B-57)"
   end
 
   # B-55: with no backend bound, the pure method still runs and the I/O
