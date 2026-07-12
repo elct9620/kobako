@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    kobako (0.15.0)
+    kobako (0.16.0)
       msgpack (~> 1.7)
       rb_sys (~> 0.9.128)
 

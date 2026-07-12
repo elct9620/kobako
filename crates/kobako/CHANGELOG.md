@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.9.0...kobako-sdk-v0.10.0) (2026-07-12)
+
+
+### Features
+
+* **sdk:** add the Extension install mechanism to the Rust host SDK ([4043f76](https://github.com/elct9620/kobako/commit/4043f764b7038619a30c16542ed38d566e4a72a9))
+
 ## [0.9.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.8.0...kobako-sdk-v0.9.0) (2026-07-11)
 
 

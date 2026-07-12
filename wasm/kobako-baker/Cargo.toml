@@ -16,7 +16,7 @@
 
 [package]
 name = "kobako-baker"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "Build-time pre-initializer for kobako Guest Binaries — bakes the canonical boot state via wizer."
 license = "Apache-2.0"
