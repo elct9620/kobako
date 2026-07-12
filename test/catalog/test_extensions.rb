@@ -104,11 +104,20 @@ module Kobako
                   "presence-only assertion permits dependency cycles (B-57)"
     end
 
-    def test_seal_is_idempotent
+    # The dependency assertion is a one-time gate at the first seal, not a
+    # per-invocation check — begin_invocation! calls seal! on every
+    # invocation and relies on it staying silent afterward. Drive the
+    # registry directly (the Sandbox refuses install once sealed) to add an
+    # unmet dependency after the first seal: a second seal must neither
+    # re-assert nor raise.
+    def test_seal_asserts_dependencies_once_then_is_a_silent_no_op
       install(extension(name: :A, source: "1"))
-      @extensions.seal!
-
       assert_same @extensions, @extensions.seal!
+
+      install(extension(name: :B, source: "2", depends_on: [:Missing]))
+      assert_same @extensions, @extensions.seal!,
+                  "seal! asserts dependencies only at the first seal, so a dependency left " \
+                  "unmet afterward does not raise on a later seal (B-57)"
     end
 
     def test_install_rejects_a_non_string_source
