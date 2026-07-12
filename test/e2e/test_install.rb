@@ -97,6 +97,21 @@ class TestE2EInstall < Minitest::Test
     assert_match(/after first Sandbox invocation/, err.message)
   end
 
+  # E-52: an unmet depends_on raises at the first invocation — before the
+  # guest runs — naming the missing dependency. Walks the real
+  # install -> #eval seam (begin_invocation! sealing the Extension
+  # registry) that the unit suite pins only by calling seal! in isolation.
+  def test_unmet_dependency_raises_before_the_guest_runs_naming_it
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.install(Kobako::Extension.new(name: :File, source: FILE_SOURCE, depends_on: [:Errno]))
+
+    err = assert_raises(ArgumentError) { sandbox.eval('$stdout.write("ran")') }
+    assert_match(/:Errno/, err.message,
+                 "an unmet depends_on must raise at the first invocation, naming the missing Extension (E-52)")
+    assert_equal "", sandbox.stdout,
+                 "an unmet dependency must raise before the guest runs, so no guest output is produced (E-52)"
+  end
+
   # B-55: with no backend bound, the pure method still runs and the I/O
   # method fails closed as an undefined target.
   def test_without_a_backend_pure_methods_run_and_io_fails_closed
