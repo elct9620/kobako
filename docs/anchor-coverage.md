@@ -50,10 +50,8 @@ where the behavior is actually verified:
 
 ```
 E-10 E-26
-E-51
 ```
 
-- **E-51** — `#install` after the first invocation seals registration is reachable only through a live Sandbox (the seal fires inside `#eval` / `#run`), so it is pinned by the `#install` E2E rather than a pure-registry unit test; the entry drops once that E2E lands.
 - **E-10** — the official guest never presents an invalid wire payload
   in a dispatch position (`kobako-mruby` only re-emits Handles it
   received), so no `test/` scenario reaches the rejection; the
