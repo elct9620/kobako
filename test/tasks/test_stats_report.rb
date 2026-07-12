@@ -69,43 +69,19 @@ class KobakoStatsReportTest < Minitest::Test
                     "the per-module grid must omit the code-to-test ratio, which weighs tiers not modules"
   end
 
-  def test_module_roll_up_splits_impl_and_test_with_a_gem_dash
-    out = module_roll_up_sample
-
-    assert_match(/\| Module\s+\| Impl\s+\| Test\s+\| Test%\s+\| Comment \|/, out,
-                 "the roll-up header must carry the Impl/Test/Test%/Comment columns")
-    assert_match(/\| kobako \(gem\)\s+\|\s+2299 \|\s+— \|\s+— \|\s+1921 \|/, out,
-                 "a gem row must dash Test and Test% since its Ruby tests live in test/")
-    assert_match(/\| kobako-codec\s+\|\s+857 \|\s+1090 \|\s+56% \|\s+395 \|/, out,
-                 "a crate row must show inline test LOC and its Test% share")
-    assert_match(/\| Total\s+\|\s+3156 \|\s+1090 \|\s+— \|\s+2316 \|/, out,
-                 "the Total row must sum Impl/Test/Comment and dash the aggregate Test%")
+  def test_module_footer_reports_a_crate_ratio_in_the_tier_table_format
+    assert_equal "  Code LOC: 857    Test LOC: 1090    Code to Test Ratio: 1:1.3",
+                 Stats.module_footer(impl: 857, test: 1090),
+                 "a crate's module_footer must read like the tier table's ratio line so every stats " \
+                 "view shares one footer template"
   end
 
-  def test_module_roll_up_prints_the_interpretation_legend
-    assert_includes module_roll_up_sample, "guest crates",
-                    "module_roll_up must print the legend explaining why guest crates read low on inline Test%"
-  end
-
-  def test_module_summary_lines_up_impl_and_test_share
-    assert_equal "  Impl: 857    Inline test: 1090    Test%: 56%",
-                 Stats.module_summary(impl: 857, test: 1090),
-                 "a crate's module_summary must line up Impl, inline Test LOC, and Test%"
-  end
-
-  def test_module_summary_points_the_gem_at_its_external_suite
-    assert_includes Stats.module_summary(impl: 2299, test: nil), "test/",
-                    "the gem's module_summary must point at its external Ruby suite instead of a Test%"
+  def test_module_footer_notes_the_gem_external_suite_instead_of_a_ratio
+    assert_includes Stats.module_footer(impl: 2299, test: nil), "test/",
+                    "the gem's module_footer must point at its external Ruby suite rather than a 1:0.0 ratio"
   end
 
   private
-
-  def module_roll_up_sample
-    Stats.module_roll_up(
-      [{ name: "kobako (gem)", impl: 2299, test: nil, comment: 1921 },
-       { name: "kobako-codec", impl: 857, test: 1090, comment: 395 }]
-    )
-  end
 
   def ruby_row
     { name: "Ruby API (lib/)", kind: :code, files: 36, blank: 441, comment: 312, code: 1249 }

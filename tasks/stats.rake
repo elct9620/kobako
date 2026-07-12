@@ -16,6 +16,12 @@ def stats_require_cloc!
   abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
 end
 
+# The one caveat the per-module footers need: a crate at 1:0.0 is not
+# necessarily untested, since the guest side and the gem carry their
+# tests outside their own tree.
+STATS_INLINE_TEST_CAVEAT =
+  "  Test LOC = Rust inline #[cfg(test)]; guest crates and the gem are also covered by test/e2e and test/."
+
 # A module split into implementation and inline test LOC for the roll-up
 # and detail summary. The gem's tests live in test/ (external), so its
 # test share is left unmeasured rather than counting its ext crate's few
@@ -47,13 +53,17 @@ task :stats do
 end
 
 namespace :stats do
-  desc "Report per-module code split into impl and inline test LOC (gem + each crate; not in release gate)."
+  desc "Report the code-to-test footer per publishable module (gem + each crate; not in release gate)."
   task :all do
     stats_require_cloc!
 
     tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
-    rows = KobakoRoster.modules(tracked).map { |mod| stats_module_split(mod) }
-    puts KobakoStats.module_roll_up(rows)
+    KobakoRoster.modules(tracked).each do |mod|
+      split = stats_module_split(mod)
+      puts split[:name]
+      puts KobakoStats.module_footer(impl: split[:impl], test: split[:test])
+    end
+    puts STATS_INLINE_TEST_CAVEAT
   end
 
   # One +rake stats:<slug>+ per module (run +rake stats:all+ for the
@@ -67,7 +77,8 @@ namespace :stats do
       puts "#{mod[:name]}:"
       puts KobakoStats.grid(KobakoStats.measure_languages(mod[:paths], root: STATS_ROOT))
       split = stats_module_split(mod)
-      puts KobakoStats.module_summary(impl: split[:impl], test: split[:test])
+      puts KobakoStats.module_footer(impl: split[:impl], test: split[:test])
+      puts STATS_INLINE_TEST_CAVEAT
     end
   end
 end

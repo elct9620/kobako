@@ -10,17 +10,6 @@ module KobakoStats
 
   ZERO_ROW = { files: 0, blank: 0, comment: 0, code: 0 }.freeze
 
-  MODULE_HEADER = %w[Module Impl Test Test% Comment].freeze
-
-  # Reads the Impl/Test split correctly: a low inline Test% is a thin
-  # crate only where inline tests are the strategy, which is not the
-  # guest side or the gem.
-  MODULE_LEGEND = [
-    "  Impl / Test are LOC; Test counts Rust inline #[cfg(test)] only.",
-    "  wasm/* guest crates are covered through test/e2e, so their inline Test% reads low by design;",
-    "  the gem's Ruby suite lives in test/. Overall ratio: rake stats. Line coverage: rake coverage."
-  ].freeze
-
   # Render category rows as an aligned table with a Total row and the
   # rails-stats-style code-to-test summary line. +rust_test_loc+ is the
   # code-LOC of the Rust inline +#[cfg(test)]+ tails, moved from the code
@@ -30,52 +19,30 @@ module KobakoStats
   end
 
   # The framed table with its Total row, without the ratio summary — the
-  # per-module roll-up reports code sizes side by side, and the ratio
-  # weighs the code and test tiers, which no single module carries.
+  # tier report adds the ratio through +table+, and the per-module detail
+  # frames one module's languages before its own footer.
   def grid(rows)
-    framed_table(HEADER, rows.map { |row| cells(row) }, cells(total(rows)))
+    body = rows.map { |row| cells(row) }
+    foot = cells(total(rows))
+    widths = [HEADER, foot, *body].transpose.map { |column| column.map(&:length).max }
+    framed(body, foot, widths).join("\n")
   end
 
-  # The per-module roll-up: one row per publishable module splitting its
-  # code into implementation and inline test LOC, over the legend that
-  # tells a genuinely thin crate apart from one covered through e2e.
-  def module_roll_up(rows)
-    body = rows.map { |row| module_cells(row) }
-    foot = ["Total", rows.sum { |r| r[:impl] }.to_s, rows.sum { |r| r[:test] || 0 }.to_s,
-            "—", rows.sum { |r| r[:comment] }.to_s]
-    [framed_table(MODULE_HEADER, body, foot), *MODULE_LEGEND, ""].join("\n")
+  # A single module's footer: the same code-to-test line every stats view
+  # ends with, counting a crate's Rust inline +#[cfg(test)]+ as its tests.
+  # The gem's tests live in test/, so it is noted rather than shown as a
+  # bare 1:0.0.
+  def module_footer(impl:, test:)
+    return "  Code LOC: #{impl}    Test LOC: —    (Ruby suite lives in test/)" if test.nil?
+
+    ratio_summary(impl, test)
   end
 
-  # A module row's cells: a nil test (the gem, whose tests live in
-  # test/) dashes both Test and Test%; otherwise Test% is the inline
-  # share of the module's own code.
-  def module_cells(row)
-    name, impl, test, comment = row.values_at(:name, :impl, :test, :comment)
-    return [name, impl.to_s, "—", "—", comment.to_s] if test.nil?
-
-    [name, impl.to_s, test.to_s, "#{test_share(impl, test)}%", comment.to_s]
-  end
-
-  def test_share(impl, test)
-    (impl + test).zero? ? 0 : (100.0 * test / (impl + test)).round
-  end
-
-  # The one-line Impl/Test summary under a module's per-language detail
-  # table; a nil test (the gem) points at its external suite instead.
-  def module_summary(impl:, test:)
-    return "  Impl: #{impl} LOC — the gem's Ruby tests live in test/" if test.nil?
-
-    "  Impl: #{impl}    Inline test: #{test}    Test%: #{test_share(impl, test)}%"
-  end
-
-  # A header row, body rows, and a Total footer, all aligned to one
-  # shared column width; the tier table and the module roll-up share it.
-  def framed_table(header, body, foot)
-    widths = [header, foot, *body].transpose.map { |column| column.map(&:length).max }
+  def framed(body, foot, widths)
     rule = "+#{widths.map { |width| "-" * (width + 2) }.join("+")}+"
-    [rule, line(header, widths), rule,
+    [rule, line(HEADER, widths), rule,
      *body.map { |row| line(row, widths) },
-     rule, line(foot, widths), rule].join("\n")
+     rule, line(foot, widths), rule]
   end
 
   def cells(row)
@@ -100,13 +67,18 @@ module KobakoStats
   # inline +#[cfg(test)]+ tests into its code count because they share a
   # file, so without it the ratio understates a Rust-heavy repo's tests.
   def ratio_line(rows, rust_test_loc: 0)
-    code = kind_loc(rows, :code) - rust_test_loc
-    test = kind_loc(rows, :test) + rust_test_loc
-    ratio = code.zero? ? 0.0 : test.fdiv(code).round(1)
-    summary = "  Code LOC: #{code}    Test LOC: #{test}    Code to Test Ratio: 1:#{ratio}"
+    summary = ratio_summary(kind_loc(rows, :code) - rust_test_loc, kind_loc(rows, :test) + rust_test_loc)
     return summary if rust_test_loc.zero?
 
     "#{summary}\n  (Rust inline #[cfg(test)]: #{rust_test_loc} LOC counted as test)"
+  end
+
+  # The rails-stats code-to-test footer every stats view ends with — the
+  # tier table, the per-module detail, and the module footer all render
+  # it, so one template governs the ratio wherever it appears.
+  def ratio_summary(code, test)
+    ratio = code.zero? ? 0.0 : test.fdiv(code).round(1)
+    "  Code LOC: #{code}    Test LOC: #{test}    Code to Test Ratio: 1:#{ratio}"
   end
 
   def kind_loc(rows, kind)
