@@ -20,6 +20,18 @@ class KobakoRosterTest < Minitest::Test
     "Build tooling (tasks/ + bin/)" => { paths: %w[tasks bin], kind: :tooling }
   }.freeze
 
+  # A roster whose code tiers cover both shapes the module split must
+  # tell apart: +crates/+ and +wasm/+ carry a workspace +Cargo.toml+ so
+  # they decompose into members, while +ext/+ is a crate with no
+  # workspace root and must fold into the gem.
+  MODULE_FIXTURE = {
+    "Ruby API (lib/)" => { paths: %w[lib], kind: :code },
+    "Native ext (ext/)" => { paths: %w[ext], kind: :code },
+    "Host crates (crates/)" => { paths: %w[crates], kind: :code },
+    "Guest wasm (wasm/)" => { paths: %w[wasm], kind: :code },
+    "RBS (sig/)" => { paths: %w[sig], kind: :other }
+  }.freeze
+
   def test_tier_paths_select_the_matching_kinds_in_roster_order
     assert_equal %w[lib tasks bin], Roster.tier_paths(%i[code tooling], categories: FIXTURE),
                  "a kind set through tier_paths must yield every matching tier's paths in roster order"
@@ -56,6 +68,23 @@ class KobakoRosterTest < Minitest::Test
                  "a tracked top-level tree outside every category must surface as drift"
   end
 
+  # The per-module decomposition the size instrument reports alongside
+  # the tier table: the gem is one synthetic module spanning its three
+  # tiers, and each Cargo workspace member is its own module. A code
+  # tier is a workspace only when its own +Cargo.toml+ is tracked, so
+  # +ext/+ (a crate but no workspace root) folds into the gem instead of
+  # standing as a second +kobako+ module.
+  def test_modules_lead_with_the_gem_then_each_workspace_member
+    assert_equal(
+      [{ name: "kobako (gem)", paths: %w[lib ext sig] },
+       { name: "kobako-codec", paths: %w[crates/kobako-codec] },
+       { name: "kobako", paths: %w[crates/kobako] },
+       { name: "kobako-core", paths: %w[wasm/kobako-core] }],
+      Roster.modules(module_fixture_tracked, categories: MODULE_FIXTURE),
+      "modules through the roster must lead with the gem then one entry per Cargo workspace member"
+    )
+  end
+
   # The gate half of the roster's repo pinning: the fixture tests above
   # hold the rules, these two hold the real table to the real repo on
   # every `rake test` run — `rake stats` alone guards only when someone
@@ -77,5 +106,15 @@ class KobakoRosterTest < Minitest::Test
   # build product (+data/+) never reads as an unplaced tree.
   def live_tracked_paths
     KobakoStats.tracked_files([], root: File.expand_path("../..", __dir__))
+  end
+
+  # The gem's ext crate shares +Cargo.toml+ with +crates/kobako+, so the
+  # fixture keeps +ext/kobako/Cargo.toml+ present to pin that ext folds
+  # into the gem rather than surfacing as a rival +kobako+ module.
+  def module_fixture_tracked
+    ["lib/kobako.rb", "ext/kobako/Cargo.toml", "sig/kobako.rbs",
+     "crates/Cargo.toml", "crates/kobako-codec/Cargo.toml",
+     "crates/kobako-codec/src/lib.rs", "crates/kobako/Cargo.toml",
+     "wasm/Cargo.toml", "wasm/kobako-core/Cargo.toml"]
   end
 end

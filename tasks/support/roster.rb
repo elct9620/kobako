@@ -26,11 +26,37 @@ module KobakoRoster
     "Docs (docs/ + SPEC.md)" => { paths: %w[docs SPEC.md], kind: :other }
   }.freeze
 
+  # The gem's source spans three tiers; a synthetic module groups them
+  # as the single published gem, its native ext folded in.
+  GEM_MODULE = { name: "kobako (gem)", paths: %w[lib ext sig] }.freeze
+
   # Every path of the tiers whose +kind+ is in +kinds+, in roster order
   # — how an instrument names its scan roots without a private tier list.
   def tier_paths(kinds, categories: CATEGORIES)
     categories.values.select { |category| kinds.include?(category[:kind]) }
                      .flat_map { |category| category[:paths] }
+  end
+
+  # The repo's publishable modules — the gem, then one entry per Cargo
+  # workspace member — as +{name:, paths:}+ rows for the size
+  # instrument's per-module report. A code tier is a workspace only when
+  # its own +Cargo.toml+ is tracked (+crates/+, +wasm/+), so +ext/+ (a
+  # crate with no workspace root) folds into the gem instead of standing
+  # as a rival module; members are read from the tracked tree, so a new
+  # crate joins with no roster edit.
+  def modules(tracked_paths, categories: CATEGORIES)
+    members = tier_paths(%i[code], categories: categories)
+              .select { |root| tracked_paths.include?("#{root}/Cargo.toml") }
+              .flat_map { |root| workspace_members(root, tracked_paths) }
+    [GEM_MODULE, *members]
+  end
+
+  # The direct subdirectories of +root+ that carry a +Cargo.toml+, each
+  # as a +{name:, paths:}+ module named for its crate directory.
+  def workspace_members(root, tracked_paths)
+    pattern = %r{\A(#{Regexp.escape(root)}/[^/]+)/Cargo\.toml\z}
+    tracked_paths.filter_map { |path| path[pattern, 1] }
+                 .map { |dir| { name: File.basename(dir), paths: [dir] } }
   end
 
   # The tracked top-level directories the roster fails to place — a

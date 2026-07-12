@@ -27,3 +27,16 @@ task :stats do
   end
   puts KobakoStats.table(rows)
 end
+
+namespace :stats do
+  desc "Report code sizes per publishable module (the gem + each Cargo workspace member; not in release gate)."
+  task :all do
+    abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
+
+    tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
+    rows = KobakoRoster.modules(tracked).map do |mod|
+      KobakoStats.measure(mod[:paths], root: STATS_ROOT).merge(name: mod[:name])
+    end
+    puts KobakoStats.grid(rows)
+  end
+end

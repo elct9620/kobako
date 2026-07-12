@@ -63,10 +63,17 @@ module KobakoStats
   # Render category rows as an aligned table with a Total row and the
   # rails-stats-style code-to-test summary line.
   def table(rows)
+    [grid(rows), ratio_line(rows), ""].join("\n")
+  end
+
+  # The framed table with its Total row, without the ratio summary — the
+  # per-module roll-up reports code sizes side by side, and the ratio
+  # weighs the code and test tiers, which no single module carries.
+  def grid(rows)
     body = rows.map { |row| cells(row) }
     foot = cells(total(rows))
     widths = [HEADER, foot, *body].transpose.map { |column| column.map(&:length).max }
-    [*framed(body, foot, widths), ratio_line(rows), ""].join("\n")
+    framed(body, foot, widths).join("\n")
   end
 
   def framed(body, foot, widths)

@@ -85,6 +85,15 @@ class KobakoStatsTest < Minitest::Test
                     "a code-only row set through table must report a 1:0.0 ratio instead of failing"
   end
 
+  def test_grid_frames_rows_and_total_without_the_ratio_line
+    grid = Stats.grid([ruby_row, test_row])
+
+    assert_match(/\| Total\s*\|\s*141 \|/, grid,
+                 "the per-module grid must frame a Total row like the tier table")
+    refute_includes grid, "Code to Test Ratio",
+                    "the per-module grid must omit the code-to-test ratio, which weighs tiers not modules"
+  end
+
   private
 
   def ruby_row
