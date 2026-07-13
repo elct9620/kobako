@@ -71,14 +71,14 @@ carries the concept's own name.
 
 ## Coverage gate
 
-`rake parity:coverage` requires every CORE anchor below to be either
+`rake gate:parity:coverage` requires every CORE anchor below to be either
 **asserted** — named in a scenario's `anchors:` list, so a scenario
 actually runs it through both frontends — or **pending** — listed in
 the Pending anchors block, where no guest-expressible differential
 scenario exists and the behavior is pinned per-frontend instead. An
 anchor mentioned only in a comment or a `skip` message counts as
 neither, so a scenario that silently degrades to comment-only fails
-the gate. (`rake anchors` separately guarantees every ID resolves to a
+the gate. (`rake gate:anchors` separately guarantees every ID resolves to a
 real definition.)
 
 ## CORE anchor manifest

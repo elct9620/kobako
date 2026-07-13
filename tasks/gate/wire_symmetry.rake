@@ -6,11 +6,11 @@
 # carried by the Accepted asymmetries ledger. The comparator's unit
 # coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
 
-require_relative "support/anchors"
-require_relative "support/wire_symmetry"
-require_relative "support/report"
+require_relative "../support/anchors"
+require_relative "../support/wire_symmetry"
+require_relative "../support/report"
 
-WIRE_SYMMETRY_ROOT = File.expand_path("..", __dir__)
+WIRE_SYMMETRY_ROOT = File.expand_path("../..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 # Every inventory scans its whole tier — façade file plus the recursive
 # subtree — so an envelope or registration that moves within the tier
@@ -30,17 +30,19 @@ def wire_symmetry_inventories
   }
 end
 
-namespace :wire do
-  desc "Check lib/ and kobako-codec wire inventories match (docs/wire-contract.md § Wire-Symmetric Peers)."
-  task :symmetry do
-    accepted = KobakoWireSymmetry.accepted_asymmetries(File.read(WIRE_SYMMETRY_DOC))
-    abort "wire:symmetry: #{WIRE_SYMMETRY_DOC} has no 'Accepted asymmetries' block" unless accepted
+namespace :gate do
+  namespace :wire do
+    desc "Check lib/ and kobako-codec wire inventories match (docs/wire-contract.md § Wire-Symmetric Peers)."
+    task :symmetry do
+      accepted = KobakoWireSymmetry.accepted_asymmetries(File.read(WIRE_SYMMETRY_DOC))
+      abort "gate:wire:symmetry: #{WIRE_SYMMETRY_DOC} has no 'Accepted asymmetries' block" unless accepted
 
-    inventories = wire_symmetry_inventories
-    violations = KobakoWireSymmetry.violations(**inventories, accepted: accepted)
-    ok_summary = "#{inventories[:ruby_types].size} envelope types on both sides " \
-                 "(#{inventories[:ruby_types].join(", ")}), #{accepted.size} accepted asymmetries"
-    puts KobakoReport.gate(name: "wire:symmetry", ok_summary: ok_summary,
-                           violations: violations, noun: "divergence")
+      inventories = wire_symmetry_inventories
+      violations = KobakoWireSymmetry.violations(**inventories, accepted: accepted)
+      ok_summary = "#{inventories[:ruby_types].size} envelope types on both sides " \
+                   "(#{inventories[:ruby_types].join(", ")}), #{accepted.size} accepted asymmetries"
+      puts KobakoReport.gate(name: "gate:wire:symmetry", ok_summary: ok_summary,
+                             violations: violations, noun: "divergence")
+    end
   end
 end

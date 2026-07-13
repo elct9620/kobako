@@ -10,9 +10,9 @@ block.
 
 ## Mechanism
 
-`rake anchors:coverage` cross-references two in-repo sources:
+`rake gate:anchors:coverage` cross-references two in-repo sources:
 
-- **Definitions** — the same corpus `rake anchors` audits: `B-xx` /
+- **Definitions** — the same corpus `rake gate:anchors` audits: `B-xx` /
   `E-xx` from `docs/behavior/*.md`, `RX-xx` from
   [`docs/regexp.md`](regexp.md), `JS-xx` from [`docs/json.md`](json.md).
   Retired anchors (tombstones, e.g. `E-14`) are outside the profile —

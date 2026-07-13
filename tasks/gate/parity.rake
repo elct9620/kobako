@@ -10,16 +10,16 @@
 # comment-only fails the gate. Anchor resolvability itself is +rake
 # anchors+' job.
 
-require_relative "support/report"
+require_relative "../support/report"
 
-PARITY_ROOT = File.expand_path("..", __dir__)
+PARITY_ROOT = File.expand_path("../..", __dir__)
 PARITY_MANIFEST = File.join(PARITY_ROOT, "docs/parity.md")
 PARITY_TESTS = FileList[File.join(PARITY_ROOT, "test/parity/**/*.rb")]
 
 # Anchors from the fenced block under a "## <heading>" section.
 def parity_anchor_block(markdown, heading)
   section = markdown[/^## #{Regexp.escape(heading)}\n.*?```\n(.*?)```/m, 1]
-  abort "parity: docs/parity.md has no '#{heading}' block" unless section
+  abort "gate:parity:coverage: docs/parity.md has no '#{heading}' block" unless section
 
   section.scan(/\b[BE]-\d+\b/).uniq
 end
@@ -34,22 +34,24 @@ def parity_asserted_anchors(paths)
   end.uniq
 end
 
-namespace :parity do
-  desc "Check every CORE anchor in docs/parity.md is asserted or pending."
-  task :coverage do
-    markdown = File.read(PARITY_MANIFEST)
-    manifest = parity_anchor_block(markdown, "CORE anchor manifest")
-    pending = parity_anchor_block(markdown, "Pending anchors")
-    asserted = parity_asserted_anchors(PARITY_TESTS)
+namespace :gate do
+  namespace :parity do
+    desc "Check every CORE anchor in docs/parity.md is asserted or pending."
+    task :coverage do
+      markdown = File.read(PARITY_MANIFEST)
+      manifest = parity_anchor_block(markdown, "CORE anchor manifest")
+      pending = parity_anchor_block(markdown, "Pending anchors")
+      asserted = parity_asserted_anchors(PARITY_TESTS)
 
-    errors = (manifest - asserted - pending)
-             .map { |anchor| "#{anchor} is neither asserted by a scenario nor listed as pending" }
-    errors += (pending & asserted)
-              .map { |anchor| "#{anchor} is asserted by a scenario — drop it from Pending anchors" }
+      errors = (manifest - asserted - pending)
+               .map { |anchor| "#{anchor} is neither asserted by a scenario nor listed as pending" }
+      errors += (pending & asserted)
+                .map { |anchor| "#{anchor} is asserted by a scenario — drop it from Pending anchors" }
 
-    ok_summary = "#{manifest.size} CORE anchors " \
-                 "(#{(manifest & asserted).size} asserted, #{(manifest & pending).size} pending)"
-    puts KobakoReport.gate(name: "parity", ok_summary: ok_summary,
-                           violations: errors, noun: "coverage problem")
+      ok_summary = "#{manifest.size} CORE anchors " \
+                   "(#{(manifest & asserted).size} asserted, #{(manifest & pending).size} pending)"
+      puts KobakoReport.gate(name: "gate:parity:coverage", ok_summary: ok_summary,
+                             violations: errors, noun: "coverage problem")
+    end
   end
 end

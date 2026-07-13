@@ -150,7 +150,7 @@ Consequently:
 
 ## Wire-Symmetric Peers
 
-The Host Gem (`lib/kobako/`) and `crates/kobako-codec` implement this contract independently: every envelope this document specifies exists as a wire-codable type on both sides under the same name, both sides register the same ext type codes, and byte-level round-trips are pinned by the oracle fuzz checks. `rake wire:symmetry` compares the two inventories mechanically — a wire-codable type or ext code present on one side only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
+The Host Gem (`lib/kobako/`) and `crates/kobako-codec` implement this contract independently: every envelope this document specifies exists as a wire-codable type on both sides under the same name, both sides register the same ext type codes, and byte-level round-trips are pinned by the oracle fuzz checks. `rake gate:wire:symmetry` compares the two inventories mechanically — a wire-codable type or ext code present on one side only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
 
 Two standing divergences live outside the inventory comparison: success/failure is a value on the guest (`Outcome`) but return-or-raise on the host, and the `Yield` envelope's Rust file is named `block.rs` — `yield` is a Rust keyword and cannot name a module — while the type itself is `Yield` on both sides.
 
