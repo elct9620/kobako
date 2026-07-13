@@ -10,7 +10,7 @@ kobako is a Ruby gem that provides an in-process Wasm sandbox for running untrus
 
 Apply these in order — earlier principles override later ones on conflict.
 
-1. **SPEC.md is the source of truth.** Behavior contracts live in `SPEC.md` or in the `docs/<topic>.md` it indexes; the per-anchor behavior detail lives in `docs/behavior/<aspect>.md`, mapped from each anchor range by the grouping table in `SPEC.md` § Behavior. Behavior anchors form append-only families that are never renumbered; the `rake anchors` gate enforces uniqueness, contiguity, and resolvability across the spec corpus — consult the grouping table for the current families and ceilings. **Cite anchors only where traceability belongs: in tests (the test that verifies an anchor names it) and in prose docs (linking directly to the behavior file that holds it). Implementation and public-API comments state intent — what + why — not anchor citations.** When SPEC is silent, extend it (or the relevant `docs/<topic>.md`) first.
+1. **SPEC.md is the source of truth.** Behavior contracts live in `SPEC.md` or in the `docs/<topic>.md` it indexes; the per-anchor behavior detail lives in `docs/behavior/<aspect>.md`, mapped from each anchor range by the grouping table in `SPEC.md` § Behavior. Behavior anchors form append-only families that are never renumbered; the `rake gate:anchors` gate enforces uniqueness, contiguity, and resolvability across the spec corpus — consult the grouping table for the current families and ceilings. **Cite anchors only where traceability belongs: in tests (the test that verifies an anchor names it) and in prose docs (linking directly to the behavior file that holds it). Implementation and public-API comments state intent — what + why — not anchor citations.** When SPEC is silent, extend it (or the relevant `docs/<topic>.md`) first.
 
 2. **One thing per file; keep files small.** Split a growing module into a façade plus per-responsibility files in a sibling directory — `Kobako::Transport` and `Kobako::Snippet` are the worked examples. In guest capability gems, a file extending an existing core class takes the `_ext` suffix (`string_ext.rs`, `kernel_ext.rs`); a file defining a new class takes the class name.
 
@@ -44,7 +44,7 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage ra
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in capability variants built by `wasm:build:<variant>` and shipped as downloadable Release assets — composition rules and the variant matrix live in `docs/variants.md`. The gem bundles only the pure default.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + rbs:lock + anchors + anchors:coverage + wire:symmetry + parity:coverage`) is the canonical gate.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs every `gate:*` verification check in `tasks/gate/` without enumerating them.
 
 ## Common Commands
 
@@ -52,7 +52,8 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 
 | Task | Command |
 |------|---------|
-| Default CI gate (compile + test + rubocop + steep + rbs:lock + anchors + anchors:coverage + wire:symmetry + parity:coverage) | `bundle exec rake` |
+| Default CI gate (compile + test + rubocop + steep + gate) | `bundle exec rake` |
+| Run every `gate:*` verification check (no enumeration) | `rake gate` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
@@ -67,9 +68,9 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | Characterization + release-gate bench tasks | `rake -T bench` lists them; gate workflow in `benchmark/README.md` |
 | Code statistics (polish signal): per tier / per module / one module by language | `rake stats` · `rake stats:all` · `rake stats:<module>` (e.g. `stats:gem`, `stats:kobako-codec`; per-module tasks stay out of `rake -T`) |
 | Line coverage, per language — Ruby `lib/` (stdlib Coverage), host + guest crates (`cargo llvm-cov`) | `rake coverage:ruby` · `coverage:crates` · `coverage:wasm` |
-| Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake anchors:coverage` |
-| Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake wire:symmetry` |
-| Gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift) | `rake rbs:lock` |
+| Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake gate:anchors:coverage` |
+| Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake gate:wire:symmetry` |
+| Gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift) | `rake gate:rbs:lock` |
 | Polish signals: churn hotspots / unconsumed pub surface | `rake stats:hotspots` / `rake stats:surface` |
 
 ## Layering
@@ -131,7 +132,7 @@ Root            dependency-free value objects and error classes at Kobako::* —
 
 The magnus surface lives only in `ext/kobako`; the engine mechanics live in `crates/kobako-wasmtime` behind the engine-free `crates/kobako-runtime` contract — the surface a non-Ruby host consumes. Both crates ship inside the gem as the ext's path dependencies (the `crates/` workspace manifest never ships, so member manifests use no `workspace = true` inheritance). The third `crates/` member, `kobako-codec`, is the wire tier: the ext never touches it (the wasmtime driver shuttles raw bytes; Ruby owns the host codec), so it stays outside the gem's crate closure.
 
-**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Receiver` glue over the same driver; released with the linked crate group under the `kobako-sdk` component). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism and the CORE anchor manifest, `rake parity:coverage` gates manifest coverage, and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
+**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Receiver` glue over the same driver; released with the linked crate group under the `kobako-sdk` component). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism and the CORE anchor manifest, `rake gate:parity:coverage` gates manifest coverage, and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
 
 ```
 Ruby shim       ext/kobako — magnus surface only: the Kobako::Runtime class,
@@ -194,7 +195,7 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 | Guest Binary variants | `docs/variants.md`, `tasks/wasm/build.rake` | Variant matrix and composition rules. |
 | ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-mruby/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/runtime/test_runtime.rb`) covers only `from_path`. |
-| Ruby↔Rust parity harness | `docs/parity.md`, `test/parity/` + `test/support/parity/`, `crates/kobako` + `crates/kobako-parity` | Differential: one scenario, two frontends, normalized observables compared. CORE manifest in the doc; `rake parity:coverage` gates it. |
+| Ruby↔Rust parity harness | `docs/parity.md`, `test/parity/` + `test/support/parity/`, `crates/kobako` + `crates/kobako-parity` | Differential: one scenario, two frontends, normalized observables compared. CORE manifest in the doc; `rake gate:parity:coverage` gates it. |
 | mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
 | RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
 | Regression benchmarks | `tasks/bench/`, `benchmark/` | #1..#6 gated (+10% regression blocks release); the rest are characterization, not gated. Results: `benchmark/results/<date>-<short-sha>.json`. |

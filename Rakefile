@@ -74,4 +74,9 @@ Dir.glob("tasks/**/*.rake").each { |t| load t }
 # only does real work on a clean clone or when the wasm sources change.
 task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json"]
 
-task default: %i[compile test rubocop steep rbs:lock anchors anchors:coverage wire:symmetry parity:coverage]
+# `gate` runs every gate:* verification check (tasks/gate/) without
+# enumerating them, so a new check joins the release gate by existing.
+desc "Run every gate:* verification check (the release gate's verification tier)."
+task gate: Rake::Task.tasks.map(&:name).grep(/\Agate:/).sort
+
+task default: %i[compile test rubocop steep gate]
