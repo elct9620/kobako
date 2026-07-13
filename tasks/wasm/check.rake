@@ -10,8 +10,12 @@
 #   * `rake wasm:test`  — runs `cargo test` on the host. wasm32 has no test
 #                         runner, so codec unit tests must run on the host
 #                         build of the same code.
+#   * `rake wasm:coverage` — the host test run under `cargo llvm-cov`,
+#                         printing per-file Rust line coverage of the guest
+#                         crates. Characterization only — not in the release
+#                         gate, no threshold enforced.
 #
-# Neither requires wasi-sdk; they run with plain host cargo so feedback is
+# None require wasi-sdk; they run with plain host cargo so feedback is
 # fast in lanes without a vendored toolchain. The Stage C artifact tasks
 # (build / variants / clean) live in tasks/wasm/build.rake; shared helpers
 # (paths, target detection, cargo env) in tasks/support/wasm.rb.
@@ -55,5 +59,14 @@ namespace :wasm do
     # The mruby wrapper / FFI tiers are tested in the beni repository,
     # which runs them against a real host libmruby.a.
     sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
+  end
+
+  desc "Rust line coverage over the wasm sub-workspace on the host (cargo llvm-cov; not in release gate)"
+  task :coverage do
+    KobakoWasm.ensure_llvm_cov!
+    # Mirrors wasm:test — the guest crates compile host-native (beni in
+    # placeholder mode), so this measures the guest logic the host build
+    # exercises, not the wasm32 artifact; only E2E drives that.
+    sh "cargo", "llvm-cov", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
 end
