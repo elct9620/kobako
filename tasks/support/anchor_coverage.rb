@@ -48,7 +48,7 @@ module KobakoAnchorCoverage
   # The gate: violation strings for a zero-cited anchor missing its
   # Pending entry, a Pending entry a test now cites (stale), and an
   # E2E-witnessed anchor lacking a +test/e2e/+ citation. A Pending entry
-  # naming an undefined anchor is +rake anchors+' dangling check to
+  # naming an undefined anchor is +rake gate:anchors+' dangling check to
   # report, not a stale entry.
   def violations(profile, pending, e2e_witnessed)
     uncited_violations(profile, pending) +

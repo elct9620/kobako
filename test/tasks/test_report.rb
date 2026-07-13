@@ -42,15 +42,6 @@ class KobakoReportTest < Minitest::Test
            "a signal banner must render its reads_as scope so the number is read correctly")
   end
 
-  def test_footer_carries_the_reads_as_for_a_passthrough_report
-    line = Report.footer("coverage:wasm", "0% ≠ untested; behavior proof in anchors")
-
-    assert_includes line, "coverage:wasm",
-                    "a passthrough footer names the report after the external tool's own output"
-    assert_includes line, "0% ≠ untested",
-                    "a passthrough footer carries the reads_as scope the tool's table cannot"
-  end
-
   def test_gate_returns_the_ok_verdict_when_clean
     assert_equal "anchors: OK — all unique", Report.gate(name: "anchors", ok_summary: "all unique"),
                  "a clean gate through the template must sign off with the shared OK verdict"

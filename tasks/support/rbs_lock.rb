@@ -2,7 +2,7 @@
 
 require "yaml"
 
-# Consistency comparator backing +rake rbs:lock+. Gems whose RBS ships in
+# Consistency comparator backing +rake gate:rbs:lock+. Gems whose RBS ships in
 # the gem itself (+source.type: rubygems+ in +rbs_collection.lock.yaml+)
 # carry a concrete version that +rbs collection update+ copies from
 # Gemfile.lock; a mismatch means the lock was not regenerated after a

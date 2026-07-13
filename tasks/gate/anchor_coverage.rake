@@ -4,11 +4,11 @@
 # (docs/anchor-coverage.md): prints the thin and most-cited ends of the
 # per-anchor profile, and fails when a zero-cited anchor lacks its
 # Pending entry or a Pending entry has gone stale. Definition sources
-# are the +ANCHOR_DEF_*+ corpus +rake anchors+ audits; the reader's unit
+# are the +ANCHOR_DEF_*+ corpus +rake gate:anchors+ audits; the reader's unit
 # coverage rides the test suite (+test/tasks/test_anchor_coverage.rb+).
 
-require_relative "support/anchor_coverage"
-require_relative "support/report"
+require_relative "../support/anchor_coverage"
+require_relative "../support/report"
 
 ANCHOR_COVERAGE_DOC = "docs/anchor-coverage.md"
 # The tooling suites are excluded as citation sources: their
@@ -25,21 +25,23 @@ def anchor_coverage_profile
   )
 end
 
-namespace :anchors do
-  desc "Report the per-anchor citation profile and check the Pending ledger (docs/anchor-coverage.md)."
-  task :coverage do
-    doc = File.read(ANCHOR_COVERAGE_DOC)
-    profile = anchor_coverage_profile
-    pending = KobakoAnchorCoverage.pending_anchors(doc)
-    abort "anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'Pending anchors' block" unless pending
+namespace :gate do
+  namespace :anchors do
+    desc "Report the per-anchor citation profile and check the Pending ledger (docs/anchor-coverage.md)."
+    task :coverage do
+      doc = File.read(ANCHOR_COVERAGE_DOC)
+      profile = anchor_coverage_profile
+      pending = KobakoAnchorCoverage.pending_anchors(doc)
+      abort "gate:anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'Pending anchors' block" unless pending
 
-    e2e_witnessed = KobakoAnchorCoverage.e2e_witnessed_anchors(doc)
-    abort "anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'E2E-witnessed anchors' block" unless e2e_witnessed
+      e2e_witnessed = KobakoAnchorCoverage.e2e_witnessed_anchors(doc)
+      abort "gate:anchors:coverage: #{ANCHOR_COVERAGE_DOC} has no 'E2E-witnessed anchors' block" unless e2e_witnessed
 
-    puts KobakoAnchorCoverage.report_lines(profile, pending)
-    violations = KobakoAnchorCoverage.violations(profile, pending, e2e_witnessed)
-    puts KobakoReport.gate(name: "anchors:coverage",
-                           ok_summary: "#{profile.size} anchors, #{pending.size} pending",
-                           violations: violations)
+      puts KobakoAnchorCoverage.report_lines(profile, pending)
+      violations = KobakoAnchorCoverage.violations(profile, pending, e2e_witnessed)
+      puts KobakoReport.gate(name: "gate:anchors:coverage",
+                             ok_summary: "#{profile.size} anchors, #{pending.size} pending",
+                             violations: violations)
+    end
   end
 end

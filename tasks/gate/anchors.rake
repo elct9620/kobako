@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Stage gate for the append-only anchor invariant (N-8). +rake anchors+
+# Stage gate for the append-only anchor invariant (N-8). +rake gate:anchors+
 # checks that every +B-xx+ / +E-xx+ / +RX-xx+ / +JS-xx+ across the spec is
 # defined once, runs contiguous to the ceiling +SPEC.md+ states (holes only
 # where a retired tombstone declares one), and that every reference resolves
@@ -8,8 +8,8 @@
 # ID. Part of the release gate (+rake default+); the checker's unit
 # coverage rides the test suite (+test/tasks/test_anchors.rb+).
 
-require_relative "support/anchors"
-require_relative "support/report"
+require_relative "../support/anchors"
+require_relative "../support/report"
 
 # Anchor definitions live in the behavior spec (+B+ / +E+), the regexp spec
 # (+RX+), the JSON spec (+JS+), and SPEC.md itself for the SPEC-local
@@ -20,7 +20,7 @@ require_relative "support/report"
 # trees are not scanned. The tooling suites (+test/tasks/+, +test/bench/+)
 # are excluded: their anchor-shaped tokens are hand-built fixtures, not
 # references.
-ANCHOR_ROOT = File.expand_path("..", __dir__)
+ANCHOR_ROOT = File.expand_path("../..", __dir__)
 ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior/*.md"]
 ANCHOR_DEF_REGEXP = FileList["docs/regexp.md"]
 ANCHOR_DEF_JSON = FileList["docs/json.md"]
@@ -39,17 +39,19 @@ def anchor_behavior_def_sources
     "JS" => KobakoAnchors.read_sources(ANCHOR_DEF_JSON, ANCHOR_ROOT) }
 end
 
-desc "Check B-/E-/RX-/JS-/F-/J-/N- anchors are unique, contiguous, and resolvable (N-8)."
-task :anchors do
-  spec = KobakoAnchors.read_sources(FileList["SPEC.md"], ANCHOR_ROOT)
-  ceilings = KobakoAnchors.parse_ceilings(File.read("SPEC.md"))
-  violations = KobakoAnchors.ceiling_statement_violations(ceilings) + KobakoAnchors.audit(
-    def_sources: anchor_behavior_def_sources.merge("F" => spec, "J" => spec, "N" => spec),
-    ref_sources: KobakoAnchors.read_sources(ANCHOR_REF_GLOBS, ANCHOR_ROOT),
-    ceilings: ceilings
-  )
+namespace :gate do
+  desc "Check B-/E-/RX-/JS-/F-/J-/N- anchors are unique, contiguous, and resolvable (N-8)."
+  task :anchors do
+    spec = KobakoAnchors.read_sources(FileList["SPEC.md"], ANCHOR_ROOT)
+    ceilings = KobakoAnchors.parse_ceilings(File.read("SPEC.md"))
+    violations = KobakoAnchors.ceiling_statement_violations(ceilings) + KobakoAnchors.audit(
+      def_sources: anchor_behavior_def_sources.merge("F" => spec, "J" => spec, "N" => spec),
+      ref_sources: KobakoAnchors.read_sources(ANCHOR_REF_GLOBS, ANCHOR_ROOT),
+      ceilings: ceilings
+    )
 
-  puts KobakoReport.gate(name: "anchors",
-                         ok_summary: "B/E/RX/JS/F/J/N unique, contiguous, and resolvable",
-                         violations: violations.sort, noun: "violation")
+    puts KobakoReport.gate(name: "gate:anchors",
+                           ok_summary: "B/E/RX/JS/F/J/N unique, contiguous, and resolvable",
+                           violations: violations.sort, noun: "violation")
+  end
 end

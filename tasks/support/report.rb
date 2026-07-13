@@ -8,9 +8,6 @@
 #   * +table+   — a framed, aligned rails-stats grid (Signal body).
 #   * +list+    — headings over indented items (Signal body).
 #   * +banner+  — the top-of-report self-description for a table/list Signal.
-#   * +footer+  — the bottom self-description for a +passthrough+ Signal,
-#                 whose body is an external tool's own output the template
-#                 cannot frame (e.g. cargo llvm-cov).
 #   * +gate+    — the verdict sign-off shared by every release-gate check:
 #                 +<name>: OK — summary+ when clean, an aborting
 #                 +<name>: N problem(s)+ otherwise.
@@ -41,12 +38,6 @@ module KobakoReport
     scope = reads_as ? [reads_as] : []
     rule = "=" * [name.length, *scope.map(&:length)].max
     ["", rule, name, *scope, rule]
-  end
-
-  # The bottom self-description a passthrough report appends after the
-  # external tool's own output, carrying the scope that output cannot.
-  def footer(name, reads_as)
-    "#{name} — #{reads_as}"
   end
 
   # The shared release-gate verdict: the +OK+ line when +violations+ is
