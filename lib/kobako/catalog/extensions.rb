@@ -92,16 +92,21 @@ module Kobako
       end
 
       def assert_dependencies!
-        names = @entries.map(&:name)
+        names = @entries.map { |extension| symbolize(extension.name) }
         @entries.each do |extension|
           (extension.depends_on || []).each do |dependency|
-            next if names.include?(dependency)
+            next if names.include?(symbolize(dependency))
 
             raise ArgumentError,
                   "Extension #{extension.name.inspect} depends on #{dependency.inspect}, which is not installed"
           end
         end
       end
+
+      # Match names and dependencies by Symbol so the Symbol-or-String forms
+      # of a constant token are interchangeable; a value that is neither
+      # falls through unchanged to the not-installed path.
+      def symbolize(name) = name.is_a?(String) ? name.to_sym : name
 
       def callable?(provider) = provider.respond_to?(:call)
 

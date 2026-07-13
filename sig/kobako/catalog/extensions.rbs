@@ -17,6 +17,8 @@ module Kobako
 
       def assert_dependencies!: () -> void
 
+      def symbolize: (untyped name) -> untyped
+
       def callable?: (untyped provider) -> bool
 
       def initial_object: (untyped provider) -> untyped

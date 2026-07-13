@@ -109,6 +109,14 @@ module Kobako
                    "an unmet dependency assertion names the missing Extension (B-57 / E-52)")
     end
 
+    def test_seal_matches_dependencies_across_symbol_and_string_forms
+      install(extension(name: :Errno, source: "1"))
+      install(extension(name: "File", source: "2", depends_on: ["Errno"]))
+
+      assert_same @extensions, @extensions.seal!,
+                  "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange (B-57)"
+    end
+
     def test_seal_permits_dependency_cycles
       install(extension(name: :A, source: "1", depends_on: [:B]))
       install(extension(name: :B, source: "2", depends_on: [:A]))
