@@ -74,4 +74,4 @@ Dir.glob("tasks/**/*.rake").each { |t| load t }
 # only does real work on a clean clone or when the wasm sources change.
 task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json"]
 
-task default: %i[compile test rubocop steep anchors anchors:coverage wire:symmetry parity:coverage]
+task default: %i[compile test rubocop steep rbs:lock anchors anchors:coverage wire:symmetry parity:coverage]

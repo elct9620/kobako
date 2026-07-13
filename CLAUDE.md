@@ -44,7 +44,7 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage ra
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in capability variants built by `wasm:build:<variant>` and shipped as downloadable Release assets — composition rules and the variant matrix live in `docs/variants.md`. The gem bundles only the pure default.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + anchors + anchors:coverage + wire:symmetry + parity:coverage`) is the canonical gate.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + rbs:lock + anchors + anchors:coverage + wire:symmetry + parity:coverage`) is the canonical gate.
 
 ## Common Commands
 
@@ -52,7 +52,7 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 
 | Task | Command |
 |------|---------|
-| Default CI gate (compile + test + rubocop + steep + anchors + anchors:coverage + wire:symmetry + parity:coverage) | `bundle exec rake` |
+| Default CI gate (compile + test + rubocop + steep + rbs:lock + anchors + anchors:coverage + wire:symmetry + parity:coverage) | `bundle exec rake` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
@@ -69,6 +69,7 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | Per-file line coverage for `lib/kobako/` | `bundle exec rake coverage` |
 | Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake anchors:coverage` |
 | Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake wire:symmetry` |
+| Gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift) | `rake rbs:lock` |
 | Polish signals: churn hotspots / unconsumed pub surface | `rake stats:hotspots` / `rake stats:surface` |
 
 ## Layering
