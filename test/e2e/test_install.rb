@@ -53,6 +53,21 @@ class TestE2EInstall < Minitest::Test
                  "File.open serves the eager-slurped buffer in-guest (B-55)"
   end
 
+  # B-56: a callable provider that raises surfaces its own error class (not a
+  # Kobako error) and leaves the guest unrun; resolution being per-invocation,
+  # the next invocation whose provider succeeds runs normally.
+  def test_raising_provider_surfaces_its_own_error_then_recovers_next_invocation
+    sandbox = install_file(raise_once_provider)
+
+    assert_raises(RuntimeError, "a raising provider must propagate its own error class through #eval (B-56)") do
+      sandbox.eval('$stdout.write("ran")')
+    end
+    assert_equal "", sandbox.stdout,
+                 "the guest must not run when provider resolution raises, so no output is produced (B-56)"
+    assert_equal "v", sandbox.eval('File.write("k", "v"); File.read("k")'),
+                 "per-invocation resolution must let the next invocation run once the provider succeeds (B-56)"
+  end
+
   # E-51: install after the first invocation has sealed registration.
   def test_install_after_first_invocation_raises
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -109,6 +124,19 @@ class TestE2EInstall < Minitest::Test
   end
 
   private
+
+  # A provider that raises on its first resolution and yields a working
+  # backend thereafter, so a test can drive the transient-failure-then-
+  # recovery path across two invocations.
+  def raise_once_provider
+    attempts = [0]
+    lambda do
+      attempts[0] += 1
+      raise "overlay unavailable" if attempts[0] == 1
+
+      InMemoryFileSystem.new
+    end
+  end
 
   def file_extension(provider)
     Kobako::Extension.new(

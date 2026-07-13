@@ -48,6 +48,19 @@ module Kobako
       end
     end
 
+    # A provider that raises on its first call and yields a fresh object
+    # thereafter, so a test can witness the transient-failure-then-recovery
+    # path across two resolutions.
+    def raise_once_provider
+      raised = [false]
+      lambda do
+        next Object.new if raised[0]
+
+        raised[0] = true
+        raise "provider boom"
+      end
+    end
+
     def snippet_names = MessagePack.unpack(@snippets.encode).map { |entry| entry["name"] }
   end
 
@@ -180,6 +193,21 @@ module Kobako
 
       refute_same @services.lookup("File"), @services.lookup("Dir"),
                   "distinct providers must resolve to distinct objects (B-56)"
+    end
+
+    # B-56 provider failure: a raising provider is host code, so its own
+    # exception propagates unwrapped; resolution being per-invocation, a
+    # later refresh whose provider succeeds resolves the path normally.
+    def test_raising_provider_propagates_unchanged_then_recovers_on_a_later_refresh
+      install(extension(name: :File, source: "1", backend: backend("File", raise_once_provider)))
+
+      err = assert_raises(RuntimeError) { @extensions.refresh_backends!(@services) }
+      assert_equal "provider boom", err.message,
+                   "a raising provider's own exception must propagate unchanged, never a wrapped Kobako error (B-56)"
+
+      @extensions.refresh_backends!(@services)
+      refute_nil @services.lookup("File"),
+                 "per-invocation resolution must let a later refresh whose provider succeeds bind the path (B-56)"
     end
   end
 end

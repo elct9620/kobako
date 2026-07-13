@@ -34,7 +34,9 @@ module Kobako
     # invocation to yield that invocation's object, so a fresh object backs
     # the path every invocation. Callability is the sole discriminator — a
     # fixed backend that is itself callable is supplied through a
-    # non-callable wrapper.
+    # non-callable wrapper. A callable provider that raises propagates its
+    # exception to the invocation caller and leaves the guest unrun; the
+    # next invocation resolves it afresh.
     class Backend < Data.define(:path, :provider)
     end
 
