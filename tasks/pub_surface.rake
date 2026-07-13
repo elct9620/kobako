@@ -39,10 +39,10 @@ PUB_SURFACE_ACKNOWLEDGED = {
     "ABI_VERSION" => "reached via export_guest! expansion ($crate::abi::ABI_VERSION)"
   },
   "wasm/kobako-mruby" => %w[
-    InstallGroupsError Kobako init resolve_raw install_groups raise_transport_error
-    raise_service_error collection_len extract_backtrace top_level_constants
-    set_handle_id extract_handle_id extract_hash_kwargs unpack_args_kwargs
-    to_codec_value try_codec_value
+    InstallError install_bindings Kobako init resolve_raw raise_transport_error
+    raise_service_error extract_backtrace top_level_constants set_handle_id
+    extract_handle_id extract_hash_kwargs unpack_args_kwargs to_codec_value
+    try_codec_value
   ].to_h { |name| [name, PUB_SURFACE_BRIDGE_REASON] }
 }.freeze
 
