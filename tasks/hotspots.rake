@@ -21,12 +21,19 @@ namespace :stats do
                       .to_h { |path| [path, KobakoHotspots.impl_lines(path, File.read(path))] }
     ruby_sources = FileList[roots.map { |root| "#{root}/**/*.{rb,rake}" }].to_h { |path| [path, File.read(path)] }
 
+    rows = KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(ruby_sources))
+
     puts "hotspots since #{tag}:"
     puts "  file                                                 edits  lines fan-in"
-    KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(ruby_sources)).each do |row|
+    rows.each do |row|
       path, edits, lines, fan = row
       puts format("  %<path>-52s %<edits>5d %<lines>6d %<fan>4s",
                   path: path, edits: edits, lines: lines, fan: fan || "-")
     end
+
+    # Disclose the colder tail the top-N view leaves out, so a bounded
+    # list never reads as the whole picture.
+    total = KobakoHotspots.scored_total(churn: churn, sizes: sizes)
+    puts "  ... and #{total - rows.size} more (top #{rows.size} of #{total} scored)" if total > rows.size
   end
 end

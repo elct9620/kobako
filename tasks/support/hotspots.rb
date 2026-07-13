@@ -44,6 +44,15 @@ module KobakoHotspots
     body.lines.count
   end
 
+  # How many files entered the churn × size ranking — every churned file
+  # that still has a size. Lets the report disclose the colder tail its
+  # top-N view leaves uncounted, so a bounded list never reads as the
+  # whole picture. Uses the same "has a size" predicate as +rows+, so a
+  # vanished file drops out of both.
+  def scored_total(churn:, sizes:)
+    churn.count { |path, _edits| sizes[path] }
+  end
+
   # The +limit+ hottest rows, scored by churn × size:
   # +[path, edits, lines, fan_in]+ sorted hottest first, +nil+ fan-in
   # marking a path the fan-in scan does not measure.

@@ -79,6 +79,17 @@ class KobakoHotspotsTest < Minitest::Test
                  "scored rows through rows must cut to the requested limit"
   end
 
+  # The count the report needs to disclose how many files its top-N view
+  # leaves uncounted: every churned file that still has a size, matching
+  # exactly what rows ranks (a vanished file drops out of both).
+  def test_scored_total_counts_ranked_files_and_drops_vanished_ones
+    churn = { "lib/a.rb" => 10, "lib/b.rb" => 2, "lib/gone.rb" => 99 }
+    sizes = { "lib/a.rb" => 10, "lib/b.rb" => 500 }
+
+    assert_equal 2, Hotspots.scored_total(churn: churn, sizes: sizes),
+                 "scored_total counts only churned files that still have a size, matching the ranking"
+  end
+
   # Rust carries its tests inline while Ruby's live in the excluded
   # test/ tree — sizing whole .rs files would skew the cross-language
   # churn × size ranking by the weight of their test tails.
