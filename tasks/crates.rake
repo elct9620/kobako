@@ -32,11 +32,11 @@ namespace :coverage do
   desc "Rust line coverage over the crates/ workspace (cargo llvm-cov; not in release gate)"
   task :crates do
     KobakoWasm.ensure_llvm_cov!
+    # The host driver paths run only through the gem's ext, so a partial
+    # total is E2E's tier, not a unit-test gap.
     sh "cargo", "llvm-cov", "--manifest-path", CRATES_MANIFEST, "--workspace"
-    # The crates/ unit tests alone: host driver paths (dispatch, driver)
-    # run only through the gem's ext, so a 0% line means E2E is the sole
-    # prover — proof lives in anchors:coverage / parity, not a unit test.
-    puts KobakoReport.footer("coverage:crates",
-                             "crates/ unit-test reach; 0% ≠ untested — behavior proof in anchors:coverage / parity")
+    reads_as = "unit-test reach only — driver paths are E2E-exercised (rake test); " \
+               "behavior coverage in rake gate:anchors:coverage"
+    puts KobakoReport.footer("coverage:crates", reads_as)
   end
 end
