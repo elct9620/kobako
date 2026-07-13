@@ -7,6 +7,7 @@
 # the tooling suite (+test/tasks/test_rbs_lock.rb+).
 
 require_relative "support/rbs_lock"
+require_relative "support/report"
 
 namespace :rbs do
   desc "Verify gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift)."
@@ -21,6 +22,6 @@ namespace :rbs do
       abort "rbs:lock: collection lock drifted from Gemfile.lock — run `rbs collection update`:\n#{rows.join("\n")}"
     end
 
-    puts "rbs:lock: OK — gem-sourced RBS pins match Gemfile.lock"
+    puts KobakoReport.gate(name: "rbs:lock", ok_summary: "gem-sourced RBS pins match Gemfile.lock")
   end
 end

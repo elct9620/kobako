@@ -10,6 +10,8 @@
 # comment-only fails the gate. Anchor resolvability itself is +rake
 # anchors+' job.
 
+require_relative "support/report"
+
 PARITY_ROOT = File.expand_path("..", __dir__)
 PARITY_MANIFEST = File.join(PARITY_ROOT, "docs/parity.md")
 PARITY_TESTS = FileList[File.join(PARITY_ROOT, "test/parity/**/*.rb")]
@@ -45,12 +47,9 @@ namespace :parity do
     errors += (pending & asserted)
               .map { |anchor| "#{anchor} is asserted by a scenario — drop it from Pending anchors" }
 
-    if errors.empty?
-      puts "parity: OK — #{manifest.size} CORE anchors " \
-           "(#{(manifest & asserted).size} asserted, #{(manifest & pending).size} pending)"
-    else
-      errors.each { |problem| warn "  parity: #{problem}" }
-      abort "parity: #{errors.size} coverage problem(s)"
-    end
+    ok_summary = "#{manifest.size} CORE anchors " \
+                 "(#{(manifest & asserted).size} asserted, #{(manifest & pending).size} pending)"
+    puts KobakoReport.gate(name: "parity", ok_summary: ok_summary,
+                           violations: errors, noun: "coverage problem")
   end
 end

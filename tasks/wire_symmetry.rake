@@ -8,6 +8,7 @@
 
 require_relative "support/anchors"
 require_relative "support/wire_symmetry"
+require_relative "support/report"
 
 WIRE_SYMMETRY_ROOT = File.expand_path("..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
@@ -37,12 +38,9 @@ namespace :wire do
 
     inventories = wire_symmetry_inventories
     violations = KobakoWireSymmetry.violations(**inventories, accepted: accepted)
-    if violations.empty?
-      puts "wire:symmetry: OK — #{inventories[:ruby_types].size} envelope types on both sides " \
-           "(#{inventories[:ruby_types].join(", ")}), #{accepted.size} accepted asymmetries"
-    else
-      violations.each { |violation| warn "  wire:symmetry: #{violation}" }
-      abort "wire:symmetry: #{violations.size} divergence(s)"
-    end
+    ok_summary = "#{inventories[:ruby_types].size} envelope types on both sides " \
+                 "(#{inventories[:ruby_types].join(", ")}), #{accepted.size} accepted asymmetries"
+    puts KobakoReport.gate(name: "wire:symmetry", ok_summary: ok_summary,
+                           violations: violations, noun: "divergence")
   end
 end

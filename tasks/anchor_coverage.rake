@@ -8,6 +8,7 @@
 # coverage rides the test suite (+test/tasks/test_anchor_coverage.rb+).
 
 require_relative "support/anchor_coverage"
+require_relative "support/report"
 
 ANCHOR_COVERAGE_DOC = "docs/anchor-coverage.md"
 # The tooling suites are excluded as citation sources: their
@@ -37,11 +38,8 @@ namespace :anchors do
 
     puts KobakoAnchorCoverage.report_lines(profile, pending)
     violations = KobakoAnchorCoverage.violations(profile, pending, e2e_witnessed)
-    if violations.empty?
-      puts "anchors:coverage: OK — #{profile.size} anchors, #{pending.size} pending"
-    else
-      violations.each { |violation| warn "  anchors:coverage: #{violation}" }
-      abort "anchors:coverage: #{violations.size} problem(s)"
-    end
+    puts KobakoReport.gate(name: "anchors:coverage",
+                           ok_summary: "#{profile.size} anchors, #{pending.size} pending",
+                           violations: violations)
   end
 end

@@ -9,6 +9,7 @@
 # coverage rides the test suite (+test/tasks/test_anchors.rb+).
 
 require_relative "support/anchors"
+require_relative "support/report"
 
 # Anchor definitions live in the behavior spec (+B+ / +E+), the regexp spec
 # (+RX+), the JSON spec (+JS+), and SPEC.md itself for the SPEC-local
@@ -48,10 +49,7 @@ task :anchors do
     ceilings: ceilings
   )
 
-  if violations.empty?
-    puts "anchors: OK — B/E/RX/JS/F/J/N unique, contiguous, and resolvable"
-  else
-    violations.sort.each { |v| warn "  #{v}" }
-    abort "anchors: #{violations.size} violation(s)"
-  end
+  puts KobakoReport.gate(name: "anchors",
+                         ok_summary: "B/E/RX/JS/F/J/N unique, contiguous, and resolvable",
+                         violations: violations.sort, noun: "violation")
 end
