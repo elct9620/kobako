@@ -15,8 +15,8 @@
 
 require_relative "support/coverage"
 
-desc "Print per-file line coverage for lib/kobako/ from the full test suite " \
-     "(stdlib Coverage; not in release gate)."
+desc "Print per-file Ruby line coverage for lib/kobako/ from the full test suite " \
+     "(stdlib Coverage; Rust host/guest not measured; not in release gate)."
 task :coverage do
   require "coverage"
   Coverage.start

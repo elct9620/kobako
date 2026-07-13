@@ -3,8 +3,10 @@
 # Pure-Ruby reporter backing +tasks/coverage.rake+. Walks the stdlib
 # +Coverage+ result into per-file line-coverage report lines scoped to
 # +lib/kobako/+, worst-covered first; the rake task owns the printing.
-# Characterization tooling — not part of the release gate, no
-# thresholds enforced.
+# The scope is Ruby lines only — the Rust host and guest are measured
+# separately, and the banner says so — so this report is never mistaken
+# for whole-system coverage. Characterization tooling — not part of the
+# release gate, no thresholds enforced.
 module KobakoCoverage
   module_function
 
@@ -60,9 +62,18 @@ module KobakoCoverage
     hits.each_with_index.filter_map { |h, i| h.is_a?(Integer) && h.zero? ? i + 1 : nil }
   end
 
+  # The report banner names its scope up front: these percentages are
+  # Ruby line coverage of +lib/kobako/+ alone. The Rust host and guest
+  # carry no line instrument here, and a Ruby line that calls into the
+  # native ext counts as covered the moment it runs — regardless of the
+  # Rust path behind it — so the total must never be read as
+  # whole-system coverage.
   def header_lines(count, width)
     rule = "=" * (width + 32)
-    ["", rule, "Coverage — lib/kobako/  (#{count} files)", rule]
+    ["", rule,
+     "Coverage — Ruby lib/kobako/ lines only  (#{count} files)",
+     "Rust host/guest not measured here; an ext-boundary line reads as covered once it runs.",
+     rule]
   end
 
   # A single table row. Uncovered line numbers ride at the end,

@@ -46,4 +46,14 @@ class KobakoCoverageTest < Minitest::Test
     assert_equal ["No lib/kobako/ source files were loaded — empty suite?"], Reporter.report_lines({}),
                  "a result with no lib/kobako/ entry through report_lines must explain instead of rendering"
   end
+
+  def test_report_header_discloses_the_ruby_only_scope
+    lines = Reporter.report_lines({ "#{Reporter::LIB_ROOT}/sandbox.rb" => [1, 0] })
+
+    assert(lines.any? { |line| line.include?("Ruby") && line.include?("lib/kobako/") },
+           "a report through report_lines must name its scope as Ruby lib/kobako/ lines only")
+    assert(lines.any? { |line| line.include?("Rust") },
+           "a report through report_lines must disclose that Rust host/guest is not measured, " \
+           "so the percentage is never read as whole-system coverage")
+  end
 end
