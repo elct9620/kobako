@@ -8,6 +8,7 @@
 
 require_relative "support/hotspots"
 require_relative "support/roster"
+require_relative "support/report"
 
 namespace :stats do
   desc "Report churn x size x fan-in hotspots since the last release tag (signal; not in release gate)."
@@ -23,7 +24,8 @@ namespace :stats do
 
     rows = KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(ruby_sources))
 
-    puts "hotspots since #{tag}:"
+    puts KobakoReport.banner("stats:hotspots — churn × size × fan-in since #{tag}",
+                             reads_as: "a signal, not a gate; top scored files, colder tail disclosed below")
     puts "  file                                                 edits  lines fan-in"
     rows.each do |row|
       path, edits, lines, fan = row

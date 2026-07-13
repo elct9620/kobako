@@ -9,6 +9,7 @@
 
 require_relative "support/pub_surface"
 require_relative "support/roster"
+require_relative "support/report"
 
 # Analyzed crate => consumers is derived from the Cargo.toml path
 # dependencies (transitively, so consumption through a re-exporting
@@ -51,6 +52,9 @@ namespace :stats do
   task :surface do
     manifests = PUB_SURFACE_MANIFESTS.to_h { |path| [File.dirname(path), File.read(path)] }
     graph = KobakoPubSurface.transitive_consumers(KobakoPubSurface.path_dependencies(manifests))
+
+    puts KobakoReport.banner("stats:surface — pub items with no in-repo consumer",
+                             reads_as: "a signal, not a gate; an acknowledged item is intended third-party API")
 
     graph.each do |crate, consumers|
       sources = FileList["#{crate}/src/**/*.rs"].to_h { |path| [path, File.read(path)] }

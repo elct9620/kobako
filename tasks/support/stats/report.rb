@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../report"
+
 # The report-rendering half of +KobakoStats+ (+tasks/support/stats.rb+
 # holds the measurement half): category rows in, an aligned rails-stats
 # -style table out, with the code-to-test ratio summary line.
@@ -20,12 +22,11 @@ module KobakoStats
 
   # The framed table with its Total row, without the ratio summary — the
   # tier report adds the ratio through +table+, and the per-module detail
-  # frames one module's languages before its own footer.
+  # frames one module's languages before its own footer. The framing
+  # itself is the shared +:table+ type; this only supplies the rows.
   def grid(rows)
     body = rows.map { |row| cells(row) }
-    foot = cells(total(rows))
-    widths = [HEADER, foot, *body].transpose.map { |column| column.map(&:length).max }
-    framed(body, foot, widths).join("\n")
+    KobakoReport.table(header: HEADER, rows: body, total: cells(total(rows))).join("\n")
   end
 
   # A single module's footer: the same code-to-test line every stats view
@@ -38,13 +39,6 @@ module KobakoStats
     ratio_summary(impl, test)
   end
 
-  def framed(body, foot, widths)
-    rule = "+#{widths.map { |width| "-" * (width + 2) }.join("+")}+"
-    [rule, line(HEADER, widths), rule,
-     *body.map { |row| line(row, widths) },
-     rule, line(foot, widths), rule]
-  end
-
   def cells(row)
     lines = row[:blank] + row[:comment] + row[:code]
     [row[:name], row[:files].to_s, lines.to_s, row[:code].to_s, row[:comment].to_s]
@@ -52,13 +46,6 @@ module KobakoStats
 
   def total(rows)
     ZERO_ROW.to_h { |key, _| [key, rows.sum { |row| row[key] }] }.merge(name: "Total")
-  end
-
-  def line(values, widths)
-    padded = values.each_with_index.map do |value, index|
-      index.zero? ? value.ljust(widths[index]) : value.rjust(widths[index])
-    end
-    "| #{padded.join(" | ")} |"
   end
 
   # Only +:code+ and +:test+ rows enter the ratio — signatures, docs, and
