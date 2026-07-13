@@ -10,10 +10,12 @@
 #   * `rake wasm:test`  — runs `cargo test` on the host. wasm32 has no test
 #                         runner, so codec unit tests must run on the host
 #                         build of the same code.
-#   * `rake wasm:coverage` — the host test run under `cargo llvm-cov`,
+#   * `rake coverage:wasm` — the host test run under `cargo llvm-cov`,
 #                         printing per-file Rust line coverage of the guest
-#                         crates. Characterization only — not in the release
-#                         gate, no threshold enforced.
+#                         crates. Lives in the `coverage:` namespace with the
+#                         other line-coverage reports, but here beside the
+#                         wasm manifest and cargo guard it shares.
+#                         Characterization only — not in the release gate.
 #
 # None require wasi-sdk; they run with plain host cargo so feedback is
 # fast in lanes without a vendored toolchain. The Stage C artifact tasks
@@ -21,6 +23,7 @@
 # (paths, target detection, cargo env) in tasks/support/wasm.rb.
 
 require_relative "../support/wasm"
+require_relative "../support/report"
 
 namespace :wasm do
   desc "cargo check the wasm sub-workspace (wasm32-wasip1 if available, host otherwise)"
@@ -60,16 +63,18 @@ namespace :wasm do
     # which runs them against a real host libmruby.a.
     sh "cargo", "test", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
+end
 
+namespace :coverage do
   desc "Rust line coverage over the wasm sub-workspace on the host (cargo llvm-cov; not in release gate)"
-  task :coverage do
+  task :wasm do
     KobakoWasm.ensure_llvm_cov!
-    # Mirrors wasm:test: host-native compile (beni placeholder), so this
-    # measures only the unit-test reach, not the wasm32 artifact. Guest
-    # behavior the gem's E2E drives through the real artifact reads
-    # uncovered here — its proof is the anchor citation (anchors:coverage),
-    # not this %. A 0% line marks where E2E is the sole prover, not a unit
-    # test to add.
     sh "cargo", "llvm-cov", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
+    # Host-native compile (beni placeholder): this measures the unit-test
+    # reach, not the wasm32 artifact. Guest behavior the gem's E2E drives
+    # through the real artifact reads uncovered — a 0% line marks where
+    # E2E is the sole prover, proof living in anchors:coverage.
+    puts KobakoReport.footer("coverage:wasm",
+                             "host unit-test reach; 0% ≠ untested — wasm32 behavior proven by E2E via anchors:coverage")
   end
 end

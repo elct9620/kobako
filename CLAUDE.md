@@ -66,8 +66,7 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | SPEC regression benchmarks (gated, #1..#6) | `bundle exec rake bench` |
 | Characterization + release-gate bench tasks | `rake -T bench` lists them; gate workflow in `benchmark/README.md` |
 | Code statistics (polish signal): per tier / per module / one module by language | `rake stats` · `rake stats:all` · `rake stats:<module>` (e.g. `stats:gem`, `stats:kobako-codec`; per-module tasks stay out of `rake -T`) |
-| Per-file Ruby line coverage for `lib/kobako/` (Rust host/guest not measured) | `bundle exec rake coverage` |
-| Per-file Rust line coverage (`cargo llvm-cov`; host + guest crates) | `rake crates:coverage` · `rake wasm:coverage` |
+| Line coverage, per language — Ruby `lib/` (stdlib Coverage), host + guest crates (`cargo llvm-cov`) | `rake coverage:ruby` · `coverage:crates` · `coverage:wasm` |
 | Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake anchors:coverage` |
 | Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake wire:symmetry` |
 | Gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift) | `rake rbs:lock` |

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "report"
+
 # Pure-Ruby reporter backing +tasks/coverage.rake+. Walks the stdlib
 # +Coverage+ result into per-file line-coverage report lines scoped to
 # +lib/kobako/+, worst-covered first; the rake task owns the printing.
@@ -22,9 +24,9 @@ module KobakoCoverage
     return ["No lib/kobako/ source files were loaded — empty suite?"] if entries.empty?
 
     width = column_width(entries)
-    [*header_lines(entries.size, width),
+    [*banner_lines(entries.size),
      *entries.map { |entry| row_line(entry, width) },
-     *total_lines(entries, width)]
+     *total_lines(entries)]
   end
 
   # Convert a +Coverage.result+ hash into a sorted array of per-file
@@ -62,18 +64,17 @@ module KobakoCoverage
     hits.each_with_index.filter_map { |h, i| h.is_a?(Integer) && h.zero? ? i + 1 : nil }
   end
 
-  # The report banner names its scope up front: these percentages are
-  # Ruby line coverage of +lib/kobako/+ alone. The Rust host and guest
-  # carry no line instrument here, and a Ruby line that calls into the
-  # native ext counts as covered the moment it runs — regardless of the
-  # Rust path behind it — so the total must never be read as
-  # whole-system coverage.
-  def header_lines(count, width)
-    rule = "=" * (width + 32)
-    ["", rule,
-     "Coverage — Ruby lib/kobako/ lines only  (#{count} files)",
-     "Rust host/guest not measured here; an ext-boundary line reads as covered once it runs.",
-     rule]
+  # The scope banner (a Signal report's self-description position): these
+  # percentages are Ruby line coverage of +lib/kobako/+ alone. The Rust
+  # host and guest carry no line instrument here, and a Ruby line that
+  # calls the native ext counts as covered the moment it runs — so the
+  # +reads_as+ line keeps the total from being read as whole-system
+  # coverage.
+  def banner_lines(count)
+    KobakoReport.banner(
+      "coverage:ruby — Ruby lib/kobako/ lines only  (#{count} files)",
+      reads_as: "Rust host/guest not measured here; an ext-boundary line reads as covered once it runs."
+    )
   end
 
   # A single table row. Uncovered line numbers ride at the end,
@@ -94,11 +95,9 @@ module KobakoCoverage
     lines.size > 8 ? "#{sample}…" : sample
   end
 
-  def total_lines(entries, width)
+  def total_lines(entries)
     totals = compute_totals(entries)
-    ["-" * (width + 32),
-     "TOTAL: #{totals[:covered]}/#{totals[:relevant]} (#{totals[:pct]}%)",
-     "=" * (width + 32)]
+    ["TOTAL: #{totals[:covered]}/#{totals[:relevant]} (#{totals[:pct]}%)"]
   end
 
   def compute_totals(entries)

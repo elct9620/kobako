@@ -2,7 +2,7 @@
 
 # Rake task driving stdlib Coverage measurement against +lib/kobako/+.
 # Characterization task, not part of the release gate (+rake default+).
-# Run +rake coverage+ on demand to spot uncovered branches before
+# Run +rake coverage:ruby+ on demand to spot uncovered branches before
 # adding new tests or pruning dead code; no thresholds are enforced.
 #
 # Implementation note: +Coverage.start+ must run BEFORE any +lib/+
@@ -15,16 +15,18 @@
 
 require_relative "support/coverage"
 
-desc "Print per-file Ruby line coverage for lib/kobako/ from the full test suite " \
-     "(stdlib Coverage; Rust host/guest not measured; not in release gate)."
-task :coverage do
-  require "coverage"
-  Coverage.start
+namespace :coverage do
+  desc "Print per-file Ruby line coverage for lib/kobako/ from the full test suite " \
+       "(stdlib Coverage; Rust host/guest not measured; not in release gate)."
+  task :ruby do
+    require "coverage"
+    Coverage.start
 
-  $LOAD_PATH.unshift File.expand_path("../test", __dir__)
-  require_relative "../test/test_helper"
+    $LOAD_PATH.unshift File.expand_path("../test", __dir__)
+    require_relative "../test/test_helper"
 
-  Dir.glob(File.expand_path("../test/**/test_*.rb", __dir__)).each { |f| require f }
+    Dir.glob(File.expand_path("../test/**/test_*.rb", __dir__)).each { |f| require f }
 
-  Minitest.after_run { puts KobakoCoverage.report_lines(Coverage.result) }
+    Minitest.after_run { puts KobakoCoverage.report_lines(Coverage.result) }
+  end
 end
