@@ -15,10 +15,14 @@
 #                               Characterization only — not in the release
 #                               gate, no threshold enforced.
 
+require "open3"
+
 require_relative "support/wasm"
 require_relative "support/report"
+require_relative "support/rust_coverage"
 
 CRATES_MANIFEST = File.expand_path("../crates/Cargo.toml", __dir__)
+PROJECT_ROOT = File.expand_path("..", __dir__)
 
 namespace :crates do
   desc "cargo test the crates/ workspace (kobako-codec, kobako-runtime, kobako-wasmtime)"
@@ -29,14 +33,17 @@ namespace :crates do
 end
 
 namespace :coverage do
-  desc "Rust line coverage over the crates/ workspace (cargo llvm-cov; not in release gate)"
+  desc "crates/ Rust line coverage, files below 100% (cargo llvm-cov; not in release gate)"
   task :crates do
     KobakoWasm.ensure_llvm_cov!
-    # The host driver paths run only through the gem's ext, so a partial
-    # total is E2E's tier, not a unit-test gap.
-    sh "cargo", "llvm-cov", "--manifest-path", CRATES_MANIFEST, "--workspace"
-    reads_as = "unit-test reach only — driver paths are E2E-exercised (rake test); " \
-               "behavior coverage in rake gate:anchors:coverage"
-    puts KobakoReport.footer("coverage:crates", reads_as)
+    # Report only the files below full coverage: the host driver paths run
+    # through the gem's ext, so a partial total is E2E's tier, not a
+    # unit-test gap. Run `cargo llvm-cov` directly for the full per-file view.
+    json, status = Open3.capture2("cargo", "llvm-cov", "--manifest-path", CRATES_MANIFEST, "--workspace", "--json")
+    abort "coverage:crates: cargo llvm-cov failed" unless status.success?
+
+    reads_as = "driver paths are E2E-exercised (rake test); behavior coverage in rake gate:anchors:coverage"
+    puts KobakoReport.banner("coverage:crates — crates/ line coverage, files below 100%", reads_as: reads_as)
+    puts KobakoRustCoverage.table(json, root: PROJECT_ROOT)
   end
 end

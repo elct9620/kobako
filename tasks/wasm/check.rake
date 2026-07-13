@@ -22,8 +22,11 @@
 # (build / variants / clean) live in tasks/wasm/build.rake; shared helpers
 # (paths, target detection, cargo env) in tasks/support/wasm.rb.
 
+require "open3"
+
 require_relative "../support/wasm"
 require_relative "../support/report"
+require_relative "../support/rust_coverage"
 
 namespace :wasm do
   desc "cargo check the wasm sub-workspace (wasm32-wasip1 if available, host otherwise)"
@@ -66,15 +69,18 @@ namespace :wasm do
 end
 
 namespace :coverage do
-  desc "Rust line coverage over the wasm sub-workspace on the host (cargo llvm-cov; not in release gate)"
+  desc "wasm sub-workspace Rust line coverage on the host, files below 100% (cargo llvm-cov; not in release gate)"
   task :wasm do
     KobakoWasm.ensure_llvm_cov!
-    # Host-native compile (beni placeholder) measures unit-test reach, not
-    # the wasm32 artifact — guest behavior runs through the real artifact
-    # under E2E.
-    sh "cargo", "llvm-cov", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
-    reads_as = "host unit-test reach only — wasm32 behavior is E2E-exercised via data/kobako.wasm; " \
-               "behavior coverage in rake gate:anchors:coverage"
-    puts KobakoReport.footer("coverage:wasm", reads_as)
+    # Report only the files below full coverage. Host-native compile (beni
+    # placeholder) measures unit-test reach, not the wasm32 artifact —
+    # guest behavior runs through the real artifact under E2E. Run
+    # `cargo llvm-cov` directly for the full per-file view.
+    json, status = Open3.capture2("cargo", "llvm-cov", "--manifest-path", KobakoWasm::MANIFEST, "--workspace", "--json")
+    abort "coverage:wasm: cargo llvm-cov failed" unless status.success?
+
+    reads_as = "wasm32 behavior is E2E-exercised via data/kobako.wasm; behavior coverage in rake gate:anchors:coverage"
+    puts KobakoReport.banner("coverage:wasm — guest crates line coverage, files below 100%", reads_as: reads_as)
+    puts KobakoRustCoverage.table(json, root: File.expand_path("../..", __dir__))
   end
 end
