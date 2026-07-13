@@ -27,9 +27,9 @@
 #
 # A read-through backend also crosses a trust boundary: the guest chooses
 # the path. `OverlayFileSystem` therefore contains every read within its
-# root, so `File.read("../../etc/passwd")` cannot escape the example
-# directory — bind the least authority the guest needs, never the whole
-# filesystem.
+# root — `..` traversal and symlinks alike — so `File.read("../../etc/passwd")`
+# cannot escape the example directory. Bind the least authority the guest
+# needs, never the whole filesystem.
 #
 # Usage:
 #   ruby examples/vfs/app.rb
@@ -86,7 +86,11 @@ module Vfs
   # the disk for later reads without ever mutating it.
   class OverlayFileSystem
     def initialize(disk_root)
-      @disk_root = ::File.expand_path(disk_root)
+      # Canonicalise the root through the filesystem so containment holds
+      # even when the root is itself reached via a symlink (a common case:
+      # /tmp and /var are symlinks on macOS). The read guard resolves each
+      # path the same way, so both ends of the comparison are canonical.
+      @disk_root = ::File.realpath(disk_root)
       @overlay = {}
     end
 
@@ -98,7 +102,14 @@ module Vfs
       key = resolve(path)
       return @overlay[key] if @overlay.key?(key)
 
-      ::File.read(key)
+      # Only a real-disk read can follow a symlink out of the root — the
+      # overlay hit above never touches disk — so resolve links here and
+      # re-check containment before reading, closing the one escape
+      # `expand_path` alone leaves open.
+      real = ::File.realpath(key)
+      raise ArgumentError, "path escapes the overlay root: #{path.inspect}" unless contained?(real)
+
+      ::File.read(real)
     end
 
     # Writes land in the overlay only and never reach the disk. Keyed by
@@ -116,11 +127,18 @@ module Vfs
     # Contain every path within the overlay root so a guest-chosen path
     # cannot escape it (absolute paths and `..` traversal included), and
     # normalise aliases to one absolute key shared by reads and writes.
+    # This is the overlay key, so it stays independent of what exists on
+    # disk; symlink resolution is the disk read's job, not the key's.
     def resolve(path)
       full = ::File.expand_path(path, @disk_root)
-      return full if full == @disk_root || full.start_with?("#{@disk_root}/")
+      return full if contained?(full)
 
       raise ArgumentError, "path escapes the overlay root: #{path.inspect}"
+    end
+
+    # True when an already-absolute path lies at or under the overlay root.
+    def contained?(absolute)
+      absolute == @disk_root || absolute.start_with?("#{@disk_root}/")
     end
   end
 
