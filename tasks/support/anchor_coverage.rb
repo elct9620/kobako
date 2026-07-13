@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "anchors"
+require_relative "report"
 
 # Citation-profile reader backing +tasks/anchor_coverage.rake+
 # (docs/anchor-coverage.md): every defined anchor's citing files under
@@ -103,7 +104,7 @@ module KobakoAnchorCoverage
     top_lines = top(profile).map do |anchor, files|
       format("  %<anchor>-6s %<count>d files", anchor: anchor, count: files.size)
     end
-    ["thin (at most one citing file):", *thin_lines, "most cited:", *top_lines]
+    KobakoReport.list([["thin (at most one citing file):", thin_lines], ["most cited:", top_lines]])
   end
 
   def name(prefix, number)
