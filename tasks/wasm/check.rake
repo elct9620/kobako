@@ -64,9 +64,12 @@ namespace :wasm do
   desc "Rust line coverage over the wasm sub-workspace on the host (cargo llvm-cov; not in release gate)"
   task :coverage do
     KobakoWasm.ensure_llvm_cov!
-    # Mirrors wasm:test — the guest crates compile host-native (beni in
-    # placeholder mode), so this measures the guest logic the host build
-    # exercises, not the wasm32 artifact; only E2E drives that.
+    # Mirrors wasm:test: host-native compile (beni placeholder), so this
+    # measures only the unit-test reach, not the wasm32 artifact. Guest
+    # behavior the gem's E2E drives through the real artifact reads
+    # uncovered here — its proof is the anchor citation (anchors:coverage),
+    # not this %. A 0% line marks where E2E is the sole prover, not a unit
+    # test to add.
     sh "cargo", "llvm-cov", "--manifest-path", KobakoWasm::MANIFEST, "--workspace"
   end
 end

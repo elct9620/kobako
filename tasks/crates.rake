@@ -27,6 +27,10 @@ namespace :crates do
   desc "Rust line coverage over the crates/ workspace (cargo llvm-cov; not in release gate)"
   task :coverage do
     KobakoWasm.ensure_llvm_cov!
+    # The crates/ unit tests alone. The host driver paths (dispatch,
+    # driver) run only through the gem's ext, so the Ruby E2E + parity
+    # harness prove them and they read uncovered here. Take a 0% line as
+    # "E2E is the sole prover", not a cargo unit test to add.
     sh "cargo", "llvm-cov", "--manifest-path", CRATES_MANIFEST, "--workspace"
   end
 end
