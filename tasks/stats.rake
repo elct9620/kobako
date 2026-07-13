@@ -7,6 +7,7 @@
 
 require_relative "support/roster"
 require_relative "support/stats"
+require_relative "support/report"
 
 STATS_ROOT = File.expand_path("..", __dir__)
 
@@ -49,6 +50,8 @@ task :stats do
     row.merge(name: name, kind: category[:kind])
   end
   rust_test = KobakoStats.rust_test_loc(KobakoRoster.tier_paths(%i[code]), root: STATS_ROOT)
+  puts KobakoReport.banner("stats — size by architectural tier",
+                           reads_as: "rails-stats-style LOC per tier; the code-to-test ratio follows the table")
   puts KobakoStats.table(rows, rust_test_loc: rust_test)
 end
 
@@ -58,6 +61,8 @@ namespace :stats do
     stats_require_cloc!
 
     tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
+    puts KobakoReport.banner("stats:all — code-to-test per publishable module",
+                             reads_as: "each module's impl vs inline #[cfg(test)] LOC; the gem's tests live in test/")
     KobakoRoster.modules(tracked).each do |mod|
       split = stats_module_split(mod)
       puts split[:name]
