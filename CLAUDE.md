@@ -44,7 +44,7 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage ra
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in capability variants built by `wasm:build:<variant>` and shipped as downloadable Release assets — composition rules and the variant matrix live in `docs/variants.md`. The gem bundles only the pure default.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs every `gate:*` verification check in `tasks/gate/` without enumerating them.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs the `gate:*` verification checks in `tasks/gate/`. `gate` enumerates them in one place so membership stays deliberate; the default and CI reference `gate`, never the list.
 
 ## Common Commands
 
@@ -53,7 +53,7 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | Task | Command |
 |------|---------|
 | Default CI gate (compile + test + rubocop + steep + gate) | `bundle exec rake` |
-| Run every `gate:*` verification check (no enumeration) | `rake gate` |
+| Run the release gate's `gate:*` verification checks | `rake gate` |
 | Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
 | Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
