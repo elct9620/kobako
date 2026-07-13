@@ -74,6 +74,13 @@ module Vfs
     File.read("sample.txt")
   MRUBY
 
+  # A traversal attempt. The host backend contains every path within the
+  # overlay root, so this is refused before any disk read and the guest
+  # sees a capability failure — the point of the example, exercised.
+  ESCAPE_ATTEMPT = <<~MRUBY
+    File.read("../../etc/passwd")
+  MRUBY
+
   # Host backend bound at the guest's `File`. Reads fall through to the
   # real disk; writes are captured in an in-memory overlay that shadows
   # the disk for later reads without ever mutating it.
@@ -84,24 +91,31 @@ module Vfs
     end
 
     # Read-through with copy-on-write shadowing: a path that was written
-    # is served from the overlay; everything else is read from disk.
+    # is served from the overlay; everything else is read from disk. The
+    # resolved absolute path is the overlay key, so path aliases like
+    # `sample.txt` and `./sample.txt` address the same shadowed entry.
     def read(path)
-      return @overlay[path] if @overlay.key?(path)
+      key = resolve(path)
+      return @overlay[key] if @overlay.key?(key)
 
-      ::File.read(resolve(path))
+      ::File.read(key)
     end
 
-    # Writes land in the overlay only and never reach the disk. Returns
-    # the byte count, matching Ruby's `File.write`.
+    # Writes land in the overlay only and never reach the disk. Keyed by
+    # the same resolved path as `read`, so a write is visible to a later
+    # read of any alias of that path — and contained to the root, so a
+    # traversal cannot even shadow a file outside it. Returns the byte
+    # count, matching Ruby's `File.write`.
     def write(path, content)
-      @overlay[path] = content
+      @overlay[resolve(path)] = content
       content.bytesize
     end
 
     private
 
-    # Contain every disk read within the overlay root so a guest-chosen
-    # path cannot escape it (absolute paths and `..` traversal included).
+    # Contain every path within the overlay root so a guest-chosen path
+    # cannot escape it (absolute paths and `..` traversal included), and
+    # normalise aliases to one absolute key shared by reads and writes.
     def resolve(path)
       full = ::File.expand_path(path, @disk_root)
       return full if full == @disk_root || full.start_with?("#{@disk_root}/")
@@ -133,6 +147,17 @@ sandbox.install(Vfs.build_extension(disk_root))
 
 first = sandbox.eval(Vfs::WRITE_THEN_READ)
 second = sandbox.eval(Vfs::READ_ONLY)
+
+# Exercise the guard so running the example proves it: a traversal must be
+# refused by the host backend, surfacing as a capability failure.
+escape =
+  begin
+    sandbox.eval(Vfs::ESCAPE_ATTEMPT)
+    "NOT rejected — the overlay guard is broken!"
+  rescue Kobako::ServiceError
+    "rejected"
+  end
+
 disk_after = File.read(sample_path)
 
 puts "vfs overlay demo — a read-through overlay that protects the disk"
@@ -145,6 +170,9 @@ puts "  basename ran in-guest, no round-trip: #{first["name"].inspect}"
 puts
 puts "invocation 2 — fresh overlay, read only:"
 puts "  read               : #{second.inspect}   # overlay reset; disk view again"
+puts
+puts "escape attempt — read outside the overlay root:"
+puts "  File.read(\"../../etc/passwd\") : #{escape}   # contained by the host backend"
 puts
 puts "sample.txt on disk (after both runs):"
 puts "  #{disk_after.inspect}   # never mutated"
