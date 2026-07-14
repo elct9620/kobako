@@ -23,8 +23,11 @@ module Kobako
       # preloaded snippet, and — when it carries a +backend+ — reserve the
       # backend path in +services+. A callable provider reserves the path
       # with a placeholder the per-invocation refresh replaces; a fixed
-      # provider binds its object directly. Raises +ArgumentError+ on a
-      # malformed Extension; a malformed +name+ or +backend.path+ surfaces
+      # provider binds its object directly. Raises +ArgumentError+ for the two
+      # shapes +#validate!+ owns — +source+ not a String, or a present
+      # +backend+ that omits +path+ / +provider+. The Extension readers are
+      # duck-typed, so an object missing them surfaces the underlying
+      # +NoMethodError+, and a malformed +name+ or +backend.path+ surfaces
       # through the +snippets+ / +services+ registration it routes to.
       def install(extension, snippets:, services:)
         validate!(extension)
