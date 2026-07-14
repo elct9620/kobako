@@ -1043,6 +1043,11 @@ mod tests {
 
         let mut dec = Decoder::new(&[]);
         assert_eq!(dec.read_value(), Err(Error::Truncated));
+
+        // fixext 1 marker with its type byte truncated — read_ext meets an
+        // empty cursor where the ext type must be.
+        let mut dec = Decoder::new(&[0xd4]);
+        assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
 
     #[test]
