@@ -130,6 +130,24 @@ class TestE2EHandles < Minitest::Test
                 "B-37: a Handle in a Hash value must be restored to its host object"
   end
 
+  # SPEC.md B-37: restoration walks Hash keys as well as values. A Handle is
+  # wire-representable, so the guest may legitimately build a Hash keyed by
+  # one; the host must resolve that key to its object like any other leaf, or
+  # host code would receive a raw Kobako::Handle where it expects the object.
+  def test_b37_returned_handle_is_restored_in_hash_key_position
+    greeter = Greeter.new("Bob")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Source::Get", -> { greeter })
+
+    result = sandbox.eval('g = Source::Get.call; { g => "label" }')
+
+    assert_same greeter, result.keys.first,
+                "B-37: a Handle in a Hash key must be restored to its host object, symmetric " \
+                "with the Array-element and Hash-value positions"
+    assert_equal "label", result[greeter],
+                 "B-37: the restored Hash key must still map to its original value"
+  end
+
   # SPEC.md B-37 (yield path): a guest block that returns a Handle hands the
   # original host object back to the Service's yield expression, not a
   # Kobako::Handle token. Sink::Run captures its block's return value so the
