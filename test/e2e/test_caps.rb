@@ -184,14 +184,19 @@ class TestE2ECaps < Minitest::Test
                  "readable after the rescue per SPEC.md B-04"
   end
 
-  # SPEC.md B-01: `timeout: nil` and `memory_limit: nil` both disable
-  # the corresponding cap. With caps off, a small script must complete
-  # normally — the guards are dormant rather than always-firing. The
+  # SPEC.md B-01 / E-20: timeout: nil and memory_limit: nil disable their
+  # caps. The discriminating witness — the exact allocation that
+  # +test_memory_limit_traps_single_invocation_past_default_cap+ proves traps
+  # under the default 1 MiB budget runs to completion with both caps off,
+  # proving nil reaches the limiter as unbounded rather than silently falling
+  # back to the DEFAULT_MEMORY_LIMIT the value object supplies when unset. The
   # nil readback itself is pinned at the SandboxOptions tier.
-  def test_disabled_caps_allow_normal_execution
+  def test_nil_caps_disable_enforcement_rather_than_fall_back_to_defaults
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
 
-    assert_equal 3, sandbox.eval("1 + 2"),
-                 "a small #eval with both caps disabled must complete normally"
+    assert_equal 100, sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; a.size'),
+                 "with both caps disabled, an allocation that traps under the default " \
+                 "1 MiB cap must complete — nil disables the cap rather than falling back " \
+                 "to DEFAULT_MEMORY_LIMIT"
   end
 end
