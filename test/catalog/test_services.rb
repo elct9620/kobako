@@ -136,6 +136,42 @@ module Kobako
     end
   end
 
+  # Services#refresh: the per-invocation object swap Extensions drive at
+  # begin_invocation!, behind the key set B-33 fixes at the seal. A
+  # callable backend's fresh object replaces the one bound at install
+  # (B-56), while a path that was never bound is left untouched.
+  class CatalogServicesRefreshTest < Minitest::Test
+    def setup
+      @services = Kobako::Catalog::Services.new
+    end
+
+    # B-56: a callable backend's per-invocation result rides behind its
+    # already-bound path — refresh swaps the object without the collision
+    # or seal checks bind applies.
+    def test_refresh_swaps_the_object_behind_a_registered_path
+      @services.bind("Store::KV", :first)
+      chain = @services.refresh("Store::KV", :second)
+      assert_same @services, chain, "refresh through the registry must return self for chaining"
+      assert_equal :second, @services.lookup("Store::KV"),
+                   "refresh on a bound path must replace its object so a callable backend's " \
+                   "per-invocation result reaches the guest behind the sealed path (B-56)"
+    end
+
+    # B-33: the bound path set is fixed at the seal. refresh is the
+    # per-invocation swap primitive; refreshing a path that was never
+    # bound must be a silent no-op so the sealed key set can never grow.
+    def test_refresh_on_an_unregistered_path_is_a_silent_no_op
+      @services.bind("Store::KV", :kv)
+      @services.refresh("Store::Missing", :ghost)
+      assert_raises(KeyError, "refresh on a never-bound path must not introduce it, " \
+                              "so the key set sealed at the first invocation cannot grow (B-33)") do
+        @services.lookup("Store::Missing")
+      end
+      assert_equal %w[Store::KV], MessagePack.unpack(@services.encode),
+                   "a no-op refresh must leave the Frame 1 preamble unchanged (B-33)"
+    end
+  end
+
   # Frame 1 wire shape: the flat preamble emitted by Services#encode
   # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot
   # — every invocation after the seal ships the bindings that existed at
