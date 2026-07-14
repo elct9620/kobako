@@ -931,20 +931,28 @@ mod tests {
             ),
         ]);
         assert_eq!(roundtrip(m.clone()), m);
+        // 16 entries cross the fixmap ceiling into a map 16 frame, so the
+        // decoder's wider length arm runs (mirrors the array 16 case above).
+        let big = Value::Map((0..16).map(|i| (Value::Int(i), Value::Nil)).collect());
+        assert_eq!(roundtrip(big.clone()), big);
     }
 
     #[test]
     fn roundtrip_sym_payload_sizes() {
         // Empty Symbol (`:""`) is wire-legal — exercised explicitly so a
         // future encoder regression that emits no-payload framing fails.
+        // The sweep spans every ext frame width so each decode arm runs:
+        // 16 bytes rides a fixext16 frame, 65536 an ext 32 frame.
         for name in [
             String::new(),
             "a".to_string(),
             "ab".to_string(),
             "abc".to_string(),
             "abcdefgh".to_string(),
+            "a".repeat(16),
             "a".repeat(255),
             "a".repeat(256),
+            "a".repeat(65_536),
             "蒼時弦也".to_string(),
         ] {
             assert_eq!(roundtrip(Value::Sym(name.clone())), Value::Sym(name));
