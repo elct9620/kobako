@@ -73,8 +73,8 @@ The three reserved `type` values are:
 | `type` value | Failure it represents |
 |---|---|
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
-| `"argument"` | Argument parsing failed, or the method name does not exist on the target (`NoMethodError`) |
-| `"undefined"` | The `target` string path does not match any registered Member, or the `target` Handle ID does not exist in the current invocation's Catalog::Handles |
+| `"argument"` | A Service method's argument binding failed — an unknown keyword, or an arity mismatch (E-15) |
+| `"undefined"` | The `target` string path matches no registered Service, the `target` Handle ID is not live in this invocation's Catalog::Handles, or the method resolves to no reachable Service method on the target — absent, or ambient reflection/eval surface. The three cases share one type so an opaque target discloses nothing about which methods it defines |
 
 These three names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
 
