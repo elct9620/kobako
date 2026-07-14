@@ -97,6 +97,17 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal 1, @table.size
   end
 
+  def test_non_representable_hash_key_is_rejected_as_sandbox_error
+    err = assert_raises(Kobako::SandboxError) do
+      HandleWalk.deep_wrap({ StringIO.new("k") => "v" }, @table)
+    end
+
+    assert_match(/Hash key/, err.message,
+                 "a non-wire-representable Hash key must be rejected with a public SandboxError, " \
+                 "not left to leak the internal codec UnsupportedType at encode")
+    assert_equal 0, @table.size, "a rejected key must allocate no Handle"
+  end
+
   def test_existing_handle_is_not_re_wrapped
     original = @table.alloc(:bound)
     pre_size = @table.size

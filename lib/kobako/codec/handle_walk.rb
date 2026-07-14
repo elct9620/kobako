@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../handle"
+require_relative "../errors"
 
 module Kobako
   module Codec
@@ -53,7 +54,11 @@ module Kobako
       # (Array, Hash) one structural level at a time; a non-representable
       # leaf is wrapped as-is without inspecting its internal structure.
       # An existing +Kobako::Handle+ is representable and passes through
-      # unchanged — auto-wrap never re-wraps a Handle.
+      # unchanged — auto-wrap never re-wraps a Handle. Only Hash *values*
+      # are wrapped: a Hash *key* must already be wire-representable, since a
+      # key is not auto-wrapped the way a value is — a non-representable key
+      # raises +Kobako::SandboxError+ rather than crossing as an opaque token
+      # the guest→host restore walk could not round-trip.
       #
       # +value+ may be any Ruby value; +handler+ must respond to
       # +#alloc(object) -> Kobako::Handle+ (a host-side
@@ -67,10 +72,28 @@ module Kobako
       def deep_wrap(value, handler)
         case value
         when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handler) }
-        when ::Hash  then value.transform_values { |val| HandleWalk.deep_wrap(val, handler) }
+        when ::Hash  then HandleWalk.deep_wrap_hash(value, handler)
         else
           representable?(value) ? value : handler.alloc(value)
         end
+      end
+
+      # Wrap a Hash on the host→guest argument path: each value's
+      # non-representable leaves become Handles, while each key must be
+      # wire-representable as-is. A stateful object may cross the boundary as
+      # a Hash value but not as a key — the one deliberate asymmetry with the
+      # guest→host restore walk, which resolves Handle keys the guest built.
+      def deep_wrap_hash(hash, handler)
+        wrapped = {} # : Hash[untyped, untyped]
+        hash.each do |key, val|
+          unless HandleWalk.representable?(key)
+            raise Kobako::SandboxError,
+                  "a Hash passed to #run has a key that cannot cross the sandbox boundary " \
+                  "(#{key.class}); only wire-representable values may be Hash keys"
+          end
+          wrapped[key] = HandleWalk.deep_wrap(val, handler)
+        end
+        wrapped
       end
 
       # Deep-walk Array / Hash containers in +value+ and replace every
