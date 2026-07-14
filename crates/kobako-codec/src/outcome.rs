@@ -341,6 +341,120 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn panic_decode_ignores_non_str_key() {
+        // SPEC: keys that are not str are silently skipped, same as unknown
+        // str keys — a non-str key never aborts the decode.
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+            (Value::Int(7), Value::Str("ignored".into())),
+        ]))
+        .unwrap();
+        let p = Panic::decode(&enc.into_bytes()).unwrap();
+        assert_eq!(p.origin, "sandbox");
+    }
+
+    // Each required/optional Panic field pins its codec type; a value of the
+    // wrong type aborts the decode with that field's exact message, so a
+    // dropped or swapped arm turns the matching test red.
+    #[test]
+    fn panic_decode_rejects_non_str_origin() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Int(0)),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Panic::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Panic origin must be str"))
+        ));
+    }
+
+    #[test]
+    fn panic_decode_rejects_non_str_class() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (Value::Str("class".into()), Value::Int(0)),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Panic::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Panic class must be str"))
+        ));
+    }
+
+    #[test]
+    fn panic_decode_rejects_non_str_message() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Int(0)),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Panic::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Panic message must be str"))
+        ));
+    }
+
+    #[test]
+    fn panic_decode_rejects_non_array_backtrace() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+            (Value::Str("backtrace".into()), Value::Str("a.rb:1".into())),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Panic::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Panic backtrace must be array"))
+        ));
+    }
+
+    #[test]
+    fn panic_decode_rejects_non_str_backtrace_line() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("origin".into()), Value::Str("sandbox".into())),
+            (
+                Value::Str("class".into()),
+                Value::Str("RuntimeError".into()),
+            ),
+            (Value::Str("message".into()), Value::Str("boom".into())),
+            (
+                Value::Str("backtrace".into()),
+                Value::Array(vec![Value::Str("a.rb:1".into()), Value::Int(2)]),
+            ),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Panic::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Panic backtrace lines must be str"))
+        ));
+    }
+
     // ---------------- Outcome envelope ----------------
 
     #[test]

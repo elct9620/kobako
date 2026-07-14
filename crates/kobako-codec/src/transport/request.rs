@@ -185,6 +185,83 @@ mod tests {
         ));
     }
 
+    // E-10: every Request field carries a shape the wire pins; a value of
+    // the wrong codec type at any slot is an invalid dispatch payload the
+    // decoder refuses through the malformed-payload channel, the same way
+    // it refuses a non-Handle target above. Each test pins the exact arm so
+    // dropping or swapping one arm turns the matching test red.
+    #[test]
+    fn request_decode_rejects_non_str_method() {
+        let frame = Value::Array(vec![
+            Value::Str("G::M".into()),
+            Value::Int(0), // method where the wire demands a str
+            Value::Array(vec![]),
+            Value::Map(vec![]),
+            Value::Bool(false),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame).unwrap();
+        assert!(matches!(
+            Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Request method must be str"))
+        ));
+    }
+
+    #[test]
+    fn request_decode_rejects_non_array_args() {
+        let frame = Value::Array(vec![
+            Value::Str("G::M".into()),
+            Value::Str("find".into()),
+            Value::Int(0), // args where the wire demands an array
+            Value::Map(vec![]),
+            Value::Bool(false),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame).unwrap();
+        assert!(matches!(
+            Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Request args must be array"))
+        ));
+    }
+
+    #[test]
+    fn request_decode_rejects_non_map_kwargs() {
+        let frame = Value::Array(vec![
+            Value::Str("G::M".into()),
+            Value::Str("find".into()),
+            Value::Array(vec![]),
+            Value::Int(0), // kwargs where the wire demands a map
+            Value::Bool(false),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame).unwrap();
+        assert!(matches!(
+            Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Request kwargs must be map"))
+        ));
+    }
+
+    #[test]
+    fn request_decode_rejects_non_symbol_kwargs_key() {
+        // kwargs keys ride as Symbols (ext 0x00); a str key is a forged
+        // kwargs shape the decoder refuses.
+        let frame = Value::Array(vec![
+            Value::Str("G::M".into()),
+            Value::Str("find".into()),
+            Value::Array(vec![]),
+            Value::Map(vec![(Value::Str("limit".into()), Value::Int(1))]),
+            Value::Bool(false),
+        ]);
+        let mut enc = Encoder::new();
+        enc.write_value(&frame).unwrap();
+        assert!(matches!(
+            Request::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed(
+                "Request kwargs keys must be Symbol (ext 0x00)"
+            ))
+        ));
+    }
+
     #[test]
     fn request_round_trip_with_path_target() {
         let req = Request {

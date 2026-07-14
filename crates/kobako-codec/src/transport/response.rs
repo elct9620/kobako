@@ -112,6 +112,31 @@ mod tests {
     }
 
     #[test]
+    fn response_decode_rejects_non_pair_array() {
+        // A Response is exactly `[status, payload]`; any other arity is a
+        // malformed frame the decoder refuses before reading status.
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Array(vec![Value::Int(0)])).unwrap();
+        assert!(matches!(
+            Response::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed(
+                "Response must be a 2-element array"
+            ))
+        ));
+    }
+
+    #[test]
+    fn response_decode_rejects_non_int_status() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Array(vec![Value::Str("ok".into()), Value::Nil]))
+            .unwrap();
+        assert!(matches!(
+            Response::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Response status must be int"))
+        ));
+    }
+
+    #[test]
     fn response_decode_rejects_status_two() {
         let mut enc = Encoder::new();
         enc.write_value(&Value::Array(vec![Value::Int(2), Value::Nil]))

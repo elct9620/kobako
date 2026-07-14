@@ -149,6 +149,74 @@ mod tests {
         );
     }
 
+    // The Run decoder pins the map shape a conforming host must emit; each
+    // test below drives one refusal arm and matches its exact message, so
+    // dropping or swapping an arm turns the matching test red.
+    #[test]
+    fn run_decode_rejects_non_map_frame() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Array(vec![])).unwrap();
+        assert!(matches!(
+            Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Run must be a map"))
+        ));
+    }
+
+    #[test]
+    fn run_decode_rejects_non_str_key() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![(Value::Int(1), Value::Nil)]))
+            .unwrap();
+        assert!(matches!(
+            Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Run keys must be str"))
+        ));
+    }
+
+    #[test]
+    fn run_decode_rejects_non_array_args() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("entrypoint".into()), Value::Sym("Main".into())),
+            (Value::Str("args".into()), Value::Int(0)),
+            (Value::Str("kwargs".into()), Value::Map(vec![])),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Run args must be array"))
+        ));
+    }
+
+    #[test]
+    fn run_decode_rejects_non_map_kwargs() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![
+            (Value::Str("entrypoint".into()), Value::Sym("Main".into())),
+            (Value::Str("args".into()), Value::Array(vec![])),
+            (Value::Str("kwargs".into()), Value::Int(0)),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Run kwargs must be map"))
+        ));
+    }
+
+    #[test]
+    fn run_decode_rejects_unknown_key() {
+        let mut enc = Encoder::new();
+        enc.write_value(&Value::Map(vec![(
+            Value::Str("surprise".into()),
+            Value::Nil,
+        )]))
+        .unwrap();
+        assert!(matches!(
+            Run::decode(&enc.into_bytes()),
+            Err(codec::Error::Malformed("Run carries an unknown key"))
+        ));
+    }
+
     #[test]
     fn run_decode_rejects_non_symbol_entrypoint() {
         let mut enc = Encoder::new();
