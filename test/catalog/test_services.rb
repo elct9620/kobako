@@ -108,11 +108,15 @@ module Kobako
     def test_bind_rejects_a_path_that_extends_an_existing_leaf
       @services.bind("KV", :leaf)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :under) }
+      assert_equal :leaf, @services.lookup("KV"),
+                   "a rejected prefix-extending bind must leave the existing leaf binding intact (B-11)"
     end
 
     def test_bind_rejects_a_path_that_is_a_prefix_of_an_existing_binding
       @services.bind("KV::Get", :under)
       assert_raises(ArgumentError) { @services.bind("KV", :leaf) }
+      assert_equal :under, @services.lookup("KV::Get"),
+                   "a rejected prefix-of-existing bind must leave the existing deeper binding intact (B-11)"
     end
 
     # ---------- seal / lookup error paths ----------
