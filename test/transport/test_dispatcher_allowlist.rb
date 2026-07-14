@@ -96,4 +96,20 @@ class TestDispatchMethodAllowlist < Minitest::Test
     assert_equal "undefined", inherited.payload.type,
                  "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault (E-43)"
   end
+
+  def test_absent_method_on_a_valid_target_is_refused_as_undefined
+    # A method the Service neither defines nor answers via respond_to? (no
+    # method_missing): the floor finds no concrete public method and the
+    # respond_to? opt-in is false, so the call is refused. The refusal reuses
+    # the opaque type="undefined" — the same the floor gives a reflection
+    # method — so a target discloses nothing about which methods it defines
+    # (B-42), rather than "argument" or "runtime".
+    resp = dispatch("Cfg::Theme", "no_such_method", [])
+    assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+                 "a method a plain Service does not define must be refused, not dispatched"
+    assert_equal "undefined", resp.payload.type,
+                 "an absent method must surface as the opaque undefined fault, not argument or runtime (B-42)"
+    assert_match(/no public method/, resp.payload.message,
+                 "the refusal must come from the absent-method arm, not the reflection-owner arm")
+  end
 end
