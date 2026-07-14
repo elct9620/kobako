@@ -5,7 +5,7 @@ module Kobako
 
     class Response < Data
       attr_reader status: Integer
-      attr_reader payload: untyped
+      attr_reader payload: Kobako::Codec::wire_value | Kobako::Fault
 
       def self.ok: (untyped value) -> Response
 

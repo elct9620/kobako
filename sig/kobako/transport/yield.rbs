@@ -8,7 +8,7 @@ module Kobako
 
     class Yield
       attr_reader tag: Integer
-      attr_reader value: untyped
+      attr_reader value: Kobako::Codec::wire_value | Kobako::Fault
 
       def self.decode: (String bytes) -> Yield
 

@@ -4,8 +4,8 @@ module Kobako
       NAME_PATTERN: Regexp
 
       attr_reader entrypoint: Symbol
-      attr_reader args: Array[untyped]
-      attr_reader kwargs: Hash[Symbol, untyped]
+      attr_reader args: Array[Kobako::Codec::wire_value]
+      attr_reader kwargs: Hash[Symbol, Kobako::Codec::wire_value]
 
       def self.new: (entrypoint: Symbol | String, ?args: Array[untyped], ?kwargs: Hash[untyped, untyped]) -> Run
 

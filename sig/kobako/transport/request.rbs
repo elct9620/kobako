@@ -3,19 +3,19 @@ module Kobako
     class Request < Data
       attr_reader target: String | Kobako::Handle
       attr_reader method_name: String
-      attr_reader args: Array[untyped]
-      attr_reader kwargs: Hash[Symbol, untyped]
+      attr_reader args: Array[Kobako::Codec::wire_value]
+      attr_reader kwargs: Hash[Symbol, Kobako::Codec::wire_value]
       attr_reader block_given: bool
 
-      def self.new: (target: String | Kobako::Handle, method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
+      def self.new: (target: String | Kobako::Handle, method_name: String, ?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value], ?block_given: bool) -> Request
 
       def self.decode: (String bytes) -> Request
 
-      def initialize: (target: String | Kobako::Handle, method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> void
+      def initialize: (target: String | Kobako::Handle, method_name: String, ?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value], ?block_given: bool) -> void
 
       def encode: () -> String
 
-      def with: (?target: String | Kobako::Handle, ?method_name: String, ?args: Array[untyped], ?kwargs: Hash[Symbol, untyped], ?block_given: bool) -> Request
+      def with: (?target: String | Kobako::Handle, ?method_name: String, ?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value], ?block_given: bool) -> Request
 
       def ==: (untyped other) -> bool
 

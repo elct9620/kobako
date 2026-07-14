@@ -9,7 +9,7 @@ module Kobako
 
     def self?.split_tag: (String bytes) -> [Integer?, String]
 
-    def self?.decode_value: (String body) -> untyped
+    def self?.decode_value: (String body) -> Kobako::Codec::wire_value
 
     def self?.decode_panic: (String body) -> void
 
