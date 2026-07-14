@@ -87,6 +87,11 @@ module Kobako
         args, kwargs = resolve_call_args(request, handler, carried_handle)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if request.block_given
         encode_ok(catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }, handler)
+      # StandardError is the boundary by intent: a Service method's
+      # application fault folds into a guest-rescuable Response.error, while a
+      # host-process failure (NoMemoryError, SignalException, a bare Exception)
+      # stays uncaught and traps the invocation rather than being masked as a
+      # rescuable fault.
       rescue StandardError => e
         encode_caught_error(e)
       ensure

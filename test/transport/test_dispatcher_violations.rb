@@ -135,6 +135,23 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_kind_of Kobako::HandleExhaustedError, error
   end
 
+  # ---------- Host-level fault escapes the rescue by design ----------
+
+  # The dispatcher folds a Service's StandardError into a Response.error so
+  # the guest can rescue it, but the boundary is StandardError by intent: a
+  # host-process-level fault (here SecurityError, a non-StandardError) must
+  # escape dispatch to trap the invocation rather than be masked as a
+  # rescuable fault — the complement of the containment cases above.
+  def test_non_standard_error_from_a_service_escapes_the_rescue
+    @registry.bind("Boom::Fatal", ->(_) { raise SecurityError, "host fault" })
+    req = encode_request("Boom::Fatal", "call", ["x"], {})
+
+    error = assert_raises(SecurityError) { dispatch(req) }
+    assert_equal "host fault", error.message,
+                 "a non-StandardError raised by a Service must escape the dispatch rescue " \
+                 "to trap the invocation, not fold into a guest-rescuable Response.error"
+  end
+
   private
 
   # Fixture: factory whose `make` always returns a fresh Object — the
