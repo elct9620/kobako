@@ -134,12 +134,13 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
     }
     if arg.is_symbol() || arg.is_string() {
         let name = arg.to_string(mrb);
-        return state
-            .names
-            .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, i)| Some(*i as i32))
-            .ok_or_else(|| index_error(mrb, &format!("undefined group name reference: {name}")));
+        let Some((_, i)) = state.names.iter().find(|(n, _)| *n == name) else {
+            return Err(index_error(
+                mrb,
+                &format!("undefined group name reference: {name}"),
+            ));
+        };
+        return Ok(Some(*i as i32));
     }
     Ok(None)
 }
