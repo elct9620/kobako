@@ -353,7 +353,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 | Error class | Anchors |
 |-------------|---------|
 | `Kobako::TrapError` | E-01..E-03, E-19, E-20 |
-| `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
+| `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38, E-54 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
 | `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44, E-48 |
 | `Kobako::SetupError` | E-40, E-41, E-42, E-49 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
 | `Kobako::PoolTimeoutError` | E-46 |
@@ -363,7 +363,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-57 / E-53; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-57 / E-54; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
 
 ### Terminology
 

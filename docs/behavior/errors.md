@@ -145,6 +145,7 @@ These error scenarios are specific to the `#run(target, *args, **kwargs)` entryp
 | E-29 | `#run` `args` or `kwargs` contains a `Kobako::Handle` instance. The Handle constructor is internal to the Host Gem; legitimate Handle production paths (B-14 service return, B-34 host-side auto-wrap) live inside the wire layer and never expose a Handle object to the Host App's call site. Any Handle reaching this position is therefore forged through a non-public path and is rejected | host pre-flight | `ArgumentError` |
 | E-30 | `#run` `kwargs` contains a key that is not a Symbol | host pre-flight | `ArgumentError` |
 | E-31 | Host's `__kobako_alloc` returns 0 when reserving guest memory for the invocation envelope | host pre-call | `Kobako::SandboxError` |
+| E-54 | `#run` `args` or `kwargs` nests beyond the maximum encodable depth — a reference cycle necessarily does (→ [`docs/wire-codec.md`](../wire-codec.md) § Structural Nesting Depth); the host rejects it while encoding the envelope rather than recursing without bound | host pre-call | `Kobako::SandboxError` |
 
 `#run` entrypoint runtime exceptions reuse E-04 (the entrypoint's `#call` raises an unrescued Ruby exception); unrepresentable return values reuse E-06 (the entrypoint returns an object with no wire representation); `Catalog::Handles` cap exhaustion during host-side auto-wrap reuses E-07 (B-34); timeout / memory caps reuse E-19 / E-20; unrescued Service-call faults inside the entrypoint reuse E-11, E-12, E-13, E-15.
 
