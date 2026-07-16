@@ -133,7 +133,7 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     // class identity, so a native subclass still serializes as its kind and a
     // capability proxy cannot masquerade by answering a name.
     if let Some(n) = i32::from_value(val) {
-        return Ok(JsonValue::Number(Number::from(n as i64)));
+        return Ok(JsonValue::Number(Number::from(n)));
     }
     if let Some(f) = f64::from_value(val) {
         return number_from_f64(mrb, f);
