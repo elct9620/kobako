@@ -44,7 +44,7 @@ pub(crate) fn write_envelope(
     let memory = require_memory(exports)?;
 
     let ptr = alloc
-        .call(store.as_context_mut(), envelope.len() as u32)
+        .call(store.as_context_mut(), len_i32 as u32)
         .map_err(|e| Trap::Other(format!("failed to allocate input buffer: {e}")))?;
     if ptr == 0 {
         return Err(SetupError::Intact(
