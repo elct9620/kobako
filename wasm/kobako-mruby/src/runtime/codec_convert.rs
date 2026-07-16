@@ -67,9 +67,7 @@ impl Kobako {
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { beni::Hash::from_value_unchecked(hash) };
         let keys_ary = hash.keys(self.mrb());
-        let keys_len = keys_ary.len();
-        for i in 0..keys_len {
-            let key_val = keys_ary.entry(i as isize);
+        for key_val in keys_ary.entries() {
             // A hostile Hash subclass whose `[]` raises reads as `nil`
             // for that key rather than faulting this marshalling helper.
             let val = hash.get(self.mrb(), key_val).unwrap_or(Value::nil());
@@ -126,10 +124,9 @@ impl Kobako {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
-        let len = ary.len();
-        let mut items = Vec::with_capacity(len);
-        for i in 0..len {
-            let elem = ary.entry(i as isize);
+        let entries = ary.entries();
+        let mut items = Vec::with_capacity(entries.len());
+        for elem in entries {
             items.push(convert(self, elem, depth + 1));
         }
         items
@@ -152,10 +149,9 @@ impl Kobako {
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { beni::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
-        let len = keys_ary.len();
-        let mut pairs = Vec::with_capacity(len);
-        for i in 0..len {
-            let key = keys_ary.entry(i as isize);
+        let entries = keys_ary.entries();
+        let mut pairs = Vec::with_capacity(entries.len());
+        for key in entries {
             // As in `extract_hash_kwargs`: a raising `[]` reads as `nil`
             // rather than faulting the recursive converter.
             let v = hash.get(self.mrb(), key).unwrap_or(Value::nil());

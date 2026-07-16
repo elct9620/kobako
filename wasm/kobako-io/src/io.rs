@@ -217,11 +217,11 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     // covers Array subclasses too, matching the `is_a?(Array)` check
     // the mrblib predecessor made.
     if let Some(ary) = beni::Array::from_value(val) {
-        // C array length, not a `.length` dispatch: a hostile Array subclass
-        // cannot override it to drive the recursion past the real elements.
-        let len = ary.len();
-        for i in 0..len {
-            puts_one(mrb, self_, ary.entry(i as isize))?;
+        // Walk the C-level slots, never a Ruby `#each`: a hostile Array
+        // subclass cannot override iteration to drive the recursion past the
+        // real elements.
+        for elem in ary.entries() {
+            puts_one(mrb, self_, elem)?;
         }
         return Ok(());
     }

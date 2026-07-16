@@ -174,10 +174,10 @@ fn encode_array(mrb: &Mrb, ary: Array, depth: usize) -> Result<JsonValue, Error>
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
-    let len = ary.len();
-    let mut items = Vec::with_capacity(len);
-    for i in 0..len {
-        items.push(encode(mrb, ary.entry(i as isize), depth + 1)?);
+    let entries = ary.entries();
+    let mut items = Vec::with_capacity(entries.len());
+    for elem in entries {
+        items.push(encode(mrb, elem, depth + 1)?);
     }
     Ok(JsonValue::Array(items))
 }
@@ -187,10 +187,9 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
         return Err(too_deep(mrb));
     }
     let keys = hash.keys(mrb);
-    let len = keys.len();
-    let mut map = Map::with_capacity(len);
-    for i in 0..len {
-        let key = keys.entry(i as isize);
+    let entries = keys.entries();
+    let mut map = Map::with_capacity(entries.len());
+    for key in entries {
         // `hash.get` is the C hash lookup, not a Ruby `[]` dispatch, so a key
         // missing from the snapshot (e.g. removed mid-walk) reads as `nil`
         // rather than faulting the recursive converter.

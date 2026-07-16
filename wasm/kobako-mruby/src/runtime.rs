@@ -282,10 +282,10 @@ impl Kobako {
         }
         // SAFETY: classname check above proves Array-tagged.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
-        let len = ary.len();
-        let mut out = Vec::with_capacity(len);
-        for i in 0..len {
-            out.push(ary.entry(i as isize).to_string(self.mrb()));
+        let entries = ary.entries();
+        let mut out = Vec::with_capacity(entries.len());
+        for elem in entries {
+            out.push(elem.to_string(self.mrb()));
         }
         out
     }
