@@ -43,6 +43,12 @@ module Kobako
       # unsigned-64 union are rejected so the predicate agrees with the
       # msgpack gem's encode-time +RangeError+ behaviour the codec
       # already surfaces as UnsupportedType.
+      #
+      # The optional +depth+ bounds the recursive descent at the wire's
+      # structural nesting cap so a self-referential container — reachable
+      # as a cyclic Hash key on the +#run+ argument path — reads as
+      # non-representable rather than looping, letting #deep_wrap_hash
+      # refuse it instead of overflowing this walk.
       def representable?(value, depth = 0)
         return false if depth > MAX_NESTING_DEPTH
 
