@@ -43,8 +43,10 @@ module Kobako
       # unsigned-64 union are rejected so the predicate agrees with the
       # msgpack gem's encode-time +RangeError+ behaviour the codec
       # already surfaces as UnsupportedType.
-      def representable?(value)
-        primitive_type?(value) || container_representable?(value)
+      def representable?(value, depth = 0)
+        return false if depth > MAX_NESTING_DEPTH
+
+        primitive_type?(value) || container_representable?(value, depth)
       end
 
       # Deep-walk Array / Hash containers in +value+ and replace every
@@ -69,13 +71,26 @@ module Kobako
       # Recursive calls spell the +HandleWalk.+ receiver so the dispatch
       # stays valid even when a block is captured and run under a
       # different +self+ (+module_function+ privatizes the instance copies).
-      def deep_wrap(value, handler)
+      def deep_wrap(value, handler, depth = 0)
+        guard_nesting!(depth)
         case value
-        when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handler) }
-        when ::Hash  then HandleWalk.deep_wrap_hash(value, handler)
+        when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handler, depth + 1) }
+        when ::Hash  then HandleWalk.deep_wrap_hash(value, handler, depth)
         else
           representable?(value) ? value : handler.alloc(value)
         end
+      end
+
+      # Refuse a wrap walk that has descended past the wire's structural
+      # nesting bound — a reference cycle necessarily trips it — so a +#run+
+      # argument fails as a clean +Kobako::SandboxError+ rather than an
+      # unbounded host recursion.
+      def guard_nesting!(depth)
+        return unless depth > MAX_NESTING_DEPTH
+
+        raise Kobako::SandboxError,
+              "a #run argument nests deeper than #{MAX_NESTING_DEPTH} levels and " \
+              "cannot cross the sandbox boundary (possible reference cycle)"
       end
 
       # Wrap a Hash on the host→guest argument path: each value's
@@ -83,15 +98,15 @@ module Kobako
       # wire-representable as-is. A stateful object may cross the boundary as
       # a Hash value but not as a key — the one deliberate asymmetry with the
       # guest→host restore walk, which resolves Handle keys the guest built.
-      def deep_wrap_hash(hash, handler)
+      def deep_wrap_hash(hash, handler, depth)
         wrapped = {} # : Hash[untyped, untyped]
         hash.each do |key, val|
-          unless HandleWalk.representable?(key)
+          unless HandleWalk.representable?(key, depth + 1)
             raise Kobako::SandboxError,
                   "a Hash passed to #run has a key that cannot cross the sandbox boundary " \
                   "(#{key.class}); only wire-representable values may be Hash keys"
           end
-          wrapped[key] = HandleWalk.deep_wrap(val, handler)
+          wrapped[key] = HandleWalk.deep_wrap(val, handler, depth + 1)
         end
         wrapped
       end
@@ -141,10 +156,10 @@ module Kobako
       # elements and Hash key+value pairs through the public
       # #representable?. Not part of the public surface; reach for
       # #representable? instead.
-      def container_representable?(value)
+      def container_representable?(value, depth)
         case value
-        when ::Array then value.all? { |element| HandleWalk.representable?(element) }
-        when ::Hash  then value.all? { |key, val| HandleWalk.representable?(key) && HandleWalk.representable?(val) }
+        when ::Array then value.all? { |element| HandleWalk.representable?(element, depth + 1) }
+        when ::Hash  then value.all? { |pair| pair.all? { |member| HandleWalk.representable?(member, depth + 1) } }
         else false
         end
       end

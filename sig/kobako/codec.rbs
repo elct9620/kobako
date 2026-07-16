@@ -1,5 +1,7 @@
 module Kobako
   module Codec
+    MAX_NESTING_DEPTH: Integer
+
     # A value in the closed wire type set (docs/wire-codec.md § Type
     # Mapping): the scalar leaves, a Capability Handle, and Array / Hash
     # containers of the same. The by-value payloads that cross the wire —

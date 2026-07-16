@@ -44,4 +44,17 @@ class TestRunAutoWrap < Minitest::Test
       sandbox.run(:App, { StringIO.new("k") => "v" })
     end
   end
+
+  # A cyclic argument nests without bound and cannot faithfully cross. The
+  # host refuses it while encoding the run envelope (E-54), so #run surfaces a
+  # clean SandboxError before entering the guest rather than a host stack
+  # overflow escaping the invocation.
+  def test_cyclic_argument_is_rejected_as_sandbox_error
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "App = ->(x) { x }", name: :App)
+    cyclic = []
+    cyclic << cyclic
+
+    assert_raises(Kobako::SandboxError) { sandbox.run(:App, cyclic) }
+  end
 end

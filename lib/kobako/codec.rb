@@ -28,6 +28,12 @@ module Kobako
   # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ /
   # +codec::EXT_ERRENV+ on that side.
   module Codec
+    # The maximum structural nesting depth the wire represents (the
+    # MessagePack ecosystem's bound), shared with the guest +kobako_codec+
+    # so both sides cap identically. The host→guest wrap walk refuses a
+    # +#run+ argument nesting past it — a reference cycle necessarily does.
+    MAX_NESTING_DEPTH = 128
+
     # Bracket a decode and return the block's result together with whether
     # the decoded tree carried an ext 0x01 Capability Handle — the signal a
     # dispatch path uses to skip an all-identity Handle-resolution walk.

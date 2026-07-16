@@ -3,17 +3,19 @@ module Kobako
     module HandleWalk
       MSGPACK_INT_RANGE: Range[Integer]
 
-      def self?.representable?: (untyped value) -> bool
+      def self?.representable?: (untyped value, ?Integer depth) -> bool
 
-      def self?.deep_wrap: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
+      def self?.deep_wrap: (untyped value, Kobako::Codec::_HandleTable handler, ?Integer depth) -> untyped
 
-      def self?.deep_wrap_hash: (Hash[untyped, untyped] hash, Kobako::Codec::_HandleTable handler) -> Hash[untyped, untyped]
+      def self?.guard_nesting!: (Integer depth) -> void
+
+      def self?.deep_wrap_hash: (Hash[untyped, untyped] hash, Kobako::Codec::_HandleTable handler, Integer depth) -> Hash[untyped, untyped]
 
       def self?.deep_restore: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
       def self?.primitive_type?: (untyped value) -> bool
 
-      def self?.container_representable?: (untyped value) -> bool
+      def self?.container_representable?: (untyped value, Integer depth) -> bool
     end
   end
 end
