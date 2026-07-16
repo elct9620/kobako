@@ -61,7 +61,7 @@ kobako-json = { path = "../kobako-json", optional = true }
 # in its `init_gems` hook. Archive discovery happens in `beni-sys`
 # via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` (exported by
 # `rake wasm:build`).
-beni = "0.8.0"
+beni = "0.9.0"
 
 # Guest Binary variants. The default (no feature) is the pure binary;
 # `regexp` adds the kobako-regexp capability gem, and `regexp-unicode`

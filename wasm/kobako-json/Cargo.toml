@@ -21,7 +21,7 @@ categories = ["wasm"]
 [dependencies]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus the
 # class-definition and value-conversion seams the JSON surface uses.
-beni = "0.8.0"
+beni = "0.9.0"
 
 # Pure-Rust JSON engine. `preserve_order` makes a parsed object an
 # insertion-ordered map (CRuby member-order parity). `arbitrary_precision`
