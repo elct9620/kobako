@@ -185,9 +185,12 @@ fn read_array_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value
 }
 
 fn read_map_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
-    // Same bound as `read_array_body`: a pair is at least two bytes, so
-    // `cursor.len()` is a safe upper bound on the pair count.
-    let mut pairs = Vec::with_capacity(len.min(cursor.len()));
+    // A pair is at least two bytes — a key byte and a value byte — so half
+    // the remaining byte count bounds the pair count, the tight analogue of
+    // `read_array_body`'s one-byte-per-element bound. Capping the
+    // pre-allocation here stops a forged `map 32` length from reserving a
+    // huge Vec before the read loop reaches the clean `Truncated`.
+    let mut pairs = Vec::with_capacity(len.min(cursor.len() / 2));
     for _ in 0..len {
         let k = read_value_from(cursor, depth + 1)?;
         let v = read_value_from(cursor, depth + 1)?;
@@ -338,9 +341,11 @@ mod tests {
 
     #[test]
     fn decoder_rejects_forged_map_length_without_eager_alloc() {
-        // Same as the array case for a `map 32` header claiming
-        // u32::MAX pairs with no body.
-        let bytes = [0xdf, 0xff, 0xff, 0xff, 0xff];
+        // A `map 32` header claiming u32::MAX pairs must fail as a clean
+        // Truncated error rather than pre-allocate against the forged length.
+        // A short real body (one `1 => 2` pair) exercises the reservation
+        // against a non-zero remaining-bytes bound before the loop runs dry.
+        let bytes = [0xdf, 0xff, 0xff, 0xff, 0xff, 0x01, 0x02];
         let mut dec = Decoder::new(&bytes);
         assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
