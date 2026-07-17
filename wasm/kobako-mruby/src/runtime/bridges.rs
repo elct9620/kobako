@@ -141,7 +141,17 @@ fn forward_to_dispatch(
         return raise_reflection_blocked(kobako.mrb(), &method_name);
     }
 
-    let (args, kwargs) = kobako.unpack_args_kwargs(rest);
+    // An argument (or kwargs value) with no wire representation is rejected
+    // at the guest dispatch call site rather than coerced to an Object#to_s
+    // string (E-55), uniform with the return / yield rejection.
+    let (args, kwargs) = match kobako.unpack_args_kwargs(rest) {
+        Ok(unpacked) => unpacked,
+        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+        Err(unrep) => {
+            let msg = std::ffi::CString::new(unrep.message()).unwrap_or_default();
+            unsafe { kobako.raise_transport_error(&msg) }
+        }
+    };
 
     match invoke(target, &method_name, &args, &kwargs, block_given) {
         Ok(value) => match kobako.to_mrb_value(value) {

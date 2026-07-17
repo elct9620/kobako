@@ -3,10 +3,10 @@
 require "test_helper"
 
 # E2E (Layer 4) — the transport (guest→host dispatch) value path through
-# real mruby: kwargs symbolization at the dispatch boundary (E-15), the
-# +to_codec_value+ unknown-type +to_s+ fallback, Symbol fidelity (ext 0x00),
-# and native Array / Hash argument and return fidelity (Type Mapping #7-#8).
-# The outcome-path counterpart lives in test_outcome_values.rb.
+# real mruby: kwargs symbolization at the dispatch boundary (E-15), rejection
+# of a dispatch argument with no wire representation (E-55), Symbol fidelity
+# (ext 0x00), and native Array / Hash argument and return fidelity (Type
+# Mapping #7-#8). The outcome-path counterpart lives in test_outcome_values.rb.
 class TestE2EDispatchArgs < Minitest::Test
   include E2eGuestHelper
 
@@ -53,33 +53,32 @@ class TestE2EDispatchArgs < Minitest::Test
                  "a short method name dispatched with a short kwarg key must reach the host intact, not truncated"
   end
 
-  # transport path: the unknown-type fallback arm uses +Object#to_s+, NOT
-  # +Object#inspect+. A user-defined mruby class is not in
-  # +to_codec_value+'s named arms (NilClass / Bool / Integer / Float /
-  # String / Symbol), so it falls through the +to_s+ fallback, arrives at
-  # the Service as a plain String, and is echoed back. If the converter
-  # switched to +inspect+, this assertion would surface
-  # +"<rpc-probe-inspect>"+ instead of +"<rpc-probe-to-s>"+. The outcome
-  # path deliberately diverges (raise instead of coerce, E-06) — its pin
-  # lives in test_outcome_values.rb so a "DRY cleanup" that unifies the
-  # two converters fails loudly.
-  TRANSPORT_PROBE_SCRIPT = <<~RUBY
+  # transport path: a dispatch argument outside the 12-entry wire type set is
+  # rejected at the guest call site rather than coerced. The probe defines a
+  # +to_s+ that would return a sentinel String if the old coercion path were
+  # still live; E-55 rejects the value instead, so the sentinel never reaches
+  # the Service and the invocation surfaces as Kobako::SandboxError. This is
+  # uniform with the return-path rejection (E-06) pinned in
+  # test_outcome_values.rb.
+  UNREPRESENTABLE_ARG_SCRIPT = <<~RUBY
     class RpcProbe
-      def inspect; "<rpc-probe-inspect>"; end
-      def to_s;    "<rpc-probe-to-s>";    end
+      def to_s; "<rpc-probe-to-s>"; end
     end
     Sym::Echo.call(RpcProbe.new)
   RUBY
 
-  def test_rpc_arg_unknown_type_uses_to_s_not_inspect
+  def test_rpc_arg_unknown_type_rejected_not_coerced
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Sym::Echo", ->(arg) { arg })
 
-    result = sandbox.eval(TRANSPORT_PROBE_SCRIPT)
+    err = assert_raises(Kobako::SandboxError) do
+      sandbox.eval(UNREPRESENTABLE_ARG_SCRIPT)
+    end
 
-    assert_equal "<rpc-probe-to-s>", result,
-                 "transport path: unknown-type fallback must call Object#to_s — " \
-                 "see Kobako::to_codec_value doc"
+    assert_match(/not a supported sandbox value type/, err.message,
+                 "E-55: a dispatch argument with no wire representation must be " \
+                 "rejected at the call site as Kobako::SandboxError, never coerced " \
+                 "to an Object#to_s String")
   end
 
   # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol transport argument

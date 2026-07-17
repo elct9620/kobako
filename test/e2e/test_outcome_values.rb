@@ -113,10 +113,9 @@ class TestE2EOutcomeValues < Minitest::Test
 
   # outcome path: +try_codec_value+ raises on a type outside the 12-entry
   # wire type set rather than handing the host a misleading String (E-06;
-  # SPEC.md pins "no implicit inspect or to_h conversion"). The transport
-  # path deliberately diverges (+to_s+ fallback) — its pin lives in
-  # test_dispatch_args.rb so a "DRY cleanup" that unifies the two
-  # converters fails loudly.
+  # SPEC.md pins "no implicit inspect / to_h / to_s conversion"). The
+  # transport (dispatch-arg) path rejects the same way (E-55) — its pin
+  # lives in test_dispatch_args.rb.
   UNREPRESENTABLE_OUTCOME_SCRIPT = "Object.new"
 
   def test_outcome_unrepresentable_value_raises_sandbox_error
