@@ -16,6 +16,7 @@
 # Usage:
 #   ruby examples/line-flex-message/app.rb --example default
 #   ruby examples/line-flex-message/app.rb --example cards
+#   ruby examples/line-flex-message/app.rb --example receipt
 #
 # From a clone of the kobako repository, prefix with `bundle exec` so the local
 # checkout is used instead of the released gem.
@@ -139,7 +140,7 @@ module LineFlex
   # A Flex carousel — a three-item coffee menu. Each `bubble` appends another
   # card to the horizontal strip, and every card is an independent bubble
   # dialect the guest descends into.
-  CARDS_SCRIPT = <<~MRUBY
+  CARDS_SCRIPT = <<~'MRUBY'
     menu = [
       ["Espresso", "$3.50", "#4B2E2B"],
       ["Latte", "$4.20", "#8C6A4A"],
@@ -149,7 +150,7 @@ module LineFlex
     carousel = Build.new(Flex.carousel)
     menu.each do |name, price, tint|
       carousel.bubble do
-        hero_image "https://placehold.co/600x400/\#{tint[1, 6]}/FFFFFF/png?text=\#{name}",
+        hero_image "https://placehold.co/600x400/#{tint[1, 6]}/FFFFFF/png?text=#{name}",
                    size: :full, aspect_ratio: "20:13", aspect_mode: :cover
         body layout: :vertical, spacing: :sm do
           text do
@@ -159,7 +160,7 @@ module LineFlex
         end
         footer do
           button style: :primary, height: :sm do
-            message "Order \#{name}", label: "Order"
+            message "Order #{name}", label: "Order"
           end
         end
       end
