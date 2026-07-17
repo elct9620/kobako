@@ -306,7 +306,7 @@ The guest resolves `File.join` in-guest with no round-trip and dispatches `File.
 
 ## Behavior
 
-The per-anchor behavior specifications (Initial State → Operation → Result / Final State) for B-01..B-54 and the Error Scenarios covering E-01..E-50 live in per-aspect files under `docs/behavior/`, listed per grouping below. The decisions below govern those behaviors; consult the linked file for each anchor's full Initial State / Operation / Result.
+The per-anchor behavior specifications (Initial State → Operation → Result / Final State) for the B-xx behaviors and the E-xx Error Scenarios live in per-aspect files under `docs/behavior/`, listed per grouping below. The decisions below govern those behaviors; consult the linked file for each anchor's full Initial State / Operation / Result.
 
 - **Four-outcome guarantee:** every Sandbox invocation (`#eval` or `#run`) terminates in exactly one of — a return value, `Kobako::TrapError`, `Kobako::SandboxError`, or `Kobako::ServiceError`. No partial completion, no other outcome.
 - **Attribution is two-step:** Step 1 — if the Wasm engine reports a trap (including configured-cap traps), raise `Kobako::TrapError` or its named subclass (`Kobako::TimeoutError` per E-19, `Kobako::MemoryLimitError` per E-20). Step 2 — otherwise dispatch on the outcome envelope first-byte tag (`0x01` result, `0x02` panic). Zero-length outcome bytes or unknown tags raise `Kobako::TrapError` as wire-violation fallback.
