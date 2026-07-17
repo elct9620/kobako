@@ -5,9 +5,7 @@
 //! argspec and pushes it onto `BLOCK_STACK` before dispatching to the
 //! host. The host's eventual `__kobako_yield_to_block` re-entry
 //! reads `BLOCK_STACK.last()` to find the block bound to the active
-//! dispatch frame. The push/pop pair is enforced by `BlockFrame`'s
-//! drop guard so any bridge exit path — normal return, mruby raise,
-//! Rust panic — preserves the LIFO invariant.
+//! dispatch frame.
 //!
 //! The wire-level `block_given` bit is the observable shadow of
 //! a push; the yield flow's read is the matching dereference.
@@ -75,11 +73,10 @@ unsafe impl Sync for BlockStack {}
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 
 /// RAII drop-guard that owns one push/pop pair on `BLOCK_STACK`.
-/// Constructed via `BlockFrame::push_if_block` — the guard becomes a
-/// no-op when the supplied `block` is `nil` (i.e. the caller did not
-/// pass a block). Pop runs unconditionally on drop, mirroring the C
-/// bridge's exit invariant: every entry must have a matching exit,
-/// even on the mruby-raise / Rust-panic paths.
+/// Constructed via `BlockFrame::push_if_block` — a no-op when `block` is
+/// `nil` (the caller passed no block). Drop pops the block when the
+/// dispatch bridge frame returns, so its several return points need no
+/// manual pop.
 pub(crate) struct BlockFrame {
     active: bool,
 }
