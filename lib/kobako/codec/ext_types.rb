@@ -36,9 +36,11 @@ module Kobako
       # Inert ext id the unrepresentable-value guard registers under. It is
       # never emitted (the guard's packer always raises) and never decoded
       # (no unpacker is registered, so the id stays an UnknownExtTypeError on
-      # the wire), so it is not a wire ext type and has no Rust-side mirror.
-      EXT_UNREPRESENTABLE = 0x7F
-      private_constant :EXT_UNREPRESENTABLE
+      # the wire), so it is not a wire ext type: deliberately not named
+      # +EXT_*+ like the three real ext codes, since it has no Rust-side mirror
+      # and must stay outside the wire-symmetry inventory.
+      UNREPRESENTABLE_GUARD_ID = 0x7F
+      private_constant :UNREPRESENTABLE_GUARD_ID
 
       module_function
 
@@ -181,7 +183,7 @@ module Kobako
       # of crossing as a Capability Handle.
       def register_unrepresentable(factory)
         factory.register_type(
-          EXT_UNREPRESENTABLE, BasicObject,
+          UNREPRESENTABLE_GUARD_ID, BasicObject,
           packer: ->(_value) { raise UnsupportedType, "value has no wire representation" }
         )
       end
