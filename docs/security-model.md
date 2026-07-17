@@ -139,6 +139,16 @@ sandbox.bind("Secret::Issue", -> { ApiCredential.new })
 > expose a safe subset instead, answer `true` only for those names:
 > `def respond_to_guest?(name) = name == :public_id`.
 
+> **Gotcha — a permissive backend has no vocabulary ceiling until you draw one.** The floor
+> lets an otherwise-unknown method name through when the bound object answers `respond_to?`
+> truthy for it — the escape hatch dynamic `method_missing` Services rely on. An object whose
+> `respond_to?` answers *everything* (a builder, a proxy, anything routing through
+> `method_missing`) therefore takes every name the floor does not independently reject
+> straight to its `method_missing`: the reflection / eval surface stays blocked, but the
+> object's own dynamic surface is wide open. Bind such an object behind a `respond_to_guest?`
+> that names the methods the guest may call, or wrap it so `respond_to?` answers honestly for
+> the methods it actually defines.
+
 ### Untrusted input — validate at the boundary
 
 Every argument arrives from untrusted code that may pass `2.5` where you expect an
