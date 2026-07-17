@@ -53,32 +53,28 @@ class TestE2EDispatchArgs < Minitest::Test
                  "a short method name dispatched with a short kwarg key must reach the host intact, not truncated"
   end
 
-  # transport path: a dispatch argument outside the 12-entry wire type set is
-  # rejected at the guest call site rather than coerced. The probe defines a
-  # +to_s+ that would return a sentinel String if the old coercion path were
-  # still live; E-55 rejects the value instead, so the sentinel never reaches
-  # the Service and the invocation surfaces as Kobako::SandboxError. This is
-  # uniform with the return-path rejection (E-06) pinned in
-  # test_outcome_values.rb.
-  UNREPRESENTABLE_ARG_SCRIPT = <<~RUBY
-    class RpcProbe
-      def to_s; "<rpc-probe-to-s>"; end
+  # transport path: an unrepresentable value is rejected at the guest call site
+  # rather than coerced — E-55 covers "a dispatch argument or kwargs value", so
+  # both the positional walk (+unpack_args_kwargs+) and the trailing-Hash walk
+  # (+extract_hash_kwargs+) must reject. RpcProbe's +to_s+ sentinel would
+  # surface if the old coercion path were live; the raise happens in the guest
+  # bridge before dispatch, so the Service never runs. Uniform with the
+  # return-path rejection (E-06) pinned in test_outcome_values.rb.
+  UNREPRESENTABLE_DISPATCH_CALLS = {
+    "positional argument" => "Sym::Echo.call(RpcProbe.new)",
+    "kwargs value" => "Sym::Echo.call(data: RpcProbe.new)"
+  }.freeze
+
+  def test_rpc_unrepresentable_arg_rejected_not_coerced
+    UNREPRESENTABLE_DISPATCH_CALLS.each do |position, call|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.bind("Sym::Echo", ->(*args, **kwargs) { args.first || kwargs })
+      script = "class RpcProbe; def to_s; '<sentinel>'; end; end\n#{call}"
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
+      assert_match(/not a supported sandbox value type/, err.message,
+                   "E-55: an unrepresentable #{position} must be rejected at the guest " \
+                   "call site as Kobako::SandboxError, never coerced to an Object#to_s String")
     end
-    Sym::Echo.call(RpcProbe.new)
-  RUBY
-
-  def test_rpc_arg_unknown_type_rejected_not_coerced
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Sym::Echo", ->(arg) { arg })
-
-    err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval(UNREPRESENTABLE_ARG_SCRIPT)
-    end
-
-    assert_match(/not a supported sandbox value type/, err.message,
-                 "E-55: a dispatch argument with no wire representation must be " \
-                 "rejected at the call site as Kobako::SandboxError, never coerced " \
-                 "to an Object#to_s String")
   end
 
   # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol transport argument
