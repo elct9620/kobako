@@ -2,10 +2,11 @@
 
 A self-contained script that runs the
 [line-message-builder](https://github.com/elct9620/line-message-builder) Flex
-DSL **inside a kobako sandbox**. The guest writes an idiomatic, receiver-less
-`bubble do ... end`; the host owns the real builder. Every guest call forwards
-onto the actual `Line::Message::Builder::Flex` nodes across the wasm boundary,
-so the JSON printed is genuine LINE Flex output — paste it into LINE's
+DSL **inside a kobako sandbox**. The guest writes `Flex.with { bubble do ... end
+}` — all but identical to the gem's own `.with { ... }` entry — and the host
+owns the real builder. Every guest call forwards onto the actual
+`Line::Message::Builder::Flex` nodes across the wasm boundary, so the JSON
+printed is genuine LINE Flex output — paste it into LINE's
 [Flex Message Simulator](https://developers.line.biz/flex-simulator/) to see it
 render.
 
@@ -16,22 +17,25 @@ output a third party can validate.
 
 ## The shape
 
-Two small generic pieces bridge the gem to the sandbox — neither reimplements
+Three small generic pieces bridge the gem to the sandbox — none reimplements
 any builder logic:
 
 ```
-Build     (guest)  a receiver-less wrapper: instance_eval descends into each
-                   returned child Handle, so `body do text "..." end` reads
-                   naturally while every verb resolves on the host.
+Flex.with (guest)  mirrors the gem's `.with { }`: the block runs on a root
+                   exposing `bubble` / `carousel`, and the assembled JSON is
+                   returned, so `Build` and `.to_h` never surface in the script.
+Build     (guest)  the wrapper each container descends through: instance_eval
+                   rebinds self to each returned child, so `body do text "..."
+                   end` reads naturally while every verb resolves on the host.
 Buildable (host)   adapts a line-message-builder node so a caller without a
                    block can descend: the gem's box children return the mutated
                    `contents` Array, so the adapter hands back the new child.
 ```
 
-`Studio` is bound at the guest constant `Flex`; `Flex.bubble` / `Flex.carousel`
-mint a fresh root node that crosses to the guest as a Handle. The DSL vocabulary
-is exactly what the gem's nodes define — a verb no node defines is refused
-host-side, so the guest can never widen it.
+The backend is bound at the guest constant `Studio`; `Flex.with` mints a fresh
+root node through it that crosses as a Handle. The DSL vocabulary is exactly
+what the gem's nodes define — a verb no node defines is refused host-side, so
+the guest can never widen it.
 
 ## Running
 
