@@ -37,6 +37,14 @@ Metrics/BlockLength:
     - "Rakefile"
     - "tasks/**/*.rake"
 
+# Each example under examples/ is a single self-contained demo that keeps every
+# type under one top-level module so it reads top-down as one file. Its length
+# tracks the guest-source heredocs it showcases, not module complexity, so the
+# module-length budget does not apply — real modules under lib/ are unaffected.
+Metrics/ModuleLength:
+  Exclude:
+    - "examples/**/*"
+
 Layout/LineLength:
   Exclude:
     - "*.gemspec"

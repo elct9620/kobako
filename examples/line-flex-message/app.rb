@@ -97,6 +97,14 @@ module LineFlex
     def carousel = Buildable.new(Line::Message::Builder::Flex::Carousel.new(context: @context))
   end
 
+  # A host helper Service bound at the guest constant `Assets`. It mirrors the
+  # line-message-builder view-context helper: the guest names an asset and the
+  # host resolves it to a URL, so asset locations stay host-side instead of
+  # being hard-coded into the untrusted script.
+  class Assets
+    def image_url(name) = "https://placehold.co/700x230/4B2E2B/FFFFFF/png?text=#{name}"
+  end
+
   # A single Flex bubble — a simplified café card. It stays within the gem's
   # 0.9 surface: a bold title via `span`, baseline info rows, and buttons that
   # carry a `message` action.
@@ -159,6 +167,53 @@ module LineFlex
     carousel.handle.to_h
   MRUBY
 
+  # A receipt card assembled from host-injected data. The order — a customer
+  # and a variable list of line items — is passed to `#run`, so one guest
+  # template renders a different card for different data. `Assets.image_url`
+  # resolves the banner host-side.
+  RECEIPT_SOURCE = <<~'MRUBY'
+    Receipt = lambda do |order|
+      card = Build.new(Flex.bubble)
+      card.instance_eval do
+        hero_image Assets.image_url("Receipt"), size: :full, aspect_ratio: "20:13", aspect_mode: :cover
+        body layout: :vertical, spacing: :md do
+          text do
+            span "Thanks, #{order["customer"]}!", weight: :bold, size: :lg
+          end
+          box layout: :vertical, spacing: :sm, margin: :lg do
+            order["items"].each do |item|
+              box layout: :horizontal do
+                text item["name"], size: :sm, flex: 4
+                text item["price"], size: :sm, align: :end, flex: 2
+              end
+            end
+          end
+          box layout: :horizontal, margin: :md do
+            text flex: 4 do
+              span "Total", weight: :bold, size: :sm
+            end
+            text align: :end, flex: 2 do
+              span order["total"], weight: :bold, size: :sm
+            end
+          end
+        end
+      end
+      card.handle.to_h
+    end
+  MRUBY
+
+  # A sample order the host injects into the receipt template. Change it and the
+  # same template renders a different card.
+  ORDER = {
+    "customer" => "Alice",
+    "items" => [
+      { "name" => "Espresso", "price" => "$3.50" },
+      { "name" => "Croissant", "price" => "$2.80" },
+      { "name" => "Cappuccino", "price" => "$4.00" }
+    ],
+    "total" => "$10.30"
+  }.freeze
+
   # Composes the guest idiom (`Build`) with the host backend (`Studio`), bound
   # at the guest constant `Flex`. The provider is callable, so a fresh builder
   # backs each invocation.
@@ -176,8 +231,18 @@ module LineFlex
     case name
     when "default" then sandbox.eval(DEFAULT_SCRIPT)
     when "cards" then sandbox.eval(CARDS_SCRIPT)
+    when "receipt" then render_receipt(sandbox)
     else raise ArgumentError, "unknown example: #{name.inspect}"
     end
+  end
+
+  # The receipt example binds the `Assets` helper, preloads the `Receipt`
+  # template, and injects the order through `#run` — the host data path the
+  # `#eval` examples do not exercise.
+  def self.render_receipt(sandbox)
+    sandbox.bind("Assets", Assets.new)
+    sandbox.preload(code: RECEIPT_SOURCE, name: :Receipt)
+    sandbox.run(:Receipt, ORDER)
   end
 end
 

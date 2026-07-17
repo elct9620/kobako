@@ -41,6 +41,7 @@ run — no `Gemfile` is required in the working directory.
 ```bash
 ruby examples/line-flex-message/app.rb --example default
 ruby examples/line-flex-message/app.rb --example cards
+ruby examples/line-flex-message/app.rb --example receipt
 ```
 
 From a clone of the kobako repository, prefix with `bundle exec` so the local
@@ -51,6 +52,11 @@ checkout is used instead of the released gem.
 `--example default` prints a single Flex bubble — a café card with a hero
 image, a bold title, baseline info rows, and footer buttons. `--example cards`
 prints a carousel the guest builds by looping over a menu, one bubble per item.
+`--example receipt` shows dynamic content: the host injects an order through
+`#run` and the guest template loops its line items into rows, so the same
+template renders a different card for different data. Its banner URL comes from
+an `Assets` helper Service bound on the host — the sandbox-side stand-in for a
+view-context helper.
 
 The banner prints to stderr and the JSON to stdout, so the output pipes cleanly:
 
