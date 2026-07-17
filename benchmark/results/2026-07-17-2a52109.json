@@ -1,0 +1,119 @@
+{
+  "env": {
+    "ruby_version": "3.4.7",
+    "ruby_platform": "arm64-darwin24",
+    "ruby_engine": "ruby",
+    "host_os": "darwin24",
+    "host_cpu": "arm64",
+    "processors": 16,
+    "yjit_enabled": false,
+    "git_sha": "2a52109",
+    "captured_at": "2026-07-17T16:54:01Z",
+    "load_avg": 5.11,
+    "power_source": "ac",
+    "cpu_probe_spread_pct": 0.14
+  },
+  "suites": {
+    "regexp": [
+      {
+        "label": "11a-compile-literal-loop",
+        "ips": 158.10426424271657,
+        "ips_mean": 158.0835144211389,
+        "ips_sd": 1,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.006244375,
+        "wall_time_sd": 0.00013733701583065554,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11b-compile-hoisted",
+        "ips": 185.46424017619088,
+        "ips_mean": 185.38153332984442,
+        "ips_sd": 1,
+        "iterations": 640,
+        "cycles": 5,
+        "wall_time": 0.005336625,
+        "wall_time_sd": 0.00010448226472725405,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11c-compile-match-p",
+        "ips": 851.3709233550022,
+        "ips_mean": 851.6289066176629,
+        "ips_sd": 4,
+        "iterations": 2560,
+        "cycles": 5,
+        "wall_time": 0.0011369585000000001,
+        "wall_time_sd": 0.000023050615864101044,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11d-compile-only",
+        "ips": 768.2923352335539,
+        "ips_mean": 767.1424348284544,
+        "ips_sd": 7,
+        "iterations": 2560,
+        "cycles": 5,
+        "wall_time": 0.001264375,
+        "wall_time_sd": 0.00003171703847225261,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11e-empty-loop",
+        "ips": 2340.437723120008,
+        "ips_mean": 2340.217826803265,
+        "ips_sd": 5,
+        "iterations": 8192,
+        "cycles": 4,
+        "wall_time": 0.00038620799999999997,
+        "wall_time_sd": 0.00002063198399823663,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11f-match",
+        "ips": 162.5254150163051,
+        "ips_mean": 162.91263232755182,
+        "ips_sd": 1,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.005901896,
+        "wall_time_sd": 0.00019767341644347775,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11g-scan",
+        "ips": 219.52560174454266,
+        "ips_mean": 220.48937922484814,
+        "ips_sd": 2,
+        "iterations": 768,
+        "cycles": 3,
+        "wall_time": 0.00446725,
+        "wall_time_sd": 0.00006816763700689531,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11h-gsub",
+        "ips": 22.40723753772485,
+        "ips_mean": 22.36672257323254,
+        "ips_sd": 0,
+        "iterations": 80,
+        "cycles": 5,
+        "wall_time": 0.0443194375,
+        "wall_time_sd": 0.00024520525003018126,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11i-split",
+        "ips": 320.7212946571432,
+        "ips_mean": 320.995991235347,
+        "ips_sd": 2,
+        "iterations": 1024,
+        "cycles": 4,
+        "wall_time": 0.0030951665,
+        "wall_time_sd": 0.00020554126740607884,
+        "memory_peak": 65536
+      }
+    ]
+  }
+}
