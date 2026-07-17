@@ -2,13 +2,43 @@
 
 require_relative "rust_source"
 
-# Pub-surface consumption reader backing +tasks/pub_surface.rake+. A
-# +pub+ item with no in-repo downstream reference is either deliberate
-# third-party API (acknowledged with a reason) or an over-wide surface
-# to demote — the report lists the unreviewed remainder for a human
-# call, never gates.
+# Pub-surface consumption reader and acknowledgement ledger, backing the
+# +stats:surface+ signal and the +gate:surface+ consistency gate. A +pub+
+# item with no in-repo downstream reference is either deliberate
+# third-party API (acknowledged below with a reason) or an over-wide
+# surface to demote — the signal lists the unreviewed remainder for a human
+# call, and the gate fails on any acknowledgement a current pub item no
+# longer carries.
 module KobakoPubSurface
   module_function
+
+  # The kobako-mruby bridge cluster is crate-internal to the flows, but on
+  # mruby-less host builds the flows that use it are compiled out (beni
+  # placeholder rule) and pub reachability is what keeps the dead-code
+  # analysis quiet — demoting it trades a clean surface for 20+ dead_code
+  # warnings or banned #[allow]s.
+  BRIDGE_REASON = "placeholder-rule liveness — pub keeps the mruby-less host build " \
+                  "warning-free; crate-internal to the flows, not third-party API"
+
+  # Pub items confirmed to stay public for a reason the in-repo grep cannot
+  # see — macro-expanded third-party API, or pub reachability a
+  # placeholder-rule crate relies on. gate:surface fails the day an entry
+  # names an item no current pub surface carries.
+  ACKNOWLEDGED = {
+    "crates/kobako" => {
+      "YieldError" => "SDK third-party API — the yield-arm error embedders match on; " \
+                      "the in-repo parity runner never names it"
+    },
+    "wasm/kobako-core" => {
+      "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)",
+      "ABI_VERSION" => "reached via export_guest! expansion ($crate::abi::ABI_VERSION)"
+    },
+    "wasm/kobako-mruby" => %w[
+      InstallError install_bindings Kobako init resolve_raw raise_transport_error
+      raise_service_error extract_backtrace top_level_constants set_handle_id
+      extract_handle_id
+    ].to_h { |name| [name, BRIDGE_REASON] }
+  }.freeze
 
   # A crate's public Rust surface; +pub(crate)+ and narrower stay out,
   # as do the +pub extern "C"+ templates inside +export_guest!+ — those

@@ -71,7 +71,8 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 | Anchor citation profile + Pending gate (`docs/anchor-coverage.md`) | `rake gate:anchors:coverage` |
 | Wire-symmetric peer inventories (`docs/wire-contract.md` § Wire-Symmetric Peers) | `rake gate:wire:symmetry` |
 | Gem-sourced RBS pins match Gemfile.lock (run `rbs collection update` on drift) | `rake gate:rbs:lock` |
-| Polish signals: churn hotspots / unconsumed pub surface | `rake stats:hotspots` / `rake stats:surface` |
+| Pub-surface acknowledgement ledger names only current pub items | `rake gate:surface` |
+| Polish signals: churn hotspots / unconsumed pub surface (ledger consistency gated by `gate:surface`) | `rake stats:hotspots` / `rake stats:surface` |
 
 ## Layering
 
