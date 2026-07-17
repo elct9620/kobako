@@ -33,18 +33,26 @@ module Kobako
       EXT_ERRENV = 0x02
       private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_ERRENV
 
+      # Inert ext id the unrepresentable-value guard registers under. It is
+      # never emitted (the guard's packer always raises) and never decoded
+      # (no unpacker is registered, so the id stays an UnknownExtTypeError on
+      # the wire), so it is not a wire ext type and has no Rust-side mirror.
+      EXT_UNREPRESENTABLE = 0x7F
+      private_constant :EXT_UNREPRESENTABLE
+
       module_function
 
-      # Assemble a +MessagePack::Factory+ with the three kobako ext types
-      # registered, frozen because registration is its only mutation and
-      # happens exactly once. The stateful conversions resolve their
-      # per-operation state at call time, so one registered factory serves
-      # every thread.
+      # Assemble a +MessagePack::Factory+ with the three kobako ext types plus
+      # the unrepresentable-value guard registered, frozen because
+      # registration is its only mutation and happens exactly once. The
+      # stateful conversions resolve their per-operation state at call time,
+      # so one registered factory serves every thread.
       def build_factory
         factory = MessagePack::Factory.new
         register_symbol(factory)
         register_handle(factory)
         register_fault(factory)
+        register_unrepresentable(factory)
         factory.freeze
       end
 
@@ -155,6 +163,26 @@ module Kobako
           EXT_ERRENV, Kobako::Fault,
           packer: ->(fault) { ExtTypes.pack_fault(fault, State.current) },
           unpacker: ->(payload) { ExtTypes.unpack_fault(payload, State.current) }
+        )
+      end
+
+      # A catch-all packer that rejects any value with no wire representation
+      # as +UnsupportedType+. Registered on +BasicObject+ so it also covers
+      # BasicObject-based proxies; the narrower Symbol / Handle / Fault
+      # registrations still win by most-specific match, and native types never
+      # reach it. Packer-only: the guard never writes bytes, so its id is inert
+      # and the decode surface stays fail-closed.
+      #
+      # This makes the host's non-wire detection a positive allowlist — a value
+      # outside the type set is rejected here rather than routed to +to_msgpack+
+      # — matching the guest's classname allowlist and the Rust codec's closed
+      # +Value+ enum. Without it, a value with a permissive +method_missing+
+      # answers the codec's +to_msgpack+ probe and mis-encodes as +nil+ instead
+      # of crossing as a Capability Handle.
+      def register_unrepresentable(factory)
+        factory.register_type(
+          EXT_UNREPRESENTABLE, BasicObject,
+          packer: ->(_value) { raise UnsupportedType, "value has no wire representation" }
         )
       end
     end

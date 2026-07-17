@@ -4,6 +4,7 @@ module Kobako
       EXT_SYMBOL: Integer
       EXT_HANDLE: Integer
       EXT_ERRENV: Integer
+      EXT_UNREPRESENTABLE: Integer
 
       def self?.build_factory: () -> MessagePack::Factory
 
@@ -24,6 +25,8 @@ module Kobako
       def self?.register_handle: (MessagePack::Factory factory) -> void
 
       def self?.register_fault: (MessagePack::Factory factory) -> void
+
+      def self?.register_unrepresentable: (MessagePack::Factory factory) -> void
     end
 
     FACTORY: MessagePack::Factory

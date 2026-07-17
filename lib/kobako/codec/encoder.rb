@@ -22,15 +22,14 @@ module Kobako
     # themselves.
     module Encoder
       # Encode +value+ to wire bytes (binary-encoded String).
-      # Wire violations surface as +UnsupportedType+: SPEC's 12-entry type
-      # mapping is a closed set, and anything outside it is rejected by
-      # the msgpack gem itself (arbitrary objects raise +NoMethodError+
-      # from missing +to_msgpack+, integers outside i64..u64 raise
-      # +RangeError+). The +NoMethodError+ catch is deliberately broad:
-      # MessagePack signals "no wire representation" only through that error,
-      # so there is no narrower discriminator — a packer-internal
-      # +NoMethodError+ is likewise reported as +UnsupportedType+ rather than
-      # propagating.
+      # SPEC's 12-entry type mapping is a closed set: a value outside it is
+      # rejected as +UnsupportedType+ by the factory's +BasicObject+ guard
+      # (ExtTypes#register_unrepresentable), which raises before the msgpack
+      # gem can route the value through +to_msgpack+ — so a permissive
+      # +method_missing+ object cannot answer that probe and mis-encode. The
+      # rescue below maps the two violations the guard does not reach onto the
+      # same error: an integer outside i64..u64 (+RangeError+) and any
+      # packer-internal +NoMethodError+.
       def self.encode(value)
         FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e
