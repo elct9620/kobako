@@ -49,6 +49,14 @@ checkout is used instead of the released gem.
 ## What to observe
 
 `--example default` prints a single Flex bubble — a café card with a hero
-image, a bold title, baseline info rows, and footer buttons. Copy the JSON into
-the Flex Simulator: it renders as a real LINE message, built entirely by the
-gem, driven entirely from untrusted guest source running in the sandbox.
+image, a bold title, baseline info rows, and footer buttons. `--example cards`
+prints a carousel the guest builds by looping over a menu, one bubble per item.
+
+The banner prints to stderr and the JSON to stdout, so the output pipes cleanly:
+
+```bash
+ruby examples/line-flex-message/app.rb --example default | pbcopy
+```
+
+Paste it into the Flex Simulator: it renders as a real LINE message, built
+entirely by the gem, driven entirely from guest source running in the sandbox.

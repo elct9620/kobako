@@ -103,7 +103,7 @@ module LineFlex
   DEFAULT_SCRIPT = <<~MRUBY
     Build.new(Flex.bubble).instance_eval do
       hero_image "https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png",
-                 aspect_ratio: "20:13", aspect_mode: :cover
+                 size: :full, aspect_ratio: "20:13", aspect_mode: :cover
       body layout: :vertical, spacing: :md do
         text do
           span "Brown Cafe", weight: :bold, size: :xl
@@ -128,6 +128,37 @@ module LineFlex
     end.handle.to_h
   MRUBY
 
+  # A Flex carousel — a three-item coffee menu. Each `bubble` appends another
+  # card to the horizontal strip, and every card is an independent bubble
+  # dialect the guest descends into.
+  CARDS_SCRIPT = <<~MRUBY
+    menu = [
+      ["Espresso", "$3.50", "#4B2E2B"],
+      ["Latte", "$4.20", "#8C6A4A"],
+      ["Cappuccino", "$4.00", "#A9744F"]
+    ]
+
+    carousel = Build.new(Flex.carousel)
+    menu.each do |name, price, tint|
+      carousel.bubble do
+        hero_image "https://placehold.co/600x400/\#{tint[1, 6]}/FFFFFF/png?text=\#{name}",
+                   size: :full, aspect_ratio: "20:13", aspect_mode: :cover
+        body layout: :vertical, spacing: :sm do
+          text do
+            span name, weight: :bold, size: :lg
+          end
+          text price, color: "#666666", size: :sm
+        end
+        footer do
+          button style: :primary, height: :sm do
+            message "Order \#{name}", label: "Order"
+          end
+        end
+      end
+    end
+    carousel.handle.to_h
+  MRUBY
+
   # Composes the guest idiom (`Build`) with the host backend (`Studio`), bound
   # at the guest constant `Flex`. The provider is callable, so a fresh builder
   # backs each invocation.
@@ -144,6 +175,7 @@ module LineFlex
   def self.render(sandbox, name)
     case name
     when "default" then sandbox.eval(DEFAULT_SCRIPT)
+    when "cards" then sandbox.eval(CARDS_SCRIPT)
     else raise ArgumentError, "unknown example: #{name.inspect}"
     end
   end
@@ -163,7 +195,8 @@ card =
     abort e.message
   end
 
-puts "line-flex-message — a real DSL gem, driven from inside the sandbox"
-puts
-puts "example: #{example}"
+# The banner goes to stderr so stdout is pure JSON — pipe it straight into
+# pbcopy or the Flex Simulator.
+warn "line-flex-message — a real DSL gem, driven from inside the sandbox"
+warn "example: #{example}"
 puts JSON.pretty_generate(card)
