@@ -353,7 +353,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 | Error class | Anchors |
 |-------------|---------|
 | `Kobako::TrapError` | E-01..E-03, E-19, E-20 |
-| `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38, E-54 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
+| `Kobako::SandboxError` | E-04..E-10, E-21..E-23, E-26..E-28, E-31, E-32, E-36..E-38, E-54, E-55 — E-37 / E-38 raised as the `Kobako::BytecodeError` subclass |
 | `Kobako::ServiceError` | E-11, E-12, E-13, E-15, E-43, E-44, E-48 |
 | `Kobako::SetupError` | E-40, E-41, E-42, E-49 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
 | `Kobako::PoolTimeoutError` | E-46 |
@@ -363,7 +363,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-57 / E-54; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-57 / E-55; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
 
 ### Terminology
 
@@ -552,7 +552,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | An invocation (`#eval` or `#run`) exceeding the configured `timeout` raises `Kobako::TimeoutError` via the trap-attribution path; no other outcome is possible for wall-clock cap exhaustion | Host Gem | Runtime |
 | Guest `memory.grow` whose per-invocation delta past the entry-time linear-memory baseline exceeds the configured `memory_limit` traps unconditionally and raises `Kobako::MemoryLimitError`; the host never observes a silent `memory.grow` failure from cap exhaustion | Host Gem | Runtime |
 | `Sandbox#usage` reports the most recent invocation's `wall_time` and `memory_peak`, sharing its accounting boundary with the matching caps from B-01 and populated regardless of outcome (B-35); `memory_peak` never exceeds `memory_limit` on `MemoryLimitError`, and pre-invocation reads return `Kobako::Usage::EMPTY` | Host Gem | Runtime |
-| `Sandbox#eval` returns the last mruby expression value and `Sandbox#run` returns the entrypoint's `#call` value, both via the Result envelope path; objects without a wire representation take the Panic envelope path — no implicit `inspect` or `to_h` conversion | Guest Binary, Wire Spec | Test-time |
+| `Sandbox#eval` returns the last mruby expression value and `Sandbox#run` returns the entrypoint's `#call` value, both via the Result envelope path. A value the guest hands across the boundary that has no wire representation is rejected rather than coerced — no path substitutes an implicit `inspect` / `to_h` / `to_s` string: an invocation return takes the Panic envelope path (E-06), a yield-block result fails the yield round-trip (E-22), and a dispatch argument or kwargs value fails at the dispatch call site (E-55) | Guest Binary, Wire Spec | Test-time |
 | `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts | Build-time |
 | mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build | Build-time |
 | Guest Binary target is `wasm32-wasip1`; wasi-preview2 and component model are out of scope | Guest Binary build, Host Gem | Build-time |
