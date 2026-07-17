@@ -42,7 +42,10 @@ module LineFlex
   # when a block is given, descends into the returned child node. `Flex.with`
   # mirrors line-message-builder's own `.with { }` entry: the block runs on a
   # root exposing `bubble` / `carousel`, and the assembled Flex JSON is
-  # returned. No builder logic is reimplemented in the guest.
+  # returned. `Flex.template` is its deferred form — a callable the sandbox
+  # drives through `#run`, the injected argument arriving as the block's
+  # context, so `#with` is simply calling a template now. No builder logic is
+  # reimplemented in the guest.
   GUEST_SOURCE = <<~MRUBY
     class Build
       def initialize(handle) = (@handle = handle)
@@ -61,10 +64,14 @@ module LineFlex
     end
 
     module Flex
-      def self.with(&blk)
-        root = Root.new
-        root.instance_eval(&blk)
-        root.to_h
+      def self.with(&blk) = template(&blk).call
+
+      def self.template(&blk)
+        lambda do |context = nil|
+          root = Root.new
+          root.instance_exec(context, &blk)
+          root.to_h
+        end
       end
 
       class Root
@@ -203,34 +210,34 @@ module LineFlex
     end
   MRUBY
 
-  # A receipt card assembled from host-injected data. The order — a customer
-  # and a variable list of line items — is passed to `#run`, so one guest
-  # template renders a different card for different data. `Assets.image_url`
+  # A receipt card assembled from host-injected data. `Flex.template` is a
+  # deferred builder — the sandbox drives it through `#run`, and the injected
+  # order (a customer and a variable list of line items) arrives as the block's
+  # context, so one template renders a different card for different data. It is
+  # the guest mirror of the gem's `.with(context) { }`. `Assets.image_url`
   # resolves the banner host-side.
   RECEIPT_SOURCE = <<~'MRUBY'
-    Receipt = lambda do |order|
-      Flex.with do
-        bubble do
-          hero_image Assets.image_url("Receipt"), size: :full, aspect_ratio: "20:13", aspect_mode: :cover
-          body layout: :vertical, spacing: :md do
-            text do
-              span "Thanks, #{order["customer"]}!", weight: :bold, size: :lg
-            end
-            box layout: :vertical, spacing: :sm, margin: :lg do
-              order["items"].each do |item|
-                box layout: :horizontal do
-                  text item["name"], size: :sm, flex: 4
-                  text item["price"], size: :sm, align: :end, flex: 2
-                end
+    Receipt = Flex.template do |order|
+      bubble do
+        hero_image Assets.image_url("Receipt"), size: :full, aspect_ratio: "20:13", aspect_mode: :cover
+        body layout: :vertical, spacing: :md do
+          text do
+            span "Thanks, #{order["customer"]}!", weight: :bold, size: :lg
+          end
+          box layout: :vertical, spacing: :sm, margin: :lg do
+            order["items"].each do |item|
+              box layout: :horizontal do
+                text item["name"], size: :sm, flex: 4
+                text item["price"], size: :sm, align: :end, flex: 2
               end
             end
-            box layout: :horizontal, margin: :md do
-              text flex: 4 do
-                span "Total", weight: :bold, size: :sm
-              end
-              text align: :end, flex: 2 do
-                span order["total"], weight: :bold, size: :sm
-              end
+          end
+          box layout: :horizontal, margin: :md do
+            text flex: 4 do
+              span "Total", weight: :bold, size: :sm
+            end
+            text align: :end, flex: 2 do
+              span order["total"], weight: :bold, size: :sm
             end
           end
         end

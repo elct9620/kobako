@@ -56,11 +56,13 @@ checkout is used instead of the released gem.
 `--example default` prints a single Flex bubble — a café card with a hero
 image, a bold title, baseline info rows, and footer buttons. `--example cards`
 prints a carousel the guest builds by looping over a menu, one bubble per item.
-`--example receipt` shows dynamic content: the host injects an order through
-`#run` and the guest template loops its line items into rows, so the same
-template renders a different card for different data. Its banner URL comes from
-an `Assets` helper Service bound on the host — the sandbox-side stand-in for a
-view-context helper.
+`--example receipt` shows dynamic content: it is a `Flex.template { |order| ...
+}` — the deferred form the sandbox drives through `#run`, the injected order
+arriving as the block's context, exactly like the gem's `.with(context) { }`.
+The guest loops the order's line items into rows, so one template renders a
+different card for different data, and its banner URL comes from an `Assets`
+helper Service bound on the host — the sandbox-side stand-in for a view-context
+helper.
 
 The banner prints to stderr and the JSON to stdout, so the output pipes cleanly:
 
