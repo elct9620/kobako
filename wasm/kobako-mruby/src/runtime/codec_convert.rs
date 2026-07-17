@@ -12,11 +12,11 @@
 //!    value converter, shared by the `#eval` / `#run` outcome, the
 //!    yield-block result, and the dispatch Request args / kwargs. A value
 //!    with no wire representation yields `None`, never a coerced
-//!    `Object#to_s` string: the outcome caller emits a Panic envelope
-//!    (E-06), the yield caller a `0x04` error YieldResponse (E-22), and the
-//!    dispatch caller raises at the guest call site (E-55). SPEC.md
-//!    § Behavior pins "no implicit inspect / to_h / to_s conversion" across
-//!    all three guest→host value paths.
+//!    `Object#to_s` string: the outcome caller emits a Panic envelope, the
+//!    yield caller a `0x04` error YieldResponse, and the dispatch caller
+//!    raises at the guest call site. SPEC.md § Behavior pins "no implicit
+//!    inspect / to_h / to_s conversion" across all three guest→host value
+//!    paths.
 //! 2. **Args / kwargs unpacking** (`extract_hash_kwargs` /
 //!    `unpack_args_kwargs`) — used by the `method_missing` C bridges to
 //!    split a `mrb_get_args` "n*" rest slice into positional args and
@@ -50,9 +50,9 @@ impl IntegerOutOfRange {
 
 /// A dispatch argument (or kwargs value) the guest tried to send has no
 /// wire representation. The guest rejects it at the dispatch call site
-/// rather than coercing it to an `Object#to_s` string (E-55), uniform with
-/// the return-value (E-06) and yield-block (E-22) rejections. Carries the
-/// offending value's class name for the operator-facing message.
+/// rather than coercing it to an `Object#to_s` string, uniform with the
+/// return-value and yield-block rejections. Carries the offending value's
+/// class name for the operator-facing message.
 #[derive(Debug)]
 pub(crate) struct UnrepresentableArg {
     type_name: String,
@@ -84,7 +84,7 @@ impl Kobako {
     /// each name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
     /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. A value with no wire
-    /// representation aborts the walk with `UnrepresentableArg` (E-55) so the
+    /// representation aborts the walk with `UnrepresentableArg` so the
     /// caller raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
@@ -138,8 +138,8 @@ impl Kobako {
         Ok((args, kwargs))
     }
 
-    /// Tag `val` as a rejected dispatch argument (E-55), capturing its
-    /// mruby class name for the operator-facing message.
+    /// Tag `val` as a rejected dispatch argument, capturing its mruby class
+    /// name for the operator-facing message.
     fn unrepresentable_arg(&self, val: Value) -> UnrepresentableArg {
         UnrepresentableArg {
             type_name: val.classname(self.mrb()),
@@ -210,9 +210,8 @@ impl Kobako {
     /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
     /// cycle necessarily does). No path coerces through an implicit `to_s` /
     /// `inspect`, so the caller surfaces the `None` as a Panic envelope
-    /// (outcome, E-06), a `0x04` error YieldResponse (yield, E-22), or a
-    /// raise at the dispatch call site (E-55) rather than handing the host a
-    /// misleading String.
+    /// (outcome), a `0x04` error YieldResponse (yield), or a raise at the
+    /// dispatch call site rather than handing the host a misleading String.
     pub(crate) fn try_codec_value(&self, val: Value) -> Option<kobako_codec::codec::Value> {
         self.try_codec_value_at(val, 0)
     }

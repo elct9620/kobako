@@ -143,7 +143,7 @@ fn forward_to_dispatch(
 
     // An argument (or kwargs value) with no wire representation is rejected
     // at the guest dispatch call site rather than coerced to an Object#to_s
-    // string (E-55), uniform with the return / yield rejection.
+    // string, uniform with the return / yield rejection.
     let (args, kwargs) = match kobako.unpack_args_kwargs(rest) {
         Ok(unpacked) => unpacked,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
