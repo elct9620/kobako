@@ -97,11 +97,12 @@ module LineFlex
   # guest to descend into; a non-node result passes straight through.
   #
   # Forwarding is gated on the node *defining* the method (`method_defined?`,
-  # not `respond_to?`): line-message-builder's own nodes answer `respond_to?`
-  # to everything through their context delegation, which would let the codec's
-  # `to_msgpack` probe be swallowed and the node mis-encode as a wire value
-  # instead of crossing to the guest as a Capability Handle. A real builder
-  # method forwards; anything else raises, so the codec wraps the node.
+  # not `respond_to?`) so the adapter answers `respond_to?` honestly: a real
+  # builder method forwards, anything else is refused. line-message-builder's
+  # own nodes answer `respond_to?` to everything through their context
+  # delegation, so without the gate the DSL vocabulary would not be bounded by
+  # the gem's method set — the honest-`respond_to?` remedy the security model
+  # recommends for a permissive backend (docs/security-model.md).
   class Buildable
     def initialize(node) = (@node = node)
 
