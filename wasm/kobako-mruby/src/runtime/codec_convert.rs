@@ -70,6 +70,13 @@ impl UnrepresentableArg {
     }
 }
 
+/// The unpacked form of a dispatch Request's argument list: positional args
+/// followed by Symbol-keyed kwargs pairs.
+type UnpackedArgs = (
+    Vec<kobako_codec::codec::Value>,
+    Vec<(String, kobako_codec::codec::Value)>,
+);
+
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
@@ -112,13 +119,7 @@ impl Kobako {
     pub(crate) fn unpack_args_kwargs(
         &self,
         rest: &[Value],
-    ) -> Result<
-        (
-            Vec<kobako_codec::codec::Value>,
-            Vec<(String, kobako_codec::codec::Value)>,
-        ),
-        UnrepresentableArg,
-    > {
+    ) -> Result<UnpackedArgs, UnrepresentableArg> {
         let mut args: Vec<kobako_codec::codec::Value> = Vec::new();
         let mut kwargs: Vec<(String, kobako_codec::codec::Value)> = Vec::new();
 
