@@ -321,6 +321,8 @@ bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
+bundle exec rake bench:regexp            # regexp characterization on the +regexp-unicode variant (#11)
+bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#11)
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.

@@ -22,6 +22,10 @@
 #                             of one guest->host dispatch, isolated from
 #                             wasm. Predictive half of the GVL-impact
 #                             toolkit (#7 is the confirmation half).
+#   bench:regexp            — #11 characterization: regexp compile / match /
+#                             operations on the regexp-unicode variant.
+#   bench:all               — the whole-round sweep: bench:full plus every
+#                             characterization (#7-#11), one merged file.
 #
 # Each script writes its suite into
 # benchmark/results/<date>-<short-sha>.json; multiple Runner
@@ -59,6 +63,18 @@ namespace :bench do
 
   desc "Run dispatch-glue isolation characterization (#10; not in release gate)."
   task(:dispatch_glue) { sh "bundle exec ruby benchmark/dispatch_glue.rb" }
+
+  # The whole-round sweep for a manual capture: the 16 MiB gated set plus every
+  # characterization (#7-#11), merged into one results file. bench:full stays
+  # lean and pure-binary for the release gate; bench:all additionally builds the
+  # regexp-unicode variant #11 drives. When a json characterization lands, add
+  # its variant prerequisite and suite here.
+  desc "Run the whole sweep: gated (16 MiB) + every characterization (#7-#11)."
+  task all: ["wasm:build:regexp_unicode"] do
+    %w[full concurrent memory preload_dispatch dispatch_glue regexp].each do |suite|
+      Rake::Task["bench:#{suite}"].invoke
+    end
+  end
 end
 
 desc "Alias for bench:release — the six SPEC regression benchmarks."
