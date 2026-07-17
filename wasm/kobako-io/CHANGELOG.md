@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/elct9620/kobako/compare/kobako-io-v0.10.0...kobako-io-v0.10.1) (2026-07-17)
+
+
+### Miscellaneous Chores
+
+* **kobako-io:** Synchronize kobako crates versions
+
 ## [0.10.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.9.0...kobako-io-v0.10.0) (2026-07-12)
 
 

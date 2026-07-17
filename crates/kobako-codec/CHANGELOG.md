@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/elct9620/kobako/compare/kobako-codec-v0.10.0...kobako-codec-v0.10.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **codec:** tighten map-decode pre-allocation to the true pair bound ([7094f91](https://github.com/elct9620/kobako/commit/7094f91898dae4c91c4e6863b09d25a6f34d096e))
+
 ## [0.10.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.9.0...kobako-codec-v0.10.0) (2026-07-12)
 
 
