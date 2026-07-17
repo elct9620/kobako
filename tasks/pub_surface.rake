@@ -42,8 +42,7 @@ PUB_SURFACE_ACKNOWLEDGED = {
   "wasm/kobako-mruby" => %w[
     InstallError install_bindings Kobako init resolve_raw raise_transport_error
     raise_service_error extract_backtrace top_level_constants set_handle_id
-    extract_handle_id extract_hash_kwargs unpack_args_kwargs to_codec_value
-    try_codec_value
+    extract_handle_id
   ].to_h { |name| [name, PUB_SURFACE_BRIDGE_REASON] }
 }.freeze
 
