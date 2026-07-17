@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.17.0](https://github.com/elct9620/kobako/compare/v0.16.0...v0.17.0) (2026-07-17)
+
+
+### Features
+
+* **examples:** add vfs, an overlay filesystem that protects the disk ([1c83d44](https://github.com/elct9620/kobako/commit/1c83d44de971bf76d3db84cc3021b23bfc363842))
+* **tasks:** add a rake gate aggregate over every gate:* check ([c02e069](https://github.com/elct9620/kobako/commit/c02e06996134f124025538ba5c23f923606bc3d2))
+* **tasks:** add KobakoReport, the shared static-analysis output template ([7854a61](https://github.com/elct9620/kobako/commit/7854a61d30b823534bcad869a4e4970beab80340))
+* **tasks:** disclose the Ruby-only scope of the coverage report ([51cb291](https://github.com/elct9620/kobako/commit/51cb291bbc45671240a63e00a1461958694e4ee1))
+* **tasks:** disclose the tail below the hotspots top-N cut ([d7584ee](https://github.com/elct9620/kobako/commit/d7584ee610e347dcef9cb2515680c97c911320e5))
+* **tasks:** gate the pub-surface acknowledgement ledger for staleness ([5f97c77](https://github.com/elct9620/kobako/commit/5f97c773f300363e387ff8020523f141cdaaf88f))
+* **tasks:** gate the RBS collection lock against Gemfile.lock drift ([8201ce0](https://github.com/elct9620/kobako/commit/8201ce03848d9710239c586321a6ffb75de1950d))
+* **tasks:** measure Rust line coverage with cargo llvm-cov ([1f6bd9f](https://github.com/elct9620/kobako/commit/1f6bd9f2876f3ef6d8e60880c40198eb70327bf4))
+* **tasks:** open the stats reports with a self-describing banner ([914d0cf](https://github.com/elct9620/kobako/commit/914d0cf74e338a0a7405cc6f981135defac534f1))
+
+
+### Bug Fixes
+
+* **catalog:** match Extension dependencies by Symbol form ([57f17b8](https://github.com/elct9620/kobako/commit/57f17b872e506f3935ebd4ca1f9d81c4bc34455f))
+* **codec:** cap the host wrap-walk nesting depth (E-54) ([be67f37](https://github.com/elct9620/kobako/commit/be67f37108f24699354950f4e72293169da66917))
+* **codec:** keep the guard id out of the wire-symmetry inventory ([e51998b](https://github.com/elct9620/kobako/commit/e51998bc7d54715aecb58f3b7817c337cd882c8b))
+* **codec:** reject a non-representable #run argument Hash key cleanly ([dbabace](https://github.com/elct9620/kobako/commit/dbabaceecb6f32f37a26839b8162c0e94fe881bb))
+* **codec:** reject non-wire values via a factory guard, not to_msgpack ([8e5c6b8](https://github.com/elct9620/kobako/commit/8e5c6b8cb67faa2eb7b82d6e63e3f8464b1126a0))
+* **codec:** tighten map-decode pre-allocation to the true pair bound ([7094f91](https://github.com/elct9620/kobako/commit/7094f91898dae4c91c4e6863b09d25a6f34d096e))
+* **examples:** contain overlay writes and prove the vfs traversal guard ([2fe7965](https://github.com/elct9620/kobako/commit/2fe7965b8f588b160a907771a14e51f80cd8d3a7))
+* **examples:** contain vfs reads against symlink escape ([43317c8](https://github.com/elct9620/kobako/commit/43317c82c4a4171c08fdbf0c9fe7014cc249b926))
+* **guest:** reject non-representable dispatch args instead of to_s (E-55) ([6b9ab56](https://github.com/elct9620/kobako/commit/6b9ab562753407cf6168a5baad34140afd75a86a))
+* **tasks:** land the gate move for parity and wire:symmetry ([a0dddbc](https://github.com/elct9620/kobako/commit/a0dddbca9638418dbf3cd08e29806e05c5198cd3))
+* **tasks:** resync the pub-surface ledger to the renamed install cluster ([c6a6c33](https://github.com/elct9620/kobako/commit/c6a6c33f5802f4536a4ebcc2df36acc130059d89))
+
 ## [0.16.0](https://github.com/elct9620/kobako/compare/v0.15.0...v0.16.0) (2026-07-12)
 
 
