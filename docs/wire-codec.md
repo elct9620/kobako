@@ -51,7 +51,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 
 | Wire position | Accepted family | Violation handling |
 |---|---|---|
-| Request `target` field (Member constant path, e.g. `"MyService::KV"` or `"File"`) | str only | bin → wire violation, reject |
+| Request `target` field (a bound constant's path, e.g. `"MyService::KV"` or `"File"`) | str only | bin → wire violation, reject |
 | Request `method` field | str only | bin → wire violation, reject |
 | Request `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Response Fault Envelope `type` field value | str only | bin → wire violation, reject |
@@ -127,13 +127,13 @@ A 5-element msgpack array with fixed field positions:
 
 | Index | Field | Type |
 |-------|-------|------|
-| 0 | `target` | str (Member constant path, e.g. `"MyService::KV"` or `"File"`) or ext 0x01 (Capability Handle reference) |
+| 0 | `target` | str (a bound constant's path, e.g. `"MyService::KV"` or `"File"`) or ext 0x01 (Capability Handle reference) |
 | 1 | `method` | str |
 | 2 | `args` | array (elements may include ext 0x01 Handles) |
 | 3 | `kwargs` | map (Symbol keys as ext 0x00; values may include ext 0x01 Handles; empty kwargs is encoded as empty map `0x80`, never absent) |
 | 4 | `block_given` | bool — `true` if the guest call site supplied a block (B-23); `false` otherwise |
 
-The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a Member constant path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
+The two forms of `target` are distinguishable at the first msgpack byte: a str family marker indicates a bound constant's path; `0xd6` (fixext 4) indicates a Capability Handle reference. No additional union tag field is required.
 
 ### Response
 

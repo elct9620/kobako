@@ -47,7 +47,7 @@ module Kobako
       # #invalidate!. The ok value is consumed by the host Service
       # method, so a Capability Handle in it is restored to its host object.
       # The break value unwinds past the Service back to the guest
-      # Member call, so it passes through verbatim — a Handle stays a
+      # bound-constant call, so it passes through verbatim — a Handle stays a
       # Handle and rides back on the same id rather than churning a new one.
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active

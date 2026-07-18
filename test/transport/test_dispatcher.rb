@@ -30,7 +30,7 @@ class TestTransportDispatchUnit < Minitest::Test
     assert_equal [%w[x value]], capture
   end
 
-  # E-12: a dispatch target path matching no registered Member surfaces as
+  # E-12: a dispatch target path matching no registered Service surfaces as
   # the type="undefined" error envelope; the dispatcher never raises.
   def test_unknown_target_returns_undefined_exception
     req = encode_request("Missing::Method", "call", ["x"], {})

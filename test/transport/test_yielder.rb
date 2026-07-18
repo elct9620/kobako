@@ -11,7 +11,7 @@ require "test_helper"
 #   * 0x01 ok    — the value is consumed by the host Service method, so a
 #                  Handle is restored to its host object.
 #   * 0x02 break — the value unwinds past the Service back to the guest
-#                  Member call (B-25), so a Handle passes through unchanged;
+#                  bound-constant call (B-25), so a Handle passes through unchanged;
 #                  restoring it would churn a fresh Catalog::Handles id.
 #
 # The Handle-free ok case pins the complement: a payload whose decode

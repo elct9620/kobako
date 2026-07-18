@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Differential parity — Service dispatch (SPEC.md B-12, E-11, E-12,
-# E-15, B-50, E-48): a guest call on a bound Member must produce the
+# E-15, B-50, E-48): a guest call on a bound constant must produce the
 # same value or the same fault class on both sides.
 class TestParityDispatch < Parity::Case
   ECHO_SERVICE = [
@@ -11,7 +11,7 @@ class TestParityDispatch < Parity::Case
       methods: { echo: { behavior: "echo" }, explode: { behavior: "raise", message: "kaput" } } }
   ].freeze
 
-  # SPEC.md B-12: positional args reach the Member and its value
+  # SPEC.md B-12: positional args reach the bound constant and its value
   # returns to the guest expression.
   def test_dispatch_round_trip
     assert_parity Parity::Scenario.new(
@@ -21,7 +21,7 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-11: a Member that raises surfaces as a rescuable
+  # SPEC.md E-11: a bound constant that raises surfaces as a rescuable
   # service-origin exception, never a trap.
   def test_member_failure_is_rescuable
     assert_parity Parity::Scenario.new(
@@ -34,7 +34,7 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-12: a method the Member does not expose resolves to the
+  # SPEC.md E-12: a method the bound constant does not expose resolves to the
   # undefined fault on both sides.
   def test_unknown_method_is_undefined
     assert_parity Parity::Scenario.new(

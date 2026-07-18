@@ -70,7 +70,7 @@ The guest sees exactly these constructs.
 | `NaN` / `Infinity` generation | `generate` raises `JSON::GeneratorError`, as CRuby does without `allow_nan:` |
 | CRuby's `to_s`-degrade of an un-opted object | a fail-loud `JSON::GeneratorError` (B-53) |
 | A raw `to_json` string-splice customization seam | the value-returning `as_json` hook, so the gem owns escaping and well-formedness |
-| Serializing a host capability reference (`Kobako::Handle` / `Member`) | refused outbound, unforgeable inbound (B-53) |
+| Serializing a host capability reference (`Kobako::Handle` / a bound constant) | refused outbound, unforgeable inbound (B-53) |
 
 ## Behavior
 
@@ -124,7 +124,7 @@ raises `JSON::GeneratorError` rather than being lossily transcoded. A `Hash` key
 renders as its string form when it is a `String`, a `Symbol`, or a JSON-native
 scalar (a number, `nil`, or a boolean),
 as in CRuby. Any other key raises `JSON::GeneratorError`: a JSON-native `Array`
-or `Hash` is not a usable JSON key, and a `Kobako::Handle`, a `Member`, or any
+or `Hash` is not a usable JSON key, and a `Kobako::Handle`, a bound constant, or any
 other non-native object is refused through the same boundary as a non-native
 value (B-53), never stringified through a host-dispatching `to_s`. The `as_json`
 opt-in (JS-08) applies to values, never to keys. A `Float` that is
@@ -149,7 +149,7 @@ types and `Symbol` (JS-06) — serializes only if its class overrides the raisin
 the same rules (escaping, depth bound, capability refusal). `Object#as_json` is
 defined with a raising default, so an object that has not opted in raises
 `JSON::GeneratorError` (B-53). The default governs a capability reference too:
-`as_json` on a `Kobako::Handle` or `Member` raises locally rather than reaching
+`as_json` on a `Kobako::Handle` or a bound constant raises locally rather than reaching
 the host, so the hook never becomes a path to a host round-trip. The hook
 returns a value the gem encodes — to serialize an object as `true`, its
 `as_json` returns the boolean `true`, not the string `"true"`. `generate`

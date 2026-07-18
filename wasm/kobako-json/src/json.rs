@@ -25,7 +25,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     )?;
 
     // An object joins `generate` by overriding this; the `Object`-rooted
-    // default raises, so a `Kobako::Handle` / `Member` / un-opted object
+    // default raises, so a `Kobako::Handle` / a bound constant / un-opted object
     // fails loud instead of dispatching to the host.
     mrb.object_class()
         .define_method(mrb, c"as_json", beni::method!(object_as_json, 0))?;

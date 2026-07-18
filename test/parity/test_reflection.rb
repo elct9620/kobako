@@ -11,7 +11,7 @@ class TestParityReflection < Parity::Case
     { name: "MyService::KV", methods: { echo: { behavior: "echo" } } }
   ].freeze
 
-  # SPEC.md B-42 / E-43: `send` / `instance_eval` on a bound Member
+  # SPEC.md B-42 / E-43: `send` / `instance_eval` on a bound constant
   # resolve to the undefined fault, not to Kernel reflection.
   def test_reflection_on_target_is_undefined
     assert_parity Parity::Scenario.new(

@@ -15,7 +15,7 @@
 //! forward to the host — `respond_to?` lies (the proxy answers every name)
 //! and an undefined convert method fires `method_missing`. A method
 //! *defined* on `Object` never reaches `method_missing`, so the hook
-//! refuses a `Kobako::Handle` / `Member` / un-opted object without a host
+//! refuses a `Kobako::Handle` / a bound constant / un-opted object without a host
 //! round-trip.
 
 use crate::errors::{generator_error, parser_error};
@@ -159,7 +159,7 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     if let Some(hash) = Hash::from_value(val) {
         return encode_hash(mrb, hash, depth);
     }
-    // Any other value — including a `Kobako::Handle` or `Member` — is reached
+    // Any other value — including a `Kobako::Handle` or a bound constant — is reached
     // only through the `Object`-rooted `as_json` hook.
     encode_via_as_json(mrb, val, depth)
 }
@@ -202,7 +202,7 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
 /// Render an object key as its JSON string form. A `String`, `Symbol`, or
 /// JSON-native scalar (number, `nil`, boolean) renders to text, as in
 /// CRuby; any other key — an `Array`, a `Hash`, a `Kobako::Handle`, a
-/// `Member`, or any non-native object — is refused through the same
+/// bound constant, or any non-native object — is refused through the same
 /// boundary as a non-native value, never stringified through a
 /// host-dispatching `to_s`. The `as_json` opt-in applies to values, never
 /// to keys.

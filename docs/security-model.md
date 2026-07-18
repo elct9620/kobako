@@ -31,7 +31,7 @@ These hold without any host effort — do not re-implement them.
 | Guarantee | Anchor |
 |-----------|--------|
 | Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface — the `send` family, `eval` / `instance_eval`, `binding`, `method`, `define_method`, `instance_variable_get`, and the `Proc` / `Method` / `Binding` gadget methods — is rejected host-side, leaving for a bound lambda only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). Reflective objects (`Binding` / `Method` / `UnboundMethod`) never cross as Handles. | B-12, B-42, B-43 |
-| The guest cannot fabricate a `Kobako::Handle` or a Member proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
+| The guest cannot fabricate a `Kobako::Handle` or a bound-constant proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
 | Under the default `hermetic` profile, guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
@@ -105,7 +105,7 @@ sandbox.bind("Cfg::Settings", ThemeReader.new)  # reachable: only #color
 ### Least privilege — let a crossing object gate its own surface
 
 A purpose-built wrapper is one lever for the smallest surface; a second is to let the object
-decide for itself. A bound object — a Member, or anything that crosses back as a
+decide for itself. A bound object — a Service, or anything that crosses back as a
 `Kobako::Handle` — may define a private `respond_to_guest?(name)` that answers, per method
 name, whether the guest may call it. Return `false` for every name and the object is
 **opaque**: the guest holds it and forwards it to another Service, but can call nothing on

@@ -26,7 +26,7 @@ impl Extension for FileExt {
     }
 
     fn source(&self) -> &str {
-        "class File < Kobako::Member; end"
+        "class File; extend Kobako::Proxy; end"
     }
 
     fn depends_on(&self) -> &[&str] {

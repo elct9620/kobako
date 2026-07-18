@@ -93,12 +93,12 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   # The headline credential path: an opaque object handed back as a Capability
   # Handle (B-14) and reached by the guest as a Handle target (B-17) is narrowed
-  # by the same chokepoint as a Member — the guest holds it but calls nothing.
+  # by the same chokepoint as a bound constant — the guest holds it but calls nothing.
   def test_opaque_object_is_narrowed_through_a_handle_target
     id = @handler.alloc(Opaque.new).id
     resp = dispatch(Kobako::Handle.restore(id), "token")
     assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
-                 "an opaque object reached as a Handle target must be narrowed identically to a Member"
+                 "an opaque object reached as a Handle target must be narrowed identically to a bound constant"
     assert_equal "undefined", resp.payload.type,
                  "the Handle-target rejection must surface as the undefined fault (E-48)"
   end

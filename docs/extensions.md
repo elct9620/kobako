@@ -82,11 +82,15 @@ references resolve at guest call time, after every snippet has replayed.
 
 ## Worked example — a native `File`
 
-The guest idiom keeps path arithmetic local and routes I/O to the host:
+The guest idiom `extend`s `Kobako::Proxy` for host-forwarding — a capability
+mixed in rather than inherited, so `File` keeps its own superclass free — runs
+path arithmetic locally, and routes I/O to the host:
 
 ```ruby
 FILE_SOURCE = <<~RUBY
-  class File < Kobako::Member
+  class File
+    extend Kobako::Proxy
+
     def self.join(*parts) = parts.join("/")
     def self.basename(p)  = p.split("/").last || ""
     # read / write are not defined locally, so they dispatch to the host

@@ -8,7 +8,7 @@ The governing summary of this contract lives in `SPEC.md` § Wire Contract; this
 
 ## Transport Role
 
-- **Initiator**: the Guest Binary (`Kobako::Transport::Proxy`) is the sole initiator of all host↔guest communication. The Host Gem never pushes messages to the guest unprompted.
+- **Initiator**: the Guest Binary (a `Kobako::Proxy` mix-in) is the sole initiator of all host↔guest communication. The Host Gem never pushes messages to the guest unprompted.
 - **Responder**: the Host Gem handles each request synchronously within the same Wasm import function call frame, then returns the response to the guest before that frame exits.
 - **Synchronicity**: every Transport round-trip is fully synchronous. From the guest mruby script's perspective, a Service method call is an ordinary synchronous function call that completes before the next line executes. There are no callbacks, promises, or yield-resume mechanisms.
 - **Medium**: Wasm linear memory. The guest writes the serialized Request into linear memory and calls a Wasm import function; the host reads and writes through a memory view provided by the Wasm engine. This is an implementation note; the wire contract specifies message shape, not transport mechanics.
@@ -21,7 +21,7 @@ Every host↔guest Transport request carries exactly five logical fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `target` | Member path (constant-path string `"MyService::KV"`, or a single segment `"File"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
+| `target` | A bound constant's path (constant-path string `"MyService::KV"`, or a single segment `"File"`) **or** Capability Handle reference | Identifies the Ruby object that receives the call. The two forms are distinguishable on the wire without inspecting `method` or `args`. |
 | `method` | string | The single method name to invoke on the resolved target via `public_send`. One method per Request; no multi-segment traversal in a single wire call. |
 | `args` | ordered list | Positional arguments passed to the method. Elements may themselves be Capability Handle references. |
 | `kwargs` | key-value map | Keyword arguments passed to the method. Keys are Symbols on the wire (→ [`docs/wire-codec.md`](wire-codec.md) § Ext Types → ext 0x00); the host passes them to dispatch unchanged. Values, like `args` elements, may themselves be Capability Handle references. An empty kwargs map is always present (never absent) to keep field positions stable. |

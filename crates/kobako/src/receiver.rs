@@ -1,5 +1,5 @@
 //! The Receiver seam: the host object a guest dispatch resolves its
-//! target to — a bound Member path or a capability Handle.
+//! target to — a bound constant's path or a capability Handle.
 //!
 //! A `Receiver` answers the guest's dispatches with wire `Value`s
 //! or a `Fault` — the three refusal kinds the dispatch contract lets
