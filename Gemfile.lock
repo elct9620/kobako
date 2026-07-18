@@ -10,7 +10,7 @@ GEM
   specs:
     ast (2.4.3)
     benchmark-ips (2.15.1)
-    beni (0.8.1)
+    beni (0.10.0)
       rake (~> 13.0)
     concurrent-ruby (1.3.7)
     csv (3.3.5)
@@ -119,7 +119,7 @@ PLATFORMS
 
 DEPENDENCIES
   benchmark-ips (~> 2.15)
-  beni (~> 0.8.1)
+  beni (~> 0.10.0)
   irb
   kobako!
   minitest (~> 6.0)
@@ -131,7 +131,7 @@ DEPENDENCIES
 CHECKSUMS
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   benchmark-ips (2.15.1) sha256=07a1a9f3c6105ecaf68c174fc3fbcddd71a0e9ada6236ae03093a0dcfd812d59
-  beni (0.8.1) sha256=d5f9b50b2c5cdb9427a2d4a79cf1a6cfc9c27fa46108228b987c302de03d7fd1
+  beni (0.10.0) sha256=b48b42133c31ed1bd68cc1bb8bb009ddfc32c838e38a4c66b84042be4e337c49
   bundler (4.0.12) sha256=7f8b757d28dfb636e7b24fba2344ac6dd13b5b24f4b46d62573d483f211825ac
   concurrent-ruby (1.3.7) sha256=4412caec3a5ea2e5fdc52076724c071a81f2c0593d83b2ac8cbb8ca63b3151b0
   csv (3.3.5) sha256=6e5134ac3383ef728b7f02725d9872934f523cb40b961479f69cf3afa6c8e73f
