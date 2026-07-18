@@ -19,9 +19,10 @@
 //!        ▼
 //!   proxy_method_missing(mrb, self=KV.class)
 //!        │
-//!        │ (branch on `self`: a class receiver derives `Target::Path`
-//!        │  from its name, an instance derives `Target::Handle` from
-//!        │  its `@__kobako_id__` ivar)
+//!        │ (derive Target from the receiver's identity: a Kobako::Handle
+//!        │  instance → Target::Handle from its `@__kobako_id__` ivar, a
+//!        │  class → Target::Path from its name; any other receiver has no
+//!        │  target and is refused in-guest)
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
@@ -29,11 +30,13 @@
 //! ```
 //!
 //! `proxy_method_missing` is the single forwarding entry the
-//! `Kobako::Proxy` module contributes to both proxy shapes; it derives the
-//! `Target` from `self_` (a class name for a bound constant, a Handle id
-//! for a Handle instance). The BlockFrame push, method-symbol extraction,
-//! args/kwargs unpacking, host round-trip, and result conversion all live
-//! in `forward_to_dispatch`.
+//! `Kobako::Proxy` module contributes to both proxy shapes. It derives the
+//! `Target` from the receiver's positive identity — a `Kobako::Handle`
+//! instance by its id, a class by its constant path — and refuses in-guest
+//! any receiver that is neither, so a fabricated `Kobako::Proxy` holder
+//! cannot drive a dispatch off arbitrary instance state. The BlockFrame
+//! push, method-symbol extraction, args/kwargs unpacking, host round-trip,
+//! and result conversion all live in `forward_to_dispatch`.
 //!
 //! ## Safety
 //!
@@ -171,12 +174,15 @@ fn forward_to_dispatch(
 
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
 /// forwarding entry the module contributes to both proxy shapes.
-/// `Kobako::Proxy` is extended onto each bound-Service constant (so `self`
-/// is that class and the `Target` is its constant path) and included into
-/// `Kobako::Handle` (so `self` is a Handle instance and the `Target` is its
-/// id). The `self` tag is the discriminator: a class receiver derives
-/// `Target::Path` from `mrb_class_name`, an instance derives
-/// `Target::Handle` from its `@__kobako_id__` ivar.
+/// `Kobako::Proxy` is extended onto each bound-Service constant and included
+/// into `Kobako::Handle`. The Request `Target` follows the receiver's
+/// identity: an exact `Kobako::Handle` instance yields `Target::Handle`
+/// from its `@__kobako_id__` ivar, and a class receiver yields
+/// `Target::Path` from its constant name. Any other receiver — a subclass
+/// of `Kobako::Handle`, or a foreign object that mixed in the module — has
+/// no target and is refused in-guest (`raise_no_target`), so a guest cannot
+/// drive a Handle-targeted dispatch off arbitrary instance state by
+/// fabricating a proxy holder.
 ///
 /// Forwards to `forward_to_dispatch`.
 pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
@@ -186,15 +192,19 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
     // (the module was registered by it).
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-    let target = if self_.is_class() {
+    let target = if self_.is_instance_of(mrb, kobako.handle_class) {
+        // An exact `Kobako::Handle` instance carrying its id ivar. Exact,
+        // not `is_kind_of`: the decoder mints only `Kobako::Handle`, so a
+        // guest subclass of it is a fabrication and derives no target.
+        Target::Handle(kobako.extract_handle_id(self_))
+    } else if self_.is_class() {
         // SAFETY: `is_class()` proves `self_` is class-tagged, so
         // `as_class_ptr` is valid — a bound-Service constant reached
         // through `Kobako::Proxy` extended onto its singleton class.
         let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
         Target::Path(class.name(kobako.mrb()))
     } else {
-        // A `Kobako::Handle` instance carrying its id ivar.
-        Target::Handle(kobako.extract_handle_id(self_))
+        return raise_no_target(mrb, self_);
     };
 
     forward_to_dispatch(
@@ -205,26 +215,17 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
     )
 }
 
-/// `Kobako::Proxy#new` / `#allocate` C bridge. A proxy is a dispatch
-/// target, never instantiated by guest code, so both construction entries
-/// raise `NoMethodError` naming the receiver rather than producing an
-/// inert instance. Extended onto a bound-Service constant, this blocks
-/// `MyService::KV.new`; the class-level block on `Kobako::Handle` is
-/// installed separately (`handle_not_constructible`). Registered with
-/// `mrb_args_any()` so the raise fires regardless of arguments instead of
-/// tripping an arity check first.
-pub(crate) fn proxy_not_constructible(mrb: &Mrb, self_: Value) -> Value {
+/// Refuse a dispatch from a receiver that mixed in `Kobako::Proxy` yet is
+/// neither a `Kobako::Handle` nor a class: it carries no dispatch target,
+/// so the call raises `NoMethodError` in-guest and sends no Request rather
+/// than forwarding a target read off arbitrary instance state.
+fn raise_no_target(mrb: &Mrb, self_: Value) -> Value {
     let nomethod = mrb
         .exc_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
-    let name = if self_.is_class() {
-        // SAFETY: `is_class()` proves `self_` is class-tagged.
-        beni::RClass::from_raw(unsafe { self_.as_class_ptr() }).name(mrb)
-    } else {
-        self_.classname(mrb)
-    };
     let message = std::ffi::CString::new(format!(
-        "{name} is a Kobako proxy (a dispatch target), not a constructible class"
+        "{} is not a Kobako dispatch target",
+        self_.classname(mrb)
     ))
     .unwrap_or_default();
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
@@ -232,14 +233,11 @@ pub(crate) fn proxy_not_constructible(mrb: &Mrb, self_: Value) -> Value {
 }
 
 /// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
-/// A Handle is a host-issued capability reference the wire decoder
-/// constructs, never guest code, so both
-/// construction entries raise `NoMethodError` rather than minting a proxy
-/// from a bare id that would dispatch against an arbitrary Catalog::Handles
-/// entry. Registered with `mrb_args_any()` so the raise fires regardless of
-/// arguments instead of tripping an arity check first. The decoder's own
-/// restoration path uses `mrb_obj_new`, which bypasses these Ruby entries
-/// and is unaffected.
+/// Both raise `NoMethodError` so an exact `Kobako::Handle` arises only from
+/// the wire decoder's `mrb_obj_new` (which bypasses these Ruby entries);
+/// with guest construction closed, a `Kobako::Handle` receiver in
+/// `proxy_method_missing` is always host-issued. `mrb_args_any()` makes the
+/// raise fire regardless of arguments.
 pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
     let nomethod = mrb
         .exc_get(c"NoMethodError")

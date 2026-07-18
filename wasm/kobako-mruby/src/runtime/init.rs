@@ -39,12 +39,12 @@ impl Gem for KobakoBridge {
         let transport_mod = kobako_mod.define_module(mrb, c"Transport")?;
 
         // Kobako::Proxy — the guest capability module that carries the
-        // shared forwarding seam. A bound-Service constant extends it, so
-        // class-level calls forward with the constant's path as `Target`; a
-        // `Kobako::Handle` includes it, so instance-level calls forward with
-        // the instance's id. `method_missing` derives the `Target` from its
-        // receiver; `respond_to_missing?` answers every probe optimistically;
-        // `new` / `allocate` raise so no proxy is constructible.
+        // shared forwarding seam and nothing else. A bound-Service constant
+        // extends it, so class-level calls forward with the constant's path
+        // as `Target`; a `Kobako::Handle` includes it, so instance-level
+        // calls forward with the instance's id. `method_missing` derives the
+        // `Target` from the receiver's identity; `respond_to_missing?`
+        // answers every probe optimistically.
         let proxy_module = kobako_mod.define_module(mrb, c"Proxy")?;
         proxy_module.define_method(
             mrb,
@@ -56,23 +56,14 @@ impl Gem for KobakoBridge {
             c"respond_to_missing?",
             beni::method!(bridges::proxy_respond_to_missing, -1),
         )?;
-        proxy_module.define_method(
-            mrb,
-            c"new",
-            beni::method!(bridges::proxy_not_constructible, -1),
-        )?;
-        proxy_module.define_method(
-            mrb,
-            c"allocate",
-            beni::method!(bridges::proxy_not_constructible, -1),
-        )?;
 
         // `Kobako::Handle` — capability-handle proxy. Includes `Kobako::Proxy`
         // for instance-level forwarding (calls route to a `Target::Handle`
-        // derived from the id `initialize` stores). Construction is blocked
-        // at the class level so the guest cannot fabricate a Handle from a
-        // bare id; the wire decoder's restoration path uses `mrb_obj_new`,
-        // which bypasses these Ruby entries and is unaffected.
+        // derived from the id `initialize` stores). Guest construction is
+        // blocked at the class level so an exact `Kobako::Handle` arises only
+        // from the wire decoder's `mrb_obj_new`; that keeps every
+        // `Kobako::Handle` the guest sees host-issued, which is what
+        // `proxy_method_missing`'s exact-identity check relies on.
         let handle_class = kobako_mod.define_class(mrb, c"Handle", object_class)?;
         handle_class.include_module(mrb, proxy_module)?;
         // Any-arity like the other bridge bodies: the body reads its one

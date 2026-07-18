@@ -4,8 +4,10 @@ require "test_helper"
 
 # E2E (Layer 4) — Capability Handle behaviour through real mruby: chaining a
 # Service-returned Handle as the next dispatch target (B-17), respond_to?
-# probing (B-36), host-object restoration on every return path (B-37), and
-# the non-constructibility of bound-constant / Handle proxies (B-38 / B-39).
+# probing (B-36), host-object restoration on every return path (B-37), the
+# capability-inert result of constructing a bound-constant proxy (B-38), the
+# blocked construction of the Handle proxy (B-39), and the exact-identity
+# target derivation that refuses a foreign proxy holder (B-59).
 class TestE2EHandles < Minitest::Test
   include E2eGuestHelper
 
@@ -51,28 +53,23 @@ class TestE2EHandles < Minitest::Test
                  "report true so guest-side capability probing succeeds before dispatch"
   end
 
-  # SPEC.md B-38: a bound constant is a dispatch target, not a constructible type.
-  # The bound object (a Greeter instance) is reached by calling methods on
-  # the constant; a guest `Models::User.new` / `.allocate` must raise
-  # NoMethodError rather than yield an inert empty instance that silently
-  # masks the mistake. Unrescued, it reaches the host as SandboxError
-  # (E-04) carrying the guest exception class. The `.new(1, 2)` case pins
-  # that arguments do not change the outcome — the raise must fire ahead
-  # of any arity check (the reason the bridge registers `mrb_args_any()`);
-  # `.allocate` covers mruby's other construction entry.
-  def test_b38_member_proxy_is_not_constructible
-    ["Models::User.new", "Models::User.new(1, 2)", "Models::User.allocate"].each do |code|
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-      sandbox.bind("Models::User", Greeter.new("bound"))
+  # SPEC.md B-38: a bound-constant proxy forwards at class level, so its
+  # forwarding seam never rides an instance. Constructing one is not blocked
+  # — `Models::User.new` yields a plain instance — but that instance carries
+  # no dispatch: a method on it raises NoMethodError in-guest instead of
+  # forwarding, while the same method on the constant forwards to the bound
+  # object. Construction is not the capability gate; the host's path
+  # resolution is. Pairing both readouts in one eval pins the contrast.
+  def test_b38_bound_proxy_construction_yields_a_capability_inert_instance
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Models::User", Greeter.new("bound"))
 
-      err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
+    result = sandbox.eval(<<~RUBY)
+      [(Models::User.new.greet rescue "inert"), Models::User.greet]
+    RUBY
 
-      assert_equal "NoMethodError", err.klass,
-                   "B-38: constructing a bound constant (#{code}) through the guest must raise " \
-                   "NoMethodError, not produce an empty instance"
-      assert_match(/Models::User/, err.message,
-                   "B-38: the error must name the offending bound constant so the author can locate it")
-    end
+    assert_equal %w[inert hi,bound], result,
+                 "B-38: a constructed bound-constant proxy must forward nothing (inert), while the constant forwards"
   end
 
   # SPEC.md B-39: a Handle is a host-issued capability reference the wire
