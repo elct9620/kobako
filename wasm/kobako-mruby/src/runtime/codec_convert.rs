@@ -291,6 +291,10 @@ impl Kobako {
             CodecValue::Handle(id) => self
                 .handle_class
                 .obj_new(mrb, &[(id as i32).into_value(mrb)])
+                // Freeze the minted Handle so the guest cannot re-point its
+                // id ivar to one it was not handed; dispatch only reads the
+                // id, so immutability leaves forwarding intact.
+                .map(|handle| handle.freeze(mrb))
                 // `Kobako::Handle#initialize` only stores an ivar on the
                 // fresh instance and cannot raise; a lost Handle degrades
                 // to `nil` (the error channel is reserved for the

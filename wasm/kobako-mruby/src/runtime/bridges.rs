@@ -262,6 +262,15 @@ pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Result<Value, beni::
     Ok(Value::zeroed())
 }
 
+/// `Kobako::Handle#initialize_copy(orig)` C bridge. mruby copies the id ivar
+/// into the fresh copy before invoking this hook, so it only freezes the
+/// copy — making a `dup` (which otherwise yields an unfrozen copy) immutable
+/// like the decoder-minted original, so the guest cannot mint a re-pointable
+/// Handle by duplicating one. A `clone` already inherits the frozen flag.
+pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
+    self_.freeze(mrb)
+}
+
 /// `respond_to_missing?(name, include_private)` C bridge, contributed by
 /// the `Kobako::Proxy` module. Always returns `true` — every method call
 /// is dispatched through `method_missing` to the host, so probing via

@@ -76,6 +76,13 @@ impl Gem for KobakoBridge {
             c"initialize",
             beni::method!(bridges::handle_initialize, -1),
         )?;
+        // Freeze a `dup`/`clone` copy so no duplication yields a re-pointable
+        // Handle; see `bridges::handle_initialize_copy`.
+        handle_class.define_method(
+            mrb,
+            c"initialize_copy",
+            beni::method!(bridges::handle_initialize_copy, -1),
+        )?;
         handle_class.define_singleton_method(
             mrb,
             c"new",

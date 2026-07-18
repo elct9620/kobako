@@ -69,13 +69,9 @@ surface, accepted by the gate in place of a citing test; each is pinned
 where the behavior is actually verified:
 
 ```
-E-10 E-26 B-60
+E-10 E-26
 ```
 
-- **B-60** — the guest-held Handle immutability (frozen at mint; reflective
-  re-point raises, `dup` / `clone` stay frozen) is witnessed by
-  `test/e2e/test_handle_immutable.rb`; held here until the freeze-seal
-  implementation lands its citing scenario.
 - **E-10** — the official guest never presents an invalid wire payload
   in a dispatch position (`kobako-mruby` only re-emits Handles it
   received), so no `test/` scenario reaches the rejection; the
