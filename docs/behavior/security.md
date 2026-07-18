@@ -44,6 +44,16 @@ and append-only across the corpus (N-8).
 
 ---
 
+## B-60 — A guest-held Handle is immutable
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code that holds a `Kobako::Handle` from a Service return (B-14) or a `#run` auto-wrap (B-34). |
+| **Operation** | Guest code attempts to re-point the Handle's id to a value the invocation was not handed — `handle.instance_variable_set(:@__kobako_id__, n)`, an `instance_eval` assignment to the ivar, or a mutation of a `dup` / `clone` copy. |
+| **Result / Final State** | The decoder freezes every Handle it mints, so the id ivar cannot be reassigned: `instance_variable_set` and an `instance_eval` assignment raise `FrozenError`, and `dup` / `clone` yield frozen copies — each copy keeps the original's id and stays a valid Handle to the same object. With blocked construction (B-39) and the exact-identity target check (B-59), the guest can present only ids of Handles it actually holds; it cannot construct, forge, guess, or probe an id, so it cannot emit a dispatch carrying an id it was not handed. This is defense-in-depth that makes id unforgeability in-guest-enforced rather than only host-gated; the host's per-invocation `Catalog::Handles` membership remains the authoritative gate (E-13). Freezing does not weaken dispatch — the seam only reads the id — so a frozen Handle forwards its calls normally. |
+
+---
+
 ## B-41 — Guest regexp matching as a compute capability
 
 | Field | Value |
