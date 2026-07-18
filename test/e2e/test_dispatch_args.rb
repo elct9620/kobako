@@ -55,7 +55,7 @@ class TestE2EDispatchArgs < Minitest::Test
 
   # transport path: an unrepresentable value is rejected at the guest call site
   # rather than coerced — E-55 covers "a dispatch argument or kwargs value", so
-  # both the positional walk (+unpack_args_kwargs+) and the trailing-Hash walk
+  # both the positional walk (+unpack_args_kwargs+) and the keyword-bucket walk
   # (+extract_hash_kwargs+) must reject. RpcProbe's +to_s+ sentinel would
   # surface if the old coercion path were live; the raise happens in the guest
   # bridge before dispatch, so the Service never runs. Uniform with the
