@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.10.1...kobako-mruby-v0.10.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **guest:** partition dispatch args by Ruby 3 call semantics (B-58) ([59a15a2](https://github.com/elct9620/kobako/commit/59a15a2d524b1ab902bc5e4a2763ffccb485e399))
+
 ## [0.10.1](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.10.0...kobako-mruby-v0.10.1) (2026-07-17)
 
 

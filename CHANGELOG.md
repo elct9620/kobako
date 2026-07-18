@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/v0.17.0...v0.18.0) (2026-07-18)
+
+
+### Features
+
+* **bench:** add bench:all whole-round sweep ([6163cdf](https://github.com/elct9620/kobako/commit/6163cdffc6aa701a0306af40cc18121787b07e26))
+
+
+### Bug Fixes
+
+* **guest:** partition dispatch args by Ruby 3 call semantics (B-58) ([59a15a2](https://github.com/elct9620/kobako/commit/59a15a2d524b1ab902bc5e4a2763ffccb485e399))
+
+
+### Performance Improvements
+
+* **bench:** re-bless the anchor onto the codec-decomposition round ([74dca53](https://github.com/elct9620/kobako/commit/74dca5374a587242f8b1e00768dd33c330ff298c))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/v0.16.0...v0.17.0) (2026-07-17)
 
 
