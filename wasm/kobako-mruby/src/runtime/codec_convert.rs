@@ -19,9 +19,10 @@
 //!    paths.
 //! 2. **Args / kwargs unpacking** (`extract_hash_kwargs` /
 //!    `unpack_args_kwargs`) — used by the `method_missing` C bridges to
-//!    split a `mrb_get_args` "n*" rest slice into positional args and
-//!    trailing-Hash kwargs, converting each leaf through `try_codec_value`
-//!    and reporting the first unrepresentable value as `UnrepresentableArg`.
+//!    convert a dispatch call's positional rest slice and its separate
+//!    keyword Hash into wire args and kwargs, running each leaf through
+//!    `try_codec_value` and reporting the first unrepresentable value as
+//!    `UnrepresentableArg`.
 
 use super::Kobako;
 use beni::Value;
@@ -88,12 +89,9 @@ impl Kobako {
     /// caller raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
-        hash: Value,
+        hash: beni::Hash,
         out: &mut Vec<(String, kobako_codec::codec::Value)>,
     ) -> Result<(), UnrepresentableArg> {
-        // SAFETY: callers reach this only after a `classname == "Hash"`
-        // gate, so the unchecked wrap is sound.
-        let hash = unsafe { beni::Hash::from_value_unchecked(hash) };
         let keys_ary = hash.keys(self.mrb());
         for key_val in keys_ary.entries() {
             // A hostile Hash subclass whose `[]` raises reads as `nil`
@@ -107,10 +105,12 @@ impl Kobako {
         Ok(())
     }
 
-    /// Split a `rest` slice (from `mrb_get_args` `"n*"`) into positional
-    /// args and keyword kwargs. The last element is absorbed into
-    /// kwargs when it is a Hash; all other elements become positional
-    /// args.
+    /// Convert a dispatch call's positional `rest` slice and its separate
+    /// keyword `kwargs` Hash into wire args and kwargs. Every element of
+    /// `rest` is a positional argument — an explicit `{...}` Hash literal
+    /// among them stays positional, matching Ruby 3 call semantics; the
+    /// keyword bucket arrives already separated from `mrb_get_args`, empty
+    /// when the call passed no keywords.
     ///
     /// `rest` is typed as `&[Value]` even though the underlying buffer
     /// came from mruby's variadic out-param; `Value` is
@@ -119,21 +119,18 @@ impl Kobako {
     pub(crate) fn unpack_args_kwargs(
         &self,
         rest: &[Value],
+        kwargs_hash: beni::Hash,
     ) -> Result<UnpackedArgs, UnrepresentableArg> {
-        let mut args: Vec<kobako_codec::codec::Value> = Vec::new();
-        let mut kwargs: Vec<(String, kobako_codec::codec::Value)> = Vec::new();
-
-        for (idx, &mrb_val) in rest.iter().enumerate() {
-            let is_hash = mrb_val.classname(self.mrb()) == "Hash" && idx == rest.len() - 1;
-            if is_hash {
-                self.extract_hash_kwargs(mrb_val, &mut kwargs)?;
-            } else {
-                let encoded = self
-                    .try_codec_value(mrb_val)
-                    .ok_or_else(|| self.unrepresentable_arg(mrb_val))?;
-                args.push(encoded);
-            }
+        let mut args: Vec<kobako_codec::codec::Value> = Vec::with_capacity(rest.len());
+        for &mrb_val in rest {
+            let encoded = self
+                .try_codec_value(mrb_val)
+                .ok_or_else(|| self.unrepresentable_arg(mrb_val))?;
+            args.push(encoded);
         }
+
+        let mut kwargs: Vec<(String, kobako_codec::codec::Value)> = Vec::new();
+        self.extract_hash_kwargs(kwargs_hash, &mut kwargs)?;
 
         Ok((args, kwargs))
     }

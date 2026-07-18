@@ -18,8 +18,8 @@
 //!        ▼
 //!   member_method_missing(mrb, self=KV.class)
 //!        │
-//!        │ (extract method symbol + args; build kwargs hash from
-//!        │  trailing Hash if present; resolve target string via
+//!        │ (extract method symbol, positional args, and the separate
+//!        │  keyword bucket; resolve target string via
 //!        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
@@ -109,7 +109,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// (arg/result conversion, error raising); the dispatch orchestration
 /// lives here, not on the token.
 ///
-/// The helper runs `kobako.mrb().get_args::<NRestBlock>()` itself, so
+/// The helper runs `kobako.mrb().get_args::<NRestKwBlock>()` itself, so
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
@@ -120,7 +120,8 @@ fn forward_to_dispatch(
     use super::block_stack::BlockFrame;
     use kobako_core::transport::proxy::{invoke, InvokeError};
 
-    let (method_sym, rest, block) = kobako.mrb().get_args::<beni::format::NRestBlock>();
+    let (method_sym, rest, kwargs_hash, block) =
+        kobako.mrb().get_args::<beni::format::NRestKwBlock>();
 
     // Push the block onto BLOCK_STACK for the duration of this bridge
     // frame; drops + pops automatically on return / mruby raise. The
@@ -144,7 +145,7 @@ fn forward_to_dispatch(
     // An argument (or kwargs value) with no wire representation is rejected
     // at the guest dispatch call site rather than coerced to an Object#to_s
     // string, uniform with the return / yield rejection.
-    let (args, kwargs) = match kobako.unpack_args_kwargs(rest) {
+    let (args, kwargs) = match kobako.unpack_args_kwargs(rest, kwargs_hash) {
         Ok(unpacked) => unpacked,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(unrep) => {
@@ -178,8 +179,8 @@ fn forward_to_dispatch(
 /// Extracts:
 ///   - `target` = full class name via `mrb_class_name(mrb_class_ptr(self))`
 ///   - `method` = first arg (Symbol → String)
-///   - `args`   = rest args (positional), last arg absorbed into kwargs if Hash
-///   - `kwargs` = trailing Hash arg (if last positional is a Hash)
+///   - `args`   = the positional rest
+///   - `kwargs` = the keyword arguments, read as their own bucket
 ///
 /// Forwards to `forward_to_dispatch` with `Target::Path`.
 pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
