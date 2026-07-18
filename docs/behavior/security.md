@@ -14,23 +14,33 @@ and append-only across the corpus (N-8).
 
 ---
 
-## B-38 — Guest attempts to construct a bound-Service proxy
+## B-38 — Guest constructs a bound-Service proxy
 
 | Field | Value |
 |-------|-------|
 | **Initial State** | A Sandbox executing mruby guest code. The guest holds a bound-Service constant `MyService::KV` (B-08) whose Host App binding is an object the guest reaches by calling methods on the constant (B-12). |
-| **Operation** | Guest code calls `MyService::KV.new(...)` or `MyService::KV.allocate` — any attempt to instantiate the bound constant. |
-| **Result / Final State** | The call raises `NoMethodError` inside the guest. No instance is produced and no Transport Request is sent — the construction attempt never reaches the host. When the guest does not rescue it, the exception reaches the invocation top level and is attributed as `Kobako::SandboxError` per E-04, identical to any other uncaught guest exception. A bound constant is a dispatch target, not a constructible type; `new` and `allocate` are the two construction entries mruby exposes, and `Kobako::Proxy` blocks both on the constant as raising methods — so B-36's optimistic `respond_to?` answer does not apply to them. Blocking construction is opacity hygiene, not a capability barrier: forwarding rides on the constant at class level, never on an instance, so a constructed instance would carry no dispatch at all, and the host's path resolution — not the block — is what confines what any dispatch reaches (E-12). B-39 blocks the `Kobako::Handle` proxy through the same entries; a Handle is still constructed internally by the wire decoder (B-14 / B-34) through a path that bypasses these blocked Ruby entries. |
+| **Operation** | Guest code calls `MyService::KV.new(...)` or `MyService::KV.allocate` on the bound constant. |
+| **Result / Final State** | The call resolves through mruby's ordinary `Class#new` / `Class#allocate` and yields a plain instance of the bound constant. That instance carries no dispatch: the constant `extend`s `Kobako::Proxy`, so the forwarding seam lives on the constant at class level and never on an instance — a method call on the produced object finds no seam and raises an ordinary `NoMethodError`. The construction sends no Transport Request. Construction is neither blocked nor a capability gate: the object it yields grants nothing, and what any real dispatch reaches is confined by the host's path resolution (E-12), not by whether construction was possible. B-59 governs the target a dispatch derives from its receiver; B-39 governs the same construction question for the `Kobako::Handle` proxy. |
 
 ---
 
-## B-39 — Guest attempts to construct a Handle proxy
+## B-39 — Guest constructs a Handle proxy
 
 | Field | Value |
 |-------|-------|
-| **Initial State** | A Sandbox executing mruby guest code. The `Kobako::Handle` proxy class is reachable as a named constant, but the guest has not received a Handle from a Service return (B-14) or a `#run` argument auto-wrap (B-34). |
-| **Operation** | Guest code calls `Kobako::Handle.new(...)` or `Kobako::Handle.allocate` — any attempt to fabricate a Handle proxy, with or without an integer ID argument. |
-| **Result / Final State** | The call raises `NoMethodError` inside the guest. No proxy is produced and no Handle ID is bound. When the guest does not rescue it, the exception reaches the invocation top level and is attributed as `Kobako::SandboxError` per E-04, identical to any other uncaught guest exception. Blocking these entries is opacity hygiene, not the capability gate: the authoritative boundary is the host's per-invocation `Catalog::Handles` `fetch`, which rejects any id the guest did not receive (E-13) — ids are a sequential per-invocation counter the design never treats as secret. The Host App side is enforced separately at host pre-flight (E-29). Both entries raise regardless of the arguments passed rather than tripping an arity check first. The wire decoder's restoration path (B-14 / B-34) constructs a Handle through an internal instance-allocation path that does not dispatch these blocked Ruby entries. |
+| **Initial State** | A Sandbox executing mruby guest code. The `Kobako::Handle` proxy class is reachable as a named constant. |
+| **Operation** | Guest code calls `Kobako::Handle.new(...)` or `Kobako::Handle.allocate`, with or without an integer ID argument. |
+| **Result / Final State** | Both entries raise `NoMethodError` in the guest, so an exact `Kobako::Handle` instance arises only from the wire decoder's internal allocation on the return path (B-14 / B-34), which bypasses these Ruby entries. This keeps the receiver-identity check (B-59) sound: a `Kobako::Handle` proxy is always host-issued, never guest-fabricated. Blocking construction is opacity, not the capability gate — the host's per-invocation `Catalog::Handles` membership is the authoritative boundary, and however the guest presents an id (a received Handle, or one re-pointed through reflective mutation of a held Handle), an id the invocation was not handed is rejected `type="undefined"` (E-13); ids are a sequential per-invocation counter the design never treats as secret, and a presented id grants no reference the invocation was not already handed (B-18). The Host App side is enforced separately at host pre-flight (E-29). |
+
+---
+
+## B-59 — Guest→host dispatch derives its target from the receiver's identity
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox executing mruby guest code. A dispatch reaches the `Kobako::Proxy` `method_missing` seam — from a bound-Service constant that `extend`s the module, from a `Kobako::Handle` instance that `include`s it, or from a guest's own class or module that has mixed the module in. |
+| **Operation** | Guest code invokes a name the receiver does not define locally, reaching the shared forwarding seam. |
+| **Result / Final State** | The seam derives the Transport Request's target from the receiver's exact identity: an exact `Kobako::Handle` instance yields a Handle target from its stored id; a class receiver yields a constant-path target from its name. Any other receiver — a subclass of `Kobako::Handle`, or a guest object or module that mixed in the seam without being a Handle — has no target and is refused inside the guest with `NoMethodError`, sending no Transport Request. Because guest construction of `Kobako::Handle` is blocked (B-39), an exact `Kobako::Handle` is always host-issued; a guest thus cannot drive a Handle-targeted dispatch off arbitrary instance state by fabricating or subclassing a proxy holder. Deriving the target from exact identity is guest-side opacity; every target that does reach the wire remains subject to the host's authoritative resolution — path resolution (E-12) for a constant target, `Catalog::Handles` membership (E-13) for a Handle target. |
 
 ---
 

@@ -31,7 +31,7 @@ These hold without any host effort — do not re-implement them.
 | Guarantee | Anchor |
 |-----------|--------|
 | Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface — the `send` family, `eval` / `instance_eval`, `binding`, `method`, `define_method`, `instance_variable_get`, and the `Proc` / `Method` / `Binding` gadget methods — is rejected host-side, leaving for a bound lambda only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). Reflective objects (`Binding` / `Method` / `UnboundMethod`) never cross as Handles. | B-12, B-42, B-43 |
-| The guest cannot fabricate a `Kobako::Handle` or a bound-constant proxy, nor dereference a Handle to a value. | B-20, B-38, B-39 |
+| The guest cannot construct a `Kobako::Handle` (B-39); a bound-constant proxy it constructs is capability-inert; neither can be dereferenced to a value — the host's `Catalog::Handles` membership and path resolution gate every dispatch. | B-20, B-38, B-39 |
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
 | Under the default `hermetic` profile, guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |

@@ -69,9 +69,13 @@ surface, accepted by the gate in place of a citing test; each is pinned
 where the behavior is actually verified:
 
 ```
-E-10 E-26
+E-10 E-26 B-59
 ```
 
+- **B-59** — the guest-side refusal of a receiver that mixed in
+  `Kobako::Proxy` without being a `Kobako::Handle` or a class is witnessed
+  by `test/e2e/test_handles.rb`; held here until the guest proxy refactor
+  that realizes the refusal lands its citing scenario.
 - **E-10** — the official guest never presents an invalid wire payload
   in a dispatch position (`kobako-mruby` only re-emits Handles it
   received), so no `test/` scenario reaches the rejection; the
