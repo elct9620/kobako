@@ -9,8 +9,8 @@ require "test_helper"
 # backend, a fixed provider persists a stateful backend across invocations,
 # and a per-invocation provider resets it.
 class TestParityInstall < Parity::Case
-  PURE_AND_IO = "class File < Kobako::Member; def self.join(*p); p.join('/'); end; end"
-  BACKED_ONLY = "class File < Kobako::Member; end"
+  PURE_AND_IO = "class File; extend Kobako::Proxy; def self.join(*p); p.join('/'); end; end"
+  BACKED_ONLY = "class File; extend Kobako::Proxy; end"
 
   # B-55: File.join runs in-guest with no round-trip; File.read dispatches
   # to the bound backend.

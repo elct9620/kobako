@@ -12,30 +12,28 @@
 //! ```text
 //!   user_script:    MyService::KV.get(:user_42)
 //!        │
-//!        │ (no instance method named `get`; class-level dispatch falls
-//!        │  through to the singleton-class `method_missing` inherited
-//!        │  from `Kobako::Member.singleton_class`)
+//!        │ (no method named `get`; the call falls through to the
+//!        │  `method_missing` the `Kobako::Proxy` module contributes —
+//!        │  at class level for a bound constant that extended the module,
+//!        │  at instance level for a Handle that included it)
 //!        ▼
-//!   member_method_missing(mrb, self=KV.class)
+//!   proxy_method_missing(mrb, self=KV.class)
 //!        │
-//!        │ (extract method symbol, positional args, and the separate
-//!        │  keyword bucket; resolve target string via
-//!        │  `mrb_class_name(mrb, mrb_class_ptr(self))`)
+//!        │ (branch on `self`: a class receiver derives `Target::Path`
+//!        │  from its name, an instance derives `Target::Handle` from
+//!        │  its `@__kobako_id__` ivar)
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
 //!   kobako_core::transport::proxy::invoke(...)
 //! ```
 //!
-//! The two `method_missing` bridges live on the two `Kobako::Transport::Proxy`
-//! subclasses: `member_method_missing` is the singleton-class shim on
-//! `Kobako::Member` (Member *classes*, `Target::Path`) and
-//! `handle_method_missing` is the instance shim on `Kobako::Handle`
-//! (Handle *instances*, `Target::Handle`). The
-//! two differ only in how they derive the `Target` from `self_`; the
-//! BlockFrame push, method-symbol extraction, args/kwargs unpacking,
-//! host round-trip, and result conversion all live in
-//! `forward_to_dispatch`.
+//! `proxy_method_missing` is the single forwarding entry the
+//! `Kobako::Proxy` module contributes to both proxy shapes; it derives the
+//! `Target` from `self_` (a class name for a bound constant, a Handle id
+//! for a Handle instance). The BlockFrame push, method-symbol extraction,
+//! args/kwargs unpacking, host round-trip, and result conversion all live
+//! in `forward_to_dispatch`.
 //!
 //! ## Safety
 //!
@@ -95,15 +93,14 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 }
 
 /// Full guest→host dispatch from the active mruby call frame — the
-/// shared body of the two `method_missing` bridges. The caller supplies
-/// the `Target` it derived from its `self_` receiver (a class name for
-/// the `Kobako::Member` singleton-class shim, a Handle id for the
-/// `Kobako::Handle` instance shim) plus two error labels: `sym_err_msg`
-/// for a null method symbol, `envelope_err_msg` for a transport envelope
-/// fault. Extracts the method symbol, args/kwargs, and block; rounds the
-/// request through the host via `kobako_core::transport::proxy::invoke`; and
-/// converts the result back to an mruby value — raising
-/// `Kobako::ServiceError` on a Response.err and
+/// shared body behind `proxy_method_missing`. The caller supplies the
+/// `Target` it derived from its `self_` receiver (a class name for a
+/// bound constant, a Handle id for a `Kobako::Handle` instance) plus two
+/// error labels: `sym_err_msg` for a null method symbol, `envelope_err_msg`
+/// for a transport envelope fault. Extracts the method symbol, args/kwargs,
+/// and block; rounds the request through the host via
+/// `kobako_core::transport::proxy::invoke`; and converts the result back
+/// to an mruby value — raising `Kobako::ServiceError` on a Response.err and
 /// `Kobako::Transport::Error` on an envelope fault (both raise paths
 /// diverge). The `Kobako` token supplies only the VM-level primitives
 /// (arg/result conversion, error raising); the dispatch orchestration
@@ -172,53 +169,62 @@ fn forward_to_dispatch(
     }
 }
 
-/// `Kobako::Member.method_missing(name, *args)` C bridge —
-/// singleton-class level, so `self` is the Member class object (e.g.
-/// `MyService::KV`).
+/// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
+/// forwarding entry the module contributes to both proxy shapes.
+/// `Kobako::Proxy` is extended onto each bound-Service constant (so `self`
+/// is that class and the `Target` is its constant path) and included into
+/// `Kobako::Handle` (so `self` is a Handle instance and the `Target` is its
+/// id). The `self` tag is the discriminator: a class receiver derives
+/// `Target::Path` from `mrb_class_name`, an instance derives
+/// `Target::Handle` from its `@__kobako_id__` ivar.
 ///
-/// Extracts:
-///   - `target` = full class name via `mrb_class_name(mrb_class_ptr(self))`
-///   - `method` = first arg (Symbol → String)
-///   - `args`   = the positional rest
-///   - `kwargs` = the keyword arguments, read as their own bucket
-///
-/// Forwards to `forward_to_dispatch` with `Target::Path`.
-pub(crate) fn member_method_missing(mrb: &Mrb, self_: Value) -> Value {
+/// Forwards to `forward_to_dispatch`.
+pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
     use kobako_codec::transport::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
-    // (the shim was registered by it).
+    // (the module was registered by it).
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
-    // SAFETY: `self_` is the class receiver of a singleton-class
-    // `method_missing` shim — class-tagged by mruby itself.
-    let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
-    let target = Target::Path(class.name(kobako.mrb()));
+    let target = if self_.is_class() {
+        // SAFETY: `is_class()` proves `self_` is class-tagged, so
+        // `as_class_ptr` is valid — a bound-Service constant reached
+        // through `Kobako::Proxy` extended onto its singleton class.
+        let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
+        Target::Path(class.name(kobako.mrb()))
+    } else {
+        // A `Kobako::Handle` instance carrying its id ivar.
+        Target::Handle(kobako.extract_handle_id(self_))
+    };
 
     forward_to_dispatch(
         kobako,
         target,
-        c"Member method symbol name is null",
-        c"transport envelope error (Member dispatch)",
+        c"proxy method symbol name is null",
+        c"transport envelope error (proxy dispatch)",
     )
 }
 
-/// `Kobako::Member.new` / `.allocate` C bridge — singleton-class level.
-/// A Member is a dispatch target, never instantiated by guest code,
-/// so both construction entries raise
-/// `NoMethodError` naming the offending Member rather than producing an
-/// inert empty instance. Registered with `mrb_args_any()` so the raise
-/// fires regardless of arguments instead of tripping an arity check first.
-pub(crate) fn member_not_constructible(mrb: &Mrb, self_: Value) -> Value {
+/// `Kobako::Proxy#new` / `#allocate` C bridge. A proxy is a dispatch
+/// target, never instantiated by guest code, so both construction entries
+/// raise `NoMethodError` naming the receiver rather than producing an
+/// inert instance. Extended onto a bound-Service constant, this blocks
+/// `MyService::KV.new`; the class-level block on `Kobako::Handle` is
+/// installed separately (`handle_not_constructible`). Registered with
+/// `mrb_args_any()` so the raise fires regardless of arguments instead of
+/// tripping an arity check first.
+pub(crate) fn proxy_not_constructible(mrb: &Mrb, self_: Value) -> Value {
     let nomethod = mrb
         .exc_get(c"NoMethodError")
         .expect("NoMethodError is an mruby core class");
-    // SAFETY: `self_` is the Member class receiver of a singleton-class
-    // method — class-tagged by mruby itself.
-    let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
-    let name = class.name(mrb);
+    let name = if self_.is_class() {
+        // SAFETY: `is_class()` proves `self_` is class-tagged.
+        beni::RClass::from_raw(unsafe { self_.as_class_ptr() }).name(mrb)
+    } else {
+        self_.classname(mrb)
+    };
     let message = std::ffi::CString::new(format!(
-        "{name} is a Kobako Member (a dispatch target), not a constructible class"
+        "{name} is a Kobako proxy (a dispatch target), not a constructible class"
     ))
     .unwrap_or_default();
     // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
@@ -258,36 +264,12 @@ pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Result<Value, beni::
     Ok(Value::zeroed())
 }
 
-/// `Kobako::Handle#method_missing(name, *args)` C bridge — instance
-/// level, so `self` is a `Kobako::Handle` instance. Derives
-/// `Target::Handle(handle_id)` from the receiver's `@__kobako_id__` ivar
-/// — the Handle chaining path. The Handle
-/// carries only that id; all of its dispatch behaviour is this one
-/// method plus the inherited `forward_to_dispatch` body.
-///
-/// Forwards to `forward_to_dispatch` with `Target::Handle`.
-pub(crate) fn handle_method_missing(mrb: &Mrb, self_: Value) -> Value {
-    use kobako_codec::transport::Target;
-
-    // SAFETY: `mrb` is live for this bridge frame and install has run.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    let handle_id = kobako.extract_handle_id(self_);
-    let target = Target::Handle(handle_id);
-
-    forward_to_dispatch(
-        kobako,
-        target,
-        c"Handle method symbol name is null",
-        c"transport envelope error (Handle dispatch)",
-    )
-}
-
-/// `respond_to_missing?(name, include_private)` C bridge, shared by
-/// `Kobako::Member` and `Kobako::Handle`. Always returns `true` — every
-/// method call is dispatched through `method_missing` to the host, so
-/// probing via `respond_to?` must succeed.
-/// Registered singleton-class on `Kobako::Member` (Member classes) and
-/// instance-class on `Kobako::Handle`.
+/// `respond_to_missing?(name, include_private)` C bridge, contributed by
+/// the `Kobako::Proxy` module. Always returns `true` — every method call
+/// is dispatched through `method_missing` to the host, so probing via
+/// `respond_to?` must succeed. Class-level on a bound constant that
+/// extended the module, instance-level on a `Kobako::Handle` that included
+/// it.
 pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
     // No VM access needed: `Value::true_()` reads the sys-side immediates
     // cache, populated at install before any probe runs, so the raw

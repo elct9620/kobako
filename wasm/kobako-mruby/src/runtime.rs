@@ -5,9 +5,9 @@
 //!
 //! `Mrb` is the language-level VM owner: it knows how to open and close
 //! an mruby state and nothing about kobako's own object surface. The
-//! kobako-specific registrations (`Kobako` module, `Kobako::Transport`
-//! namespace + `Proxy` abstract base, the `Kobako::Member` / `Kobako::Handle`
-//! proxy subclasses, `Kobako::ServiceError` /
+//! kobako-specific registrations (`Kobako` module, the `Kobako::Transport`
+//! namespace, the `Kobako::Proxy` capability module and the
+//! `Kobako::Handle` proxy that includes it, `Kobako::ServiceError` /
 //! `Kobako::Transport::Error`) belong to a different concern and live
 //! behind this domain boundary. The IO / Kernel surface is the sibling
 //! `kobako-io` crate's gem, composed alongside the bridge gem at
@@ -104,9 +104,9 @@ impl std::error::Error for InstallError {}
 /// operations they delegate to panic at runtime — see the crate doc.
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
-    /// `Kobako::Member` base class — parent of every bound Member proxy
-    /// installed via `Kobako::install_bindings`.
-    member_class: beni::RClass,
+    /// `Kobako::Proxy` capability module — extended onto every bound
+    /// constant installed via `Kobako::install_bindings`.
+    proxy_module: beni::RModule,
     handle_class: beni::RClass,
     service_error_class: beni::RClass,
     transport_error_class: beni::RClass,
@@ -160,7 +160,7 @@ impl Kobako {
         let transport_mod = kobako_mod
             .define_module(mrb, c"Transport")
             .expect(INITIALIZED);
-        let member_class = kobako_mod.class_get(mrb, c"Member").expect(INITIALIZED);
+        let proxy_module = kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED);
         let handle_class = kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED);
         let service_error_class = kobako_mod
             .class_get(mrb, c"ServiceError")
@@ -168,29 +168,34 @@ impl Kobako {
         let transport_error_class = transport_mod.class_get(mrb, c"Error").expect(INITIALIZED);
         Self {
             mrb: mrb.as_ptr(),
-            member_class,
+            proxy_module,
             handle_class,
             service_error_class,
             transport_error_class,
         }
     }
 
-    /// Install a `Kobako::Member` proxy class for each bind path from a
-    /// Frame 1 preamble. A multi-segment path nests the leaf class under
-    /// a module per prefix segment — idempotent, so paths sharing a
-    /// prefix share one module — while a single-segment path binds the
-    /// class at top level. The host guarantees no path is a prefix of
-    /// another, so a segment is never both a module and a leaf.
+    /// Install a bound-constant proxy for each bind path from a Frame 1
+    /// preamble: define a class at the path and `extend Kobako::Proxy`
+    /// onto it, so a class-level call dispatches to the host. A
+    /// multi-segment path nests the leaf class under a module per prefix
+    /// segment — idempotent, so paths sharing a prefix share one module —
+    /// while a single-segment path binds the class at top level. The host
+    /// guarantees no path is a prefix of another, so a segment is never
+    /// both a module and a leaf.
     pub fn install_bindings(&self, paths: &[String]) -> Result<(), InstallError> {
         use beni::Module;
 
         let mrb = self.mrb();
+        let object_class = mrb.object_class();
         for path in paths {
             let Some((prefix, leaf)) = path.rsplit_once("::") else {
                 let name =
                     std::ffi::CString::new(path.as_str()).map_err(|_| InstallError::NulInName)?;
-                mrb.define_class(name.as_c_str(), self.member_class)
+                let class = mrb
+                    .define_class(name.as_c_str(), object_class)
                     .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+                self.extend_proxy(mrb, class)?;
                 continue;
             };
 
@@ -208,11 +213,28 @@ impl Kobako {
                     .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
             }
             let leaf_cstr = std::ffi::CString::new(leaf).map_err(|_| InstallError::NulInName)?;
-            module
-                .define_class(mrb, leaf_cstr.as_c_str(), self.member_class)
+            let class = module
+                .define_class(mrb, leaf_cstr.as_c_str(), object_class)
                 .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+            self.extend_proxy(mrb, class)?;
         }
         Ok(())
+    }
+
+    /// Extend `Kobako::Proxy` onto `class` — the mruby `extend`, so the
+    /// module's forwarding seam lands as the class's singleton methods and
+    /// a class-level call on the bound constant dispatches to the host.
+    fn extend_proxy(&self, mrb: &Mrb, class: beni::RClass) -> Result<(), InstallError> {
+        // SAFETY: `class` is a live handle from `define_class` on this VM;
+        // `proxy_module` shares its representation with `RClass`, so
+        // reifying it through `RClass::to_value` yields the module value
+        // `extend` mixes in.
+        let class_val = unsafe { class.to_value(mrb) };
+        let proxy_val = unsafe { beni::RClass::from_raw(self.proxy_module.as_raw()).to_value(mrb) };
+        class_val
+            .funcall(mrb, c"extend", &[proxy_val])
+            .map(|_| ())
+            .map_err(|e| InstallError::Rejected(e.message(mrb)))
     }
 
     /// Raise `Kobako::Transport::Error` with `msg`. Diverges — `mrb_raise` does

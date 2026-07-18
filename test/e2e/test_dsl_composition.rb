@@ -8,7 +8,7 @@ require "test_helper"
 # host: a Service returns child Handles (B-14), the guest chains method calls
 # onto them (B-17), and a guest-LOCAL wrapper drives the descent with
 # +instance_eval+ or an explicit block parameter. The reflection denial is
-# scoped to guest→host dispatch and to Member / Handle proxies (B-42 / B-44),
+# scoped to guest→host dispatch and to bound-constant / Handle proxies (B-42 / B-44),
 # so +instance_eval+ on a plain guest-local object is permitted; the host
 # dialect's own method set stays the reachable surface (B-42 undefined).
 #

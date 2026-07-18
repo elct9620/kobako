@@ -7,7 +7,9 @@
 # concrete Extension.
 module ExtensionFixtures
   FILE_SOURCE = <<~RUBY
-    class File < Kobako::Member
+    class File
+      extend Kobako::Proxy
+
       def self.join(*parts)
         parts.join("/")
       end

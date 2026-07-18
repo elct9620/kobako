@@ -108,7 +108,7 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
     }
 }
 
-/// Read Frame 1 from stdin and decode it into the Group / Member list.
+/// Read Frame 1 from stdin and decode it into the Group / bind-path list.
 /// Either step failing surfaces as a `boot_panic`.
 #[cfg(mruby_linked)]
 pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
@@ -177,7 +177,7 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
     }
 }
 
-/// Materialise the `Kobako::Member` proxy classes from the Frame 1
+/// Materialise the bound-constant proxy classes from the Frame 1
 /// `paths` onto the invocation's VM.
 #[cfg(mruby_linked)]
 pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {

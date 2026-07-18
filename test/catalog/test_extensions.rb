@@ -72,7 +72,7 @@ module Kobako
 
     def test_install_registers_source_as_a_snippet_and_binds_the_backend_path
       fs = Object.new
-      install(extension(name: :File, source: "class File < Kobako::Member; end", backend: backend("Vfs", fs)))
+      install(extension(name: :File, source: "class File; extend Kobako::Proxy; end", backend: backend("Vfs", fs)))
 
       assert_equal ["File"], snippet_names,
                    "install must register the Extension source as a snippet named by #name (B-55)"

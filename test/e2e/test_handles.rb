@@ -5,7 +5,7 @@ require "test_helper"
 # E2E (Layer 4) — Capability Handle behaviour through real mruby: chaining a
 # Service-returned Handle as the next dispatch target (B-17), respond_to?
 # probing (B-36), host-object restoration on every return path (B-37), and
-# the non-constructibility of Member / Handle proxies (B-38 / B-39).
+# the non-constructibility of bound-constant / Handle proxies (B-38 / B-39).
 class TestE2EHandles < Minitest::Test
   include E2eGuestHelper
 
@@ -31,9 +31,9 @@ class TestE2EHandles < Minitest::Test
                  "B-17: Handle target from first transport call routes second call to the stateful object"
   end
 
-  # SPEC.md B-36: a guest may probe a Member constant or a Handle instance
+  # SPEC.md B-36: a guest may probe a bound-Service constant or a Handle instance
   # with respond_to? before dispatching; both answer true because every
-  # method forwards to the host. KV::Lookup exercises the Member
+  # method forwards to the host. KV::Lookup exercises the bound-constant
   # (class-level) registration; the Greeter Handle exercises the Handle
   # (instance-level) registration — one assertion pins both paths.
   def test_b36_respond_to_probe_succeeds_on_member_and_handle
@@ -47,11 +47,11 @@ class TestE2EHandles < Minitest::Test
     RUBY
 
     assert_equal [true, true], result,
-                 "B-36: respond_to? on a Member constant and on a Handle instance must both " \
+                 "B-36: respond_to? on a bound constant and on a Handle instance must both " \
                  "report true so guest-side capability probing succeeds before dispatch"
   end
 
-  # SPEC.md B-38: a Member is a dispatch target, not a constructible type.
+  # SPEC.md B-38: a bound constant is a dispatch target, not a constructible type.
   # The bound object (a Greeter instance) is reached by calling methods on
   # the constant; a guest `Models::User.new` / `.allocate` must raise
   # NoMethodError rather than yield an inert empty instance that silently
@@ -68,10 +68,10 @@ class TestE2EHandles < Minitest::Test
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
 
       assert_equal "NoMethodError", err.klass,
-                   "B-38: constructing a Member (#{code}) through the guest must raise " \
+                   "B-38: constructing a bound constant (#{code}) through the guest must raise " \
                    "NoMethodError, not produce an empty instance"
       assert_match(/Models::User/, err.message,
-                   "B-38: the error must name the offending Member so the author can locate it")
+                   "B-38: the error must name the offending bound constant so the author can locate it")
     end
   end
 
@@ -167,7 +167,7 @@ class TestE2EHandles < Minitest::Test
   end
 
   # SPEC.md B-25 / B-37: a Handle broken out of a guest block is NOT restored
-  # — the break value returns to the guest Member call, not to host code — so
+  # — the break value returns to the guest bound-constant call, not to host code — so
   # it rides back as a Handle the guest can still route through to the
   # original host object on a later call.
   def test_b37_broken_handle_returns_to_guest_and_still_routes_to_host_object

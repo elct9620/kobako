@@ -20,7 +20,7 @@ class TestE2EReflectionBlock < Minitest::Test
   end
 
   def test_reflection_name_is_refused_by_the_guest_proxy
-    # A gadget-invoker name reaches the Member proxy's method_missing (it is
+    # A gadget-invoker name reaches the bound-constant proxy's method_missing (it is
     # not a real method on the proxy) and is refused before any wire Request;
     # the uncaught guest NoMethodError surfaces as SandboxError (E-04).
     %w[to_proc curry].each do |meth|
