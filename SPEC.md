@@ -277,7 +277,7 @@ The `Worker` snippet replays into every invocation's canonical boot state (B-49)
 #### J-08 — Host App serves concurrent requests from a warm Sandbox pool
 
 **Context**
-A Host App developer runs the J-07 worker pattern inside a multi-threaded web server. Each request needs an exclusively-held, already-set-up Sandbox, and the request rate makes per-request `Sandbox.new` plus `define` / `preload` setup an unacceptable cost. The number of concurrently live Sandboxes must stay bounded.
+A Host App developer runs the J-07 worker pattern inside a multi-threaded web server. Each request needs an exclusively-held, already-set-up Sandbox, and the request rate makes per-request `Sandbox.new` plus `bind` / `preload` setup an unacceptable cost. The number of concurrently live Sandboxes must stay bounded.
 
 **Action**
 1. At boot, the developer creates `Kobako::Pool.new(slots: 5) { |sandbox| ... }`, performing all `bind` / `preload` setup inside the block.

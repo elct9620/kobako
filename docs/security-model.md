@@ -71,7 +71,7 @@ questions to ask before you do.
 A Sandbox's bindings *are* its capability set, so one Sandbox shared across contexts turns
 every binding into ambient authority for all of them. Build one per principal — per user,
 agent session, or submission — bind only what that context may touch, and finish all
-`define` / `bind` / `preload` before the first dispatch, where the registry seals (B-33).
+`bind` / `preload` before the first dispatch, where the registry seals (B-33).
 
 ```ruby
 def sandbox_for(session)
