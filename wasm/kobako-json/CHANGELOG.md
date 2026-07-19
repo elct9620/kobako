@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.10.2...kobako-json-v0.11.0) (2026-07-19)
+
+
+### Miscellaneous Chores
+
+* release the guest crates at 0.11.0 ([83391c1](https://github.com/elct9620/kobako/commit/83391c15a2bd7b162495e851ad1603a047b0cf0e))
+
 ## [0.10.2](https://github.com/elct9620/kobako/compare/kobako-json-v0.10.1...kobako-json-v0.10.2) (2026-07-18)
 
 
