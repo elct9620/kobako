@@ -41,7 +41,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.16.0"
+  gem "kobako", "~> 0.19"
 end
 
 require "kobako"
@@ -54,7 +54,8 @@ module Vfs
   # deliberately left undefined, so they fall through to the bound host
   # backend.
   FILE_SOURCE = <<~MRUBY
-    class File < Kobako::Member
+    class File
+      extend Kobako::Proxy
       def self.basename(path) = path.split("/").last || ""
     end
   MRUBY
