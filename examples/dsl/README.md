@@ -20,12 +20,12 @@ card.body                ->  a method on that Handle returns a child Section Han
 Build.new(handle) { ... }->  a guest-LOCAL instance_eval descends into each child
 ```
 
-The reflection denial is scoped to guest→host dispatch and to Member /
-Handle proxies (B-42 / B-44), so `instance_eval` on a plain guest-local
-object — the `Build` wrapper — is permitted. That is the whole trick: the
-wrapper rebinds `self` to each returned child, so the guest writes a
-receiver-less DSL, while the vocabulary at each level is exactly what the
-host object at that level defines.
+The reflection denial is scoped to guest→host dispatch and to
+`Kobako::Proxy` / Handle proxies (B-42 / B-44), so `instance_eval` on a
+plain guest-local object — the `Build` wrapper — is permitted. That is
+the whole trick: the wrapper rebinds `self` to each returned child, so
+the guest writes a receiver-less DSL, while the vocabulary at each level
+is exactly what the host object at that level defines.
 
 Because the host resolves every forwarded call, a method no dialect
 defines is refused host-side (B-42). The wrapper can never widen the

@@ -46,7 +46,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.16.0"
+  gem "kobako", "~> 0.19"
 end
 
 require "kobako"
