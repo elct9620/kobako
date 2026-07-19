@@ -20,7 +20,7 @@ in, so a host capability reference is never serialized.
 ## Installation
 
 ```toml
-kobako-json = "0.10.2" # x-release-please-version
+kobako-json = "0.11.0" # x-release-please-version
 ```
 
 ## License

@@ -29,7 +29,7 @@ builds on and which a Rust host reuses unchanged.
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-core = "0.10.2" # x-release-please-version
+kobako-core = "0.11.0" # x-release-please-version
 ```
 
 ```rust
