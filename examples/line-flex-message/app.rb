@@ -26,7 +26,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.16.0"
+  gem "kobako", "~> 0.19"
   gem "line-message-builder", "~> 0.9"
 end
 
@@ -51,7 +51,7 @@ module LineFlex
       def initialize(handle) = (@handle = handle)
 
       def method_missing(name, *args, **kwargs, &blk)
-        result = @handle.public_send(name, *args, **kwargs)
+        result = @handle.method_missing(name, *args, **kwargs)
         return result unless blk
 
         (result.is_a?(Kobako::Handle) ? Build.new(result) : result).instance_eval(&blk)

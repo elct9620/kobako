@@ -64,8 +64,8 @@ module Dsl
     class Build
       def initialize(handle) = (@handle = handle)
 
-      def method_missing(name, *args, &blk)
-        result = @handle.public_send(name, *args)
+      def method_missing(name, *args, **kwargs, &blk)
+        result = @handle.method_missing(name, *args, **kwargs)
         return result unless blk
 
         (result.is_a?(Kobako::Handle) ? Build.new(result) : result).instance_eval(&blk)

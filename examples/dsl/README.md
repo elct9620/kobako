@@ -38,8 +38,8 @@ The wrapper wraps a returned Handle only **when a block is given** — a
 container to descend into. A block-less call returns the **raw** Handle:
 
 ```ruby
-def method_missing(name, *args, &blk)
-  result = @handle.public_send(name, *args)
+def method_missing(name, *args, **kwargs, &blk)
+  result = @handle.method_missing(name, *args, **kwargs)
   return result unless blk        # leaf / value -> raw Handle
 
   (result.is_a?(Kobako::Handle) ? Build.new(result) : result).instance_eval(&blk)
