@@ -388,7 +388,8 @@ An Extension teaches the guest a native-style constant by pairing a guest idiom 
 
 ```ruby
 FILE = <<~'MRUBY'
-  class File < Kobako::Member
+  class File
+    extend Kobako::Proxy
     def self.basename(path) = path.split("/").last || ""  # pure: runs in-guest
     # read / write are undefined here, so they dispatch to the backend
   end
