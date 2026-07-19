@@ -49,7 +49,7 @@ From a clone of the kobako repository, prefix with `bundle exec` so the local ch
 | `--buyer-max N`  | Buyer's private ceiling, injected as its reservation price.         | `1000`  |
 | `--seller-floor N` | Seller's private floor, injected as its reservation price.        | `800`   |
 | `--rounds N`     | Message budget before the talk breaks off with no deal.             | `20`    |
-| `--seed N`       | Seed for the per-actor Dice RNG; the only source of randomness.     | `1`     |
+| `--seed N`       | Seed for the Dice RNG. Only `--with-jitter` draws from it, so alone it changes nothing. | `1` |
 | `--restarts N`   | Supervisor restart budget for a faulting turn.                      | `2`     |
 | `--with-cheater` | Swap in a buyer that addresses settlement directly; the broker blocks it. | off |
 | `--with-flaky`   | Swap in a buyer that faults once then recovers on restart; the talk continues. | off |
@@ -67,7 +67,7 @@ From a clone of the kobako repository, prefix with `bundle exec` so the local ch
 | Let-it-crash (forfeit)  | `--with-faulty`           | the buyer keeps crashing; the supervisor restarts until the budget is spent, then the buyer forfeits — the host runs throughout. |
 | Deterministic replay    | `--with-jitter --replay`  | the buyer's bids are randomized, yet the re-run reproduces the transcript byte-for-byte. |
 
-Replay is verified by re-executing the negotiation with the same seed and comparing against the recorded transcript, so it re-covers the broker's routing as well as each actor's play. Determinism holds because the sandbox is hermetic (no ambient clock or entropy) and every source of variation — reservations, seed, message order — is host-owned; the seeded `Dice` is the actor's only randomness.
+Replay is verified by re-executing the negotiation with the same seed and comparing against the recorded transcript, so it re-covers the broker's routing as well as each actor's play. Determinism holds because the sandbox is hermetic (no ambient clock or entropy) and every source of variation — reservations, seed, message order — is host-owned; the seeded `Dice` is the actor's only randomness. Randomness is opt-in: the default strategies never draw from `Dice`, so `--seed` changes a run only together with a stochastic strategy such as `--with-jitter`.
 
 ## Writing your own actor
 

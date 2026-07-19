@@ -47,7 +47,7 @@ OptionParser.new do |opts|
   opts.on("--rounds N", Integer, "Message budget before the talk breaks off (default: 20)") do |value|
     options[:rounds] = value
   end
-  opts.on("--seed N", Integer, "Seed for the Dice RNG (default: 1)") do |value|
+  opts.on("--seed N", Integer, "Seed for the Dice RNG; only --with-jitter draws from it (default: 1)") do |value|
     options[:seed] = value
   end
   opts.on("--restarts N", Integer, "Restart budget per turn (default: 2)") { |value| options[:restarts] = value }
