@@ -38,7 +38,7 @@ class TestE2EHandles < Minitest::Test
   # method forwards to the host. KV::Lookup exercises the bound-constant
   # (class-level) registration; the Greeter Handle exercises the Handle
   # (instance-level) registration — one assertion pins both paths.
-  def test_b36_respond_to_probe_succeeds_on_member_and_handle
+  def test_b36_respond_to_probe_succeeds_on_bound_constant_and_handle
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })

@@ -23,9 +23,9 @@ class TestParityDispatch < Parity::Case
 
   # SPEC.md E-11: a bound constant that raises surfaces as a rescuable
   # service-origin exception, never a trap.
-  def test_member_failure_is_rescuable
+  def test_bound_constant_failure_is_rescuable
     assert_parity Parity::Scenario.new(
-      name: "dispatch-member-raise", anchors: %w[E-11],
+      name: "dispatch-bound-constant-raise", anchors: %w[E-11],
       services: ECHO_SERVICE,
       invocations: [
         { verb: "eval", source: "MyService::KV.explode" },
