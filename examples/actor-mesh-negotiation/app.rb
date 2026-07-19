@@ -5,12 +5,13 @@
 # deal through a host that is the only path between them.
 #
 # The host owns the mesh runtime: per-actor identity, a private Wallet
-# (host-injected reservation) and Memory, and a broker that routes every
-# message under an authorization matrix. Buyer and seller may message only
-# each other; neither may address settlement — the host alone invokes it,
-# and only once both sides agree. An actor is a pure function of the
-# incoming message and the capabilities bound to its own Sandbox, so it can
-# read neither the counterparty's reservation nor its memory nor its code.
+# (host-injected reservation) and Memory, a broker that routes every message
+# under an authorization matrix, and a supervisor that keeps one actor's
+# crash from taking down the mesh. Buyer and seller may message only each
+# other; neither may address settlement — the host alone invokes it, once
+# both sides agree. An actor is a pure function of the incoming message and
+# the capabilities bound to its own Sandbox, so it can read neither the
+# counterparty's reservation nor its memory nor its code.
 #
 # The guest VM is discarded after every turn (a fresh mrb_state per #run),
 # so an actor's identity, private state, and capabilities live host-side and
@@ -21,12 +22,13 @@
 #   ruby examples/actor-mesh-negotiation/app.rb
 #   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800  # no ZOPA
 #   ruby examples/actor-mesh-negotiation/app.rb --with-cheater                       # broker blocks it
+#   ruby examples/actor-mesh-negotiation/app.rb --with-faulty                        # actor forfeits
 #
 # CLI flags are parsed before bundler/inline resolves dependencies.
 
 require "optparse"
 
-options = { buyer_max: 1000, seller_floor: 800, rounds: 20, with_cheater: false }
+options = { buyer_max: 1000, seller_floor: 800, rounds: 20, with_cheater: false, with_faulty: false }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/actor-mesh-negotiation/app.rb [options]"
   opts.on("--buyer-max N", Integer, "Buyer's private ceiling (default: 1000)") do |value|
@@ -40,6 +42,9 @@ OptionParser.new do |opts|
   end
   opts.on("--with-cheater", "Buyer that tries to address settlement directly (the broker blocks it)") do
     options[:with_cheater] = true
+  end
+  opts.on("--with-faulty", "Buyer that crashes on its turn (the supervisor makes it forfeit)") do
+    options[:with_faulty] = true
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -108,6 +113,27 @@ module ActorMesh
     end
   end
 
+  # The supervisor runs every actor turn under the let-it-crash contract: a
+  # behavior that raises (SandboxError) or trips a cap such as the wall-clock
+  # timeout (TrapError) does not crash the mesh. The supervisor catches the
+  # fault and turns it into a value the host records; the faulting actor
+  # forfeits rather than unwinding the negotiation.
+  class Supervisor
+    FAULTS = [Kobako::TrapError, Kobako::SandboxError].freeze
+
+    def guard(actor, message)
+      [:ok, actor.respond(message)]
+    rescue *FAULTS => e
+      [:fault, { type: :fault, kind: e.class.name.split("::").last, detail: summary(e) }]
+    end
+
+    private
+
+    def summary(error)
+      error.message.lines.first&.strip
+    end
+  end
+
   # An ordered record of every message the broker delivered, in the exact
   # order it happened — the audit trail a later replay re-runs.
   class Transcript
@@ -124,18 +150,20 @@ module ActorMesh
     end
   end
 
-  # The broker is the only path between actors. It delivers each message to
-  # its addressee and routes the reply onward, but only along edges the
-  # authorization matrix permits: buyer and seller may message each other,
-  # and no one may address settlement — the host alone invokes it, once both
-  # sides agree. A reply aimed anywhere else is blocked and recorded, so a
-  # forged move never reaches a peer it was denied.
+  # The broker is the only path between actors. It delivers each message —
+  # under the supervisor — to its addressee and routes the reply onward, but
+  # only along edges the authorization matrix permits: buyer and seller may
+  # message each other, and no one may address settlement (the host alone
+  # invokes it, once both sides agree). A reply aimed anywhere else is
+  # blocked and recorded, so a forged move never reaches a peer it was
+  # denied; a faulting actor forfeits.
   class Broker
     AUTHORIZATION = { buyer: %i[seller], seller: %i[buyer] }.freeze
 
-    def initialize(actors:, settlement:, max_rounds:, transcript:)
+    def initialize(actors:, settlement:, supervisor:, max_rounds:, transcript:)
       @actors = actors
       @settlement = settlement
+      @supervisor = supervisor
       @max_rounds = max_rounds
       @transcript = transcript
     end
@@ -155,7 +183,8 @@ module ActorMesh
 
     def turn(message, round)
       sender = message[:to]
-      reply = deliver(sender, message, round)
+      status, reply = deliver(sender, message, round)
+      return [:done, forfeit(sender, round)] if status == :fault
       return [:done, violation(sender, reply, round)] unless authorized?(sender, reply[:to])
 
       outcome = terminal(reply, round)
@@ -163,13 +192,17 @@ module ActorMesh
     end
 
     def deliver(to, message, round)
-      reply = @actors.fetch(to).respond(message.merge(round: round))
-      @transcript.record(round: round, from: to, message: reply)
-      reply
+      status, payload = @supervisor.guard(@actors.fetch(to), message.merge(round: round))
+      @transcript.record(round: round, from: to, message: payload)
+      [status, payload]
     end
 
     def authorized?(sender, target)
       AUTHORIZATION.fetch(sender, []).include?(target)
+    end
+
+    def forfeit(actor, round)
+      { status: :no_deal, reason: :fault, actor: actor, round: round }
     end
 
     def violation(sender, reply, round)
@@ -188,13 +221,11 @@ module ActorMesh
     def finalize(outcome)
       return outcome unless outcome[:status] == :deal
 
-      outcome.merge(receipt: settle(outcome))
-    end
-
-    def settle(outcome)
-      receipt = @settlement.respond({ type: :settle, price: outcome[:price] })
+      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: outcome[:price] })
       @transcript.record(round: outcome[:round], from: :settlement, message: receipt)
-      receipt
+      return { status: :no_deal, reason: :settlement_failed, round: outcome[:round] } if status == :fault
+
+      outcome.merge(receipt: receipt)
     end
   end
 
@@ -213,14 +244,16 @@ module ActorMesh
 
     def self.detail(message)
       case message[:type]
-      when :denied
-        "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the actor)"
-      when :receipt
-        "receipt #{message[:id]}  price $#{message[:price]}  fee $#{message[:fee]}"
-      else
-        price = message[:price] ? " $#{message[:price]}" : ""
-        "#{message[:type]} -> #{message[:to]}#{price}"
+      when :denied then "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the actor)"
+      when :receipt then "receipt #{message[:id]}  price $#{message[:price]}  fee $#{message[:fee]}"
+      when :fault then "FAULT   #{message[:kind]}: #{message[:detail]} (actor forfeited)"
+      else offer_detail(message)
       end
+    end
+
+    def self.offer_detail(message)
+      price = message[:price] ? " $#{message[:price]}" : ""
+      "#{message[:type]} -> #{message[:to]}#{price}"
     end
 
     def self.summary(outcome)
@@ -247,7 +280,7 @@ module ActorMesh
 
     def run
       transcript = Transcript.new
-      broker = Broker.new(actors: negotiators, settlement: settlement,
+      broker = Broker.new(actors: negotiators, settlement: settlement, supervisor: Supervisor.new,
                           max_rounds: @options[:rounds], transcript: transcript)
       outcome = broker.run
       Report.render(transcript, outcome)
@@ -270,7 +303,10 @@ module ActorMesh
     end
 
     def buyer_script
-      @options[:with_cheater] ? "cheater_buyer" : "lowball_buyer"
+      return "cheater_buyer" if @options[:with_cheater]
+      return "faulty" if @options[:with_faulty]
+
+      "lowball_buyer"
     end
 
     def behavior(name)
