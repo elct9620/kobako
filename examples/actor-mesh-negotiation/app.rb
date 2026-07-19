@@ -7,11 +7,12 @@
 # The host owns the mesh runtime: per-actor identity, a private Wallet
 # (host-injected reservation), Memory, and a seeded Dice; a broker that
 # routes every message under an authorization matrix; and a supervisor that
-# keeps one actor's crash from taking down the mesh. Buyer and seller may
-# message only each other; neither may address settlement — the host alone
-# invokes it, once both sides agree. An actor is a pure function of the
-# incoming message and the capabilities bound to its own Sandbox, so it can
-# read neither the counterparty's reservation nor its memory nor its code.
+# restarts a faulting actor up to a budget and, once it is spent, makes the
+# actor forfeit rather than crash the mesh. Buyer and seller may message
+# only each other; neither may address settlement — the host alone invokes
+# it, once both sides agree. An actor is a pure function of the incoming
+# message and the capabilities bound to its own Sandbox, so it can read
+# neither the counterparty's reservation nor its memory nor its code.
 #
 # The guest VM is discarded after every turn (a fresh mrb_state per #run)
 # and the Sandbox is hermetic (no ambient clock or entropy), so an actor's
@@ -23,7 +24,8 @@
 #   ruby examples/actor-mesh-negotiation/app.rb
 #   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800  # no ZOPA
 #   ruby examples/actor-mesh-negotiation/app.rb --with-cheater                       # broker blocks it
-#   ruby examples/actor-mesh-negotiation/app.rb --with-faulty                        # actor forfeits
+#   ruby examples/actor-mesh-negotiation/app.rb --with-flaky                         # restarts, recovers
+#   ruby examples/actor-mesh-negotiation/app.rb --with-faulty                        # exhausts, forfeits
 #   ruby examples/actor-mesh-negotiation/app.rb --with-jitter --replay               # reproduces exactly
 #
 # CLI flags are parsed before bundler/inline resolves dependencies.
@@ -31,8 +33,8 @@
 require "optparse"
 
 options = {
-  buyer_max: 1000, seller_floor: 800, rounds: 20, seed: 1,
-  with_cheater: false, with_faulty: false, with_jitter: false, replay: false
+  buyer_max: 1000, seller_floor: 800, rounds: 20, seed: 1, restarts: 2,
+  with_cheater: false, with_faulty: false, with_flaky: false, with_jitter: false, replay: false
 }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/actor-mesh-negotiation/app.rb [options]"
@@ -48,8 +50,10 @@ OptionParser.new do |opts|
   opts.on("--seed N", Integer, "Seed for the Dice RNG (default: 1)") do |value|
     options[:seed] = value
   end
+  opts.on("--restarts N", Integer, "Restart budget per turn (default: 2)") { |value| options[:restarts] = value }
   opts.on("--with-cheater", "Buyer forges a settlement; the broker blocks it") { options[:with_cheater] = true }
-  opts.on("--with-faulty", "Buyer crashes on its turn; it forfeits") { options[:with_faulty] = true }
+  opts.on("--with-flaky", "Buyer faults once then recovers on restart") { options[:with_flaky] = true }
+  opts.on("--with-faulty", "Buyer keeps crashing until it forfeits") { options[:with_faulty] = true }
   opts.on("--with-jitter", "Buyer's bids jitter via the seeded Dice") { options[:with_jitter] = true }
   opts.on("--replay", "Run twice; check the transcript reproduces") { options[:replay] = true }
   opts.on("-h", "--help", "Show this help") do
@@ -137,23 +141,35 @@ module ActorMesh
   end
 
   # The supervisor runs every actor turn under the let-it-crash contract: a
-  # behavior that raises (SandboxError) or trips a cap such as the wall-clock
-  # timeout (TrapError) does not crash the mesh. The supervisor catches the
-  # fault and turns it into a value the host records; the faulting actor
-  # forfeits rather than unwinding the negotiation.
+  # fault (a raised SandboxError, or a tripped cap like the wall-clock
+  # TrapError) does not crash the mesh. The supervisor restarts the turn up
+  # to its budget — a transient fault clears on a later attempt and the
+  # negotiation carries on — and an actor that keeps faulting forfeits. Each
+  # fault is yielded so the caller can record it.
   class Supervisor
     FAULTS = [Kobako::TrapError, Kobako::SandboxError].freeze
 
+    def initialize(max_restarts:)
+      @max_restarts = max_restarts
+    end
+
     def guard(actor, message)
-      [:ok, actor.respond(message)]
-    rescue *FAULTS => e
-      [:fault, { type: :fault, kind: e.class.name.split("::").last, detail: summary(e) }]
+      (0..@max_restarts).each do |restart|
+        return [:ok, actor.respond(message)]
+      rescue *FAULTS => e
+        yield fault(e, restart)
+      end
+      %i[fault exhausted]
     end
 
     private
 
-    def summary(error)
-      error.message.lines.first&.strip
+    def fault(error, restart)
+      {
+        type: :fault, kind: error.class.name.split("::").last,
+        detail: error.message.lines.first&.strip,
+        attempt: restart + 1, giving_up: restart == @max_restarts
+      }
     end
   end
 
@@ -181,7 +197,7 @@ module ActorMesh
   # message each other, and no one may address settlement (the host alone
   # invokes it, once both sides agree). A reply aimed anywhere else is
   # blocked and recorded, so a forged move never reaches a peer it was
-  # denied; a faulting actor forfeits.
+  # denied; an actor that exhausts its restarts forfeits.
   class Broker
     AUTHORIZATION = { buyer: %i[seller], seller: %i[buyer] }.freeze
 
@@ -217,9 +233,11 @@ module ActorMesh
     end
 
     def deliver(to, message, round)
-      status, payload = @supervisor.guard(@actors.fetch(to), message.merge(round: round))
-      @transcript.record(round: round, from: to, message: payload)
-      [status, payload]
+      status, reply = @supervisor.guard(@actors.fetch(to), message.merge(round: round)) do |fault|
+        @transcript.record(round: round, from: to, message: fault)
+      end
+      @transcript.record(round: round, from: to, message: reply) if status == :ok
+      [status, reply]
     end
 
     def authorized?(sender, target)
@@ -246,10 +264,12 @@ module ActorMesh
     def finalize(outcome)
       return outcome unless outcome[:status] == :deal
 
-      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: outcome[:price] })
-      @transcript.record(round: outcome[:round], from: :settlement, message: receipt)
+      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: outcome[:price] }) do |fault|
+        @transcript.record(round: outcome[:round], from: :settlement, message: fault)
+      end
       return { status: :no_deal, reason: :settlement_failed, round: outcome[:round] } if status == :fault
 
+      @transcript.record(round: outcome[:round], from: :settlement, message: receipt)
       outcome.merge(receipt: receipt)
     end
   end
@@ -271,9 +291,14 @@ module ActorMesh
       case message[:type]
       when :denied then "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the actor)"
       when :receipt then "receipt #{message[:id]}  price $#{message[:price]}  fee $#{message[:fee]}"
-      when :fault then "FAULT   #{message[:kind]}: #{message[:detail]} (actor forfeited)"
+      when :fault then fault_detail(message)
       else offer_detail(message)
       end
+    end
+
+    def self.fault_detail(message)
+      action = message[:giving_up] ? "gives up, forfeits" : "supervisor restarts"
+      "FAULT   #{message[:kind]}: #{message[:detail]} (attempt #{message[:attempt]}, #{action})"
     end
 
     def self.offer_detail(message)
@@ -316,7 +341,8 @@ module ActorMesh
 
     def play
       transcript = Transcript.new
-      broker = Broker.new(actors: negotiators, settlement: settlement, supervisor: Supervisor.new,
+      broker = Broker.new(actors: negotiators, settlement: settlement,
+                          supervisor: Supervisor.new(max_restarts: @options[:restarts]),
                           max_rounds: @options[:rounds], transcript: transcript)
       [transcript, broker.run]
     end
@@ -344,6 +370,7 @@ module ActorMesh
     def buyer_script
       return "cheater_buyer" if @options[:with_cheater]
       return "faulty" if @options[:with_faulty]
+      return "flaky_buyer" if @options[:with_flaky]
       return "jitter_buyer" if @options[:with_jitter]
 
       "lowball_buyer"

@@ -35,7 +35,8 @@ The script uses `bundler/inline`, so it resolves its own dependencies on first r
 ruby examples/actor-mesh-negotiation/app.rb                                    # a deal
 ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800 # no overlap, no deal
 ruby examples/actor-mesh-negotiation/app.rb --with-cheater                     # broker blocks a forged move
-ruby examples/actor-mesh-negotiation/app.rb --with-faulty                      # an actor crashes and forfeits
+ruby examples/actor-mesh-negotiation/app.rb --with-flaky                       # an actor crashes and recovers
+ruby examples/actor-mesh-negotiation/app.rb --with-faulty                      # an actor crashes until it forfeits
 ruby examples/actor-mesh-negotiation/app.rb --with-jitter --replay             # randomized, yet reproducible
 ```
 
@@ -49,8 +50,10 @@ From a clone of the kobako repository, prefix with `bundle exec` so the local ch
 | `--seller-floor N` | Seller's private floor, injected as its reservation price.        | `800`   |
 | `--rounds N`     | Message budget before the talk breaks off with no deal.             | `20`    |
 | `--seed N`       | Seed for the per-actor Dice RNG; the only source of randomness.     | `1`     |
+| `--restarts N`   | Supervisor restart budget for a faulting turn.                      | `2`     |
 | `--with-cheater` | Swap in a buyer that addresses settlement directly; the broker blocks it. | off |
-| `--with-faulty`  | Swap in a buyer that raises on its turn; the supervisor makes it forfeit.  | off |
+| `--with-flaky`   | Swap in a buyer that faults once then recovers on restart; the talk continues. | off |
+| `--with-faulty`  | Swap in a buyer that keeps crashing until its restart budget is spent; it forfeits. | off |
 | `--with-jitter`  | Swap in a buyer whose bids jitter through the seeded Dice.          | off     |
 | `--replay`       | Run twice with the same seed and confirm the transcript reproduces exactly. | off |
 
@@ -60,7 +63,8 @@ From a clone of the kobako repository, prefix with `bundle exec` so the local ch
 |-------------------------|---------------------------|-----------------------------------------------------------------------------|
 | Host-brokered mesh      | (default)                 | every offer flows host → actor → host; the two actors never touch directly. |
 | Mutual distrust         | `--with-cheater`          | the buyer aims a forged `accept` at settlement; the broker records `DENIED` and no forged deal reaches settlement. |
-| Let-it-crash            | `--with-faulty`           | the buyer raises; the supervisor records the fault, the buyer forfeits, and the host keeps running. |
+| Let-it-crash (recover)  | `--with-flaky`            | the buyer faults once; the supervisor restarts the turn, the retry recovers, and the negotiation reaches a deal. |
+| Let-it-crash (forfeit)  | `--with-faulty`           | the buyer keeps crashing; the supervisor restarts until the budget is spent, then the buyer forfeits — the host runs throughout. |
 | Deterministic replay    | `--with-jitter --replay`  | the buyer's bids are randomized, yet the re-run reproduces the transcript byte-for-byte. |
 
 Replay is verified by re-executing the negotiation with the same seed and comparing against the recorded transcript, so it re-covers the broker's routing as well as each actor's play. Determinism holds because the sandbox is hermetic (no ambient clock or entropy) and every source of variation — reservations, seed, message order — is host-owned; the seeded `Dice` is the actor's only randomness.
