@@ -13,7 +13,7 @@ gemfile do
   source "https://rubygems.org"
   gem "ruby_llm"
   gem "reline"
-  gem "kobako", "~> 0.19"
+  gem "kobako", "~> 0.19.0"
 end
 
 require "kobako"

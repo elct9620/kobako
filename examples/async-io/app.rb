@@ -63,7 +63,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19"
+  gem "kobako", "~> 0.19.0"
   gem "async", "~> 2.0" unless options[:sequential]
 end
 
