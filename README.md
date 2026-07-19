@@ -477,6 +477,8 @@ Building from source requires a WASI-capable Rust toolchain in addition to the s
 
 Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
 
+Releases are automated with release-please across two tracks — the gem and the linked guest-crate group. The version rules, commit conventions, and how to cut each release live in [`docs/releasing.md`](docs/releasing.md).
+
 ## License
 
 Kobako is released under the [Apache License 2.0](https://opensource.org/licenses/Apache-2.0).
