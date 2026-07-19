@@ -9,7 +9,7 @@
 
 [package]
 name = "kobako"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 # Recovering a concrete host object from `Sandbox::resolve` upcasts
 # `Arc<dyn Receiver>` to `Arc<dyn Any>`, which needs trait-upcasting.
@@ -23,10 +23,10 @@ categories = ["wasm", "virtualization"]
 
 [dependencies]
 # Wire tier: value model, envelopes, and the Outcome the guest returns.
-kobako-codec = { path = "../kobako-codec", version = "0.10.2" }
+kobako-codec = { path = "../kobako-codec", version = "0.11.0" }
 
 # Engine-neutral contract the Sandbox drives an engine through.
-kobako-runtime = { path = "../kobako-runtime", version = "0.10.2" }
+kobako-runtime = { path = "../kobako-runtime", version = "0.11.0" }
 
 # Default engine: the wasmtime driver implementing the contract.
-kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.10.2" }
+kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.11.0" }

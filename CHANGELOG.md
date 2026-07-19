@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/v0.18.0...v0.19.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **readme:** guest scripts using `class X < Kobako::Member` must switch to `extend Kobako::Proxy`; Kobako::Member no longer exists in the guest.
+
+### Bug Fixes
+
+* **readme:** switch the Extension File idiom off the removed Kobako::Member ([0d96b9e](https://github.com/elct9620/kobako/commit/0d96b9eafed11df6fa030c38f93b2a0e9b190ed8))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/v0.17.0...v0.18.0) (2026-07-18)
 
 
