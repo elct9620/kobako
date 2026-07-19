@@ -5,30 +5,35 @@
 # deal through a host that is the only path between them.
 #
 # The host owns the mesh runtime: per-actor identity, a private Wallet
-# (host-injected reservation) and Memory, a broker that routes every message
-# under an authorization matrix, and a supervisor that keeps one actor's
-# crash from taking down the mesh. Buyer and seller may message only each
-# other; neither may address settlement — the host alone invokes it, once
-# both sides agree. An actor is a pure function of the incoming message and
-# the capabilities bound to its own Sandbox, so it can read neither the
-# counterparty's reservation nor its memory nor its code.
+# (host-injected reservation), Memory, and a seeded Dice; a broker that
+# routes every message under an authorization matrix; and a supervisor that
+# keeps one actor's crash from taking down the mesh. Buyer and seller may
+# message only each other; neither may address settlement — the host alone
+# invokes it, once both sides agree. An actor is a pure function of the
+# incoming message and the capabilities bound to its own Sandbox, so it can
+# read neither the counterparty's reservation nor its memory nor its code.
 #
-# The guest VM is discarded after every turn (a fresh mrb_state per #run),
-# so an actor's identity, private state, and capabilities live host-side and
-# outlive the Sandbox instance — the shape that later lets each actor run in
-# its own Ractor unchanged.
+# The guest VM is discarded after every turn (a fresh mrb_state per #run)
+# and the Sandbox is hermetic (no ambient clock or entropy), so an actor's
+# state lives host-side and its only randomness is the seeded Dice. That is
+# what makes a run reproducible: --replay re-runs it with the same seed and
+# checks the transcript comes out byte-for-byte identical.
 #
 # Usage:
 #   ruby examples/actor-mesh-negotiation/app.rb
 #   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800  # no ZOPA
 #   ruby examples/actor-mesh-negotiation/app.rb --with-cheater                       # broker blocks it
 #   ruby examples/actor-mesh-negotiation/app.rb --with-faulty                        # actor forfeits
+#   ruby examples/actor-mesh-negotiation/app.rb --with-jitter --replay               # reproduces exactly
 #
 # CLI flags are parsed before bundler/inline resolves dependencies.
 
 require "optparse"
 
-options = { buyer_max: 1000, seller_floor: 800, rounds: 20, with_cheater: false, with_faulty: false }
+options = {
+  buyer_max: 1000, seller_floor: 800, rounds: 20, seed: 1,
+  with_cheater: false, with_faulty: false, with_jitter: false, replay: false
+}
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/actor-mesh-negotiation/app.rb [options]"
   opts.on("--buyer-max N", Integer, "Buyer's private ceiling (default: 1000)") do |value|
@@ -40,12 +45,13 @@ OptionParser.new do |opts|
   opts.on("--rounds N", Integer, "Message budget before the talk breaks off (default: 20)") do |value|
     options[:rounds] = value
   end
-  opts.on("--with-cheater", "Buyer that tries to address settlement directly (the broker blocks it)") do
-    options[:with_cheater] = true
+  opts.on("--seed N", Integer, "Seed for the Dice RNG (default: 1)") do |value|
+    options[:seed] = value
   end
-  opts.on("--with-faulty", "Buyer that crashes on its turn (the supervisor makes it forfeit)") do
-    options[:with_faulty] = true
-  end
+  opts.on("--with-cheater", "Buyer forges a settlement; the broker blocks it") { options[:with_cheater] = true }
+  opts.on("--with-faulty", "Buyer crashes on its turn; it forfeits") { options[:with_faulty] = true }
+  opts.on("--with-jitter", "Buyer's bids jitter via the seeded Dice") { options[:with_jitter] = true }
+  opts.on("--replay", "Run twice; check the transcript reproduces") { options[:replay] = true }
   opts.on("-h", "--help", "Show this help") do
     warn opts
     exit
@@ -92,19 +98,36 @@ module ActorMesh
     end
   end
 
+  # Dice is an actor's seeded source of randomness. The Sandbox is hermetic —
+  # the guest has no ambient entropy — so an actor that wants to randomize
+  # its play must draw from Dice, whose seed the host owns. A fixed seed
+  # makes every run reproduce the same rolls, which is what lets a recorded
+  # negotiation replay byte-for-byte.
+  class Dice
+    def initialize(seed)
+      @random = Random.new(seed)
+    end
+
+    def roll(bound)
+      @random.rand(bound)
+    end
+  end
+
   # An actor in the mesh: a host-owned identity plus the capabilities bound
   # to one Sandbox that runs an untrusted third-party behavior. The behavior
   # is a pure function of the incoming message and this actor's own
   # capabilities; it reaches nothing the host did not bind. A neutral actor
-  # (settlement) is built without a Wallet, so it holds no reservation.
+  # (settlement) is built without a Wallet or Dice, so it holds no
+  # reservation and no randomness.
   class Actor
     attr_reader :name
 
-    def initialize(name:, behavior_path:, reservation: nil)
+    def initialize(name:, behavior_path:, reservation: nil, seed: nil)
       @name = name
       @sandbox = Kobako::Sandbox.new
       @sandbox.bind("Wallet", Wallet.new(reservation)) unless reservation.nil?
       @sandbox.bind("Memory", Memory.new)
+      @sandbox.bind("Dice", Dice.new(seed)) unless seed.nil?
       @sandbox.preload(code: File.read(behavior_path), name: :Behavior)
     end
 
@@ -135,8 +158,10 @@ module ActorMesh
   end
 
   # An ordered record of every message the broker delivered, in the exact
-  # order it happened — the audit trail a later replay re-runs.
+  # order it happened — the audit trail --replay re-runs and compares.
   class Transcript
+    attr_reader :entries
+
     def initialize
       @entries = []
     end
@@ -270,7 +295,9 @@ module ActorMesh
     end
   end
 
-  # Wires the actors from CLI options, runs one negotiation, prints it.
+  # Wires the actors from CLI options, runs one negotiation, prints it, and —
+  # under --replay — runs it a second time with the same seed to confirm the
+  # transcript reproduces exactly.
   class Simulation
     ACTORS_DIR = File.join(__dir__, "actors")
 
@@ -279,22 +306,34 @@ module ActorMesh
     end
 
     def run
-      transcript = Transcript.new
-      broker = Broker.new(actors: negotiators, settlement: settlement, supervisor: Supervisor.new,
-                          max_rounds: @options[:rounds], transcript: transcript)
-      outcome = broker.run
+      transcript, outcome = play
       Report.render(transcript, outcome)
+      verify_replay(transcript, outcome) if @options[:replay]
       outcome
     end
 
     private
 
+    def play
+      transcript = Transcript.new
+      broker = Broker.new(actors: negotiators, settlement: settlement, supervisor: Supervisor.new,
+                          max_rounds: @options[:rounds], transcript: transcript)
+      [transcript, broker.run]
+    end
+
+    def verify_replay(first_transcript, first_outcome)
+      transcript, outcome = play
+      match = transcript.entries == first_transcript.entries && outcome == first_outcome
+      puts
+      puts match ? "REPLAY OK — the same seed reproduced the negotiation byte-for-byte" : "REPLAY MISMATCH"
+    end
+
     def negotiators
       {
         seller: Actor.new(name: :seller, behavior_path: behavior("anchor_seller"),
-                          reservation: @options[:seller_floor]),
+                          reservation: @options[:seller_floor], seed: @options[:seed]),
         buyer: Actor.new(name: :buyer, behavior_path: behavior(buyer_script),
-                         reservation: @options[:buyer_max])
+                         reservation: @options[:buyer_max], seed: @options[:seed] + 1)
       }
     end
 
@@ -305,6 +344,7 @@ module ActorMesh
     def buyer_script
       return "cheater_buyer" if @options[:with_cheater]
       return "faulty" if @options[:with_faulty]
+      return "jitter_buyer" if @options[:with_jitter]
 
       "lowball_buyer"
     end
