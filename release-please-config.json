@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "ruby",
+  "bump-minor-pre-major": true,
   "last-release-sha": "98509af508988f708bf0d7a76a718bb0428a177e",
   "packages": {
     ".": {
       "component": "kobako",
       "include-component-in-tag": false,
       "release-type": "ruby",
-      "bump-minor-pre-major": true,
       "exclude-paths": ["wasm", "crates"]
     },
     "wasm/kobako-core": {
