@@ -1,31 +1,32 @@
 # frozen_string_literal: true
 
-# Actor-mesh negotiation demo: a buyer and a seller, each an untrusted
-# third-party script, haggle over a price through a host that is the only
-# path between them.
+# Actor-mesh negotiation demo: a buyer, a seller, and a settlement actor —
+# each an untrusted third-party script in its own Kobako::Sandbox — reach a
+# deal through a host that is the only path between them.
 #
-# Every actor is one Kobako::Sandbox running an untrusted behavior. The
-# host owns the mesh runtime — identities, a private per-actor Memory, the
-# broker that routes every message, and the transcript. An actor is a pure
-# function of the incoming message and the capabilities the host bound to
-# its own Sandbox; it can reach nothing else, and it cannot see the
-# counterparty's reservation price, memory, or code.
+# The host owns the mesh runtime: per-actor identity, a private Wallet
+# (host-injected reservation) and Memory, and a broker that routes every
+# message under an authorization matrix. Buyer and seller may message only
+# each other; neither may address settlement — the host alone invokes it,
+# and only once both sides agree. An actor is a pure function of the
+# incoming message and the capabilities bound to its own Sandbox, so it can
+# read neither the counterparty's reservation nor its memory nor its code.
 #
 # The guest VM is discarded after every turn (a fresh mrb_state per #run),
-# so an actor's identity, private state, and capabilities all live host-side
-# and outlive the Sandbox instance — the shape that later lets each actor
-# run in its own Ractor unchanged.
+# so an actor's identity, private state, and capabilities live host-side and
+# outlive the Sandbox instance — the shape that later lets each actor run in
+# its own Ractor unchanged.
 #
 # Usage:
 #   ruby examples/actor-mesh-negotiation/app.rb
-#   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 1200 --seller-floor 900
-#   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800   # no ZOPA
+#   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800  # no ZOPA
+#   ruby examples/actor-mesh-negotiation/app.rb --with-cheater                       # broker blocks it
 #
 # CLI flags are parsed before bundler/inline resolves dependencies.
 
 require "optparse"
 
-options = { buyer_max: 1000, seller_floor: 800, rounds: 20 }
+options = { buyer_max: 1000, seller_floor: 800, rounds: 20, with_cheater: false }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/actor-mesh-negotiation/app.rb [options]"
   opts.on("--buyer-max N", Integer, "Buyer's private ceiling (default: 1000)") do |value|
@@ -36,6 +37,9 @@ OptionParser.new do |opts|
   end
   opts.on("--rounds N", Integer, "Message budget before the talk breaks off (default: 20)") do |value|
     options[:rounds] = value
+  end
+  opts.on("--with-cheater", "Buyer that tries to address settlement directly (the broker blocks it)") do
+    options[:with_cheater] = true
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -85,15 +89,16 @@ module ActorMesh
 
   # An actor in the mesh: a host-owned identity plus the capabilities bound
   # to one Sandbox that runs an untrusted third-party behavior. The behavior
-  # is a pure function of the incoming message and this actor's own Wallet /
-  # Memory; it reaches nothing the host did not bind.
+  # is a pure function of the incoming message and this actor's own
+  # capabilities; it reaches nothing the host did not bind. A neutral actor
+  # (settlement) is built without a Wallet, so it holds no reservation.
   class Actor
     attr_reader :name
 
-    def initialize(name:, behavior_path:, reservation:)
+    def initialize(name:, behavior_path:, reservation: nil)
       @name = name
       @sandbox = Kobako::Sandbox.new
-      @sandbox.bind("Wallet", Wallet.new(reservation))
+      @sandbox.bind("Wallet", Wallet.new(reservation)) unless reservation.nil?
       @sandbox.bind("Memory", Memory.new)
       @sandbox.preload(code: File.read(behavior_path), name: :Behavior)
     end
@@ -119,38 +124,58 @@ module ActorMesh
     end
   end
 
-  # The broker is the only path between actors: it delivers each message to
-  # its addressee, records the reply, and routes it onward until an actor
-  # accepts, rejects, or the round budget runs out. Actors never touch each
-  # other directly — the host mediates every exchange.
+  # The broker is the only path between actors. It delivers each message to
+  # its addressee and routes the reply onward, but only along edges the
+  # authorization matrix permits: buyer and seller may message each other,
+  # and no one may address settlement — the host alone invokes it, once both
+  # sides agree. A reply aimed anywhere else is blocked and recorded, so a
+  # forged move never reaches a peer it was denied.
   class Broker
-    def initialize(actors:, max_rounds:, transcript:)
+    AUTHORIZATION = { buyer: %i[seller], seller: %i[buyer] }.freeze
+
+    def initialize(actors:, settlement:, max_rounds:, transcript:)
       @actors = actors
+      @settlement = settlement
       @max_rounds = max_rounds
       @transcript = transcript
     end
 
     def run
-      round = 0
       message = { to: :seller, type: :open }
-      while round <= @max_rounds
-        reply = deliver(message, round)
-        outcome = terminal(reply, round)
-        return outcome if outcome
+      (0..@max_rounds).each do |round|
+        step, value = turn(message, round)
+        return value if step == :done
 
-        message = reply
-        round += 1
+        message = value
       end
       { status: :no_deal, reason: :exhausted, round: @max_rounds }
     end
 
     private
 
-    def deliver(message, round)
-      recipient = @actors.fetch(message[:to])
-      reply = recipient.respond(message.merge(round: round))
-      @transcript.record(round: round, from: recipient.name, message: reply)
+    def turn(message, round)
+      sender = message[:to]
+      reply = deliver(sender, message, round)
+      return [:done, violation(sender, reply, round)] unless authorized?(sender, reply[:to])
+
+      outcome = terminal(reply, round)
+      outcome ? [:done, finalize(outcome)] : [:continue, reply]
+    end
+
+    def deliver(to, message, round)
+      reply = @actors.fetch(to).respond(message.merge(round: round))
+      @transcript.record(round: round, from: to, message: reply)
       reply
+    end
+
+    def authorized?(sender, target)
+      AUTHORIZATION.fetch(sender, []).include?(target)
+    end
+
+    def violation(sender, reply, round)
+      @transcript.record(round: round, from: :broker,
+                         message: { type: :denied, actor: sender, target: reply[:to] })
+      { status: :no_deal, reason: :denied, round: round }
     end
 
     def terminal(reply, round)
@@ -158,6 +183,18 @@ module ActorMesh
       when :accept then { status: :deal, price: reply[:price], round: round }
       when :reject then { status: :no_deal, reason: :rejected, round: round }
       end
+    end
+
+    def finalize(outcome)
+      return outcome unless outcome[:status] == :deal
+
+      outcome.merge(receipt: settle(outcome))
+    end
+
+    def settle(outcome)
+      receipt = @settlement.respond({ type: :settle, price: outcome[:price] })
+      @transcript.record(round: outcome[:round], from: :settlement, message: receipt)
+      receipt
     end
   end
 
@@ -170,18 +207,33 @@ module ActorMesh
     end
 
     def self.line(entry)
-      message = entry[:message]
-      price = message[:price] ? "$#{message[:price]}" : "-"
-      format("  r%<round>02d  %<from>-6s -> %<to>-6s  %<type>-8s %<price>s",
-             round: entry[:round], from: entry[:from], to: message[:to],
-             type: message[:type], price: price)
+      format("  r%<round>02d  %<from>-9s %<detail>s",
+             round: entry[:round], from: entry[:from], detail: detail(entry[:message]))
+    end
+
+    def self.detail(message)
+      case message[:type]
+      when :denied
+        "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the actor)"
+      when :receipt
+        "receipt #{message[:id]}  price $#{message[:price]}  fee $#{message[:fee]}"
+      else
+        price = message[:price] ? " $#{message[:price]}" : ""
+        "#{message[:type]} -> #{message[:to]}#{price}"
+      end
     end
 
     def self.summary(outcome)
       case outcome[:status]
-      when :deal then "DEAL at $#{outcome[:price]} (round #{outcome[:round]})"
+      when :deal then deal_summary(outcome)
       else "NO DEAL (#{outcome[:reason]})"
       end
+    end
+
+    def self.deal_summary(outcome)
+      receipt = outcome[:receipt]
+      "DEAL at $#{outcome[:price]} (round #{outcome[:round]}) — " \
+        "settled #{receipt[:id]}, fee $#{receipt[:fee]}, net $#{receipt[:net]}"
     end
   end
 
@@ -195,21 +247,30 @@ module ActorMesh
 
     def run
       transcript = Transcript.new
-      outcome = Broker.new(actors: build_actors, max_rounds: @options[:rounds],
-                           transcript: transcript).run
+      broker = Broker.new(actors: negotiators, settlement: settlement,
+                          max_rounds: @options[:rounds], transcript: transcript)
+      outcome = broker.run
       Report.render(transcript, outcome)
       outcome
     end
 
     private
 
-    def build_actors
+    def negotiators
       {
         seller: Actor.new(name: :seller, behavior_path: behavior("anchor_seller"),
                           reservation: @options[:seller_floor]),
-        buyer: Actor.new(name: :buyer, behavior_path: behavior("lowball_buyer"),
+        buyer: Actor.new(name: :buyer, behavior_path: behavior(buyer_script),
                          reservation: @options[:buyer_max])
       }
+    end
+
+    def settlement
+      Actor.new(name: :settlement, behavior_path: behavior("settlement"))
+    end
+
+    def buyer_script
+      @options[:with_cheater] ? "cheater_buyer" : "lowball_buyer"
     end
 
     def behavior(name)
