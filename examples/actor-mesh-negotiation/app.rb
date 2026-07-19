@@ -265,12 +265,9 @@ module ActorMesh
     end
 
     def settle(decision, round)
-      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: decision[:price] }) do |fault|
-        @transcript.record(round: round, from: :settlement, message: fault)
-      end
+      status, receipt = invoke(@settlement, { type: :settle, price: decision[:price] }, round, :settlement)
       return no_deal(:settlement_failed, round) if status == :fault
 
-      @transcript.record(round: round, from: :settlement, message: receipt)
       { status: :deal, buyer: decision[:buyer], price: decision[:price], round: round, receipt: receipt }
     end
 
