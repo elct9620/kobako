@@ -25,7 +25,7 @@ Buyer and seller exchange offers only through the broker; neither can address se
 
 An actor's private reservation price is a `Wallet` the host binds to that one sandbox; the counterparty's sandbox never binds it, so the number cannot leak across the mesh. This is the whole reason the compute runs in a sandbox rather than as a plain Ruby object: the actors come from mutually distrusting sources, and isolation — not intelligence — is what the sandbox provides.
 
-The guest VM is discarded after every turn (a fresh `mrb_state` per `#run`), so an actor cannot hold state in the sandbox. That is not a limitation to work around — it is the mesh's foundation. An actor's identity, private `Memory`, reservation, and randomness all live host-side and outlive the sandbox instance, so the sandbox is disposable compute the host can recreate at any time with no state loss. The same property is what makes the model Ractor-ready (below).
+The guest VM is discarded after every turn (a fresh `mrb_state` per `#run`), so an actor cannot hold state in the sandbox. That is not a limitation to work around — it is the mesh's foundation. An actor's identity, private `Memory`, reservation, and randomness all live host-side and outlive the sandbox instance, so the sandbox is disposable compute the host can recreate at any time with no state loss.
 
 ## Running
 
@@ -82,11 +82,5 @@ end
 ```
 
 The message types are `:open` (the host's kickoff to the seller), `:counter` (a price on the table), and `:accept` / `:reject` (terminal). An actor may read only the capabilities the host bound to it — `Wallet` (its reservation), `Memory` (private scratch that survives across turns, since the VM does not), and `Dice` (seeded randomness). Anything else raises host-side, and any `to:` the authorization matrix forbids is blocked. Point `--with-jitter`'s slot (or the `buyer_script` switch in `app.rb`) at your file to run it.
-
-## Today it is serial; the design is Ractor-ready
-
-Every actor runs in the main Ractor, and the wasm segment runs under the GVL, so the mesh is cooperatively serial within one process — fine for a message-driven negotiation, and it makes replay clean. True parallelism would let each actor run in its own Ractor, and the mesh is already the right shape for it: actors share nothing, and every message is a plain wire value (a Hash of symbols and integers), which is exactly the copyable form a Ractor requires to move a message between Ractors.
-
-It does not work *today* for one concrete reason. The kobako native extension has not declared itself Ractor-safe, so constructing a `Kobako::Sandbox` in a non-main Ractor raises `Ractor::UnsafeError` at `Kobako::Runtime.from_path`. Lifting that is a bounded, host-side change — the extension opts into `rb_ext_ractor_safe` and confines each `Runtime` to one Ractor — after which the upgrade here is purely orchestration: the broker becomes a Ractor that owns the transcript and routes copied messages, and each actor runs its sandbox in its own Ractor. The actor contract, the authorization matrix, and the transcript do not change. Because all state is host-side, an actor is never migrated — only its disposable sandbox moves.
 
 This example is the companion to the single-script demos: [codemode](../codemode/README.md) and [plugin-rs](../plugin-rs/README.md) run one untrusted script against host capabilities; here many untrusted actors are composed under a host that brokers and supervises them.
