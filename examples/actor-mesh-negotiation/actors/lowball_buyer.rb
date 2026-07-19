@@ -1,25 +1,20 @@
 # frozen_string_literal: true
 
-# Lowball buyer — an untrusted, third-party negotiation behavior.
+# Lowball buyer — an untrusted bidder.
 #
-# It opens at half its ceiling, then raises its bid by a third of the
-# remaining gap toward the ceiling each round, and accepts any ask at or
-# below what it is currently willing to pay. The ceiling is private: the
-# host injects it through +Wallet+ and the seller's Sandbox never binds it.
-# The running bid lives in +Memory+ because the guest VM keeps no state
-# between turns.
+# It opens at half its ceiling and raises its bid a third of the way toward
+# the ceiling each round, always bidding to the seller. The ceiling is
+# private (host-injected via Wallet, never visible to a rival); the running
+# bid lives in Memory because the guest VM keeps no state between turns.
 class Behavior
   OPENING = 0.5
   RAISE = 0.3
 
-  def self.call(msg)
+  def self.call(_msg)
     ceiling = Wallet.reservation
     bid = Memory.get("bid") || (ceiling * OPENING).round
-    willing = [ceiling, (bid + ((ceiling - bid) * RAISE)).round].min
-    ask = msg[:price]
-    return { to: :seller, type: :accept, price: ask } if ask && ask <= willing
-
-    Memory.set("bid", willing)
-    { to: :seller, type: :counter, price: willing }
+    bid = [ceiling, (bid + ((ceiling - bid) * RAISE)).round].min
+    Memory.set("bid", bid)
+    { to: :seller, type: :bid, price: bid }
   end
 end

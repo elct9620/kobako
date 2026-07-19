@@ -1,18 +1,21 @@
 # frozen_string_literal: true
 
-# Actor-mesh negotiation demo: a buyer, a seller, and a settlement actor —
-# each an untrusted third-party script in its own Kobako::Sandbox — reach a
-# deal through a host that is the only path between them.
+# Actor-mesh negotiation demo: one seller and N competing buyers — each an
+# untrusted third-party script in its own Kobako::Sandbox — plus a
+# settlement actor, all reaching a deal through a host that is the only path
+# between them.
 #
 # The host owns the mesh runtime: per-actor identity, a private Wallet
-# (host-injected reservation), Memory, and a seeded Dice; a broker that
-# routes every message under an authorization matrix; and a supervisor that
-# restarts a faulting actor up to a budget and, once it is spent, makes the
-# actor forfeit rather than crash the mesh. Buyer and seller may message
-# only each other; neither may address settlement — the host alone invokes
-# it, once both sides agree. An actor is a pure function of the incoming
-# message and the capabilities bound to its own Sandbox, so it can read
-# neither the counterparty's reservation nor its memory nor its code.
+# (host-injected reservation), Memory, and a seeded Dice; a broker that runs
+# a sealed auction — it broadcasts the seller's ask, collects each buyer's
+# bid, and lets the seller award the sale — under an authorization matrix;
+# and a supervisor that restarts a faulting actor and, once its budget is
+# spent, drops it so the auction carries on. Buyers may bid only to the
+# seller; they never see each other's bids and cannot address settlement —
+# the host alone invokes it, once the seller awards. An actor is a pure
+# function of the incoming message and the capabilities bound to its own
+# Sandbox, so it can read neither a rival's reservation nor its memory nor
+# its code.
 #
 # The guest VM is discarded after every turn (a fresh mrb_state per #run)
 # and the Sandbox is hermetic (no ambient clock or entropy), so an actor's
@@ -20,41 +23,44 @@
 # what makes a run reproducible: --replay re-runs it with the same seed and
 # checks the transcript comes out byte-for-byte identical.
 #
+# Two well-behaved buyers (lowball and jitter) always compete; each
+# --with-<type> adds one more, misbehaving buyer on top, so the mesh can be
+# watched handling it while the auction still reaches a deal.
+#
 # Usage:
-#   ruby examples/actor-mesh-negotiation/app.rb
-#   ruby examples/actor-mesh-negotiation/app.rb --buyer-max 700 --seller-floor 800  # no ZOPA
-#   ruby examples/actor-mesh-negotiation/app.rb --with-cheater                       # broker blocks it
-#   ruby examples/actor-mesh-negotiation/app.rb --with-flaky                         # restarts, recovers
-#   ruby examples/actor-mesh-negotiation/app.rb --with-faulty                        # exhausts, forfeits
-#   ruby examples/actor-mesh-negotiation/app.rb --with-jitter --replay               # reproduces exactly
+#   ruby examples/actor-mesh-negotiation/app.rb                          # two buyers compete
+#   ruby examples/actor-mesh-negotiation/app.rb --with-flaky             # +1 that recovers on restart
+#   ruby examples/actor-mesh-negotiation/app.rb --with-faulty            # +1 that drops out
+#   ruby examples/actor-mesh-negotiation/app.rb --with-cheater           # +1 the broker blocks
+#   ruby examples/actor-mesh-negotiation/app.rb --replay                 # reproduces exactly
 #
 # CLI flags are parsed before bundler/inline resolves dependencies.
 
 require "optparse"
 
 options = {
-  buyer_max: 1000, seller_floor: 800, rounds: 20, seed: 1, restarts: 2,
-  with_cheater: false, with_faulty: false, with_flaky: false, with_jitter: false, replay: false
+  buyer_max: 1000, seller_floor: 800, rounds: 20, seed: 1, restarts: 2, buyers: [], replay: false
 }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/actor-mesh-negotiation/app.rb [options]"
-  opts.on("--buyer-max N", Integer, "Buyer's private ceiling (default: 1000)") do |value|
+  opts.on("--buyer-max N", Integer, "Every buyer's private ceiling (default: 1000)") do |value|
     options[:buyer_max] = value
   end
   opts.on("--seller-floor N", Integer, "Seller's private floor (default: 800)") do |value|
     options[:seller_floor] = value
   end
-  opts.on("--rounds N", Integer, "Message budget before the talk breaks off (default: 20)") do |value|
+  opts.on("--rounds N", Integer, "Auction rounds before it breaks off (default: 20)") do |value|
     options[:rounds] = value
   end
-  opts.on("--seed N", Integer, "Seed for the Dice RNG; only --with-jitter draws from it (default: 1)") do |value|
+  opts.on("--seed N", Integer, "Seed for the Dice RNG a jitter buyer draws from (default: 1)") do |value|
     options[:seed] = value
   end
   opts.on("--restarts N", Integer, "Restart budget per turn (default: 2)") { |value| options[:restarts] = value }
-  opts.on("--with-cheater", "Buyer forges a settlement; the broker blocks it") { options[:with_cheater] = true }
-  opts.on("--with-flaky", "Buyer faults once then recovers on restart") { options[:with_flaky] = true }
-  opts.on("--with-faulty", "Buyer keeps crashing until it forfeits") { options[:with_faulty] = true }
-  opts.on("--with-jitter", "Buyer's bids jitter via the seeded Dice") { options[:with_jitter] = true }
+  opts.on("--with-flaky", "Add a buyer that faults once then recovers") { options[:buyers] << "flaky_buyer" }
+  opts.on("--with-faulty", "Add a buyer that keeps crashing and drops out") { options[:buyers] << "faulty" }
+  opts.on("--with-cheater", "Add a buyer that bids at settlement (broker blocks it)") do
+    options[:buyers] << "cheater_buyer"
+  end
   opts.on("--replay", "Run twice; check the transcript reproduces") { options[:replay] = true }
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -75,8 +81,8 @@ require "kobako"
 # reads top-down as a single file.
 module ActorMesh
   # Wallet exposes an actor's private reservation price. The host injects it
-  # and binds it only to that actor's own Sandbox, so the counterparty can
-  # never read it — the reservation cannot leak across the mesh.
+  # and binds it only to that actor's own Sandbox, so a rival can never read
+  # it — the reservation cannot leak across the mesh.
   class Wallet
     def initialize(reservation)
       @reservation = reservation
@@ -106,7 +112,7 @@ module ActorMesh
   # the guest has no ambient entropy — so an actor that wants to randomize
   # its play must draw from Dice, whose seed the host owns. A fixed seed
   # makes every run reproduce the same rolls, which is what lets a recorded
-  # negotiation replay byte-for-byte.
+  # auction replay byte-for-byte.
   class Dice
     def initialize(seed)
       @random = Random.new(seed)
@@ -143,9 +149,9 @@ module ActorMesh
   # The supervisor runs every actor turn under the let-it-crash contract: a
   # fault (a raised SandboxError, or a tripped cap like the wall-clock
   # TrapError) does not crash the mesh. The supervisor restarts the turn up
-  # to its budget — a transient fault clears on a later attempt and the
-  # negotiation carries on — and an actor that keeps faulting forfeits. Each
-  # fault is yielded so the caller can record it.
+  # to its budget — a transient fault clears on a later attempt — and an
+  # actor that keeps faulting is reported spent, so the broker can drop it.
+  # Each fault is yielded so the caller can record it.
   class Supervisor
     FAULTS = [Kobako::TrapError, Kobako::SandboxError].freeze
 
@@ -159,7 +165,7 @@ module ActorMesh
       rescue *FAULTS => e
         yield fault(e, restart)
       end
-      %i[fault exhausted]
+      %i[fault spent]
     end
 
     private
@@ -191,90 +197,105 @@ module ActorMesh
     end
   end
 
-  # The broker is the only path between actors. It delivers each message —
-  # under the supervisor — to its addressee and routes the reply onward, but
-  # only along edges the authorization matrix permits: buyer and seller may
-  # message each other, and no one may address settlement (the host alone
-  # invokes it, once both sides agree). A reply aimed anywhere else is
-  # blocked and recorded, so a forged move never reaches a peer it was
-  # denied; an actor that exhausts its restarts forfeits.
+  # The broker runs the auction and is the only path between actors. Each
+  # round it broadcasts the seller's ask, collects one bid per active buyer,
+  # and lets the seller either award the sale or lower its ask. It enforces
+  # the authorization matrix — a buyer may bid only to the seller, so a bid
+  # aimed at settlement (or a peer) is blocked and that buyer drops — and it
+  # drops any buyer the supervisor reports as spent, so one crash does not
+  # end the auction. The host alone invokes settlement, once the seller
+  # awards.
   class Broker
-    AUTHORIZATION = { buyer: %i[seller], seller: %i[buyer] }.freeze
-
-    def initialize(actors:, settlement:, supervisor:, max_rounds:, transcript:)
-      @actors = actors
-      @settlement = settlement
+    def initialize(cast:, supervisor:, max_rounds:, transcript:)
+      @seller = cast.fetch(:seller)
+      @settlement = cast.fetch(:settlement)
       @supervisor = supervisor
       @max_rounds = max_rounds
       @transcript = transcript
+      @active = cast.fetch(:buyers).dup
     end
 
     def run
-      message = { to: :seller, type: :open }
-      (0..@max_rounds).each do |round|
-        step, value = turn(message, round)
+      ask = open_ask
+      return no_deal(:seller_failed, 0) unless ask
+
+      (1..@max_rounds).each do |round|
+        step, value = auction_round(ask, round)
         return value if step == :done
 
-        message = value
+        ask = value
       end
-      { status: :no_deal, reason: :exhausted, round: @max_rounds }
+      no_deal(:exhausted, @max_rounds)
     end
 
     private
 
-    def turn(message, round)
-      sender = message[:to]
-      status, reply = deliver(sender, message, round)
-      return [:done, forfeit(sender, round)] if status == :fault
-      return [:done, violation(sender, reply, round)] unless authorized?(sender, reply[:to])
+    def auction_round(ask, round)
+      bids = collect_bids(ask, round)
+      return [:done, no_deal(:all_dropped, round)] if @active.empty?
 
-      outcome = terminal(reply, round)
-      outcome ? [:done, finalize(outcome)] : [:continue, reply]
+      decision = ask_seller(bids, round)
+      return [:done, no_deal(:seller_failed, round)] unless decision
+      return [:done, settle(decision, round)] if decision[:type] == :accept
+
+      [:continue, decision[:price]]
     end
 
-    def deliver(to, message, round)
-      status, reply = @supervisor.guard(@actors.fetch(to), message.merge(round: round)) do |fault|
-        @transcript.record(round: round, from: to, message: fault)
+    def open_ask
+      status, reply = invoke(@seller, { type: :open }, 0, :seller)
+      status == :ok ? reply[:price] : nil
+    end
+
+    def collect_bids(ask, round)
+      bids = {}
+      @active = @active.select do |buyer|
+        status, reply = invoke(buyer, { type: :ask, price: ask, round: round }, round, buyer.name)
+        next false if status == :fault
+        next false unless authorized_bid?(buyer.name, reply, round)
+
+        bids[buyer.name] = reply[:price]
+        true
       end
-      @transcript.record(round: round, from: to, message: reply) if status == :ok
+      bids
+    end
+
+    def ask_seller(bids, round)
+      status, reply = invoke(@seller, { type: :bids, bids: bids, round: round }, round, :seller)
+      status == :ok ? reply : nil
+    end
+
+    def settle(decision, round)
+      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: decision[:price] }) do |fault|
+        @transcript.record(round: round, from: :settlement, message: fault)
+      end
+      return no_deal(:settlement_failed, round) if status == :fault
+
+      @transcript.record(round: round, from: :settlement, message: receipt)
+      { status: :deal, buyer: decision[:buyer], price: decision[:price], round: round, receipt: receipt }
+    end
+
+    def invoke(actor, message, round, name)
+      status, reply = @supervisor.guard(actor, message) do |fault|
+        @transcript.record(round: round, from: name, message: fault)
+      end
+      @transcript.record(round: round, from: name, message: reply) if status == :ok
       [status, reply]
     end
 
-    def authorized?(sender, target)
-      AUTHORIZATION.fetch(sender, []).include?(target)
-    end
+    def authorized_bid?(name, reply, round)
+      return true if reply[:to] == :seller
 
-    def forfeit(actor, round)
-      { status: :no_deal, reason: :fault, actor: actor, round: round }
-    end
-
-    def violation(sender, reply, round)
       @transcript.record(round: round, from: :broker,
-                         message: { type: :denied, actor: sender, target: reply[:to] })
-      { status: :no_deal, reason: :denied, round: round }
+                         message: { type: :denied, actor: name, target: reply[:to] })
+      false
     end
 
-    def terminal(reply, round)
-      case reply[:type]
-      when :accept then { status: :deal, price: reply[:price], round: round }
-      when :reject then { status: :no_deal, reason: :rejected, round: round }
-      end
-    end
-
-    def finalize(outcome)
-      return outcome unless outcome[:status] == :deal
-
-      status, receipt = @supervisor.guard(@settlement, { type: :settle, price: outcome[:price] }) do |fault|
-        @transcript.record(round: outcome[:round], from: :settlement, message: fault)
-      end
-      return { status: :no_deal, reason: :settlement_failed, round: outcome[:round] } if status == :fault
-
-      @transcript.record(round: outcome[:round], from: :settlement, message: receipt)
-      outcome.merge(receipt: receipt)
+    def no_deal(reason, round)
+      { status: :no_deal, reason: reason, round: round }
     end
   end
 
-  # Renders the negotiation transcript and its outcome for the terminal.
+  # Renders the auction transcript and its outcome for the terminal.
   class Report
     def self.render(transcript, outcome)
       transcript.each { |entry| puts line(entry) }
@@ -283,27 +304,24 @@ module ActorMesh
     end
 
     def self.line(entry)
-      format("  r%<round>02d  %<from>-9s %<detail>s",
+      format("  r%<round>02d  %<from>-10s %<detail>s",
              round: entry[:round], from: entry[:from], detail: detail(entry[:message]))
     end
 
     def self.detail(message)
       case message[:type]
-      when :denied then "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the actor)"
-      when :receipt then "receipt #{message[:id]}  price $#{message[:price]}  fee $#{message[:fee]}"
+      when :ask then "asks $#{message[:price]}"
+      when :bid then "bids $#{message[:price]}"
+      when :accept then "AWARDS #{message[:buyer]} at $#{message[:price]}"
+      when :denied then "DENIED  #{message[:actor]} -> #{message[:target]} (broker blocked the bid)"
       when :fault then fault_detail(message)
-      else offer_detail(message)
+      when :receipt then "receipt #{message[:id]}  $#{message[:price]}  fee $#{message[:fee]}"
       end
     end
 
     def self.fault_detail(message)
-      action = message[:giving_up] ? "gives up, forfeits" : "supervisor restarts"
+      action = message[:giving_up] ? "gives up, drops out" : "supervisor restarts"
       "FAULT   #{message[:kind]}: #{message[:detail]} (attempt #{message[:attempt]}, #{action})"
-    end
-
-    def self.offer_detail(message)
-      price = message[:price] ? " $#{message[:price]}" : ""
-      "#{message[:type]} -> #{message[:to]}#{price}"
     end
 
     def self.summary(outcome)
@@ -315,16 +333,17 @@ module ActorMesh
 
     def self.deal_summary(outcome)
       receipt = outcome[:receipt]
-      "DEAL at $#{outcome[:price]} (round #{outcome[:round]}) — " \
+      "DEAL: #{outcome[:buyer]} wins at $#{outcome[:price]} (round #{outcome[:round]}) — " \
         "settled #{receipt[:id]}, fee $#{receipt[:fee]}, net $#{receipt[:net]}"
     end
   end
 
-  # Wires the actors from CLI options, runs one negotiation, prints it, and —
+  # Wires the roster from CLI options, runs one auction, prints it, and —
   # under --replay — runs it a second time with the same seed to confirm the
   # transcript reproduces exactly.
   class Simulation
     ACTORS_DIR = File.join(__dir__, "actors")
+    DEFAULT_BUYERS = %w[lowball_buyer jitter_buyer].freeze
 
     def initialize(options)
       @options = options
@@ -341,7 +360,7 @@ module ActorMesh
 
     def play
       transcript = Transcript.new
-      broker = Broker.new(actors: negotiators, settlement: settlement,
+      broker = Broker.new(cast: { seller: seller, buyers: buyers, settlement: settlement },
                           supervisor: Supervisor.new(max_restarts: @options[:restarts]),
                           max_rounds: @options[:rounds], transcript: transcript)
       [transcript, broker.run]
@@ -351,29 +370,31 @@ module ActorMesh
       transcript, outcome = play
       match = transcript.entries == first_transcript.entries && outcome == first_outcome
       puts
-      puts match ? "REPLAY OK — the same seed reproduced the negotiation byte-for-byte" : "REPLAY MISMATCH"
+      puts match ? "REPLAY OK — the same seed reproduced the auction byte-for-byte" : "REPLAY MISMATCH"
     end
 
-    def negotiators
-      {
-        seller: Actor.new(name: :seller, behavior_path: behavior("anchor_seller"),
-                          reservation: @options[:seller_floor], seed: @options[:seed]),
-        buyer: Actor.new(name: :buyer, behavior_path: behavior(buyer_script),
-                         reservation: @options[:buyer_max], seed: @options[:seed] + 1)
-      }
+    def seller
+      Actor.new(name: :seller, behavior_path: behavior("anchor_seller"),
+                reservation: @options[:seller_floor], seed: @options[:seed])
+    end
+
+    def buyers
+      scripts.each_with_index.map do |script, index|
+        Actor.new(name: name_for(script), behavior_path: behavior(script),
+                  reservation: @options[:buyer_max], seed: @options[:seed] + index + 1)
+      end
+    end
+
+    def scripts
+      (DEFAULT_BUYERS + @options[:buyers]).uniq
+    end
+
+    def name_for(script)
+      script.sub(/_buyer$/, "").to_sym
     end
 
     def settlement
       Actor.new(name: :settlement, behavior_path: behavior("settlement"))
-    end
-
-    def buyer_script
-      return "cheater_buyer" if @options[:with_cheater]
-      return "faulty" if @options[:with_faulty]
-      return "flaky_buyer" if @options[:with_flaky]
-      return "jitter_buyer" if @options[:with_jitter]
-
-      "lowball_buyer"
     end
 
     def behavior(name)

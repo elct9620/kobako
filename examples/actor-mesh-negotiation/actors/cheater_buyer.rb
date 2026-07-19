@@ -1,13 +1,12 @@
 # frozen_string_literal: true
 
-# Cheater buyer — an untrusted behavior that tries to skip the seller and
-# forge a bargain by addressing the settlement actor directly, at a price of
-# its own choosing. The broker's authorization matrix forbids
-# buyer -> settlement, so the move is denied and recorded; the forged deal
-# never reaches settlement, and no capability the host withheld becomes
-# reachable by aiming a message at it.
+# Cheater buyer — an untrusted bidder that tries to skip the seller and win
+# by aiming its bid straight at the settlement actor. The broker's
+# authorization matrix only lets a buyer bid to the seller, so the move is
+# denied and the buyer drops out; addressing a capability it was never
+# granted reaches nothing.
 class Behavior
   def self.call(_msg)
-    { to: :settlement, type: :accept, price: 1 }
+    { to: :settlement, type: :bid, price: 1 }
   end
 end
