@@ -7,7 +7,9 @@ module Kobako
     # install time (its +source+ into +Catalog::Snippets+, its +backend+
     # path into +Catalog::Services+), asserts declared dependencies are
     # present when the Sandbox seals, and resolves each callable-backed
-    # path to a fresh object at the start of every invocation.
+    # path to a fresh object for every invocation — returning that map to the
+    # driving +Context+ rather than mutating the shared registry, so
+    # concurrent invocations stay shared-nothing.
     #
     # Sealing and the reject-after-install guard are governed by the owning
     # Sandbox through +Catalog::Services#sealed?+, the shared seal signal;
@@ -51,33 +53,33 @@ module Kobako
       end
 
       # Resolve each callable-backed path to this invocation's object and
-      # refresh it behind its already-sealed path in +services+. Distinct
-      # providers yield distinct objects; one provider shared by several
-      # Extensions is invoked once and its result shared, so provider
-      # identity is resource identity. Fixed providers are left untouched —
-      # they stay the object bound at install.
-      def refresh_backends!(services)
-        resolved = {} # : Hash[untyped, untyped]
-        resolved.compare_by_identity
-        @entries.each { |extension| refresh_backend(extension, services, resolved) }
-        self
+      # return the +path => object+ map the driving +Context+ layers over the
+      # static base bindings. Distinct providers yield distinct objects; one
+      # provider shared by several Extensions is invoked once and its result
+      # shared, so provider identity is resource identity. Fixed providers are
+      # omitted — they stay the object bound at install in the base registry.
+      def resolve
+        resolved = {} # : Hash[String, untyped]
+        by_provider = {} # : Hash[untyped, untyped]
+        by_provider.compare_by_identity
+        @entries.each { |extension| resolve_backend(extension, resolved, by_provider) }
+        resolved
       end
 
       private
 
       # Resolve one Extension's callable-backed path against the shared
-      # per-invocation +resolved+ cache (keyed by provider identity) and
-      # refresh it in +services+. A fixed provider is skipped — its object
-      # stays as bound at install.
-      def refresh_backend(extension, services, resolved)
+      # per-invocation identity cache (keyed by provider identity) and record
+      # it in +resolved+. A fixed provider is skipped — its object stays as
+      # bound at install in the base registry.
+      def resolve_backend(extension, resolved, by_provider)
         backend = extension.backend
         return unless backend
 
         provider = backend.provider
         return unless callable?(provider)
 
-        object = resolved.fetch(provider) { resolved[provider] = provider.call }
-        services.refresh(backend.path, object)
+        resolved[backend.path.to_s] = by_provider.fetch(provider) { by_provider[provider] = provider.call }
       end
 
       # Enforce the Extension-shape checks +#preload+ / +#bind+ do not: a

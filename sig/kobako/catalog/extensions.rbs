@@ -7,11 +7,11 @@ module Kobako
 
       def seal!: () -> self
 
-      def refresh_backends!: (Kobako::Catalog::Services services) -> self
+      def resolve: () -> Hash[String, untyped]
 
       private
 
-      def refresh_backend: (untyped extension, Kobako::Catalog::Services services, Hash[untyped, untyped] resolved) -> void
+      def resolve_backend: (untyped extension, Hash[String, untyped] resolved, Hash[untyped, untyped] by_provider) -> void
 
       def validate!: (untyped extension) -> void
 

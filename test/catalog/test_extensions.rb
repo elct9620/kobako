@@ -164,20 +164,21 @@ module Kobako
       install(extension(name: :File, source: "1", backend: backend("File", fs)))
 
       assert_same fs, @services.lookup("File"), "a fixed provider is bound directly at install (B-55)"
-      @extensions.refresh_backends!(@services)
+      refute @extensions.resolve.key?("File"),
+             "a fixed provider is never per-invocation resolved; it stays the install-bound object (B-56)"
       assert_same fs, @services.lookup("File"),
                   "a fixed provider stays the same object across invocations (B-56)"
     end
 
     def test_callable_backend_resolves_a_fresh_object_each_invocation
       install(extension(name: :File, source: "1", backend: backend("File", -> { Object.new })))
-      assert_nil @services.lookup("File"), "a callable backend holds a placeholder until refresh (B-56)"
+      assert_nil @services.lookup("File"),
+                 "a callable backend holds only a placeholder in the base registry until resolve (B-56)"
 
-      @extensions.refresh_backends!(@services)
-      first = @services.lookup("File")
-      @extensions.refresh_backends!(@services)
+      first = @extensions.resolve.fetch("File")
 
-      refute_same first, @services.lookup("File"), "each invocation resolves a fresh backend object (B-56)"
+      refute_same first, @extensions.resolve.fetch("File"),
+                  "each invocation resolves a fresh backend object (B-56)"
     end
 
     def test_one_provider_shared_by_several_extensions_resolves_once_per_invocation
@@ -186,10 +187,10 @@ module Kobako
       install(extension(name: :File, source: "1", backend: backend("File", shared)))
       install(extension(name: :Dir, source: "2", backend: backend("Dir", shared)))
 
-      @extensions.refresh_backends!(@services)
+      resolved = @extensions.resolve
 
       assert_equal 1, sink.size, "one provider shared by several Extensions resolves once per invocation (B-56)"
-      assert_same @services.lookup("File"), @services.lookup("Dir"),
+      assert_same resolved.fetch("File"), resolved.fetch("Dir"),
                   "a shared provider must back every path with the same object (B-56)"
     end
 
@@ -197,25 +198,24 @@ module Kobako
       install(extension(name: :File, source: "1", backend: backend("File", -> { Object.new })))
       install(extension(name: :Dir, source: "2", backend: backend("Dir", -> { Object.new })))
 
-      @extensions.refresh_backends!(@services)
+      resolved = @extensions.resolve
 
-      refute_same @services.lookup("File"), @services.lookup("Dir"),
+      refute_same resolved.fetch("File"), resolved.fetch("Dir"),
                   "distinct providers must resolve to distinct objects (B-56)"
     end
 
     # B-56 provider failure: a raising provider is host code, so its own
     # exception propagates unwrapped; resolution being per-invocation, a
-    # later refresh whose provider succeeds resolves the path normally.
-    def test_raising_provider_propagates_unchanged_then_recovers_on_a_later_refresh
+    # later resolve whose provider succeeds resolves the path normally.
+    def test_raising_provider_propagates_unchanged_then_recovers_on_a_later_resolve
       install(extension(name: :File, source: "1", backend: backend("File", raise_once_provider)))
 
-      err = assert_raises(RuntimeError) { @extensions.refresh_backends!(@services) }
+      err = assert_raises(RuntimeError) { @extensions.resolve }
       assert_equal "provider boom", err.message,
                    "a raising provider's own exception must propagate unchanged, never a wrapped Kobako error (B-56)"
 
-      @extensions.refresh_backends!(@services)
-      refute_nil @services.lookup("File"),
-                 "per-invocation resolution must let a later refresh whose provider succeeds bind the path (B-56)"
+      refute_nil @extensions.resolve.fetch("File"),
+                 "per-invocation resolution must let a later resolve whose provider succeeds bind the path (B-56)"
     end
   end
 end

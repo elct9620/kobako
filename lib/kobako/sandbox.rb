@@ -207,7 +207,8 @@ module Kobako
     # pre-invocation sentinels. Runs at construction and is called by
     # +Kobako::Pool+ at checkout so a pooled Sandbox hands over empty buffers.
     def reset_invocation_state!
-      @last_context = Context.new(runtime: @runtime, services: @services, snippets: @snippets)
+      @last_context = Context.new(runtime: @runtime, services: @services, snippets: @snippets,
+                                  extensions: @extensions)
     end
 
     private
@@ -223,9 +224,10 @@ module Kobako
       runtime
     end
 
-    # Seal the config on the first invocation, refresh callable Extension
-    # backends to this run, and install a fresh per-invocation +Context+ as
-    # the last invocation; returns it for the verb to drive.
+    # Seal the config on the first invocation and install a fresh
+    # per-invocation +Context+ as the last invocation; returns it for the verb
+    # to drive. The Context resolves its own callable Extension backends, so no
+    # per-invocation state is written back onto the shared config here.
     def new_invocation
       begin_invocation!
       reset_invocation_state!
@@ -234,14 +236,12 @@ module Kobako
 
     # Per-invocation prologue on the config tier: seals the Service / snippet /
     # Extension registries on the first call (idempotent — asserting Extension
-    # dependencies then) and refreshes each callable Extension backend to this
-    # invocation's fresh object. Per-invocation observable state lives on the
-    # +Context+, not here.
+    # dependencies then). Per-invocation provider resolution and observable
+    # state live on the +Context+, not here.
     def begin_invocation!
       @services.seal!
       @snippets.seal!
       @extensions.seal!
-      @extensions.refresh_backends!(@services)
     end
   end
 end

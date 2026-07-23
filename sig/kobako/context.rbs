@@ -5,8 +5,11 @@ module Kobako
     def initialize: (
       runtime: Kobako::Runtime,
       services: Kobako::Catalog::Services,
-      snippets: Kobako::Catalog::Snippets
+      snippets: Kobako::Catalog::Snippets,
+      extensions: Kobako::Catalog::Extensions
     ) -> void
+
+    def lookup: (Symbol | String path) -> untyped
 
     def stdout: () -> String
 

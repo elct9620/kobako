@@ -21,18 +21,32 @@ module Kobako
     # until the guest has run.
     attr_reader :usage
 
-    # Build a Context over the Sandbox-owned config — the +Runtime+ and the
-    # sealed +Catalog::Services+ / +Catalog::Snippets+ registries. The
-    # +Catalog::Handles+ table is this invocation's own, so guest→host dispatch
-    # and host→guest auto-wrap share one allocator scoped to the run.
-    def initialize(runtime:, services:, snippets:)
+    # Build a Context over the Sandbox-owned config — the +Runtime+, the
+    # sealed +Catalog::Services+ / +Catalog::Snippets+ registries, and the
+    # +Catalog::Extensions+ whose callable backends this Context resolves for
+    # its own run. The +Catalog::Handles+ table is this invocation's own, so
+    # guest→host dispatch and host→guest auto-wrap share one allocator scoped
+    # to the run; the resolved provider map is likewise per-invocation, so
+    # concurrent invocations never share mutable state.
+    def initialize(runtime:, services:, snippets:, extensions:)
       @runtime = runtime
       @services = services
       @snippets = snippets
+      @extensions = extensions
+      @resolved = {} # : Hash[String, untyped]
       @handler = Catalog::Handles.new
       @stdout_capture = Capture::EMPTY
       @stderr_capture = Capture::EMPTY
       @usage = Usage::EMPTY
+    end
+
+    # Resolve a Service +path+ to the object backing it this invocation,
+    # layering this Context's per-invocation provider results over the
+    # Sandbox's static base bindings. An unbound path raises +KeyError+, which
+    # the Dispatcher maps to an undefined-target wire fault. Internal — the
+    # per-invocation dispatch handler is the sole caller.
+    def lookup(path)
+      @resolved.fetch(path.to_s) { @services.lookup(path) }
     end
 
     # Bytes the guest wrote to stdout during this invocation as a UTF-8 String,
@@ -69,7 +83,8 @@ module Kobako
 
     # Build this invocation's guest→host dispatch handler — a +Proc+ routing
     # each guest→host call through the stateless +Transport::Dispatcher+,
-    # capturing this Context's +@services+ / +@handler+. Handed to
+    # capturing this Context as the path resolver (its +#lookup+ layers the
+    # per-invocation providers over the static bindings) plus +@handler+. Handed to
     # +Runtime#eval+ / +#run+ as a call argument, so the Runtime holds no
     # dispatch state and the +Proc+ stays GC-rooted as a live argument for the
     # synchronous call. The ext hands the +Proc+ a per-dispatch +guest_yielder+
@@ -78,7 +93,7 @@ module Kobako
     # +Transport::Yielder+ it builds for the call.
     def dispatch_handler
       lambda do |request_bytes, guest_yielder|
-        Transport::Dispatcher.dispatch(request_bytes, @services, @handler, guest_yielder)
+        Transport::Dispatcher.dispatch(request_bytes, self, @handler, guest_yielder)
       end
     end
 
@@ -137,12 +152,16 @@ module Kobako
     end
 
     # Drive one invocation and settle it into a frozen +Execution+. +verb+
-    # tags the TrapError message so the failing export is identifiable. Usage
-    # and captures are recorded before the trap check, so a trapped Snapshot's
-    # error carries them just like a completed run's return value. A
-    # could-not-start fault raises straight from the guest call with no
-    # Snapshot, so it gains only the verb prefix and carries no Execution.
+    # tags the TrapError message so the failing export is identifiable. This
+    # invocation's callable Extension backends are resolved first — before the
+    # guest runs — so a provider that raises propagates unwrapped and leaves
+    # the guest unrun. Usage and captures are recorded before the trap check,
+    # so a trapped Snapshot's error carries them just like a completed run's
+    # return value. A could-not-start fault raises straight from the guest call
+    # with no Snapshot, so it gains only the verb prefix and carries no
+    # Execution.
     def invoke!(verb)
+      @resolved = @extensions.resolve
       begin
         snapshot = yield
       rescue Kobako::TrapError => e

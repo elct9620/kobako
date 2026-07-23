@@ -13,7 +13,8 @@ module Kobako
   module Transport
     # Pure-function dispatcher for guest-initiated transport calls.
     # Decodes a msgpack-encoded Request envelope, resolves the target
-    # object through the Catalog::Services (path lookup) or
+    # object through the per-invocation path +resolver+ (the +Context+, whose
+    # +#lookup+ layers per-invocation providers over the static bindings) or
     # Catalog::Handles (Handle lookup), invokes the method, and returns
     # a msgpack-encoded Response envelope.
     #
@@ -24,7 +25,7 @@ module Kobako
     #
     # Entry point:
     #
-    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, services, handler, yield_to_guest)
+    #   Kobako::Transport::Dispatcher.dispatch(request_bytes, resolver, handler, yield_to_guest)
     #   # => msgpack-encoded Response bytes (never raises)
     module Dispatcher
       # Throw tag for the Yielder's break unwind back to the
@@ -67,11 +68,11 @@ module Kobako
 
       # Dispatch a single transport request and return the encoded
       # Response bytes. Invoked from the per-invocation dispatch Proc that
-      # +Kobako::Sandbox+ hands to +Runtime#eval+ / +#run+; +services+,
+      # +Kobako::Context+ hands to +Runtime#eval+ / +#run+; +resolver+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
-      # closure so the Dispatcher stays stateless and the registry doesn't
-      # need to publish accessors for the Sandbox-owned +Catalog::Handles+
-      # or +Runtime+. +yield_to_guest+ is a +String → String+ callable
+      # closure so the Dispatcher stays stateless and neither the resolver
+      # nor the Context needs to publish accessors for the per-invocation
+      # +Catalog::Handles+ or +Runtime+. +yield_to_guest+ is a +String → String+ callable
       # (the ext's per-dispatch +Kobako::Runtime::GuestYielder+) used only
       # when the Request carries +block_given: true+. Always
       # returns a binary String — every failure path is reified as a
@@ -81,9 +82,9 @@ module Kobako
       # The decode runs inside +Codec.track_handles+ so #resolve_call_args
       # can skip the argument walk when no Capability Handle crossed the
       # wire.
-      def dispatch(request_bytes, services, handler, yield_to_guest)
+      def dispatch(request_bytes, resolver, handler, yield_to_guest)
         request, carried_handle = Kobako::Codec.track_handles { Kobako::Transport::Request.decode(request_bytes) }
-        target = resolve_target(request.target, services, handler)
+        target = resolve_target(request.target, resolver, handler)
         args, kwargs = resolve_call_args(request, handler, carried_handle)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if request.block_given
         encode_ok(catch(BREAK_THROW) { invoke(target, request.method_name, args, kwargs, yielder) }, handler)
@@ -192,24 +193,24 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      # Resolve a Request target to the Ruby object the registry (or
-      # Catalog::Handles) holds. String targets go through the registry;
+      # Resolve a Request target to the Ruby object the path +resolver+ (or
+      # Catalog::Handles) holds. String targets go through the resolver;
       # Handle targets (ext 0x01) go through the Catalog::Handles.
       #
       # Target type is already validated by +Transport::Request.decode+
       # before this method is reached, so no else-branch is needed here —
       # the wire layer is the system boundary that enforces the invariant.
-      def resolve_target(target, services, handler)
+      def resolve_target(target, resolver, handler)
         case target
         when String
-          resolve_path(target, services)
+          resolve_path(target, resolver)
         when Kobako::Handle
           require_live_object!(target.id, handler)
         end
       end
 
-      def resolve_path(path, services)
-        services.lookup(path)
+      def resolve_path(path, resolver)
+        resolver.lookup(path)
       rescue KeyError => e
         raise UndefinedTargetError, e.message
       end
