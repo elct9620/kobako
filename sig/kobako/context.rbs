@@ -1,0 +1,35 @@
+module Kobako
+  class Context
+    attr_reader usage: Kobako::Usage
+
+    def initialize: (
+      runtime: Kobako::Runtime,
+      services: Kobako::Catalog::Services,
+      snippets: Kobako::Catalog::Snippets
+    ) -> void
+
+    def stdout: () -> String
+
+    def stderr: () -> String
+
+    def stdout_truncated?: () -> bool
+
+    def stderr_truncated?: () -> bool
+
+    def eval: (String code) -> untyped
+
+    def run: (Kobako::Transport::Run run_envelope) -> untyped
+
+    private
+
+    def dispatch_handler: () -> ^(String, Kobako::Transport::_GuestYielder) -> String
+
+    def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
+
+    def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
+
+    def trap_for: (Kobako::Runtime::Snapshot snapshot) -> Kobako::TrapError
+
+    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> untyped
+  end
+end

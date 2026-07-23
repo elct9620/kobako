@@ -27,7 +27,7 @@ module Kobako
 
     def stderr_truncated?: () -> bool
 
-    attr_reader usage: Kobako::Usage
+    def usage: () -> Kobako::Usage
 
     def bind: (Symbol | String path, untyped object) -> Kobako::Sandbox
 
@@ -46,16 +46,8 @@ module Kobako
 
     def build_runtime!: () -> Kobako::Runtime
 
-    def dispatch_handler: () -> ^(String, Kobako::Transport::_GuestYielder) -> String
+    def new_invocation: () -> Kobako::Context
 
     def begin_invocation!: () -> void
-
-    def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
-
-    def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
-
-    def trap_for: (Kobako::Runtime::Snapshot snapshot) -> Kobako::TrapError
-
-    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> untyped
   end
 end
