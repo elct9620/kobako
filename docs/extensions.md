@@ -34,7 +34,7 @@ valid.
 The `backend` pairs a `path` (the constant path the backend binds at —
 single-segment `"File"` or nested `"MyApp::Store"`, spelling the guest
 constant the idiom routes to) with a `provider`. `Kobako::Extension::Backend`
-is the bundled value type; `install` duck-types on `path` / `provider`,
+is the bundled value type; `install` duck-types on `path` / `object` / `provider`,
 so a conforming object of your own is equally valid.
 
 | Provider form | Bound object | Lifetime |
@@ -120,7 +120,7 @@ file_ext = Kobako::Extension.new(
   source: FILE_SOURCE,
   backend: Kobako::Extension::Backend.new(
     path: "File",
-    provider: -> { InMemoryFileSystem.new },  # callable → fresh each invocation
+    provider: -> { InMemoryFileSystem.new },  # provider: → fresh each invocation
   ),
 )
 
@@ -132,11 +132,11 @@ sandbox.eval(<<~RUBY)
 RUBY
 ```
 
-A read-only, shared backend supplies a fixed object instead of a
-callable:
+A read-only, shared backend supplies a static object with `object:`
+instead of a `provider:` callable:
 
 ```ruby
-backend: Kobako::Extension::Backend.new(path: "File", provider: read_only_store)
+backend: Kobako::Extension::Backend.new(path: "File", object: read_only_store)
 ```
 
 ## Rust SDK

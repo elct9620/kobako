@@ -27,17 +27,31 @@ module Kobako
     # Kobako::Extension::Backend — the host attachment of an Extension,
     # pairing +path+ (the constant path the backend binds at, single-segment
     # +"File"+ or nested +"MyApp::Store"+, spelling the guest constant the
-    # idiom routes to) with +provider+ (the source of the bound object).
+    # idiom routes to) with the source of the bound object, declared by
+    # explicit keyword:
     #
-    # A +provider+ that is not itself callable is the bound object, resolved
-    # once for the Sandbox's life; a callable provider is invoked once per
-    # invocation to yield that invocation's object, so a fresh object backs
-    # the path every invocation. Callability is the sole discriminator — a
-    # fixed backend that is itself callable is supplied through a
-    # non-callable wrapper. A callable provider that raises propagates its
-    # exception to the invocation caller and leaves the guest unrun; the
-    # next invocation resolves it afresh.
-    class Backend < Data.define(:path, :provider)
+    #   * +object:+ — a static object, fixed for the Sandbox's life.
+    #   * +provider:+ — a no-argument callable invoked once per invocation to
+    #     yield that invocation's object, so a fresh object backs the path
+    #     every invocation. A provider that raises propagates its exception to
+    #     the invocation caller and leaves the guest unrun; the next
+    #     invocation resolves it afresh.
+    #   * neither — a fillable, defaulting to +Kobako::Unresolved+ until the
+    #     host supplies the invocation's object.
+    #
+    # The kind is chosen by keyword, never inferred from whether the value is
+    # callable, so a static object that is itself callable is expressed
+    # directly with +object:+. Giving both +object:+ and +provider:+ raises
+    # +ArgumentError+.
+    class Backend < Data.define(:path, :object, :provider)
+      def initialize(path:, object: nil, provider: nil)
+        if !object.nil? && !provider.nil?
+          raise ArgumentError,
+                "Extension::Backend accepts object: or provider:, not both"
+        end
+
+        super
+      end
     end
 
     # +backend+ and +depends_on+ default to absent so the common

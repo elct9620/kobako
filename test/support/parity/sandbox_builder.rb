@@ -74,13 +74,12 @@ module Parity
 
     def extension_backend(backend)
       methods = backend[:methods]
-      provider =
-        case backend.fetch(:provider)
-        when "fixed" then stub_object(methods, nil)
-        when "per_invocation" then -> { stub_object(methods, nil) }
-        else raise ArgumentError, "unknown provider kind: #{backend.inspect}"
-        end
-      Kobako::Extension::Backend.new(path: backend.fetch(:path), provider: provider)
+      path = backend.fetch(:path)
+      case backend.fetch(:provider)
+      when "fixed" then Kobako::Extension::Backend.new(path: path, object: stub_object(methods, nil))
+      when "per_invocation" then Kobako::Extension::Backend.new(path: path, provider: -> { stub_object(methods, nil) })
+      else raise ArgumentError, "unknown provider kind: #{backend.inspect}"
+      end
     end
 
     def bind_service(sandbox, service)

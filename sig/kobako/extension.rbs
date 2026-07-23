@@ -11,10 +11,12 @@ module Kobako
 
     class Backend < Data
       attr_reader path: String
+      attr_reader object: untyped
       attr_reader provider: untyped
 
-      def self.new: (path: String, provider: untyped) -> Kobako::Extension::Backend
-                  | (String path, untyped provider) -> Kobako::Extension::Backend
+      def self.new: (path: String, ?object: untyped, ?provider: untyped) -> Kobako::Extension::Backend
+
+      def initialize: (path: String, ?object: untyped, ?provider: untyped) -> void
     end
   end
 end

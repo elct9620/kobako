@@ -10,9 +10,10 @@
 # Cross-references:
 #   - SPEC.md / docs/behavior/extension.md B-55 — install composes an
 #     Extension into a preloaded snippet plus an optional bound backend
-#   - SPEC.md / docs/behavior/extension.md B-56 — a backend's bound object
-#     is fixed, or resolved fresh per invocation from a callable provider;
-#     provider identity is resource identity
+#   - SPEC.md / docs/behavior/extension.md B-56 — a backend's bound object is
+#     a static object:, a per-invocation provider: resolved fresh per
+#     invocation, or a fillable defaulting to Kobako::Unresolved; the kind is
+#     chosen by keyword and provider identity is resource identity
 #   - SPEC.md / docs/behavior/extension.md B-57 — depends_on is asserted
 #     for presence at the seal; cycles permitted
 #   - SPEC.md / docs/behavior/errors.md E-52 — an unmet dependency raises
@@ -37,7 +38,9 @@ module Kobako
       Kobako::Extension.new(name: name, source: source, backend: backend, depends_on: depends_on)
     end
 
-    def backend(path, provider) = Kobako::Extension::Backend.new(path: path, provider: provider)
+    def static_backend(path, object) = Kobako::Extension::Backend.new(path: path, object: object)
+
+    def provider_backend(path, provider) = Kobako::Extension::Backend.new(path: path, provider: provider)
 
     # A provider that appends a fresh object per call, so a test reads the
     # invocation count off +sink.size+ and object identity off +sink.last+.
@@ -72,7 +75,8 @@ module Kobako
 
     def test_install_registers_source_as_a_snippet_and_binds_the_backend_path
       fs = Object.new
-      install(extension(name: :File, source: "class File; extend Kobako::Proxy; end", backend: backend("Vfs", fs)))
+      install(extension(name: :File, source: "class File; extend Kobako::Proxy; end",
+                        backend: static_backend("Vfs", fs)))
 
       assert_equal ["File"], snippet_names,
                    "install must register the Extension source as a snippet named by #name (B-55)"
@@ -146,10 +150,10 @@ module Kobako
       assert_match(/source/, err.message, "a non-String source is a malformed Extension (E-53)")
     end
 
-    def test_install_rejects_a_backend_missing_path_or_provider
+    def test_install_rejects_a_backend_missing_path_object_or_provider
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: "1", backend: Object.new)) }
       assert_match(/backend/, err.message,
-                   "a backend that does not expose #path and #provider is malformed (E-53)")
+                   "a backend that does not expose #path, #object, and #provider is malformed (E-53)")
     end
   end
 
@@ -161,7 +165,7 @@ module Kobako
 
     def test_fixed_backend_is_bound_at_install_and_stays_one_object
       fs = Object.new
-      install(extension(name: :File, source: "1", backend: backend("File", fs)))
+      install(extension(name: :File, source: "1", backend: static_backend("File", fs)))
 
       assert_same fs, @services.lookup("File"), "a fixed provider is bound directly at install (B-55)"
       refute @extensions.resolve.key?("File"),
@@ -170,10 +174,10 @@ module Kobako
                   "a fixed provider stays the same object across invocations (B-56)"
     end
 
-    def test_callable_backend_resolves_a_fresh_object_each_invocation
-      install(extension(name: :File, source: "1", backend: backend("File", -> { Object.new })))
-      assert_nil @services.lookup("File"),
-                 "a callable backend holds only a placeholder in the base registry until resolve (B-56)"
+    def test_provider_backend_resolves_a_fresh_object_each_invocation
+      install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
+      assert_same Kobako::Unresolved, @services.lookup("File"),
+                  "a provider: backend reserves the base path with the Unresolved placeholder until resolve (B-56)"
 
       first = @extensions.resolve.fetch("File")
 
@@ -181,11 +185,28 @@ module Kobako
                   "each invocation resolves a fresh backend object (B-56)"
     end
 
+    def test_fillable_backend_binds_the_unresolved_sentinel
+      install(extension(name: :File, source: "1", backend: Kobako::Extension::Backend.new(path: "File")))
+
+      assert_same Kobako::Unresolved, @services.lookup("File"),
+                  "a backend declaring neither object: nor provider: is fillable, binding Kobako::Unresolved (B-56)"
+      refute @extensions.resolve.key?("File"),
+             "a fillable backend is never per-invocation resolved; it stays Unresolved until filled (B-56)"
+    end
+
+    def test_backend_rejects_object_and_provider_together
+      err = assert_raises(ArgumentError) do
+        Kobako::Extension::Backend.new(path: "File", object: Object.new, provider: -> { Object.new })
+      end
+      assert_match(/object.*provider|not both/, err.message,
+                   "declaring both object: and provider: is ambiguous and must raise (B-56)")
+    end
+
     def test_one_provider_shared_by_several_extensions_resolves_once_per_invocation
       sink = []
       shared = counting_provider(sink)
-      install(extension(name: :File, source: "1", backend: backend("File", shared)))
-      install(extension(name: :Dir, source: "2", backend: backend("Dir", shared)))
+      install(extension(name: :File, source: "1", backend: provider_backend("File", shared)))
+      install(extension(name: :Dir, source: "2", backend: provider_backend("Dir", shared)))
 
       resolved = @extensions.resolve
 
@@ -195,8 +216,8 @@ module Kobako
     end
 
     def test_distinct_providers_resolve_to_distinct_objects
-      install(extension(name: :File, source: "1", backend: backend("File", -> { Object.new })))
-      install(extension(name: :Dir, source: "2", backend: backend("Dir", -> { Object.new })))
+      install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
+      install(extension(name: :Dir, source: "2", backend: provider_backend("Dir", -> { Object.new })))
 
       resolved = @extensions.resolve
 
@@ -208,7 +229,7 @@ module Kobako
     # exception propagates unwrapped; resolution being per-invocation, a
     # later resolve whose provider succeeds resolves the path normally.
     def test_raising_provider_propagates_unchanged_then_recovers_on_a_later_resolve
-      install(extension(name: :File, source: "1", backend: backend("File", raise_once_provider)))
+      install(extension(name: :File, source: "1", backend: provider_backend("File", raise_once_provider)))
 
       err = assert_raises(RuntimeError) { @extensions.resolve }
       assert_equal "provider boom", err.message,

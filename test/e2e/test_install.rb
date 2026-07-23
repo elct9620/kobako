@@ -19,7 +19,7 @@ class TestE2EInstall < Minitest::Test
   # B-55: the pure method runs in-guest; the I/O method dispatches to the
   # bound backend.
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
-    sandbox = install_file(InMemoryFileSystem.new)
+    sandbox = install_file(object: InMemoryFileSystem.new)
 
     assert_equal "dir/a.txt", sandbox.eval('File.join("dir", File.basename("x/a.txt"))').value,
                  "a pure File method must run in-guest through #install (B-55)"
@@ -29,7 +29,7 @@ class TestE2EInstall < Minitest::Test
 
   # B-56 fixed: one backend object across invocations, so a write persists.
   def test_fixed_backend_persists_across_invocations
-    sandbox = install_file(InMemoryFileSystem.new)
+    sandbox = install_file(object: InMemoryFileSystem.new)
 
     sandbox.eval('File.write("k", "v1")')
     assert_equal "v1", sandbox.eval('File.read("k")').value,
@@ -38,7 +38,7 @@ class TestE2EInstall < Minitest::Test
 
   # B-56 callable: a fresh backend each invocation, so a write cannot leak.
   def test_callable_backend_is_isolated_per_invocation
-    sandbox = install_file(-> { InMemoryFileSystem.new })
+    sandbox = install_file(provider: -> { InMemoryFileSystem.new })
 
     sandbox.eval('File.write("k", "v1")')
     refute sandbox.eval('File.exist?("k")').value,
@@ -47,7 +47,7 @@ class TestE2EInstall < Minitest::Test
 
   # B-55: File.open eager-slurps once, then serves the buffer in-guest.
   def test_open_eager_slurps_then_serves_the_buffer_locally
-    sandbox = install_file(InMemoryFileSystem.new)
+    sandbox = install_file(object: InMemoryFileSystem.new)
 
     assert_equal "line", sandbox.eval('File.write("log", "line"); File.open("log") { |f| f.read }').value,
                  "File.open serves the eager-slurped buffer in-guest (B-55)"
@@ -57,7 +57,7 @@ class TestE2EInstall < Minitest::Test
   # Kobako error) and leaves the guest unrun; resolution being per-invocation,
   # the next invocation whose provider succeeds runs normally.
   def test_raising_provider_surfaces_its_own_error_then_recovers_next_invocation
-    sandbox = install_file(raise_once_provider)
+    sandbox = install_file(provider: raise_once_provider)
 
     assert_raises(RuntimeError, "a raising provider must propagate its own error class through #eval (B-56)") do
       sandbox.eval('$stdout.write("ran")')
@@ -73,7 +73,7 @@ class TestE2EInstall < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval("1")
 
-    err = assert_raises(ArgumentError) { sandbox.install(file_extension(InMemoryFileSystem.new)) }
+    err = assert_raises(ArgumentError) { sandbox.install(file_extension(object: InMemoryFileSystem.new)) }
     assert_match(/after first Sandbox invocation/, err.message)
   end
 
@@ -138,15 +138,15 @@ class TestE2EInstall < Minitest::Test
     end
   end
 
-  def file_extension(provider)
+  def file_extension(object: nil, provider: nil)
     Kobako::Extension.new(
       name: :File,
       source: FILE_SOURCE,
-      backend: Kobako::Extension::Backend.new(path: "File", provider: provider)
+      backend: Kobako::Extension::Backend.new(path: "File", object: object, provider: provider)
     )
   end
 
-  def install_file(provider)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).install(file_extension(provider))
+  def install_file(object: nil, provider: nil)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).install(file_extension(object: object, provider: provider))
   end
 end

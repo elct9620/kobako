@@ -11,6 +11,8 @@ module Kobako
 
       private
 
+      def install_object: (untyped backend) -> untyped
+
       def resolve_backend: (untyped extension, Hash[String, untyped] resolved, Hash[untyped, untyped] by_provider) -> void
 
       def validate!: (untyped extension) -> void
@@ -18,10 +20,6 @@ module Kobako
       def assert_dependencies!: () -> void
 
       def symbolize: (untyped name) -> untyped
-
-      def callable?: (untyped provider) -> bool
-
-      def initial_object: (untyped provider) -> untyped
     end
   end
 end
