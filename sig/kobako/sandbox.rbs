@@ -46,16 +46,16 @@ module Kobako
 
     def build_runtime!: () -> Kobako::Runtime
 
-    def install_dispatch_proc!: () -> void
+    def dispatch_handler: () -> ^(String, Kobako::Transport::_GuestYielder) -> String
 
     def begin_invocation!: () -> void
 
-    def read_usage!: () -> void
-
-    def read_captures!: () -> void
+    def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
 
     def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
 
-    def invoke!: (Symbol verb) { () -> String } -> untyped
+    def trap_for: (Kobako::Runtime::Snapshot snapshot) -> Kobako::TrapError
+
+    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> untyped
   end
 end

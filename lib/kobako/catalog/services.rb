@@ -18,8 +18,8 @@ module Kobako
     #
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
     # responsibility — the Dispatcher receives this registry and the
-    # +Catalog::Handles+ as arguments from the +Runtime#on_dispatch+ Proc
-    # that +Kobako::Sandbox#initialize+ installs.
+    # +Catalog::Handles+ as arguments from the per-invocation dispatch Proc
+    # that +Kobako::Sandbox+ hands to +Runtime#eval+ / +#run+.
     class Services
       # Ruby constant-name pattern each +::+-separated bind-path segment
       # must match.

@@ -18,11 +18,12 @@ module Kobako
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
   # +Kobako::Catalog::Handles+ shared by guest→host dispatch and host→guest
   # auto-wrap so both name a Handle by the same id, the per-instance
-  # +Kobako::Catalog::Services+, and the dispatch +Proc+ / +yield_to_guest+
-  # lambda installed on the Runtime via +Runtime#on_dispatch=+. The
-  # underlying wasmtime Engine and compiled Module are cached at process
-  # scope by the native ext and never surface to Ruby — constructing many
-  # Sandboxes amortises both costs automatically.
+  # +Kobako::Catalog::Services+. Each invocation builds a fresh dispatch
+  # +Proc+ and hands it to +Runtime#eval+ / +#run+ as a call argument, so the
+  # Runtime holds no dispatch state. The underlying wasmtime Engine and
+  # compiled Module are cached at process scope by the native ext and never
+  # surface to Ruby — constructing many Sandboxes amortises both costs
+  # automatically.
   #
   # Output capture policy: the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
@@ -95,7 +96,6 @@ module Kobako
       @snippets = Catalog::Snippets.new
       @extensions = Catalog::Extensions.new
       @runtime = build_runtime!
-      install_dispatch_proc!
       reset_invocation_state!
     end
 
@@ -177,7 +177,7 @@ module Kobako
     def run(target, *args, **kwargs)
       run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       invoke!(:run) do
-        @runtime.run(@services.encode, @snippets.encode, run_envelope.encode(@handler))
+        @runtime.run(dispatch_handler, @services.encode, @snippets.encode, run_envelope.encode(@handler))
       end
     end
 
@@ -206,7 +206,7 @@ module Kobako
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       invoke!(:eval) do
-        @runtime.eval(@services.encode, code.b, @snippets.encode)
+        @runtime.eval(dispatch_handler, @services.encode, code.b, @snippets.encode)
       end
     end
 
@@ -235,16 +235,17 @@ module Kobako
       runtime
     end
 
-    # Configure the +Runtime+'s host↔guest dispatch wiring. Registers a
-    # dispatch +Proc+ that routes guest→host calls through the stateless
-    # +Transport::Dispatcher+, capturing +@services+ / +@handler+ in the
-    # closure. The ext hands the +Proc+ a per-dispatch +guest_yielder+ — a
-    # +String → String+ callable that re-enters the in-flight guest to run a
-    # yielded block — which the +Dispatcher+ forwards to the +Transport::Yielder+
-    # it builds for the call. Registered once at construction time so the
-    # wasm ext callback can fire without further setup.
-    def install_dispatch_proc!
-      @runtime.on_dispatch = lambda do |request_bytes, guest_yielder|
+    # Build this invocation's guest→host dispatch handler — a +Proc+ routing
+    # each guest→host call through the stateless +Transport::Dispatcher+,
+    # capturing +@services+ / +@handler+. Handed to +Runtime#eval+ / +#run+ as
+    # a call argument, so the Runtime holds no dispatch state and the +Proc+
+    # stays GC-rooted as a live argument for the synchronous call. The ext
+    # hands the +Proc+ a per-dispatch +guest_yielder+ — a +String → String+
+    # callable that re-enters the in-flight guest to run a yielded block —
+    # which the +Dispatcher+ forwards to the +Transport::Yielder+ it builds
+    # for the call.
+    def dispatch_handler
+      lambda do |request_bytes, guest_yielder|
         Transport::Dispatcher.dispatch(request_bytes, @services, @handler, guest_yielder)
       end
     end
@@ -266,21 +267,13 @@ module Kobako
       reset_invocation_state!
     end
 
-    # Read the per-last-invocation +wall_time+ and +memory_peak+ from
-    # the ext and wrap them as a +Kobako::Usage+ value object. Runs in
-    # the +invoke!+ +ensure+ block so the usage record is populated on
-    # every outcome — value return, +Kobako::TrapError+ (including
-    # +TimeoutError+ / +MemoryLimitError+), +Kobako::SandboxError+,
-    # and +Kobako::ServiceError+. +Runtime#usage+ is the single source for
-    # both paths: the figures are stashed in the ext on every outcome, so
-    # the readout here also covers the trap path, where +Runtime#eval+ /
-    # +#run+ raise instead of returning outcome bytes.
-    #
-    # The ext-side contract is positional: +Runtime#usage+ yields
-    # +[wall_time, memory_peak]+ in +Kobako::Usage+ field order.
-    def read_usage!
-      wall_time, memory_peak = @runtime.usage
-      @usage = Usage.new(wall_time: wall_time, memory_peak: memory_peak)
+    # Record this invocation's usage and both output captures from the ext
+    # +Snapshot+. Every Snapshot carries them — value return or trap alike —
+    # so +#usage+ / +#stdout+ / +#stderr+ stay readable after a rescued trap.
+    def populate_observability!(snapshot)
+      @usage = Usage.new(wall_time: snapshot.wall_time, memory_peak: snapshot.memory_peak)
+      @stdout_capture = Capture.new(bytes: snapshot.stdout, truncated: snapshot.stdout_truncated?)
+      @stderr_capture = Capture.new(bytes: snapshot.stderr, truncated: snapshot.stderr_truncated?)
     end
 
     # Pick the +TrapError+ subclass to re-raise based on +err+'s actual
@@ -298,52 +291,39 @@ module Kobako
       end
     end
 
-    # Read the per-last-invocation output captures from the ext and wrap
-    # them as +Kobako::Capture+ value objects. Runs in the +invoke!+
-    # +ensure+ block next to #read_usage! for the same reason: the ext
-    # stashes the captures on every outcome, so the readout also covers
-    # the trap path, where +Runtime#eval+ / +#run+ raise instead of
-    # returning outcome bytes — +#stdout+ / +#stderr+ keep the guest's
-    # partial output readable after a rescue.
-    #
-    # The ext-side contract is positional: +Runtime#captures+ yields
-    # +[stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated]+.
-    def read_captures!
-      stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated = @runtime.captures
-      @stdout_capture = Capture.new(bytes: stdout_bytes, truncated: stdout_truncated)
-      @stderr_capture = Capture.new(bytes: stderr_bytes, truncated: stderr_truncated)
+    # Build the bare +TrapError+-family exception for a trapped +Snapshot+
+    # from its neutral trap kind — the cap subclasses (+TimeoutError+ /
+    # +MemoryLimitError+) keep their identity, every other engine fault is
+    # the base +TrapError+. #invoke! adds the verb prefix uniformly.
+    def trap_for(snapshot)
+      klass = case snapshot.trap_kind
+              when :timeout      then TimeoutError
+              when :memory_limit then MemoryLimitError
+              else TrapError
+              end
+      klass.new(snapshot.trap_message)
     end
 
-    # Shared prologue / epilogue + trap-class translator for both
-    # invocation verbs. +verb+ is +:eval+ or +:run+; it tags the
-    # TrapError message so the failing export is identifiable.
-    #
-    # The yielded block must return the invocation's raw outcome bytes —
-    # i.e. the value of +Runtime#eval+ / +#run+ — which the success path
-    # feeds to +Outcome.decode+. Captures and usage are populated by the
-    # +ensure+ readouts (#read_usage! / #read_captures!) on every
-    # outcome, so +#stdout+ / +#stderr+ / +#usage+ stay readable after a
-    # rescued trap.
-    # The rescue chain is the single trap-translation boundary —
-    # configured-cap paths surface as named TrapError subclasses
-    # (+TimeoutError+ / +MemoryLimitError+); everything else surfaces as
-    # the base +TrapError+.
+    # Shared prologue + outcome settling for both invocation verbs. +verb+ is
+    # +:eval+ or +:run+; it tags the TrapError message so the failing export
+    # is identifiable. The yielded block returns the ext +Snapshot+; usage and
+    # captures are recorded from it before the trap check, so +#stdout+ /
+    # +#stderr+ / +#usage+ stay readable after a rescued trap. A Capability
+    # Handle in a completed outcome is restored to its host object before the
+    # value is returned. The single rescue is the trap-translation boundary:
+    # a guest trap, a could-not-start fault, and a wire violation all surface
+    # as the named TrapError subclass with the verb prefix; a Panic envelope's
+    # SandboxError / ServiceError propagates untouched.
     def invoke!(verb)
       begin_invocation!
-      return_bytes = yield
-      # A Capability Handle in the result is decoded as a Kobako::Handle
-      # token; restore it to the host object the guest referenced before
-      # handing the value to the Host App. @handler still holds this
-      # invocation's table — reset only happens at the next #begin_invocation!.
-      # A Handle-free result resolves to itself, so the restoration walk is
-      # skipped when the decode carried none.
-      value, carried_handle = Codec.track_handles { Outcome.decode(return_bytes) }
+      snapshot = yield
+      populate_observability!(snapshot)
+      raise trap_for(snapshot) if snapshot.trapped?
+
+      value, carried_handle = Codec.track_handles { Outcome.decode(snapshot.outcome) }
       carried_handle ? Codec::HandleWalk.deep_restore(value, @handler) : value
     rescue Kobako::TrapError => e
       raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
-    ensure
-      read_usage!
-      read_captures!
     end
   end
 end

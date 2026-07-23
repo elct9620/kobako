@@ -104,11 +104,12 @@ impl GuestYielder {
     }
 }
 
-/// The Ruby-Proc bridge: a `DispatchHandler` backed by the host-side
-/// dispatch `Proc` registered through `Runtime#on_dispatch=`. This is the
-/// one place the dispatch seam touches `magnus`; the wasm runtime sees
-/// only the trait. The Proc is GC-rooted by `Runtime`'s `mark`; this
-/// struct holds an `Opaque` copy of the same handle.
+/// The Ruby-Proc bridge: a `DispatchHandler` backed by the per-invocation
+/// dispatch `Proc` handed to `Runtime#eval` / `#run` as a call argument.
+/// This is the one place the dispatch seam touches `magnus`; the wasm
+/// runtime sees only the trait. The Proc stays GC-rooted as a live argument
+/// on the Ruby stack for the synchronous call; this struct holds an
+/// `Opaque` copy of the same handle.
 pub(super) struct RubyDispatchHandler {
     on_dispatch: Opaque<Value>,
 }

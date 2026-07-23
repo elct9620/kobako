@@ -18,8 +18,8 @@ module DispatcherHelpers
   end
 
   # Drive the Dispatcher directly with the configured registry / handler
-  # and the +NO_YIELD+ stub. Mirrors the closure +Sandbox#initialize+
-  # installs on the Runtime via +Runtime#on_dispatch=+ (docs/behavior/dispatch.md
+  # and the +NO_YIELD+ stub. Mirrors the per-invocation dispatch +Proc+
+  # +Sandbox+ hands to +Runtime#eval+ / +#run+ (docs/behavior/dispatch.md
   # B-12) so these unit tests exercise the same entry point as the live
   # ext callback.
   def dispatch(bytes, server: @registry, handler: @handler)

@@ -2,13 +2,13 @@
 
 require "test_helper"
 
-# Unit-level coverage of the per-invocation readouts +Kobako::Runtime+
-# exposes beside the returned outcome bytes: the +#captures+ 4-tuple and
-# the raw return-bytes value. Drives +Runtime+ directly (bypassing
-# +Sandbox+) against the real +data/kobako.wasm+ so the contract being
-# pinned is "what the ext hands back", not the Sandbox-side decomposition.
+# Unit-level coverage of the +Kobako::Runtime::Snapshot+ each invocation
+# entry point hands back — its outcome bytes, the two output captures, and
+# the usage readout. Drives +Runtime+ directly (bypassing +Sandbox+)
+# against the real +data/kobako.wasm+ so the contract being pinned is "what
+# the ext hands back", not the Sandbox-side decomposition.
 #
-# Sandbox-level consumption of the same readouts is covered through
+# Sandbox-level consumption of the same Snapshot is covered through
 # +test/sandbox/+ and the +test/e2e/+ journeys (including the B-04
 # captures-on-trap cases in +test/e2e/test_caps.rb+); this file
 # deliberately stays at the Runtime seam so a regression in the magnus
@@ -29,61 +29,60 @@ class TestRuntimeCaptures < Minitest::Test
     skip "guest wasm not built (run `bundle exec rake wasm:build`)"
   end
 
-  # The ext encodes the invocation outcome and the capture slots into
-  # specific Ruby shapes (binary String for the byte fields, bool for the
-  # truncation flags) — pin them so a magnus binding change cannot
-  # silently shift a type past RBS, which does not verify what a C
-  # extension actually returns.
-  def test_eval_returns_bytes_and_captures_with_documented_raw_types
-    runtime = drive_eval("42")
-    stdout_bytes, stdout_truncated, stderr_bytes, stderr_truncated = runtime.captures
+  # The ext encodes the Snapshot fields into specific Ruby shapes (binary
+  # String for the byte fields, bool for the truncation flags, Float /
+  # Integer for usage) — pin them so a magnus binding change cannot silently
+  # shift a type past RBS, which does not verify what a C extension actually
+  # returns.
+  def test_snapshot_exposes_documented_raw_types_on_a_completed_run
+    snapshot = drive_eval("42")
 
-    assert_kind_of String, @return_bytes
-    assert_kind_of String, stdout_bytes
-    assert_kind_of String, stderr_bytes
-    assert_includes [true, false], stdout_truncated
-    assert_includes [true, false], stderr_truncated
+    refute_predicate snapshot, :trapped?
+    assert_kind_of String, snapshot.outcome
+    assert_kind_of String, snapshot.stdout
+    assert_kind_of String, snapshot.stderr
+    assert_includes [true, false], snapshot.stdout_truncated?
+    assert_includes [true, false], snapshot.stderr_truncated?
+    assert_kind_of Float, snapshot.wall_time
+    assert_kind_of Integer, snapshot.memory_peak
   end
 
-  # The 4-tuple layout is positional; a reader reorder in the ext would
-  # silently swap the channels. Writing distinct content to each channel
-  # in one run pins stdout to slot 0 and stderr to slot 2.
-  def test_captures_tuple_keeps_stdout_and_stderr_slots_apart
-    runtime = drive_eval('$stdout.puts "to-out"; $stderr.puts "to-err"; 1')
-    stdout_bytes, _stdout_truncated, stderr_bytes, _stderr_truncated = runtime.captures
+  # The two capture channels are distinct readers; a reader swap in the ext
+  # would silently cross the channels. Writing distinct content to each
+  # channel in one run pins stdout to #stdout and stderr to #stderr.
+  def test_snapshot_keeps_stdout_and_stderr_channels_apart
+    snapshot = drive_eval('$stdout.puts "to-out"; $stderr.puts "to-err"; 1')
 
-    assert_equal "to-out\n", stdout_bytes,
-                 "captures slot 0 must carry the stdout channel"
-    assert_equal "to-err\n", stderr_bytes,
-                 "captures slot 2 must carry the stderr channel"
+    assert_equal "to-out\n", snapshot.stdout, "#stdout must carry the stdout channel"
+    assert_equal "to-err\n", snapshot.stderr, "#stderr must carry the stderr channel"
   end
 
-  # Before any invocation the readout is the pre-invocation sentinel —
-  # empty bytes, flags down — so a fresh Runtime never leaks a previous
-  # process state or nil into the Sandbox's Capture wrapping.
-  def test_captures_before_any_invocation_returns_empty_sentinel
-    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
+  # A run that writes nothing yields empty captures with the flags down, so
+  # the Sandbox's Capture wrapping never leaks a previous process state or
+  # nil into the captures it exposes.
+  def test_snapshot_of_a_silent_run_has_empty_captures
+    snapshot = drive_eval("1 + 1")
 
-    assert_equal ["", false, "", false], runtime.captures
+    assert_equal "", snapshot.stdout
+    assert_equal "", snapshot.stderr
+    refute_predicate snapshot, :stdout_truncated?
+    refute_predicate snapshot, :stderr_truncated?
   end
 
   private
 
-  # Minimal Runtime driver that mirrors +Sandbox#eval+'s wiring without
-  # the Sandbox wrapper. Builds an empty Catalog::Services / Snippet table
-  # so the encoded preamble + encoded snippets are both wire-valid, registers
-  # a guard Proc on +on_dispatch=+ (no Service callbacks expected from
-  # the simple eval sources used by these tests), stashes the returned
-  # outcome bytes in +@return_bytes+, and returns the Runtime so callers
-  # can read +#captures+ afterwards.
+  # Minimal Runtime driver that mirrors +Sandbox#eval+'s wiring without the
+  # Sandbox wrapper. Builds an empty Catalog::Services / Snippet table so the
+  # encoded preamble + encoded snippets are both wire-valid, hands the
+  # per-call dispatch handler a guard Proc (no Service callbacks expected
+  # from the simple eval sources used here), and returns the
+  # +Kobako::Runtime::Snapshot+.
   def drive_eval(code)
     services = Kobako::Catalog::Services.new
     snippets = Kobako::Catalog::Snippets.new
-
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
-    runtime.on_dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
+    dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
-    @return_bytes = runtime.eval(services.encode, code.b, snippets.encode)
-    runtime
+    runtime.eval(dispatch, services.encode, code.b, snippets.encode)
   end
 end

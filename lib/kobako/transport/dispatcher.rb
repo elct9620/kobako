@@ -66,8 +66,8 @@ module Kobako
       private_constant :CALLABLE_ALLOW
 
       # Dispatch a single transport request and return the encoded
-      # Response bytes. Invoked from the +Runtime#on_dispatch+ Proc that
-      # +Kobako::Sandbox#initialize+ installs on the ext side; +services+,
+      # Response bytes. Invoked from the per-invocation dispatch Proc that
+      # +Kobako::Sandbox+ hands to +Runtime#eval+ / +#run+; +services+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
       # closure so the Dispatcher stays stateless and the registry doesn't
       # need to publish accessors for the Sandbox-owned +Catalog::Handles+
