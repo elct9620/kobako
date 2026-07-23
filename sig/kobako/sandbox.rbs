@@ -29,7 +29,7 @@ module Kobako
 
     def usage: () -> Kobako::Usage
 
-    def bind: (Symbol | String path, untyped object) -> Kobako::Sandbox
+    def bind: (Symbol | String path, ?untyped object) -> Kobako::Sandbox
 
     def install: (*untyped extensions) -> Kobako::Sandbox
 

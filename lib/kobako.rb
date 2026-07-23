@@ -10,6 +10,7 @@ rescue LoadError
 end
 
 require_relative "kobako/errors"
+require_relative "kobako/unresolved"
 require_relative "kobako/extension"
 require_relative "kobako/transport"
 require_relative "kobako/catalog"

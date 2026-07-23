@@ -3,6 +3,7 @@
 require "forwardable"
 
 require_relative "errors"
+require_relative "unresolved"
 require_relative "sandbox_options"
 require_relative "transport"
 require_relative "catalog"
@@ -100,11 +101,17 @@ module Kobako
     # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
     # chaining.
     #
+    # Called with only a +path+, it declares a fillable Service:
+    # +bind(path)+ reserves the path for +Kobako::Unresolved+, so the guest
+    # sees the constant while the host defers the object it stands for. A
+    # guest dispatch to an unfilled fillable surfaces as
+    # +Kobako::ServiceError+ when left unrescued.
+    #
     # Raises +ArgumentError+ when a segment is malformed, when +path+
     # collides with an existing binding (a name is a bound Service or a
     # grouping prefix, never both), or when called after the first
     # invocation has sealed Service registration.
-    def bind(path, object)
+    def bind(path, object = Unresolved)
       @services.bind(path, object)
       self
     end

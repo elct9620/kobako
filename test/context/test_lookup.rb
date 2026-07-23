@@ -51,5 +51,19 @@ module Kobako
         context.lookup("Store::Missing")
       end
     end
+
+    # B-62: a fillable declared with bind(path) is backed by the shared
+    # Kobako::Unresolved sentinel; lookup reports it as unresolvable (KeyError)
+    # so the dispatch fails closed as an undefined target rather than
+    # dispatching to the sentinel itself.
+    def test_lookup_reports_an_unfilled_fillable_as_unresolvable
+      @services.bind("Store", Kobako::Unresolved)
+
+      assert_raises(KeyError,
+                    "lookup on a fillable left unfilled must raise, so an unresolved capability fails " \
+                    "closed as an undefined target instead of dispatching to Kobako::Unresolved (B-62)") do
+        context.lookup("Store")
+      end
+    end
   end
 end

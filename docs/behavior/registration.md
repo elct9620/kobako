@@ -44,3 +44,13 @@ B-10 is a retired anchor — permanently reserved and never reassigned (N-8).
 | **Initial State** | A Sandbox instance with a Service already bound at `path`. |
 | **Operation** | `sandbox.bind(conflicting, object)` where `conflicting` either equals `path` or, on the `::` segment boundary, is an ancestor or descendant of it (e.g. `path` is `"MyService::KV"` and `conflicting` is `"MyService"` or `"MyService::KV::Sub"`). |
 | **Result / Final State** | `ArgumentError` is raised. The existing binding is not overwritten and the registry is unchanged. A name is either a bound Service or a prefix that groups other bindings, never both — so a bind is refused when its path equals an existing path, is a prefix of one (`MyService` while `MyService::KV` is bound), or extends one (`MyService::KV::Sub` while `MyService::KV` is bound). Sibling paths under a shared prefix (`MyService::KV` and `MyService::Log`) do not collide. |
+
+---
+
+## B-62 — Declare a fillable Service path defaulting to `Kobako::Unresolved`
+
+| Field | Value |
+|-------|-------|
+| **Initial State** | A Sandbox whose first invocation has not yet sealed Service registration (B-33). |
+| **Operation** | `sandbox.bind(path)` — a bind with a valid constant path (B-08) but no object, equivalent to `sandbox.bind(path, Kobako::Unresolved)`. |
+| **Result / Final State** | The path registers and enters Frame 1 exactly like an object-bound Service (B-08), materializing as the guest proxy constant; its bound object is the shared `Kobako::Unresolved` sentinel. A fillable reserves the path for an object the host supplies per invocation. While it stays unfilled, a guest dispatch to the constant is refused as an unresolved target — the same fail-closed channel as an idiom with no backend bound — surfacing as `Kobako::ServiceError` when the guest leaves it unrescued, and rescuable within the guest like any Service dispatch fault (an idiom that wraps the call in `begin/rescue` runs on). The path occupies Frame 1 and collides per B-11 like any bound path; a constant that was never declared instead raises a guest `NameError`, so an unfilled fillable (`ServiceError`) is observably distinct from an undeclared name. `Kobako::Unresolved` is a stable public constant a Host App may name explicitly at a `bind` site. |

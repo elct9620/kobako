@@ -4,6 +4,7 @@ require_relative "capture"
 require_relative "codec"
 require_relative "errors"
 require_relative "execution"
+require_relative "unresolved"
 require_relative "outcome"
 require_relative "usage"
 require_relative "transport"
@@ -42,11 +43,17 @@ module Kobako
 
     # Resolve a Service +path+ to the object backing it this invocation,
     # layering this Context's per-invocation provider results over the
-    # Sandbox's static base bindings. An unbound path raises +KeyError+, which
-    # the Dispatcher maps to an undefined-target wire fault. Internal — the
+    # Sandbox's static base bindings. An unbound path raises +KeyError+; a
+    # fillable left unfilled resolves to +Kobako::Unresolved+ and is reported
+    # the same way, so an unresolved capability fails closed as an
+    # undefined target rather than dispatching to the sentinel. The Dispatcher
+    # maps either +KeyError+ to an undefined-target wire fault. Internal — the
     # per-invocation dispatch handler is the sole caller.
     def lookup(path)
-      @resolved.fetch(path.to_s) { @services.lookup(path) }
+      object = @resolved.fetch(path.to_s) { @services.lookup(path) }
+      raise KeyError, "service #{path} is declared but unresolved this invocation" if Unresolved.equal?(object)
+
+      object
     end
 
     # Bytes the guest wrote to stdout during this invocation as a UTF-8 String,

@@ -1,0 +1,4 @@
+module Kobako
+  module Unresolved
+  end
+end
