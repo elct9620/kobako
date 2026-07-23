@@ -25,7 +25,8 @@ module Parity
     end
 
     def execute(scenario)
-      sandbox = SandboxBuilder.new(@wasm_path).build(scenario)
+      @builder = SandboxBuilder.new(@wasm_path)
+      sandbox = @builder.build(scenario)
       scenario.invocations.map { |invocation| observe(sandbox, invocation) }
     end
 
@@ -43,10 +44,22 @@ module Parity
 
     def invoke(sandbox, invocation)
       case invocation.fetch(:verb)
-      when "eval" then capture_outcome { sandbox.eval(invocation.fetch(:source)).value }
+      when "eval" then capture_outcome { eval_verb(sandbox, invocation).value }
       when "run" then capture_outcome { run_verb(sandbox, invocation).value }
       when "late_bind" then late_bind(sandbox, invocation)
       else raise ArgumentError, "unknown invocation verb: #{invocation.inspect}"
+      end
+    end
+
+    # An +eval+ with an optional +overrides+ list runs the per-eval override
+    # block, binding each override's stub at its declared path for this
+    # invocation only — the +ctx.bind+ parity to the Rust runner's +eval_with+.
+    def eval_verb(sandbox, invocation)
+      overrides = invocation[:overrides]
+      return sandbox.eval(invocation.fetch(:source)) unless overrides
+
+      sandbox.eval(invocation.fetch(:source)) do |ctx|
+        overrides.each { |override| ctx.bind(override.fetch(:path), @builder.build_stub(override[:methods])) }
       end
     end
 

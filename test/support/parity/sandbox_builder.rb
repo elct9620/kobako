@@ -54,6 +54,11 @@ module Parity
       sandbox
     end
 
+    # Build a stub receiver from a scenario method-set — the same builder that
+    # backs bound Services, reused by the executor for a per-invocation
+    # +ctx.bind+ override.
+    def build_stub(methods, exposed = nil) = stub_object(methods, exposed)
+
     private
 
     # An Extension composes a preloaded source with an optional stub
@@ -83,6 +88,8 @@ module Parity
     end
 
     def bind_service(sandbox, service)
+      return sandbox.bind(service.fetch(:name)) if service[:fillable]
+
       sandbox.bind(service.fetch(:name), stub_object(service[:methods], service[:exposed]))
     end
 

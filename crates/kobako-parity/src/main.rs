@@ -241,6 +241,11 @@ fn bind_service(
     opaques: &mut Opaques,
 ) -> Result<(), String> {
     let path = service["name"].as_str().ok_or("service must carry name")?;
+    if service["fillable"].as_bool() == Some(true) {
+        return sandbox
+            .bind_fillable(path)
+            .map_err(|err| format!("bind_fillable failed: {err}"));
+    }
     let mut methods = HashMap::new();
     if let Some(entries) = service["methods"].as_object() {
         for (name, behavior) in entries {
@@ -463,7 +468,18 @@ fn observe(
             let source = invocation["source"]
                 .as_str()
                 .ok_or("eval invocation must carry source")?;
-            sandbox.eval(source)
+            match invocation["overrides"].as_array() {
+                Some(overrides) => {
+                    let stubs = build_override_stubs(overrides, opaques)?;
+                    sandbox.eval_with(source, move |ctx| {
+                        for (path, object) in stubs {
+                            ctx.bind(&path, object)?;
+                        }
+                        Ok(())
+                    })
+                }
+                None => sandbox.eval(source),
+            }
         }
         Some("run") => {
             let target = invocation["target"]
@@ -519,6 +535,39 @@ fn observe(
         },
     );
     Ok(Json::Object(observable))
+}
+
+/// The per-invocation override stubs an `eval_with` closure binds, one entry
+/// per overridden path.
+type OverrideStubs = Vec<(String, Arc<dyn Receiver>)>;
+
+/// Build the override stubs an `eval_with` closure binds: each
+/// `{ path, methods }` entry becomes a StubReceiver bound at its path,
+/// mirroring the Ruby executor's `ctx.bind` override.
+fn build_override_stubs(
+    overrides: &[Json],
+    opaques: &mut Opaques,
+) -> Result<OverrideStubs, String> {
+    overrides
+        .iter()
+        .map(|spec| {
+            let path = spec["path"]
+                .as_str()
+                .ok_or("override must carry path")?
+                .to_string();
+            let mut methods = HashMap::new();
+            if let Some(entries) = spec["methods"].as_object() {
+                for (name, behavior) in entries {
+                    methods.insert(name.clone(), parse_behavior(behavior, opaques)?);
+                }
+            }
+            let stub: Arc<dyn Receiver> = Arc::new(StubReceiver {
+                methods,
+                exposed: None,
+            });
+            Ok((path, stub))
+        })
+        .collect()
 }
 
 /// A registration arriving after the first invocation: the seal
