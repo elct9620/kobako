@@ -24,7 +24,7 @@ use kobako_wasmtime::{Config, Driver};
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::{Error, GuestFailure};
-use crate::extension::{install_object, Extension, Extensions};
+use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::{HandleTable, Handles};
 use crate::outcome;
 use crate::receiver::Receiver;
@@ -149,6 +149,17 @@ impl Sandbox {
     /// (`"MyService::KV"` or a top-level `"File"`). Refused once sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         self.registry.open_mut()?.bind(path, object);
+        Ok(())
+    }
+
+    /// Declare a fillable Service at `path` with no object — the Rust spelling
+    /// of the Ruby frontend's `bind(path)`. The path enters Frame 1 so the
+    /// guest sees the constant, but is backed by the unresolved sentinel until
+    /// an override fills it; a guest dispatch to an unfilled fillable fails
+    /// closed as an undefined target (a guest `ServiceError`). Refused once
+    /// sealed.
+    pub fn bind_fillable(&mut self, path: &str) -> Result<(), Error> {
+        self.registry.open_mut()?.bind(path, unresolved());
         Ok(())
     }
 

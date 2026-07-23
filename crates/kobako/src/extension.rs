@@ -64,9 +64,12 @@ pub enum Provider {
     PerInvocation(ProviderFn),
 }
 
-/// Placeholder bound at install for a `PerInvocation` backend so its path
-/// enters the Frame 1 preamble; the per-invocation overlay always resolves
-/// ahead of it, so a dispatch never reaches this.
+/// The sentinel backing an unresolved Service path: the install-time
+/// placeholder for a `PerInvocation` backend (whose overlay resolves ahead of
+/// it every invocation) and the object a fillable path stays bound to until
+/// the host supplies one. It reserves the path's Frame 1 slot so the guest
+/// sees the constant; a dispatch that reaches it — an unfilled fillable —
+/// fails closed as an undefined target, surfacing as a guest `ServiceError`.
 struct Unresolved;
 
 impl Receiver for Unresolved {
@@ -80,9 +83,15 @@ impl Receiver for Unresolved {
     ) -> Result<Value, Fault> {
         Err(Fault::new(
             FaultKind::Undefined,
-            "extension backend not resolved for this invocation",
+            "service is declared but unresolved this invocation",
         ))
     }
+}
+
+/// The `Unresolved` sentinel, bound at a fillable path so it enters Frame 1
+/// and fails closed until an override fills it.
+pub(crate) fn unresolved() -> Arc<dyn Receiver> {
+    Arc::new(Unresolved)
 }
 
 /// The object bound at install for a backend: a `Static` provider's object
@@ -91,7 +100,7 @@ impl Receiver for Unresolved {
 pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
-        Provider::PerInvocation(_) => Arc::new(Unresolved),
+        Provider::PerInvocation(_) => unresolved(),
     }
 }
 
