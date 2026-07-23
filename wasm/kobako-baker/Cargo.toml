@@ -37,4 +37,4 @@ wasmtime-wizer = { version = "46", features = ["wasmtime"] }
 wasmtime = "46"
 # wasmtime-wizer's entry points are async-colored; the bake is fully
 # synchronous, so a minimal executor drives them to completion.
-pollster = "0.4"
+pollster = "1.0"
