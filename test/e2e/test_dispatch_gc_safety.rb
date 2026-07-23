@@ -48,7 +48,7 @@ class TestDispatchGcSafety < Minitest::Test
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
 
-      assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world")),
+      assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world")).value,
                    "a Handle-proxy #run under GC.stress must round-trip the " \
                    "dispatched call without the dispatch Proc being garbage collected"
     end
@@ -73,7 +73,7 @@ class TestDispatchGcSafety < Minitest::Test
       # dispatch that uses it, so a moved-but-not-updated Proc is caught.
       GC.compact
 
-      assert_equal :stop, sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }"),
+      assert_equal :stop, sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }").value,
                    "a break-in-block Service yield under GC compaction must keep the " \
                    "dispatch Proc pinned so the dispatch round-trip reaches the right receiver"
     end

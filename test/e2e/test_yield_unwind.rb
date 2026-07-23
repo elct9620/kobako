@@ -17,7 +17,7 @@ class TestE2EYieldUnwind < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
-    result = sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }")
+    result = sandbox.eval("Probe::Each.call([1, 2, 3]) { |x| break :stop if x == 2 }").value
 
     assert_equal :stop, result,
                  "B-25: `break val` inside the guest block must terminate the " \
@@ -33,7 +33,7 @@ class TestE2EYieldUnwind < Minitest::Test
     # stays nil and the block evaluates to the break value via
     # tag 0x01 ok. From the Service method's view, this is
     # indistinguishable from a regular `next val` return.
-    result = sandbox.eval("Probe::OnceX.call(7, &->(x) { break x * 3 })")
+    result = sandbox.eval("Probe::OnceX.call(7, &->(x) { break x * 3 })").value
 
     assert_equal 21, result,
                  "B-27: lambda `break val` is a silent return — the Service's " \
@@ -52,7 +52,7 @@ class TestE2EYieldUnwind < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT) }
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT).value }
 
     assert_match(/LocalJumpError/, err.message,
                  "E-21: Proc `return` aimed past the host yield boundary " \
@@ -78,7 +78,7 @@ class TestE2EYieldUnwind < Minitest::Test
       :inner_done
     })
 
-    result = sandbox.eval(B28_NESTED_SCRIPT)
+    result = sandbox.eval(B28_NESTED_SCRIPT).value
 
     # Outer iterates [1, 2]; each iteration runs Inner which iterates
     # [10, 20] and breaks on 20 with :inner_stop. Outer's block sees
@@ -103,7 +103,7 @@ class TestE2EYieldUnwind < Minitest::Test
     end.new
     sandbox.bind("Probe::Stash", stash_service)
 
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT) }
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT).value }
 
     assert_match(/LocalJumpError/, err.message,
                  "E-23: invoking the Yielder after its dispatch frame " \

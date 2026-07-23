@@ -23,7 +23,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
 
-    result = sandbox.eval(<<~RUBY)
+    result = sandbox.eval(<<~RUBY).value
       KV::Lookup.call("user_42")
     RUBY
 
@@ -36,7 +36,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval(<<~RUBY)
+      sandbox.eval(<<~RUBY).value
         raise "model produced bad code"
       RUBY
     end
@@ -54,7 +54,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('puts "reached execution"; 1 +')
+      sandbox.eval('puts "reached execution"; 1 +').value
     end
 
     assert_equal "sandbox", err.origin,
@@ -73,7 +73,7 @@ class TestE2EJourneys < Minitest::Test
   def test_j01_script_ruby_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval(<<~RUBY)
+      sandbox.eval(<<~RUBY).value
         def boom
           raise "model produced bad code"
         end
@@ -89,7 +89,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval(<<~RUBY)
+      sandbox.eval(<<~RUBY).value
         Log::Sink.call("secret")
       RUBY
     end
@@ -107,7 +107,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval(<<~RUBY)
+      sandbox.eval(<<~RUBY).value
         Log::Sink.call("secret")
       RUBY
     end
@@ -128,12 +128,12 @@ class TestE2EJourneys < Minitest::Test
 
     # SPEC.md L215: SandboxError — script-level fault.
     assert_raises(Kobako::SandboxError) do
-      sandbox_a.eval('raise "script-level fault"')
+      sandbox_a.eval('raise "script-level fault"').value
     end
 
     # SPEC.md L216: ServiceError — capability-level fault.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox_b.eval('Svc::Call.call("x")')
+      sandbox_b.eval('Svc::Call.call("x")').value
     end
     assert_equal "service", err.origin, "J-05: a capability fault through #eval must carry service origin"
   end
@@ -149,7 +149,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Service::MyEach", ->(items, &blk) { items.map { |x| blk.call(x) } })
 
-    result = sandbox.eval("Service::MyEach.call([1, 2, 3]) { |x| x * 2 }")
+    result = sandbox.eval("Service::MyEach.call([1, 2, 3]) { |x| x * 2 }").value
 
     assert_equal [2, 4, 6], result,
                  "J-06: a block-yielding Service must run the guest block once per element " \
@@ -168,7 +168,7 @@ class TestE2EJourneys < Minitest::Test
     end
 
     results = Array.new(4) do |i|
-      Thread.new { pool.with { |sandbox| sandbox.run(:Worker, "req#{i}") } }
+      Thread.new { pool.with { |sandbox| sandbox.run(:Worker, "req#{i}").value } }
     end.map(&:value)
 
     assert_equal %w[done:req0 done:req1 done:req2 done:req3], results.sort,

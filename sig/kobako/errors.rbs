@@ -2,7 +2,14 @@ module Kobako
   class Error < StandardError
   end
 
+  module CarriesInvocation
+    attr_reader invocation: Kobako::Invocation?
+
+    def with_invocation: (Kobako::Invocation invocation) -> self
+  end
+
   class TrapError < Error
+    include CarriesInvocation
   end
 
   class TimeoutError < TrapError
@@ -17,7 +24,7 @@ module Kobako
   class ModuleNotBuiltError < SetupError
   end
 
-  module StructuredError : Error
+  module Diagnosable : Error
     attr_reader origin: String?
     attr_reader klass: String?
     attr_reader backtrace_lines: Array[String]?
@@ -33,11 +40,13 @@ module Kobako
   end
 
   class SandboxError < Error
-    include StructuredError
+    include Diagnosable
+    include CarriesInvocation
   end
 
   class ServiceError < Error
-    include StructuredError
+    include Diagnosable
+    include CarriesInvocation
   end
 
   class HandleExhaustedError < SandboxError

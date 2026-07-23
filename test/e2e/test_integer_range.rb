@@ -33,7 +33,7 @@ class TestE2EIntegerRange < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Clock::Max", -> { I32_MAX })
 
-    assert_equal I32_MAX, sandbox.eval("Clock::Max.call"),
+    assert_equal I32_MAX, sandbox.eval("Clock::Max.call").value,
                  "an inbound integer at the 32-bit ceiling must round-trip, not be refused"
   end
 

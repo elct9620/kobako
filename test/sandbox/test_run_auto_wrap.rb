@@ -20,7 +20,7 @@ class TestRunAutoWrap < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
 
-    assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world"))
+    assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world")).value
   end
 
   # Same auto-wrap path through the kwargs branch — exercises the
@@ -29,7 +29,7 @@ class TestRunAutoWrap < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(opts) { opts[:body].read }", name: :App)
 
-    assert_equal "payload", sandbox.run(:App, body: StringIO.new("payload"))
+    assert_equal "payload", sandbox.run(:App, body: StringIO.new("payload")).value
   end
 
   # Auto-wrap applies to Hash values, not keys: a non-wire-representable

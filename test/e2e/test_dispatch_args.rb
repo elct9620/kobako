@@ -18,7 +18,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Geo::Lookup", klass.new)
 
-    result = sandbox.eval('Geo::Lookup.lookup(name: "alice", region: "us")')
+    result = sandbox.eval('Geo::Lookup.lookup(name: "alice", region: "us")').value
 
     assert_equal "us/alice", result,
                  "E-15: wire kwargs str keys symbolized at dispatch boundary (SPEC.md E-15)"
@@ -29,7 +29,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Math::Pi", -> { 3.14 })
 
-    result = sandbox.eval("Math::Pi.call")
+    result = sandbox.eval("Math::Pi.call").value
 
     assert_equal 3.14, result,
                  "E-15: empty kwargs dispatches cleanly to a no-kwargs method (SPEC.md L1001)"
@@ -47,7 +47,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Http::Client", klass.new)
 
-    result = sandbox.eval('Http::Client.get("u", auth: "tok")')
+    result = sandbox.eval('Http::Client.get("u", auth: "tok")').value
 
     assert_equal "u:tok", result,
                  "a short method name dispatched with a short kwarg key must reach the host intact, not truncated"
@@ -84,7 +84,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Sym::Echo", ->(arg) { arg.is_a?(Symbol) ? "sym:#{arg}" : "str:#{arg}" })
 
-    result = sandbox.eval("Sym::Echo.call(:user_42)")
+    result = sandbox.eval("Sym::Echo.call(:user_42)").value
 
     assert_equal "sym:user_42", result,
                  "transport path: Symbol arg must arrive at the Service as a Ruby Symbol " \
@@ -100,7 +100,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Keys", -> { %w[a b c] })
 
-    result = sandbox.eval("KV::Keys.call.length")
+    result = sandbox.eval("KV::Keys.call.length").value
 
     assert_equal 3, result,
                  "transport path: Service-returned Array must materialize as an mruby Array " \
@@ -114,7 +114,7 @@ class TestE2EDispatchArgs < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Snapshot", -> { { a: 1, b: 2 } })
 
-    result = sandbox.eval("KV::Snapshot.call[:a]")
+    result = sandbox.eval("KV::Snapshot.call[:a]").value
 
     assert_equal 1, result,
                  "transport path: Service-returned Hash must materialize as an mruby Hash " \
@@ -132,7 +132,7 @@ class TestE2EDispatchArgs < Minitest::Test
     seen = []
     sandbox.bind("Echo::Identity", ->(arg) { arg.tap { seen << arg } })
 
-    result = sandbox.eval("Echo::Identity.call([{x: 1}, {y: 2}])")
+    result = sandbox.eval("Echo::Identity.call([{x: 1}, {y: 2}])").value
 
     assert_equal NESTED_AOH, seen.first, "transport arg: nested Array-of-Hash must arrive natively"
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
@@ -154,7 +154,7 @@ class TestE2EDispatchArgs < Minitest::Test
     seen = []
     sandbox.bind("Echo::Identity", ->(arg) { arg.tap { seen << arg } })
 
-    result = sandbox.eval(OVERRIDDEN_LENGTH_SCRIPT)
+    result = sandbox.eval(OVERRIDDEN_LENGTH_SCRIPT).value
 
     assert_equal [1, 2, 3], seen.first,
                  "transport arg: a guest-overridden Array#length must not steer the conversion — " \

@@ -33,7 +33,7 @@ class TestE2EHandleImmutable < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
-    result = sandbox.eval(IMMUTABILITY_SCRIPT)
+    result = sandbox.eval(IMMUTABILITY_SCRIPT).value
 
     assert_equal ["hi,Bob", "FrozenError", true, true], result,
                  "B-60: re-pointing a held Handle's id must raise FrozenError (immutable), " \

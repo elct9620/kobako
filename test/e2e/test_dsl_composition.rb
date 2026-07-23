@@ -139,7 +139,7 @@ class TestE2EDslComposition < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Builder", Builder.new)
 
-    assert_equal EXPECTED, sandbox.eval(IMPLICIT_SCRIPT),
+    assert_equal EXPECTED, sandbox.eval(IMPLICIT_SCRIPT).value,
                  "an instance_eval-driven guest idiom over host-returned child Handles " \
                  "must build the nested structure host-side (B-14 / B-17; guest-local " \
                  "instance_eval permitted per the B-42 / B-44 dispatch-scoped denial)"
@@ -151,7 +151,7 @@ class TestE2EDslComposition < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Builder", Builder.new)
 
-    assert_equal EXPECTED, sandbox.eval(BLOCK_PARAM_SCRIPT),
+    assert_equal EXPECTED, sandbox.eval(BLOCK_PARAM_SCRIPT).value,
                  "a block-parameter guest idiom over host-returned child Handles must " \
                  "build the same nested structure host-side (B-14 / B-17)"
   end
@@ -168,7 +168,7 @@ class TestE2EDslComposition < Minitest::Test
                   "a name the host dialect does not define, forwarded through the " \
                   "generic wrapper, must be refused host-side (B-42 undefined) — the " \
                   "wrapper cannot reach beyond the dialect's own methods") do
-      sandbox.eval(UNBOUND_VOCAB_SCRIPT)
+      sandbox.eval(UNBOUND_VOCAB_SCRIPT).value
     end
   end
 end

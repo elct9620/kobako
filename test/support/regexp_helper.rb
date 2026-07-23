@@ -26,7 +26,7 @@ module RegexpGuestHelper
   # per scenario keeps the per-invocation match globals ($~ / $1) isolated
   # between scenarios.
   def eval_regexp(code)
-    Kobako::Sandbox.new(wasm_path: REGEXP_WASM).eval(code)
+    Kobako::Sandbox.new(wasm_path: REGEXP_WASM).eval(code).value
   end
 
   # Evaluate +code+ expecting it to raise +expected+ (a guest exception

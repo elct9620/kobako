@@ -3,6 +3,7 @@
 require_relative "capture"
 require_relative "codec"
 require_relative "errors"
+require_relative "invocation"
 require_relative "outcome"
 require_relative "usage"
 require_relative "transport"
@@ -102,38 +103,55 @@ module Kobako
       end
     end
 
-    # Build the bare +TrapError+-family exception for a trapped +Snapshot+ from
-    # its neutral trap kind — the cap subclasses (+TimeoutError+ /
-    # +MemoryLimitError+) keep their identity, every other engine fault is the
-    # base +TrapError+. #invoke! adds the verb prefix uniformly.
-    def trap_for(snapshot)
+    # Build the +TrapError+-family exception for a trapped +Snapshot+ from its
+    # neutral trap kind, tagged with the verb — the cap subclasses
+    # (+TimeoutError+ / +MemoryLimitError+) keep their identity, every other
+    # engine fault is the base +TrapError+.
+    def trap_error_for(snapshot, verb)
       klass = case snapshot.trap_kind
               when :timeout      then TimeoutError
               when :memory_limit then MemoryLimitError
               else TrapError
               end
-      klass.new(snapshot.trap_message)
+      klass.new("Sandbox##{verb} failed: #{snapshot.trap_message}")
     end
 
-    # Drive one invocation and settle its outcome. +verb+ is +:eval+ or +:run+;
-    # it tags the TrapError message so the failing export is identifiable. The
-    # yielded block returns the ext +Snapshot+; usage and captures are recorded
-    # from it before the trap check, so +#stdout+ / +#stderr+ / +#usage+ stay
-    # readable after a rescued trap. A Capability Handle in a completed outcome
-    # is restored to its host object before the value is returned. The single
-    # rescue is the trap-translation boundary: a guest trap, a could-not-start
-    # fault, and a wire violation all surface as the named TrapError subclass
-    # with the verb prefix; a Panic envelope's SandboxError / ServiceError
-    # propagates untouched.
-    def invoke!(verb)
-      snapshot = yield
-      populate_observability!(snapshot)
-      raise trap_for(snapshot) if snapshot.trapped?
+    # Freeze this run's observables plus +value+ (+nil+ on a failed run) into
+    # the read-only +Invocation+ the caller receives or the error carries.
+    def build_invocation(value)
+      Invocation.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture)
+    end
 
-      value, carried_handle = Codec.track_handles { Outcome.decode(snapshot.outcome) }
-      carried_handle ? Codec::HandleWalk.deep_restore(value, @handler) : value
+    # Decode a completed run's outcome into its +Invocation+. A Capability
+    # Handle in the result is restored to its host object first. Decode sits in
+    # the rescue so a wire-violation trap or a Panic envelope both attach this
+    # run's Invocation, just like a guest-call trap does.
+    def settle_outcome(snapshot, verb)
+      value, carried = Codec.track_handles { Outcome.decode(snapshot.outcome) }
+      value = Codec::HandleWalk.deep_restore(value, @handler) if carried
+      build_invocation(value)
     rescue Kobako::TrapError => e
-      raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
+      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_invocation(build_invocation(nil))
+    rescue Kobako::SandboxError, Kobako::ServiceError => e
+      raise e.with_invocation(build_invocation(nil))
+    end
+
+    # Drive one invocation and settle it into a frozen +Invocation+. +verb+
+    # tags the TrapError message so the failing export is identifiable. Usage
+    # and captures are recorded before the trap check, so a trapped Snapshot's
+    # error carries them just like a completed run's return value. A
+    # could-not-start fault raises straight from the guest call with no
+    # Snapshot, so it gains only the verb prefix and carries no Invocation.
+    def invoke!(verb)
+      begin
+        snapshot = yield
+      rescue Kobako::TrapError => e
+        raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
+      end
+      populate_observability!(snapshot)
+      return settle_outcome(snapshot, verb) unless snapshot.trapped?
+
+      raise trap_error_for(snapshot, verb).with_invocation(build_invocation(nil))
     end
   end
 end

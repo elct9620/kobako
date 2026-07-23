@@ -15,7 +15,7 @@ class TestE2EBindPaths < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Clock", -> { 42 })
 
-    result = sandbox.eval("Clock.call")
+    result = sandbox.eval("Clock.call").value
 
     assert_equal 42, result,
                  "a single-segment bind path must materialize as a top-level guest proxy (B-08)"
@@ -27,7 +27,7 @@ class TestE2EBindPaths < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("MyService::Nested::KV", ->(city) { "@#{city}" })
 
-    result = sandbox.eval('MyService::Nested::KV.call("paris")')
+    result = sandbox.eval('MyService::Nested::KV.call("paris")').value
 
     assert_equal "@paris", result,
                  "a 3-segment bind path must nest the leaf under MyService::Nested (B-08)"

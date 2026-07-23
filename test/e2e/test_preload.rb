@@ -17,15 +17,15 @@ class TestE2EPreload < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "ANSWER = 42", name: :Answers)
 
-    assert_equal 42, sandbox.eval("ANSWER")
+    assert_equal 42, sandbox.eval("ANSWER").value
   end
 
   def test_b32_preloaded_snippets_replay_across_invocations
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "ANSWER = 42", name: :Answers)
 
-    assert_equal 42, sandbox.eval("ANSWER")
-    assert_equal 42, sandbox.eval("ANSWER")
+    assert_equal 42, sandbox.eval("ANSWER").value
+    assert_equal 42, sandbox.eval("ANSWER").value
   end
 
   def test_b32_preloaded_snippets_replay_in_insertion_order
@@ -33,7 +33,7 @@ class TestE2EPreload < Minitest::Test
     sandbox.preload(code: "BASE = 10", name: :Alpha)
     sandbox.preload(code: "EXTENDED = BASE * 2", name: :Beta)
 
-    assert_equal 20, sandbox.eval("EXTENDED")
+    assert_equal 20, sandbox.eval("EXTENDED").value
   end
 
   # docs/behavior/errors.md E-32: an uncompilable `code:` snippet is
@@ -81,7 +81,7 @@ class TestE2EPreload < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
 
-    assert_equal 42, sandbox.eval("ANSWERS"),
+    assert_equal 42, sandbox.eval("ANSWERS").value,
                  "B-32 (binary: form): preloaded bytecode must contribute its " \
                  "top-level constants to subsequent #eval calls"
   end
@@ -90,8 +90,8 @@ class TestE2EPreload < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
 
-    assert_equal 42, sandbox.eval("ANSWERS")
-    assert_equal 42, sandbox.eval("ANSWERS"),
+    assert_equal 42, sandbox.eval("ANSWERS").value
+    assert_equal 42, sandbox.eval("ANSWERS").value,
                  "B-32: bytecode snippet must replay against every fresh mrb_state, " \
                  "not just the first invocation"
   end
@@ -178,7 +178,7 @@ class TestE2EPreload < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(STRIPPED_BYTECODE_FIXTURE_PATH))
 
-    assert_equal 42, sandbox.eval("ANSWERS"),
+    assert_equal 42, sandbox.eval("ANSWERS").value,
                  "B-32: bytecode without debug_info must still contribute " \
                  "top-level effects on the fresh mrb_state"
   end

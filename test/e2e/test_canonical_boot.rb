@@ -19,8 +19,8 @@ class TestE2ECanonicalBoot < Minitest::Test
   # entropy, the first allocation of each invocation lands on the same
   # heap slot — the object_id sequence replays exactly.
   def test_first_allocation_object_id_replays_across_invocations
-    first = @sandbox.eval("Object.new.object_id")
-    second = @sandbox.eval("Object.new.object_id")
+    first = @sandbox.eval("Object.new.object_id").value
+    second = @sandbox.eval("Object.new.object_id").value
 
     assert_equal first, second,
                  "the first Object.new.object_id through repeated #eval must replay identically (B-49)"
@@ -30,8 +30,8 @@ class TestE2ECanonicalBoot < Minitest::Test
   # test_lifecycle.rb): a guest global set by one #eval is unset at the
   # next #eval's entry.
   def test_eval_does_not_leak_guest_globals_between_invocations
-    first = @sandbox.eval("s = $leak; $leak = true; s")
-    second = @sandbox.eval("s = $leak; $leak = true; s")
+    first = @sandbox.eval("s = $leak; $leak = true; s").value
+    second = @sandbox.eval("s = $leak; $leak = true; s").value
 
     assert_nil first, "the first #eval on a fresh Sandbox must observe an unset guest global (B-49)"
     assert_nil second, "a repeated #eval must not surface the prior invocation's guest global (B-03/B-49)"
@@ -41,9 +41,9 @@ class TestE2ECanonicalBoot < Minitest::Test
   # the next invocation's entry — class definitions are invocation-local
   # unless preloaded (B-32).
   def test_eval_defined_constants_do_not_survive_invocations
-    @sandbox.eval("class CanonicalBootProbe; end; true")
+    @sandbox.eval("class CanonicalBootProbe; end; true").value
 
-    refute @sandbox.eval("Object.const_defined?(:CanonicalBootProbe)"),
+    refute @sandbox.eval("Object.const_defined?(:CanonicalBootProbe)").value,
            "a constant defined by a prior #eval must not exist at the next invocation's entry (B-49)"
   end
 end

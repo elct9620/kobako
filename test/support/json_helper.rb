@@ -23,7 +23,7 @@ module JsonGuestHelper
   # Evaluate +code+ in a fresh Sandbox on the json guest. A fresh Sandbox
   # per scenario keeps capability state isolated between scenarios.
   def eval_json(code)
-    Kobako::Sandbox.new(wasm_path: JSON_WASM).eval(code)
+    Kobako::Sandbox.new(wasm_path: JSON_WASM).eval(code).value
   end
 
   # Assert +code+ reaches the host as a +Kobako::SandboxError+ carrying the

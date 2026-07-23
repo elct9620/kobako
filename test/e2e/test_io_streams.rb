@@ -28,7 +28,7 @@ class TestE2EIoStreams < Minitest::Test
   # WASI pipe — +#run+ still returns the script's last expression.
   def test_stdout_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
-    result = sandbox.eval(OVERFLOW_SCRIPT)
+    result = sandbox.eval(OVERFLOW_SCRIPT).value
 
     assert_equal 1, result
     # The retained bytes are the real first 5 of the overflowing line
@@ -45,10 +45,10 @@ class TestE2EIoStreams < Minitest::Test
   # buffers at the start of the next +#run+.
   def test_stdout_truncated_predicate_resets_between_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
-    sandbox.eval(OVERFLOW_SCRIPT)
+    sandbox.eval(OVERFLOW_SCRIPT).value
     assert sandbox.stdout_truncated?, "setup: first run must overflow the cap"
 
-    sandbox.eval("nil")
+    sandbox.eval("nil").value
     refute sandbox.stdout_truncated?, "B-03: stdout_truncated? must reset on the next run"
     assert_equal "", sandbox.stdout
   end
@@ -63,10 +63,10 @@ class TestE2EIoStreams < Minitest::Test
   def test_captures_reset_on_the_invocation_after_a_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
     assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
     end
 
-    assert_equal 3, sandbox.eval("1 + 2")
+    assert_equal 3, sandbox.eval("1 + 2").value
 
     assert_equal "", sandbox.stdout,
                  "stdout left by a trapped run must reset on the next invocation per SPEC.md B-03"
@@ -81,7 +81,7 @@ class TestE2EIoStreams < Minitest::Test
   # output is the only thing the channel may carry on this run.
   def test_stderr_puts_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('$stderr.puts "diagnostic"; 1')
+    sandbox.eval('$stderr.puts "diagnostic"; 1').value
 
     assert_equal "diagnostic\n", sandbox.stderr,
                  "B-04: $stderr.puts must reach Sandbox#stderr exclusively"
@@ -97,7 +97,7 @@ class TestE2EIoStreams < Minitest::Test
   # +warn+ output is the only thing the channel may carry on this run.
   def test_warn_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('warn "caution"; 1')
+    sandbox.eval('warn "caution"; 1').value
 
     assert_equal "caution\n", sandbox.stderr,
                  "Kernel#warn must route only the guest message through $stderr"
@@ -112,7 +112,7 @@ class TestE2EIoStreams < Minitest::Test
   # honor the late binding.
   def test_redirecting_stdout_to_stderr_routes_subsequent_puts
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('$stdout = $stderr; puts "redirected"; 1')
+    sandbox.eval('$stdout = $stderr; puts "redirected"; 1').value
 
     assert_includes sandbox.stderr, "redirected",
                     "Kernel#puts after `$stdout = $stderr` must follow the reassignment"
@@ -129,10 +129,10 @@ class TestE2EIoStreams < Minitest::Test
   def test_stdout_assignment_does_not_persist_across_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    sandbox.eval('$stdout = $stderr; puts "first"; 1')
+    sandbox.eval('$stdout = $stderr; puts "first"; 1').value
     assert_includes sandbox.stderr, "first", "setup: first run must redirect"
 
-    sandbox.eval('puts "second"; 2')
+    sandbox.eval('puts "second"; 2').value
     assert_includes sandbox.stdout, "second",
                     "second run must restore $stdout to the stdout channel"
     refute_includes sandbox.stderr, "second",
@@ -144,7 +144,7 @@ class TestE2EIoStreams < Minitest::Test
   # truncation sentinels.
   def test_stderr_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stderr_limit: 5)
-    result = sandbox.eval(OVERFLOW_STDERR_SCRIPT)
+    result = sandbox.eval(OVERFLOW_STDERR_SCRIPT).value
 
     assert_equal 1, result
     assert_equal "long ", sandbox.stderr,
@@ -167,7 +167,7 @@ class TestE2EIoStreams < Minitest::Test
     count = 4
     script = %(#{count}.times { print "x" * #{chunk} }; 1)
 
-    sandbox.eval(script)
+    sandbox.eval(script).value
 
     assert_equal chunk * count, sandbox.stdout.bytesize,
                  "stdout_limit: nil must capture the full output past the default 1 MiB cap"
@@ -179,10 +179,10 @@ class TestE2EIoStreams < Minitest::Test
   def test_stdout_is_per_run_b04
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    sandbox.eval('puts "first"; 1')
+    sandbox.eval('puts "first"; 1').value
     assert_includes sandbox.stdout, "first"
 
-    sandbox.eval('puts "second"; 2')
+    sandbox.eval('puts "second"; 2').value
     refute_includes sandbox.stdout, "first",
                     "B-04: stdout must reset between runs (SPEC.md B-04 L264-270)"
     assert_includes sandbox.stdout, "second"

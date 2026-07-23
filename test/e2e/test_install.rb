@@ -21,9 +21,9 @@ class TestE2EInstall < Minitest::Test
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
     sandbox = install_file(InMemoryFileSystem.new)
 
-    assert_equal "dir/a.txt", sandbox.eval('File.join("dir", File.basename("x/a.txt"))'),
+    assert_equal "dir/a.txt", sandbox.eval('File.join("dir", File.basename("x/a.txt"))').value,
                  "a pure File method must run in-guest through #install (B-55)"
-    assert_equal "hello", sandbox.eval('File.write("a.txt", "hello"); File.read("a.txt")'),
+    assert_equal "hello", sandbox.eval('File.write("a.txt", "hello"); File.read("a.txt")').value,
                  "a File I/O method must dispatch to the bound backend (B-55)"
   end
 
@@ -32,7 +32,7 @@ class TestE2EInstall < Minitest::Test
     sandbox = install_file(InMemoryFileSystem.new)
 
     sandbox.eval('File.write("k", "v1")')
-    assert_equal "v1", sandbox.eval('File.read("k")'),
+    assert_equal "v1", sandbox.eval('File.read("k")').value,
                  "a fixed backend is one object across invocations, so a write persists (B-56)"
   end
 
@@ -41,7 +41,7 @@ class TestE2EInstall < Minitest::Test
     sandbox = install_file(-> { InMemoryFileSystem.new })
 
     sandbox.eval('File.write("k", "v1")')
-    refute sandbox.eval('File.exist?("k")'),
+    refute sandbox.eval('File.exist?("k")').value,
            "a callable backend is fresh each invocation, so a write cannot leak (B-56)"
   end
 
@@ -49,7 +49,7 @@ class TestE2EInstall < Minitest::Test
   def test_open_eager_slurps_then_serves_the_buffer_locally
     sandbox = install_file(InMemoryFileSystem.new)
 
-    assert_equal "line", sandbox.eval('File.write("log", "line"); File.open("log") { |f| f.read }'),
+    assert_equal "line", sandbox.eval('File.write("log", "line"); File.open("log") { |f| f.read }').value,
                  "File.open serves the eager-slurped buffer in-guest (B-55)"
   end
 
@@ -64,7 +64,7 @@ class TestE2EInstall < Minitest::Test
     end
     assert_equal "", sandbox.stdout,
                  "the guest must not run when provider resolution raises, so no output is produced (B-56)"
-    assert_equal "v", sandbox.eval('File.write("k", "v"); File.read("k")'),
+    assert_equal "v", sandbox.eval('File.write("k", "v"); File.read("k")').value,
                  "per-invocation resolution must let the next invocation run once the provider succeeds (B-56)"
   end
 
@@ -103,7 +103,7 @@ class TestE2EInstall < Minitest::Test
       Kobako::Extension.new(name: :Errno, source: ERRNO_SOURCE)
     )
 
-    assert_equal 2, sandbox.eval("Status.missing_code"),
+    assert_equal 2, sandbox.eval("Status.missing_code").value,
                  "a satisfied depends_on must let the guest run and resolve the depended-on " \
                  "Extension's constant at call time, independent of install order (B-57)"
   end
@@ -114,7 +114,7 @@ class TestE2EInstall < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.install(Kobako::Extension.new(name: :File, source: FILE_SOURCE))
 
-    assert_equal "a/b", sandbox.eval('File.join("a", "b")'),
+    assert_equal "a/b", sandbox.eval('File.join("a", "b")').value,
                  "a pure method runs even with no backend bound (B-55)"
     assert_raises(Kobako::ServiceError,
                   "a privileged method must fail closed as an undefined-target ServiceError " \

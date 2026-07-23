@@ -16,6 +16,24 @@ module Kobako
   # taxonomy can rescue a single class.
   class Error < StandardError; end
 
+  # Carries the frozen +Kobako::Invocation+ of the run that failed, so a
+  # rescue reads its captures and usage exactly as a successful caller reads
+  # them off the return value. Mixed only into the three invocation-outcome
+  # classes (+TrapError+ / +SandboxError+ / +ServiceError+ and their
+  # subclasses); +SetupError+ and +PoolTimeoutError+ arise outside any
+  # invocation and carry no Invocation. Defaults to +nil+ — a pre-flight
+  # failure that ran no invocation leaves it unset.
+  module CarriesInvocation
+    attr_reader :invocation
+
+    # Attach the failed run's +Kobako::Invocation+ and return +self+ so the
+    # raise site reads +raise error.with_invocation(invocation)+.
+    def with_invocation(invocation)
+      @invocation = invocation
+      self
+    end
+  end
+
   # Wasm engine layer. Raised when the Wasm execution engine crashed
   # (trap, OOM, unreachable) or when the wire layer detected a structural
   # violation that signals a corrupted guest execution environment
@@ -31,7 +49,9 @@ module Kobako
   # Sandbox" can rescue +TrapError+ and ignore the subclass; Host Apps that
   # want to surface a specific reason to operators can rescue the subclass
   # first.
-  class TrapError < Error; end
+  class TrapError < Error
+    include CarriesInvocation
+  end
 
   # Wall-clock timeout cap exhausted: the absolute deadline
   # +entry_time + timeout+ passed and the next guest wasm safepoint
@@ -70,7 +90,7 @@ module Kobako
   # beyond its message. Mixed into both rather than promoted to a shared
   # superclass because +SandboxError+ and +ServiceError+ sit in distinct
   # branches of the invocation-outcome taxonomy under +Kobako::Error+.
-  module StructuredError
+  module Diagnosable
     attr_reader :origin, :klass, :backtrace_lines, :details
 
     def initialize(message, origin: nil, klass: nil, backtrace_lines: nil, details: nil)
@@ -86,14 +106,16 @@ module Kobako
   # execution failed due to a mruby script error, a protocol fault, or a
   # host-side wire decode failure on an otherwise valid outcome tag.
   class SandboxError < Error
-    include StructuredError
+    include Diagnosable
+    include CarriesInvocation
   end
 
   # Service layer. Raised when a Service capability call inside a mruby
   # script reported an application-level failure that the script did not
   # rescue.
   class ServiceError < Error
-    include StructuredError
+    include Diagnosable
+    include CarriesInvocation
   end
 
   # HandleExhaustedError is the canonical SandboxError subclass for the

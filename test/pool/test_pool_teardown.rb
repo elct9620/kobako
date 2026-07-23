@@ -35,7 +35,7 @@ class TestPoolTeardown < Minitest::Test
     result = pool.with do |sandbox|
       pool = nil
       GC.start
-      sandbox.eval("40 + 2")
+      sandbox.eval("40 + 2").value
     end
     assert_nil pool
     assert_equal 42, result,

@@ -69,7 +69,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
 
     assert_raises(Kobako::SandboxError) { sandbox.eval(RAISING_TO_S_SCRIPT) }
 
-    assert_equal 3, sandbox.eval("1 + 2"),
+    assert_equal 3, sandbox.eval("1 + 2").value,
                  "a guest coercion raise must leave the Sandbox usable for the next #eval"
   end
 end

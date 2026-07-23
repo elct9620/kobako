@@ -18,7 +18,7 @@ class TestPoolRecovery < Minitest::Test
     pool.with do |sandbox|
       refute_same constructed.first, sandbox,
                   "a checkout after a TrapError must never receive the unrecoverable Sandbox (B-47)"
-      assert_equal 1, sandbox.eval("1"), "the refilled Sandbox must invoke normally (B-47)"
+      assert_equal 1, sandbox.eval("1").value, "the refilled Sandbox must invoke normally (B-47)"
     end
     assert_equal 2, constructed.size, "the discarded slot must refill via a fresh construction (B-47)"
   end
@@ -49,7 +49,7 @@ class TestPoolRecovery < Minitest::Test
     end
     err = assert_raises(RuntimeError) { pool.with { |sandbox| sandbox } }
     assert_equal "setup boom", err.message
-    assert_equal 2, pool.with { |sandbox| sandbox.eval("2") },
+    assert_equal 2, pool.with { |sandbox| sandbox.eval("2").value },
                  "a checkout after a failed construction must retry construction in the freed slot (B-46)"
   end
 end

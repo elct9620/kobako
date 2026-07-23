@@ -17,7 +17,7 @@ class TestE2EIoWrite < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('IO.new(99, "w")')
+      sandbox.eval('IO.new(99, "w")').value
     end
 
     assert_includes err.message, "kobako IO only supports fd",
@@ -31,7 +31,7 @@ class TestE2EIoWrite < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('IO.new(1, "r")')
+      sandbox.eval('IO.new(1, "r")').value
     end
 
     assert_includes err.message, 'kobako IO only supports mode "w"',
@@ -55,7 +55,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_io_write_rejects_a_guest_tampered_fd
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    err = assert_raises(Kobako::SandboxError) { sandbox.eval(TAMPERED_FD_SCRIPT) }
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval(TAMPERED_FD_SCRIPT).value }
 
     assert_includes err.message, "kobako IO writes only to fd",
                     "a rebound @__kobako_fd__ outside {1,2} must be refused at IO#write, " \
@@ -68,8 +68,8 @@ class TestE2EIoWrite < Minitest::Test
   def test_stdout_and_stderr_fileno_return_underlying_descriptor
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    assert_equal 1, sandbox.eval("STDOUT.fileno")
-    assert_equal 2, sandbox.eval("STDERR.fileno")
+    assert_equal 1, sandbox.eval("STDOUT.fileno").value
+    assert_equal 2, sandbox.eval("STDERR.fileno").value
   end
 
   # Probe script for the supplementary IO surface — each member's
@@ -88,7 +88,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_io_supplementary_surface_matches_mruby_io
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT)
+    result = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT).value
 
     assert_equal [true, false, true, false, false, true, false, 1], result,
                  "IO supplementary surface (<< self-chain, tty?, sync default/assignment, " \
@@ -112,7 +112,7 @@ class TestE2EIoWrite < Minitest::Test
   # wrong length would corrupt the captured output.
   def test_io_write_round_trips_embed_tagged_string
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "abcdefghijk"')
+    sandbox.eval('print "abcdefghijk"').value
     assert_equal "abcdefghijk", sandbox.stdout,
                  "short string passed to `print` must reach stdout intact"
   end
@@ -125,7 +125,7 @@ class TestE2EIoWrite < Minitest::Test
   # Ruby-side interpolation.
   def test_io_write_round_trips_heap_tagged_string
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "x" * 100')
+    sandbox.eval('print "x" * 100').value
     assert_equal "x" * 100, sandbox.stdout,
                  "long string passed to `print` must reach stdout intact"
   end
@@ -135,7 +135,7 @@ class TestE2EIoWrite < Minitest::Test
   # byte). Embedded NUL must reach the capture pipe intact.
   def test_io_write_preserves_embedded_nul_bytes
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval("print \"a\\0b\"")
+    sandbox.eval("print \"a\\0b\"").value
     assert_equal "a\0b".b, sandbox.stdout.b,
                  "NUL bytes inside a `print` payload must reach stdout"
   end
@@ -145,7 +145,7 @@ class TestE2EIoWrite < Minitest::Test
   # bytes reach `write(2)` verbatim.
   def test_io_write_passes_through_already_string_without_coercion
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "literal-string"')
+    sandbox.eval('print "literal-string"').value
     assert_equal "literal-string", sandbox.stdout,
                  "String argument to `print` must reach stdout verbatim"
   end
@@ -156,7 +156,7 @@ class TestE2EIoWrite < Minitest::Test
   # trap).
   def test_io_write_coerces_non_string_via_to_s
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval("print 42")
+    sandbox.eval("print 42").value
     assert_equal "42", sandbox.stdout,
                  "Integer argument to `print` must reach stdout as its `to_s` form"
   end
@@ -176,7 +176,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_sprintf_formats_value_through_eval
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval('sprintf("%05.2f", 3.14159)')
+    result = sandbox.eval('sprintf("%05.2f", 3.14159)').value
 
     assert_equal "03.14", result,
                  "sprintf through #eval must apply width/precision and return the formatted String"
@@ -187,7 +187,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_string_percent_formats_array_through_eval
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval('"%d-%s" % [42, "x"]')
+    result = sandbox.eval('"%d-%s" % [42, "x"]').value
 
     assert_equal "42-x", result,
                  "String#% through #eval must interpolate the Array into positional specifiers"
@@ -199,7 +199,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_printf_writes_formatted_output_to_stdout
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    sandbox.eval('printf("%03d\n", 7)')
+    sandbox.eval('printf("%03d\n", 7)').value
 
     assert_equal "007\n", sandbox.stdout,
                  "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"

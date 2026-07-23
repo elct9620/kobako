@@ -58,7 +58,7 @@ class TestSandboxUsage < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Entry = ->(*_args, **_kw) { 42 }", name: :Entry)
 
-    assert_equal 42, sandbox.run(:Entry)
+    assert_equal 42, sandbox.run(:Entry).value
     assert_operator sandbox.usage.wall_time, :>, 0.0
   end
 

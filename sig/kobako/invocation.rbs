@@ -1,0 +1,21 @@
+module Kobako
+  class Invocation
+    attr_reader value: untyped
+    attr_reader usage: Kobako::Usage
+
+    def initialize: (
+      value: untyped,
+      usage: Kobako::Usage,
+      stdout: Kobako::Capture,
+      stderr: Kobako::Capture
+    ) -> void
+
+    def stdout: () -> String
+
+    def stderr: () -> String
+
+    def stdout_truncated?: () -> bool
+
+    def stderr_truncated?: () -> bool
+  end
+end

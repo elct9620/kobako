@@ -16,7 +16,7 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 42 }", name: :Worker)
 
-    assert_equal 42, sandbox.run(:Worker),
+    assert_equal 42, sandbox.run(:Worker).value,
                  "a preloaded callable entrypoint through #run must return its call value"
   end
 
@@ -24,7 +24,7 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)
 
-    assert_equal 5, sandbox.run(:Adder, 2, 3),
+    assert_equal 5, sandbox.run(:Adder, 2, 3).value,
                  "positional arguments through #run must reach the entrypoint in order"
   end
 
@@ -41,7 +41,7 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)
 
-    assert_equal "hello world", sandbox.run(:Greeter, name: "world"),
+    assert_equal "hello world", sandbox.run(:Greeter, name: "world").value,
                  "kwargs through #run must reach the entrypoint as a trailing positional Hash"
   end
 
@@ -49,7 +49,7 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 7 }", name: :Worker)
 
-    assert_equal 7, sandbox.run("Worker"),
+    assert_equal 7, sandbox.run("Worker").value,
                  "a String target through #run must dispatch like its Symbol form"
   end
 
@@ -58,7 +58,7 @@ class TestSandboxRun < Minitest::Test
     sandbox.preload(code: "BASE = 10", name: :Alpha)
     sandbox.preload(code: "Worker = ->(*_a, **_k) { BASE * 4 }", name: :Beta)
 
-    assert_equal 40, sandbox.run(:Worker),
+    assert_equal 40, sandbox.run(:Worker).value,
                  "every preloaded snippet through #run must replay before the entrypoint dispatches"
   end
 

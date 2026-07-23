@@ -24,7 +24,7 @@ class TestE2EHandles < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
-    result = sandbox.eval(<<~RUBY)
+    result = sandbox.eval(<<~RUBY).value
       g = Factory::Make.call("Bob")
       g.greet
     RUBY
@@ -43,7 +43,7 @@ class TestE2EHandles < Minitest::Test
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
-    result = sandbox.eval(<<~RUBY)
+    result = sandbox.eval(<<~RUBY).value
       handle = Factory::Make.call("Bob")
       [KV::Lookup.respond_to?(:lookup_anything), handle.respond_to?(:greet)]
     RUBY
@@ -64,7 +64,7 @@ class TestE2EHandles < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Models::User", Greeter.new("bound"))
 
-    result = sandbox.eval(<<~RUBY)
+    result = sandbox.eval(<<~RUBY).value
       [(Models::User.new.greet rescue "inert"), Models::User.greet]
     RUBY
 
@@ -104,7 +104,7 @@ class TestE2EHandles < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Source::Get", -> { greeter })
 
-    result = sandbox.eval("Source::Get.call")
+    result = sandbox.eval("Source::Get.call").value
 
     assert_same greeter, result,
                 "B-37: a Capability Handle returned as the #eval result must arrive at the " \
@@ -119,7 +119,7 @@ class TestE2EHandles < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Source::Get", -> { greeter })
 
-    result = sandbox.eval("g = Source::Get.call; { list: [g], pair: g }")
+    result = sandbox.eval("g = Source::Get.call; { list: [g], pair: g }").value
 
     assert_same greeter, result[:list][0],
                 "B-37: a Handle nested in an Array leaf must be restored to its host object"
@@ -136,7 +136,7 @@ class TestE2EHandles < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Source::Get", -> { greeter })
 
-    result = sandbox.eval('g = Source::Get.call; { g => "label" }')
+    result = sandbox.eval('g = Source::Get.call; { g => "label" }').value
 
     assert_same greeter, result.keys.first,
                 "B-37: a Handle in a Hash key must be restored to its host object, symmetric " \
@@ -175,7 +175,7 @@ class TestE2EHandles < Minitest::Test
 
     result = sandbox.eval(
       "h = Source::Get.call; found = Probe::Each.call([1, 2, 3]) { |x| break h if x == 2 }; found.greet"
-    )
+    ).value
 
     assert_equal "hi,Bob", result,
                  "B-25/B-37: a Handle broken out of a guest block returns to the guest and still " \

@@ -26,7 +26,7 @@ class TestE2EReflectionBlock < Minitest::Test
     %w[to_proc curry].each do |meth|
       script = "KV::Fn.#{meth}"
       err = assert_raises(Kobako::SandboxError, "#{script} must be refused guest-side (B-44)") do
-        sandbox_with_fn.eval(script)
+        sandbox_with_fn.eval(script).value
       end
       assert_match(/#{meth}/, err.message,
                    "the refusal must name the offending reflection method #{meth.inspect}")
@@ -36,7 +36,7 @@ class TestE2EReflectionBlock < Minitest::Test
   def test_callable_allowlist_forwards_through_the_guest
     # The denylist excludes the callable allowlist, so a bound lambda stays
     # invocable end to end (B-42 / B-44).
-    result = sandbox_with_fn.eval("KV::Fn.call(21)")
+    result = sandbox_with_fn.eval("KV::Fn.call(21)").value
     assert_equal 42, result,
                  "a bound lambda must remain invocable via #call through the real guest"
   end

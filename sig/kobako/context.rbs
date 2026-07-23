@@ -16,9 +16,9 @@ module Kobako
 
     def stderr_truncated?: () -> bool
 
-    def eval: (String code) -> untyped
+    def eval: (String code) -> Kobako::Invocation
 
-    def run: (Kobako::Transport::Run run_envelope) -> untyped
+    def run: (Kobako::Transport::Run run_envelope) -> Kobako::Invocation
 
     private
 
@@ -28,8 +28,12 @@ module Kobako
 
     def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
 
-    def trap_for: (Kobako::Runtime::Snapshot snapshot) -> Kobako::TrapError
+    def trap_error_for: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::TrapError
 
-    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> untyped
+    def build_invocation: (untyped value) -> Kobako::Invocation
+
+    def settle_outcome: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::Invocation
+
+    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> Kobako::Invocation
   end
 end

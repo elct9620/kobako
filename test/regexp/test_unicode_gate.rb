@@ -48,6 +48,6 @@ class TestRegexpUnicodeGate < Minitest::Test
   private
 
   def eval_no_unicode(code)
-    Kobako::Sandbox.new(wasm_path: REGEXP_WASM).eval(code)
+    Kobako::Sandbox.new(wasm_path: REGEXP_WASM).eval(code).value
   end
 end

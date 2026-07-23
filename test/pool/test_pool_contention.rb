@@ -23,7 +23,7 @@ class TestPoolContention < Minitest::Test
   def test_blocked_checkout_proceeds_on_checkin
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 5.0)
     release, holder = hold_one_slot(pool)
-    waiter = Thread.new { pool.with { |sandbox| sandbox.eval("3") } }
+    waiter = Thread.new { pool.with { |sandbox| sandbox.eval("3").value } }
     Thread.pass until waiter.stop?
     release << true
     assert_equal 3, waiter.value, "a blocked checkout must receive the checked-in Sandbox and proceed (B-47)"

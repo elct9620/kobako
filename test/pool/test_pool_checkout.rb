@@ -11,7 +11,7 @@ class TestPoolCheckout < Minitest::Test
   # B-47
   def test_with_returns_block_value
     pool = Kobako::Pool.new(slots: 1)
-    assert_equal 42, pool.with { |sandbox| sandbox.eval("40 + 2") },
+    assert_equal 42, pool.with { |sandbox| sandbox.eval("40 + 2").value },
                  "the block's return value through Pool#with must be returned to the caller (B-47)"
   end
 
@@ -33,15 +33,15 @@ class TestPoolCheckout < Minitest::Test
       def call(value) = value
     end
     pool = Kobako::Pool.new(slots: 1) { |sandbox| sandbox.bind("Pooled::Echo", echo.new) }
-    pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(1)") }
-    assert_equal 2, pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(2)") },
+    pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(1)").value }
+    assert_equal 2, pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(2)").value },
                  "setup-block Service bindings through a reused pooled Sandbox must stay active (B-47)"
   end
 
   # B-47: output buffers read empty at checkout.
   def test_checkout_hands_over_empty_output_buffers
     pool = Kobako::Pool.new(slots: 1)
-    pool.with { |sandbox| sandbox.eval(%(puts "leak?")) }
+    pool.with { |sandbox| sandbox.eval(%(puts "leak?")).value }
     pool.with do |sandbox|
       assert_equal "", sandbox.stdout, "a pooled Sandbox at checkout must read empty stdout (B-47)"
       assert_equal "", sandbox.stderr, "a pooled Sandbox at checkout must read empty stderr (B-47)"
@@ -58,9 +58,9 @@ class TestPoolCheckout < Minitest::Test
   # same global probe.
   def test_checkout_isolates_guest_global_state
     pool = Kobako::Pool.new(slots: 1)
-    pool.with { |sandbox| sandbox.eval("$leak = 1") }
+    pool.with { |sandbox| sandbox.eval("$leak = 1").value }
     pool.with do |sandbox|
-      assert_nil sandbox.eval("$leak"),
+      assert_nil sandbox.eval("$leak").value,
                  "a guest global set in one checkout must read nil in the next checkout (B-47)"
     end
   end
@@ -70,7 +70,7 @@ class TestPoolCheckout < Minitest::Test
   def test_sandbox_keywords_forward_to_pooled_sandboxes
     pool = Kobako::Pool.new(slots: 1, timeout: 0.05)
     assert_raises(Kobako::TimeoutError, "an over-deadline eval through a pooled Sandbox must raise TimeoutError") do
-      pool.with { |sandbox| sandbox.eval("loop do end") }
+      pool.with { |sandbox| sandbox.eval("loop do end").value }
     end
   end
 end

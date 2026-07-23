@@ -19,8 +19,8 @@ class TestE2ELifecycle < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Data::Fetch", ->(id) { "record:#{id}" })
 
-    a = sandbox.eval('Data::Fetch.call("a")')
-    b = sandbox.eval('Data::Fetch.call("b")')
+    a = sandbox.eval('Data::Fetch.call("a")').value
+    b = sandbox.eval('Data::Fetch.call("b")').value
 
     assert_equal "record:a", a, "J-02: first run sees the binding"
     assert_equal "record:b", b, "J-02: subsequent run still sees the binding (SPEC.md L173)"
@@ -37,8 +37,8 @@ class TestE2ELifecycle < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Probe = ->(*_a, **_k) { s = $leak; $leak = true; s }", name: :Probe)
 
-    first = sandbox.run(:Probe)
-    second = sandbox.run(:Probe)
+    first = sandbox.run(:Probe).value
+    second = sandbox.run(:Probe).value
 
     assert_nil first, "J-02 / B-03: first #run on a fresh Sandbox observes an unset guest global"
     assert_nil second,
@@ -51,7 +51,7 @@ class TestE2ELifecycle < Minitest::Test
   def test_j02_stdout_and_return_value_independently_observable
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval(<<~RUBY)
+    result = sandbox.eval(<<~RUBY).value
       puts "diagnostic"
       42
     RUBY
@@ -76,7 +76,7 @@ class TestE2ELifecycle < Minitest::Test
       crashing.eval('raise "buggy submission"')
     end
 
-    result = surviving.eval("1 + 1")
+    result = surviving.eval("1 + 1").value
 
     assert_equal 2, result,
                  "J-03: a crashed submission Sandbox must not affect another (SPEC.md L187)"
@@ -91,8 +91,8 @@ class TestE2ELifecycle < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Event::Amount", -> { 150 })
 
-    pass_branch = sandbox.eval("Event::Amount.call > 100")
-    fail_branch = sandbox.eval("Event::Amount.call > 1000")
+    pass_branch = sandbox.eval("Event::Amount.call > 100").value
+    fail_branch = sandbox.eval("Event::Amount.call > 1000").value
 
     assert_equal true,  pass_branch, "J-04: user expression evaluates to true (SPEC.md L201)"
     assert_equal false, fail_branch, "J-04: user expression evaluates to false (SPEC.md L201)"
@@ -112,9 +112,9 @@ class TestE2ELifecycle < Minitest::Test
       name: :Worker
     )
 
-    assert_equal 2, sandbox.run(:Worker, 2)
-    assert_equal 9, sandbox.run(:Worker, 3, multiplier: 3)
-    assert_equal 20, sandbox.run(:Worker, 4, multiplier: 5)
+    assert_equal 2, sandbox.run(:Worker, 2).value
+    assert_equal 9, sandbox.run(:Worker, 3, multiplier: 3).value
+    assert_equal 20, sandbox.run(:Worker, 4, multiplier: 5).value
   end
 
   # J-07 follow-up: #run and #eval interleave freely on the same Sandbox;
@@ -123,8 +123,8 @@ class TestE2ELifecycle < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(n) { n * n }", name: :Worker)
 
-    assert_equal 16, sandbox.run(:Worker, 4)
-    assert_equal 16, sandbox.eval("Worker.call(3) + 7")
-    assert_equal 25, sandbox.run(:Worker, 5)
+    assert_equal 16, sandbox.run(:Worker, 4).value
+    assert_equal 16, sandbox.eval("Worker.call(3) + 7").value
+    assert_equal 25, sandbox.run(:Worker, 5).value
   end
 end

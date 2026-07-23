@@ -26,7 +26,7 @@ class TestE2EOutcomeValues < Minitest::Test
     }.each do |code, expected|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-      assert_equal expected, sandbox.eval(code),
+      assert_equal expected, sandbox.eval(code).value,
                    "a returned value carrying an embedded NUL (#{code}) must round-trip " \
                    "intact through the result encoder, not hard-trap the eval"
     end
@@ -71,7 +71,7 @@ class TestE2EOutcomeValues < Minitest::Test
   def test_nesting_within_the_cap_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval("a = 0; 100.times { a = [a] }; a")
+    result = sandbox.eval("a = 0; 100.times { a = [a] }; a").value
 
     depth = 0
     node = result
@@ -93,7 +93,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # because the codec encodes Float as msgpack `float 64`.
   def test_outcome_float_precision_round_trips_full_f64
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    result = sandbox.eval("0.1 + 0.2")
+    result = sandbox.eval("0.1 + 0.2").value
     assert_equal 0.30000000000000004, result,
                  "H-1: Float outcome must round-trip the full 64-bit payload"
   end
@@ -107,8 +107,8 @@ class TestE2EOutcomeValues < Minitest::Test
   # the Fixnum-tagged range.
   def test_outcome_integer_round_trips_via_direct_unbox
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    assert_equal 268_435_457, sandbox.eval("268_435_457")
-    assert_equal(-268_435_457, sandbox.eval("-268_435_457"))
+    assert_equal 268_435_457, sandbox.eval("268_435_457").value
+    assert_equal(-268_435_457, sandbox.eval("-268_435_457").value)
   end
 
   # outcome path: +try_codec_value+ raises on a type outside the 12-entry
@@ -145,7 +145,7 @@ class TestE2EOutcomeValues < Minitest::Test
   def test_outcome_array_returns_native_array
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval('[1, "a", :b]')
+    result = sandbox.eval('[1, "a", :b]').value
 
     assert_equal [1, "a", :b], result,
                  "outcome path: mruby Array must arrive as a Ruby Array with " \
@@ -159,7 +159,7 @@ class TestE2EOutcomeValues < Minitest::Test
   def test_outcome_hash_returns_native_hash
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval('{a: 1, "b" => 2}')
+    result = sandbox.eval('{a: 1, "b" => 2}').value
 
     assert_equal({ a: 1, "b" => 2 }, result,
                  "outcome path: mruby Hash must arrive as a Ruby Hash preserving " \
@@ -173,14 +173,14 @@ class TestE2EOutcomeValues < Minitest::Test
   def test_outcome_empty_array_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    assert_equal [], sandbox.eval("[]"),
+    assert_equal [], sandbox.eval("[]").value,
                  "outcome path: empty Array must arrive as `[]`, not the inspect string"
   end
 
   def test_outcome_empty_hash_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    assert_equal({}, sandbox.eval("{}"),
+    assert_equal({}, sandbox.eval("{}").value,
                  "outcome path: empty Hash must arrive as `{}`, not the legacy `\"{}\"` sentinel")
   end
 end

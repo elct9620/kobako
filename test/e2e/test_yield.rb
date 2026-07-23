@@ -18,7 +18,7 @@ class TestE2EYield < Minitest::Test
     observed = []
     sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
 
-    sandbox.eval("Probe::Sees.call { |x| x }")
+    sandbox.eval("Probe::Sees.call { |x| x }").value
 
     assert_equal [true], observed,
                  "B-23: guest call site supplying a block must surface as " \
@@ -30,7 +30,7 @@ class TestE2EYield < Minitest::Test
     observed = []
     sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
 
-    sandbox.eval("Probe::Sees.call")
+    sandbox.eval("Probe::Sees.call").value
 
     assert_equal [false], observed,
                  "B-23: guest call without a block leaves &block nil"
@@ -40,7 +40,7 @@ class TestE2EYield < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
-    result = sandbox.eval("Probe::OnceX.call(21) { |x| x * 2 }")
+    result = sandbox.eval("Probe::OnceX.call(21) { |x| x * 2 }").value
 
     assert_equal 42, result,
                  "B-24: a Service method's yield observes the block's " \
@@ -51,7 +51,7 @@ class TestE2EYield < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::MapEach", ->(items, &blk) { items.map(&blk) })
 
-    result = sandbox.eval("Probe::MapEach.call([1, 2, 3]) { |x| x * 10 }")
+    result = sandbox.eval("Probe::MapEach.call([1, 2, 3]) { |x| x * 10 }").value
 
     assert_equal [10, 20, 30], result,
                  "B-29: each Service yield is an independent round-trip; " \
@@ -71,7 +71,7 @@ class TestE2EYield < Minitest::Test
     sandbox.bind("A::Step", ->(name:, &blk) { "A[#{name}]:#{blk.call}" })
     sandbox.bind("B::Fetch", ->(key) { "fetched:#{key}" })
 
-    result = sandbox.eval("A::Step.call(name: 'outer') { B::Fetch.call('k1') }")
+    result = sandbox.eval("A::Step.call(name: 'outer') { B::Fetch.call('k1') }").value
 
     assert_equal "A[outer]:fetched:k1", result,
                  "B-28: a guest block may dispatch to another no-block binding " \
@@ -84,7 +84,7 @@ class TestE2EYield < Minitest::Test
     sandbox.bind("Probe::Boom", ->(&blk) { blk.call })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval('Probe::Boom.call { raise "from guest block" }')
+      sandbox.eval('Probe::Boom.call { raise "from guest block" }').value
     end
 
     assert_match(/from guest block/, err.message,
@@ -102,7 +102,7 @@ class TestE2EYield < Minitest::Test
     # block.call raises at the yield site; unrescued, it surfaces through
     # the same path as a block exception (B-24) — Kobako::ServiceError.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
+      sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }").value
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
@@ -120,7 +120,7 @@ class TestE2EYield < Minitest::Test
     # it — the Service observes an error at its yield site rather than an
     # unwind to a misleading String.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
+      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }").value
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
@@ -132,7 +132,7 @@ class TestE2EYield < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Ignores", ->(*, &_blk) { :ok })
 
-    result = sandbox.eval("Probe::Ignores.call { raise 'never runs' }")
+    result = sandbox.eval("Probe::Ignores.call { raise 'never runs' }").value
 
     assert_equal :ok, result,
                  "B-30: a Service that receives a block but never invokes " \

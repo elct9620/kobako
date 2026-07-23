@@ -43,8 +43,8 @@ module Parity
 
     def invoke(sandbox, invocation)
       case invocation.fetch(:verb)
-      when "eval" then capture_outcome { sandbox.eval(invocation.fetch(:source)) }
-      when "run" then capture_outcome { run_verb(sandbox, invocation) }
+      when "eval" then capture_outcome { sandbox.eval(invocation.fetch(:source)).value }
+      when "run" then capture_outcome { run_verb(sandbox, invocation).value }
       when "late_bind" then late_bind(sandbox, invocation)
       else raise ArgumentError, "unknown invocation verb: #{invocation.inspect}"
       end

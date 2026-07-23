@@ -18,7 +18,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     started = Time.now
-    err = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
+    err = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }").value }
     elapsed = Time.now - started
 
     assert_kind_of Kobako::TrapError, err,
@@ -38,7 +38,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 2 << 20)
 
     err = assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 200.times { a << ("x" * 100_000) }; nil')
+      sandbox.eval('a = []; 200.times { a << ("x" * 100_000) }; nil').value
     end
 
     assert_kind_of Kobako::TrapError, err,
@@ -56,8 +56,8 @@ class TestE2ECaps < Minitest::Test
   def test_memory_limit_resets_per_invocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
-    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize')
-    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize')
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value
   end
 
   # SPEC.md B-01 / E-20: the per-invocation delta cap is enforced even
@@ -71,7 +71,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     err = assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil').value
     end
 
     assert_match(/memory_limit/, err.message)
@@ -88,9 +88,9 @@ class TestE2ECaps < Minitest::Test
   def test_sandbox_reusable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
-    assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
+    assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }").value }
 
-    assert_equal 3, sandbox.eval("1 + 2"),
+    assert_equal 3, sandbox.eval("1 + 2").value,
                  "a Sandbox must stay usable after a TimeoutError — the next " \
                  "eval must run under a fresh cap window, not re-trap on the old one"
   end
@@ -104,10 +104,10 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil').value
     end
 
-    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize'),
+    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value,
                  "a Sandbox must stay usable after a MemoryLimitError — the next " \
                  "within-budget eval must succeed under a re-anchored cap window"
   end
@@ -122,7 +122,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
     end
 
     assert_equal "out before trap\n", sandbox.stdout,
@@ -140,7 +140,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
     end
 
     assert_equal "err before trap\n", sandbox.stderr,
@@ -157,7 +157,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2, stdout_limit: 5)
 
     assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }')
+      sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }').value
     end
 
     assert_equal "long ", sandbox.stdout,
@@ -176,7 +176,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil')
+      sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil').value
     end
 
     assert_equal "before alloc\n", sandbox.stdout,
@@ -194,7 +194,7 @@ class TestE2ECaps < Minitest::Test
   def test_nil_caps_disable_enforcement_rather_than_fall_back_to_defaults
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
 
-    assert_equal 100, sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; a.size'),
+    assert_equal 100, sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; a.size').value,
                  "with both caps disabled, an allocation that traps under the default " \
                  "1 MiB cap must complete — nil disables the cap rather than falling back " \
                  "to DEFAULT_MEMORY_LIMIT"

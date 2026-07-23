@@ -14,7 +14,7 @@ class TestE2EThreading < Minitest::Test
     results = Array.new(2)
     2.times.map do |i|
       source = format("$mark ||= %<mark>d; $mark + %<add>d", mark: i, add: i * 10)
-      Thread.new { results[i] = Kobako::Sandbox.new.eval(source) }
+      Thread.new { results[i] = Kobako::Sandbox.new.eval(source).value }
     end.each(&:join)
 
     assert_equal [0, 11], results,
