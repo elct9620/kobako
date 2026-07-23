@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "handles"
 require_relative "../codec"
 require_relative "../errors"
 
@@ -20,21 +19,15 @@ module Kobako
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
     # responsibility — the Dispatcher receives this registry and the
     # +Catalog::Handles+ as arguments from the +Runtime#on_dispatch+ Proc
-    # that +Kobako::Sandbox#initialize+ installs. The registry holds an
-    # injected +Catalog::Handles+ reference so dispatch target resolution
-    # and host→guest auto-wrap share the same Sandbox-owned allocator.
+    # that +Kobako::Sandbox#initialize+ installs.
     class Services
       # Ruby constant-name pattern each +::+-separated bind-path segment
       # must match.
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
-      # Build a fresh registry. +handler+ is an internal seam that injects
-      # a pre-configured +Catalog::Handles+; tests pass one whose +next_id+
-      # is pinned near +MAX_ID+ to exercise the cap-exhaustion path
-      # without 2³¹ allocations. Production callers leave it at the default.
-      def initialize(handler: Catalog::Handles.new)
+      # Build a fresh registry.
+      def initialize
         @bindings = {} # : Hash[String, untyped]
-        @handler = handler
         @sealed = false
         @encoded = nil # : String?
       end
@@ -84,23 +77,20 @@ module Kobako
       # Strings, so none of the kobako ext types fire. Returns a binary
       # +String+ of msgpack bytes.
       #
-      # Once sealed, the bytes are computed once and reused for every
-      # subsequent invocation: sealing freezes Service registration at the
-      # first invocation, so a bind reaching the registry after the seal
-      # raises +ArgumentError+ and never alters Frame 1.
+      # The bytes are pinned eagerly by #seal! at the first invocation, so
+      # every subsequent call is a pure read of the frozen preamble — a bind
+      # can never reach the registry after the seal to alter Frame 1.
       def encode
-        return @encoded if @encoded
-
-        bytes = Codec::Encoder.encode(@bindings.keys).freeze
-        @encoded = bytes if @sealed
-        bytes
+        @encoded || Codec::Encoder.encode(@bindings.keys).freeze
       end
 
-      # Mark the registry as sealed. Called by +Sandbox+ on the first
-      # invocation; afterwards #bind raises ArgumentError. Idempotent;
-      # returns +self+.
+      # Mark the registry as sealed and pin the Frame 1 preamble bytes so
+      # registration can never alter them afterwards. Called by +Sandbox+ on
+      # the first invocation; afterwards #bind raises ArgumentError.
+      # Idempotent; returns +self+.
       def seal!
         @sealed = true
+        @encoded ||= Codec::Encoder.encode(@bindings.keys).freeze
         self
       end
 

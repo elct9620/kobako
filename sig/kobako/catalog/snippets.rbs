@@ -11,6 +11,8 @@ module Kobako
 
       def encode: () -> String
 
+      def seal!: () -> self
+
       private
 
       def register_source!: (String? code, (Symbol | String)? name) -> Symbol

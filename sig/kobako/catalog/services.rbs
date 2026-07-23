@@ -3,7 +3,7 @@ module Kobako
     class Services
       NAME_PATTERN: Regexp
 
-      def initialize: (?handler: Kobako::Catalog::Handles) -> void
+      def initialize: () -> void
 
       def bind: (Symbol | String path, untyped object) -> self
 

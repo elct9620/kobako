@@ -16,14 +16,13 @@ module Kobako
   # scripts inside a wasmtime-hosted Wasm module.
   #
   # The Sandbox owns the +Kobako::Runtime+, the per-Sandbox
-  # +Kobako::Catalog::Handles+, the per-instance
-  # +Kobako::Catalog::Services+ (which receives the +Catalog::Handles+ by
-  # injection so guest→host dispatch and host→guest auto-wrap share one
-  # allocator), and the dispatch +Proc+ / +yield_to_guest+ lambda installed
-  # on the Runtime via +Runtime#on_dispatch=+. The underlying wasmtime Engine
-  # and compiled Module are cached at process scope by the native ext and
-  # never surface to Ruby — constructing many Sandboxes amortises both costs
-  # automatically.
+  # +Kobako::Catalog::Handles+ shared by guest→host dispatch and host→guest
+  # auto-wrap so both name a Handle by the same id, the per-instance
+  # +Kobako::Catalog::Services+, and the dispatch +Proc+ / +yield_to_guest+
+  # lambda installed on the Runtime via +Runtime#on_dispatch=+. The
+  # underlying wasmtime Engine and compiled Module are cached at process
+  # scope by the native ext and never surface to Ruby — constructing many
+  # Sandboxes amortises both costs automatically.
   #
   # Output capture policy: the
   # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
@@ -92,7 +91,7 @@ module Kobako
       @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(**)
       @handler = Catalog::Handles.new
-      @services = Kobako::Catalog::Services.new(handler: @handler)
+      @services = Kobako::Catalog::Services.new
       @snippets = Catalog::Snippets.new
       @extensions = Catalog::Extensions.new
       @runtime = build_runtime!
@@ -260,6 +259,7 @@ module Kobako
     # beyond this class — it is not part of the Host App's surface.
     def begin_invocation!
       @services.seal!
+      @snippets.seal!
       @extensions.seal!
       @extensions.refresh_backends!(@services)
       @handler.reset!

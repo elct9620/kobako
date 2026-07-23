@@ -41,17 +41,19 @@ module Kobako
       # externally via +entry_payload+ rather than asking each entry to
       # self-encode.
       #
-      # The bytes are memoized — the table is replayed verbatim on every
-      # invocation after sealing, so Frame 3 never changes between
-      # encodes; #register drops the memo while the table is still open.
-      # Unlike +Catalog::Services#encode+, which gates its memo on the
-      # seal, this one can fill eagerly and invalidate in +#register+
-      # because every mutation funnels through that single method — there is
-      # no out-of-sight child object to change the result behind its back.
+      # The bytes are pinned eagerly by #seal! at the first invocation, so
+      # every subsequent call is a pure read of the frozen table; #register
+      # drops the memo while the table is still open, before the seal.
       def encode
-        return @encoded if @encoded
+        @encoded || Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
+      end
 
-        @encoded = Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
+      # Freeze the Frame 3 table bytes at the first invocation so the
+      # replayed snippet set can never change afterwards. Called by +Sandbox+
+      # alongside the Service / Extension seals. Idempotent; returns +self+.
+      def seal!
+        @encoded ||= Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
+        self
       end
 
       # Register one preloaded snippet in either of two forms.

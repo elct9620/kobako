@@ -21,7 +21,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
 
   def setup
     @handler = Kobako::Catalog::Handles.new
-    @services = Kobako::Catalog::Services.new(handler: @handler)
+    @services = Kobako::Catalog::Services.new
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @services.seal!

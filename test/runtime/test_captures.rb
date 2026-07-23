@@ -77,8 +77,7 @@ class TestRuntimeCaptures < Minitest::Test
   # outcome bytes in +@return_bytes+, and returns the Runtime so callers
   # can read +#captures+ afterwards.
   def drive_eval(code)
-    handler = Kobako::Catalog::Handles.new
-    services = Kobako::Catalog::Services.new(handler: handler)
+    services = Kobako::Catalog::Services.new
     snippets = Kobako::Catalog::Snippets.new
 
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
