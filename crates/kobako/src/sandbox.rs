@@ -211,6 +211,37 @@ impl Sandbox {
             Entry::Eval {
                 source: source.as_bytes(),
             },
+            Vec::new(),
+        )
+    }
+
+    /// Run one mruby source with a per-invocation override closure — the Rust
+    /// spelling of the Ruby frontend's `#eval { |ctx| ctx.bind(...) }`. The
+    /// closure runs before the guest drives, receiving an `Overrides`
+    /// collector that fills a fillable or shadows any declared binding for
+    /// this invocation only; overriding an undeclared path returns
+    /// `Error::Argument` before the guest runs. Overrides take priority over
+    /// the per-invocation overlay and the static base, and touch host-side
+    /// resolution only — Frame 1 stays fixed.
+    pub fn eval_with<F>(&mut self, source: &str, overrides: F) -> Result<Value, Error>
+    where
+        F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
+    {
+        let catalog = self.begin_invocation()?;
+        let overrides = {
+            let mut ctx = Context {
+                catalog: &catalog,
+                overrides: Vec::new(),
+            };
+            overrides(&mut ctx)?;
+            ctx.overrides
+        };
+        self.invoke(
+            catalog,
+            Entry::Eval {
+                source: source.as_bytes(),
+            },
+            overrides,
         )
     }
 
@@ -259,6 +290,7 @@ impl Sandbox {
             Entry::Run {
                 envelope: &envelope,
             },
+            Vec::new(),
         )
     }
 
@@ -266,8 +298,15 @@ impl Sandbox {
     /// sealed catalog's frames and dispatch handler, drive `entry`
     /// through the driver, and read the snapshot — one owner for the
     /// wiring so a handler or frame change cannot drift between verbs.
-    fn invoke(&mut self, catalog: Arc<Catalog>, entry: Entry<'_>) -> Result<Value, Error> {
-        let overlay = self.extensions.overlay();
+    /// `overrides` are the per-eval `ctx.bind` bindings; they precede the
+    /// per-invocation overlay so the dispatch handler resolves them first.
+    fn invoke(
+        &mut self,
+        catalog: Arc<Catalog>,
+        entry: Entry<'_>,
+        mut overlay: Vec<(String, Arc<dyn Receiver>)>,
+    ) -> Result<Value, Error> {
+        overlay.extend(self.extensions.overlay());
         let preamble = catalog.preamble();
         let snippets = catalog.snippets.frame();
         let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone(), overlay));
@@ -394,6 +433,33 @@ impl Sandbox {
     /// Resource usage of the last invocation; `None` before any.
     pub fn usage(&self) -> Option<Usage> {
         self.usage
+    }
+}
+
+/// The per-invocation Context handed to an `eval_with` override closure — the
+/// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only
+/// the `ctx.bind` overrides (the Handle table and observables stay threaded
+/// through `&mut self`, which the borrow checker already keeps per-invocation-
+/// exclusive); each override takes priority over the per-invocation overlay
+/// and the static base for that one invocation, and is discarded when it ends.
+pub struct Context<'a> {
+    catalog: &'a Catalog,
+    overrides: Vec<(String, Arc<dyn Receiver>)>,
+}
+
+impl Context<'_> {
+    /// Override the object bound at an already-declared `path` for this
+    /// invocation — filling a fillable or shadowing a static / per-invocation
+    /// binding. Overriding a path that was never declared returns
+    /// `Error::Argument`, so an override can never grow the sealed key set.
+    pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
+        if self.catalog.lookup(path).is_none() {
+            return Err(Error::Argument(format!(
+                "cannot override undeclared path {path:?}"
+            )));
+        }
+        self.overrides.push((path.to_string(), object));
+        Ok(())
     }
 }
 
