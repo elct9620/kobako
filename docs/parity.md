@@ -68,6 +68,19 @@ carries the concept's own name.
 | Bound constant — the leaf name of a constant path | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
 | Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |
 | Block — the guest-side block body | never crosses the wire; only the Request's `block_given` flag travels | same — the wire contract is shared |
+| Invocation result — the value a run produced with its captures and usage | `Kobako::Execution`, returned from `#eval` / `#run` | `kobako::Execution`, returned from `eval` / `run` |
+
+The result surface carries the frontends' one lasting asymmetry, the
+error model. The guest reports success or failure as a value (its
+`Outcome`); the Ruby host raises a taxonomy error carrying the frozen
+`Execution` on `#execution`, while the SDK keeps failure a value — a run
+that reached the guest is `Ok(Execution)`, its outcome (the value or a
+failure `Error`) rides `Execution::value`, and `into_value` folds it into
+a `Result` so a caller cannot pass over a guest failure unnoticed. A run
+that never started raises without an Execution on Ruby and is the outer
+`Err` on the SDK. The harness compares the observables both carry —
+value, captures, usage, failure attribution — after normalization, so
+this raise-versus-return spelling never surfaces as drift.
 
 ## Coverage gate
 
@@ -129,8 +142,12 @@ E-01 E-23 B-18 E-13 B-43 E-44
   readers, construction failures (E-16..E-18, E-24, E-25, E-29, E-30,
   E-33..E-35, E-39..E-42, E-45..E-47, E-49, E-51..E-53, B-05,
   B-07..B-11, B-19, B-22, B-33's exception class, B-40, B-46..B-48,
-  B-54, B-57): each frontend spells these in its own idiom; the seal's
-  *timing* (B-33) stays in the manifest, its spelling does not. The
+  B-54, B-57, B-61): each frontend spells these in its own idiom; the
+  seal's *timing* (B-33) stays in the manifest, its spelling does not.
+  The result-VO shape (B-61) is likewise per-frontend — Ruby returns or
+  raises a `Kobako::Execution`, the SDK returns a `kobako::Execution` —
+  while the observables it carries stay pinned by their own anchors
+  (returned value, captures, usage). The
   Extension install composition and its backend provider resolution
   (B-55 / B-56) are in the manifest — a differential install scenario
   runs them through both frontends — while the dependency assertion
