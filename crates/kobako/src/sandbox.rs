@@ -217,12 +217,12 @@ impl Sandbox {
 
     /// Run one mruby source with a per-invocation override closure — the Rust
     /// spelling of the Ruby frontend's `#eval { |ctx| ctx.bind(...) }`. The
-    /// closure runs before the guest drives, receiving an `Overrides`
-    /// collector that fills a fillable or shadows any declared binding for
-    /// this invocation only; overriding an undeclared path returns
-    /// `Error::Argument` before the guest runs. Overrides take priority over
-    /// the per-invocation overlay and the static base, and touch host-side
-    /// resolution only — Frame 1 stays fixed.
+    /// closure runs before the guest drives, receiving the per-invocation
+    /// `Context` whose `bind` fills a fillable or shadows any declared binding
+    /// for this invocation only; overriding an undeclared path returns
+    /// `Error::Argument` before the guest runs. The overrides take priority
+    /// over the per-invocation overlay and the static base, and touch
+    /// host-side resolution only — Frame 1 stays fixed.
     pub fn eval_with<F>(&mut self, source: &str, overrides: F) -> Result<Value, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,

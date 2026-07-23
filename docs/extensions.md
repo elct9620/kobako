@@ -37,17 +37,18 @@ constant the idiom routes to) with a `provider`. `Kobako::Extension::Backend`
 is the bundled value type; `install` duck-types on `path` / `object` / `provider`,
 so a conforming object of your own is equally valid.
 
-| Provider form | Bound object | Lifetime |
-|---------------|--------------|----------|
-| Not itself callable (fixed) | The object itself | Resolved once; identical across every invocation |
-| A callable (`respond_to?(:call)`) | The callable's return value | Invoked once per invocation; a fresh object backs the path each invocation |
+| Declaration | Bound object | Lifetime |
+|-------------|--------------|----------|
+| `object:` (static) | The object itself | Resolved once; identical across every invocation |
+| `provider:` (a no-argument callable) | The callable's return value | Invoked once per invocation; a fresh object backs the path each invocation |
+| neither (fillable) | `Kobako::Unresolved` | Stays unresolved until a per-eval `ctx.bind` fills it; a dispatch to an unfilled fillable fails closed as an undefined target |
 
-Callability is the sole discriminator, so a fixed backend that itself
-responds to `:call` (rare for a filesystem/store object) is inexpressible
-directly — wrap it in a non-callable holder. The Rust SDK removes this
-edge by making the choice explicit through the `Provider` enum.
+The kind is chosen by keyword, never inferred from whether the value is
+callable, so a static object that is itself callable is expressed directly
+with `object:`; giving both `object:` and `provider:` raises `ArgumentError`.
+The Rust SDK spells the same choice through its `Provider` enum.
 
-Provider identity is resource identity: pass the **same** provider to
+Provider identity is resource identity: pass the **same** `provider:` to
 several Extensions and it resolves once per invocation to one object
 shared by their paths; pass distinct providers for distinct objects.
 
@@ -58,8 +59,9 @@ no wire, codec, or Guest Binary surface:
 
 - `preload(code: source, name: name)` registers the idiom.
 - When `backend` is present, `backend.path` enters the sealed Service
-  registry (Frame 1); the object behind it is resolved from `provider`
-  at each invocation.
+  registry (Frame 1); the object behind it is chosen per invocation by the
+  backend's declared kind — static `object:`, per-invocation `provider:`,
+  or fillable.
 
 The first invocation seals installation (as it seals `#bind` / `#preload`):
 a later `install` raises `ArgumentError`. At the seal, every installed
@@ -77,8 +79,8 @@ references resolve at guest call time, after every snippet has replayed.
   `depends_on` — one idiom + one backend each, joined by reference, not
   a single aggregate.
 - **Per-invocation freshness is a correctness tool.** A writable backend
-  must use a callable provider so its state cannot leak across
-  invocations; a shared read-only backend is a fixed object.
+  must use a `provider:` callable so its state cannot leak across
+  invocations; a shared read-only backend is a static `object:`.
 
 ## Worked example — a native `File`
 
