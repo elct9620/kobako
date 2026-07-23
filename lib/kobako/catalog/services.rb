@@ -49,6 +49,12 @@ module Kobako
         self
       end
 
+      # Returns +true+ iff a Service is bound at +path+ — the declared (Frame 1)
+      # key set a per-invocation +ctx.bind+ override may target.
+      def bound?(path)
+        @bindings.key?(path.to_s)
+      end
+
       # Resolve a +target+ constant path to the bound Service. Raises
       # +KeyError+ when no Service is bound at +target+.
       def lookup(target)

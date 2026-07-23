@@ -65,5 +65,41 @@ module Kobako
         context.lookup("Store")
       end
     end
+
+    # B-63: a ctx.bind override shadows the base binding in lookup priority.
+    def test_lookup_prefers_a_ctx_bind_override_over_the_base_binding
+      base = Object.new
+      override = Object.new
+      @services.bind("Store", base)
+      ctx = context
+      ctx.bind("Store", override)
+
+      assert_same override, ctx.lookup("Store"),
+                  "a ctx.bind override must shadow the base binding in lookup priority (B-63)"
+    end
+
+    # B-63: ctx.bind fills a fillable, so lookup returns the override instead of
+    # reporting the Unresolved sentinel as unresolvable.
+    def test_ctx_bind_fills_a_fillable_so_lookup_returns_the_override
+      @services.bind("Store", Kobako::Unresolved)
+      ctx = context
+      filled = Object.new
+      ctx.bind("Store", filled)
+
+      assert_same filled, ctx.lookup("Store"),
+                  "ctx.bind must fill a fillable so lookup returns the override, not KeyError (B-63)"
+    end
+
+    # B-63: ctx.bind on an undeclared path raises, so a per-eval override can
+    # never grow the Frame 1 key set sealed at the first invocation (B-33).
+    def test_ctx_bind_rejects_an_undeclared_path
+      @services.bind("Store", Object.new)
+      ctx = context
+
+      assert_raises(ArgumentError,
+                    "ctx.bind on an undeclared path must raise so the Frame 1 key set stays fixed (B-63 / B-33)") do
+        ctx.bind("Undeclared", Object.new)
+      end
+    end
   end
 end

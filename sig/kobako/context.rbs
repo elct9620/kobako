@@ -9,6 +9,8 @@ module Kobako
       extensions: Kobako::Catalog::Extensions
     ) -> void
 
+    def bind: (Symbol | String path, untyped object) -> self
+
     def lookup: (Symbol | String path) -> untyped
 
     def stdout: () -> String
@@ -19,11 +21,13 @@ module Kobako
 
     def stderr_truncated?: () -> bool
 
-    def eval: (String code) -> Kobako::Execution
+    def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
-    def run: (Kobako::Transport::Run run_envelope) -> Kobako::Execution
+    def run: (Kobako::Transport::Run run_envelope) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
     private
+
+    def collect_overrides: () { (Kobako::Context) -> void } -> void
 
     def dispatch_handler: () -> ^(String, Kobako::Transport::_GuestYielder) -> String
 

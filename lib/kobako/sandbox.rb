@@ -177,9 +177,9 @@ module Kobako
     # deserialized result. The first invocation seals the Service registry
     # and snippet table. Runtime errors follow the same three-class
     # taxonomy as +#eval+.
-    def run(target, *args, **kwargs)
+    def run(target, *args, **kwargs, &block)
       run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      new_invocation.run(run_envelope)
+      new_invocation.run(run_envelope, &block)
     end
 
     # Execute a guest mruby source string in a fresh +mrb_state+. +code+ is
@@ -203,10 +203,10 @@ module Kobako
     # (including when +code+ is +nil+ or not a String, or when a preloaded
     # snippet's replay raises); +Kobako::ServiceError+ on an unrescued
     # Service capability failure.
-    def eval(code)
+    def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      new_invocation.eval(code)
+      new_invocation.eval(code, &block)
     end
 
     # Install a fresh, unrun +Context+ as the last invocation, so the

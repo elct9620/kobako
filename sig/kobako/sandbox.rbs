@@ -36,9 +36,9 @@ module Kobako
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
 
-    def run: (Symbol | String target, *untyped args, **untyped kwargs) -> untyped
+    def run: (Symbol | String target, *untyped args, **untyped kwargs) ?{ (Kobako::Context) -> void } -> untyped
 
-    def eval: (String code) -> untyped
+    def eval: (String code) ?{ (Kobako::Context) -> void } -> untyped
 
     def reset_invocation_state!: () -> void
 

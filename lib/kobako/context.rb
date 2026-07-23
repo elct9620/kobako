@@ -35,22 +35,42 @@ module Kobako
       @snippets = snippets
       @extensions = extensions
       @resolved = {} # : Hash[String, untyped]
+      @overrides = {} # : Hash[String, untyped]
+      @spent = false
       @handler = Catalog::Handles.new
-      @stdout_capture = Capture::EMPTY
-      @stderr_capture = Capture::EMPTY
+      @stdout_capture = @stderr_capture = Capture::EMPTY
       @usage = Usage::EMPTY
     end
 
+    # Override the object bound at an already-declared +path+ for this
+    # invocation only — the per-eval hook the +#eval+ / +#run+ block uses to
+    # fill a fillable or shadow any static / per-invocation binding. +path+
+    # must name a declared (Frame 1) binding; overriding an undeclared path
+    # raises +ArgumentError+ so the Frame 1 key set stays fixed. Valid only
+    # while the block runs — the Context is spent once the block returns, so a
+    # captured +ctx+ used afterward raises. Returns +self+.
+    def bind(path, object)
+      raise "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
+
+      key = path.to_s
+      raise ArgumentError, "cannot override undeclared path #{key.inspect}" unless @services.bound?(key)
+
+      @overrides[key] = object
+      self
+    end
+
     # Resolve a Service +path+ to the object backing it this invocation,
-    # layering this Context's per-invocation provider results over the
-    # Sandbox's static base bindings. An unbound path raises +KeyError+; a
-    # fillable left unfilled resolves to +Kobako::Unresolved+ and is reported
-    # the same way, so an unresolved capability fails closed as an
-    # undefined target rather than dispatching to the sentinel. The Dispatcher
-    # maps either +KeyError+ to an undefined-target wire fault. Internal — the
-    # per-invocation dispatch handler is the sole caller.
+    # layering the per-eval +ctx.bind+ overrides over this Context's
+    # per-invocation provider results over the Sandbox's static base bindings.
+    # An unbound path raises +KeyError+; a fillable left unfilled resolves to
+    # +Kobako::Unresolved+ and is reported the same way, so an unresolved
+    # capability fails closed as an undefined target rather than dispatching to
+    # the sentinel. The Dispatcher maps either +KeyError+ to an
+    # undefined-target wire fault. Internal — the per-invocation dispatch
+    # handler is the sole caller.
     def lookup(path)
-      object = @resolved.fetch(path.to_s) { @services.lookup(path) }
+      key = path.to_s
+      object = @overrides.fetch(key) { @resolved.fetch(key) { @services.lookup(path) } }
       raise KeyError, "service #{path} is declared but unresolved this invocation" if Unresolved.equal?(object)
 
       object
@@ -71,22 +91,36 @@ module Kobako
     def stderr_truncated? = @stderr_capture.truncated?
 
     # Execute a guest mruby source string in a fresh +mrb_state+ and return the
-    # decoded last expression.
-    def eval(code)
+    # decoded last expression. A given +block+ runs first, receiving this
+    # Context to collect +ctx.bind+ overrides before the guest drives.
+    def eval(code, &block)
+      collect_overrides(&block) if block
       invoke!(:eval) do
         @runtime.eval(dispatch_handler, @services.encode, code.b, @snippets.encode)
       end
     end
 
     # Dispatch a +Transport::Run+ envelope into a preloaded entrypoint and
-    # return the decoded result.
-    def run(run_envelope)
+    # return the decoded result. A given +block+ runs first, receiving this
+    # Context to collect +ctx.bind+ overrides before the guest drives.
+    def run(run_envelope, &block)
+      collect_overrides(&block) if block
       invoke!(:run) do
         @runtime.run(dispatch_handler, @services.encode, @snippets.encode, run_envelope.encode(@handler))
       end
     end
 
     private
+
+    # Run the per-eval override +block+, handing it this Context so it can call
+    # +ctx.bind+, then spend the Context so a captured +ctx+ used after the
+    # block raises. A block that raises propagates before the guest drives, so
+    # the guest never runs and no Execution is produced.
+    def collect_overrides
+      yield self
+    ensure
+      @spent = true
+    end
 
     # Build this invocation's guest→host dispatch handler — a +Proc+ routing
     # each guest→host call through the stateless +Transport::Dispatcher+,

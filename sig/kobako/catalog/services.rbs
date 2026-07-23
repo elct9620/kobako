@@ -7,6 +7,8 @@ module Kobako
 
       def bind: (Symbol | String path, untyped object) -> self
 
+      def bound?: (Symbol | String path) -> bool
+
       def lookup: (Symbol | String target) -> untyped
 
       def encode: () -> String
