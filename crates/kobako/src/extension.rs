@@ -112,13 +112,14 @@ impl Extensions {
     }
 
     /// Assert every installed Extension's `depends_on` names a fellow
-    /// installed Extension. Runs once, at the first seal; the check is
-    /// presence-only, so dependency cycles are permitted.
+    /// installed Extension. Runs once, at the first successful seal; the check
+    /// is presence-only, so dependency cycles are permitted. The asserted flag
+    /// flips only on success, so a seal that failed re-checks on the next
+    /// attempt rather than silently passing a broken Sandbox.
     pub(crate) fn assert_dependencies(&mut self) -> Result<(), Error> {
         if self.asserted {
             return Ok(());
         }
-        self.asserted = true;
         let names: Vec<&str> = self.entries.iter().map(|entry| entry.name()).collect();
         for extension in &self.entries {
             for dependency in extension.depends_on() {
@@ -131,6 +132,7 @@ impl Extensions {
                 }
             }
         }
+        self.asserted = true;
         Ok(())
     }
 
@@ -223,6 +225,17 @@ mod tests {
         assert!(
             matches!(err, Error::Argument(message) if message.contains("File") && message.contains("Errno")),
             "an unmet dependency names both ends"
+        );
+    }
+
+    #[test]
+    fn assert_dependencies_re_asserts_after_a_failed_seal() {
+        let mut extensions = Extensions::default();
+        extensions.record(ext("File", &["Errno"]));
+        assert!(extensions.assert_dependencies().is_err());
+        assert!(
+            extensions.assert_dependencies().is_err(),
+            "a failed seal re-checks on retry; the asserted flag flips only on a successful seal"
         );
     }
 

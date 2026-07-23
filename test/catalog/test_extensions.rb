@@ -145,6 +145,20 @@ module Kobako
                   "unmet afterward does not raise on a later seal (B-57)"
     end
 
+    # E-52: a seal that failed on an unmet dependency must re-check on the
+    # next attempt — the asserted flag flips only on success, so a retry
+    # keeps failing closed rather than silently passing a broken Sandbox.
+    def test_seal_re_asserts_after_a_failed_seal_so_a_retry_still_raises
+      install(extension(name: :File, source: "1", depends_on: [:Errno]))
+
+      assert_raises(ArgumentError) { @extensions.seal! }
+      assert_raises(ArgumentError,
+                    "a seal that failed on an unmet dependency must re-check on retry, not silently " \
+                    "pass — the asserted flag flips only on a successful seal (E-52)") do
+        @extensions.seal!
+      end
+    end
+
     def test_install_rejects_a_non_string_source
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: 123)) }
       assert_match(/source/, err.message, "a non-String source is a malformed Extension (E-53)")

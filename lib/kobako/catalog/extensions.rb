@@ -45,14 +45,16 @@ module Kobako
       end
 
       # Assert every installed Extension's +depends_on+ names a fellow
-      # installed Extension. Runs once, when the Sandbox first seals; an
-      # unmet dependency raises +ArgumentError+ naming the gap, before the
-      # guest runs. Idempotent across later invocations.
+      # installed Extension. Runs once, when the Sandbox first seals
+      # successfully; an unmet dependency raises +ArgumentError+ naming the
+      # gap, before the guest runs. The asserted flag flips only on success,
+      # so a seal that failed re-checks on the next attempt rather than
+      # silently passing a broken Sandbox. Idempotent across later invocations.
       def seal!
         return self if @asserted
 
-        @asserted = true
         assert_dependencies!
+        @asserted = true
         self
       end
 
