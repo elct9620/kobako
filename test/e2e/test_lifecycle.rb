@@ -127,4 +127,37 @@ class TestE2ELifecycle < Minitest::Test
     assert_equal 16, sandbox.eval("Worker.call(3) + 7").value
     assert_equal 25, sandbox.run(:Worker, 5).value
   end
+
+  # B-61: #eval / #run hand back a frozen Kobako::Execution bundling the run's
+  # #value with its output captures and #usage — the caller reads the result
+  # off that returned object, not off the reusable Sandbox, so the Sandbox
+  # holds no per-invocation state a concurrent eval could observe.
+  def test_b61_eval_returns_a_frozen_execution_bundling_value_and_observables
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    execution = sandbox.eval('puts "trace"; 6 * 7')
+
+    assert_instance_of Kobako::Execution, execution,
+                       "B-61: #eval through the real guest must return a Kobako::Execution"
+    assert_predicate execution, :frozen?,
+                     "B-61: the returned Execution must be frozen so a later run cannot mutate it"
+    assert_equal 42, execution.value, "B-61: Execution#value carries the run's last-expression value"
+    assert_instance_of Kobako::Usage, execution.usage, "B-61: Execution#usage carries the run's usage"
+    assert_includes execution.stdout, "trace", "B-61: Execution#stdout carries the run's captured output"
+  end
+
+  # B-61: a failed run raises an invocation-outcome error carrying that run's
+  # frozen Execution on #execution, so a rescue reads the pre-failure captures
+  # exactly as a successful caller reads the return value; #value is nil there.
+  def test_b61_failed_run_carries_its_execution_on_the_raised_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    error = assert_raises(Kobako::SandboxError) { sandbox.eval('puts "partial"; raise "boom"') }
+    execution = error.execution
+
+    assert_instance_of Kobako::Execution, execution,
+                       "B-61: a failed run's error must carry its Execution on #execution"
+    assert_nil execution.value, "B-61: Execution#value is nil on a failed run (captures/usage only)"
+    assert_includes execution.stdout, "partial", "B-61: carried Execution holds output written pre-failure"
+  end
 end
