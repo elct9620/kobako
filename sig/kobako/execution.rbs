@@ -1,5 +1,5 @@
 module Kobako
-  class Invocation
+  class Execution
     attr_reader value: untyped
     attr_reader usage: Kobako::Usage
 

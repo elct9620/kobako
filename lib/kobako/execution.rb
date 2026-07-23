@@ -4,13 +4,13 @@ require_relative "capture"
 require_relative "usage"
 
 module Kobako
-  # Kobako::Invocation — the frozen result of one +Sandbox#eval+ / +#run+: the
+  # Kobako::Execution — the frozen result of one +Sandbox#eval+ / +#run+: the
   # decoded +#value+ plus the run's output captures and +#usage+. A successful
   # run returns it; a failed run raises an error carrying the same frozen
-  # Invocation on the error's +#invocation+, so a rescue reads the captures and
+  # Execution on the error's +#execution+, so a rescue reads the captures and
   # usage exactly as a successful caller reads them off the return value. On a
   # failed run +#value+ is +nil+ — only the captures and usage are meaningful.
-  class Invocation
+  class Execution
     # The deserialized guest value the run produced; +nil+ on a failed run.
     attr_reader :value
 

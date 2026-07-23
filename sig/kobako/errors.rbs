@@ -2,14 +2,14 @@ module Kobako
   class Error < StandardError
   end
 
-  module CarriesInvocation
-    attr_reader invocation: Kobako::Invocation?
+  module CarriesExecution
+    attr_reader execution: Kobako::Execution?
 
-    def with_invocation: (Kobako::Invocation invocation) -> self
+    def with_execution: (Kobako::Execution execution) -> self
   end
 
   class TrapError < Error
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   class TimeoutError < TrapError
@@ -41,12 +41,12 @@ module Kobako
 
   class SandboxError < Error
     include Diagnosable
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   class ServiceError < Error
     include Diagnosable
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   class HandleExhaustedError < SandboxError

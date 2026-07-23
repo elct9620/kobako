@@ -3,7 +3,7 @@
 require_relative "capture"
 require_relative "codec"
 require_relative "errors"
-require_relative "invocation"
+require_relative "execution"
 require_relative "outcome"
 require_relative "usage"
 require_relative "transport"
@@ -117,31 +117,31 @@ module Kobako
     end
 
     # Freeze this run's observables plus +value+ (+nil+ on a failed run) into
-    # the read-only +Invocation+ the caller receives or the error carries.
-    def build_invocation(value)
-      Invocation.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture)
+    # the read-only +Execution+ the caller receives or the error carries.
+    def build_execution(value)
+      Execution.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture)
     end
 
-    # Decode a completed run's outcome into its +Invocation+. A Capability
+    # Decode a completed run's outcome into its +Execution+. A Capability
     # Handle in the result is restored to its host object first. Decode sits in
     # the rescue so a wire-violation trap or a Panic envelope both attach this
-    # run's Invocation, just like a guest-call trap does.
+    # run's Execution, just like a guest-call trap does.
     def settle_outcome(snapshot, verb)
       value, carried = Codec.track_handles { Outcome.decode(snapshot.outcome) }
       value = Codec::HandleWalk.deep_restore(value, @handler) if carried
-      build_invocation(value)
+      build_execution(value)
     rescue Kobako::TrapError => e
-      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_invocation(build_invocation(nil))
+      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_execution(build_execution(nil))
     rescue Kobako::SandboxError, Kobako::ServiceError => e
-      raise e.with_invocation(build_invocation(nil))
+      raise e.with_execution(build_execution(nil))
     end
 
-    # Drive one invocation and settle it into a frozen +Invocation+. +verb+
+    # Drive one invocation and settle it into a frozen +Execution+. +verb+
     # tags the TrapError message so the failing export is identifiable. Usage
     # and captures are recorded before the trap check, so a trapped Snapshot's
     # error carries them just like a completed run's return value. A
     # could-not-start fault raises straight from the guest call with no
-    # Snapshot, so it gains only the verb prefix and carries no Invocation.
+    # Snapshot, so it gains only the verb prefix and carries no Execution.
     def invoke!(verb)
       begin
         snapshot = yield
@@ -151,7 +151,7 @@ module Kobako
       populate_observability!(snapshot)
       return settle_outcome(snapshot, verb) unless snapshot.trapped?
 
-      raise trap_error_for(snapshot, verb).with_invocation(build_invocation(nil))
+      raise trap_error_for(snapshot, verb).with_execution(build_execution(nil))
     end
   end
 end

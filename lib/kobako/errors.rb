@@ -16,20 +16,20 @@ module Kobako
   # taxonomy can rescue a single class.
   class Error < StandardError; end
 
-  # Carries the frozen +Kobako::Invocation+ of the run that failed, so a
+  # Carries the frozen +Kobako::Execution+ of the run that failed, so a
   # rescue reads its captures and usage exactly as a successful caller reads
   # them off the return value. Mixed only into the three invocation-outcome
   # classes (+TrapError+ / +SandboxError+ / +ServiceError+ and their
   # subclasses); +SetupError+ and +PoolTimeoutError+ arise outside any
-  # invocation and carry no Invocation. Defaults to +nil+ — a pre-flight
+  # invocation and carry no Execution. Defaults to +nil+ — a pre-flight
   # failure that ran no invocation leaves it unset.
-  module CarriesInvocation
-    attr_reader :invocation
+  module CarriesExecution
+    attr_reader :execution
 
-    # Attach the failed run's +Kobako::Invocation+ and return +self+ so the
-    # raise site reads +raise error.with_invocation(invocation)+.
-    def with_invocation(invocation)
-      @invocation = invocation
+    # Attach the failed run's +Kobako::Execution+ and return +self+ so the
+    # raise site reads +raise error.with_execution(execution)+.
+    def with_execution(execution)
+      @execution = execution
       self
     end
   end
@@ -50,7 +50,7 @@ module Kobako
   # want to surface a specific reason to operators can rescue the subclass
   # first.
   class TrapError < Error
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   # Wall-clock timeout cap exhausted: the absolute deadline
@@ -107,7 +107,7 @@ module Kobako
   # host-side wire decode failure on an otherwise valid outcome tag.
   class SandboxError < Error
     include Diagnosable
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   # Service layer. Raised when a Service capability call inside a mruby
@@ -115,7 +115,7 @@ module Kobako
   # rescue.
   class ServiceError < Error
     include Diagnosable
-    include CarriesInvocation
+    include CarriesExecution
   end
 
   # HandleExhaustedError is the canonical SandboxError subclass for the
