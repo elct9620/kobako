@@ -52,7 +52,9 @@ fn eval_with_fills_a_fillable_for_the_invocation() {
         .eval_with("Store.get(1)", |ctx| {
             ctx.bind("Store", Arc::new(Kv("filled")))
         })
-        .expect("a filled fillable must dispatch to the override object (B-63)");
+        .expect("a filled fillable must dispatch to the override object (B-63)")
+        .into_value()
+        .expect("the override object returns its value");
 
     assert_eq!(
         value,
@@ -74,10 +76,14 @@ fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
         .eval_with("Store.get(1)", |ctx| {
             ctx.bind("Store", Arc::new(Kv("override")))
         })
-        .expect("an override shadows the static binding");
+        .expect("an override shadows the static binding")
+        .into_value()
+        .expect("the override object returns its value");
     let plain = sandbox
         .eval("Store.get(1)")
-        .expect("the base binding resolves without an override");
+        .expect("the base binding resolves without an override")
+        .into_value()
+        .expect("the base object returns its value");
 
     assert_eq!(
         overridden,

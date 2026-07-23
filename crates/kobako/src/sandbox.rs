@@ -1,13 +1,13 @@
 //! The Sandbox: one guest, its Services, and the invocation verbs.
 //!
 //! The Rust counterpart of `Kobako::Sandbox`: registrations and
-//! preloads fill the Catalog until the first invocation seals it,
-//! `eval` / `run` execute on a fresh guest instance and yield the
-//! decoded value or a taxonomy `Error`, and the capture / usage
-//! readers expose the per-invocation observables. The Sandbox also
-//! owns the capability-Handle table: it resets at every invocation
-//! entry, and `resolve` turns a `Value::Handle` in the result back
-//! into the live host object it stands for.
+//! preloads fill the Catalog until the first invocation seals it, then
+//! `eval` / `run` execute on a fresh guest instance and return an
+//! `Execution` — the per-invocation record carrying the decoded value
+//! (or a guest failure's taxonomy `Error`), the output captures, and
+//! usage. Per-invocation state — the capability-Handle table and the
+//! observables — lives on that returned `Execution`, not on the reused
+//! Sandbox, so nothing an invocation produces outlives it on `self`.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -18,12 +18,13 @@ use kobako_codec::transport::Run;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
-use kobako_runtime::snapshot::{Capture, Completion, Snapshot};
+use kobako_runtime::snapshot::{Completion, Snapshot};
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::{Error, GuestFailure};
+use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::{HandleTable, Handles};
 use crate::outcome;
@@ -107,17 +108,14 @@ impl From<Value> for RunArg {
     }
 }
 
-/// One guest sandbox: construction loads the Guest Binary, `eval`
-/// invokes it, and the readers expose the last invocation's
-/// observables.
+/// One guest sandbox: construction loads the Guest Binary and each
+/// `eval` / `run` invokes it, returning that invocation's `Execution`.
+/// The reused Sandbox holds only sealed config — no per-invocation
+/// state — so it is the config tier and the `Execution` is the result.
 pub struct Sandbox {
     driver: Driver,
     registry: Registry,
     extensions: Extensions,
-    handles: Arc<Mutex<HandleTable>>,
-    stdout: Capture,
-    stderr: Capture,
-    usage: Option<Usage>,
 }
 
 impl Sandbox {
@@ -137,10 +135,6 @@ impl Sandbox {
             driver,
             registry: Registry::Open(Catalog::default()),
             extensions: Extensions::default(),
-            handles: Arc::default(),
-            stdout: Capture::default(),
-            stderr: Capture::default(),
-            usage: None,
         })
     }
 
@@ -203,11 +197,14 @@ impl Sandbox {
     }
 
     /// Run one mruby source on a fresh guest instance and return its
-    /// last expression as a decoded wire `Value`.
-    pub fn eval(&mut self, source: &str) -> Result<Value, Error> {
-        let catalog = self.begin_invocation()?;
+    /// `Execution` — the record of the run. `Ok` means the guest ran (its
+    /// last expression, or a guest failure, rides `Execution::value`); the
+    /// outer `Err` means it never started.
+    pub fn eval(&mut self, source: &str) -> Result<Execution, Error> {
+        let (catalog, handles) = self.begin_invocation()?;
         self.invoke(
             catalog,
+            handles,
             Entry::Eval {
                 source: source.as_bytes(),
             },
@@ -223,11 +220,11 @@ impl Sandbox {
     /// `Error::Argument` before the guest runs. The overrides take priority
     /// over the per-invocation overlay and the static base, and touch
     /// host-side resolution only — Frame 1 stays fixed.
-    pub fn eval_with<F>(&mut self, source: &str, overrides: F) -> Result<Value, Error>
+    pub fn eval_with<F>(&mut self, source: &str, overrides: F) -> Result<Execution, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        let catalog = self.begin_invocation()?;
+        let (catalog, handles) = self.begin_invocation()?;
         let overrides = {
             let mut ctx = Context {
                 catalog: &catalog,
@@ -238,6 +235,7 @@ impl Sandbox {
         };
         self.invoke(
             catalog,
+            handles,
             Entry::Eval {
                 source: source.as_bytes(),
             },
@@ -248,7 +246,7 @@ impl Sandbox {
     /// Dispatch into a preloaded entrypoint without arguments; the
     /// guest resolves `target` as a top-level constant and invokes its
     /// `call`.
-    pub fn run(&mut self, target: &str) -> Result<Value, Error> {
+    pub fn run(&mut self, target: &str) -> Result<Execution, Error> {
         self.run_with(target, Vec::new(), Vec::new())
     }
 
@@ -263,20 +261,20 @@ impl Sandbox {
         target: &str,
         args: Vec<RunArg>,
         kwargs: Vec<(String, RunArg)>,
-    ) -> Result<Value, Error> {
+    ) -> Result<Execution, Error> {
         if !snippet::constant_name(target) {
             return Err(Error::Argument(format!(
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));
         }
-        let catalog = self.begin_invocation()?;
+        let (catalog, handles) = self.begin_invocation()?;
         let args = args
             .into_iter()
-            .map(|arg| self.wrap_run_arg(arg))
+            .map(|arg| wrap_run_arg(&handles, arg))
             .collect::<Result<_, _>>()?;
         let kwargs = kwargs
             .into_iter()
-            .map(|(key, arg)| Ok((key, self.wrap_run_arg(arg)?)))
+            .map(|(key, arg)| Ok((key, wrap_run_arg(&handles, arg)?)))
             .collect::<Result<_, Error>>()?;
         let envelope = Run {
             entrypoint: target.to_string(),
@@ -287,6 +285,7 @@ impl Sandbox {
         .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
         self.invoke(
             catalog,
+            handles,
             Entry::Run {
                 envelope: &envelope,
             },
@@ -295,21 +294,25 @@ impl Sandbox {
     }
 
     /// Shared invocation core behind `eval` / `run_with`: assemble the
-    /// sealed catalog's frames and dispatch handler, drive `entry`
-    /// through the driver, and read the snapshot — one owner for the
-    /// wiring so a handler or frame change cannot drift between verbs.
-    /// `overrides` are the per-eval `ctx.bind` bindings; they precede the
-    /// per-invocation overlay so the dispatch handler resolves them first.
+    /// sealed catalog's frames and dispatch handler over this invocation's
+    /// fresh Handle table, drive `entry` through the driver, and cook the
+    /// snapshot into an `Execution` — one owner for the wiring so a handler
+    /// or frame change cannot drift between verbs. `&self` because no
+    /// per-invocation state is written back: the `handles` table and the
+    /// snapshot's observables ride into the returned `Execution`.
+    /// `overlay` starts with the per-eval `ctx.bind` overrides so the
+    /// dispatch handler resolves them ahead of the per-invocation overlay.
     fn invoke(
-        &mut self,
+        &self,
         catalog: Arc<Catalog>,
+        handles: Arc<Mutex<HandleTable>>,
         entry: Entry<'_>,
         mut overlay: Vec<(String, Arc<dyn Receiver>)>,
-    ) -> Result<Value, Error> {
+    ) -> Result<Execution, Error> {
         overlay.extend(self.extensions.overlay());
         let preamble = catalog.preamble();
         let snippets = catalog.snippets.frame();
-        let handler = Arc::new(CatalogHandler::new(catalog, self.handles.clone(), overlay));
+        let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), overlay));
         let snapshot = self.driver.invoke(
             entry,
             Frames {
@@ -318,121 +321,89 @@ impl Sandbox {
             },
             Some(handler),
         )?;
-        self.read_snapshot(snapshot)
+        Ok(build_execution(snapshot, handles))
     }
 
-    /// Resolve a `Value::Handle` from the last invocation's result to
-    /// the live host object it stands for — the Rust spelling of the
-    /// Ruby frontend's restore-to-original-object; upcast the `Arc` to
-    /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
-    /// concrete type. `None` for a non-Handle value; the table stays
-    /// readable until the next invocation resets it.
-    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
-        Handles::new(&self.handles).resolve(value)
-    }
-
-    /// Per-invocation prologue: seal the registration tables, assert
-    /// Extension dependencies on the first invocation, and clear the Handle
-    /// table so no Handle survives the boundary. An unmet dependency raises
-    /// before the guest runs.
-    fn begin_invocation(&mut self) -> Result<Arc<Catalog>, Error> {
-        self.handles
-            .lock()
-            .expect("the Handle table mutex is never poisoned")
-            .reset();
+    /// Per-invocation prologue: seal the registration tables and assert
+    /// Extension dependencies on the first invocation, then hand back the
+    /// sealed catalog and a fresh Handle table this invocation owns. An
+    /// unmet dependency raises before the guest runs.
+    fn begin_invocation(&mut self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
         let catalog = self.registry.seal();
         self.extensions.assert_dependencies()?;
-        Ok(catalog)
+        Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
     }
+}
 
-    /// Encode one `run` argument, auto-wrapping a host object into the
-    /// invocation's Handle table. Exhaustion surfaces pre-call with
-    /// the Ruby counterpart's attribution.
-    fn wrap_run_arg(&self, arg: RunArg) -> Result<Value, Error> {
-        match arg {
-            RunArg::Value(value) => Ok(value),
-            RunArg::Object(object) => self
-                .handles
-                .lock()
-                .expect("the Handle table mutex is never poisoned")
-                .alloc(object)
-                .map(Value::Handle)
-                .map_err(|message| {
-                    Error::Sandbox(GuestFailure {
-                        class: "Kobako::HandleExhaustedError".into(),
-                        message,
-                        backtrace: Vec::new(),
-                        details: None,
-                    })
-                }),
-        }
-    }
+/// Cook a raw `Snapshot` into the invocation's `Execution`: captures and
+/// usage carry over verbatim, and the completion becomes the guest-level
+/// `outcome` — a decoded value (whose Handles must all be live), or the
+/// taxonomy `Error` a trap or guest failure attributes to. The `handles`
+/// table rides along so the result's Handles resolve on the Execution.
+fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
+    let outcome = match snapshot.completion {
+        Completion::Outcome(bytes) => outcome::decode(&bytes).and_then(|value| {
+            require_live_handles(&handles, &value)?;
+            Ok(value)
+        }),
+        Completion::Trap(trap) => Err(trap.into()),
+    };
+    Execution::new(
+        outcome,
+        handles,
+        snapshot.stdout,
+        snapshot.stderr,
+        snapshot.usage,
+    )
+}
 
-    /// Stash the invocation's observables, then classify its
-    /// completion: captures and usage survive traps.
-    fn read_snapshot(&mut self, snapshot: Snapshot) -> Result<Value, Error> {
-        self.stdout = snapshot.stdout;
-        self.stderr = snapshot.stderr;
-        self.usage = Some(snapshot.usage);
-        match snapshot.completion {
-            Completion::Outcome(bytes) => {
-                let value = outcome::decode(&bytes)?;
-                self.require_live_handles(&value)?;
-                Ok(value)
-            }
-            Completion::Trap(trap) => Err(trap.into()),
-        }
-    }
-
-    /// Every Handle a guest legitimately returns resolves to a live
-    /// object (it cannot fabricate one); an unknown id in the result
-    /// signals a corrupted runtime and fails like a malformed value.
-    fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
-        match value {
-            Value::Handle(id) => {
-                if self.resolve(value).is_some() {
-                    Ok(())
-                } else {
-                    Err(Error::Sandbox(GuestFailure {
-                        class: "Kobako::SandboxError".into(),
-                        message: format!("unknown Handle id: {id}"),
-                        backtrace: Vec::new(),
-                        details: None,
-                    }))
-                }
-            }
-            Value::Array(items) => items.iter().try_for_each(|v| self.require_live_handles(v)),
-            Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
-                self.require_live_handles(key)?;
-                self.require_live_handles(val)
+/// Encode one `run` argument, auto-wrapping a host object into the
+/// invocation's Handle table. Exhaustion surfaces pre-call with the Ruby
+/// counterpart's attribution — an outer `Err`, since the guest never ran.
+fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Error> {
+    match arg {
+        RunArg::Value(value) => Ok(value),
+        RunArg::Object(object) => handles
+            .lock()
+            .expect("the Handle table mutex is never poisoned")
+            .alloc(object)
+            .map(Value::Handle)
+            .map_err(|message| {
+                Error::Sandbox(GuestFailure {
+                    class: "Kobako::HandleExhaustedError".into(),
+                    message,
+                    backtrace: Vec::new(),
+                    details: None,
+                })
             }),
-            _ => Ok(()),
+    }
+}
+
+/// Every Handle a guest legitimately returns resolves to a live object
+/// (it cannot fabricate one); an unknown id in the result signals a
+/// corrupted runtime and fails like a malformed value.
+fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(), Error> {
+    match value {
+        Value::Handle(id) => {
+            if Handles::new(handles).resolve(value).is_some() {
+                Ok(())
+            } else {
+                Err(Error::Sandbox(GuestFailure {
+                    class: "Kobako::SandboxError".into(),
+                    message: format!("unknown Handle id: {id}"),
+                    backtrace: Vec::new(),
+                    details: None,
+                }))
+            }
         }
-    }
-
-    /// Bytes the guest wrote to `$stdout` during the last invocation.
-    pub fn stdout(&self) -> &[u8] {
-        &self.stdout.bytes
-    }
-
-    /// Bytes the guest wrote to `$stderr` during the last invocation.
-    pub fn stderr(&self) -> &[u8] {
-        &self.stderr.bytes
-    }
-
-    /// Whether the stdout cap clipped the last invocation's output.
-    pub fn stdout_truncated(&self) -> bool {
-        self.stdout.truncated
-    }
-
-    /// Whether the stderr cap clipped the last invocation's output.
-    pub fn stderr_truncated(&self) -> bool {
-        self.stderr.truncated
-    }
-
-    /// Resource usage of the last invocation; `None` before any.
-    pub fn usage(&self) -> Option<Usage> {
-        self.usage
+        Value::Array(items) => items
+            .iter()
+            .try_for_each(|v| require_live_handles(handles, v)),
+        Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
+            require_live_handles(handles, key)?;
+            require_live_handles(handles, val)
+        }),
+        _ => Ok(()),
     }
 }
 

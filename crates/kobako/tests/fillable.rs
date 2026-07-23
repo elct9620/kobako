@@ -31,8 +31,12 @@ fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
         .bind_fillable("Store")
         .expect("declare a fillable path");
 
+    // The guest ran (so `eval` is `Ok`); the fillable failure is the run's
+    // guest-level outcome, not a could-not-start.
     let err = sandbox
         .eval("Store.get(1)")
+        .expect("the guest ran")
+        .into_value()
         .expect_err("a dispatch to an unfilled fillable must fail closed (B-62)");
 
     assert!(
@@ -51,9 +55,12 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
         .expect("declare a fillable path");
 
     // A never-declared constant raises a guest NameError → Sandbox failure,
-    // observably distinct from the declared-but-unfilled fillable above.
+    // observably distinct from the declared-but-unfilled fillable above. The
+    // guest ran, so the failure rides the returned Execution's outcome.
     let err = sandbox
         .eval("Undeclared.get(1)")
+        .expect("the guest ran")
+        .into_value()
         .expect_err("a reference to a never-declared constant must fail");
 
     assert!(

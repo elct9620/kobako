@@ -18,9 +18,59 @@ use std::time::Duration;
 use serde_json::{json, Map, Value as Json};
 
 use kobako::{
-    Backend, Error, Extension, Fault, FaultKind, Handles, Options, Profile, Provider, Receiver,
-    RunArg, Sandbox, Value, Yielder,
+    Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile, Provider,
+    Receiver, RunArg, Sandbox, Value, Yielder,
 };
+
+/// The last invocation's observables, carried across invocations so a
+/// verb that produces no `Execution` (a `late_bind`, or a run that never
+/// started) still reports the previous run's captures / usage — mirroring
+/// the Ruby executor's `sandbox.*` delegating readers. Temporary: the
+/// Ruby stateless-Sandbox cleanup switches both executors to reading each
+/// invocation's own `Execution` and drops this.
+struct LastObs {
+    stdout_hex: String,
+    stderr_hex: String,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+    usage: Json,
+}
+
+impl Default for LastObs {
+    fn default() -> Self {
+        LastObs {
+            stdout_hex: String::new(),
+            stderr_hex: String::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+            usage: Json::Null,
+        }
+    }
+}
+
+impl LastObs {
+    /// Refresh from an invocation that ran; a no-`Execution` verb leaves
+    /// the previous readout in place.
+    fn update(&mut self, execution: &Execution) {
+        let usage = execution.usage();
+        *self = LastObs {
+            stdout_hex: hex(execution.stdout()),
+            stderr_hex: hex(execution.stderr()),
+            stdout_truncated: execution.stdout_truncated(),
+            stderr_truncated: execution.stderr_truncated(),
+            usage: json!({ "wall_time": usage.wall_time, "memory_peak": usage.memory_peak }),
+        };
+    }
+
+    /// Merge the carried observables into an invocation's observable object.
+    fn write_into(&self, observable: &mut Map<String, Json>) {
+        observable.insert("stdout_hex".into(), json!(self.stdout_hex));
+        observable.insert("stderr_hex".into(), json!(self.stderr_hex));
+        observable.insert("stdout_truncated".into(), json!(self.stdout_truncated));
+        observable.insert("stderr_truncated".into(), json!(self.stderr_truncated));
+        observable.insert("usage".into(), self.usage.clone());
+    }
+}
 
 /// The scenario's opaque host objects by declared label, shared by the
 /// stub behaviors (allocation), the run-argument auto-wrap, and the
@@ -89,8 +139,14 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         .as_array()
         .ok_or("scenario must carry invocations")?;
     let mut observables = Vec::with_capacity(invocations.len());
+    let mut last_obs = LastObs::default();
     for invocation in invocations {
-        observables.push(observe(&mut sandbox, invocation, &mut opaques)?);
+        observables.push(observe(
+            &mut sandbox,
+            invocation,
+            &mut opaques,
+            &mut last_obs,
+        )?);
     }
     Ok(Json::Array(observables))
 }
@@ -457,18 +513,60 @@ fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, 
     Ok(Value::Array(out))
 }
 
-/// Run one invocation and emit its raw observable object.
+/// Run one invocation and emit its raw observable object. A verb that
+/// runs (`eval` / `run`) reads its status, value, and observables off the
+/// returned `Execution`; `late_bind` produces no Execution, so it reports
+/// only its bind status and the carried `last_obs`.
 fn observe(
     sandbox: &mut Sandbox,
     invocation: &Json,
     opaques: &mut Opaques,
+    last_obs: &mut LastObs,
 ) -> Result<Json, String> {
-    let result = match invocation["verb"].as_str() {
+    let mut observable = Map::new();
+    match invocation["verb"].as_str() {
+        Some("eval") | Some("run") => match run_verb(sandbox, invocation, opaques)? {
+            Ok(execution) => {
+                last_obs.update(&execution);
+                match execution.value() {
+                    Ok(value) => {
+                        observable.insert("status".into(), json!("ok"));
+                        observable.insert("value".into(), tag_value(value, &execution, opaques));
+                    }
+                    Err(error) => write_failure(&mut observable, error),
+                }
+            }
+            // The guest never started: no Execution, so the carried
+            // observables stand and only the status is this invocation's.
+            Err(error) => write_failure(&mut observable, &error),
+        },
+        Some("late_bind") => match late_bind(sandbox, invocation)? {
+            Ok(_nil) => {
+                observable.insert("status".into(), json!("ok"));
+                observable.insert("value".into(), json!({ "t": "nil" }));
+            }
+            Err(error) => write_failure(&mut observable, &error),
+        },
+        other => return Err(format!("unknown invocation verb {other:?}")),
+    }
+    last_obs.write_into(&mut observable);
+    Ok(Json::Object(observable))
+}
+
+/// Dispatch an `eval` / `run` invocation to the SDK, returning its
+/// `Execution` result; the outer `Err` is a malformed scenario, not an
+/// invocation failure.
+fn run_verb(
+    sandbox: &mut Sandbox,
+    invocation: &Json,
+    opaques: &mut Opaques,
+) -> Result<Result<Execution, Error>, String> {
+    match invocation["verb"].as_str() {
         Some("eval") => {
             let source = invocation["source"]
                 .as_str()
                 .ok_or("eval invocation must carry source")?;
-            match invocation["overrides"].as_array() {
+            Ok(match invocation["overrides"].as_array() {
                 Some(overrides) => {
                     let stubs = build_override_stubs(overrides, opaques)?;
                     sandbox.eval_with(source, move |ctx| {
@@ -479,7 +577,7 @@ fn observe(
                     })
                 }
                 None => sandbox.eval(source),
-            }
+            })
         }
         Some("run") => {
             let target = invocation["target"]
@@ -499,42 +597,21 @@ fn observe(
                     .collect::<Result<_, String>>()?,
                 None => Vec::new(),
             };
-            sandbox.run_with(target, args, kwargs)
+            Ok(sandbox.run_with(target, args, kwargs))
         }
-        Some("late_bind") => late_bind(sandbox, invocation)?,
-        other => return Err(format!("unknown invocation verb {other:?}")),
-    };
-
-    let mut observable = Map::new();
-    match result {
-        Ok(value) => {
-            observable.insert("status".into(), json!("ok"));
-            observable.insert("value".into(), tag_value(&value, sandbox, opaques));
-        }
-        Err(error) => {
-            let (status, failure) = classify(&error);
-            observable.insert("status".into(), json!(status));
-            if let Some(failure) = failure {
-                observable.insert("class".into(), json!(failure.class));
-                observable.insert("message".into(), json!(failure.message));
-            }
-        }
+        other => Err(format!("unknown invocation verb {other:?}")),
     }
-    observable.insert("stdout_hex".into(), json!(hex(sandbox.stdout())));
-    observable.insert("stderr_hex".into(), json!(hex(sandbox.stderr())));
-    observable.insert("stdout_truncated".into(), json!(sandbox.stdout_truncated()));
-    observable.insert("stderr_truncated".into(), json!(sandbox.stderr_truncated()));
-    observable.insert(
-        "usage".into(),
-        match sandbox.usage() {
-            Some(usage) => json!({
-                "wall_time": usage.wall_time,
-                "memory_peak": usage.memory_peak,
-            }),
-            None => Json::Null,
-        },
-    );
-    Ok(Json::Object(observable))
+}
+
+/// Write a failed invocation's neutral status (and, for a guest failure,
+/// its class / message) into the observable object.
+fn write_failure(observable: &mut Map<String, Json>, error: &Error) {
+    let (status, failure) = classify(error);
+    observable.insert("status".into(), json!(status));
+    if let Some(failure) = failure {
+        observable.insert("class".into(), json!(failure.class));
+        observable.insert("message".into(), json!(failure.message));
+    }
 }
 
 /// The per-invocation override stubs an `eval_with` closure binds, one entry
@@ -608,7 +685,7 @@ fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
 /// render byte-identical tags. A Handle tags as the identity of the
 /// host object it resolves to — the Ruby executor sees the restored
 /// object itself, so a raw id would never compare.
-fn tag_value(value: &Value, sandbox: &Sandbox, opaques: &Opaques) -> Json {
+fn tag_value(value: &Value, execution: &Execution, opaques: &Opaques) -> Json {
     match value {
         Value::Nil => json!({"t": "nil"}),
         Value::Bool(b) => json!({"t": "bool", "v": b}),
@@ -619,25 +696,28 @@ fn tag_value(value: &Value, sandbox: &Sandbox, opaques: &Opaques) -> Json {
         Value::Bin(bytes) => json!({"t": "bin", "hex": hex(bytes)}),
         Value::Sym(name) => json!({"t": "sym", "v": name}),
         Value::Array(items) => {
-            json!({"t": "array", "v": items.iter().map(|v| tag_value(v, sandbox, opaques)).collect::<Vec<_>>()})
+            json!({"t": "array", "v": items.iter().map(|v| tag_value(v, execution, opaques)).collect::<Vec<_>>()})
         }
         Value::Map(pairs) => json!({
             "t": "map",
             "v": pairs
                 .iter()
-                .map(|(k, v)| json!([tag_value(k, sandbox, opaques), tag_value(v, sandbox, opaques)]))
+                .map(|(k, v)| json!([tag_value(k, execution, opaques), tag_value(v, execution, opaques)]))
                 .collect::<Vec<_>>(),
         }),
-        Value::Handle(_) => json!({"t": "opaque", "label": handle_label(value, sandbox, opaques)}),
+        Value::Handle(_) => {
+            json!({"t": "opaque", "label": handle_label(value, execution, opaques)})
+        }
         Value::ErrEnv(bytes) => json!({"t": "errenv", "hex": hex(bytes)}),
     }
 }
 
 /// The declared label of the opaque object a result Handle resolves
 /// to; `None` for an object outside the scenario's opaque set (no
-/// closed-DSL scenario produces one).
-fn handle_label(value: &Value, sandbox: &Sandbox, opaques: &Opaques) -> Option<String> {
-    let resolved = sandbox.resolve(value)?;
+/// closed-DSL scenario produces one). Resolves against the invocation's
+/// own `Execution`, which owns the Handle table its result stands in.
+fn handle_label(value: &Value, execution: &Execution, opaques: &Opaques) -> Option<String> {
+    let resolved = execution.resolve(value)?;
     opaques
         .iter()
         .find(|(_, object)| Arc::ptr_eq(object, &resolved))

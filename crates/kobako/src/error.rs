@@ -1,10 +1,14 @@
 //! The SDK's host-facing error taxonomy.
 //!
-//! Every `Sandbox` invocation either returns a decoded `Value` or
-//! exactly one `Error` variant; the variants carry the same
-//! attribution the Ruby gem's exception classes do (each variant's
-//! doc names its Ruby counterpart), so the differential parity
-//! harness can compare the two frontends status-for-status.
+//! One `Error` enum serves two positions, partitioned by whether the
+//! guest ran. As the outer `Err` of `eval` / `run` it is a run that
+//! never started (`Setup` / `Sealed` / `Argument`, plus a pre-call
+//! Handle exhaustion). Inside an `Execution::outcome` it is a run that
+//! started and failed — a trap or a guest-origin failure. The variants
+//! carry the same attribution the Ruby gem's exception classes do (each
+//! variant's doc names its Ruby counterpart), so the differential parity
+//! harness compares the two frontends status-for-status whichever
+//! position the failure lands in.
 
 use std::fmt;
 

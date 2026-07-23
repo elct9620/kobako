@@ -46,12 +46,6 @@ impl HandleTable {
         let index = (id as usize).checked_sub(1)?;
         self.entries.get(index).cloned()
     }
-
-    /// Clear all entries and restart the counter — the invocation
-    /// boundary.
-    pub(crate) fn reset(&mut self) {
-        self.entries.clear();
-    }
 }
 
 /// The receiver-facing view of the invocation's Handle table, handed
@@ -121,15 +115,6 @@ mod tests {
         let mut table = HandleTable::default();
         assert_eq!(table.alloc(Arc::new(Probe)), Ok(1));
         assert_eq!(table.alloc(Arc::new(Probe)), Ok(2));
-    }
-
-    #[test]
-    fn reset_invalidates_every_issued_id_and_restarts_the_counter() {
-        let mut table = HandleTable::default();
-        table.alloc(Arc::new(Probe)).unwrap();
-        table.reset();
-        assert!(table.get(1).is_none(), "no Handle survives the boundary");
-        assert_eq!(table.alloc(Arc::new(Probe)), Ok(1));
     }
 
     #[test]
