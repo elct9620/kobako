@@ -114,7 +114,11 @@ impl From<Value> for RunArg {
 /// state — so it is the config tier and the `Execution` is the result.
 pub struct Sandbox {
     driver: Driver,
-    registry: Registry,
+    // Behind a `Mutex` so the first `eval` / `run` can seal it through
+    // `&self`: setup verbs reach it with `get_mut` (they hold `&mut self`,
+    // before the Sandbox is shared), the seal locks it. `Send + Sync`, so
+    // an `Arc<Sandbox>` drives concurrent `&self` invocations.
+    registry: Mutex<Registry>,
     extensions: Extensions,
 }
 
@@ -133,16 +137,26 @@ impl Sandbox {
             Driver::new(wasm_path.as_ref(), options.memory_limit, config).map_err(Error::Setup)?;
         Ok(Sandbox {
             driver,
-            registry: Registry::Open(Catalog::default()),
+            registry: Mutex::new(Registry::Open(Catalog::default())),
             extensions: Extensions::default(),
         })
+    }
+
+    /// The open catalog for a setup mutation; refused once sealed. Setup
+    /// runs on `&mut self`, before the Sandbox is shared, so it reaches the
+    /// registry without locking.
+    fn open_catalog(&mut self) -> Result<&mut Catalog, Error> {
+        self.registry
+            .get_mut()
+            .expect("the registry mutex is never poisoned")
+            .open_mut()
     }
 
     /// Bind a host object as the Service reachable at `path` — a
     /// constant path of one or more `::`-separated segments
     /// (`"MyService::KV"` or a top-level `"File"`). Refused once sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
-        self.registry.open_mut()?.bind(path, object);
+        self.open_catalog()?.bind(path, object);
         Ok(())
     }
 
@@ -153,7 +167,7 @@ impl Sandbox {
     /// closed as an undefined target (a guest `ServiceError`). Refused once
     /// sealed.
     pub fn bind_fillable(&mut self, path: &str) -> Result<(), Error> {
-        self.registry.open_mut()?.bind(path, unresolved());
+        self.open_catalog()?.bind(path, unresolved());
         Ok(())
     }
 
@@ -164,7 +178,7 @@ impl Sandbox {
     /// first invocation seals registration; an Extension whose `depends_on`
     /// names one that was not installed surfaces at that first invocation.
     pub fn install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error> {
-        let catalog = self.registry.open_mut()?;
+        let catalog = self.open_catalog()?;
         catalog
             .snippets
             .register_source(extension.name(), extension.source())?;
@@ -179,18 +193,14 @@ impl Sandbox {
     /// canonical backtrace name. Refused once sealed, on a
     /// non-constant name, or on a duplicate name.
     pub fn preload(&mut self, name: &str, source: &str) -> Result<(), Error> {
-        self.registry
-            .open_mut()?
-            .snippets
-            .register_source(name, source)
+        self.open_catalog()?.snippets.register_source(name, source)
     }
 
     /// Register precompiled RITE bytecode for per-invocation replay.
     /// The bytes stay opaque host-side; the guest validates them at
     /// first replay. Refused once sealed.
     pub fn preload_binary(&mut self, bytecode: impl Into<Vec<u8>>) -> Result<(), Error> {
-        self.registry
-            .open_mut()?
+        self.open_catalog()?
             .snippets
             .register_binary(bytecode.into());
         Ok(())
@@ -200,7 +210,7 @@ impl Sandbox {
     /// `Execution` — the record of the run. `Ok` means the guest ran (its
     /// last expression, or a guest failure, rides `Execution::value`); the
     /// outer `Err` means it never started.
-    pub fn eval(&mut self, source: &str) -> Result<Execution, Error> {
+    pub fn eval(&self, source: &str) -> Result<Execution, Error> {
         let (catalog, handles) = self.begin_invocation()?;
         self.invoke(
             catalog,
@@ -220,7 +230,7 @@ impl Sandbox {
     /// `Error::Argument` before the guest runs. The overrides take priority
     /// over the per-invocation overlay and the static base, and touch
     /// host-side resolution only — Frame 1 stays fixed.
-    pub fn eval_with<F>(&mut self, source: &str, overrides: F) -> Result<Execution, Error>
+    pub fn eval_with<F>(&self, source: &str, overrides: F) -> Result<Execution, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
@@ -246,7 +256,7 @@ impl Sandbox {
     /// Dispatch into a preloaded entrypoint without arguments; the
     /// guest resolves `target` as a top-level constant and invokes its
     /// `call`.
-    pub fn run(&mut self, target: &str) -> Result<Execution, Error> {
+    pub fn run(&self, target: &str) -> Result<Execution, Error> {
         self.run_with(target, Vec::new(), Vec::new())
     }
 
@@ -257,7 +267,7 @@ impl Sandbox {
     /// invocation seals the tables, matching the Ruby frontend's
     /// ordering.
     pub fn run_with(
-        &mut self,
+        &self,
         target: &str,
         args: Vec<RunArg>,
         kwargs: Vec<(String, RunArg)>,
@@ -324,12 +334,18 @@ impl Sandbox {
         Ok(build_execution(snapshot, handles))
     }
 
-    /// Per-invocation prologue: seal the registration tables and assert
-    /// Extension dependencies on the first invocation, then hand back the
-    /// sealed catalog and a fresh Handle table this invocation owns. An
-    /// unmet dependency raises before the guest runs.
-    fn begin_invocation(&mut self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
-        let catalog = self.registry.seal();
+    /// Per-invocation prologue on `&self`: seal the registration tables and
+    /// assert Extension dependencies on the first invocation, then hand back
+    /// the sealed catalog and a fresh Handle table this invocation owns. The
+    /// seal locks the registry, so concurrent first invocations serialize on
+    /// it and all observe the same sealed catalog. An unmet dependency raises
+    /// before the guest runs.
+    fn begin_invocation(&self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
+        let catalog = self
+            .registry
+            .lock()
+            .expect("the registry mutex is never poisoned")
+            .seal();
         self.extensions.assert_dependencies()?;
         Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
     }
@@ -433,6 +449,14 @@ impl Context<'_> {
         Ok(())
     }
 }
+
+/// `Arc<Sandbox>` drives concurrent `&self` invocations, which requires
+/// `Sandbox: Send + Sync`. Assert it at compile time so a future field that
+/// breaks the property fails the build here, not at a distant call site.
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Sandbox>();
+};
 
 #[cfg(test)]
 mod tests {

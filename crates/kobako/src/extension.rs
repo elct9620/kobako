@@ -9,6 +9,7 @@
 //! invocation for a `PerInvocation` one. Behavior parity with the Ruby
 //! frontend is pinned by the differential harness.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use kobako_codec::codec::Value;
@@ -24,8 +25,10 @@ type ProviderFn = Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>;
 
 /// A guest idiom paired with an optional host backend — the contract
 /// `Sandbox::install` consumes. Implement it on your own type; the four
-/// methods mirror the Ruby `Kobako::Extension` readers.
-pub trait Extension {
+/// methods mirror the Ruby `Kobako::Extension` readers. `Send + Sync`
+/// because an installed Extension lives in the shared `Sandbox` an
+/// `Arc<Sandbox>` drives across threads.
+pub trait Extension: Send + Sync {
     /// Identity: the preloaded snippet's canonical name and the
     /// `depends_on` match key, a Ruby constant token. Independent of any
     /// bound path.
@@ -111,7 +114,7 @@ pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
 #[derive(Default)]
 pub(crate) struct Extensions {
     entries: Vec<Arc<dyn Extension>>,
-    asserted: bool,
+    asserted: AtomicBool,
 }
 
 impl Extensions {
@@ -122,11 +125,13 @@ impl Extensions {
 
     /// Assert every installed Extension's `depends_on` names a fellow
     /// installed Extension. Runs once, at the first successful seal; the check
-    /// is presence-only, so dependency cycles are permitted. The asserted flag
-    /// flips only on success, so a seal that failed re-checks on the next
-    /// attempt rather than silently passing a broken Sandbox.
-    pub(crate) fn assert_dependencies(&mut self) -> Result<(), Error> {
-        if self.asserted {
+    /// is presence-only, so dependency cycles are permitted. Takes `&self` so
+    /// the first `eval` can run it — concurrent first invocations may each run
+    /// the check, but it is pure over the sealed entries so they agree. The
+    /// asserted flag flips only on success, so a seal that failed re-checks on
+    /// the next attempt rather than silently passing a broken Sandbox.
+    pub(crate) fn assert_dependencies(&self) -> Result<(), Error> {
+        if self.asserted.load(Ordering::Relaxed) {
             return Ok(());
         }
         let names: Vec<&str> = self.entries.iter().map(|entry| entry.name()).collect();
@@ -141,7 +146,7 @@ impl Extensions {
                 }
             }
         }
-        self.asserted = true;
+        self.asserted.store(true, Ordering::Relaxed);
         Ok(())
     }
 
