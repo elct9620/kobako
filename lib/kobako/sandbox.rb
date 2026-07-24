@@ -27,9 +27,8 @@ module Kobako
   # +stdout_limit+ / +stderr_limit+, enforced inside the WASI pipe) with their
   # +#stdout_truncated?+ / +#stderr_truncated?+ predicates, and +#usage+ — live
   # on the +Kobako::Execution+ each +#eval+ / +#run+ returns, or on the one its
-  # raised error carries. The Sandbox itself keeps none of them, so it holds no
-  # per-invocation state and drives concurrent invocations from separate
-  # Contexts without interference.
+  # raised error carries. The Sandbox itself keeps none of them, so nothing a
+  # run observes carries into the next one.
   class Sandbox
     extend Forwardable
 

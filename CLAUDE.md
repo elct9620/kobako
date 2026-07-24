@@ -110,9 +110,10 @@ crates/ — kobako-codec + kobako-runtime         │    (crates.io) → libmrub
 Dependencies point downward — a tier may use the tiers below it, never above. A tier maps to its directory (`lib/kobako/{codec,transport,catalog}/`); the flat `lib/kobako/*.rb` files split between Orchestration and Root by state and dependencies, not by a membership list.
 
 ```
-Orchestration   stateful coordinators — Sandbox, Pool, Runtime (+ ext)
+Orchestration   coordinators — Sandbox, Pool, Runtime (+ ext), Context
       │
-Catalog         per-Sandbox registries (lib/kobako/catalog/)
+Catalog         setup-time registries + the per-invocation Handle table
+                (lib/kobako/catalog/)
       │
 Transport ──┐   wire envelopes + dispatch (lib/kobako/transport/)
 Outcome ────┤   guest-result decode (outcome.rb + outcome/)
@@ -184,14 +185,14 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 |-------|--------------|-------|
 | Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/`; Rust side `crates/kobako-codec/src/{codec.rs,transport/}` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md`. Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior/errors.md`. |
-| Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako-mruby/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via `Runtime#on_dispatch=` Proc (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
+| Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako-mruby/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the Proc `Kobako::Context` passes to `Runtime#eval` / `#run` per invocation (`lib/kobako/transport/dispatcher.rb`). B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
 | Guest Regexp / MatchData | `wasm/kobako-regexp/src/{regexp,matchdata,translate}.rs` | Pure-Rust `beni::Gem` over `fancy-regex`; byte-based offsets; `translate.rs` rewrites Ruby `\d\w\s`→ASCII + flag mapping. SPEC B-41; per-behavior RX-xx anchors in `docs/regexp.md`. |
 | Guest JSON | `wasm/kobako-json/src/{json,convert,errors}.rs` | Pure-Rust `beni::Gem` over `serde_json`; `Object#as_json` opt-in that parse can't use to forge a Handle. SPEC B-52 / B-53; per-behavior JS-xx anchors in `docs/json.md`. |
 | Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — every failure becomes a `Response.err` envelope. |
-| Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-12..B-21 in `docs/behavior/dispatch.md`. Owned by Sandbox (B-19), injected into `Kobako::Catalog::Services` so guest→host dispatch and host→guest wire encoding share one allocator. Per-invocation reset is the Sandbox's job. |
+| Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | B-12..B-21 in `docs/behavior/dispatch.md`. Minted fresh by each invocation's `Kobako::Context` and passed to the dispatcher alongside it, so guest→host dispatch and host→guest wire encoding share one allocator scoped to that run. |
 | Service registration | `lib/kobako/catalog/services.rb` | B-08..B-11 in `docs/behavior/registration.md`. Per-Sandbox `Catalog::Services` holds the flat path→Service bindings; a Service is bound at a constant-path name (`"MyService::KV"`, a deeper `"MyService::Nested::KV"`, or a top-level `"File"`). |
-| Extension installation (`#install`) | host `lib/kobako/extension.rb`, `lib/kobako/catalog/extensions.rb`; SDK `crates/kobako/src/extension.rs` | B-55..B-57 / E-51..E-53 in `docs/behavior/extension.md`; contract + File example in `docs/extensions.md`. Composes a guest idiom (`source`) with an optional host backend over `#preload` + `#bind` — a callable provider refreshes per invocation (Ruby `Catalog::Services#refresh`, Rust dispatch overlay). kobako ships no concrete Extension. |
+| Extension installation (`#install`) | host `lib/kobako/extension.rb`, `lib/kobako/catalog/extensions.rb`; SDK `crates/kobako/src/extension.rs` | B-55..B-57 / E-51..E-53 in `docs/behavior/extension.md`; contract + File example in `docs/extensions.md`. Composes a guest idiom (`source`) with an optional host backend over `#preload` + `#bind` — a `provider:` backend refreshes per invocation (Ruby `Catalog::Extensions#resolve` into the `Context`, Rust the per-invocation resolution the dispatch handler layers on). kobako ships no concrete Extension. |
 | Security model / reflection denial | `docs/security-model.md` (host guidance, not a SPEC contract); anchors in `docs/behavior/security.md` | Guest-side rejection mirrors are non-authoritative; the host is the boundary. |
 | Guest Binary variants | `docs/variants.md`, `tasks/wasm/build.rake` | Variant matrix and composition rules. |
 | ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-mruby/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |

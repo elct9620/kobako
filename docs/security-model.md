@@ -203,7 +203,7 @@ raisable messages — rescue internal errors and re-raise a clean, guest-safe on
 
 Caps limit the *rate* of dispatch, not its total *volume*: tens of thousands of Handles
 can mint inside one invocation, living in host memory — outside the guest's Wasm cap —
-until it resets (B-19). For hostile input, bound the amount of work and the number of
+until that invocation ends and releases its table (B-18). For hostile input, bound the amount of work and the number of
 Handles a single invocation can create.
 
 ```ruby
