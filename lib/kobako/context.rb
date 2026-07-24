@@ -48,9 +48,10 @@ module Kobako
     # must name a declared (Frame 1) binding; overriding an undeclared path
     # raises +ArgumentError+ so the Frame 1 key set stays fixed. Valid only
     # while the block runs — the Context is spent once the block returns, so a
-    # captured +ctx+ used afterward raises. Returns +self+.
+    # captured +ctx+ used afterward raises +ArgumentError+ too, putting both
+    # misuses on one rescuable channel. Returns +self+.
     def bind(path, object)
-      raise "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
+      raise ArgumentError, "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
 
       key = path.to_s
       raise ArgumentError, "cannot override undeclared path #{key.inspect}" unless @services.bound?(key)

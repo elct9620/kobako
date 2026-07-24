@@ -61,8 +61,9 @@ class TestE2ECtxBind < Minitest::Test
 
     sandbox.eval("1") { |ctx| escaped = ctx }
 
-    assert_raises(RuntimeError,
-                  "a ctx used after its block has returned must raise (spent-guard, B-63)") do
+    assert_raises(ArgumentError,
+                  "ctx.bind on a ctx whose block has returned must raise ArgumentError — the same " \
+                  "API-misuse channel as an undeclared path (B-63)") do
       escaped.bind("Store", Kv.new("late"))
     end
   end
