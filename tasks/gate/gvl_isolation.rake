@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# +rake gate:gvl:isolation+ — the structural guard behind GVL release (B-64).
+# +rake gate:gvl:isolation+ — the structural guard behind GVL release.
 # The wasmtime driver the GVL-released span calls must declare no +magnus+, so
 # a released span cannot reach a Ruby VALUE by construction; adding the
 # dependency is the only way to break the invariant, and this gate rejects it.
