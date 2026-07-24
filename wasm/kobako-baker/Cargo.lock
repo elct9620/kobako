@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-baker"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "pollster",

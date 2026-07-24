@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.11.0...kobako-sdk-v0.12.0) (2026-07-24)
+
+
+### Features
+
+* **kobako:** declare fillable Service paths in the Rust SDK ([0cdbeb0](https://github.com/elct9620/kobako/commit/0cdbeb00bd58edfbe94b2c7620d9b2e8dd5f0e6a))
+* **kobako:** drive concurrent evals through Arc&lt;Sandbox&gt; ([615e806](https://github.com/elct9620/kobako/commit/615e80659fe9104fae837500e1402bd15d48410a))
+* **kobako:** give #run a Context override closure via run_with ([b4d9756](https://github.com/elct9620/kobako/commit/b4d975632aa9ed1db1ff5dc8abaebfdfd854cd8e))
+* **kobako:** give an Extension backend the fillable third kind ([c95dc1d](https://github.com/elct9620/kobako/commit/c95dc1db201b527074042db0c702d9d2201ae212))
+* **kobako:** override declared paths per invocation with eval_with ([840ef3e](https://github.com/elct9620/kobako/commit/840ef3e94739544b31f889f81e806a1a03029b35))
+* **kobako:** return an Execution from eval and run ([5caaa51](https://github.com/elct9620/kobako/commit/5caaa513a328a17ad148a49b1c6238ed78add6da))
+
+
+### Bug Fixes
+
+* **extension:** re-assert dependencies after a failed seal ([72839ba](https://github.com/elct9620/kobako/commit/72839bac6186e81a1d4323bd3f1eb4f10abf3d64))
+* **kobako:** make a repeated ctx.bind override last-wins ([0f2c298](https://github.com/elct9620/kobako/commit/0f2c298bc58b8d40284a9ba1d1947b8718ac714c))
+
 ## [0.11.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.10.2...kobako-sdk-v0.11.0) (2026-07-19)
 
 

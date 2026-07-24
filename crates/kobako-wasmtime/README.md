@@ -24,7 +24,7 @@ SDK consumes the same surface.
 
 ```toml
 [dependencies]
-kobako-wasmtime = "0.11.0" # x-release-please-version
+kobako-wasmtime = "0.12.0" # x-release-please-version
 ```
 
 ## License
