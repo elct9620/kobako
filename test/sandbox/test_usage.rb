@@ -32,7 +32,7 @@ class TestSandboxUsage < Minitest::Test
     assert_operator usage.wall_time, :>, 0.0,
                     "wall_time must be positive after a successful invocation — " \
                     "the bracket covers the guest export call"
-    # Pin the magnus binding types Runtime#usage hands back: the numeric
+    # Pin the numeric types the ext binding carries back on the Snapshot: the
     # assertions above pass for either type (0.0 == 0, :> on any numeric), so
     # a Float→Integer drift in the ext binding would slip through without these.
     assert_kind_of Float, usage.wall_time,
@@ -80,7 +80,7 @@ class TestSandboxUsage < Minitest::Test
     assert_operator error.execution.usage.wall_time, :>=, 0.2,
                     "wall_time after TimeoutError must reflect at least the configured timeout"
     refute_same Kobako::Usage::EMPTY, error.execution.usage,
-                "the ensure block must overwrite EMPTY with the real measurement even on the trap path"
+                "a timed-out invocation's carried Execution must report the real usage, not the pre-run sentinel"
   end
 
   # B-35: on `MemoryLimitError`, `memory_peak` reports the last
@@ -103,27 +103,24 @@ class TestSandboxUsage < Minitest::Test
   end
 
   # B-35: a guest-side raise propagates out as `Kobako::SandboxError`
-  # via the Panic envelope path (E-04). The usage record is still
-  # populated because `invoke!` reads it in an `ensure` block — without
-  # this guarantee, a Host App rescuing a runtime guest error would
-  # have no signal about how much of the budget the failing invocation
-  # consumed.
+  # via the Panic envelope path (E-04). Its carried Execution still holds
+  # the run's usage, so a Host App rescuing a runtime guest error can see
+  # how much of the budget the failing invocation consumed.
   def test_sandbox_error_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     error = assert_raises(Kobako::SandboxError) { sandbox.eval('raise "boom"') }
 
     refute_same Kobako::Usage::EMPTY, error.execution.usage,
-                "ensure block must overwrite EMPTY on the SandboxError outcome path too"
+                "a SandboxError's carried Execution must report the real usage, not the pre-run sentinel"
     assert_operator error.execution.usage.wall_time, :>, 0.0
   end
 
   # B-35: an unrescued Service-call failure surfaces as
   # `Kobako::ServiceError` (E-13). Same guarantee as the SandboxError
   # path — pinning all four outcome classes (success, TrapError,
-  # SandboxError, ServiceError) prevents a future refactor that moves
-  # `read_usage!` out of `invoke!`'s ensure block from silently
-  # breaking subset of the contract.
+  # SandboxError, ServiceError) proves usage rides the carried Execution
+  # on every outcome the guest reached, not only the value-return one.
   def test_service_error_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
@@ -131,7 +128,7 @@ class TestSandboxUsage < Minitest::Test
     error = assert_raises(Kobako::ServiceError) { sandbox.eval('Log::Sink.call("x")') }
 
     refute_same Kobako::Usage::EMPTY, error.execution.usage,
-                "ensure block must overwrite EMPTY on the ServiceError outcome path too"
+                "a ServiceError's carried Execution must report the real usage, not the pre-run sentinel"
     assert_operator error.execution.usage.wall_time, :>, 0.0
   end
 end
