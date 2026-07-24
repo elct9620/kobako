@@ -4,10 +4,11 @@
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Extension`. `Sandbox::install`
 //! registers an Extension's `source` as a preloaded snippet and, when it
-//! carries a `Backend`, binds the backend path as a Service — a fixed
-//! object for a `Static` provider, or an object resolved fresh each
-//! invocation for a `PerInvocation` one. Behavior parity with the Ruby
-//! frontend is pinned by the differential harness.
+//! carries a `Backend`, binds the backend path as a Service — a fixed object
+//! for a `Static` provider, an object resolved fresh each invocation for a
+//! `PerInvocation` one, or the `Unresolved` sentinel for a `Fillable` one that
+//! a per-invocation `ctx.bind` override supplies. Behavior parity with the
+//! Ruby frontend is pinned by the differential harness.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -57,7 +58,8 @@ pub struct Backend {
     pub provider: Provider,
 }
 
-/// How a backend's bound object is sourced.
+/// How a backend's bound object is sourced — the explicit spelling of the
+/// three-kind choice the Ruby `Extension::Backend` makes by keyword.
 pub enum Provider {
     /// One object for the Sandbox's life.
     Static(Arc<dyn Receiver>),
@@ -65,6 +67,11 @@ pub enum Provider {
     /// identity is resource identity — one `Arc` shared by several
     /// Extensions resolves once per invocation to a single shared object.
     PerInvocation(ProviderFn),
+    /// No object of its own: the path stays on the `Unresolved` sentinel and
+    /// fails closed until a per-invocation `ctx.bind` override supplies one —
+    /// the Ruby `Extension::Backend` declared with neither `object:` nor
+    /// `provider:`.
+    Fillable,
 }
 
 /// The sentinel backing an unresolved Service path: the install-time
@@ -99,11 +106,12 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
 
 /// The object bound at install for a backend: a `Static` provider's object
 /// directly, or the `Unresolved` placeholder a `PerInvocation` provider's
-/// per-invocation resolution replaces.
+/// per-invocation resolution replaces, or that a `Fillable` keeps until a
+/// `ctx.bind` override fills it.
 pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
-        Provider::PerInvocation(_) => unresolved(),
+        Provider::PerInvocation(_) | Provider::Fillable => unresolved(),
     }
 }
 

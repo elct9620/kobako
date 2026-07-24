@@ -1,13 +1,17 @@
 //! Integration coverage for a fillable Service path (Ruby B-62): declared
-//! with `bind_fillable` and left unfilled, it enters Frame 1 so the guest sees
-//! the constant, but a dispatch to it fails closed as a Service failure — the
-//! same fail-closed channel as an idiom with no backend. Driven through the
-//! real guest binary; a missing binary is a hard failure under CI and a silent
-//! skip locally, mirroring the Ruby E2E helper.
+//! with `bind_fillable`, or as an Extension backend with `Provider::Fillable`,
+//! and left unfilled, it enters Frame 1 so the guest sees the constant, but a
+//! dispatch to it fails closed as a Service failure — the same fail-closed
+//! channel as an idiom with no backend. A `ctx.bind` override fills it for one
+//! invocation. Driven through the real guest binary; a missing binary is a hard
+//! failure under CI and a silent skip locally, mirroring the Ruby E2E helper.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use kobako::{Error, Options, Sandbox};
+use kobako::{
+    Backend, Error, Extension, Fault, Handles, Options, Provider, Receiver, Sandbox, Value, Yielder,
+};
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -20,6 +24,45 @@ fn real_sandbox() -> Option<Sandbox> {
         return None;
     }
     Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
+}
+
+/// A host store the guest reaches through the filled backend; `get` returns
+/// its fixed value so a test can witness the fill.
+struct Kv(&'static str);
+
+impl Receiver for Kv {
+    fn call(
+        &self,
+        _method: &str,
+        _args: &[Value],
+        _kwargs: &[(String, Value)],
+        _block: Option<&mut Yielder<'_>>,
+        _handles: &Handles<'_>,
+    ) -> Result<Value, Fault> {
+        Ok(Value::Str(self.0.to_string()))
+    }
+}
+
+/// An Extension whose backend is fillable — the guest idiom forwards every
+/// call to the `Store` path, which stays unresolved until a `ctx.bind`
+/// override supplies the object.
+struct StoreExt;
+
+impl Extension for StoreExt {
+    fn name(&self) -> &str {
+        "Store"
+    }
+
+    fn source(&self) -> &str {
+        "class Store; extend Kobako::Proxy; end"
+    }
+
+    fn backend(&self) -> Option<Backend> {
+        Some(Backend {
+            path: "Store".to_string(),
+            provider: Provider::Fillable,
+        })
+    }
 }
 
 #[test]
@@ -67,5 +110,52 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
         matches!(err, Error::Sandbox(_)),
         "a never-declared constant is a guest-side Sandbox failure, distinct from a \
          fillable's Service failure (B-62), got {err:?}"
+    );
+}
+
+#[test]
+fn an_extension_fillable_backend_left_unfilled_fails_closed() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .install(Arc::new(StoreExt))
+        .expect("install the fillable-backed Extension");
+
+    let err = sandbox
+        .eval("Store.get(1)")
+        .expect("the guest ran")
+        .into_value()
+        .expect_err("a dispatch to an unfilled Extension fillable backend must fail closed (B-56)");
+
+    assert!(
+        matches!(err, Error::Service(_)),
+        "an unfilled Provider::Fillable backend's dispatch must surface as a Service failure \
+         (B-56), got {err:?}"
+    );
+}
+
+#[test]
+fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .install(Arc::new(StoreExt))
+        .expect("install the fillable-backed Extension");
+
+    let value = sandbox
+        .eval_with("Store.get(1)", |ctx| {
+            ctx.bind("Store", Arc::new(Kv("filled")))
+        })
+        .expect("the guest ran")
+        .into_value()
+        .expect("a filled Extension backend dispatches to the override object (B-56 / B-63)");
+
+    assert_eq!(
+        value,
+        Value::Str("filled".into()),
+        "a ctx.bind override must fill a Provider::Fillable backend so the guest reaches the \
+         supplied object (B-56 / B-63)"
     );
 }
