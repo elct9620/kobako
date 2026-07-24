@@ -52,7 +52,7 @@ class TestE2EYieldUnwind < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT).value }
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E21_RETURN_SCRIPT) }
 
     assert_match(/LocalJumpError/, err.message,
                  "E-21: Proc `return` aimed past the host yield boundary " \
@@ -103,7 +103,7 @@ class TestE2EYieldUnwind < Minitest::Test
     end.new
     sandbox.bind("Probe::Stash", stash_service)
 
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT).value }
+    err = assert_raises(Kobako::ServiceError) { sandbox.eval(E23_ESCAPE_SCRIPT) }
 
     assert_match(/LocalJumpError/, err.message,
                  "E-23: invoking the Yielder after its dispatch frame " \

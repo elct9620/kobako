@@ -12,6 +12,7 @@ class TestE2ECanonicalBoot < Minitest::Test
   include E2eGuestHelper
 
   def setup
+    super
     @sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
   end
 

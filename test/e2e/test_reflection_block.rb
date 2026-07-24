@@ -26,7 +26,7 @@ class TestE2EReflectionBlock < Minitest::Test
     %w[to_proc curry].each do |meth|
       script = "KV::Fn.#{meth}"
       err = assert_raises(Kobako::SandboxError, "#{script} must be refused guest-side (B-44)") do
-        sandbox_with_fn.eval(script).value
+        sandbox_with_fn.eval(script)
       end
       assert_match(/#{meth}/, err.message,
                    "the refusal must name the offending reflection method #{meth.inspect}")

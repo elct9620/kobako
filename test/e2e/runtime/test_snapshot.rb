@@ -9,7 +9,7 @@ require "test_helper"
 # the ext hands back", not the Sandbox-side decomposition.
 #
 # Sandbox-level consumption of the same Snapshot is covered through
-# +test/sandbox/+ and the +test/e2e/+ journeys (including the B-04
+# +test/e2e/sandbox/+ and the +test/e2e/+ journeys (including the B-04
 # captures-on-trap cases in +test/e2e/test_caps.rb+); this file
 # deliberately stays at the Runtime seam so a regression in the magnus
 # binding surfaces here, not via indirect Sandbox assertions.

@@ -17,7 +17,7 @@ class TestE2EIoWrite < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('IO.new(99, "w")').value
+      sandbox.eval('IO.new(99, "w")')
     end
 
     assert_includes err.message, "kobako IO only supports fd",
@@ -31,7 +31,7 @@ class TestE2EIoWrite < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('IO.new(1, "r")').value
+      sandbox.eval('IO.new(1, "r")')
     end
 
     assert_includes err.message, 'kobako IO only supports mode "w"',
@@ -55,7 +55,7 @@ class TestE2EIoWrite < Minitest::Test
   def test_io_write_rejects_a_guest_tampered_fd
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    err = assert_raises(Kobako::SandboxError) { sandbox.eval(TAMPERED_FD_SCRIPT).value }
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval(TAMPERED_FD_SCRIPT) }
 
     assert_includes err.message, "kobako IO writes only to fd",
                     "a rebound @__kobako_fd__ outside {1,2} must be refused at IO#write, " \

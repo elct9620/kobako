@@ -64,7 +64,7 @@ class TestE2EIoStreams < Minitest::Test
   def test_captures_reset_on_the_invocation_after_a_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
     assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
     end
 
     execution = sandbox.eval("1 + 2")

@@ -36,7 +36,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval(<<~RUBY).value
+      sandbox.eval(<<~RUBY)
         raise "model produced bad code"
       RUBY
     end
@@ -54,7 +54,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('puts "reached execution"; 1 +').value
+      sandbox.eval('puts "reached execution"; 1 +')
     end
 
     assert_equal "sandbox", err.origin,
@@ -73,7 +73,7 @@ class TestE2EJourneys < Minitest::Test
   def test_j01_script_ruby_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval(<<~RUBY).value
+      sandbox.eval(<<~RUBY)
         def boom
           raise "model produced bad code"
         end
@@ -89,7 +89,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval(<<~RUBY).value
+      sandbox.eval(<<~RUBY)
         Log::Sink.call("secret")
       RUBY
     end
@@ -107,7 +107,7 @@ class TestE2EJourneys < Minitest::Test
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval(<<~RUBY).value
+      sandbox.eval(<<~RUBY)
         Log::Sink.call("secret")
       RUBY
     end
@@ -128,12 +128,12 @@ class TestE2EJourneys < Minitest::Test
 
     # SPEC.md L215: SandboxError — script-level fault.
     assert_raises(Kobako::SandboxError) do
-      sandbox_a.eval('raise "script-level fault"').value
+      sandbox_a.eval('raise "script-level fault"')
     end
 
     # SPEC.md L216: ServiceError — capability-level fault.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox_b.eval('Svc::Call.call("x")').value
+      sandbox_b.eval('Svc::Call.call("x")')
     end
     assert_equal "service", err.origin, "J-05: a capability fault through #eval must carry service origin"
   end

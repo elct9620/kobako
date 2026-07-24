@@ -64,7 +64,7 @@ class TestE2EIoKernel < Minitest::Test
   def test_kernel_delegators_register_private
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    err = assert_raises(Kobako::SandboxError) { sandbox.eval('42.puts("x")').value }
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('42.puts("x")') }
 
     assert_equal "NoMethodError", err.klass,
                  "explicit-receiver dispatch of a Kernel delegator through the guest must " \

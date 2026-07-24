@@ -18,7 +18,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     started = Time.now
-    err = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }").value }
+    err = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
     elapsed = Time.now - started
 
     assert_kind_of Kobako::TrapError, err,
@@ -38,7 +38,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 2 << 20)
 
     err = assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 200.times { a << ("x" * 100_000) }; nil').value
+      sandbox.eval('a = []; 200.times { a << ("x" * 100_000) }; nil')
     end
 
     assert_kind_of Kobako::TrapError, err,
@@ -71,7 +71,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     err = assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil').value
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
     end
 
     assert_match(/memory_limit/, err.message)
@@ -88,7 +88,7 @@ class TestE2ECaps < Minitest::Test
   def test_sandbox_reusable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
-    assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }").value }
+    assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
 
     assert_equal 3, sandbox.eval("1 + 2").value,
                  "a Sandbox must stay usable after a TimeoutError — the next " \
@@ -104,7 +104,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil').value
+      sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
     end
 
     assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value,
@@ -122,7 +122,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     error = assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
     end
 
     assert_equal "out before trap\n", error.execution.stdout,
@@ -140,7 +140,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
     error = assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
+      sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }')
     end
 
     assert_equal "err before trap\n", error.execution.stderr,
@@ -157,7 +157,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2, stdout_limit: 5)
 
     error = assert_raises(Kobako::TimeoutError) do
-      sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }').value
+      sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }')
     end
 
     assert_equal "long ", error.execution.stdout,
@@ -176,7 +176,7 @@ class TestE2ECaps < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
     error = assert_raises(Kobako::MemoryLimitError) do
-      sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil').value
+      sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil')
     end
 
     assert_equal "before alloc\n", error.execution.stdout,

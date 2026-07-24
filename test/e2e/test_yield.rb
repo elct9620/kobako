@@ -84,7 +84,7 @@ class TestE2EYield < Minitest::Test
     sandbox.bind("Probe::Boom", ->(&blk) { blk.call })
 
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval('Probe::Boom.call { raise "from guest block" }').value
+      sandbox.eval('Probe::Boom.call { raise "from guest block" }')
     end
 
     assert_match(/from guest block/, err.message,
@@ -102,7 +102,7 @@ class TestE2EYield < Minitest::Test
     # block.call raises at the yield site; unrescued, it surfaces through
     # the same path as a block exception (B-24) — Kobako::ServiceError.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }").value
+      sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
@@ -120,7 +120,7 @@ class TestE2EYield < Minitest::Test
     # it — the Service observes an error at its yield site rather than an
     # unwind to a misleading String.
     err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }").value
+      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,

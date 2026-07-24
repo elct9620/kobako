@@ -56,7 +56,7 @@ class TestPoolCheckout < Minitest::Test
   def test_sandbox_keywords_forward_to_pooled_sandboxes
     pool = Kobako::Pool.new(slots: 1, timeout: 0.05)
     assert_raises(Kobako::TimeoutError, "an over-deadline eval through a pooled Sandbox must raise TimeoutError") do
-      pool.with { |sandbox| sandbox.eval("loop do end").value }
+      pool.with { |sandbox| sandbox.eval("loop do end") }
     end
   end
 end
