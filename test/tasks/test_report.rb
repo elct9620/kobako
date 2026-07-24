@@ -48,11 +48,17 @@ class KobakoReportTest < Minitest::Test
   end
 
   def test_gate_aborts_naming_the_count_when_violations_exist
-    error = assert_raises(SystemExit) do
-      Report.gate(name: "anchors", ok_summary: "all unique", violations: ["B-01 dup"], noun: "violation")
+    _out, err = capture_io do
+      error = assert_raises(SystemExit) do
+        Report.gate(name: "anchors", ok_summary: "all unique", violations: ["B-01 dup"], noun: "violation")
+      end
+      refute error.success?, "a gate with violations through the template must abort non-zero"
     end
 
-    refute error.success?, "a gate with violations through the template must abort non-zero"
+    assert_match(/anchors: 1 violation\(s\)/, err,
+                 "an aborting gate through the template must name the count with its noun")
+    assert_includes err, "B-01 dup",
+                    "an aborting gate through the template must list the offending lines beneath the count"
   end
 
   def test_list_groups_headings_over_indented_items
