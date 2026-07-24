@@ -16,7 +16,7 @@ namespace :bench do
   task(:bless, %i[run]) { |_t, args| Kobako::Bench.bless(args[:run]) }
 
   desc "Stage-2 arbiter: paired alternation against a released Guest Binary (version or wasm path)."
-  task(:confirm, %i[baseline]) { |_t, args| Kobako::Bench.confirm(args[:baseline]) }
+  task(:confirm, %i[baseline]) { |_t, args| Kobako::Bench::Lock.hold { Kobako::Bench.confirm(args[:baseline]) } }
 
   desc "Render a head-vs-base benchmark comparison as Markdown (PR job summary)."
   task(:report, %i[current baseline]) do |_t, args|

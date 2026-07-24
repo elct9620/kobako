@@ -12,6 +12,9 @@ module Kobako
       RESULTS_DIR = File.join(ROOT, "benchmark", "results")
       RESULTS_GLOB = File.join(RESULTS_DIR, "*.json")
       BASELINE_ANCHOR = File.join(ROOT, "benchmark", "baseline.json")
+      # Run-in-progress marker the Stop-hook gate reads to defer while a
+      # benchmark measures; the bash guard hardcodes the same tmp path.
+      LOCK = File.join(ROOT, "tmp", ".bench.lock")
 
       module_function
 

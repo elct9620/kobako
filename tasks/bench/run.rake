@@ -40,7 +40,9 @@ require_relative "../../benchmark/support/facade"
 namespace :bench do
   desc "Run all six regression benchmarks (SPEC.md #1..#6; <=1 MiB payloads)."
   task :release do
-    Kobako::Bench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
+    Kobako::Bench::Lock.hold do
+      Kobako::Bench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
+    end
   end
 
   desc "Same as bench:release — CI-friendly, no extra-large payloads."
@@ -48,21 +50,23 @@ namespace :bench do
 
   desc "Run regression benchmarks including 16 MiB codec payload."
   task :full do
-    ENV["BENCH_FULL"] = "1"
-    Rake::Task["bench:release"].invoke
+    Kobako::Bench::Lock.hold do
+      ENV["BENCH_FULL"] = "1"
+      Rake::Task["bench:release"].invoke
+    end
   end
 
   desc "Run concurrent characterization benchmark (#7; not in release gate)."
-  task(:concurrent) { sh "bundle exec ruby benchmark/concurrent/threads.rb" }
+  task(:concurrent) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/threads.rb" } }
 
   desc "Run memory characterization benchmark (#8; not in release gate)."
-  task(:memory) { sh "bundle exec ruby benchmark/memory.rb" }
+  task(:memory) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/memory.rb" } }
 
   desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
-  task(:preload_dispatch) { sh "bundle exec ruby benchmark/preload_dispatch.rb" }
+  task(:preload_dispatch) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/preload_dispatch.rb" } }
 
   desc "Run dispatch-glue isolation characterization (#10; not in release gate)."
-  task(:dispatch_glue) { sh "bundle exec ruby benchmark/dispatch_glue.rb" }
+  task(:dispatch_glue) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/dispatch_glue.rb" } }
 
   # The whole-round sweep for a manual capture: the 16 MiB gated set plus every
   # characterization (#7-#11), merged into one results file. bench:full stays
@@ -71,8 +75,10 @@ namespace :bench do
   # its variant prerequisite and suite here.
   desc "Run the whole sweep: gated (16 MiB) + every characterization (#7-#11)."
   task all: ["wasm:build:regexp_unicode"] do
-    %w[full concurrent memory preload_dispatch dispatch_glue regexp].each do |suite|
-      Rake::Task["bench:#{suite}"].invoke
+    Kobako::Bench::Lock.hold do
+      %w[full concurrent memory preload_dispatch dispatch_glue regexp].each do |suite|
+        Rake::Task["bench:#{suite}"].invoke
+      end
     end
   end
 end

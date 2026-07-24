@@ -4,6 +4,7 @@ require "json"
 
 require_relative "gate"
 require_relative "confirm"
+require_relative "lock"
 require_relative "report"
 require_relative "roster"
 
