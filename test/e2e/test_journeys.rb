@@ -59,7 +59,7 @@ class TestE2EJourneys < Minitest::Test
 
     assert_equal "sandbox", err.origin,
                  "syntactically invalid source through #eval must raise a sandbox-origin SandboxError"
-    assert_empty sandbox.stdout,
+    assert_empty err.execution.stdout,
                  "source that fails to compile through #eval must not execute the statements preceding the error"
   end
 

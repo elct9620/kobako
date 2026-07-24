@@ -45,21 +45,21 @@ class TestE2ELifecycle < Minitest::Test
                "J-02 / B-03: a reused Sandbox must not surface the prior #run's guest global mutation"
   end
 
-  # SPEC.md L169 + B-04: developer reads Sandbox#stdout for guest puts/print
-  # output AND the script's return value comes through the outcome envelope.
-  # Both channels are independently observable.
+  # SPEC.md L169 + B-04: developer reads the run's Execution#stdout for guest
+  # puts/print output AND the script's return value comes through the outcome
+  # envelope. Both channels are independently observable.
   def test_j02_stdout_and_return_value_independently_observable
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval(<<~RUBY).value
+    execution = sandbox.eval(<<~RUBY)
       puts "diagnostic"
       42
     RUBY
 
-    assert_equal 42, result,
+    assert_equal 42, execution.value,
                  "J-02 / B-04: return value comes through outcome envelope, not stdout"
-    assert_includes sandbox.stdout, "diagnostic",
-                    "J-02 / B-04: guest puts is captured in Sandbox#stdout (SPEC.md L169, B-04)"
+    assert_includes execution.stdout, "diagnostic",
+                    "J-02 / B-04: guest puts is captured in the run's Execution#stdout (SPEC.md L169, B-04)"
   end
 
   # ── J-03 — Teaching platform evaluates student submissions in isolation ──
@@ -159,5 +159,20 @@ class TestE2ELifecycle < Minitest::Test
                        "B-61: a failed run's error must carry its Execution on #execution"
     assert_nil execution.value, "B-61: Execution#value is nil on a failed run (captures/usage only)"
     assert_includes execution.stdout, "partial", "B-61: carried Execution holds output written pre-failure"
+  end
+
+  # B-05: a run whose guest writes to neither channel yields empty captures on
+  # its Execution — an empty UTF-8 String with the truncation predicates false
+  # — so a Host App reads a silent run without a nil guard.
+  def test_b05_silent_run_has_empty_captures
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    execution = sandbox.eval("1 + 1")
+
+    assert_equal "", execution.stdout
+    assert_equal "", execution.stderr
+    assert_equal Encoding::UTF_8, execution.stdout.encoding
+    refute_predicate execution, :stdout_truncated?
+    refute_predicate execution, :stderr_truncated?
   end
 end

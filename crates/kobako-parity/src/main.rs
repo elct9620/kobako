@@ -22,56 +22,6 @@ use kobako::{
     Receiver, RunArg, Sandbox, Value, Yielder,
 };
 
-/// The last invocation's observables, carried across invocations so a
-/// verb that produces no `Execution` (a `late_bind`, or a run that never
-/// started) still reports the previous run's captures / usage — mirroring
-/// the Ruby executor's `sandbox.*` delegating readers. Temporary: the
-/// Ruby stateless-Sandbox cleanup switches both executors to reading each
-/// invocation's own `Execution` and drops this.
-struct LastObs {
-    stdout_hex: String,
-    stderr_hex: String,
-    stdout_truncated: bool,
-    stderr_truncated: bool,
-    usage: Json,
-}
-
-impl Default for LastObs {
-    fn default() -> Self {
-        LastObs {
-            stdout_hex: String::new(),
-            stderr_hex: String::new(),
-            stdout_truncated: false,
-            stderr_truncated: false,
-            usage: Json::Null,
-        }
-    }
-}
-
-impl LastObs {
-    /// Refresh from an invocation that ran; a no-`Execution` verb leaves
-    /// the previous readout in place.
-    fn update(&mut self, execution: &Execution) {
-        let usage = execution.usage();
-        *self = LastObs {
-            stdout_hex: hex(execution.stdout()),
-            stderr_hex: hex(execution.stderr()),
-            stdout_truncated: execution.stdout_truncated(),
-            stderr_truncated: execution.stderr_truncated(),
-            usage: json!({ "wall_time": usage.wall_time, "memory_peak": usage.memory_peak }),
-        };
-    }
-
-    /// Merge the carried observables into an invocation's observable object.
-    fn write_into(&self, observable: &mut Map<String, Json>) {
-        observable.insert("stdout_hex".into(), json!(self.stdout_hex));
-        observable.insert("stderr_hex".into(), json!(self.stderr_hex));
-        observable.insert("stdout_truncated".into(), json!(self.stdout_truncated));
-        observable.insert("stderr_truncated".into(), json!(self.stderr_truncated));
-        observable.insert("usage".into(), self.usage.clone());
-    }
-}
-
 /// The scenario's opaque host objects by declared label, shared by the
 /// stub behaviors (allocation), the run-argument auto-wrap, and the
 /// observable tagger (identity lookup via `Arc::ptr_eq`).
@@ -139,14 +89,8 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         .as_array()
         .ok_or("scenario must carry invocations")?;
     let mut observables = Vec::with_capacity(invocations.len());
-    let mut last_obs = LastObs::default();
     for invocation in invocations {
-        observables.push(observe(
-            &mut sandbox,
-            invocation,
-            &mut opaques,
-            &mut last_obs,
-        )?);
+        observables.push(observe(&mut sandbox, invocation, &mut opaques)?);
     }
     Ok(Json::Array(observables))
 }
@@ -513,43 +457,48 @@ fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, 
     Ok(Value::Array(out))
 }
 
-/// Run one invocation and emit its raw observable object. A verb that
-/// runs (`eval` / `run`) reads its status, value, and observables off the
-/// returned `Execution`; `late_bind` produces no Execution, so it reports
-/// only its bind status and the carried `last_obs`.
+/// Run one invocation and emit its raw observable object. A verb that runs
+/// (`eval` / `run`) reads its status, value, and observables off the
+/// returned `Execution`; `late_bind` runs no guest, so it has no Execution
+/// and reports the empty readout.
 fn observe(
     sandbox: &mut Sandbox,
     invocation: &Json,
     opaques: &mut Opaques,
-    last_obs: &mut LastObs,
 ) -> Result<Json, String> {
     let mut observable = Map::new();
-    match invocation["verb"].as_str() {
+    let execution: Option<Execution> = match invocation["verb"].as_str() {
         Some("eval") | Some("run") => match run_verb(sandbox, invocation, opaques)? {
             Ok(execution) => {
-                last_obs.update(&execution);
                 match execution.value() {
                     Ok(value) => {
+                        let tagged = tag_value(value, &execution, opaques);
                         observable.insert("status".into(), json!("ok"));
-                        observable.insert("value".into(), tag_value(value, &execution, opaques));
+                        observable.insert("value".into(), tagged);
                     }
                     Err(error) => write_failure(&mut observable, error),
                 }
+                Some(execution)
             }
-            // The guest never started: no Execution, so the carried
-            // observables stand and only the status is this invocation's.
-            Err(error) => write_failure(&mut observable, &error),
-        },
-        Some("late_bind") => match late_bind(sandbox, invocation)? {
-            Ok(_nil) => {
-                observable.insert("status".into(), json!("ok"));
-                observable.insert("value".into(), json!({ "t": "nil" }));
+            // The guest never started, so there is no Execution to observe.
+            Err(error) => {
+                write_failure(&mut observable, &error);
+                None
             }
-            Err(error) => write_failure(&mut observable, &error),
         },
+        Some("late_bind") => {
+            match late_bind(sandbox, invocation)? {
+                Ok(_nil) => {
+                    observable.insert("status".into(), json!("ok"));
+                    observable.insert("value".into(), json!({ "t": "nil" }));
+                }
+                Err(error) => write_failure(&mut observable, &error),
+            }
+            None
+        }
         other => return Err(format!("unknown invocation verb {other:?}")),
-    }
-    last_obs.write_into(&mut observable);
+    };
+    write_observables(&mut observable, execution.as_ref());
     Ok(Json::Object(observable))
 }
 
@@ -612,6 +561,30 @@ fn write_failure(observable: &mut Map<String, Json>, error: &Error) {
         observable.insert("class".into(), json!(failure.class));
         observable.insert("message".into(), json!(failure.message));
     }
+}
+
+/// Write an invocation's observables, read off the run's `Execution`. A verb
+/// that ran no guest — a `late_bind`, or a run that never started — has no
+/// Execution, so its readout is empty.
+fn write_observables(observable: &mut Map<String, Json>, execution: Option<&Execution>) {
+    let (stdout_hex, stderr_hex, stdout_truncated, stderr_truncated, usage) = match execution {
+        Some(execution) => {
+            let usage = execution.usage();
+            (
+                hex(execution.stdout()),
+                hex(execution.stderr()),
+                execution.stdout_truncated(),
+                execution.stderr_truncated(),
+                json!({ "wall_time": usage.wall_time, "memory_peak": usage.memory_peak }),
+            )
+        }
+        None => (String::new(), String::new(), false, false, Json::Null),
+    };
+    observable.insert("stdout_hex".into(), json!(stdout_hex));
+    observable.insert("stderr_hex".into(), json!(stderr_hex));
+    observable.insert("stdout_truncated".into(), json!(stdout_truncated));
+    observable.insert("stderr_truncated".into(), json!(stderr_truncated));
+    observable.insert("usage".into(), usage);
 }
 
 /// The per-invocation override stubs an `eval_with` closure binds, one entry

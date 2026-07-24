@@ -21,16 +21,16 @@ module Kobako
   #     the high-water.
   #
   # Both readers are populated on every outcome, including +TrapError+
-  # branches, so the Host App can read +Sandbox#usage+ after rescuing a
-  # trap to diagnose how much of the budget the failing invocation
-  # consumed. Before the first invocation +Sandbox#usage+ returns the
-  # pre-invocation sentinel +Kobako::Usage::EMPTY+.
+  # branches, so the Host App can read +#usage+ off the run's
+  # +Kobako::Execution+ — the one a raised error carries on +#execution+ —
+  # after rescuing a trap to diagnose how much of the budget the failing
+  # invocation consumed.
   #
   # Built on the +class X < Data.define(...)+ subclass form (the
   # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
   class Usage < Data.define(:wall_time, :memory_peak)
-    # Pre-invocation sentinel. Reused by +Sandbox+ before any invocation
-    # has run so callers do not need to handle a +nil+ +#usage+.
+    # Pre-run sentinel. A fresh +Kobako::Context+ holds it until its guest
+    # runs, so an Execution's +#usage+ is never +nil+.
     EMPTY = new(wall_time: 0.0, memory_peak: 0)
   end
 end

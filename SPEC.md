@@ -111,7 +111,7 @@ These five roles describe the system. All design and behavior content in later l
   | Stable public surface | Members |
   |-----------------------|---------|
   | `Kobako::Sandbox` | `#bind` (with no object it declares a fillable, B-62), `#install`, `#preload`, `#eval`, `#run` (each accepting an optional `{ \|ctx\| ctx.bind(...) }` per-eval override block, B-63); output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage` (B-35); configuration readers `#wasm_path` and `#options` (the `Kobako::SandboxOptions` value object), and the five option readers `#timeout` / `#memory_limit` / `#stdout_limit` / `#stderr_limit` / `#profile` (B-54) that forward to it |  | `Kobako::Pool` | `.new(slots:, checkout_timeout:, **sandbox_keywords)` — the splat forwards every `Kobako::Sandbox.new` keyword verbatim — with a per-Sandbox setup block; checkout verb `#with` (B-46..B-48) |
-  | `Kobako::Execution` | The frozen result of one `#eval` / `#run`, returned on success and carried on a raised invocation-outcome error's `#execution` (B-61). Readers: `#value`; output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage`. The Sandbox's like-named readers delegate to the most recent invocation's `Execution` |
+  | `Kobako::Execution` | The frozen result of one `#eval` / `#run`, returned on success and carried on a raised invocation-outcome error's `#execution` (B-61). Readers: `#value`; output readers `#stdout` / `#stderr`; truncation predicates `#stdout_truncated?` / `#stderr_truncated?`; usage reader `#usage`. The reusable Sandbox keeps no observables of its own — every capture and usage reader lives here |
   | Error classes | `Kobako::TrapError`, `Kobako::TimeoutError`, `Kobako::MemoryLimitError`, `Kobako::SandboxError`, `Kobako::BytecodeError`, `Kobako::HandleExhaustedError`, `Kobako::ServiceError`, `Kobako::SetupError`, `Kobako::ModuleNotBuiltError`, `Kobako::PoolTimeoutError`; each invocation-outcome error carries the failed run's `Execution` on `#execution` (B-61) |
   | `Kobako::Handle` | Named publicly so Host Apps can pattern-match on it inside a `rescue` block; its constructor is internal to the Host Gem — Handles enter Host App code only as fields on raised error instances, never via direct construction |
   | `Kobako::Context` | The per-invocation object yielded to the `#eval` / `#run` override block. Exposes `#bind(path, object)` to override a declared path's object for that one invocation (B-63). Not retained by the Host App — valid only inside the block, and spent once it returns |
@@ -192,7 +192,7 @@ A Host App developer is adding kobako to a running Rails or Rack application for
 **Action**
 1. The developer adds kobako to the project's gem dependencies and installs it; the native extension compiles from source.
 2. The developer creates a `Kobako::Sandbox` and calls `bind` to attach host objects as Services at constant-path names.
-3. At request time, the developer calls `Sandbox#eval` with a source string and uses the return value as the execution result; they also read `Sandbox#stdout` and `Sandbox#stderr` for any guest log output.
+3. At request time, the developer calls `Sandbox#eval` with a source string and uses the returned `Execution`'s `#value` as the execution result; they also read its `#stdout` and `#stderr` for any guest log output.
 4. The developer repeats step 3 for subsequent requests on the same Sandbox instance.
 
 **Outcome**
@@ -208,7 +208,7 @@ A teaching platform or CI system operator receives student-submitted Ruby source
 **Action**
 1. For each submission, the operator creates a fresh `Kobako::Sandbox`.
 2. The operator optionally binds a grading Service that exposes read-only test fixtures and nothing else.
-3. The operator calls `Sandbox#eval` with the student's source string and collects the return value and `Sandbox#stdout` / `Sandbox#stderr` output.
+3. The operator calls `Sandbox#eval` with the student's source string and collects the returned `Execution`'s `#value` and its `#stdout` / `#stderr` output.
 4. The operator repeats this for each submission without restarting the host process.
 
 **Outcome**
@@ -270,7 +270,7 @@ A Host App developer is building a request handler whose business logic is suppl
 **Action**
 1. The developer creates a `Kobako::Sandbox`, calls `bind` to expose Services, then calls `sandbox.preload(code: source, name: :Worker)` once at startup. The `:Worker` source defines a top-level constant `Worker` that responds to `#call(request, opts = {})`.
 2. At request time, the developer calls `sandbox.run(:Worker, request, **opts)` for each incoming request.
-3. The developer reads the return value as the worker's response and reads `Sandbox#stdout` / `Sandbox#stderr` for any guest log output.
+3. The developer reads the returned `Execution`'s `#value` as the worker's response and its `#stdout` / `#stderr` for any guest log output.
 
 **Outcome**
 The `Worker` snippet replays into every invocation's canonical boot state (B-49), so per-invocation isolation holds (B-03) — no state from request N leaks to request N+1. The host normalizes the `:Worker` Symbol, resolves it on top-level `Object`, and dispatches into `Worker.call(request, opts)`; the return value flows back as an ordinary Ruby value. Backtraces produced inside `Worker.call` are attributed to `(snippet:Worker):line`, giving the developer a clear locator. Errors follow the same three-class taxonomy as J-05; `Kobako::SandboxError` with `details: { available: [...] }` surfaces when the developer dispatches a name that the preload table does not provide, allowing immediate diagnosis without inspecting the guest source.
@@ -558,7 +558,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | `#stdout` and `#stderr` byte content never includes truncation sentinels; truncation status is observable only via `#stdout_truncated?` / `#stderr_truncated?` | Host Gem | Test-time |
 | An invocation (`#eval` or `#run`) exceeding the configured `timeout` raises `Kobako::TimeoutError` via the trap-attribution path; no other outcome is possible for wall-clock cap exhaustion | Host Gem | Runtime |
 | Guest `memory.grow` whose per-invocation delta past the entry-time linear-memory baseline exceeds the configured `memory_limit` traps unconditionally and raises `Kobako::MemoryLimitError`; the host never observes a silent `memory.grow` failure from cap exhaustion | Host Gem | Runtime |
-| `Sandbox#usage` reports the most recent invocation's `wall_time` and `memory_peak`, sharing its accounting boundary with the matching caps from B-01 and populated regardless of outcome (B-35); `memory_peak` never exceeds `memory_limit` on `MemoryLimitError`, and pre-invocation reads return `Kobako::Usage::EMPTY` | Host Gem | Runtime |
+| `Execution#usage` reports its run's `wall_time` and `memory_peak`, sharing its accounting boundary with the matching caps from B-01 and populated regardless of outcome (B-35); `memory_peak` never exceeds `memory_limit` on `MemoryLimitError` | Host Gem | Runtime |
 | `Sandbox#eval` returns the last mruby expression value and `Sandbox#run` returns the entrypoint's `#call` value, both via the Result envelope path. A value the guest hands across the boundary that has no wire representation is rejected rather than coerced — no path substitutes an implicit `inspect` / `to_h` / `to_s` string: an invocation return takes the Panic envelope path (E-06), a yield-block result fails the yield round-trip (E-22), and a dispatch argument or kwargs value fails at the dispatch call site (E-55) | Guest Binary, Wire Spec | Test-time |
 | `vendor/` is never committed to the repository; build tools fetch release tarballs at build time | Repository, task scripts | Build-time |
 | mruby exception unwind is implemented via wasi-sdk setjmp/longjmp (three mandatory compiler flags); direct modification of mruby setjmp call sites is not permitted | Guest Binary build | Build-time |

@@ -20,6 +20,16 @@ module Parity
       [Kobako::SandboxError, "sandbox"]
     ].freeze
 
+    # A verb that never ran the guest — a late_bind or a could-not-start
+    # failure — carries no Execution, so its observables are all empty.
+    NO_OBSERVABLES = {
+      "stdout_hex" => "",
+      "stderr_hex" => "",
+      "stdout_truncated" => false,
+      "stderr_truncated" => false,
+      "usage" => nil
+    }.freeze
+
     def initialize(wasm_path)
       @wasm_path = wasm_path
     end
@@ -33,20 +43,18 @@ module Parity
     private
 
     def observe(sandbox, invocation)
-      invoke(sandbox, invocation).merge(
-        "stdout_hex" => sandbox.stdout.unpack1("H*"),
-        "stderr_hex" => sandbox.stderr.unpack1("H*"),
-        "stdout_truncated" => sandbox.stdout_truncated?,
-        "stderr_truncated" => sandbox.stderr_truncated?,
-        "usage" => usage_observable(sandbox)
-      )
+      status, execution = invoke(sandbox, invocation)
+      status.merge(observables(execution))
     end
 
+    # Run the verb, pairing its status with the run's Execution — the object
+    # the observables read from. A guest failure raises a taxonomy error
+    # carrying the same Execution on +#execution+; late_bind runs no guest.
     def invoke(sandbox, invocation)
       case invocation.fetch(:verb)
-      when "eval" then capture_outcome { eval_verb(sandbox, invocation).value }
-      when "run" then capture_outcome { run_verb(sandbox, invocation).value }
-      when "late_bind" then late_bind(sandbox, invocation)
+      when "eval" then capture_outcome { eval_verb(sandbox, invocation) }
+      when "run" then capture_outcome { run_verb(sandbox, invocation) }
+      when "late_bind" then [late_bind(sandbox, invocation), nil]
       else raise ArgumentError, "unknown invocation verb: #{invocation.inspect}"
       end
     end
@@ -73,10 +81,10 @@ module Parity
     end
 
     def capture_outcome
-      value = yield
-      { "status" => "ok", "value" => ValueTags.tag(value) }
+      execution = yield
+      [{ "status" => "ok", "value" => ValueTags.tag(execution.value) }, execution]
     rescue Kobako::Error => e
-      classify(e)
+      [classify(e), e.execution]
     end
 
     # A registration refused after the first invocation surfaces the
@@ -102,11 +110,18 @@ module Parity
       { "status" => status, "class" => error.klass, "message" => error.message }
     end
 
-    def usage_observable(sandbox)
-      usage = sandbox.usage
-      return nil unless usage
+    # The run's observables, read off its Execution; a verb that ran no
+    # guest (execution is +nil+) reports the empty readout.
+    def observables(execution)
+      return NO_OBSERVABLES if execution.nil?
 
-      { "wall_time" => usage.wall_time, "memory_peak" => usage.memory_peak }
+      {
+        "stdout_hex" => execution.stdout.unpack1("H*"),
+        "stderr_hex" => execution.stderr.unpack1("H*"),
+        "stdout_truncated" => execution.stdout_truncated?,
+        "stderr_truncated" => execution.stderr_truncated?,
+        "usage" => { "wall_time" => execution.usage.wall_time, "memory_peak" => execution.usage.memory_peak }
+      }
     end
   end
 end

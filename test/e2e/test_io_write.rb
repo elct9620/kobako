@@ -88,12 +88,13 @@ class TestE2EIoWrite < Minitest::Test
   def test_io_supplementary_surface_matches_mruby_io
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    result = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT).value
+    execution = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT)
+    result = execution.value
 
     assert_equal [true, false, true, false, false, true, false, 1], result,
                  "IO supplementary surface (<< self-chain, tty?, sync default/assignment, " \
                  "flush self-return, closed?, to_i alias) must match the mruby-io contract"
-    assert_equal "ab", sandbox.stdout,
+    assert_equal "ab", execution.stdout,
                  "$stdout << must write its argument bytes to the stdout capture channel"
   end
 
@@ -112,8 +113,8 @@ class TestE2EIoWrite < Minitest::Test
   # wrong length would corrupt the captured output.
   def test_io_write_round_trips_embed_tagged_string
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "abcdefghijk"').value
-    assert_equal "abcdefghijk", sandbox.stdout,
+    execution = sandbox.eval('print "abcdefghijk"')
+    assert_equal "abcdefghijk", execution.stdout,
                  "short string passed to `print` must reach stdout intact"
   end
 
@@ -125,8 +126,8 @@ class TestE2EIoWrite < Minitest::Test
   # Ruby-side interpolation.
   def test_io_write_round_trips_heap_tagged_string
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "x" * 100').value
-    assert_equal "x" * 100, sandbox.stdout,
+    execution = sandbox.eval('print "x" * 100')
+    assert_equal "x" * 100, execution.stdout,
                  "long string passed to `print` must reach stdout intact"
   end
 
@@ -135,8 +136,8 @@ class TestE2EIoWrite < Minitest::Test
   # byte). Embedded NUL must reach the capture pipe intact.
   def test_io_write_preserves_embedded_nul_bytes
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval("print \"a\\0b\"").value
-    assert_equal "a\0b".b, sandbox.stdout.b,
+    execution = sandbox.eval("print \"a\\0b\"")
+    assert_equal "a\0b".b, execution.stdout.b,
                  "NUL bytes inside a `print` payload must reach stdout"
   end
 
@@ -145,8 +146,8 @@ class TestE2EIoWrite < Minitest::Test
   # bytes reach `write(2)` verbatim.
   def test_io_write_passes_through_already_string_without_coercion
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval('print "literal-string"').value
-    assert_equal "literal-string", sandbox.stdout,
+    execution = sandbox.eval('print "literal-string"')
+    assert_equal "literal-string", execution.stdout,
                  "String argument to `print` must reach stdout verbatim"
   end
 
@@ -156,8 +157,8 @@ class TestE2EIoWrite < Minitest::Test
   # trap).
   def test_io_write_coerces_non_string_via_to_s
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.eval("print 42").value
-    assert_equal "42", sandbox.stdout,
+    execution = sandbox.eval("print 42")
+    assert_equal "42", execution.stdout,
                  "Integer argument to `print` must reach stdout as its `to_s` form"
   end
 
@@ -199,9 +200,9 @@ class TestE2EIoWrite < Minitest::Test
   def test_printf_writes_formatted_output_to_stdout
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    sandbox.eval('printf("%03d\n", 7)').value
+    execution = sandbox.eval('printf("%03d\n", 7)')
 
-    assert_equal "007\n", sandbox.stdout,
-                 "printf through #eval must write the sprintf-formatted bytes to Sandbox#stdout"
+    assert_equal "007\n", execution.stdout,
+                 "printf through #eval must write the sprintf-formatted bytes to Execution#stdout"
   end
 end

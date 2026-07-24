@@ -2,13 +2,15 @@
 
 require "test_helper"
 
-# SPEC.md F-01 / F-08: Kobako::Sandbox.new + stdout/stderr capture with limits.
+# SPEC.md F-01 / F-08: Kobako::Sandbox.new construction and option normalization.
 #
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
-# Instance) against the test fixture wasm, owns a per-instance Catalog::Handles,
-# and holds the per-channel byte caches that back `#stdout` / `#stderr` /
-# `#stdout_truncated?` / `#stderr_truncated?` (SPEC.md B-04). The per-
-# channel cap itself is enforced inside the ext-owned WASI pipe.
+# Instance) against the test fixture wasm and normalizes its caps through
+# SandboxOptions; the ABI-version probe and profile-floor check run here too.
+# A run's captures live on the +Kobako::Execution+ it returns (SPEC.md B-04),
+# not on the stateless Sandbox — exercised end-to-end against the real guest
+# elsewhere. The per-channel cap itself is enforced inside the ext-owned WASI
+# pipe.
 class TestSandbox < Minitest::Test
   FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
   ABSENT_ABI_FIXTURE_PATH = File.expand_path("../fixtures/minimal.wasm", __dir__)
@@ -23,19 +25,6 @@ class TestSandbox < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
     assert_equal FIXTURE_PATH, sandbox.wasm_path
-  end
-
-  # SPEC.md B-05: reading the capture channels before any +#run+ returns
-  # an empty UTF-8 String; the truncation predicates default to +false+.
-  def test_pre_run_capture_state_matches_b05
-    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-
-    assert_equal "", sandbox.stdout
-    assert_equal "", sandbox.stderr
-    assert_equal Encoding::UTF_8, sandbox.stdout.encoding
-    assert_equal Encoding::UTF_8, sandbox.stderr.encoding
-    refute sandbox.stdout_truncated?
-    refute sandbox.stderr_truncated?
   end
 
   # Sandbox.new delegates cap normalization to SandboxOptions, whose

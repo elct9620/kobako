@@ -121,14 +121,14 @@ class TestE2ECaps < Minitest::Test
   def test_partial_stdout_readable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
-    assert_raises(Kobako::TimeoutError) do
+    error = assert_raises(Kobako::TimeoutError) do
       sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
     end
 
-    assert_equal "out before trap\n", sandbox.stdout,
+    assert_equal "out before trap\n", error.execution.stdout,
                  "stdout written before a TimeoutError must stay readable " \
                  "after the rescue per SPEC.md B-04"
-    refute_predicate sandbox, :stdout_truncated?,
+    refute_predicate error.execution, :stdout_truncated?,
                      "a trap is not a cap overflow — the truncation " \
                      "predicate must stay false per SPEC.md B-04"
   end
@@ -139,11 +139,11 @@ class TestE2ECaps < Minitest::Test
   def test_partial_stderr_readable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
-    assert_raises(Kobako::TimeoutError) do
+    error = assert_raises(Kobako::TimeoutError) do
       sandbox.eval('$stdout.puts "out before trap"; $stderr.puts "err before trap"; loop { }').value
     end
 
-    assert_equal "err before trap\n", sandbox.stderr,
+    assert_equal "err before trap\n", error.execution.stderr,
                  "stderr written before a TimeoutError must stay readable " \
                  "after the rescue per SPEC.md B-04"
   end
@@ -156,14 +156,14 @@ class TestE2ECaps < Minitest::Test
   def test_truncation_predicate_survives_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2, stdout_limit: 5)
 
-    assert_raises(Kobako::TimeoutError) do
+    error = assert_raises(Kobako::TimeoutError) do
       sandbox.eval('begin; puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; loop { }').value
     end
 
-    assert_equal "long ", sandbox.stdout,
+    assert_equal "long ", error.execution.stdout,
                  "stdout overflowing its cap before a TimeoutError must keep " \
                  "exactly its first stdout_limit bytes per SPEC.md B-04"
-    assert_predicate sandbox, :stdout_truncated?,
+    assert_predicate error.execution, :stdout_truncated?,
                      "a cap overflow before the trap must stay observable " \
                      "through the rescue per SPEC.md B-04"
   end
@@ -175,11 +175,11 @@ class TestE2ECaps < Minitest::Test
   def test_partial_stdout_readable_after_memory_limit_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
-    assert_raises(Kobako::MemoryLimitError) do
+    error = assert_raises(Kobako::MemoryLimitError) do
       sandbox.eval('puts "before alloc"; a = []; 100.times { a << ("x" * 50_000) }; nil').value
     end
 
-    assert_equal "before alloc\n", sandbox.stdout,
+    assert_equal "before alloc\n", error.execution.stdout,
                  "stdout written before a MemoryLimitError must stay " \
                  "readable after the rescue per SPEC.md B-04"
   end

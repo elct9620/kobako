@@ -62,8 +62,6 @@ class TestE2EInstall < Minitest::Test
     assert_raises(RuntimeError, "a raising provider must propagate its own error class through #eval (B-56)") do
       sandbox.eval('$stdout.write("ran")')
     end
-    assert_equal "", sandbox.stdout,
-                 "the guest must not run when provider resolution raises, so no output is produced (B-56)"
     assert_equal "v", sandbox.eval('File.write("k", "v"); File.read("k")').value,
                  "per-invocation resolution must let the next invocation run once the provider succeeds (B-56)"
   end
@@ -88,8 +86,6 @@ class TestE2EInstall < Minitest::Test
     err = assert_raises(ArgumentError) { sandbox.eval('$stdout.write("ran")') }
     assert_match(/:Errno/, err.message,
                  "an unmet depends_on must raise at the first invocation, naming the missing Extension (E-52)")
-    assert_equal "", sandbox.stdout,
-                 "an unmet dependency must raise before the guest runs, so no guest output is produced (E-52)"
   end
 
   # B-57: with depends_on satisfied, both Extensions' snippets replay before

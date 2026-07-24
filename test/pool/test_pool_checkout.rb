@@ -38,20 +38,6 @@ class TestPoolCheckout < Minitest::Test
                  "setup-block Service bindings through a reused pooled Sandbox must stay active (B-47)"
   end
 
-  # B-47: output buffers read empty at checkout.
-  def test_checkout_hands_over_empty_output_buffers
-    pool = Kobako::Pool.new(slots: 1)
-    pool.with { |sandbox| sandbox.eval(%(puts "leak?")).value }
-    pool.with do |sandbox|
-      assert_equal "", sandbox.stdout, "a pooled Sandbox at checkout must read empty stdout (B-47)"
-      assert_equal "", sandbox.stderr, "a pooled Sandbox at checkout must read empty stderr (B-47)"
-      refute_predicate sandbox, :stdout_truncated?,
-                       "a pooled Sandbox at checkout must read stdout_truncated? false (B-47)"
-      refute_predicate sandbox, :stderr_truncated?,
-                       "a pooled Sandbox at checkout must read stderr_truncated? false (B-47)"
-    end
-  end
-
   # B-47: no guest-observable state crosses from one checkout holder to
   # the next. The B-49 canonical-boot e2e pins this on a directly
   # constructed Sandbox; this is the Pool-composition witness on the

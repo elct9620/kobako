@@ -23,14 +23,13 @@ module Kobako
   # surface to Ruby — constructing many Sandboxes amortises both costs
   # automatically.
   #
-  # Output capture policy: the
-  # per-channel cap (+stdout_limit+ / +stderr_limit+) is enforced inside the
-  # WASI pipe — the host buffer stops growing at the cap, subsequent guest
-  # writes on that channel fail or are dropped, and +#run+ still returns
-  # normally. +#stdout+ / +#stderr+ return the captured prefix as a UTF-8
-  # String; the byte content never carries a truncation sentinel.
-  # +#stdout_truncated?+ / +#stderr_truncated?+ are the only way to observe
-  # that the cap was hit.
+  # A run's observables — the captured +#stdout+ / +#stderr+ (bounded by
+  # +stdout_limit+ / +stderr_limit+, enforced inside the WASI pipe) with their
+  # +#stdout_truncated?+ / +#stderr_truncated?+ predicates, and +#usage+ — live
+  # on the +Kobako::Execution+ each +#eval+ / +#run+ returns, or on the one its
+  # raised error carries. The Sandbox itself keeps none of them, so it holds no
+  # per-invocation state and drives concurrent invocations from separate
+  # Contexts without interference.
   class Sandbox
     extend Forwardable
 
@@ -39,38 +38,6 @@ module Kobako
     # Per-option accessors forward to the immutable +SandboxOptions+ Value
     # Object so the Host App still reads them off Sandbox directly.
     def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile
-
-    # Returns the bytes the guest wrote to stdout during the most recent
-    # invocation as a UTF-8 String, clipped at +stdout_limit+. Empty before
-    # any invocation; the byte content never contains a truncation sentinel,
-    # so use +#stdout_truncated?+ to observe overflow. Populated on every
-    # outcome — including a rescued +TrapError+, after which it holds the
-    # bytes written before the trap fired — mirroring +#usage+.
-    def stdout = @last_context.stdout
-
-    # Returns the bytes the guest wrote to stderr during the most recent
-    # invocation as a UTF-8 String, clipped at +stderr_limit+. Empty before
-    # any invocation. Mirror of +#stdout+.
-    def stderr = @last_context.stderr
-
-    # Returns +true+ iff stdout capture during the most recent invocation
-    # exceeded +stdout_limit+. Resets to +false+ at the start of the next
-    # invocation.
-    def stdout_truncated? = @last_context.stdout_truncated?
-
-    # Returns +true+ iff stderr capture during the most recent invocation
-    # exceeded +stderr_limit+. Mirror of +#stdout_truncated?+.
-    def stderr_truncated? = @last_context.stderr_truncated?
-
-    # Returns the +Kobako::Usage+ value object for the most recent
-    # invocation. Carries +wall_time+ (Float seconds the guest export call spent
-    # inside wasmtime) and +memory_peak+ (Integer bytes, high-water of
-    # the per-invocation +memory.grow+ delta past the entry-time
-    # baseline). Returns +Kobako::Usage::EMPTY+ before any invocation;
-    # populated on every outcome — including +TrapError+ — so the Host
-    # App can read it after rescuing a trap to diagnose budget
-    # consumption.
-    def usage = @last_context.usage
 
     # Build a fresh Sandbox.
     #
@@ -93,7 +60,6 @@ module Kobako
       @snippets = Catalog::Snippets.new
       @extensions = Catalog::Extensions.new
       @runtime = build_runtime!
-      reset_invocation_state!
     end
 
     # Bind +object+ as the Service reachable at +path+ — a Symbol or
@@ -209,15 +175,6 @@ module Kobako
       new_invocation.eval(code, &block)
     end
 
-    # Install a fresh, unrun +Context+ as the last invocation, so the
-    # observable readers (+#stdout+ / +#stderr+ / +#usage+) return their
-    # pre-invocation sentinels. Runs at construction and is called by
-    # +Kobako::Pool+ at checkout so a pooled Sandbox hands over empty buffers.
-    def reset_invocation_state!
-      @last_context = Context.new(runtime: @runtime, services: @services, snippets: @snippets,
-                                  extensions: @extensions)
-    end
-
     private
 
     # Construct the +Runtime+ with the requested isolation profile and
@@ -231,14 +188,13 @@ module Kobako
       runtime
     end
 
-    # Seal the config on the first invocation and install a fresh
-    # per-invocation +Context+ as the last invocation; returns it for the verb
-    # to drive. The Context resolves its own callable Extension backends, so no
-    # per-invocation state is written back onto the shared config here.
+    # Seal the config on the first invocation and return a fresh
+    # per-invocation +Context+ for the verb to drive. The Context owns this
+    # run's Handle table, resolved Extension backends, captures, and usage, so
+    # no per-invocation state is written back onto the shared config.
     def new_invocation
       begin_invocation!
-      reset_invocation_state!
-      @last_context
+      Context.new(runtime: @runtime, services: @services, snippets: @snippets, extensions: @extensions)
     end
 
     # Per-invocation prologue on the config tier: seals the Service / snippet /

@@ -25,7 +25,7 @@ If no trap occurred, the Host Gem reads the outcome bytes produced by `__kobako_
 | `0x02` (panic) | Decode fails (malformed envelope) | `Kobako::SandboxError` |
 | Any other tag | — | `Kobako::TrapError` — wire violation fallback |
 
-`stdout` and `stderr` bytes do not participate in attribution dispatch. They are always available via `Sandbox#stdout` / `Sandbox#stderr` after a rescue, including after error-raising runs.
+`stdout` and `stderr` bytes do not participate in attribution dispatch. They are always available via the run's `Execution` — the one a raised error carries on `#execution` — after a rescue, including after error-raising runs.
 
 ---
 

@@ -47,7 +47,7 @@ module Kobako
     # discarded and its slot refills by a fresh construction on next
     # demand.
     def with
-      sandbox = checkout
+      sandbox = acquire
       begin
         yield sandbox
       rescue TrapError
@@ -60,12 +60,6 @@ module Kobako
     end
 
     private
-
-    # Acquire a Sandbox and hand it over in pre-invocation state — empty
-    # output buffers and truncation predicates false.
-    def checkout
-      acquire.tap(&:reset_invocation_state!)
-    end
 
     # The idle-first claim loop: an idle Sandbox wins, unclaimed
     # capacity constructs, and a full pool waits for a checkin.

@@ -19,16 +19,6 @@ module Kobako
       **untyped options
     ) -> void
 
-    def stdout: () -> String
-
-    def stderr: () -> String
-
-    def stdout_truncated?: () -> bool
-
-    def stderr_truncated?: () -> bool
-
-    def usage: () -> Kobako::Usage
-
     def bind: (Symbol | String path, ?untyped object) -> Kobako::Sandbox
 
     def install: (*untyped extensions) -> Kobako::Sandbox
@@ -36,11 +26,9 @@ module Kobako
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
 
-    def run: (Symbol | String target, *untyped args, **untyped kwargs) ?{ (Kobako::Context) -> void } -> untyped
+    def run: (Symbol | String target, *untyped args, **untyped kwargs) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
-    def eval: (String code) ?{ (Kobako::Context) -> void } -> untyped
-
-    def reset_invocation_state!: () -> void
+    def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
     private
 
