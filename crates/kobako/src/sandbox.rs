@@ -484,12 +484,16 @@ impl Context<'_> {
     /// invocation — filling a fillable or shadowing a static / per-invocation
     /// binding. Overriding a path that was never declared returns
     /// `Error::Argument`, so an override can never grow the sealed key set.
+    /// A second override of the same `path` wins over the first, matching the
+    /// Ruby frontend's last-wins semantics — an override is the caller's final
+    /// word on that path for the run.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         if self.catalog.lookup(path).is_none() {
             return Err(Error::Argument(format!(
                 "cannot override undeclared path {path:?}"
             )));
         }
+        self.overrides.retain(|(bound, _)| bound != path);
         self.overrides.push((path.to_string(), object));
         Ok(())
     }

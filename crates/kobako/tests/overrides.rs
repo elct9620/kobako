@@ -98,6 +98,32 @@ fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
 }
 
 #[test]
+fn a_second_override_of_a_path_wins_over_the_first() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .bind_fillable("Store")
+        .expect("declare a fillable path");
+
+    let value = sandbox
+        .eval_with("Store.get(1)", |ctx| {
+            ctx.bind("Store", Arc::new(Kv("first")))?;
+            ctx.bind("Store", Arc::new(Kv("second")))
+        })
+        .expect("a repeated override resolves to a live object")
+        .into_value()
+        .expect("the winning override object returns its value");
+
+    assert_eq!(
+        value,
+        Value::Str("second".into()),
+        "a later ctx.bind on the same path must shadow the earlier one, matching the Ruby \
+         frontend's last-wins override semantics (B-63)"
+    );
+}
+
+#[test]
 fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
     let Some(mut sandbox) = real_sandbox() else {
         return;
