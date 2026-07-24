@@ -37,7 +37,7 @@ module Kobako
 
     def trap_error_for: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::TrapError
 
-    def build_execution: (untyped value) -> Kobako::Execution
+    def build_execution: (untyped value, failed: bool) -> Kobako::Execution
 
     def settle_outcome: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::Execution
 

@@ -7,8 +7,11 @@ module Kobako
       value: untyped,
       usage: Kobako::Usage,
       stdout: Kobako::Capture,
-      stderr: Kobako::Capture
+      stderr: Kobako::Capture,
+      failed: bool
     ) -> void
+
+    def failed?: () -> bool
 
     def stdout: () -> String
 

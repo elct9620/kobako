@@ -175,8 +175,10 @@ module Kobako
 
     # Freeze this run's observables plus +value+ (+nil+ on a failed run) into
     # the read-only +Execution+ the caller receives or the error carries.
-    def build_execution(value)
-      Execution.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture)
+    # +failed+ records the two apart so a +nil+ +value+ from a successful run
+    # stays distinct from a failed one.
+    def build_execution(value, failed:)
+      Execution.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture, failed: failed)
     end
 
     # Decode a completed run's outcome into its +Execution+. A Capability
@@ -186,11 +188,12 @@ module Kobako
     def settle_outcome(snapshot, verb)
       value, carried = Codec.track_handles { Outcome.decode(snapshot.outcome) }
       value = Codec::HandleWalk.deep_restore(value, @handler) if carried
-      build_execution(value)
+      build_execution(value, failed: false)
     rescue Kobako::TrapError => e
-      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_execution(build_execution(nil))
+      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_execution(build_execution(nil,
+                                                                                                         failed: true))
     rescue Kobako::SandboxError, Kobako::ServiceError => e
-      raise e.with_execution(build_execution(nil))
+      raise e.with_execution(build_execution(nil, failed: true))
     end
 
     # Drive one invocation and settle it into a frozen +Execution+. +verb+
@@ -212,7 +215,7 @@ module Kobako
       populate_observability!(snapshot)
       return settle_outcome(snapshot, verb) unless snapshot.trapped?
 
-      raise trap_error_for(snapshot, verb).with_execution(build_execution(nil))
+      raise trap_error_for(snapshot, verb).with_execution(build_execution(nil, failed: true))
     end
   end
 end
