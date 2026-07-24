@@ -76,9 +76,12 @@ error model. The guest reports success or failure as a value (its
 `Execution` on `#execution`, while the SDK keeps failure a value — a run
 that reached the guest is `Ok(Execution)`, its outcome (the value or a
 failure `Error`) rides `Execution::value`, and `into_value` folds it into
-a `Result` so a caller cannot pass over a guest failure unnoticed. A run
-that never started raises without an Execution on Ruby and is the outer
-`Err` on the SDK. The harness compares the observables both carry —
+a `Result` so a caller cannot pass over a guest failure unnoticed. Ruby's
+`Execution#failed?` is the mirror of the SDK's `Err` arm: both let a
+caller tell a failed run from a success whose value was legitimately
+`nil`, on either side of the raise-versus-return split. A run that never
+started raises without an Execution on Ruby and is the outer `Err` on the
+SDK. The harness compares the observables both carry —
 value, captures, usage, failure attribution — after normalization, so
 this raise-versus-return spelling never surfaces as drift.
 
