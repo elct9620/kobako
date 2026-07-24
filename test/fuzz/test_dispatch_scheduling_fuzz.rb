@@ -57,19 +57,38 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   # resolve only their own Tokens — a foreign owner is a cross-invocation
   # misdelivery (B-03).
   def test_release_isolates_handles_across_threads
-    batches = [@iterations / THREADS, 1].max
+    assert_isolation_across_batches("each :release Thread must resolve only its own Handles (B-03)") do |specs|
+      run_batch(specs)
+    end
+  end
 
+  # Threads sharing ONE :release Sandbox, each filling Vault::Mint with its own
+  # tag through the per-invocation ctx.bind override, must each resolve only
+  # their own Handles — a foreign owner is a cross-invocation misdelivery on the
+  # shared-Sandbox shape (B-22 / B-03).
+  def test_release_shared_sandbox_isolates_across_threads
+    shared = shared_sandbox
+    assert_isolation_across_batches("each :release Thread sharing one Sandbox must resolve only its own " \
+                                    "ctx.bind identity (B-22 / B-03)") do |specs|
+      run_shared_batch(shared, specs)
+    end
+  end
+
+  private
+
+  # Drive @iterations worth of THREADS-wide batches through +runner+ (which
+  # returns +[tid, kinds, value]+ per Thread) and assert each Thread's decoded
+  # result carries only its own tag, then assert shape coverage is complete.
+  def assert_isolation_across_batches(message)
+    batches = [@iterations / THREADS, 1].max
     batches.times do |batch|
       specs = Array.new(THREADS) { |tid| [tid, *@generator.generate] }
-      run_batch(specs).each do |tid, kinds, value|
-        assert_equal expected(kinds, tid), canonicalize(value),
-                     failure(batch, "thread #{tid}", "each :release Thread must resolve only its own Handles (B-03)")
+      yield(specs).each do |tid, kinds, value|
+        assert_equal expected(kinds, tid), canonicalize(value), failure(batch, "thread #{tid}", message)
       end
     end
     assert_coverage_complete
   end
-
-  private
 
   # Generate one program, run it under both modes on the shared Sandboxes,
   # and assert :hold decodes to the tag's owners and :release matches :hold.
@@ -95,15 +114,41 @@ class TestDispatchSchedulingFuzz < Minitest::Test
     end.map(&:value)
   end
 
-  # A Sandbox in +mode+ whose Vault services mint, resolve, iterate, and
-  # wrap around Tokens owned by +tag+.
+  # Run one program per Thread against the one +shared+ Sandbox, each Thread
+  # filling Vault::Mint with its own tag through the per-invocation ctx.bind
+  # override, and return +[tid, kinds, value]+ per Thread.
+  def run_shared_batch(shared, specs)
+    specs.map do |tid, program, kinds|
+      Thread.new do
+        value = shared.eval(program) { |ctx| ctx.bind("Vault::Mint", -> { Token.new(tid) }) }.value
+        [tid, kinds, value]
+      end
+    end.map(&:value)
+  end
+
+  # A Sandbox in +mode+ whose Vault::Mint statically returns Tokens owned by
+  # +tag+, plus the shared resolve / iterate / wrap services.
   def tagged_sandbox(mode, tag)
     Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).tap do |sandbox|
       sandbox.bind("Vault::Mint", -> { Token.new(tag) })
-      sandbox.bind("Vault::Owner", lambda(&:owner))
-      sandbox.bind("Vault::Each", ->(items, &blk) { items.each(&blk) })
-      sandbox.bind("Vault::Wrap", ->(&blk) { blk.call })
+      bind_vault_services(sandbox)
     end
+  end
+
+  # A shared :release Sandbox whose Vault::Mint is a fillable each invocation
+  # fills with its own tag through ctx.bind; the resolve / iterate / wrap
+  # services stay static, read-only, and shared across Threads.
+  def shared_sandbox
+    Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release).tap do |sandbox|
+      sandbox.bind("Vault::Mint")
+      bind_vault_services(sandbox)
+    end
+  end
+
+  def bind_vault_services(sandbox)
+    sandbox.bind("Vault::Owner", lambda(&:owner))
+    sandbox.bind("Vault::Each", ->(items, &blk) { items.each(&blk) })
+    sandbox.bind("Vault::Wrap", ->(&blk) { blk.call })
   end
 
   # Reduce a decoded result to owner identities: an owner Integer stays, a
