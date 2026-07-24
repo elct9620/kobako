@@ -1,7 +1,5 @@
 module Kobako
   class Context
-    attr_reader usage: Kobako::Usage
-
     def initialize: (
       runtime: Kobako::Runtime,
       services: Kobako::Catalog::Services,
@@ -12,14 +10,6 @@ module Kobako
     def bind: (Symbol | String path, untyped object) -> self
 
     def lookup: (Symbol | String path) -> untyped
-
-    def stdout: () -> String
-
-    def stderr: () -> String
-
-    def stdout_truncated?: () -> bool
-
-    def stderr_truncated?: () -> bool
 
     def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 

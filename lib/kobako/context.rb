@@ -18,10 +18,6 @@ module Kobako
   # invocation keeps concurrent evals shared-nothing — no per-invocation state
   # lives on the reusable +Sandbox+.
   class Context
-    # The +Kobako::Usage+ value object for this invocation; +Usage::EMPTY+
-    # until the guest has run.
-    attr_reader :usage
-
     # Build a Context over the Sandbox-owned config — the +Runtime+, the
     # sealed +Catalog::Services+ / +Catalog::Snippets+ registries, and the
     # +Catalog::Extensions+ whose callable backends this Context resolves for
@@ -76,20 +72,6 @@ module Kobako
 
       object
     end
-
-    # Bytes the guest wrote to stdout during this invocation as a UTF-8 String,
-    # clipped at the cap; the content never carries a truncation sentinel, so
-    # use +#stdout_truncated?+ to observe overflow.
-    def stdout = @stdout_capture.bytes
-
-    # Bytes the guest wrote to stderr during this invocation. Mirror of #stdout.
-    def stderr = @stderr_capture.bytes
-
-    # Returns +true+ iff stdout reached its cap during this invocation.
-    def stdout_truncated? = @stdout_capture.truncated?
-
-    # Returns +true+ iff stderr reached its cap during this invocation.
-    def stderr_truncated? = @stderr_capture.truncated?
 
     # Execute a guest mruby source string in a fresh +mrb_state+ and return the
     # decoded last expression. A given +block+ runs first, receiving this
