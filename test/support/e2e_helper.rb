@@ -7,7 +7,7 @@
 # ext or the built guest, each test skips with a pointer at the missing
 # build step.
 module E2eGuestHelper
-  REAL_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
+  REAL_WASM = TestPaths.data("kobako.wasm")
 
   def setup
     # The default task compiles the ext and builds the guest before the

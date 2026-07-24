@@ -11,7 +11,7 @@ require "tmpdir"
 # entries fall back to in-process compilation, untrusted directories are
 # skipped, and writes prune entries unused past the retention window.
 class TestRuntimeArtifactCache < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
@@ -101,7 +101,7 @@ class TestRuntimeArtifactCache < Minitest::Test
   # the ext embeds the kobako-wasmtime crate's CARGO_PKG_VERSION at
   # compile time, so the crate manifest is the witness the test reads.
   def driver_crate_version
-    manifest = File.expand_path("../../crates/kobako-wasmtime/Cargo.toml", __dir__)
+    manifest = TestPaths.source("crates", "kobako-wasmtime", "Cargo.toml")
     File.read(manifest)[/^version = "([^"]+)"/, 1]
   end
 

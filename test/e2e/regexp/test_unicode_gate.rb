@@ -9,7 +9,7 @@ require "test_helper"
 # needs +/i+ must pick the unicode variant — while ASCII matching, which is
 # rewritten to explicit classes regardless, still works.
 class TestRegexpUnicodeGate < Minitest::Test
-  REGEXP_WASM = File.expand_path("../../data/kobako+regexp.wasm", __dir__)
+  REGEXP_WASM = TestPaths.data("kobako+regexp.wasm")
 
   def setup
     # `rake test` builds this variant, so under CI a missing prerequisite

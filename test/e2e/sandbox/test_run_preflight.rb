@@ -9,7 +9,7 @@ require "test_helper"
 # Binary so these cases run without it. Guest-driven #run behavior
 # lives in test_run.rb.
 class TestSandboxRunPreflight < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)

@@ -37,6 +37,7 @@ end
 require "stringio"
 
 require "minitest/autorun"
+require_relative "support/paths"
 require_relative "support/outcome_bytes_helpers"
 require_relative "support/cargo_oracle"
 require_relative "support/wire_value_generator"

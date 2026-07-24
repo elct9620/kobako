@@ -75,7 +75,7 @@ class TestE2EPreload < Minitest::Test
   # Fixture source: `test/fixtures/snippet_answers.rb` (literally
   # `ANSWERS = 42`), compiled with `mrbc -g` to embed a `debug_info`
   # section so the bytecode meets B-32's identity requirement.
-  BYTECODE_FIXTURE_PATH = File.expand_path("../fixtures/snippet_answers.mrb", __dir__)
+  BYTECODE_FIXTURE_PATH = TestPaths.fixture("snippet_answers.mrb")
 
   def test_b32_preloaded_binary_snippet_is_visible_to_eval
     sandbox = Kobako::Sandbox.new
@@ -102,7 +102,7 @@ class TestE2EPreload < Minitest::Test
   # the valid bytecode and flips the version bytes ("0400" → "9999")
   # so the failure path triggers without depending on a future mruby
   # version bump.
-  E37_FIXTURE_PATH = File.expand_path("../fixtures/snippet_wrong_version.mrb", __dir__)
+  E37_FIXTURE_PATH = TestPaths.fixture("snippet_wrong_version.mrb")
 
   def test_e37_bytecode_wrong_version_raises_bytecode_error
     sandbox = Kobako::Sandbox.new
@@ -120,7 +120,7 @@ class TestE2EPreload < Minitest::Test
   # The corrupt fixture is a header-prefix truncation of the valid
   # bytecode — enough to pass the four-byte RITE ident check but short
   # enough that section parsing fails inside mruby's load path.
-  E38_FIXTURE_PATH = File.expand_path("../fixtures/snippet_corrupt.mrb", __dir__)
+  E38_FIXTURE_PATH = TestPaths.fixture("snippet_corrupt.mrb")
 
   def test_e38_bytecode_corrupt_body_raises_bytecode_error
     sandbox = Kobako::Sandbox.new
@@ -147,7 +147,7 @@ class TestE2EPreload < Minitest::Test
   # `test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error`
   # exercises the parallel attribution path for the `(snippet:Name)`
   # ccontext filename, which is host-set rather than upstream-inherited.
-  E36_BINARY_FIXTURE_PATH = File.expand_path("../fixtures/snippet_raise_boom.mrb", __dir__)
+  E36_BINARY_FIXTURE_PATH = TestPaths.fixture("snippet_raise_boom.mrb")
 
   def test_e36_binary_form_replay_raise_is_sandbox_error_not_bytecode_error
     sandbox = Kobako::Sandbox.new
@@ -172,7 +172,7 @@ class TestE2EPreload < Minitest::Test
   # attribution on raised exceptions remain intact. The no_debug
   # fixture is the same `ANSWERS = 42` source compiled with the debug
   # switch omitted.
-  STRIPPED_BYTECODE_FIXTURE_PATH = File.expand_path("../fixtures/snippet_no_debug.mrb", __dir__)
+  STRIPPED_BYTECODE_FIXTURE_PATH = TestPaths.fixture("snippet_no_debug.mrb")
 
   def test_b32_stripped_bytecode_loads_and_contributes_top_level_effects
     sandbox = Kobako::Sandbox.new

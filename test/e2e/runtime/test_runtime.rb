@@ -14,14 +14,14 @@ require "test_helper"
 # fast if any SPEC Wire ABI export went missing; the compiled-artifact
 # disk cache has its own class in test_artifact_cache.rb.
 class TestRuntime < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
   end
 
   def test_default_path_resolves_under_project_data_dir
-    expected = File.expand_path("../../data/kobako.wasm", __dir__)
+    expected = TestPaths.data("kobako.wasm")
     assert_equal expected, Kobako::Runtime.default_path
     assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
   end
@@ -61,7 +61,7 @@ class TestRuntime < Minitest::Test
     # the WtModule::new compile path and trips +setup_err+. Pick a small
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
-    non_wasm = File.expand_path("../fixtures/snippet_answers.rb", __dir__)
+    non_wasm = TestPaths.fixture("snippet_answers.rb")
     skip "snippet_answers.rb fixture missing" unless File.exist?(non_wasm)
 
     err = assert_raises(Kobako::SetupError) do

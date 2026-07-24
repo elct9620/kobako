@@ -14,7 +14,7 @@ require "test_helper"
 # deliberately stays at the Runtime seam so a regression in the magnus
 # binding surfaces here, not via indirect Sandbox assertions.
 class TestRuntimeCaptures < Minitest::Test
-  KOBAKO_WASM = File.expand_path("../../data/kobako.wasm", __dir__)
+  KOBAKO_WASM = TestPaths.data("kobako.wasm")
 
   def setup
     # `rake test` builds both prerequisites, so under CI a missing one is

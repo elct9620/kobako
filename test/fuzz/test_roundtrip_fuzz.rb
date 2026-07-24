@@ -41,7 +41,7 @@
 require "test_helper"
 
 class TestCodecRoundtripFuzz < Minitest::Test
-  CRATE_DIR = File.expand_path("../../wasm/kobako-wasm", __dir__)
+  CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "roundtrip_oracle")
 
   Encoder = Kobako::Codec::Encoder

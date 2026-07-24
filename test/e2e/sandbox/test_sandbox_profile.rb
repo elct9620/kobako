@@ -10,7 +10,7 @@ require "test_helper"
 # test_sandbox_options.rb — the bundled runtime always builds the
 # requested rung, so no real runtime reaches them.
 class TestSandboxProfile < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
+  FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)

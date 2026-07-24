@@ -68,8 +68,8 @@ Dir.glob("tasks/**/*.rake").each { |t| load t }
 
 # Every variant a suite drives is a test prerequisite: the journey tests
 # (test/e2e/test_journeys.rb) drive the pure data/kobako.wasm, the focused
-# regexp suite (test/regexp/) the regexp variants, and the json suite
-# (test/json/) the json variant — omitting one lets its whole suite skip
+# regexp suite (test/e2e/regexp/) the regexp variants, and the json suite
+# (test/e2e/json/) the json variant — omitting one lets its whole suite skip
 # silently under CI. All four are gitignored and mtime-idempotent, so this
 # only does real work on a clean clone or when the wasm sources change.
 task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json"]

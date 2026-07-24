@@ -12,9 +12,9 @@ require "test_helper"
 # elsewhere. The per-channel cap itself is enforced inside the ext-owned WASI
 # pipe.
 class TestSandbox < Minitest::Test
-  FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_ok.wat", __dir__)
-  ABSENT_ABI_FIXTURE_PATH = File.expand_path("../fixtures/minimal.wasm", __dir__)
-  MISMATCH_ABI_FIXTURE_PATH = File.expand_path("../fixtures/minimal_abi_mismatch.wat", __dir__)
+  FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
+  ABSENT_ABI_FIXTURE_PATH = TestPaths.fixture("minimal.wasm")
+  MISMATCH_ABI_FIXTURE_PATH = TestPaths.fixture("minimal_abi_mismatch.wat")
 
   def setup
     skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
