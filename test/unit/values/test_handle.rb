@@ -9,7 +9,7 @@ require "test_helper"
 # Data's copy-with-changes constructor, which would let a legitimate
 # Handle (reaching Host App code as an error field) mint a sibling with a
 # caller-chosen id — is removed. `.restore` stays as the Host Gem-internal
-# factory; its range invariants are pinned in test/codec/test_ext_types.rb.
+# factory; its range invariants are pinned in test/unit/codec/test_ext_types.rb.
 class TestHandle < Minitest::Test
   def test_new_is_not_a_public_constructor
     assert_raises(NoMethodError, "a bare integer through Kobako::Handle.new must not construct a Handle") do

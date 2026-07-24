@@ -131,12 +131,12 @@ E-01 E-23 B-18 E-13 B-43 E-44
   `test/e2e/test_yield_unwind.rb`.
 - **B-18 / E-13** — one fresh guest instance per invocation means no
   scenario can present a stale Handle; staleness is unit-pinned by
-  `test/transport/test_dispatcher_invalidity.rb` and the SDK's
+  `test/unit/transport/test_dispatcher_invalidity.rb` and the SDK's
   handles/dispatch unit tests.
 - **B-43 / E-44** — reflective gadgets are Ruby surface with no Rust
   counterpart, so no stub can express a gadget return; the refusal is
-  pinned by `test/transport/test_dispatcher_gadget_return.rb` and
-  `test/catalog/test_handles.rb`.
+  pinned by `test/unit/transport/test_dispatcher_gadget_return.rb` and
+  `test/unit/catalog/test_handles.rb`.
 
 ## Out of the manifest
 

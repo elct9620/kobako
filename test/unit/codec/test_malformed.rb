@@ -65,7 +65,7 @@ class TestCodecMalformed < Minitest::Test
 
   # Decoder-wide half of the single-msgpack-value rule (SPEC.md § Wire
   # Codec): envelope-level rejection is pinned per envelope (e.g.
-  # test/transport/test_request.rb); this case pins that the property
+  # test/unit/transport/test_request.rb); this case pins that the property
   # comes from the Decoder itself, for every payload shape.
   def test_trailing_bytes_after_a_complete_value_rejected
     bytes = Encoder.encode(42) + Encoder.encode(nil)

@@ -125,7 +125,7 @@ class KobakoAnchorCoverageTest < Minitest::Test
   end
 
   def test_e2e_witnessed_anchor_cited_only_by_a_unit_test_is_a_violation
-    profile = { "B-55" => ["test/catalog/test_extensions.rb"] }
+    profile = { "B-55" => ["test/unit/catalog/test_extensions.rb"] }
 
     violations = Coverage.violations(profile, [], ["B-55"])
 
@@ -135,7 +135,7 @@ class KobakoAnchorCoverageTest < Minitest::Test
   end
 
   def test_e2e_witnessed_anchor_with_a_test_e2e_citation_passes
-    profile = { "B-55" => ["test/catalog/test_extensions.rb", "test/e2e/test_install.rb"] }
+    profile = { "B-55" => ["test/unit/catalog/test_extensions.rb", "test/e2e/test_install.rb"] }
 
     assert_empty Coverage.violations(profile, [], ["B-55"]),
                  "one citing file under test/e2e/ satisfies the E2E-witness rule"

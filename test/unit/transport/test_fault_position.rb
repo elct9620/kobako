@@ -9,7 +9,7 @@ require "test_helper"
 # can resolve. Outbound, the host never emits one in a payload position:
 # a Fault return value takes the B-14 auto-wrap path and a Fault yield
 # argument is refused at the yield site. The outcome-envelope paths of
-# E-50 are pinned in test/outcome/test_attribution.rb; the shipped guest
+# E-50 are pinned in test/unit/outcome/test_attribution.rb; the shipped guest
 # cannot emit ext 0x02, so all positions are pinned host-side with
 # hand-crafted bytes.
 class TestTransportFaultPosition < Minitest::Test

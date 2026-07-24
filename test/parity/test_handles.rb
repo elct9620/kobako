@@ -39,7 +39,7 @@ class TestParityHandles < Parity::Case
   # no guest state — a Handle proxy included — survives the boundary,
   # so no scenario through the real guest can present a stale Handle.
   # Staleness is pinned per-frontend at unit level instead:
-  # test/transport/test_dispatcher_invalidity.rb on the Ruby side, the
+  # test/unit/transport/test_dispatcher_invalidity.rb on the Ruby side, the
   # handles/dispatch unit tests in crates/kobako on the SDK side.
   def test_stale_handle_pending
     skip "B-18 E-13 have no guest-expressible differential scenario; staleness is unit-pinned per frontend"

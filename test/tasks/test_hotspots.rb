@@ -18,7 +18,7 @@ class KobakoHotspotsTest < Minitest::Test
     lib/kobako/sandbox.rb
 
     docs/wire-contract.md
-    test/sandbox/test_run.rb
+    test/e2e/sandbox/test_run.rb
     crates/kobako-codec/src/codec.rs
     tasks/hotspots.rake
     benchmark/support/gate.rb

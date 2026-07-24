@@ -28,8 +28,8 @@ class TestParityReflection < Parity::Case
   # (Method / Binding) is refused rather than wrapped into a Handle.
   # Reflective gadgets are Ruby surface with no Rust counterpart, so no
   # stub behavior can express a gadget return from the SDK; the Ruby
-  # refusal is pinned by test/transport/test_dispatcher_gadget_return.rb
-  # and test/catalog/test_handles.rb.
+  # refusal is pinned by test/unit/transport/test_dispatcher_gadget_return.rb
+  # and test/unit/catalog/test_handles.rb.
   def test_gadget_return_pending
     skip "B-43 E-44 gadgets have no Rust counterpart; the refusal is pinned on the Ruby side"
   end

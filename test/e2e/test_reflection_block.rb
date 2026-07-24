@@ -4,11 +4,11 @@ require "test_helper"
 
 # E2E (Layer 4) — guest-side reflection mirror through real mruby
 # (`data/kobako.wasm`). The guest proxy refuses to forward an ambient
-# reflection / eval method name to the host ({docs/behavior/security.md
-# B-44}[link:../../docs/behavior/security.md]); the callable allowlist still forwards.
+# reflection / eval method name to the host (docs/behavior/security.md
+# B-44); the callable allowlist still forwards.
 #
 # B-44 is non-authoritative opacity — the host's B-42 guard is the real
-# boundary and is covered host-side in test/transport/test_dispatcher_allowlist.rb.
+# boundary and is covered host-side in test/unit/transport/test_dispatcher_allowlist.rb.
 # This file pins the guest-observable behaviour end to end.
 class TestE2EReflectionBlock < Minitest::Test
   include E2eGuestHelper
