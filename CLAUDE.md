@@ -32,7 +32,7 @@ Apply these in order — earlier principles override later ones on conflict.
 
 7. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `Kobako::Outcome` / `Kobako::Transport::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
 
-8. **`test/` holds every Ruby test; `tasks/` holds no tests.** The suite's subject is gem runtime behavior — including cross-language integration (host↔guest fuzz, ABI invariants) — plus the tooling unit suites: `test/tasks/` covers the `tasks/support/` readers, `test/bench/` the `benchmark/support/` gate logic (grouped runs: `rake test:tasks` / `test:bench`). Build/packaging/lint/static-check *wrapper tasks* stay in `tasks/*.rake` or top-level scripts and never move into `test/`.
+8. **`test/` holds every Ruby test; `tasks/` holds no tests.** The top level groups by test kind — `unit/` (host-side, no guest binary), `e2e/` (drives the real `data/kobako.wasm`), `parity/` (Ruby↔Rust differential), `fuzz/` (property / cross-language oracle) — with `unit/` and `e2e/` nesting by subject beneath that; a new test's home follows what it needs (real guest binary → `e2e/`, host-only → `unit/`, else its named kind). The suite's subject is gem runtime behavior — including cross-language integration (host↔guest fuzz, ABI invariants) — plus the tooling unit suites: `test/tasks/` covers the `tasks/support/` readers, `test/bench/` the `benchmark/support/` gate logic (grouped runs: `rake test:tasks` / `test:bench`). Build/packaging/lint/static-check *wrapper tasks* stay in `tasks/*.rake` or top-level scripts and never move into `test/`.
 
 9. **Commit lock files.** Every workspace's `Cargo.lock` (root, `crates/`, `wasm/`) and `Gemfile.lock` ship alongside the dependency changes that produced them.
 
@@ -54,8 +54,8 @@ Non-obvious entry points only — `rake -T` is the full catalog.
 |------|---------|
 | Default CI gate (compile + test + rubocop + steep + gate) | `bundle exec rake` |
 | Run the release gate's `gate:*` verification checks | `rake gate` |
-| Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb` |
-| Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/test_sandbox.rb -n /pattern/` |
+| Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/e2e/sandbox/test_sandbox.rb` |
+| Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/e2e/sandbox/test_sandbox.rb -n /pattern/` |
 | Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
 | Build Guest Binary (pure default, full chain) | `bundle exec rake wasm:build` |
 | Build a capability variant (`regexp`, `regexp_unicode`, `json`, `full`) | `bundle exec rake wasm:build:<variant>` |
@@ -204,4 +204,4 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 | Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/wasi.rb`, `tasks/wasm/` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
 | Release / versioning | `docs/releasing.md`; `release-please-config.json`, `.github/workflows/release-please.yml` | Two `release-please` tracks — gem (`v*`) and the linked crate group (`<component>-v*`); the paths a commit touches pick the track, its type + `!` the bump. `bump-minor-pre-major` keeps a breaking change inside 0.x — a temporary pre-1.0 device removed at 1.0. Read this before any `Release-As`, dual-track, or breaking-marker commit. |
 
-`test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent.
+`test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent. Tests resolve fixtures and build artifacts through `TestPaths` (repo-root-anchored, so a moved test keeps its paths) and gate on the ext / Guest Binary through `GuestGuard` — reach for those rather than hand-rolling `__dir__` paths or skip guards.
