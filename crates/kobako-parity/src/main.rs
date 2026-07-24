@@ -150,8 +150,8 @@ fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), Stri
 }
 
 /// A scenario-driven Extension. `backend` rebuilds a fresh `Backend` on
-/// each call so a `per_invocation` provider's overlay resolves a fresh
-/// stub, mirroring the Ruby executor's `-> { stub_object(...) }`.
+/// each call so a `per_invocation` provider resolves a fresh stub,
+/// mirroring the Ruby executor's `-> { stub_object(...) }`.
 struct ScenarioExtension {
     name: String,
     source: String,
