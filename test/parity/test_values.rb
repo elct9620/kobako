@@ -4,7 +4,9 @@ require "test_helper"
 
 # Differential parity — value round-trip (SPEC.md B-06, B-13, E-06):
 # every wire type must deserialize identically through both frontends,
-# whether returned by the guest or by a bound Service.
+# whether returned by the guest or by a bound Service. Host-side value
+# fidelity edge cases (embedded NUL, the structural depth guard, Float /
+# Integer bit-fidelity) live in test/e2e/test_outcome_values.rb.
 class TestParityValues < Parity::Case
   # SPEC.md B-06: `#eval` last-expression values of every wire type.
   def test_eval_wire_values_round_trip

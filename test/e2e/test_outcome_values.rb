@@ -6,7 +6,9 @@ require "test_helper"
 # embedded-NUL fidelity, the 128-level structural depth guard, Float /
 # Integer bit-fidelity, native Array / Hash round-trips, and the
 # +try_codec_value+ raise-on-unrepresentable contract (E-06). The transport
-# (dispatch-arg) counterpart lives in test_dispatch_args.rb.
+# (dispatch-arg) counterpart lives in test_dispatch_args.rb; the same value
+# types' cross-frontend agreement is pinned differentially in
+# test/parity/test_values.rb.
 class TestE2EOutcomeValues < Minitest::Test
   include E2eGuestHelper
 
