@@ -7,10 +7,10 @@
 #     consumes in total — Engine + compiled Module + every Sandbox
 #     instance + every retained capture buffer. The right granularity
 #     for capacity planning ("how many tenants fit in one process?").
-#   - Per-invocation `Sandbox#usage`. The
+#   - Per-invocation `Execution#usage`. The
 #     guest's `memory.grow` delta and the guest export's wall-clock
-#     time are sampled directly off `sandbox.usage` after the
-#     measured invocation, so the JSON now attributes growth to the
+#     time are sampled off the `Execution` the measured invocation
+#     returns, so the JSON now attributes growth to the
 #     guest linear-memory layer instead of folding it into host
 #     allocator noise. 8c / 8d in particular benefit: a regression
 #     that grows guest memory for the stdout-overflow path would be
@@ -19,8 +19,8 @@
 #   8a — Per-Sandbox RSS cost. Measure RSS at baseline, after the
 #        first Sandbox (which absorbs Engine + Module load), and
 #        after N=10/100/1000 total Sandboxes. No usage attribution —
-#        8a never invokes the guest, so `sandbox.usage` would be the
-#        EMPTY sentinel.
+#        8a never invokes the guest, so there is no `Execution` to
+#        read usage from.
 #   8b — Per-invocation RSS drift. Run #eval("nil") 10 000 times on
 #        a single Sandbox; sample RSS every 1 000 invocations and
 #        sample the last invocation's `usage` alongside the RSS
@@ -80,9 +80,9 @@ def warm_sandbox
   Kobako::Sandbox.new(wasm_path: GUEST, memory_limit: nil).tap { |s| s.eval("nil") }
 end
 
-def record(runner, label, sandbox: nil, **fields)
+def record(runner, label, execution: nil, **fields)
   runner.results << { label: label, mode: "memory", **fields }
-  runner.annotate_usage!(sandbox) if sandbox
+  runner.annotate_usage!(execution) if execution
 end
 
 # ---- 8a: per-Sandbox RSS cost -------------------------------------------
@@ -131,11 +131,12 @@ def measure_invocation_drift(runner)
 end
 
 def record_drift(runner, sandbox, baseline_kb, iter)
-  1000.times { sandbox.eval("nil") }
+  execution = nil
+  1000.times { execution = sandbox.eval("nil") }
   rss_kb = gc_then_rss
   drift = rss_kb - baseline_kb
   record(runner, "8b-rss-after-#{iter}-evals",
-         sandbox: sandbox,
+         execution: execution,
          rss_kb: rss_kb, delta_from_baseline_kb: drift)
   puts format("8b after %<n>5d evals: rss=%<r>d KB (drift %<d>+d KB)",
               n: iter, r: rss_kb, d: drift)
@@ -153,18 +154,18 @@ end
 def sample_during_payload(runner, sandbox, before)
   record(runner, "8c-rss-before-512kib-return", rss_kb: before)
   script = "\"x\" * #{PAYLOAD_BYTES}"
-  result = sandbox.eval(script)
+  execution = sandbox.eval(script)
   during = sample_rss_kb
-  # `payload_bytesize` reads `result` *after* the rss sample, which
-  # is what keeps the 512 KiB String alive across `sample_rss_kb`.
-  # Do not drop this field: without a later read the `result =`
+  # `payload_bytesize` reads the returned value *after* the rss sample,
+  # which is what keeps the 512 KiB String alive across `sample_rss_kb`.
+  # Do not drop this field: without a later read the `execution =`
   # assignment is dead code and the payload becomes collectable
   # mid-measurement.
   record(runner, "8c-rss-while-holding-return-value",
-         sandbox: sandbox,
+         execution: execution,
          rss_kb: during,
          peak_delta_kb: during - before,
-         payload_bytesize: result.bytesize)
+         payload_bytesize: execution.value.bytesize)
   during
 end
 
@@ -196,18 +197,18 @@ def measure_near_cap_stdout(runner)
 end
 
 def sample_during_near_cap(runner, sandbox, before)
-  sandbox.eval(STDOUT_FILL_SCRIPT)
+  execution = sandbox.eval(STDOUT_FILL_SCRIPT)
   during = sample_rss_kb
-  # Read sandbox.stdout *after* the rss sample so the captured 1 MiB
-  # String stays alive across the measurement window — mirrors the
-  # 8c pattern.
-  bytes = sandbox.stdout.bytesize
+  # Read the Execution's stdout *after* the rss sample so the captured
+  # 1 MiB String stays alive across the measurement window — mirrors
+  # the 8c pattern.
+  bytes = execution.stdout.bytesize
   record(runner, "8d-rss-while-holding-near-cap-stdout",
-         sandbox: sandbox,
+         execution: execution,
          rss_kb: during,
          peak_delta_kb: during - before,
          stdout_bytesize: bytes,
-         stdout_truncated: sandbox.stdout_truncated?)
+         stdout_truncated: execution.stdout_truncated?)
   during
 end
 

@@ -20,7 +20,7 @@
 #        writes land in the WASI pipe and the rest are silently
 #        dropped by the cap. Measures the cap-rejection path —
 #        guest puts does not raise, the pipe returns short, and
-#        sandbox.stdout_truncated? flips to true.)
+#        the Execution's stdout_truncated? flips to true.)
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
@@ -77,8 +77,8 @@ RUBY
 
 # Attempt 2 MiB of stdout writes against the 1 MiB default cap.
 # Guest puts does not raise on cap rejection — the WASI pipe
-# returns short and the loop continues. sandbox.stdout_truncated?
-# is true after the run.
+# returns short and the loop continues. The Execution's
+# stdout_truncated? is true after the run.
 STDOUT_NEAR_CAP_SCRIPT = <<~RUBY
   2048.times { puts "x" * 1023 }
 RUBY

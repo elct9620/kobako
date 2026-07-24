@@ -32,16 +32,15 @@ runner.one_shot_median("1c-sandbox-new-warm", rounds: 9) { Kobako::Sandbox.new(w
 
 runner.case("1a-sandbox-new") { Kobako::Sandbox.new(wasm_path: guest) }
 
-# 1b constructs a fresh Sandbox per iteration, so the +sandbox+ to
-# sample +usage+ from is only knowable after the block runs; expose
-# it through a closure-local binding the runner can read once the
-# measurement loop finishes. +Sandbox.new+ alone leaves +usage+ at
-# the EMPTY sentinel, which is why 1a does not annotate.
-last_sandbox = nil
+# 1b constructs a fresh Sandbox per iteration, so the +Execution+ to
+# sample +usage+ from is only knowable after the block runs; expose it
+# through a closure-local binding the runner can read once the
+# measurement loop finishes. +Sandbox.new+ alone runs no invocation, so
+# it yields no +Execution+ to annotate, which is why 1a does not.
+last_execution = nil
 runner.case("1b-sandbox-new+eval-nil") do
-  last_sandbox = Kobako::Sandbox.new(wasm_path: guest)
-  last_sandbox.eval("nil")
+  last_execution = Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 end
-runner.annotate_usage!(last_sandbox)
+runner.annotate_usage!(last_execution)
 
 puts runner.write!

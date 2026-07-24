@@ -71,16 +71,14 @@ module Kobako
         emit_case(label, samples, iterations)
       end
 
-      # Sample +sandbox.usage+ and merge
-      # +wall_time+ / +memory_peak+ into the most recently recorded
-      # entry. Called right after +#case+ or +#one_shot+ on the same
-      # +sandbox+, while +sandbox.usage+ still reflects the last
-      # invocation the measurement loop performed. The two readers
-      # land alongside +ips+ in the same JSON row so host throughput
-      # and per-invocation guest budget surface together; the
-      # measurement loop is untouched.
-      def annotate_usage!(sandbox)
-        usage = sandbox.usage
+      # Merge the +wall_time+ / +memory_peak+ off +execution+'s usage
+      # into the most recently recorded entry. Called right after +#case+
+      # or +#one_shot+ with the +Execution+ that the measurement loop's
+      # last invocation returned. The two readers land alongside +ips+ in
+      # the same JSON row so host throughput and per-invocation guest
+      # budget surface together; the measurement loop is untouched.
+      def annotate_usage!(execution)
+        usage = execution.usage
         @results.last.merge!(
           wall_time: usage.wall_time,
           memory_peak: usage.memory_peak

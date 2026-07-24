@@ -23,11 +23,11 @@ The suite perceives drift against a fixed reference point — the committed anch
 | Runner            | When used                              | Records                                                            |
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
-| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Sandbox#usage` (B-35) |
+| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` (B-35) |
 | `one_shot`        | cold paths (first `Sandbox.new`)        | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
-`ips` is the **median** of per-cycle samples (a GC-inflated cycle skews a mean but not a median); the arithmetic mean rides along as `ips_mean` for the capacity reading, mirroring Google Benchmark / Criterion. For sandbox-driven cases, `case_with_usage` runs a dedicated post-measurement sampling loop (`UsageSampler`, CPU-budget-bounded) that reads `sandbox.usage` after each invocation, so `wall_time` is the median of that distribution rather than a single point sample.
+`ips` is the **median** of per-cycle samples (a GC-inflated cycle skews a mean but not a median); the arithmetic mean rides along as `ips_mean` for the capacity reading, mirroring Google Benchmark / Criterion. For sandbox-driven cases, `case_with_usage` runs a dedicated post-measurement sampling loop (`UsageSampler`, CPU-budget-bounded) that reads the `Execution#usage` each invocation returns, so `wall_time` is the median of that distribution rather than a single point sample.
 
 ## Reading the numbers
 
@@ -363,7 +363,7 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
 | `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
 | `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
-| `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Sandbox#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. Annotate-only rows (`1b`) carry one sample with no dispersion. |
+| `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. Annotate-only rows (`1b`) carry one sample with no dispersion. |
 
 Release baselines are additionally marked with `benchmark/<semver>` annotated git tags.
 

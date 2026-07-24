@@ -89,7 +89,7 @@ module Kobako
         format("%.2f ms", seconds * 1000)
       end
 
-      # Per-invocation +memory_peak+ from {Kobako::Sandbox#usage} → B / KiB / MiB.
+      # Per-invocation +memory_peak+ from {Kobako::Execution#usage} → B / KiB / MiB.
       # +0+ is common for cases that don't grow guest linear memory
       # (nil-returning evals, Transport round-trips); the B form preserves
       # that signal instead of rounding it away.
