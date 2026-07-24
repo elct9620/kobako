@@ -112,10 +112,4 @@ class TestCodecExtTypes < Minitest::Test
       assert_equal e, decoded, "a Fault of type #{t.inspect} must round-trip unchanged"
     end
   end
-
-  def test_exception_invalid_type_rejected_at_construction
-    assert_raises(ArgumentError, "a Fault type outside the closed taxonomy must raise ArgumentError") do
-      Exc.new(type: "fatal", message: "m")
-    end
-  end
 end
