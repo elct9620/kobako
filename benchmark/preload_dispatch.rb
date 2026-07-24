@@ -179,9 +179,9 @@ dispatch_sandbox.preload(code: ECHO_SNIPPET_CODE, name: :Echo)
 dispatch_sandbox.preload(code: GREET_SNIPPET_CODE, name: :Greet)
 dispatch_sandbox.run(:Noop) # warm + seal
 
-runner.case_with_usage("9b-run-dispatch-empty", dispatch_sandbox) { dispatch_sandbox.run(:Noop) }
-runner.case_with_usage("9c-run-dispatch-positional", dispatch_sandbox) { dispatch_sandbox.run(:Echo, 42) }
-runner.case_with_usage("9d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sandbox.run(:Greet, name: :alice) }
+runner.case_with_usage("9b-run-dispatch-empty") { dispatch_sandbox.run(:Noop) }
+runner.case_with_usage("9c-run-dispatch-positional") { dispatch_sandbox.run(:Echo, 42) }
+runner.case_with_usage("9d-run-dispatch-kwargs") { dispatch_sandbox.run(:Greet, name: :alice) }
 
 # 9e — per-invocation snippet replay overhead. Each waypoint owns a
 # Sandbox with N additional helpers preloaded alongside the Noop
@@ -194,7 +194,7 @@ runner.case_with_usage("9d-run-dispatch-kwargs", dispatch_sandbox) { dispatch_sa
   sandbox.preload(code: NOOP_SNIPPET_CODE, name: :Noop)
   n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
   sandbox.run(:Noop) # warm + seal
-  runner.case_with_usage("9e-run-replay-#{n}-snippets", sandbox) { sandbox.run(:Noop) }
+  runner.case_with_usage("9e-run-replay-#{n}-snippets") { sandbox.run(:Noop) }
 end
 
 # 9f — auto-wrap path. Dedicated sandbox because dispatch_sandbox is
@@ -209,7 +209,7 @@ autowrap_sandbox.preload(code: WRAP_SNIPPET_CODE, name: :Wrap)
 autowrap_arg = StringIO.new("payload")
 autowrap_sandbox.run(:Wrap, autowrap_arg) # warm + seal
 
-runner.case_with_usage("9f-run-dispatch-autowrap", autowrap_sandbox) do
+runner.case_with_usage("9f-run-dispatch-autowrap") do
   autowrap_sandbox.run(:Wrap, autowrap_arg)
 end
 

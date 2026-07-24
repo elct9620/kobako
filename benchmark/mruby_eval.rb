@@ -83,10 +83,10 @@ STDOUT_NEAR_CAP_SCRIPT = <<~RUBY
   2048.times { puts "x" * 1023 }
 RUBY
 
-runner.case_with_usage("4a-arith-100k-sum", sandbox) { sandbox.eval(ARITH_SCRIPT) }
-runner.case_with_usage("4b-string-concat-1000", sandbox) { sandbox.eval(STRING_SCRIPT) }
-runner.case_with_usage("4c-exception-raise-rescue-100", sandbox) { sandbox.eval(EXCEPTION_SCRIPT) }
-runner.case_with_usage("4e-stdout-puts-1000", sandbox) { sandbox.eval(STDOUT_LOOP_SCRIPT) }
-runner.case_with_usage("4f-stdout-cap-saturation", sandbox) { sandbox.eval(STDOUT_NEAR_CAP_SCRIPT) }
+runner.case_with_usage("4a-arith-100k-sum") { sandbox.eval(ARITH_SCRIPT) }
+runner.case_with_usage("4b-string-concat-1000") { sandbox.eval(STRING_SCRIPT) }
+runner.case_with_usage("4c-exception-raise-rescue-100") { sandbox.eval(EXCEPTION_SCRIPT) }
+runner.case_with_usage("4e-stdout-puts-1000") { sandbox.eval(STDOUT_LOOP_SCRIPT) }
+runner.case_with_usage("4f-stdout-cap-saturation") { sandbox.eval(STDOUT_NEAR_CAP_SCRIPT) }
 
 puts runner.write!

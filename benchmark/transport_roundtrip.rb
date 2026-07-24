@@ -66,27 +66,27 @@ sandbox.bind("Bench::Noop",    ->        {})
 # does not pay one-shot init cost.
 sandbox.eval("nil")
 
-runner.case_with_usage("2a-empty-call", sandbox) do
+runner.case_with_usage("2a-empty-call") do
   sandbox.eval("Bench::Noop.call")
 end
 
-runner.case_with_usage("2b-primitive-arg", sandbox) do
+runner.case_with_usage("2b-primitive-arg") do
   sandbox.eval("Bench::Echo.call(42)")
 end
 
-runner.case_with_usage("2c-kwargs", sandbox) do
+runner.case_with_usage("2c-kwargs") do
   sandbox.eval('Bench::Greet.call(name: "alice")')
 end
 
-runner.case_with_usage("2d-1000-calls-in-one-eval", sandbox) do
+runner.case_with_usage("2d-1000-calls-in-one-eval") do
   sandbox.eval("1000.times { Bench::Noop.call }")
 end
 
-runner.case_with_usage("2e-handle-chain", sandbox) do
+runner.case_with_usage("2e-handle-chain") do
   sandbox.eval("g = Bench::Factory.call(nil); g.greet")
 end
 
-runner.case_with_usage("2f-1000-allowlist-calls-in-one-eval", sandbox) do
+runner.case_with_usage("2f-1000-allowlist-calls-in-one-eval") do
   sandbox.eval("1000.times { Bench::Allow.ping }")
 end
 

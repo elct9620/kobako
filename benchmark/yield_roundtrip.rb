@@ -47,19 +47,19 @@ sandbox.bind("Bench::YieldOnce", ->(x, &blk)     { blk.call(x) })
 # not pay one-shot init cost.
 sandbox.eval("nil")
 
-runner.case_with_usage("6a-single-yield", sandbox) do
+runner.case_with_usage("6a-single-yield") do
   sandbox.eval("Bench::YieldOnce.call(0) { |x| x }")
 end
 
-runner.case_with_usage("6b-block-no-yield", sandbox) do
+runner.case_with_usage("6b-block-no-yield") do
   sandbox.eval("Bench::Ignore.call { 0 }")
 end
 
-runner.case_with_usage("6c-1000-yields-in-one-call", sandbox) do
+runner.case_with_usage("6c-1000-yields-in-one-call") do
   sandbox.eval("Bench::MapEach.call(Array.new(1000, 0)) { |x| x }")
 end
 
-runner.case_with_usage("6d-yield-break", sandbox) do
+runner.case_with_usage("6d-yield-break") do
   sandbox.eval("Bench::EachBreak.call(Array.new(1000, 0)) { |_x| break }")
 end
 

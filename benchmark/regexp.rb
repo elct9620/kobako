@@ -109,14 +109,14 @@ SPLIT = <<~RUBY
   n
 RUBY
 
-runner.case_with_usage("11a-compile-literal-loop", sandbox) { sandbox.eval(COMPILE_LITERAL_LOOP) }
-runner.case_with_usage("11b-compile-hoisted", sandbox) { sandbox.eval(COMPILE_HOISTED) }
-runner.case_with_usage("11c-compile-match-p", sandbox) { sandbox.eval(COMPILE_MATCH_P) }
-runner.case_with_usage("11d-compile-only", sandbox) { sandbox.eval(COMPILE_ONLY) }
-runner.case_with_usage("11e-empty-loop", sandbox) { sandbox.eval(EMPTY_LOOP) }
-runner.case_with_usage("11f-match", sandbox) { sandbox.eval(MATCH) }
-runner.case_with_usage("11g-scan", sandbox) { sandbox.eval(SCAN) }
-runner.case_with_usage("11h-gsub", sandbox) { sandbox.eval(GSUB) }
-runner.case_with_usage("11i-split", sandbox) { sandbox.eval(SPLIT) }
+runner.case_with_usage("11a-compile-literal-loop") { sandbox.eval(COMPILE_LITERAL_LOOP) }
+runner.case_with_usage("11b-compile-hoisted") { sandbox.eval(COMPILE_HOISTED) }
+runner.case_with_usage("11c-compile-match-p") { sandbox.eval(COMPILE_MATCH_P) }
+runner.case_with_usage("11d-compile-only") { sandbox.eval(COMPILE_ONLY) }
+runner.case_with_usage("11e-empty-loop") { sandbox.eval(EMPTY_LOOP) }
+runner.case_with_usage("11f-match") { sandbox.eval(MATCH) }
+runner.case_with_usage("11g-scan") { sandbox.eval(SCAN) }
+runner.case_with_usage("11h-gsub") { sandbox.eval(GSUB) }
+runner.case_with_usage("11i-split") { sandbox.eval(SPLIT) }
 
 puts runner.write!

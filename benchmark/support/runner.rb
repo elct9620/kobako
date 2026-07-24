@@ -31,8 +31,8 @@ module Kobako
     # intentionally measure scheduling overhead keep their own
     # wall-clock helper and bypass this runner.
     #
-    # For sandbox-driven cases the runner can also fold the last
-    # invocation's {Kobako::Sandbox#usage} —
+    # For sandbox-driven cases the runner can also fold an
+    # invocation's {Kobako::Execution#usage} —
     # +wall_time+ (guest export seconds) and +memory_peak+
     # (per-invocation +memory.grow+ delta) — into the same result
     # row via {#case_with_usage} or the lower-level
@@ -89,14 +89,14 @@ module Kobako
 
       # Measure +label+ via {#case}, then fold the MEDIAN +wall_time+ /
       # +memory_peak+ across a fresh sampling loop into the row. The
-      # block must drive +sandbox+ (an +#eval+ or +#run+ call) so each
-      # call leaves its own usage on +sandbox.usage+. Unlike the bare
+      # block must return the invocation's +Execution+ (an +#eval+ or
+      # +#run+ call) so each call carries its own usage. Unlike the bare
       # {#annotate_usage!} point sample, this surfaces the guest budget
       # as a distribution, so a single GC-inflated invocation does not
       # become the row's recorded +wall_time+.
-      def case_with_usage(label, sandbox, &block)
+      def case_with_usage(label, &block)
         self.case(label, &block)
-        @results.last.merge!(UsageSampler.sample(sandbox, &block))
+        @results.last.merge!(UsageSampler.sample(&block))
       end
 
       # Persist the collected results to
