@@ -160,6 +160,7 @@ pub struct Backend { pub path: String, pub provider: Provider }
 pub enum Provider {
     Static(Arc<dyn Receiver>),                                       // fixed
     PerInvocation(Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>), // fresh each invocation
+    Fillable,                                                        // unresolved until ctx.bind fills it
 }
 
 // sandbox.install(ext: Arc<dyn Extension>) -> Result<(), Error>
