@@ -69,7 +69,7 @@ surface, accepted by the gate in place of a citing test; each is pinned
 where the behavior is actually verified:
 
 ```
-E-10 E-26
+E-10
 ```
 
 - **E-10** — the official guest never presents an invalid wire payload
@@ -77,10 +77,6 @@ E-10 E-26
   received), so no `test/` scenario reaches the rejection; the
   guest-side refusal is pinned by the `kobako-codec` Request decode
   unit tests (a Request `target` must be a path or a Handle).
-- **E-26** — the official host cannot write a malformed invocation
-  envelope through the public API; guest-entry shape validation is
-  pinned by the `parse_invocation` unit tests in
-  `wasm/kobako-mruby/src/flows/run.rs` (`rake wasm:test`).
 
 ## Frontend witness asymmetries
 

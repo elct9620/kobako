@@ -37,8 +37,9 @@ class TestE2EIntegerRange < Minitest::Test
                  "an inbound integer at the 32-bit ceiling must round-trip, not be refused"
   end
 
-  # #run argument path: an argument beyond the guest's range fails the
-  # invocation rather than reaching the entrypoint with a saturated value.
+  # E-26: a #run argument beyond the guest's range has no faithful guest
+  # representation, so the invocation fails at guest entry rather than
+  # reaching the entrypoint with a saturated value.
   def test_run_argument_above_i32_range_fails_the_invocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Echo = ->(x) { x }", name: :Echo)

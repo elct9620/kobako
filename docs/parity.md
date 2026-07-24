@@ -160,10 +160,13 @@ E-01 E-23 B-18 E-13 B-43 E-44
   floor-refusal spelling per-frontend.
 - **Guest-internal** — behavior the shared Guest Binary fixes
   regardless of frontend (B-15, B-36, B-38, B-39, B-41, B-44, B-51,
-  B-52, B-53): pinned by the guest E2E suites and the codec oracles.
+  B-52, B-53, E-26): pinned by the guest E2E suites and the codec
+  oracles — E-26's guest-entry refusal of an unrepresentable integer
+  is one both frontends observe identically, so it needs no differential
+  scenario.
 - **Hard-to-trigger wire corners** — comparable in principle but with
   no deterministic trigger through the real guest (B-21, E-02, E-03,
-  E-07..E-10, E-26, E-31, E-50): revisit if a legitimate trigger
+  E-07..E-10, E-31, E-50): revisit if a legitimate trigger
   appears; parallel fixture guests stay off the table.
 - **Retired** — E-14 (N-8: reserved and never reassigned) names no
   behavior, so it neither appears in a scenario nor needs one.
