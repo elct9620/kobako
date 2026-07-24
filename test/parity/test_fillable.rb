@@ -38,6 +38,21 @@ class TestParityFillable < Parity::Case
     )
   end
 
+  # B-63: the override block works on #run too — a preloaded entrypoint whose
+  # guest dispatch reaches the object ctx.bind fills, identically on both
+  # frontends.
+  def test_ctx_bind_override_fills_a_fillable_on_the_run_path
+    assert_parity Parity::Scenario.new(
+      name: "fillable-override-run", anchors: %w[B-63],
+      services: [{ name: "Store", fillable: true }],
+      preloads: [{ kind: "source", name: "Worker", code: "Worker = ->(*_a, **_k) { Store.get(1) }" }],
+      invocations: [{
+        verb: "run", target: "Worker",
+        overrides: [{ path: "Store", methods: { get: { behavior: "value", value: str("filled") } } }]
+      }]
+    )
+  end
+
   private
 
   def override_eval(text)

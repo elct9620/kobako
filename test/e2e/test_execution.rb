@@ -36,4 +36,16 @@ class TestE2EExecution < Minitest::Test
     assert_predicate execution, :failed?,
                      "B-61: a trapped run's carried Execution must report #failed? true"
   end
+
+  # B-61: a pre-flight failure that enters no invocation — an input rejected
+  # before the guest runs — raises with #execution left nil, since no run
+  # produced observables to carry.
+  def test_a_preflight_failure_carries_no_execution
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    error = assert_raises(Kobako::SandboxError) { sandbox.eval(123) }
+
+    assert_nil error.execution,
+               "B-61: a non-String code is rejected before any invocation, so #execution is nil"
+  end
 end

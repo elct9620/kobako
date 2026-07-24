@@ -66,18 +66,28 @@ module Parity
       overrides = invocation[:overrides]
       return sandbox.eval(invocation.fetch(:source)) unless overrides
 
-      sandbox.eval(invocation.fetch(:source)) do |ctx|
-        overrides.each { |override| ctx.bind(override.fetch(:path), @builder.build_stub(override[:methods])) }
-      end
+      sandbox.eval(invocation.fetch(:source)) { |ctx| bind_overrides(ctx, overrides) }
     end
 
     # Tagged +run+ arguments and keyword arguments; an +opaque+ tag in
     # either position becomes a labeled host object the encoding
-    # auto-wraps into a capability Handle.
+    # auto-wraps into a capability Handle. An optional +overrides+ list runs
+    # the per-eval override block on the +#run+ path — the +ctx.bind+ parity
+    # to the Rust runner's +run_with+.
     def run_verb(sandbox, invocation)
       args = (invocation[:args] || []).map { |tagged| ValueTags.untag(tagged) }
       kwargs = (invocation[:kwargs] || {}).transform_values { |tagged| ValueTags.untag(tagged) }
-      sandbox.run(invocation.fetch(:target), *args, **kwargs)
+      target = invocation.fetch(:target)
+      overrides = invocation[:overrides]
+      return sandbox.run(target, *args, **kwargs) unless overrides
+
+      sandbox.run(target, *args, **kwargs) { |ctx| bind_overrides(ctx, overrides) }
+    end
+
+    # Bind each override's stub at its declared path on the invocation's
+    # Context — the shared body of the +#eval+ / +#run+ override block.
+    def bind_overrides(ctx, overrides)
+      overrides.each { |override| ctx.bind(override.fetch(:path), @builder.build_stub(override[:methods])) }
     end
 
     def capture_outcome
