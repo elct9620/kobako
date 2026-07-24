@@ -14,10 +14,12 @@ require "test_helper"
 # fast if any SPEC Wire ABI export went missing; the compiled-artifact
 # disk cache has its own class in test_artifact_cache.rb.
 class TestRuntime < Minitest::Test
+  include GuestGuard
+
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
+    require_native_ext!
   end
 
   def test_default_path_resolves_under_project_data_dir

@@ -12,13 +12,14 @@ require "test_helper"
 # elsewhere. The per-channel cap itself is enforced inside the ext-owned WASI
 # pipe.
 class TestSandbox < Minitest::Test
+  include GuestGuard
+
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
   ABSENT_ABI_FIXTURE_PATH = TestPaths.fixture("minimal.wasm")
   MISMATCH_ABI_FIXTURE_PATH = TestPaths.fixture("minimal_abi_mismatch.wat")
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
   end
 
   def test_default_construction_exposes_wasm_path
@@ -95,7 +96,7 @@ class TestSandbox < Minitest::Test
   # Sandbox#bind returns the Sandbox so binds chain — the Sandbox-tier proof
   # that #bind delegates to Catalog::Services rather than dropping the call
   # on the floor. Catalog::Services's own contract is pinned in
-  # test/catalog/test_services.rb.
+  # test/unit/catalog/test_services.rb.
   def test_bind_returns_sandbox_for_chaining
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 

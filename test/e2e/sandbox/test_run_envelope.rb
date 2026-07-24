@@ -9,11 +9,12 @@ require "test_helper"
 # entry point. Driven by a frozen wat fixture whose allocator always
 # reports exhaustion.
 class TestSandboxRunEnvelope < Minitest::Test
+  include GuestGuard
+
   ALLOC_ZERO_FIXTURE_PATH = TestPaths.fixture("minimal_alloc_zero.wat")
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal_alloc_zero.wat fixture missing" unless File.exist?(ALLOC_ZERO_FIXTURE_PATH)
+    require_fixture!(ALLOC_ZERO_FIXTURE_PATH)
   end
 
   def test_run_raises_sandbox_error_when_guest_alloc_reports_exhaustion

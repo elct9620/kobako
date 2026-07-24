@@ -14,19 +14,12 @@ require "test_helper"
 # deliberately stays at the Runtime seam so a regression in the magnus
 # binding surfaces here, not via indirect Sandbox assertions.
 class TestRuntimeCaptures < Minitest::Test
+  include GuestGuard
+
   KOBAKO_WASM = TestPaths.data("kobako.wasm")
 
   def setup
-    # `rake test` builds both prerequisites, so under CI a missing one is
-    # a broken pipeline, never a skip — mirroring E2eGuestHelper.
-    unless defined?(Kobako::Runtime)
-      flunk "native ext not compiled under CI" if ENV["CI"]
-      skip "native ext not compiled (run `bundle exec rake compile`)"
-    end
-    return if File.exist?(KOBAKO_WASM)
-
-    flunk "data/kobako.wasm missing under CI" if ENV["CI"]
-    skip "guest wasm not built (run `bundle exec rake wasm:build`)"
+    require_guest_binary!(KOBAKO_WASM, build: "bundle exec rake wasm:build")
   end
 
   # The ext encodes the Snapshot fields into specific Ruby shapes (binary

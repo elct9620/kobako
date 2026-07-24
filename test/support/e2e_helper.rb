@@ -7,20 +7,11 @@
 # ext or the built guest, each test skips with a pointer at the missing
 # build step.
 module E2eGuestHelper
+  include GuestGuard
+
   REAL_WASM = TestPaths.data("kobako.wasm")
 
   def setup
-    # The default task compiles the ext and builds the guest before the
-    # suite (`rake test` depends on `wasm:build`), so under CI a missing
-    # prerequisite is a broken pipeline, never a skip — mirroring the
-    # parity runner's cargo guard. A clean local checkout still skips.
-    unless defined?(Kobako::Runtime)
-      flunk "native ext not compiled under CI" if ENV["CI"]
-      skip "native ext not compiled (run `bundle exec rake compile`)"
-    end
-    return if File.exist?(REAL_WASM)
-
-    flunk "data/kobako.wasm missing under CI" if ENV["CI"]
-    skip "data/kobako.wasm missing — run `bundle exec rake wasm:build`"
+    require_guest_binary!(REAL_WASM, build: "bundle exec rake wasm:build")
   end
 end

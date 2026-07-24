@@ -5,18 +5,19 @@ require "test_helper"
 # Sandbox#preload surface tests. Catalog::Snippets validation
 # (E-33 / E-34 / non-String code / non-String binary / no-keyword /
 # combining binary: with code:|name:) is pinned at the table tier in
-# test/catalog/test_snippets.rb; Sandbox#preload is a thin
+# test/unit/catalog/test_snippets.rb; Sandbox#preload is a thin
 # delegation. This file holds only the Sandbox-specific contracts:
 # chain-returns-self and post-seal rejection (E-35).
 #
 # Replay-side behaviour (B-32 Result, E-32, E-36, E-37, E-38) is
 # exercised end-to-end in test/e2e/test_preload.rb.
 class TestSandboxPreload < Minitest::Test
+  include GuestGuard
+
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
-    skip "native ext not compiled (run `bundle exec rake compile`)" unless defined?(Kobako::Runtime)
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
@@ -34,7 +35,7 @@ class TestSandboxPreload < Minitest::Test
   # #eval raises TrapError — but seal! has already fired by then, so
   # the subsequent #preload must raise. The seal-mechanism observable
   # lives on the Sandbox surface; Services#seal! itself is covered in
-  # test/catalog/test_services.rb.
+  # test/unit/catalog/test_services.rb.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)
 
