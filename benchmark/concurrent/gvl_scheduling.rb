@@ -14,6 +14,10 @@
 #   dispatch — each Thread runs many guest->host dispatches. Every
 #              dispatch re-acquires the GVL, so the handoff cost makes
 #              :release match or trail :hold; the speedup stays near 1.
+#   compute-shared — the compute loop, but all Threads share ONE Sandbox
+#              (B-22). Each invocation still gets its own guest instance,
+#              so :release scales like the distinct-Sandbox compute arm;
+#              the arm confirms sharing costs no parallelism.
 #
 # Wall-clock, not CPU time: the point of :release is parallel
 # wall-clock progress, which CPU time (summed across cores) cannot
@@ -77,6 +81,15 @@ def measure(mode, count, script, &binder)
   time_block { parallel_join(count) { |i| REPEAT.times { sandboxes[i].eval(script) } } }
 end
 
+# Wall-clock for +count+ Threads to each run +script+ REPEAT times on ONE
+# shared Sandbox in +mode+ — the shared-Sandbox shape (B-22), where each
+# invocation's own guest instance keeps spans parallel under :release.
+def measure_shared(mode, count, script)
+  shared = Kobako::Sandbox.new(wasm_path: GUEST, gvl: mode)
+  shared.eval("nil") # warm
+  time_block { parallel_join(count) { REPEAT.times { shared.eval(script) } } }
+end
+
 def record(runner, workload, count, hold, release)
   speedup = hold / release
   runner.results << { label: "#{workload}-hold-#{count}", seconds: hold,
@@ -98,10 +111,19 @@ def run_workload(runner, workload, script, &binder)
   end
 end
 
+def run_shared_workload(runner, workload, script)
+  THREAD_COUNTS.each do |count|
+    hold = measure_shared(:hold, count, script)
+    release = measure_shared(:release, count, script)
+    record(runner, workload, count, hold, release)
+  end
+end
+
 runner = Kobako::Bench::Runner.new("gvl_scheduling")
 Kobako::Sandbox.new(wasm_path: GUEST).eval("nil") # warm process-wide caches
 
 run_workload(runner, "compute", COMPUTE_SCRIPT)
 run_workload(runner, "dispatch", DISPATCH_SCRIPT) { |s| s.bind("Counter::Bump", ->(n) { n + 1 }) }
+run_shared_workload(runner, "compute-shared", COMPUTE_SCRIPT)
 
 puts runner.write!
