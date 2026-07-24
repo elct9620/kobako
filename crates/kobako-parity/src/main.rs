@@ -546,7 +546,18 @@ fn run_verb(
                     .collect::<Result<_, String>>()?,
                 None => Vec::new(),
             };
-            Ok(sandbox.run_with(target, args, kwargs))
+            Ok(match invocation["overrides"].as_array() {
+                Some(overrides) => {
+                    let stubs = build_override_stubs(overrides, opaques)?;
+                    sandbox.run_with(target, args, kwargs, move |ctx| {
+                        for (path, object) in stubs {
+                            ctx.bind(&path, object)?;
+                        }
+                        Ok(())
+                    })
+                }
+                None => sandbox.run(target, args, kwargs),
+            })
         }
         other => Err(format!("unknown invocation verb {other:?}")),
     }

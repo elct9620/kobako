@@ -31,6 +31,11 @@ use crate::outcome;
 use crate::receiver::Receiver;
 use crate::snippet;
 
+/// Per-invocation path→object resolutions the dispatch handler answers ahead
+/// of the sealed Catalog: the `ctx.bind` overrides followed by each
+/// `PerInvocation` provider's fresh object.
+type Resolved = Vec<(String, Arc<dyn Receiver>)>;
+
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
 #[derive(Clone)]
@@ -222,62 +227,86 @@ impl Sandbox {
         )
     }
 
-    /// Run one mruby source with a per-invocation override closure — the Rust
-    /// spelling of the Ruby frontend's `#eval { |ctx| ctx.bind(...) }`. The
-    /// closure runs before the guest drives, receiving the per-invocation
-    /// `Context` whose `bind` fills a fillable or shadows any declared binding
-    /// for this invocation only; overriding an undeclared path returns
-    /// `Error::Argument` before the guest runs. The overrides take priority
-    /// over that path's per-invocation provider result and its static base, and touch
+    /// `eval` with a per-invocation override closure — the Rust spelling of
+    /// the Ruby frontend's `#eval { |ctx| ctx.bind(...) }`. The closure runs
+    /// before the guest drives, receiving the per-invocation `Context` whose
+    /// `bind` fills a fillable or shadows any declared binding for this
+    /// invocation only; overriding an undeclared path returns `Error::Argument`
+    /// before the guest runs. An override takes priority over that path's
+    /// per-invocation provider result and its static base, and touches
     /// host-side resolution only — Frame 1 stays fixed.
     pub fn eval_with<F>(&self, source: &str, overrides: F) -> Result<Execution, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
         let (catalog, handles) = self.begin_invocation()?;
-        let overrides = {
-            let mut ctx = Context {
-                catalog: &catalog,
-                overrides: Vec::new(),
-            };
-            overrides(&mut ctx)?;
-            ctx.overrides
-        };
+        let resolved = collect_overrides(&catalog, overrides)?;
         self.invoke(
             catalog,
             handles,
             Entry::Eval {
                 source: source.as_bytes(),
             },
-            overrides,
+            resolved,
         )
     }
 
-    /// Dispatch into a preloaded entrypoint without arguments; the
-    /// guest resolves `target` as a top-level constant and invokes its
-    /// `call`.
-    pub fn run(&self, target: &str) -> Result<Execution, Error> {
-        self.run_with(target, Vec::new(), Vec::new())
-    }
-
-    /// Dispatch into a preloaded entrypoint with positional and
-    /// keyword arguments. A `RunArg::Object` argument auto-wraps into
-    /// a capability Handle before the envelope encodes. Host
-    /// pre-flight refuses a non-constant `target` before the
-    /// invocation seals the tables, matching the Ruby frontend's
-    /// ordering.
-    pub fn run_with(
+    /// Dispatch into a preloaded entrypoint with positional and keyword
+    /// arguments; the guest resolves `target` as a top-level constant and
+    /// invokes its `call`. A `RunArg::Object` argument auto-wraps into a
+    /// capability Handle before the envelope encodes. Host pre-flight refuses a
+    /// non-constant `target` before the invocation seals the tables, matching
+    /// the Ruby frontend's ordering.
+    pub fn run(
         &self,
         target: &str,
         args: Vec<RunArg>,
         kwargs: Vec<(String, RunArg)>,
     ) -> Result<Execution, Error> {
+        self.drive_run(target, args, kwargs, |_| Ok(Vec::new()))
+    }
+
+    /// `run` with a per-invocation override closure — the Rust spelling of the
+    /// Ruby frontend's `#run(target, ...) { |ctx| ctx.bind(...) }`, the `run`
+    /// counterpart of `eval_with`. The closure runs before the guest drives and
+    /// binds overrides under the same rules `eval_with` documents.
+    pub fn run_with<F>(
+        &self,
+        target: &str,
+        args: Vec<RunArg>,
+        kwargs: Vec<(String, RunArg)>,
+        overrides: F,
+    ) -> Result<Execution, Error>
+    where
+        F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
+    {
+        self.drive_run(target, args, kwargs, move |catalog| {
+            collect_overrides(catalog, overrides)
+        })
+    }
+
+    /// Shared `run` / `run_with` core: validate the target before sealing, seal,
+    /// collect any overrides against the sealed catalog, auto-wrap the args into
+    /// this run's Handle table, and drive the entrypoint envelope. `collect`
+    /// yields the per-invocation overrides — empty for `run`, the closure's for
+    /// `run_with`.
+    fn drive_run<C>(
+        &self,
+        target: &str,
+        args: Vec<RunArg>,
+        kwargs: Vec<(String, RunArg)>,
+        collect: C,
+    ) -> Result<Execution, Error>
+    where
+        C: FnOnce(&Catalog) -> Result<Resolved, Error>,
+    {
         if !snippet::constant_name(target) {
             return Err(Error::Argument(format!(
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));
         }
         let (catalog, handles) = self.begin_invocation()?;
+        let resolved = collect(&catalog)?;
         let args = args
             .into_iter()
             .map(|arg| wrap_run_arg(&handles, arg))
@@ -299,25 +328,25 @@ impl Sandbox {
             Entry::Run {
                 envelope: &envelope,
             },
-            Vec::new(),
+            resolved,
         )
     }
 
-    /// Shared invocation core behind `eval` / `run_with`: assemble the
+    /// Shared invocation core behind `eval` / `run`: assemble the
     /// sealed catalog's frames and dispatch handler over this invocation's
     /// fresh Handle table, drive `entry` through the driver, and cook the
     /// snapshot into an `Execution` — one owner for the wiring so a handler
     /// or frame change cannot drift between verbs. `&self` because no
     /// per-invocation state is written back: the `handles` table and the
     /// snapshot's observables ride into the returned `Execution`.
-    /// `resolved` starts with the per-eval `ctx.bind` overrides so the
+    /// `resolved` starts with the per-invocation `ctx.bind` overrides so the
     /// dispatch handler answers them before this run's provider results.
     fn invoke(
         &self,
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
         entry: Entry<'_>,
-        mut resolved: Vec<(String, Arc<dyn Receiver>)>,
+        mut resolved: Resolved,
     ) -> Result<Execution, Error> {
         resolved.extend(self.extensions.resolve());
         let preamble = catalog.preamble();
@@ -423,7 +452,22 @@ fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(
     }
 }
 
-/// The per-invocation Context handed to an `eval_with` override closure — the
+/// Run an override closure against a fresh `Context` over `catalog` and hand
+/// back the `ctx.bind` overrides it collected — the step `eval_with` and
+/// `run_with` share so the two verbs bind overrides identically.
+fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Resolved, Error>
+where
+    F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
+{
+    let mut ctx = Context {
+        catalog,
+        overrides: Vec::new(),
+    };
+    overrides(&mut ctx)?;
+    Ok(ctx.overrides)
+}
+
+/// The per-invocation Context handed to an `eval_with` / `run_with` override closure — the
 /// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only the
 /// `ctx.bind` overrides; the run's Handle table and observables ride into its
 /// `Execution` instead. Each override takes priority over that path's
@@ -432,7 +476,7 @@ fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(
 /// closure, which is what spends it.
 pub struct Context<'a> {
     catalog: &'a Catalog,
-    overrides: Vec<(String, Arc<dyn Receiver>)>,
+    overrides: Resolved,
 }
 
 impl Context<'_> {
