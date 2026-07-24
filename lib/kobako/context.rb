@@ -15,8 +15,8 @@ module Kobako
   # / +#run+. Each Context owns a fresh +Catalog::Handles+ table and drives one
   # guest invocation: it builds the dispatch handler, runs the guest, records
   # the run's captures and usage, and decodes the outcome. One Context per
-  # invocation keeps concurrent evals shared-nothing — no per-invocation state
-  # lives on the reusable +Sandbox+.
+  # invocation owns all per-invocation state, so the reusable +Sandbox+ holds
+  # none and overlapping evals never touch each other's state.
   class Context
     # Build a Context over the Sandbox-owned config — the +Runtime+, the
     # sealed +Catalog::Services+ / +Catalog::Snippets+ registries, and the
@@ -184,9 +184,8 @@ module Kobako
     # guest runs — so a provider that raises propagates unwrapped and leaves
     # the guest unrun. Usage and captures are recorded before the trap check,
     # so a trapped Snapshot's error carries them just like a completed run's
-    # return value. A could-not-start fault raises straight from the guest call
-    # with no Snapshot, so it gains only the verb prefix and carries no
-    # Execution.
+    # return value. A could-not-start fault ran no invocation at all, so it
+    # carries no Execution and gains only the verb prefix.
     def invoke!(verb)
       @resolved = @extensions.resolve
       begin

@@ -41,9 +41,9 @@ module Kobako
       # externally via +entry_payload+ rather than asking each entry to
       # self-encode.
       #
-      # The bytes are pinned eagerly by #seal! at the first invocation, so
-      # every subsequent call is a pure read of the frozen table; #register
-      # drops the memo while the table is still open, before the seal.
+      # Before the first invocation this recomputes from the still-open
+      # table; #seal! then pins the bytes, so every later call is a pure
+      # read of the frozen memo.
       def encode
         @encoded || Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
       end
@@ -75,7 +75,6 @@ module Kobako
       # missing keywords, wrong types, malformed +name+, or
       # duplicate +code:+ +name+.
       def register(code: nil, name: nil, binary: nil)
-        @encoded = nil
         if binary
           raise ArgumentError, "cannot combine binary: with code: / name:" if code || name
 

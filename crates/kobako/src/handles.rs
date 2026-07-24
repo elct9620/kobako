@@ -3,11 +3,10 @@
 //!
 //! Guests never hold host objects — they hold opaque `ext 0x01` Handle
 //! ids that resolve against this table. Ids are issued by a
-//! monotonically increasing counter starting at 1 and the whole table
-//! resets at every invocation entry, so no Handle survives an
-//! invocation boundary. The entries are `Arc<dyn Receiver>`, so a
-//! Handle used as a dispatch target answers methods the same way a
-//! bound Service does.
+//! monotonically increasing counter starting at 1, and each invocation
+//! gets a fresh table, so no Handle survives an invocation boundary.
+//! The entries are `Arc<dyn Receiver>`, so a Handle used as a dispatch
+//! target answers methods the same way a bound Service does.
 
 use std::sync::{Arc, Mutex};
 
@@ -20,8 +19,8 @@ use crate::receiver::{Fault, FaultKind, Receiver};
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// The Sandbox-owned table: live entries plus the per-invocation
-/// monotonic counter. Ids are `1..=entries.len()` between resets, so
-/// the entry vector doubles as the id map.
+/// monotonic counter. Ids are `1..=entries.len()`, so the entry vector
+/// doubles as the id map.
 #[derive(Default)]
 pub(crate) struct HandleTable {
     entries: Vec<Arc<dyn Receiver>>,
