@@ -73,7 +73,7 @@ class TestRuntimeSnapshot < Minitest::Test
   def drive_eval(code)
     services = Kobako::Catalog::Services.new
     snippets = Kobako::Catalog::Snippets.new
-    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic)
+    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic, :hold)
     dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
     runtime.eval(dispatch, services.encode, code.b, snippets.encode)
