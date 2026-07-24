@@ -10,7 +10,7 @@ require "test_helper"
 # test/sandbox/test_run.rb alongside the rest of the #run pre-flight
 # error coverage; this file is the e2e elevation of the auto-wrap
 # happy path against the real data/kobako.wasm.
-class TestRunAutoWrap < Minitest::Test
+class TestSandboxRunAutoWrap < Minitest::Test
   include E2eGuestHelper
 
   # A StringIO arrives as a positional argument. The host wraps it as

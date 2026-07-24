@@ -12,7 +12,7 @@
 
 require "test_helper"
 
-class TestSandboxOutcomeAttributionEdgeCases < Minitest::Test
+class TestOutcomeAttributionEdgeCases < Minitest::Test
   include OutcomeBytesHelpers
 
   # Decode a raw outcome byte-string through the Kobako::Outcome module

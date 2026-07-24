@@ -8,7 +8,7 @@ require "test_helper"
 # These scenarios pin that invisibility — distinct objects, options as part of
 # the key, and correct matching past the bounded capacity — so a regression that
 # shared the wrong engine or collided keys would surface as a wrong result.
-class TestCompileCache < Minitest::Test
+class TestRegexpCompileCache < Minitest::Test
   include RegexpGuestHelper
 
   # Far more distinct patterns than the 64-entry default capacity, each checked

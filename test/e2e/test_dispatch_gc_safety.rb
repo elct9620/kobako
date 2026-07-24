@@ -28,7 +28,7 @@ require "stringio"
 # deterministically; GC.compact between Proc binding and use forces the
 # movement path. Both are restored in teardown so the global GC knobs do
 # not leak into the rest of the suite.
-class TestDispatchGcSafety < Minitest::Test
+class TestE2EDispatchGcSafety < Minitest::Test
   include E2eGuestHelper
 
   def teardown

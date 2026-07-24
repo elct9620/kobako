@@ -8,7 +8,7 @@ require "test_helper"
 # (including the +BytecodeError+ subclass selection). The
 # decode logic lives on +Kobako::Outcome+ as a stateless module of pure
 # functions, so we call it directly without instantiating Sandbox.
-class TestSandboxOutcomeDecoding < Minitest::Test
+class TestOutcomeDecoding < Minitest::Test
   include OutcomeBytesHelpers
 
   def decode(bytes)

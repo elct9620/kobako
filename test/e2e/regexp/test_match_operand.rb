@@ -7,7 +7,7 @@ require "test_helper"
 # TypeError on anything else (=== rescues to false). For String#match /
 # #match? the pattern must be a Regexp (a String is not coerced) — anything
 # else is a TypeError.
-class TestMatchOperand < Minitest::Test
+class TestRegexpMatchOperand < Minitest::Test
   include RegexpGuestHelper
 
   def test_match_predicate_raises_type_error_on_integer_subject
