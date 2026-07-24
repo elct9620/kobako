@@ -50,10 +50,13 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("dispatch_glue")
 
-# Per-Sandbox registry + Handle table, wired exactly as
-# Kobako::Sandbox#initialize wires them into the on_dispatch Proc.
+# The base Service registry plus a per-invocation Handle table — the two
+# collaborators Kobako::Context captures into its dispatch handler. With no
+# per-invocation providers or ctx.bind overrides here, that resolver
+# degenerates to the registry, so we pass Services directly and keep this
+# bench free of a Runtime.
 handler = Kobako::Catalog::Handles.new
-services = Kobako::Catalog::Services.new(handler: handler)
+services = Kobako::Catalog::Services.new
 services.bind("Bench::Noop", -> {})
         .bind("Bench::Echo", ->(x) { x })
         .bind("Bench::Greet", ->(name:) { name })
