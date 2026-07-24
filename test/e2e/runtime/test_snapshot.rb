@@ -13,7 +13,7 @@ require "test_helper"
 # captures-on-trap cases in +test/e2e/test_caps.rb+); this file
 # deliberately stays at the Runtime seam so a regression in the magnus
 # binding surfaces here, not via indirect Sandbox assertions.
-class TestRuntimeCaptures < Minitest::Test
+class TestRuntimeSnapshot < Minitest::Test
   include GuestGuard
 
   KOBAKO_WASM = TestPaths.data("kobako.wasm")
