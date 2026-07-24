@@ -11,17 +11,17 @@ require "test_helper"
 #     produce the same outcome, since releasing the GVL changes scheduling
 #     only. Every dispatch in a program re-acquires the GVL under :release,
 #     so this exercises the re-entry path across arbitrary shapes.
-#   * Parallel isolation — distinct :release Sandboxes on distinct Threads
-#     each run their own program tagged with the Thread's owner; every
-#     restored owner must be that Thread's own, so a foreign owner is a
-#     cross-invocation misdelivery (B-03).
+#   * Parallel isolation — Threads invoking concurrently each mint and
+#     round-trip only their own Handles, so a foreign owner is a
+#     cross-invocation misdelivery (B-03). Both concurrency shapes B-22
+#     sanctions are covered: distinct :release Sandboxes per Thread, and
+#     one Sandbox shared across Threads with each invocation supplying its
+#     own identity through the per-invocation ctx.bind override (B-63).
 #
 # Fuzz discipline mirrors the Layer 1 codec harness: the seed is sourced
 # from KOBAKO_FUZZ_SEED (random otherwise) and printed in every failure so
 # a run reproduces from the seed, and the generator's shape coverage is
-# asserted complete independently of any parity failure. Threads are per
-# Sandbox because the one-Thread-per-Sandbox contract (B-22) is the
-# concurrency shape SPEC sanctions today.
+# asserted complete independently of any parity failure.
 class TestDispatchSchedulingFuzz < Minitest::Test
   include E2eGuestHelper
 
