@@ -5,12 +5,12 @@
 # Pure Ruby; does NOT require the native extension. #lookup never touches the
 # Runtime, so a bare placeholder stands in for that unused collaborator.
 #
-# The overlay's positive path — a callable backend's fresh per-invocation
-# object reaching the guest — is driven end-to-end in test/e2e/test_install.rb
-# through a real guest. This file pins the two host-side invariants that live
-# on #lookup: static base delegation, and the bounded overlay the removed
-# Services#refresh no-op test used to guard — per-invocation resolution
-# overlays the static bindings and never makes an unbound path reachable.
+# A provider-backed path's positive resolution — a callable backend's fresh
+# per-invocation object reaching the guest — is driven end-to-end in
+# test/e2e/test_install.rb through a real guest. This file pins the host-side
+# invariants that live on #lookup: it layers the per-eval ctx.bind overrides
+# and this run's provider results over the static base bindings, delegates an
+# unresolved key to the base, and never makes an unbound path reachable.
 #
 # Cross-references:
 #   - SPEC.md / docs/behavior/extension.md B-56 — a backend is fixed or
@@ -45,9 +45,9 @@ module Kobako
       @services.bind("Store::KV", Object.new)
 
       assert_raises(KeyError,
-                    "lookup on a never-bound path must raise, so per-invocation resolution overlays the " \
-                    "static bindings and never makes an unbound path reachable — the key set sealed at the " \
-                    "first invocation cannot grow (B-33)") do
+                    "lookup on a never-bound path must raise, so per-invocation resolution layers over the " \
+                    "static base bindings and never makes an unbound path reachable — the key set sealed at " \
+                    "the first invocation cannot grow (B-33)") do
         context.lookup("Store::Missing")
       end
     end

@@ -128,7 +128,7 @@ class TestE2EInstall < Minitest::Test
     attempts = [0]
     lambda do
       attempts[0] += 1
-      raise "overlay unavailable" if attempts[0] == 1
+      raise "backend unavailable" if attempts[0] == 1
 
       InMemoryFileSystem.new
     end
