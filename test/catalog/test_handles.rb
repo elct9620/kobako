@@ -9,7 +9,7 @@
 #
 # Cross-references:
 #   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
-#   - SPEC.md B-19 — Sandbox discard / cross-run Handle invalidity
+#   - SPEC.md B-18 — each invocation mints a fresh table; a prior run's id is invalid
 #   - SPEC.md B-21 — Catalog::Handles exhaustion at 0x7fff_ffff
 #   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
 
@@ -48,28 +48,6 @@ module Kobako
 
       assert_raises(Kobako::SandboxError) { table.fetch(999) }
       assert_raises(Kobako::SandboxError) { table.fetch(0) }
-    end
-
-    # ---------- Reset: clears entries AND counter (per-#run boundary) ----------
-
-    def test_reset_clears_entries_and_resets_counter_to_one
-      table = Table.new
-      ids = 5.times.map { table.alloc(Object.new).id }
-      assert_equal [1, 2, 3, 4, 5], ids
-
-      table.reset!
-
-      ids.each do |id|
-        assert_raises(Kobako::SandboxError) { table.fetch(id) }
-      end
-      # First alloc after reset returns id 1 — the counter rolls back to the start.
-      assert_equal 1, table.alloc(Object.new).id
-    end
-
-    def test_reset_on_empty_table_is_noop
-      table = Table.new
-      table.reset!
-      assert_equal 1, table.alloc(Object.new).id
     end
 
     # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
@@ -117,25 +95,25 @@ module Kobako
       assert_equal 1, table.alloc(-> { 1 }).id
     end
 
-    # ---------- Cross-run Handle invalidity (SPEC B-19) ----------
+    # ---------- Cross-run Handle invalidity (SPEC B-18) ----------
 
-    def test_handle_from_prior_run_is_invalid_after_reset
-      # SPEC B-19: A Handle issued before a reset (the per-#run boundary) must
-      # not resolve to its old object after reset. After reset, even if the
-      # same numeric id is re-allocated, fetching it must yield the NEW object,
-      # not the original — i.e. the original Handle reference is invalidated.
-      table = Table.new
+    def test_a_prior_runs_handle_id_resolves_to_no_object_in_the_next_run
+      # SPEC B-18: each invocation mints its own Catalog::Handles, so a Handle
+      # issued in one run resolves in no other. The next run's fresh table
+      # re-allocates id 1 to its OWN object; the prior binding is unreachable,
+      # so the original Handle reference cannot resolve to its old object.
+      prior_run = Table.new
       obj_a = Object.new
-      table.alloc(obj_a) # binds obj_a at id 1 — the id is asserted below as a literal
-      assert_same obj_a, table.fetch(1)
+      prior_run.alloc(obj_a) # binds obj_a at id 1 in the prior run
+      assert_same obj_a, prior_run.fetch(1)
 
-      table.reset!
+      next_run = Table.new
       obj_b = Object.new
-      id_b = table.alloc(obj_b).id
+      id_b = next_run.alloc(obj_b).id
 
-      assert_equal 1, id_b # counter rolled back to 1 at the run boundary
-      refute_same obj_a, table.fetch(id_b)
-      assert_same obj_b, table.fetch(id_b)
+      assert_equal 1, id_b # the fresh table's counter starts at 1
+      assert_same obj_b, next_run.fetch(id_b)
+      refute_same obj_a, next_run.fetch(id_b)
     end
   end
 end

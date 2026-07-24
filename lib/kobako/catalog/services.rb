@@ -17,9 +17,11 @@ module Kobako
     #   services.lookup("MyService::KV")           # => kv_object
     #
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
-    # responsibility — the Dispatcher receives this registry and the
-    # +Catalog::Handles+ as arguments from the per-invocation dispatch Proc
-    # that +Kobako::Sandbox+ hands to +Runtime#eval+ / +#run+.
+    # responsibility — the Dispatcher resolves a path against the invocation's
+    # +Kobako::Context+ (which layers per-invocation providers and +ctx.bind+
+    # overrides over these base bindings) and the +Catalog::Handles+, both
+    # passed in the per-invocation dispatch Proc the Context hands to
+    # +Runtime#eval+ / +#run+.
     class Services
       # Ruby constant-name pattern each +::+-separated bind-path segment
       # must match.

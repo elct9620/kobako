@@ -7,8 +7,6 @@ module Kobako
 
       def fetch: (Integer id) -> untyped
 
-      def reset!: () -> self
-
       def size: () -> Integer
 
       private

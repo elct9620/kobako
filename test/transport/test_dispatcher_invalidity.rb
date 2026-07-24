@@ -3,21 +3,20 @@
 require "test_helper"
 
 # Unit-level coverage of Handle invalidity through Transport::Dispatcher:
-# a Handle dies with its run (B-18 via Catalog::Handles#reset!) and never
-# crosses Sandbox instances (B-19). Handle resolution itself lives in
-# test_dispatcher_handles.rb.
+# a Handle dies with its run (B-18) and never crosses Sandbox instances
+# (B-19). Handle resolution itself lives in test_dispatcher_handles.rb.
 class TestTransportDispatchInvalidity < Minitest::Test
   include DispatcherHelpers
 
-  # ---------- Cross-run invalidity (B-18 via Catalog::Handles#reset!) ----------
+  # ---------- Cross-run invalidity (SPEC B-18) ----------
 
-  def test_handle_invalid_after_table_reset
+  def test_a_prior_runs_handle_is_undefined_against_the_next_runs_table
     obj = Object.new
     def obj.tag = "t"
-    handle_id = alloc_id(obj)
-    @handler.reset!
+    handle_id = alloc_id(obj) # issued against this run's table (@handler)
+    next_run = Kobako::Catalog::Handles.new # the next invocation mints its own
 
-    resp = dispatch_handle_target(handle_id, "tag")
+    resp = dispatch_handle_target(handle_id, "tag", handler: next_run)
 
     assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
@@ -25,13 +24,12 @@ class TestTransportDispatchInvalidity < Minitest::Test
 
   # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
 
-  # SPEC B-19: Catalog::Handles ownership is per-Sandbox. A Handle ID issued
-  # by Sandbox A's Catalog::Handles has no meaning in Sandbox B's Catalog::Handles;
+  # SPEC B-19: Handle IDs are Sandbox-private. A Handle ID issued by
+  # Sandbox A's Catalog::Handles has no meaning in Sandbox B's Catalog::Handles;
   # presenting it there resolves to "ID not found" and surfaces as a
-  # Response.error with type="undefined". This is distinct from B-18
-  # (cross-#run within the same Sandbox via #reset!): here we exercise
-  # two physically separate Catalog::Handles instances backing two separate
-  # dispatchers, mirroring two live Sandbox instances.
+  # Response.error with type="undefined". Distinct from B-18 (cross-#run
+  # within one Sandbox): here two physically separate Catalog::Handles
+  # instances back two separate dispatchers, mirroring two live Sandboxes.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     table_a = Kobako::Catalog::Handles.new
     handle_id_in_a = table_a.alloc(pinger).id

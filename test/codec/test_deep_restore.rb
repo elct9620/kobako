@@ -74,12 +74,12 @@ class TestCodecDeepRestore < Minitest::Test
 
   # A Handle the guest cannot forge (B-20) always resolves while its
   # invocation is live; an id with no live binding is the corrupted-runtime
-  # fallback B-37 routes to Kobako::SandboxError. reset! drops the binding
-  # the way an invocation boundary would.
+  # fallback B-37 routes to Kobako::SandboxError. A fresh table stands in for
+  # the next invocation's own, where the prior run's id has no binding.
   def test_handle_with_no_live_binding_raises_sandbox_error
     handle = @table.alloc(Object.new)
-    @table.reset!
+    next_run = Kobako::Catalog::Handles.new
 
-    assert_raises(Kobako::SandboxError) { HandleWalk.deep_restore(handle, @table) }
+    assert_raises(Kobako::SandboxError) { HandleWalk.deep_restore(handle, next_run) }
   end
 end

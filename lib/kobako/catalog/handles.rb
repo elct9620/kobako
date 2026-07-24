@@ -5,10 +5,10 @@ require_relative "../handle"
 module Kobako
   module Catalog
     # Host-side mapping from opaque integer Handle IDs to Ruby objects.
-    # The table is owned by +Kobako::Sandbox+ and injected
-    # into the per-Sandbox +Kobako::Catalog::Services+ so guest→host dispatch
-    # resolves Handle targets and arguments against the same table that
-    # host→guest wire encoding allocates into.
+    # Each invocation's +Kobako::Context+ mints its own table and hands it to
+    # the dispatcher, so guest→host dispatch resolves Handle targets and
+    # arguments against the same table that host→guest wire encoding allocates
+    # into for that run.
     #
     # Lifecycle invariants:
     #
@@ -17,10 +17,9 @@ module Kobako
     #     invocation is 1; ID 0 is reserved as the invalid sentinel and is
     #     never returned by +#alloc+.
     #
-    #   - At every invocation boundary (via +#reset!+), every Handle issued
-    #     under the old state becomes invalid. Reset applies uniformly
-    #     regardless of allocation source (Service return or host-injected
-    #     argument).
+    #   - A fresh table backs each invocation, so a Handle issued in one
+    #     invocation resolves in no other — uniformly regardless of
+    #     allocation source (Service return or host-injected argument).
     #
     #   - The cap is +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap
     #     raises immediately — no silent truncation, no wrap, no ID reuse.
@@ -61,14 +60,6 @@ module Kobako
       def fetch(id)
         require_bound!(id)
         @entries[id]
-      end
-
-      # Clear all entries AND reset the counter to 1. Called at the
-      # per-invocation boundary by +Kobako::Sandbox+. Returns +self+.
-      def reset!
-        @entries.clear
-        @next_id = 1
-        self
       end
 
       # Number of currently-bound entries. Used by tests of the Dispatcher
