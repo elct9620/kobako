@@ -13,6 +13,9 @@
 #                       1 MiB cap is already CI-friendly).
 #   bench:full        — bench plus codec @ 16 MiB (BENCH_FULL=1).
 #   bench:concurrent        — #7 characterization (not in release gate).
+#   bench:gvl_scheduling    — gvl: hold-vs-release wall-clock scaling
+#                             (not in release gate). Confirmation half of
+#                             the GVL-impact toolkit alongside #7 / #10.
 #   bench:memory            — #8 characterization: per-Sandbox RSS,
 #                             leak detection, large-payload retention.
 #   bench:preload_dispatch  — #9 characterization: #preload + #run
@@ -59,6 +62,9 @@ namespace :bench do
   desc "Run concurrent characterization benchmark (#7; not in release gate)."
   task(:concurrent) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/threads.rb" } }
 
+  desc "Run gvl: hold-vs-release scaling characterization (not in release gate)."
+  task(:gvl_scheduling) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/gvl_scheduling.rb" } }
+
   desc "Run memory characterization benchmark (#8; not in release gate)."
   task(:memory) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/memory.rb" } }
 
@@ -76,7 +82,7 @@ namespace :bench do
   desc "Run the whole sweep: gated (16 MiB) + every characterization (#7-#11)."
   task all: ["wasm:build:regexp_unicode"] do
     Kobako::Bench::Lock.hold do
-      %w[full concurrent memory preload_dispatch dispatch_glue regexp].each do |suite|
+      %w[full concurrent gvl_scheduling memory preload_dispatch dispatch_glue regexp].each do |suite|
         Rake::Task["bench:#{suite}"].invoke
       end
     end
