@@ -5,19 +5,23 @@ module Kobako
     DEFAULT_OUTPUT_LIMIT: Integer
     DEFAULT_PROFILE: Symbol
     PROFILES: Array[Symbol]
+    GVL_MODES: Array[Symbol]
+    DEFAULT_GVL: Symbol
 
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
     attr_reader stdout_limit: Integer?
     attr_reader stderr_limit: Integer?
     attr_reader profile: Symbol
+    attr_reader gvl: Symbol
 
     def self.new: (
       ?timeout: (Float | Integer)?,
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
-      ?profile: Symbol
+      ?profile: Symbol,
+      ?gvl: Symbol
     ) -> SandboxOptions
 
     def initialize: (
@@ -25,7 +29,8 @@ module Kobako
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
-      ?profile: Symbol
+      ?profile: Symbol,
+      ?gvl: Symbol
     ) -> void
 
     def enforce_floor!: (Symbol declared) -> void
@@ -39,5 +44,7 @@ module Kobako
     def normalize_output_limit: (Integer? limit, String name) -> Integer?
 
     def normalize_profile: (untyped profile) -> Symbol
+
+    def normalize_gvl: (untyped gvl) -> Symbol
   end
 end

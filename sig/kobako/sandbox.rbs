@@ -11,6 +11,7 @@ module Kobako
     def stdout_limit: () -> Integer?
     def stderr_limit: () -> Integer?
     def profile: () -> Symbol
+    def gvl: () -> Symbol
 
     # Every keyword beyond wasm_path forwards verbatim to
     # SandboxOptions.new (the four caps + the profile floor).

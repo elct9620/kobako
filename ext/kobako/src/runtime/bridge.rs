@@ -128,24 +128,29 @@ impl DispatchHandler for RubyDispatchHandler {
     /// violation surfaced as `None` — the dispatcher then walks the
     /// 0-return wire-fault path.
     fn dispatch(&self, request: &[u8], yielder: &mut dyn Yielder) -> Option<Vec<u8>> {
-        // The wasmtime callback runs on the same Ruby thread that called
-        // the active Sandbox invocation (#eval or #run) — the invariant
-        // SPEC Implementation Standards Architecture pins for the host gem
-        // — so `Ruby::get()` is always available here. Panicking with
-        // `expect` localises the violation rather than letting a nonsense
-        // error propagate.
-        let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
-        let proc_value: Value = ruby.get_inner(self.on_dispatch);
-        let req_str = ruby.str_from_slice(request);
-        // Hand the Proc a frame-scoped yielder object as its second arg and
-        // invalidate it the instant the Proc returns, so a guest block that
-        // escapes the dispatch frame can never deref the freed stack
-        // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
-        // mark — the GC has nothing to trace through it.
-        let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
-        let resp: Result<RString, magnus::Error> =
-            proc_value.funcall("call", (req_str, guest_yielder));
-        guest_yielder.invalidate();
-        resp.ok().map(super::rstring_to_vec)
+        // The guest may be running GVL-free (`gvl: :release`); re-acquire the
+        // GVL for the whole callback before touching any Ruby VALUE. In hold
+        // mode `reenter` runs the body inline — the GVL is already held.
+        super::gvl::reenter(|| {
+            // The wasmtime callback runs on the same Ruby thread that called
+            // the active Sandbox invocation (#eval or #run) — the invariant
+            // SPEC Implementation Standards Architecture pins for the host gem
+            // — so `Ruby::get()` is available here once the GVL is held.
+            // Panicking with `expect` localises the violation rather than
+            // letting a nonsense error propagate.
+            let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
+            let proc_value: Value = ruby.get_inner(self.on_dispatch);
+            let req_str = ruby.str_from_slice(request);
+            // Hand the Proc a frame-scoped yielder object as its second arg and
+            // invalidate it the instant the Proc returns, so a guest block that
+            // escapes the dispatch frame can never deref the freed stack
+            // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
+            // mark — the GC has nothing to trace through it.
+            let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
+            let resp: Result<RString, magnus::Error> =
+                proc_value.funcall("call", (req_str, guest_yielder));
+            guest_yielder.invalidate();
+            resp.ok().map(super::rstring_to_vec)
+        })
     }
 }

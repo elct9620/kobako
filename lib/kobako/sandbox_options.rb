@@ -21,7 +21,7 @@ module Kobako
   # as-is. The options also own the ladder comparison
   # (+#enforce_floor!+) that +Kobako::Sandbox+ delegates its
   # construction floor check to.
-  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile)
+  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile, :gvl)
     # Default wall-clock timeout for a single invocation: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -41,16 +41,28 @@ module Kobako
     # +:permissive+ is the Host App's explicit trade.
     DEFAULT_PROFILE = :hermetic
 
+    # The GVL scheduling modes: +:hold+ keeps Ruby's GVL for the whole
+    # invocation, +:release+ drops it for the guest span so distinct
+    # Sandboxes on distinct Threads run their guest code in parallel.
+    GVL_MODES = %i[hold release].freeze
+
+    # Default GVL mode: +:hold+ — holding the GVL matches single-threaded
+    # execution, so +:release+ is the Host App's explicit opt-in for
+    # host-parallel guest execution.
+    DEFAULT_GVL = :hold
+
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
                    memory_limit: DEFAULT_MEMORY_LIMIT,
                    stdout_limit: DEFAULT_OUTPUT_LIMIT,
                    stderr_limit: DEFAULT_OUTPUT_LIMIT,
-                   profile: DEFAULT_PROFILE)
+                   profile: DEFAULT_PROFILE,
+                   gvl: DEFAULT_GVL)
       timeout = normalize_timeout(timeout)
       memory_limit = normalize_memory_limit(memory_limit)
       stdout_limit = normalize_output_limit(stdout_limit, "stdout_limit")
       stderr_limit = normalize_output_limit(stderr_limit, "stderr_limit")
       profile = normalize_profile(profile)
+      gvl = normalize_gvl(gvl)
       super
     end
 
@@ -119,6 +131,15 @@ module Kobako
       return profile if PROFILES.include?(profile)
 
       raise ArgumentError, "profile must be one of #{PROFILES.map(&:inspect).join(", ")}, got #{profile.inspect}"
+    end
+
+    # Validate +gvl+ against GVL_MODES. Like +profile+ it has no +nil+
+    # form: the scheduling mode is requested as an explicit Symbol, so
+    # anything off the set — +nil+ included — is rejected.
+    def normalize_gvl(gvl)
+      return gvl if GVL_MODES.include?(gvl)
+
+      raise ArgumentError, "gvl must be one of #{GVL_MODES.map(&:inspect).join(", ")}, got #{gvl.inspect}"
     end
   end
 end

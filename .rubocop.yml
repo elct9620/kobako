@@ -10,6 +10,12 @@ Style/StringLiterals:
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
 
+# SandboxOptions.new intentionally lists one explicit typed keyword per
+# per-Sandbox option; the count does not apply to this constructor.
+Metrics/ParameterLists:
+  Exclude:
+    - "lib/kobako/sandbox_options.rb"
+
 Metrics/ClassLength:
   Exclude:
     # WireValueGenerator owns ten generation concerns (ints / floats /

@@ -36,7 +36,7 @@ module Kobako
 
     # Per-option accessors forward to the immutable +SandboxOptions+ Value
     # Object so the Host App still reads them off Sandbox directly.
-    def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile
+    def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile, :gvl
 
     # Build a fresh Sandbox.
     #
@@ -182,7 +182,8 @@ module Kobako
     # runtime that cannot honor the request never runs guest code.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                          @options.stdout_limit, @options.stderr_limit, @options.profile)
+                                          @options.stdout_limit, @options.stderr_limit, @options.profile,
+                                          @options.gvl)
       @options.enforce_floor!(runtime.profile)
       runtime
     end

@@ -10,7 +10,11 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-magnus = { version = "0.8.2" }
+magnus = { version = "0.8.2", features = ["rb-sys"] }
+# Raw Ruby FFI for the GVL release/re-acquire calls magnus does not wrap
+# (`rb_thread_call_without_gvl` / `rb_thread_call_with_gvl`). Pinned to the
+# rb-sys magnus resolves so both share one binding instance.
+rb-sys = { version = "0.9", default-features = false }
 # The engine-neutral host runtime contract plus its wasmtime driver —
 # the ext is a thin magnus shim over them. Pure path dependencies: both
 # crates ship inside the gem, so installs never resolve them against

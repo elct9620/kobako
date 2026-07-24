@@ -934,6 +934,7 @@ dependencies = [
  "kobako-runtime",
  "kobako-wasmtime",
  "magnus",
+ "rb-sys",
 ]
 
 [[package]]

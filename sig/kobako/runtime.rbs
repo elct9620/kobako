@@ -8,7 +8,8 @@ module Kobako
       Integer? memory_limit,
       Integer? stdout_limit_bytes,
       Integer? stderr_limit_bytes,
-      Symbol profile
+      Symbol profile,
+      Symbol gvl
     ) -> Runtime
 
     def eval: (

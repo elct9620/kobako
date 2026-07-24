@@ -25,6 +25,7 @@
 
 mod bridge;
 mod errors;
+mod gvl;
 
 use magnus::{
     function, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
@@ -63,7 +64,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // in `runtime/errors.rs` — no intermediate hierarchy is registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
-    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 6))?;
+    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 7))?;
     runtime.define_method("eval", method!(Runtime::eval, 4))?;
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -98,6 +99,11 @@ struct Runtime {
     // `Snapshot` — so `Driver`'s own `Send + Sync` carries the type with no
     // interior mutability to guard.
     driver: Driver,
+    // Whether each invocation releases Ruby's GVL for its guest span
+    // (`gvl: :release`) or holds it throughout (`gvl: :hold`). Fixed at
+    // construction; a `bool` carries no interior mutability, so the type
+    // stays `Send + Sync`.
+    release_gvl: bool,
 }
 
 impl DataTypeFunctions for Runtime {}
@@ -113,10 +119,12 @@ impl Runtime {
     /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
     /// are the per-channel output caps (`None`
     /// disables); `profile` is the isolation rung the driver builds
-    /// (`:permissive` / `:hermetic`). All five are validated by the
-    /// caller (`Kobako::Sandbox`); this method only refuses non-finite
-    /// or non-positive timeouts and off-ladder profiles as a defence in
-    /// depth.
+    /// (`:permissive` / `:hermetic`); `gvl` is the scheduling mode
+    /// (`:hold` / `:release`) deciding whether each invocation releases
+    /// the GVL for its guest span. All six are validated by the caller
+    /// (`Kobako::Sandbox`); this method only refuses non-finite or
+    /// non-positive timeouts, off-ladder profiles, and unrecognized gvl
+    /// modes as a defence in depth.
     fn from_path(
         path: String,
         timeout_seconds: Option<f64>,
@@ -124,6 +132,7 @@ impl Runtime {
         stdout_limit_bytes: Option<usize>,
         stderr_limit_bytes: Option<usize>,
         profile: Symbol,
+        gvl: Symbol,
     ) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let timeout = match timeout_seconds {
@@ -154,6 +163,19 @@ impl Runtime {
                 ));
             }
         };
+        // Same fail-closed posture as `profile`: an unrecognized mode raises
+        // rather than defaulting. `SandboxOptions` is the primary validator;
+        // this guards direct `from_path` calls.
+        let release_gvl = match gvl.name()?.as_ref() {
+            "hold" => false,
+            "release" => true,
+            other => {
+                return Err(MagnusError::new(
+                    ruby.exception_arg_error(),
+                    format!("gvl must be :hold or :release, got :{other}"),
+                ));
+            }
+        };
 
         let driver = Driver::new(
             Path::new(&path),
@@ -166,7 +188,10 @@ impl Runtime {
             },
         )
         .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
-        Ok(Self { driver })
+        Ok(Self {
+            driver,
+            release_gvl,
+        })
     }
 
     // -----------------------------------------------------------------
@@ -193,9 +218,11 @@ impl Runtime {
         let preamble = rstring_to_vec(preamble);
         let source = rstring_to_vec(source);
         let snippets = rstring_to_vec(snippets);
-        let snapshot = self
-            .driver
-            .invoke(
+        // Release the GVL around the guest span iff this Sandbox asks for it;
+        // the closure touches no Ruby VALUE (the driver is magnus-free, and a
+        // guest→host dispatch re-acquires the GVL through the bridge).
+        let result = gvl::region(self.release_gvl, || {
+            self.driver.invoke(
                 Entry::Eval { source: &source },
                 Frames {
                     preamble: &preamble,
@@ -203,7 +230,8 @@ impl Runtime {
                 },
                 handler,
             )
-            .map_err(|e| errors::to_magnus(&ruby, e))?;
+        });
+        let snapshot = result.map_err(|e| errors::to_magnus(&ruby, e))?;
         Ok(Snapshot::from(snapshot))
     }
 
@@ -226,9 +254,10 @@ impl Runtime {
         let preamble = rstring_to_vec(preamble);
         let snippets = rstring_to_vec(snippets);
         let envelope = rstring_to_vec(envelope);
-        let snapshot = self
-            .driver
-            .invoke(
+        // Release the GVL around the guest span iff this Sandbox asks for it;
+        // see the note in `#eval`.
+        let result = gvl::region(self.release_gvl, || {
+            self.driver.invoke(
                 Entry::Run {
                     envelope: &envelope,
                 },
@@ -238,7 +267,8 @@ impl Runtime {
                 },
                 handler,
             )
-            .map_err(|e| errors::to_magnus(&ruby, e))?;
+        });
+        let snapshot = result.map_err(|e| errors::to_magnus(&ruby, e))?;
         Ok(Snapshot::from(snapshot))
     }
 

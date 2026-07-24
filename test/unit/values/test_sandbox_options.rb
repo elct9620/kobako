@@ -94,6 +94,28 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  def test_absent_gvl_takes_the_hold_default
+    assert_equal :hold, Kobako::SandboxOptions.new.gvl,
+                 "an absent gvl through SandboxOptions.new must default to :hold, the GVL-holding mode (B-64)"
+  end
+
+  def test_gvl_modes_pass_through
+    Kobako::SandboxOptions::GVL_MODES.each do |mode|
+      assert_equal mode, Kobako::SandboxOptions.new(gvl: mode).gvl,
+                   "gvl mode #{mode.inspect} through SandboxOptions.new must be readable back unchanged (B-64)"
+    end
+  end
+
+  def test_rejects_gvl_outside_the_mode_set
+    # nil included deliberately: gvl is requested as an explicit mode, so
+    # it has no nil-disable form — anything off GVL_MODES is rejected (B-64).
+    [nil, :auto, "release", 1].each do |bad|
+      assert_raises(ArgumentError, "gvl #{bad.inspect} through SandboxOptions.new must be rejected (B-64)") do
+        Kobako::SandboxOptions.new(gvl: bad)
+      end
+    end
+  end
+
   # The floor check's failing branch (E-49) is witnessed here, on the
   # ladder owner, with a plain declared value — the bundled runtime
   # always builds the requested rung, so no real runtime can hand
