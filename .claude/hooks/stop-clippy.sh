@@ -7,6 +7,10 @@ set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:?}"
 
+# Defer the whole gate while a benchmark is measuring — its CPU spike
+# would contend for cores and skew the numbers.
+if "$root/.claude/hooks/bench-guard.sh"; then exit 0; fi
+
 clippy() {
   local label="$1"
   shift

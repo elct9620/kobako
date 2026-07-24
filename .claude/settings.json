@@ -38,7 +38,7 @@
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bundle exec rake >&2 || exit 2",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-rake.sh",
             "timeout": 1800,
             "statusMessage": "Running bundle exec rake (compile + test + rubocop + steep)"
           }
