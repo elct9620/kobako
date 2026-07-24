@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/v0.19.0...v0.20.0) (2026-07-24)
+
+
+### Features
+
+* **bench:** mark a run in progress with a pid lock file ([3ca85fb](https://github.com/elct9620/kobako/commit/3ca85fbe9860ce32d58c1a5bf4ff85cbdc210780))
+* **execution:** tell a nil-value success from a failure with #failed? ([2f3d382](https://github.com/elct9620/kobako/commit/2f3d382b24d65fabda7771429cd3adfc90a8c7e8))
+* **extension:** declare a backend's kind by explicit keyword ([3f6c628](https://github.com/elct9620/kobako/commit/3f6c6283080ba4346ac8ef878e469dab8039e650))
+* **sandbox:** add the gvl: hold/release scheduling option ([ca2a884](https://github.com/elct9620/kobako/commit/ca2a884415b3271c44b20d131536b3fe7c5a3077))
+* **sandbox:** declare fillable Service paths defaulting to Kobako::Unresolved ([1d60f76](https://github.com/elct9620/kobako/commit/1d60f764ddff3b5b10206993e2b281c838ec0022))
+* **sandbox:** fill and override declared paths per invocation with ctx.bind ([629ef7d](https://github.com/elct9620/kobako/commit/629ef7dfa35273c952685fefb4c5793b11886aee))
+* **sandbox:** return a frozen Kobako::Invocation from #eval and #run ([e9f4634](https://github.com/elct9620/kobako/commit/e9f463403bea26fad32e52d560b979684f555ed1))
+* **tasks:** gate the wasmtime driver against a magnus dependency ([268c3f6](https://github.com/elct9620/kobako/commit/268c3f65f53d64b465458bca5c0c9b0d0467df44))
+
+
+### Bug Fixes
+
+* **context:** raise ArgumentError for a spent ctx.bind ([2783bba](https://github.com/elct9620/kobako/commit/2783bba20f139554178389d4c860e0c280cab550))
+* **extension:** re-assert dependencies after a failed seal ([72839ba](https://github.com/elct9620/kobako/commit/72839bac6186e81a1d4323bd3f1eb4f10abf3d64))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/v0.18.0...v0.19.0) (2026-07-19)
 
 

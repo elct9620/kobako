@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.11.0...kobako-mruby-v0.12.0) (2026-07-24)
+
+
+### Miscellaneous Chores
+
+* **kobako-mruby:** Synchronize kobako crates versions
+
 ## [0.11.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.10.2...kobako-mruby-v0.11.0) (2026-07-19)
 
 
