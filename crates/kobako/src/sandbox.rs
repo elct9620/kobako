@@ -228,7 +228,7 @@ impl Sandbox {
     /// `Context` whose `bind` fills a fillable or shadows any declared binding
     /// for this invocation only; overriding an undeclared path returns
     /// `Error::Argument` before the guest runs. The overrides take priority
-    /// over the per-invocation overlay and the static base, and touch
+    /// over that path's per-invocation provider result and its static base, and touch
     /// host-side resolution only — Frame 1 stays fixed.
     pub fn eval_with<F>(&self, source: &str, overrides: F) -> Result<Execution, Error>
     where
@@ -310,19 +310,19 @@ impl Sandbox {
     /// or frame change cannot drift between verbs. `&self` because no
     /// per-invocation state is written back: the `handles` table and the
     /// snapshot's observables ride into the returned `Execution`.
-    /// `overlay` starts with the per-eval `ctx.bind` overrides so the
-    /// dispatch handler resolves them ahead of the per-invocation overlay.
+    /// `resolved` starts with the per-eval `ctx.bind` overrides so the
+    /// dispatch handler answers them before this run's provider results.
     fn invoke(
         &self,
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
         entry: Entry<'_>,
-        mut overlay: Vec<(String, Arc<dyn Receiver>)>,
+        mut resolved: Vec<(String, Arc<dyn Receiver>)>,
     ) -> Result<Execution, Error> {
-        overlay.extend(self.extensions.overlay());
+        resolved.extend(self.extensions.resolve());
         let preamble = catalog.preamble();
         let snippets = catalog.snippets.frame();
-        let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), overlay));
+        let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
         let snapshot = self.driver.invoke(
             entry,
             Frames {
@@ -424,11 +424,12 @@ fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(
 }
 
 /// The per-invocation Context handed to an `eval_with` override closure — the
-/// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only
-/// the `ctx.bind` overrides (the Handle table and observables stay threaded
-/// through `&mut self`, which the borrow checker already keeps per-invocation-
-/// exclusive); each override takes priority over the per-invocation overlay
-/// and the static base for that one invocation, and is discarded when it ends.
+/// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only the
+/// `ctx.bind` overrides; the run's Handle table and observables ride into its
+/// `Execution` instead. Each override takes priority over that path's
+/// per-invocation provider result and its static base for that one invocation,
+/// and is discarded when it ends. The borrow keeps it from outliving the
+/// closure, which is what spends it.
 pub struct Context<'a> {
     catalog: &'a Catalog,
     overrides: Vec<(String, Arc<dyn Receiver>)>,

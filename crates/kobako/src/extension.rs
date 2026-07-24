@@ -68,7 +68,7 @@ pub enum Provider {
 }
 
 /// The sentinel backing an unresolved Service path: the install-time
-/// placeholder for a `PerInvocation` backend (whose overlay resolves ahead of
+/// placeholder for a `PerInvocation` backend (whose resolution runs ahead of
 /// it every invocation) and the object a fillable path stays bound to until
 /// the host supplies one. It reserves the path's Frame 1 slot so the guest
 /// sees the constant; a dispatch that reaches it — an unfilled fillable —
@@ -99,7 +99,7 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
 
 /// The object bound at install for a backend: a `Static` provider's object
 /// directly, or the `Unresolved` placeholder a `PerInvocation` provider's
-/// overlay replaces.
+/// per-invocation resolution replaces.
 pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
@@ -109,8 +109,8 @@ pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
 
 /// Per-Sandbox registry of installed Extensions. The Sandbox has already
 /// composed each onto the Catalog (source preloaded, backend path bound);
-/// this asserts declared dependencies at the seal and produces the
-/// per-invocation overlay resolving each `PerInvocation` backend.
+/// this asserts declared dependencies at the seal and resolves each
+/// `PerInvocation` backend afresh for every invocation.
 #[derive(Default)]
 pub(crate) struct Extensions {
     entries: Vec<Arc<dyn Extension>>,
@@ -152,11 +152,11 @@ impl Extensions {
 
     /// Resolve each `PerInvocation` backend to this invocation's object,
     /// sharing one object per provider identity, and return the
-    /// path→object overlay the dispatch handler resolves ahead of the
+    /// path→object pairs the dispatch handler resolves ahead of the
     /// sealed Catalog. Empty when no backend is per-invocation.
-    pub(crate) fn overlay(&self) -> Vec<(String, Arc<dyn Receiver>)> {
-        let mut resolved: Vec<(ProviderFn, Arc<dyn Receiver>)> = Vec::new();
-        let mut overlay = Vec::new();
+    pub(crate) fn resolve(&self) -> Vec<(String, Arc<dyn Receiver>)> {
+        let mut by_provider: Vec<(ProviderFn, Arc<dyn Receiver>)> = Vec::new();
+        let mut resolved = Vec::new();
         for extension in &self.entries {
             let Some(backend) = extension.backend() else {
                 continue;
@@ -164,20 +164,20 @@ impl Extensions {
             let Provider::PerInvocation(provider) = backend.provider else {
                 continue;
             };
-            let object = match resolved
+            let object = match by_provider
                 .iter()
                 .find(|(seen, _)| Arc::ptr_eq(seen, &provider))
             {
                 Some((_, object)) => object.clone(),
                 None => {
                     let object = provider();
-                    resolved.push((provider.clone(), object.clone()));
+                    by_provider.push((provider.clone(), object.clone()));
                     object
                 }
             };
-            overlay.push((backend.path, object));
+            resolved.push((backend.path, object));
         }
-        overlay
+        resolved
     }
 }
 
@@ -262,32 +262,32 @@ mod tests {
     }
 
     // A shared provider resolves once per invocation to one object; the
-    // overlay carries every path that provider backs.
+    // resolution carries every path that provider backs.
     #[test]
-    fn overlay_shares_one_object_across_paths_of_a_shared_provider() {
+    fn resolve_shares_one_object_across_paths_of_a_shared_provider() {
         let shared: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
-        let overlay = overlay_of(&[("File", shared.clone()), ("Dir", shared.clone())]);
-        assert_eq!(overlay.len(), 2);
+        let resolved = resolve_of(&[("File", shared.clone()), ("Dir", shared.clone())]);
+        assert_eq!(resolved.len(), 2);
         assert!(
-            Arc::ptr_eq(&overlay[0].1, &overlay[1].1),
+            Arc::ptr_eq(&resolved[0].1, &resolved[1].1),
             "a shared provider backs every path with the same object"
         );
     }
 
     #[test]
-    fn overlay_gives_distinct_providers_distinct_objects() {
+    fn resolve_gives_distinct_providers_distinct_objects() {
         let a: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
         let b: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
-        let overlay = overlay_of(&[("File", a), ("Dir", b)]);
+        let resolved = resolve_of(&[("File", a), ("Dir", b)]);
         assert!(
-            !Arc::ptr_eq(&overlay[0].1, &overlay[1].1),
+            !Arc::ptr_eq(&resolved[0].1, &resolved[1].1),
             "distinct providers resolve to distinct objects"
         );
     }
 
-    // Drive Extensions::overlay with per-invocation backends built from the
+    // Drive Extensions::resolve with per-invocation backends built from the
     // given (path, provider) pairs.
-    fn overlay_of(specs: &[(&'static str, ProviderFn)]) -> Vec<(String, Arc<dyn Receiver>)> {
+    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Vec<(String, Arc<dyn Receiver>)> {
         struct BackendExt {
             path: &'static str,
             provider: ProviderFn,
@@ -313,6 +313,6 @@ mod tests {
                 provider: provider.clone(),
             }));
         }
-        extensions.overlay()
+        extensions.resolve()
     }
 }

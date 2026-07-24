@@ -24,22 +24,23 @@ use crate::yielder::Yielder;
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
     handles: Arc<Mutex<HandleTable>>,
-    /// This invocation's Extension backend objects, resolved ahead of the
-    /// sealed Catalog so a `PerInvocation` provider's fresh object serves
-    /// its path while Frame 1 stays fixed.
-    overlay: Vec<(String, Arc<dyn Receiver>)>,
+    /// The paths this invocation resolves ahead of the sealed Catalog — its
+    /// `ctx.bind` overrides first, then each `PerInvocation` provider's fresh
+    /// object — so an override or a fresh backend serves its path while
+    /// Frame 1 stays fixed.
+    resolved: Vec<(String, Arc<dyn Receiver>)>,
 }
 
 impl CatalogHandler {
     pub(crate) fn new(
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
-        overlay: Vec<(String, Arc<dyn Receiver>)>,
+        resolved: Vec<(String, Arc<dyn Receiver>)>,
     ) -> Self {
         CatalogHandler {
             catalog,
             handles,
-            overlay,
+            resolved,
         }
     }
 
@@ -84,7 +85,7 @@ impl CatalogHandler {
     fn resolve_target(&self, target: &Target) -> Result<Arc<dyn Receiver>, Fault> {
         match target {
             Target::Path(path) => self
-                .overlay
+                .resolved
                 .iter()
                 .find(|(bound, _)| bound == path)
                 .map(|(_, object)| object.clone())
@@ -354,11 +355,10 @@ mod tests {
         );
     }
 
-    // The Extension per-invocation overlay resolves a path ahead of the
-    // sealed Catalog: the placeholder bound at install (Echo, no `label`)
-    // is shadowed by the overlay's fresh object.
+    // Per-invocation resolution wins over the sealed Catalog: the placeholder
+    // bound at install (Echo, no `label`) is shadowed by the fresh object.
     #[test]
-    fn overlay_resolves_a_path_ahead_of_the_sealed_catalog() {
+    fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
         catalog.bind("File", Arc::new(Echo));
         let handler = CatalogHandler::new(
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(
             roundtrip_on(&handler, &req, &mut NoYield),
             Response::Ok(Value::Str("fresh".into())),
-            "a per-invocation overlay must resolve a path ahead of the sealed Catalog"
+            "a path resolved for this invocation must win over the sealed Catalog"
         );
     }
 
