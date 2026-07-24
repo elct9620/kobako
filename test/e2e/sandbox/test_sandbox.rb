@@ -44,6 +44,17 @@ class TestSandbox < Minitest::Test
     assert_equal 200, sandbox.stderr_limit
   end
 
+  # The gvl scheduling mode normalizes through SandboxOptions and delegates
+  # back on the Sandbox, same as the caps; its per-rule matrix (default,
+  # rejection) is pinned ext-free in TestSandboxOptions, so one witness
+  # reading a non-default mode back proves the delegation flows through.
+  def test_gvl_delegates_to_sandbox_options
+    sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, gvl: :release)
+
+    assert_equal :release, sandbox.gvl,
+                 "gvl: :release through Sandbox.new must read back off #gvl, delegated to SandboxOptions (B-64)"
+  end
+
   def test_missing_wasm_raises_module_not_built_error
     assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
