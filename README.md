@@ -14,9 +14,10 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
    │  Services            │ ◀─call─ │  KV::Lookup.call(k)  │
    │   KV::Lookup         │ ─resp─▶ │                      │
    │                      │         │                      │
-   │  stdout / stderr buf │ ◀─pipe─ │  puts / warn         │
-   │                      │         │                      │
-   │  return value        │ ◀─last─ │  last expression     │
+   │  Execution           │ ◀─pipe─ │  puts / warn         │
+   │   value              │ ◀─last─ │  last expression     │
+   │   stdout / stderr    │         │                      │
+   │   usage              │         │                      │
    └──────────────────────┘         └──────────────────────┘
             trusted                       untrusted
 ```
@@ -271,6 +272,7 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
      sandbox = Kobako::Sandbox.new
      sandbox.bind("KV::Lookup", ...)
+     sandbox.bind("Req::Current")          # fillable: object comes later
      sandbox.preload(code: ..., name: :Adder)
      sandbox.preload(code: ..., name: :Greeter)
 
@@ -287,18 +289,22 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
    ──────────────── invocation N ───────────────────
 
-     1. start from the canonical boot state
+     1. resolve this run's bindings, before the guest starts:
+          ctx.bind("Req::Current", ...)  fills the fillable
+          provider: backends yield this run's object
+
+     2. start from the canonical boot state
         (mruby pre-initialized into the artifact at build time)
 
-     2. replay snippets (in insertion order):
+     3. replay snippets (in insertion order):
           :Adder     → defines Adder
           :Greeter   → defines Greeter
 
-     3. dispatch:  eval(source)  or  run(:Target, *args, **kwargs)
+     4. dispatch:  eval(source)  or  run(:Target, *args, **kwargs)
 
-     4. return the run's Execution to host
+     5. return the run's Execution to host
 
-     5. discard the instance; per-invocation state ends with it:
+     6. discard the instance; per-invocation state ends with it:
           · Handles invalidated
           · captures frozen into the Execution
           · memory delta zeroed
