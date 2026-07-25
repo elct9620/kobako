@@ -26,7 +26,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kobako::{
-    Error, Fault, FaultKind, Handles, Options, Receiver, Sandbox, Value, YieldError, Yielder,
+    Error, Execution, Fault, FaultKind, Handles, Options, Receiver, Sandbox, Value, YieldError,
+    Yielder,
 };
 
 /// The plugin the host runs when none is given on the command line. It
@@ -82,14 +83,21 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // Captures and usage survive a guest failure, so read them before
-    // classifying the outcome — output a plugin produced before it
-    // raised is not lost.
-    let result = sandbox.eval(&plugin);
-    dump_output(&sandbox);
-    match result {
-        Ok(value) => report_success(&sandbox, &value),
-        Err(err) => report_error(&err),
+    // An `Ok` means the guest ran; whether it succeeded rides the
+    // Execution's own outcome. The captures and usage sit on the same
+    // record either way, so output a plugin produced before it raised is
+    // never lost.
+    let execution = match sandbox.eval(&plugin) {
+        Ok(execution) => execution,
+        Err(err) => {
+            eprintln!("plugin never ran: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    dump_output(&execution);
+    match execution.value() {
+        Ok(value) => report_success(&execution, value),
+        Err(err) => report_error(err),
     }
 }
 
@@ -256,10 +264,10 @@ impl Receiver for Store {
 /// The plugin returned a value: print it, then — when it returned a note
 /// Handle — recover the very `Note` it mutated and read the final
 /// host-side state.
-fn report_success(sandbox: &Sandbox, value: &Value) -> ExitCode {
+fn report_success(execution: &Execution, value: &Value) -> ExitCode {
     println!("plugin returned: {}", render(value));
 
-    if let Some(note) = resolve_note(sandbox, value) {
+    if let Some(note) = resolve_note(execution, value) {
         let state = note.lock();
         println!();
         println!("host recovered note {:?} after the plugin ran:", note.id);
@@ -281,24 +289,23 @@ fn report_error(err: &Error) -> ExitCode {
 /// Resolve a returned `Value::Handle` back to the concrete `Note`:
 /// upcast the resolved `Arc<dyn Receiver>` to `Arc<dyn Any>` and
 /// downcast — a plugin cannot fabricate a Handle, so a live id always
-/// recovers the object the host allocated.
-fn resolve_note(sandbox: &Sandbox, value: &Value) -> Option<Arc<Note>> {
-    let receiver = sandbox.resolve(value)?;
+/// recovers the object the host allocated. The Handle table lives on the
+/// Execution, so the note outlives the invocation that minted it.
+fn resolve_note(execution: &Execution, value: &Value) -> Option<Arc<Note>> {
+    let receiver = execution.resolve(value)?;
     let any: Arc<dyn Any + Send + Sync> = receiver;
     any.downcast::<Note>().ok()
 }
 
-/// Print the captured stdout / stderr and the resource usage of the last
-/// invocation.
-fn dump_output(sandbox: &Sandbox) {
-    dump_capture("stdout", sandbox.stdout(), sandbox.stdout_truncated());
-    dump_capture("stderr", sandbox.stderr(), sandbox.stderr_truncated());
-    if let Some(usage) = sandbox.usage() {
-        println!(
-            "usage: wall_time={:.6}s memory_peak={} bytes",
-            usage.wall_time, usage.memory_peak
-        );
-    }
+/// Print the captured stdout / stderr and the resource usage of this run.
+fn dump_output(execution: &Execution) {
+    dump_capture("stdout", execution.stdout(), execution.stdout_truncated());
+    dump_capture("stderr", execution.stderr(), execution.stderr_truncated());
+    let usage = execution.usage();
+    println!(
+        "usage: wall_time={:.6}s memory_peak={} bytes",
+        usage.wall_time, usage.memory_peak
+    );
 }
 
 /// A guest failure keeps its captures — print them before the error so

@@ -10,6 +10,8 @@ A **capability Handle** is a live host object the plugin holds but can never ser
 
 A **block yield** runs a guest block the host drives. `note.each_tag { |name| … }` yields each tag into the plugin's block one at a time; a `break` in the block ends the iteration, and its value becomes the call's result.
 
+What `eval` hands back is an **`Execution`** — the record of one run. Whether the plugin returned a value or raised rides `Execution::value`, while the run's captured output and usage stay readable on either arm, so the host prints what a failing plugin managed to write before it raised. Only a refusal that never reached the guest is the outer `Err`.
+
 ## Getting a Guest Binary
 
 Either download the platform-agnostic artifact attached to a [GitHub Release](https://github.com/elct9620/kobako/releases) (`kobako-<version>.wasm`), or build it from a clone of this repository:
