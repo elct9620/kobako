@@ -180,7 +180,7 @@ sandbox.bind("Req::Current")  # declared, unfilled — stands for Kobako::Unreso
 sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
 ```
 
-`ctx.bind` also shadows an already-bound path for that one run. The Context is spent once the block returns, so a `ctx` captured out of it raises `ArgumentError`. Choosing the object per invocation instead of sharing one is what lets concurrent Threads invoke a single Sandbox and still keep their identities apart.
+`ctx.bind` also shadows an already-bound path for that one run. The Context is spent once the block returns, so a `ctx` captured out of it raises `ArgumentError`. Choosing the object per invocation instead of sharing one is what lets concurrent Threads invoke a single Sandbox and still keep their identities apart — the [multi-tenant example](examples/multi-tenant/) runs that shape end to end.
 
 ### Output Capture
 
