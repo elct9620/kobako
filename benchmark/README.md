@@ -395,7 +395,7 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
 | `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
 | `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
-| `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. Annotate-only rows (`1b`) carry one sample with no dispersion. |
+| `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
 
 Release baselines are additionally marked with `benchmark/<semver>` annotated git tags.
 

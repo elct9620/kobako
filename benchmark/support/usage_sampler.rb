@@ -8,8 +8,8 @@ module Kobako
     # and reduces to the median +wall_time+ / +memory_peak+, so a single
     # GC-inflated invocation does not become the recorded per-invocation
     # budget. Drives {Runner#case_with_usage}; the bare
-    # {Runner#annotate_usage!} point sample stays for callers (cold_start,
-    # memory) that have no re-runnable block.
+    # {Runner#annotate_usage!} point sample stays for memory, whose
+    # sandbox accumulates state its block cannot re-run against.
     module UsageSampler
       # CPU-time budget and sample bounds for the sampling loop: run
       # until the budget elapses, clamped so a cheap case still yields a

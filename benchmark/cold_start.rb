@@ -32,15 +32,15 @@ runner.one_shot_median("1c-sandbox-new-warm", rounds: 9) { Kobako::Sandbox.new(w
 
 runner.case("1a-sandbox-new") { Kobako::Sandbox.new(wasm_path: guest) }
 
-# 1b constructs a fresh Sandbox per iteration, so the +Execution+ to
-# sample +usage+ from is only knowable after the block runs; expose it
-# through a closure-local binding the runner can read once the
-# measurement loop finishes. +Sandbox.new+ alone runs no invocation, so
-# it yields no +Execution+ to annotate, which is why 1a does not.
-last_execution = nil
-runner.case("1b-sandbox-new+eval-nil") do
-  last_execution = Kobako::Sandbox.new(wasm_path: guest).eval("nil")
+# 1b samples its guest budget rather than observing it once: the row is
+# gated on +wall_time+, and a single observation carries no dispersion for
+# the noise band to read, leaving the +10% floor as the only bar on a row
+# that has swung 22-28 µs across captures. Constructing a fresh Sandbox
+# each iteration is what the row measures, so the sampling loop repeats
+# it. +Sandbox.new+ alone runs no invocation and yields no +Execution+,
+# which is why 1a carries no usage at all.
+runner.case_with_usage("1b-sandbox-new+eval-nil") do
+  Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 end
-runner.annotate_usage!(last_execution)
 
 puts runner.write!

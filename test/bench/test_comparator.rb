@@ -52,6 +52,15 @@ class KobakoBenchComparatorTest < Minitest::Test
     assert_empty findings, "a +20% rise inside a ~28% noise band must be suppressed as noise"
   end
 
+  def test_a_row_with_no_recorded_dispersion_is_judged_on_the_floor_alone
+    bare = { "label" => "r", "wall_time" => 0.00012 }
+    findings = compare_demo(bare, { "label" => "r", "wall_time" => 0.0001 })
+
+    assert_equal [0.0], findings.map(&:band_pct),
+                 "a row recording no dispersion must be flagged on the floor alone, with no band at " \
+                 "all — which is why a gated case has to be sampled rather than observed once"
+  end
+
   def test_between_run_dispersion_widens_a_band_the_within_run_deviation_left_tight
     rows = [ips_row("h", 850.0, 5.0), ips_row("h", 1000.0, 5.0)]
     findings = compare_demo(*rows, history: { ["demo", "h", :ips] => 0.15 })
