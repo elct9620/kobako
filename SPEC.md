@@ -340,6 +340,7 @@ The per-anchor behavior specifications (Initial State → Operation → Result /
 | B-34 | `#run` host→guest auto-wrap of non-wire-representable arguments into Capability Handles | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
 | B-35 | Per-run resource accounting via the `Execution`'s `#usage` | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
 | B-61 | The frozen `Kobako::Execution` returned by `#eval` / `#run`, carried on a failed run's error `#execution` | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
+| B-66 | A failed run whose Panic carries diagnostics the payload adapter cannot read still attributes from the core envelope | [`behavior/lifecycle.md`](docs/behavior/lifecycle.md) |
 | B-36 | Guest-side `respond_to?` probing on bound-constant / Handle proxies | [`behavior/security.md`](docs/behavior/security.md) |
 | B-37 | Guest→host restoration of a Capability Handle returned across the boundary — as the `#eval` / `#run` result or as a yield-block result — into its original host object | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
 | B-58 | Positional / keyword argument partition at guest→host dispatch follows Ruby 3 call semantics — a brace-less `key: value` is a keyword, an explicit `{...}` Hash literal stays positional | [`behavior/dispatch.md`](docs/behavior/dispatch.md) |
@@ -375,7 +376,7 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-65 / E-55; subsequent anchors take the next integer above it. E-14 is a retired anchor — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-66 / E-55; subsequent anchors take the next integer above it. E-08 and E-14 are retired anchors — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
 
 ### Terminology
 
