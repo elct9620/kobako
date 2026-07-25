@@ -4,7 +4,7 @@ A self-contained script that overlaps many Sandboxes' external I/O on a **single
 
 ## The shape, and why it has to be this shape
 
-kobako's wasm dispatch is synchronous and runs under the GVL, and a Runtime holds at most one active Invocation per OS thread (`SPEC.md` lists async / yield-resume execution as out of scope). So you cannot do blocking I/O *inside* a Service dispatch and then yield the fiber around it — the wasm frame is still on the native stack, and suspending it would corrupt the per-thread invocation state.
+kobako's wasm dispatch is synchronous, and a Runtime holds at most one active Invocation per OS thread (`SPEC.md` lists async / yield-resume execution as out of scope). So you cannot do blocking I/O *inside* a Service dispatch and then yield the fiber around it — the wasm frame is still on the native stack, and suspending it would corrupt the per-thread invocation state.
 
 The safe arrangement is host-orchestrated continuation: the guest stays a pure function, and every external fetch happens in host Ruby *between* invocations, where no wasm frame sits on the stack. At that point the fiber scheduler is free to suspend the waiting request and run a peer's compute.
 
@@ -63,7 +63,7 @@ Two things to read off the trace. Every line carries the same thread id, so the 
 
 At the `host fetch` step the script is between invocations: no wasmtime frame is on the native stack, no dispatch is active, and no Invocation occupies the thread slot. That is the only window in which a fiber may suspend without violating the per-OS-thread single-invocation invariant. Keeping I/O out of the dispatch frame is what makes the reactor overlap legal — it is a property of the program structure, not of the scheduler.
 
-Each concurrent request owns its own Sandbox. A Sandbox carries host-side per-invocation state, so two fibers must never share one — the same exclusive-use rule the serverless example's pool enforces.
+Each concurrent request owns its own Sandbox so the trace reads one Sandbox per request. Sharing a single Sandbox across the fibers would be equally safe: a Sandbox holds no state from any run, and the reactor only ever suspends a fiber between invocations, so the thread's invocation slot is free whenever another fiber resumes.
 
 ## Caveat
 

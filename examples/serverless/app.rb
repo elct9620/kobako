@@ -129,9 +129,9 @@ module Serverless
   # isolation (each +#run+ runs a fresh +mrb_state+, SPEC B-03) while
   # moving +Sandbox.new+ + +#preload+ off the hot path. The Pool block is
   # the per-Sandbox setup window — it runs once per constructed Sandbox.
-  # Exclusive checkout is the Pool's contract, not an optimisation: the
-  # host-side Sandbox carries per-invocation state, so two threads sharing
-  # one would interleave captures and Handles across requests.
+  # Exclusive checkout is the Pool's own contract, not a safety
+  # requirement: a Sandbox holds no state from any run, so threads sharing
+  # one would be equally isolated (SPEC B-22).
   class PooledInvoker
     def initialize(routes, size:)
       @pool = Kobako::Pool.new(slots: size) do |sandbox|
