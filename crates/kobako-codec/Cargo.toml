@@ -23,10 +23,19 @@ readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi", "msgpack"]
 categories = ["wasm", "encoding"]
 
+[features]
+# The MessagePack payload adapter — the `codec` / `payload` / `transport`
+# modules and everything `rmp` backs. On by default because it is what
+# the bundled mruby guest and the Ruby frontend speak; turning it off
+# leaves the core envelope, which two endpoints sharing another schema
+# can drive with no MessagePack in their dependency graph at all.
+default = ["msgpack"]
+msgpack = ["dep:rmp"]
+
 [dependencies]
 # `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
 # Rust counterpart of the msgpack-ruby gem used on the host side. The
 # codec stays a thin shim over `rmp::encode` / `rmp::decode`, keeping
 # the byte form aligned with the host. `default-features = false`
 # keeps the dependency footprint minimal on wasm32-wasip1.
-rmp = { version = "0.8", default-features = false }
+rmp = { version = "0.8", default-features = false, optional = true }

@@ -19,8 +19,16 @@ pub const FRAME_LEN_SIZE: usize = 4;
 /// reader and oracle applies the same ceiling.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
-pub mod codec;
+// The core envelope needs nothing from the payload adapter, so it is the
+// only module a `--no-default-features` build keeps. Everything below it
+// is the MessagePack adapter and rides the `msgpack` feature.
 pub mod envelope;
+
+#[cfg(feature = "msgpack")]
+pub mod codec;
+#[cfg(feature = "msgpack")]
 pub mod outcome;
+#[cfg(feature = "msgpack")]
 pub mod payload;
+#[cfg(feature = "msgpack")]
 pub mod transport;
