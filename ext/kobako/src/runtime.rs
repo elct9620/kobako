@@ -44,6 +44,11 @@ use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
 use kobako_wasmtime::{Config, Driver};
 
+/// A Panic's attribution fields as they cross to Ruby: origin, class,
+/// message, backtrace. Named so the Ruby side reads them positionally
+/// against one shape, matching the `Kobako::Outcome::panic_fields` alias.
+type PanicFields = (String, String, String, Vec<String>);
+
 /// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline `unsafe { rstring.as_slice() }
 /// .to_vec()` duplicated at every host-↔-guest boundary. The borrow
@@ -395,13 +400,7 @@ impl Snapshot {
     ///
     /// A trap answers `:absent` — `#trapped?` is the authoritative
     /// discriminator there and this is never read.
-    fn outcome(
-        &self,
-    ) -> (
-        Symbol,
-        RString,
-        Option<(String, String, String, Vec<String>)>,
-    ) {
+    fn outcome(&self) -> (Symbol, RString, Option<PanicFields>) {
         let ruby = Ruby::get().expect("Ruby thread");
         let empty = || ruby.str_from_slice(&[]);
         let Completion::Outcome(bytes) = &self.completion else {

@@ -139,7 +139,10 @@ mod tests {
 
     #[test]
     fn value_branch_decodes_to_the_carried_value() {
-        assert_eq!(decode(&result_bytes(&Value::Int(42))).unwrap(), Value::Int(42));
+        assert_eq!(
+            decode(&result_bytes(&Value::Int(42))).unwrap(),
+            Value::Int(42)
+        );
     }
 
     // E-50: a Result envelope smuggling an ext 0x02 surfaces through the

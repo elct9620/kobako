@@ -139,7 +139,6 @@ fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
 mod tests {
     use std::collections::VecDeque;
 
-    use kobako_codec::codec::Encode as _;
     use kobako_runtime::envelope::ErrorRecord;
     use kobako_runtime::error::Trap;
 

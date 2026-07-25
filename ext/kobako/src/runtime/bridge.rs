@@ -119,7 +119,7 @@ impl GuestYielder {
             Ok(YieldReply::Error(record)) => {
                 Ok((TAG_ERROR, ruby.str_new(&record.message), Some(record.class)))
             }
-            Err(err) => Err(super::errors::trap_err(&ruby, &err.to_string())),
+            Err(err) => Err(super::errors::trap_err(&ruby, err.to_string())),
         }
     }
 }
