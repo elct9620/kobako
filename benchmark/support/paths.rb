@@ -12,6 +12,13 @@ module Kobako
       RESULTS_DIR = File.join(ROOT, "benchmark", "results")
       RESULTS_GLOB = File.join(RESULTS_DIR, "*.json")
       BASELINE_ANCHOR = File.join(ROOT, "benchmark", "baseline.json")
+      # Every probe script, and only those — +support/+ holds the tooling
+      # the probes drive, not probes. The roster test reads this to prove
+      # no probe escapes classification.
+      PROBE_GLOB = File.join(ROOT, "benchmark", "{*,concurrent/*}.rb")
+      # The compiled native ext, under whichever suffix the platform
+      # gives it. A probe cannot even load without it.
+      NATIVE_EXT_GLOB = File.join(ROOT, "lib", "kobako", "kobako.{bundle,so}")
       # Run-in-progress marker the Stop-hook gate reads to defer while a
       # benchmark measures; the bash guard hardcodes the same tmp path.
       LOCK = File.join(ROOT, "tmp", ".bench.lock")

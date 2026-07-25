@@ -7,6 +7,7 @@ require "time"
 require_relative "env"
 require_relative "one_shot"
 require_relative "paths"
+require_relative "smoke"
 require_relative "stats"
 require_relative "usage_sampler"
 
@@ -42,6 +43,7 @@ module Kobako
     # subtraction.
     class Runner
       include OneShot
+      include Smoke
 
       # +bench:confirm+ points each arm's output at a throwaway directory so
       # the paired runs never collide with a real benchmark/results file.
@@ -58,6 +60,7 @@ module Kobako
         @time = time
         @warmup = warmup
         @results = []
+        @smoke = ENV.fetch(Smoke::ENV_NAME, nil) == "1"
       end
 
       # Run a labelled benchmark case. +label+ identifies the case
@@ -65,6 +68,8 @@ module Kobako
       # measured workload. The block must be deterministic and free
       # of external side effects so successive runs are comparable.
       def case(label, &block)
+        return smoke_case(label, &block) if smoke?
+
         iters_per_cycle = calibrate(block)
         warmup_cpu(block, iters_per_cycle)
         samples, iterations = measure_samples(block, iters_per_cycle)
@@ -94,6 +99,8 @@ module Kobako
       # become the row's recorded +wall_time+.
       def case_with_usage(label, &block)
         self.case(label, &block)
+        return if smoke?
+
         @results.last.merge!(UsageSampler.sample(&block))
       end
 
@@ -101,8 +108,12 @@ module Kobako
       # +benchmark/results/<date>-<sha>.json+. Returns the absolute path.
       # Existing files for the same +(date, sha)+ pair are merged so
       # multiple +Runner+ instances within one invocation share a single
-      # output file.
+      # output file. A smoke pass writes nothing: its rows carry no
+      # measurement, and merging them would replace a real capture's
+      # suite under the same +(date, sha)+ name.
       def write!
+        return "#{@suite}: smoked, not measured — no results written" if smoke?
+
         FileUtils.mkdir_p(results_dir)
         path = result_path
         payload = load_payload(path)

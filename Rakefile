@@ -80,6 +80,6 @@ task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "was
 # and CI reference `gate`, never the list.
 desc "Run every gate:* verification check (the release gate's verification tier)."
 task gate: %w[gate:rbs:lock gate:anchors gate:anchors:coverage gate:wire:symmetry gate:payload:optional
-              gate:parity:coverage gate:surface gate:gvl:isolation]
+              gate:parity:coverage gate:surface gate:gvl:isolation gate:bench:smoke]
 
 task default: %i[compile test rubocop steep gate]
