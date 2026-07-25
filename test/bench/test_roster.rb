@@ -26,6 +26,14 @@ class KobakoBenchRosterTest < Minitest::Test
                  "probe never costs it the cheaper wiring check"
   end
 
+  def test_the_whole_round_sweep_does_not_re_run_a_gated_suite
+    gated = Bench::RELEASE_BENCHES.map { |path| File.basename(path, ".rb") }
+
+    assert_equal [], Bench::SWEEP_TASKS & gated,
+                 "the whole-round sweep must not name a suite the gated set already runs — a second " \
+                 "pass would overwrite the archived rows with ones captured at a different moment"
+  end
+
   def test_no_probe_is_both_smoked_and_excluded
     excluded = Bench::SMOKE_EXCLUSIONS.keys.map { |name| Bench::Paths.probe(name) }
 

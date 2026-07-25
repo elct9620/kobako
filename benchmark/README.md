@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus six characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation, host per-invocation cost).
+Kobako maintains a regression benchmark suite covering the eight performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, dispatch glue, host per-invocation cost) plus four characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch) and the regexp variant profile.
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -196,6 +196,37 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 
 Per-alloc cost holds 433-585 ns across four orders of magnitude — the gentle climb is allocator state, not lookup curve. ([B-21](../docs/behavior/dispatch.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
 
+### Host side, isolated
+
+The two suites that measure what the host spends, with guest execution out of the window rather than bundled into the figure. Everything above either includes guest execution in its total or gates on `wall_time`, which is the guest export alone — so a change confined to the host half moves neither.
+
+#### Dispatch-glue isolation ([`dispatch_glue.rb`](dispatch_glue.rb))
+
+The predictive half of the GVL-impact toolkit; the Multi-Thread suite (#7) is the confirmation half. It calls `Kobako::Transport::Dispatcher.dispatch` directly with a routed `Transport::Call` — no wasm, boundary, or guest codec in the window — to isolate `G`, the host glue of one guest→host dispatch: decode the payload, resolve the target, invoke, encode the reply body. The core envelope is framed by the driver, which decodes it and encodes the Reply *outside* the GVL re-acquisition, so that framing parallelizes and is deliberately out of frame here. `gvl: :release` parallelizes everything except `G`, so the multi-core speedup ceiling for an invocation doing `k` dispatches in wall-time `T` is Amdahl-bounded by `d = k·G / T`. The Services are pure-CPU on purpose: a Service doing real I/O releases the GVL during the syscall, so its wait already overlaps today and must not count toward `G`.
+
+| Case                          | `G` per dispatch | What it isolates                                     |
+|-------------------------------|------------------|------------------------------------------------------|
+| `10a-empty-call`              | 2.53 µs          | Floor: decode the payload + path lookup + invoke + encode a nil reply |
+| `10b-primitive-arg`           | 2.59 µs          | + one Integer arg                                    |
+| `10c-kwargs`                  | 3.40 µs          | + Symbol-keyed kwargs (ext 0x00)                     |
+| `10d-small-return-16`         | 3.34 µs          | Service returns a 16-element Array                   |
+| `10e-large-return-256`        | 9.87 µs          | 256-element Array — `G` grows with returned payload  |
+
+Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 6.82 µs/call) for the per-dispatch floor of `d`: glue 2.53 µs of a 6.82 µs roundtrip ⇒ `d ≈ 0.37`, since the remaining ~63 % (guest codec + boundary) parallelizes, giving a pure-dispatch workload a ~2.7× multi-core ceiling that rises toward `N×` as compute per invocation grows. The model prices the serialized glue but not the GVL handoff that reaching it costs: the gvl suite measures ~0.5× on a dispatch-heavy shape, so read `d` as a ceiling that a dispatch-bound workload stays well under, and the compute end as where the ceiling is actually approached. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
+
+#### Host per-invocation cost ([`host_invocation.rb`](host_invocation.rb))
+
+Driven against `test/fixtures/minimal_null_guest.wat`, a guest that satisfies the invocation ABI and does nothing else, so the total *is* the host's cost rather than a total minus a guest budget. That subtraction is why this suite exists: on the thousand-call rows it is a difference of two near-equal measured milliseconds, and a single round read +326 % on `2d` against −94 % on the neighbouring `2f`.
+
+| Case                          | Cost per invocation | What it adds                                       |
+|-------------------------------|---------------------|-----------------------------------------------------|
+| `12a-eval`                    | 20.5 µs             | The floor every invocation pays                     |
+| `12b-run-no-args`             | 24.8 µs             | + 4.3 µs for the `#run` envelope                    |
+| `12c-run-args`                | 26.6 µs             | + 1.8 µs for the payload adapter's argument encoding |
+| `12d-eval-8-bound-services`   | 20.9 µs             | + 0.4 µs for the preamble eight bound Services add  |
+
+Read `12a` against `2a-empty-call` (78.9 µs total): roughly a quarter of a minimal round-trip is host-side work outside the guest export. `12d` is the **host** half of what a registry costs each invocation, and it is nearly free — the guest half, materializing each binding into the `mrb_state`, is out of frame by construction, which is the point: the two were previously only measurable together, and only their sum was known.
+
 ### Setup-once dispatch (characterization only)
 
 #### `#preload` + `#run` dispatch ([`preload_dispatch.rb`](preload_dispatch.rb))
@@ -253,20 +284,6 @@ What the per-Sandbox `gvl:` mode (B-64) buys and costs, bracketed by two opposed
 | 8       | 2987 → 392 ms (7.62×)    | 218 → 423 ms (0.52×)      | 2984 → 392 ms (7.60×)       |
 
 Three readings. The compute `:release` column moves 372 → 392 ms from 1 to 8 Threads, so guest compute parallelizes near-perfectly once the GVL is out of the way. The dispatch arm settles at a stable ~0.5× from 2 Threads up — every dispatch re-acquires the GVL, and that handoff costs more than the released span saves, making `:release` a net loss for dispatch-heavy work. And the shared-Sandbox arm tracks the distinct-Sandbox one to within 0.3 %, confirming that sharing a Sandbox costs no parallelism.
-
-#### Dispatch-glue isolation ([`dispatch_glue.rb`](dispatch_glue.rb))
-
-The predictive half of the GVL-impact toolkit; the Multi-Thread suite above (#7) is the confirmation half. It calls `Kobako::Transport::Dispatcher.dispatch` directly with pre-encoded Request bytes — no wasm, boundary, or guest codec in the window — to isolate `G`, the GVL-held host glue of one guest→host dispatch (decode → resolve → invoke → encode). `gvl: :release` parallelizes everything *except* this glue, so the multi-core speedup ceiling for an invocation doing `k` dispatches in wall-time `T` is Amdahl-bounded by `d = k·G / T`. The Services are pure-CPU on purpose: a Service doing real I/O releases the GVL during the syscall, so its wait already overlaps today and must not count toward `G`. Captured 2026-07-17 on `1eee1c8`.
-
-| Case                          | `G` per dispatch | What it isolates                                     |
-|-------------------------------|------------------|------------------------------------------------------|
-| `10a-empty-call`              | 3.7 µs           | Floor: decode 5-field + path lookup + invoke + encode nil |
-| `10b-primitive-arg`           | 3.9 µs           | + one Integer arg                                    |
-| `10c-kwargs`                  | 5.0 µs           | + Symbol-keyed kwargs (ext 0x00)                     |
-| `10d-small-return-16`         | 4.5 µs           | Service returns a 16-element Array                   |
-| `10e-large-return-256`        | 11.7 µs          | 256-element Array — `G` grows with returned payload  |
-
-Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 6.8 µs/call) for the per-dispatch floor of `d`: glue 3.7 µs of a 6.8 µs roundtrip ⇒ `d ≈ 0.54`, since the remaining ~46 % (guest codec + boundary) parallelizes. So even a pure-dispatch workload has a ~1.85× multi-core ceiling, rising toward `N×` as compute per invocation grows. The model prices the serialized glue but not the GVL handoff that reaching it costs: the gvl suite above measures ~0.5× on a dispatch-heavy shape, so read `d` as a ceiling that a dispatch-bound workload stays well under, and the compute end as where the ceiling is actually approached. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
 
 #### Memory cost ([`memory.rb`](memory.rb))
 
@@ -328,7 +345,7 @@ No accepted regressions this round. Two readings that look like regressions are 
 ## Running
 
 ```bash
-bundle exec rake bench                   # six gated benchmarks (CI-friendly, payloads ≤ 1 MiB)
+bundle exec rake bench                   # every gated benchmark (CI-friendly, payloads ≤ 1 MiB)
 bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scaling

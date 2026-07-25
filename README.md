@@ -501,12 +501,12 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Snippet replay per invocation                                | ~7.6 µs each          |
 | Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 17k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 17k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any SPEC-mandated benchmark blocks release.
 
 Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4× `match?` (~1.2 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
 
 ```bash
-bundle exec rake bench  # six gated regression benchmarks (~5-8 min)
+bundle exec rake bench  # every gated regression benchmark (~5-8 min)
 ```
 
 ## Development

@@ -4,8 +4,8 @@ require_relative "paths"
 
 module Kobako
   module Bench
-    # Release-gate benchmark roster — the SPEC.md #1..#6 probes +rake
-    # bench+ runs as the gate, resolved to absolute probe paths. See
+    # Release-gate benchmark roster — the probes SPEC.md's Regression
+    # benchmarks table names, resolved to absolute probe paths. See
     # +tasks/bench/+ for the rake DSL that drives them.
     RELEASE_BENCHES = %w[
       cold_start
@@ -14,17 +14,27 @@ module Kobako
       mruby_eval
       catalog_handles
       yield_roundtrip
-    ].map { |name| Paths.probe(name) }.freeze
-
-    # Every probe +gate:bench:smoke+ drives: the gated roster plus the
-    # characterizations that also run against the default Guest Binary
-    # in seconds. Derived from RELEASE_BENCHES so promoting a benchmark
-    # into the gate never costs it the cheaper wiring check.
-    SMOKE_BENCHES = (RELEASE_BENCHES + %w[
-      preload_dispatch
       dispatch_glue
       host_invocation
-    ].map { |name| Paths.probe(name) }).uniq.freeze
+    ].map { |name| Paths.probe(name) }.freeze
+
+    # The characterization suites +bench:all+ runs after the gated set,
+    # named by their rake task. Kept out of the rake file so the roster
+    # is one readable list and a suite cannot land in both this and the
+    # gated set, where the second pass would overwrite the first's rows.
+    SWEEP_TASKS = %w[
+      concurrent
+      gvl_scheduling
+      memory
+      preload_dispatch
+      regexp
+    ].freeze
+
+    # Every probe +gate:bench:smoke+ drives: the gated roster plus the
+    # characterization that also runs against the default Guest Binary
+    # in seconds. Derived from RELEASE_BENCHES so promoting a benchmark
+    # into the gate never costs it the cheaper wiring check.
+    SMOKE_BENCHES = (RELEASE_BENCHES + [Paths.probe("preload_dispatch")]).uniq.freeze
 
     # Probes the smoke gate leaves out, each with the reason the gate
     # prints. A probe belongs here when smoking it would cost minutes or
