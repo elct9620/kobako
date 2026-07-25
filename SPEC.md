@@ -288,10 +288,10 @@ A Host App developer runs the J-07 worker pattern inside a multi-threaded web se
 **Action**
 1. At boot, the developer creates `Kobako::Pool.new(slots: 5) { |sandbox| ... }`, performing all `bind` / `preload` setup inside the block.
 2. Each request handler wraps its work in `pool.with { |sandbox| sandbox.run(:Worker, request) }`.
-3. The handler reads the return value, `#stdout` / `#stderr`, and `#usage` from the checked-out Sandbox exactly as it would from a directly constructed one.
+3. The handler reads the returned `Execution`'s `#value`, `#stdout` / `#stderr`, and `#usage` exactly as it would from a directly constructed Sandbox.
 
 **Outcome**
-Each request holds one pooled Sandbox exclusively for the duration of its block; concurrent requests beyond `slots` wait for a checkin, and a wait past `checkout_timeout` raises `Kobako::PoolTimeoutError` (E-46) so the handler can shed load explicitly. Setup cost is paid once per pooled Sandbox, not once per request; per-invocation isolation (B-03) plus the empty-buffer checkout guarantee (B-47) ensure no request observes another request's state or output. A request whose invocation raised `Kobako::TrapError` simply lets the error propagate — the pool discards that Sandbox at checkin and refills the slot on demand (B-47), so the next checkout never receives an unrecoverable Sandbox.
+Each request holds one pooled Sandbox exclusively for the duration of its block; concurrent requests beyond `slots` wait for a checkin, and a wait past `checkout_timeout` raises `Kobako::PoolTimeoutError` (E-46) so the handler can shed load explicitly. Setup cost is paid once per pooled Sandbox, not once per request; per-invocation isolation (B-03) plus the per-run `Execution` each invocation returns (B-61) ensure no request observes another request's state or output. A request whose invocation raised `Kobako::TrapError` simply lets the error propagate — the pool discards that Sandbox at checkin and refills the slot on demand (B-47), so the next checkout never receives an unrecoverable Sandbox.
 
 ---
 
