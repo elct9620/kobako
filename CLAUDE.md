@@ -112,7 +112,7 @@ Catalog         setup-time registries + the per-invocation Handle table
                 (lib/kobako/catalog/)
       │
 Transport ──┐   wire envelopes + dispatch (lib/kobako/transport/)
-Outcome ────┤   guest-result decode (outcome.rb + outcome/)
+Outcome ────┤   guest-result attribution (outcome.rb)
       │     │
 Codec ◄─────┘   byte-level wire (lib/kobako/codec/)
       │
@@ -166,8 +166,9 @@ kobako-core     guest ABI contract (publishable rlib, mruby-free) — Guest trai
       │           export_guest!, ABI primitives (outcome buffer, frames),
       │           transport::proxy driving __kobako_dispatch
 kobako-codec    portable wire tier (publishable rlib in crates/, mruby- and
-                engine-free) — codec + transport envelopes + outcome, the
-                wire-symmetric peer of lib/
+                engine-free) — the core envelope plus the MessagePack
+                payload adapter, whose adapter half is the wire-symmetric
+                peer of lib/
 
 (mruby)         beni (typed wrapper) → beni-sys (bindgen FFI) — crates.io;
                 consumed by the mruby-linked guest crates

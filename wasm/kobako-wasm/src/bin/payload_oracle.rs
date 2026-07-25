@@ -1,21 +1,24 @@
-//! Envelope-layer round-trip oracle — cross-side encoder/decoder
+//! Payload-adapter round-trip oracle — cross-language encoder/decoder
 //! agreement check between the Ruby host and the wasm guest.
 //!
-//! This is the envelope sibling of `roundtrip_oracle`: the Ruby side sends
-//! a length-prefixed frame, the oracle decodes it as a specific envelope
-//! kind, re-encodes it, and writes the bytes back. The Ruby driver then
-//! asserts byte equality (proving the two SPEC implementations agree on
-//! the envelope-level framing, not just the underlying msgpack codec).
+//! The document sibling of `roundtrip_oracle`: where that one round-trips
+//! a bare value to check the type mapping, this one round-trips a whole
+//! adapter document to check its shape. The Ruby side sends a
+//! length-prefixed frame, the oracle decodes it as a named document kind,
+//! re-encodes it, and writes the bytes back; the Ruby driver asserts byte
+//! equality. The two stay separate because a document carries structural
+//! rules a bare value has none of, so fuzz-scale random values would fail
+//! it by construction.
 //!
 //! ## Frame format
 //!
-//! The Ruby side prefixes each frame with a 1-byte envelope-kind tag so
+//! The Ruby side prefixes each frame with a 1-byte document-kind tag so
 //! the oracle knows which decoder to invoke:
 //!
 //! ```text
 //! 4-byte BE length (of payload, including the kind tag)
 //! 1-byte kind: 'A' invocation Arguments
-//! N bytes: msgpack payload for the specified envelope kind
+//! N bytes: msgpack payload for the specified document kind
 //! ```
 //!
 //! Response frames have the same layout as `roundtrip_oracle`: a 4-byte
@@ -23,7 +26,7 @@
 //! the re-encoded bytes (no kind tag — the Ruby driver knows which kind
 //! it sent).
 //!
-//! No deps beyond the envelopes under test and `std`.
+//! No deps beyond the adapter under test and `std`.
 
 use std::io::{self, Read, Write};
 
@@ -36,7 +39,7 @@ const ERROR_FLAG: u32 = 0x8000_0000;
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("envelope_oracle fatal: {e}");
+        eprintln!("payload_oracle fatal: {e}");
         std::process::exit(1);
     }
 }
@@ -88,7 +91,7 @@ fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
             let arguments = Arguments::decode(body).map_err(stringify)?;
             arguments.encode().map_err(stringify)
         }
-        other => Err(format!("unknown envelope kind {:#04x}", other)),
+        other => Err(format!("unknown document kind {:#04x}", other)),
     }
 }
 

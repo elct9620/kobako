@@ -2,7 +2,7 @@
 
 # Cross-language payload-adapter round-trip E2E (SPEC.md F-05 / F-09).
 #
-# Drives the Rust `envelope_oracle` subprocess from the host: each test
+# Drives the Rust `payload_oracle` subprocess from the host: each test
 # Ruby-encodes one adapter payload, prefixes a single-byte kind tag, and
 # asks the oracle to decode + re-encode it. The Ruby side then asserts
 # byte-identical round-trip — proving the two adapter peers agree on the
@@ -10,7 +10,7 @@
 # by test/fuzz/test_roundtrip_fuzz.rb.
 #
 # The core envelope has no case here: both its peers are Rust, so their
-# agreement is pinned directly by crates/kobako-runtime/tests/envelope_oracle.rs.
+# agreement is pinned directly by crates/kobako-runtime/tests/payload_oracle.rs.
 #
 # This test does NOT need fuzz scale: a handful of representative
 # payloads is enough; the codec fuzz covers byte-level wire shapes
@@ -18,16 +18,16 @@
 
 require "test_helper"
 
-class TestEnvelopeRoundtrip < Minitest::Test
+class TestArgumentsRoundtrip < Minitest::Test
   CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
-  ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")
+  ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "payload_oracle")
 
   def setup
     case (build = ORACLE.ensure_built).status
     when :no_cargo
       skip "cargo not on PATH; envelope oracle E2E requires Rust toolchain"
     when :build_failed
-      flunk "cargo build --release envelope_oracle failed:\n#{build.error}"
+      flunk "cargo build --release payload_oracle failed:\n#{build.error}"
     end
     @channel = ORACLE.spawn
   end
