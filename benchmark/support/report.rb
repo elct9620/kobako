@@ -20,8 +20,8 @@ module Kobako
 
       # Markdown report comparing +current+ (head) against +baseline+
       # (base), both parsed results payloads from the same runner.
-      def render(current, baseline, suites: Comparator.release_suites)
-        rows = compare_rows(current, baseline, suites)
+      def render(current, baseline, suites: Comparator.release_suites, history: {})
+        rows = compare_rows(current, baseline, suites, history)
         notable, within_noise = rows.partition { |r| r.status != :stable }
         sections = [
           heading(current, baseline, rows),
@@ -49,16 +49,16 @@ module Kobako
       end
 
       # Every gated row present in both payloads, as Row.
-      def compare_rows(current, baseline, suites)
+      def compare_rows(current, baseline, suites, history)
         Comparator.map_run_rows(current, baseline, suites) do |suite, label, row, base_rows|
           base = base_rows[label]
-          base && row_for(suite, label, row, base)
+          base && row_for(suite, label, row, base, history)
         end
       end
 
       # Build a Row, or nil when the row carries no gate metric or a zero
       # central that makes a percentage meaningless.
-      def row_for(suite, label, row, base)
+      def row_for(suite, label, row, base, history)
         metric = Comparator.gate_metric(row)
         return nil unless metric
 
@@ -67,7 +67,7 @@ module Kobako
         return nil if head_c.zero? || base_c.zero?
 
         delta = Comparator.regression_pct(metric, base_c, head_c)
-        band = Comparator.noise_band(head_c, head_sd, base_c, base_sd)
+        band = Comparator.band_for(head_c, head_sd, base_c, base_sd, history[[suite, label, metric]])
         Row.new(suite, label, metric, base_c, head_c, delta, band, status_for(delta, band))
       end
 

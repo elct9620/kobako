@@ -52,6 +52,24 @@ class KobakoBenchComparatorTest < Minitest::Test
     assert_empty findings, "a +20% rise inside a ~28% noise band must be suppressed as noise"
   end
 
+  def test_between_run_dispersion_widens_a_band_the_within_run_deviation_left_tight
+    rows = [ips_row("h", 850.0, 5.0), ips_row("h", 1000.0, 5.0)]
+    findings = compare_demo(*rows, history: { ["demo", "h", :ips] => 0.15 })
+
+    assert_empty findings,
+                 "a -15% ips drop on a row the archive shows moving 15% between runs must be " \
+                 "suppressed — a within-run deviation cannot see a between-run transient"
+  end
+
+  def test_between_run_dispersion_never_tightens_a_band_below_the_within_run_one
+    rows = [wall_row("r", 0.00012, 1.2e-5), wall_row("r", 0.0001, 1.0e-5)]
+    findings = compare_demo(*rows, history: { ["demo", "r", :wall_time] => 0.0 })
+
+    assert_empty findings,
+                 "a quiet archive must not narrow a band the within-run deviation already widened — " \
+                 "the two combine by taking the wider, so a near-zero estimate cannot tighten the gate"
+  end
+
   def test_flags_a_pure_host_row_on_its_ips_drop
     findings = compare_demo(ips_row("h", 850.0, 5.0), ips_row("h", 1000.0, 5.0))
 
@@ -79,8 +97,8 @@ class KobakoBenchComparatorTest < Minitest::Test
 
   # Compare a single-row current run against a single-row anchor under
   # the synthetic "demo" suite.
-  def compare_demo(current_row, base_row)
-    Comparator.compare(payload([current_row]), payload([base_row]), suites: ["demo"])
+  def compare_demo(current_row, base_row, history: {})
+    Comparator.compare(payload([current_row]), payload([base_row]), suites: ["demo"], history: history)
   end
 
   def wall_row(label, wall, deviation)

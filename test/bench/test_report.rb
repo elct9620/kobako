@@ -35,7 +35,7 @@ class KobakoBenchReportTest < Minitest::Test
   end
 
   def test_a_cold_path_row_without_a_gate_metric_is_left_out_of_the_comparison
-    rows = Report.compare_rows(payload([seconds_row("c", 0.001)]), payload([seconds_row("c", 0.001)]), ["demo"])
+    rows = Report.compare_rows(payload([seconds_row("c", 0.001)]), payload([seconds_row("c", 0.001)]), ["demo"], {})
 
     assert_empty rows, "one_shot / seconds rows carry no dispersion to gate on, so they are not compared"
   end

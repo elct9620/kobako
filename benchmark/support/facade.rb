@@ -4,6 +4,7 @@ require "json"
 
 require_relative "gate"
 require_relative "confirm"
+require_relative "history"
 require_relative "lock"
 require_relative "report"
 require_relative "roster"
@@ -34,9 +35,12 @@ module Kobako
     end
 
     # Markdown head-vs-base comparison for the PR job summary, from two
-    # results JSON paths.
+    # results JSON paths. Reads the same between-run dispersion the gate
+    # judges on, so the summary a human arbitrates from and the verdict
+    # cannot disagree about what counts as noise.
     def report(current, baseline)
-      Report.render(JSON.parse(File.read(current)), JSON.parse(File.read(baseline)))
+      Report.render(JSON.parse(File.read(current)), JSON.parse(File.read(baseline)),
+                    history: History.dispersion)
     end
   end
 end

@@ -4,6 +4,7 @@ require "fileutils"
 require "json"
 
 require_relative "comparator"
+require_relative "history"
 require_relative "paths"
 
 module Kobako
@@ -29,8 +30,8 @@ module Kobako
         run = load_payload(current)
         anchor = load_payload(baseline)
         puts "gate: #{File.basename(current)} vs anchor #{File.basename(baseline)}"
-        enforce(Comparator.compare(run, anchor), Comparator.gated_absences(run, anchor),
-                Comparator.gated_absences(anchor, run))
+        enforce(Comparator.compare(run, anchor, history: History.dispersion),
+                Comparator.gated_absences(run, anchor), Comparator.gated_absences(anchor, run))
       end
 
       # Re-bless the anchor baseline from +run+ (a results JSON path),

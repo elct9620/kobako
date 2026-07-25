@@ -385,7 +385,16 @@ Release baselines are additionally marked with `benchmark/<semver>` annotated gi
 
 `rake bench:gate[current,baseline]` compares a run against the committed anchor `benchmark/baseline.json` and exits non-zero on either a gated case regressed past the anchor or a gated case the anchor does not yet cover. The comparison logic lives in `benchmark/support/gate.rb` (behind the `Kobako::Bench` facade); its unit tests ride the test suite (`rake test:bench`).
 
-A case is flagged only when its regression past the anchor clears **both** a +10 % floor (cumulative against the anchor, not the previous run) **and** a noise band of `2 × √(cv_current² + cv_baseline²)`. The noise band can only widen the bar on high-variance rows, never narrow it below the floor.
+A case is flagged only when its regression past the anchor clears **both** a +10 % floor (cumulative against the anchor, not the previous run) **and** a noise band. The band can only widen the bar on high-variance rows, never narrow it below the floor.
+
+The band is the wider of two dispersions, because they see different noise:
+
+| Dispersion | Source | Sees |
+|------------|--------|------|
+| Within-run | `ips_sd` / `wall_time_sd` — spread across cycles inside one process | GC and per-cycle jitter |
+| Between-run | Median relative move between consecutive archived runs, over the last 10 (`benchmark/support/history.rb`) | Allocator state and frequency scaling across processes |
+
+The within-run half alone produced a standing false alarm: `3a-host-encode-64KiB` reads ±9 % within a run but moves ~11 % between them, and flagged twice on a codec whose hot path had not changed. The between-run estimate is the median *move*, not the spread of the levels — the archive spans months of accepted optimizations, and a level-based estimate would read each of those steps as noise and widen the band on exactly the rows that measure cleanly. A row appearing in too few archived runs carries no estimate and gates on the within-run half alone.
 
 The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the deliberate act of accepting a new performance level and must record the accepted shift in [What changed vs previous baseline](#what-changed-vs-previous-baseline) in the same commit. A gated case present in a run but missing from the anchor fails the gate until a re-bless records it.
 

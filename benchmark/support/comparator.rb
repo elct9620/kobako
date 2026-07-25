@@ -16,6 +16,14 @@ module Kobako
     # suppresses flags on demonstrably noisy rows (the 512 KiB guest-return
     # host wrapper being the motivating false positive).
     #
+    # Two dispersions feed that band and the wider governs: the recorded
+    # deviation, which is the spread across cycles inside one process, and
+    # the caller-supplied between-run estimate ({History}), which is the
+    # transient a row shows between processes. The first cannot see the
+    # second — the large-payload codec rows read 8-9% within a run and
+    # 15-25% between them — so on those rows the within-run deviation
+    # alone produces a standing false alarm.
+    #
     # Metric per row follows the gate policy: rows carrying +wall_time+
     # (sandbox-driven) gate on +wall_time+ — the machine-load-insensitive
     # guest budget, where a slowdown shows as a larger value; pure host
@@ -49,10 +57,13 @@ module Kobako
       # Gated regressions of +current+ against +baseline+, as an Array of
       # Finding. +suites+ defaults to the release roster; cases absent from
       # the baseline are skipped here and reported by {gated_absences}.
-      def compare(current, baseline, suites: release_suites)
+      # +history+ maps +[suite, label, metric]+ to the row's between-run
+      # move (see {History}); rows it does not carry gate on the recorded
+      # deviation alone.
+      def compare(current, baseline, suites: release_suites, history: {})
         map_run_rows(current, baseline, suites) do |suite, label, row, base_rows|
           base = base_rows[label]
-          base && finding_for(suite, label, row, base)
+          base && finding_for(suite, label, row, base, history)
         end
       end
 
@@ -88,7 +99,7 @@ module Kobako
       end
 
       # Build a Finding when +row+ regressed past floor and band, else nil.
-      def finding_for(suite, label, row, base)
+      def finding_for(suite, label, row, base, history)
         metric = gate_metric(row)
         return nil unless metric
 
@@ -97,10 +108,18 @@ module Kobako
         return nil if cur_c.zero? || base_c.zero?
 
         delta = regression_pct(metric, base_c, cur_c)
-        band = noise_band(cur_c, cur_sd, base_c, base_sd)
+        band = band_for(cur_c, cur_sd, base_c, base_sd, history[[suite, label, metric]])
         return nil unless delta > FLOOR_PCT && delta > band
 
         Finding.new(suite, label, metric, base_c, cur_c, delta, band)
+      end
+
+      # The band a regression must clear on top of the floor: the wider
+      # of what one run's cycles showed and what the archive shows the row
+      # doing between runs. {Report} reads it through here too, so the
+      # summary a human arbitrates from cannot disagree with the verdict.
+      def band_for(cur_c, cur_sd, base_c, base_sd, move)
+        [noise_band(cur_c, cur_sd, base_c, base_sd), between_run_band(move)].max
       end
 
       # SIGMA combined relative standard deviations, as a percentage —
@@ -108,6 +127,15 @@ module Kobako
       # floor. Errors propagate in quadrature across the two runs.
       def noise_band(cur_c, cur_sd, base_c, base_sd)
         SIGMA * Math.sqrt((cv(cur_c, cur_sd)**2) + (cv(base_c, base_sd)**2)) * 100
+      end
+
+      # SIGMA times the row's typical between-run move, as a percentage.
+      # The move is already the scale of a run-to-run difference, so it
+      # needs no quadrature — it is the counterpart of {noise_band}'s
+      # combined term, not of one run's deviation. Zero when the archive
+      # carries no estimate, leaving the recorded deviation to govern.
+      def between_run_band(move)
+        SIGMA * move.to_f * 100
       end
 
       # +wall_time+ when present (sandbox-driven), else +ips+, else nil
