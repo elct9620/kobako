@@ -46,7 +46,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
 end
 
 require "kobako"
@@ -197,7 +197,7 @@ end
 sandbox = Kobako::Sandbox.new
 sandbox.install(Dsl.extension)
 
-card = sandbox.eval(Dsl::CARD_SCRIPT)
+card = sandbox.eval(Dsl::CARD_SCRIPT).value
 
 # Exercise the vocabulary bound so running the example proves it: a verb no
 # host dialect defines must be refused, surfacing as a capability failure.

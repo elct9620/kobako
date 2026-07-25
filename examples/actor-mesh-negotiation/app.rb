@@ -72,7 +72,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
 end
 
 require "kobako"
@@ -142,7 +142,7 @@ module ActorMesh
     end
 
     def respond(message)
-      @sandbox.run(:Behavior, message)
+      @sandbox.run(:Behavior, message).value
     end
   end
 

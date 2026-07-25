@@ -13,7 +13,7 @@ gemfile do
   source "https://rubygems.org"
   gem "ruby_llm"
   gem "reline"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
 end
 
 require "kobako"
@@ -213,11 +213,15 @@ module CodeMode
       @sandbox = sandbox
     end
 
+    # A failed run carries its own Execution, so the model still gets
+    # whatever the script printed before it raised — usually the fastest
+    # route to a working retry.
     def execute(code:)
-      result = @sandbox.eval(code)
-      { result: result.inspect, stdout: @sandbox.stdout, stderr: @sandbox.stderr }
+      execution = @sandbox.eval(code)
+      { result: execution.value.inspect, stdout: execution.stdout, stderr: execution.stderr }
     rescue Kobako::SandboxError, Kobako::ServiceError, Kobako::TrapError => e
-      { error: "#{e.class}: #{e.message}" }
+      failed = e.execution
+      { error: "#{e.class}: #{e.message}", stdout: failed&.stdout, stderr: failed&.stderr }
     end
   end
 

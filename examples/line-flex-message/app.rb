@@ -26,7 +26,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
   gem "line-message-builder", "~> 0.9"
 end
 
@@ -272,8 +272,8 @@ module LineFlex
   # Ruby Hash.
   def self.render(sandbox, name)
     case name
-    when "default" then sandbox.eval(DEFAULT_SCRIPT)
-    when "cards" then sandbox.eval(CARDS_SCRIPT)
+    when "default" then sandbox.eval(DEFAULT_SCRIPT).value
+    when "cards" then sandbox.eval(CARDS_SCRIPT).value
     when "receipt" then render_receipt(sandbox)
     else raise ArgumentError, "unknown example: #{name.inspect}"
     end
@@ -285,7 +285,7 @@ module LineFlex
   def self.render_receipt(sandbox)
     sandbox.bind("Assets", Assets.new)
     sandbox.preload(code: RECEIPT_SOURCE, name: :Receipt)
-    sandbox.run(:Receipt, ORDER)
+    sandbox.run(:Receipt, ORDER).value
   end
 end
 

@@ -41,7 +41,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
 end
 
 require "kobako"
@@ -164,8 +164,8 @@ sample_path = File.join(disk_root, "sample.txt")
 sandbox = Kobako::Sandbox.new
 sandbox.install(Vfs.build_extension(disk_root))
 
-first = sandbox.eval(Vfs::WRITE_THEN_READ)
-second = sandbox.eval(Vfs::READ_ONLY)
+first = sandbox.eval(Vfs::WRITE_THEN_READ).value
+second = sandbox.eval(Vfs::READ_ONLY).value
 
 # Exercise the guard so running the example proves it: a traversal must be
 # refused by the host backend, surfacing as a capability failure.

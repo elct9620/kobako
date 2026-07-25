@@ -61,7 +61,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
   gem options[:type]
@@ -119,7 +119,7 @@ module Serverless
       entrypoint, source = entry
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: source, name: entrypoint)
-      sandbox.run(entrypoint, Rack::Request.new(rack_env))
+      sandbox.run(entrypoint, Rack::Request.new(rack_env)).value
     end
   end
 
@@ -141,7 +141,7 @@ module Serverless
 
     def invoke(entry, rack_env)
       entrypoint, = entry
-      @pool.with { |sandbox| sandbox.run(entrypoint, Rack::Request.new(rack_env)) }
+      @pool.with { |sandbox| sandbox.run(entrypoint, Rack::Request.new(rack_env)).value }
     end
   end
 

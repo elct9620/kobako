@@ -63,7 +63,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.19.0"
+  gem "kobako", "~> 0.20.0"
   gem "async", "~> 2.0" unless options[:sequential]
 end
 
@@ -146,11 +146,11 @@ module AsyncIO
 
     def process(id)
       @timeline.record(id, "plan:start")
-      descriptor = @sandbox.run(:Plan, id)
+      descriptor = @sandbox.run(:Plan, id).value
       @timeline.record(id, "fetch:start  #{descriptor}")
       value = @fetcher.fetch(descriptor)
       @timeline.record(id, "fetch:done")
-      result = @sandbox.run(:Render, { "descriptor" => descriptor, "value" => value })
+      result = @sandbox.run(:Render, { "descriptor" => descriptor, "value" => value }).value
       @timeline.record(id, "render:done  -> #{result}")
       result
     end

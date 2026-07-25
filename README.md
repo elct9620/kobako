@@ -215,7 +215,7 @@ rescue Kobako::SandboxError => e
 end
 ```
 
-Each of these carries the failed run's Execution on `#execution`, so a rescue reads that run's output and usage exactly as a successful caller reads them off the returned one. `#failed?` keeps the two apart when both `#value` are `nil` — a script whose last expression was `nil` versus one that never produced a value.
+Each of these carries the failed run's Execution on `#execution`, so a rescue reads that run's output and usage exactly as a successful caller reads them off the returned one. `#failed?` keeps the two apart when both `#value` are `nil` — a script whose last expression was `nil` versus one that never produced a value. A failure caught before the guest ran at all — a host pre-flight refusal — leaves `#execution` `nil`, since there is no run to report.
 
 | Class                           | Parent         | Trigger                                              |
 |---------------------------------|----------------|------------------------------------------------------|
