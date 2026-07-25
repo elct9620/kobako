@@ -1,0 +1,1447 @@
+{
+  "env": {
+    "ruby_version": "3.4.7",
+    "ruby_platform": "arm64-darwin24",
+    "ruby_engine": "ruby",
+    "host_os": "darwin24",
+    "host_cpu": "arm64",
+    "processors": 16,
+    "yjit_enabled": false,
+    "git_sha": "40d2a77b",
+    "captured_at": "2026-07-25T16:54:11Z",
+    "load_avg": 3.37,
+    "power_source": "ac",
+    "cpu_probe_spread_pct": 0.83
+  },
+  "suites": {
+    "cold_start": [
+      {
+        "label": "1c-sandbox-new-cold",
+        "seconds": 0.0033299999999999996,
+        "mode": "one_shot",
+        "rounds": 1
+      },
+      {
+        "label": "1c-sandbox-new-warm",
+        "seconds": 0.000030000000000002247,
+        "mode": "one_shot",
+        "rounds": 9
+      },
+      {
+        "label": "1a-sandbox-new",
+        "ips": 36968.42863799835,
+        "ips_mean": 36928.51128314057,
+        "ips_sd": 189,
+        "iterations": 131072,
+        "cycles": 4
+      },
+      {
+        "label": "1b-sandbox-new+eval-nil",
+        "ips": 11811.863771375862,
+        "ips_mean": 11844.785368754212,
+        "ips_sd": 52,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.000023708,
+        "memory_peak": 65536
+      }
+    ],
+    "transport_roundtrip": [
+      {
+        "label": "2a-empty-call",
+        "ips": 13681.924987582108,
+        "ips_mean": 13667.698534334122,
+        "ips_sd": 77,
+        "iterations": 49152,
+        "cycles": 6,
+        "wall_time": 0.0000385205,
+        "wall_time_sd": 0.0000075515351349292115,
+        "memory_peak": 65536
+      },
+      {
+        "label": "2b-primitive-arg",
+        "ips": 13662.669666548209,
+        "ips_mean": 13631.436526368838,
+        "ips_sd": 107,
+        "iterations": 49152,
+        "cycles": 6,
+        "wall_time": 0.000039166,
+        "wall_time_sd": 0.000004976120874815934,
+        "memory_peak": 65536
+      },
+      {
+        "label": "2c-kwargs",
+        "ips": 13126.669476167068,
+        "ips_mean": 12867.071270987013,
+        "ips_sd": 419,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.000041854500000000004,
+        "wall_time_sd": 0.0000033725661363597604,
+        "memory_peak": 65536
+      },
+      {
+        "label": "2d-1000-calls-in-one-eval",
+        "ips": 160.53609154176232,
+        "ips_mean": 160.50279966791862,
+        "ips_sd": 2,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.0060915625,
+        "wall_time_sd": 0.00010919099373374731,
+        "memory_peak": 65536
+      },
+      {
+        "label": "2e-handle-chain",
+        "ips": 11423.90178121942,
+        "ips_mean": 11427.809437598857,
+        "ips_sd": 29,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.000051104000000000004,
+        "wall_time_sd": 0.000006588208773192517,
+        "memory_peak": 65536
+      },
+      {
+        "label": "2f-1000-allowlist-calls-in-one-eval",
+        "ips": 159.50548462266485,
+        "ips_mean": 159.72069558349122,
+        "ips_sd": 1,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.006217792,
+        "wall_time_sd": 0.00019303361499535925,
+        "memory_peak": 65536
+      }
+    ],
+    "codec": [
+      {
+        "label": "3a-host-encode-64B",
+        "ips": 3015636.458803667,
+        "ips_mean": 2977434.1036286005,
+        "ips_sd": 92155,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-decode-64B",
+        "ips": 2323635.794458577,
+        "ips_mean": 2319747.105222097,
+        "ips_sd": 48785,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3a-host-encode-1KiB",
+        "ips": 1930705.8487769442,
+        "ips_mean": 1931522.9532373094,
+        "ips_sd": 41131,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3a-host-decode-1KiB",
+        "ips": 1943879.0785364741,
+        "ips_mean": 1938819.7861014206,
+        "ips_sd": 11722,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3a-host-encode-64KiB",
+        "ips": 122849.67148735124,
+        "ips_mean": 121637.69633126333,
+        "ips_sd": 5324,
+        "iterations": 393216,
+        "cycles": 3
+      },
+      {
+        "label": "3a-host-decode-64KiB",
+        "ips": 354115.1376710668,
+        "ips_mean": 353281.77896135114,
+        "ips_sd": 2298,
+        "iterations": 1310720,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-encode-1MiB",
+        "ips": 15940.9375808771,
+        "ips_mean": 15920.250267919344,
+        "ips_sd": 422,
+        "iterations": 49152,
+        "cycles": 3
+      },
+      {
+        "label": "3a-host-decode-1MiB",
+        "ips": 26217.042677901816,
+        "ips_mean": 26306.30848708748,
+        "ips_sd": 166,
+        "iterations": 81920,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-encode-16MiB",
+        "ips": 1556.025267175916,
+        "ips_mean": 1558.777566699919,
+        "ips_sd": 14,
+        "iterations": 5120,
+        "cycles": 5
+      },
+      {
+        "label": "3a-host-decode-16MiB",
+        "ips": 1682.547350398701,
+        "ips_mean": 1681.925696959548,
+        "ips_sd": 9,
+        "iterations": 5120,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-encode-depth-1",
+        "ips": 2176138.6900278563,
+        "ips_mean": 2176242.026617077,
+        "ips_sd": 17024,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3b-host-decode-depth-1",
+        "ips": 1627157.359618372,
+        "ips_mean": 1625718.6272235764,
+        "ips_sd": 7793,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-encode-depth-4",
+        "ips": 2083846.6392086346,
+        "ips_mean": 2078383.392337991,
+        "ips_sd": 11853,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3b-host-decode-depth-4",
+        "ips": 1085853.4924760703,
+        "ips_mean": 1085486.6808196108,
+        "ips_sd": 4239,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3b-host-encode-depth-16",
+        "ips": 1863361.6090031953,
+        "ips_mean": 1864549.1696705204,
+        "ips_sd": 6520,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3b-host-decode-depth-16",
+        "ips": 397753.773929874,
+        "ips_mean": 396129.1542258497,
+        "ips_sd": 3579,
+        "iterations": 1310720,
+        "cycles": 5
+      },
+      {
+        "label": "3b-host-encode-depth-64",
+        "ips": 1020204.1233301993,
+        "ips_mean": 1014853.254287194,
+        "ips_sd": 9510,
+        "iterations": 3145728,
+        "cycles": 3
+      },
+      {
+        "label": "3b-host-decode-depth-64",
+        "ips": 118385.24519832239,
+        "ips_mean": 117234.7259027043,
+        "ips_sd": 2908,
+        "iterations": 393216,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-encode-nil",
+        "ips": 2918605.0719090914,
+        "ips_mean": 2932188.693230572,
+        "ips_sd": 22014,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-nil",
+        "ips": 2630622.988202612,
+        "ips_mean": 2628625.4446370485,
+        "ips_sd": 8019,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-bool",
+        "ips": 2936912.0824796553,
+        "ips_mean": 2938344.340752157,
+        "ips_sd": 22062,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-bool",
+        "ips": 2661313.6982835527,
+        "ips_mean": 2661483.45041825,
+        "ips_sd": 46564,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-int",
+        "ips": 2964029.997144973,
+        "ips_mean": 2964880.761614426,
+        "ips_sd": 7084,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-int",
+        "ips": 2756183.687450959,
+        "ips_mean": 2755520.6043047584,
+        "ips_sd": 15304,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-float",
+        "ips": 3098564.7460010834,
+        "ips_mean": 3095456.6177040455,
+        "ips_sd": 21395,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-float",
+        "ips": 2730863.289399458,
+        "ips_mean": 2730022.258679197,
+        "ips_sd": 18927,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-str",
+        "ips": 3053320.77345182,
+        "ips_mean": 3046441.1992829493,
+        "ips_sd": 19864,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-str",
+        "ips": 2470664.6068864786,
+        "ips_mean": 2465422.4380328106,
+        "ips_sd": 11695,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-bin",
+        "ips": 3055260.217334728,
+        "ips_mean": 3047125.9685890996,
+        "ips_sd": 20303,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-bin",
+        "ips": 2609055.672023207,
+        "ips_mean": 2601083.3098989045,
+        "ips_sd": 18563,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-array",
+        "ips": 2979518.537882861,
+        "ips_mean": 2970222.007253282,
+        "ips_sd": 23389,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-array",
+        "ips": 1582792.0632165167,
+        "ips_mean": 1582821.3253678607,
+        "ips_sd": 6530,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-map",
+        "ips": 2918909.7402678994,
+        "ips_mean": 2916150.4201910435,
+        "ips_sd": 11104,
+        "iterations": 10485760,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-decode-map",
+        "ips": 1622238.4494473713,
+        "ips_mean": 1621906.1840621578,
+        "ips_sd": 2452,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "3c-host-encode-symbol",
+        "ips": 2466141.267407015,
+        "ips_mean": 2471631.309411513,
+        "ips_sd": 15453,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-decode-symbol",
+        "ips": 1809855.5327338402,
+        "ips_mean": 1814517.2236278784,
+        "ips_sd": 9395,
+        "iterations": 6291456,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-encode-handle",
+        "ips": 2195036.4550891677,
+        "ips_mean": 2193845.618795763,
+        "ips_sd": 16362,
+        "iterations": 8388608,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-decode-handle",
+        "ips": 1107546.809302096,
+        "ips_mean": 1101709.7940743256,
+        "ips_sd": 12402,
+        "iterations": 4194304,
+        "cycles": 4
+      },
+      {
+        "label": "3c-host-encode-exception",
+        "ips": 1004044.6133104514,
+        "ips_mean": 988674.9444723739,
+        "ips_sd": 69865,
+        "iterations": 3145728,
+        "cycles": 3
+      },
+      {
+        "label": "3c-host-decode-exception",
+        "ips": 443223.3379378569,
+        "ips_mean": 442987.4082243101,
+        "ips_sd": 911,
+        "iterations": 1572864,
+        "cycles": 3
+      },
+      {
+        "label": "3a-guest-return-64B",
+        "ips": 17359.305906766604,
+        "ips_mean": 17375.092821892827,
+        "ips_sd": 154,
+        "iterations": 65536,
+        "cycles": 4,
+        "wall_time": 0.000024625,
+        "wall_time_sd": 0.0000018387205606824495,
+        "memory_peak": 65536
+      },
+      {
+        "label": "3a-guest-return-1KiB",
+        "ips": 17133.717454405185,
+        "ips_mean": 17121.364846693377,
+        "ips_sd": 164,
+        "iterations": 65536,
+        "cycles": 4,
+        "wall_time": 0.000024709,
+        "wall_time_sd": 0.0000026556967504833146,
+        "memory_peak": 65536
+      },
+      {
+        "label": "3a-guest-return-64KiB",
+        "ips": 9908.286057719537,
+        "ips_mean": 9901.388291411811,
+        "ips_sd": 461,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000052313,
+        "wall_time_sd": 0.0000044340803774818795,
+        "memory_peak": 327680
+      },
+      {
+        "label": "3a-guest-return-512KiB",
+        "ips": 2706.9146108333407,
+        "ips_mean": 2718.31640637714,
+        "ips_sd": 55,
+        "iterations": 8192,
+        "cycles": 4,
+        "wall_time": 0.000188209,
+        "wall_time_sd": 0.000005368032047249859,
+        "memory_peak": 2162688
+      },
+      {
+        "label": "3b-guest-return-depth-1",
+        "ips": 16139.979647705899,
+        "ips_mean": 16072.7128778143,
+        "ips_sd": 222,
+        "iterations": 49152,
+        "cycles": 3,
+        "wall_time": 0.0000264375,
+        "wall_time_sd": 0.000002488442732647939,
+        "memory_peak": 65536
+      },
+      {
+        "label": "3b-guest-return-depth-4",
+        "ips": 16083.638059244046,
+        "ips_mean": 16094.520309768845,
+        "ips_sd": 26,
+        "iterations": 49152,
+        "cycles": 3,
+        "wall_time": 0.000026375,
+        "wall_time_sd": 0.000002209646357656474,
+        "memory_peak": 65536
+      },
+      {
+        "label": "3b-guest-return-depth-16",
+        "ips": 14294.887902392811,
+        "ips_mean": 14317.469701239475,
+        "ips_sd": 73,
+        "iterations": 49152,
+        "cycles": 3,
+        "wall_time": 0.000030875,
+        "wall_time_sd": 0.0000039425616573345334,
+        "memory_peak": 65536
+      },
+      {
+        "label": "3b-guest-return-depth-64",
+        "ips": 10719.272967127381,
+        "ips_mean": 10717.24374600274,
+        "ips_sd": 47,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000048396,
+        "wall_time_sd": 0.000002684370521155611,
+        "memory_peak": 65536
+      }
+    ],
+    "mruby_eval": [
+      {
+        "label": "4a-arith-100k-sum",
+        "ips": 23.682196760571518,
+        "ips_mean": 23.6773632069236,
+        "ips_sd": 0,
+        "iterations": 80,
+        "cycles": 5,
+        "wall_time": 0.0421383125,
+        "wall_time_sd": 0.0006321567139480575,
+        "memory_peak": 65536
+      },
+      {
+        "label": "4b-string-concat-1000",
+        "ips": 1977.1984989510606,
+        "ips_mean": 1978.0469067255697,
+        "ips_sd": 5,
+        "iterations": 6144,
+        "cycles": 3,
+        "wall_time": 0.000465917,
+        "wall_time_sd": 0.000007228906839458355,
+        "memory_peak": 65536
+      },
+      {
+        "label": "4c-exception-raise-rescue-100",
+        "ips": 4610.844532579556,
+        "ips_mean": 4611.657244293261,
+        "ips_sd": 35,
+        "iterations": 16384,
+        "cycles": 4,
+        "wall_time": 0.0001793335,
+        "wall_time_sd": 0.000004293821243804138,
+        "memory_peak": 65536
+      },
+      {
+        "label": "4e-stdout-puts-1000",
+        "ips": 381.4052997458306,
+        "ips_mean": 381.6075411927485,
+        "ips_sd": 2,
+        "iterations": 1280,
+        "cycles": 5,
+        "wall_time": 0.002589292,
+        "wall_time_sd": 0.000027010706306697147,
+        "memory_peak": 65536
+      },
+      {
+        "label": "4f-stdout-cap-saturation",
+        "ips": 176.18622884388662,
+        "ips_mean": 176.4488524715377,
+        "ips_sd": 1,
+        "iterations": 640,
+        "cycles": 5,
+        "wall_time": 0.0053330835,
+        "wall_time_sd": 0.0001417428310966317,
+        "memory_peak": 196608
+      }
+    ],
+    "catalog_handles": [
+      {
+        "label": "5a-alloc-0-from-empty",
+        "ips": 1643451.0440682534,
+        "ips_mean": 1644255.7458414235,
+        "ips_sd": 4027,
+        "iterations": 5242880,
+        "cycles": 5
+      },
+      {
+        "label": "5a-alloc-100-from-empty",
+        "ips": 20165.701271700003,
+        "ips_mean": 20173.712055461125,
+        "ips_sd": 63,
+        "iterations": 65536,
+        "cycles": 4
+      },
+      {
+        "label": "5a-alloc-10_000-from-empty",
+        "ips": 204.1105960507797,
+        "ips_mean": 203.69629824120327,
+        "ips_sd": 1,
+        "iterations": 640,
+        "cycles": 5
+      },
+      {
+        "label": "5a-alloc-100_000-from-empty",
+        "ips": 17.99795023192346,
+        "ips_mean": 17.97350236676754,
+        "ips_sd": 0,
+        "iterations": 64,
+        "cycles": 4
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000",
+        "seconds": 0.0004259999999973729,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-10000",
+        "seconds": 0.0004220000000003665,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-100000",
+        "seconds": 0.0005170000000020991,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5b-alloc-1000-at-size-1000000",
+        "seconds": 0.0005780000000008556,
+        "mode": "one_shot",
+        "rounds": 5
+      },
+      {
+        "label": "5c-warm-eval-nil-under-gc-pressure",
+        "ips": 16488.86692194124,
+        "ips_mean": 16482.637028002027,
+        "ips_sd": 68,
+        "iterations": 65536,
+        "cycles": 4,
+        "wall_time": 0.000022937500000000002,
+        "wall_time_sd": 0.0000019980474921481216,
+        "memory_peak": 65536
+      }
+    ],
+    "yield_roundtrip": [
+      {
+        "label": "6a-single-yield",
+        "ips": 12596.856014183766,
+        "ips_mean": 12627.151758815782,
+        "ips_sd": 74,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.0000438545,
+        "wall_time_sd": 0.0000118517579705486,
+        "memory_peak": 65536
+      },
+      {
+        "label": "6b-block-no-yield",
+        "ips": 13416.092104616668,
+        "ips_mean": 13387.59071238888,
+        "ips_sd": 230,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.000039625,
+        "wall_time_sd": 0.000006326280259997987,
+        "memory_peak": 65536
+      },
+      {
+        "label": "6c-1000-yields-in-one-call",
+        "ips": 298.67696441951296,
+        "ips_mean": 298.5753820635883,
+        "ips_sd": 2,
+        "iterations": 1024,
+        "cycles": 4,
+        "wall_time": 0.0032156245,
+        "wall_time_sd": 0.0001087070597150422,
+        "memory_peak": 131072
+      },
+      {
+        "label": "6d-yield-break",
+        "ips": 4854.817697659661,
+        "ips_mean": 4858.610072967419,
+        "ips_sd": 22,
+        "iterations": 16384,
+        "cycles": 4,
+        "wall_time": 0.00016935449999999999,
+        "wall_time_sd": 0.000009999379831240642,
+        "memory_peak": 65536
+      }
+    ],
+    "concurrent": [
+      {
+        "label": "7a-threads-1",
+        "seconds": 0.002957000397145748,
+        "ops": 50,
+        "ops_per_sec": 16909.027150710775,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7b-new-1",
+        "seconds": 0.00010899966582655907,
+        "constructions": 1,
+        "per_construction_seconds": 0.00010899966582655907,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7a-threads-2",
+        "seconds": 0.005657999776303768,
+        "ops": 100,
+        "ops_per_sec": 17674.09048314377,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7b-new-2",
+        "seconds": 0.00016400031745433807,
+        "constructions": 2,
+        "per_construction_seconds": 0.00008200015872716904,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7a-threads-4",
+        "seconds": 0.010896999854594469,
+        "ops": 200,
+        "ops_per_sec": 18353.675568388175,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7b-new-4",
+        "seconds": 0.0003360002301633358,
+        "constructions": 4,
+        "per_construction_seconds": 0.00008400005754083395,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7a-threads-8",
+        "seconds": 0.023813999723643064,
+        "ops": 400,
+        "ops_per_sec": 16796.842388591747,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7b-new-8",
+        "seconds": 0.0006329999305307865,
+        "constructions": 8,
+        "per_construction_seconds": 0.00007912499131634831,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7c-baseline-eval-nil",
+        "seconds": 0.000055999960750341415,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7c-contended-eval-nil",
+        "seconds": 0.0002210000529885292,
+        "mode": "concurrent"
+      },
+      {
+        "label": "7c-blocking-ratio",
+        "ratio": 3.946432283654446,
+        "baseline_ms": 0.055999960750341415,
+        "contended_ms": 0.2210000529885292,
+        "mode": "concurrent"
+      }
+    ],
+    "gvl_scheduling": [
+      {
+        "label": "compute-hold-1",
+        "seconds": 0.3762370003387332,
+        "threads": 1,
+        "mode": "hold",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-release-1",
+        "seconds": 0.38079600036144257,
+        "threads": 1,
+        "mode": "release",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-speedup-1",
+        "ratio": 0.9880277103268362,
+        "hold_ms": 376.2370003387332,
+        "release_ms": 380.79600036144257,
+        "threads": 1,
+        "workload": "compute"
+      },
+      {
+        "label": "compute-hold-2",
+        "seconds": 0.7456209999509156,
+        "threads": 2,
+        "mode": "hold",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-release-2",
+        "seconds": 0.37940500024706125,
+        "threads": 2,
+        "mode": "release",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-speedup-2",
+        "ratio": 1.965237673371151,
+        "hold_ms": 745.6209999509156,
+        "release_ms": 379.40500024706125,
+        "threads": 2,
+        "workload": "compute"
+      },
+      {
+        "label": "compute-hold-4",
+        "seconds": 1.4904050002805889,
+        "threads": 4,
+        "mode": "hold",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-release-4",
+        "seconds": 0.3882180000655353,
+        "threads": 4,
+        "mode": "release",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-speedup-4",
+        "ratio": 3.8390929839136585,
+        "hold_ms": 1490.4050002805889,
+        "release_ms": 388.2180000655353,
+        "threads": 4,
+        "workload": "compute"
+      },
+      {
+        "label": "compute-hold-8",
+        "seconds": 2.9917609998956323,
+        "threads": 8,
+        "mode": "hold",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-release-8",
+        "seconds": 0.3912400002591312,
+        "threads": 8,
+        "mode": "release",
+        "workload": "compute"
+      },
+      {
+        "label": "compute-speedup-8",
+        "ratio": 7.646868924225769,
+        "hold_ms": 2991.7609998956323,
+        "release_ms": 391.2400002591312,
+        "threads": 8,
+        "workload": "compute"
+      },
+      {
+        "label": "dispatch-hold-1",
+        "seconds": 0.028378999792039394,
+        "threads": 1,
+        "mode": "hold",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-release-1",
+        "seconds": 0.025799000170081854,
+        "threads": 1,
+        "mode": "release",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-speedup-1",
+        "ratio": 1.1000038608065699,
+        "hold_ms": 28.378999792039394,
+        "release_ms": 25.799000170081854,
+        "threads": 1,
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-hold-2",
+        "seconds": 0.04846599977463484,
+        "threads": 2,
+        "mode": "hold",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-release-2",
+        "seconds": 0.10091899987310171,
+        "threads": 2,
+        "mode": "release",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-speedup-2",
+        "ratio": 0.4802465327200755,
+        "hold_ms": 48.46599977463484,
+        "release_ms": 100.91899987310171,
+        "threads": 2,
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-hold-4",
+        "seconds": 0.09596200007945299,
+        "threads": 4,
+        "mode": "hold",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-release-4",
+        "seconds": 0.20260700024664402,
+        "threads": 4,
+        "mode": "release",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-speedup-4",
+        "ratio": 0.4736361525644892,
+        "hold_ms": 95.96200007945299,
+        "release_ms": 202.60700024664402,
+        "threads": 4,
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-hold-8",
+        "seconds": 0.1956420000642538,
+        "threads": 8,
+        "mode": "hold",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-release-8",
+        "seconds": 0.4023279999382794,
+        "threads": 8,
+        "mode": "release",
+        "workload": "dispatch"
+      },
+      {
+        "label": "dispatch-speedup-8",
+        "ratio": 0.4862748804315558,
+        "hold_ms": 195.6420000642538,
+        "release_ms": 402.3279999382794,
+        "threads": 8,
+        "workload": "dispatch"
+      },
+      {
+        "label": "compute-shared-hold-1",
+        "seconds": 0.37302999990060925,
+        "threads": 1,
+        "mode": "hold",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-release-1",
+        "seconds": 0.3754130001179874,
+        "threads": 1,
+        "mode": "release",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-speedup-1",
+        "ratio": 0.9936523236631944,
+        "hold_ms": 373.02999990060925,
+        "release_ms": 375.4130001179874,
+        "threads": 1,
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-hold-2",
+        "seconds": 0.7483339998871088,
+        "threads": 2,
+        "mode": "hold",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-release-2",
+        "seconds": 0.3796860002912581,
+        "threads": 2,
+        "mode": "release",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-speedup-2",
+        "ratio": 1.9709286076206651,
+        "hold_ms": 748.3339998871088,
+        "release_ms": 379.6860002912581,
+        "threads": 2,
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-hold-4",
+        "seconds": 1.4953020000830293,
+        "threads": 4,
+        "mode": "hold",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-release-4",
+        "seconds": 0.38881100015714765,
+        "threads": 4,
+        "mode": "release",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-speedup-4",
+        "ratio": 3.8458325496929504,
+        "hold_ms": 1495.3020000830293,
+        "release_ms": 388.81100015714765,
+        "threads": 4,
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-hold-8",
+        "seconds": 2.9937429996207356,
+        "threads": 8,
+        "mode": "hold",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-release-8",
+        "seconds": 0.39612200018018484,
+        "threads": 8,
+        "mode": "release",
+        "workload": "compute-shared"
+      },
+      {
+        "label": "compute-shared-speedup-8",
+        "ratio": 7.557628705951615,
+        "hold_ms": 2993.7429996207356,
+        "release_ms": 396.12200018018484,
+        "threads": 8,
+        "workload": "compute-shared"
+      }
+    ],
+    "memory": [
+      {
+        "label": "8a-rss-baseline",
+        "mode": "memory",
+        "rss_kb": 25712
+      },
+      {
+        "label": "8a-rss-after-1-sandbox",
+        "mode": "memory",
+        "rss_kb": 31456,
+        "delta_from_baseline_kb": 5744
+      },
+      {
+        "label": "8a-rss-after-10-sandboxes",
+        "mode": "memory",
+        "rss_kb": 31456,
+        "delta_from_first_kb": 0,
+        "per_additional_sandbox_kb": 0.0
+      },
+      {
+        "label": "8a-rss-after-100-sandboxes",
+        "mode": "memory",
+        "rss_kb": 31536,
+        "delta_from_first_kb": 80,
+        "per_additional_sandbox_kb": 0.8
+      },
+      {
+        "label": "8a-rss-after-1000-sandboxes",
+        "mode": "memory",
+        "rss_kb": 32048,
+        "delta_from_first_kb": 592,
+        "per_additional_sandbox_kb": 0.6
+      },
+      {
+        "label": "8b-rss-before-eval-loop",
+        "mode": "memory",
+        "rss_kb": 32048
+      },
+      {
+        "label": "8b-rss-after-1000-evals",
+        "mode": "memory",
+        "rss_kb": 33360,
+        "delta_from_baseline_kb": 1312,
+        "wall_time": 0.000022292,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-2000-evals",
+        "mode": "memory",
+        "rss_kb": 33872,
+        "delta_from_baseline_kb": 1824,
+        "wall_time": 0.000023791,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-3000-evals",
+        "mode": "memory",
+        "rss_kb": 34160,
+        "delta_from_baseline_kb": 2112,
+        "wall_time": 0.000022584,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-4000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000022625,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-5000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000025792,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-6000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.00002275,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-7000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000022291,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-8000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000022458,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-9000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000021833,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8b-rss-after-10000-evals",
+        "mode": "memory",
+        "rss_kb": 34464,
+        "delta_from_baseline_kb": 2416,
+        "wall_time": 0.000022541,
+        "memory_peak": 65536
+      },
+      {
+        "label": "8c-rss-before-512kib-return",
+        "mode": "memory",
+        "rss_kb": 34464
+      },
+      {
+        "label": "8c-rss-while-holding-return-value",
+        "mode": "memory",
+        "rss_kb": 36048,
+        "peak_delta_kb": 1584,
+        "payload_bytesize": 524288,
+        "wall_time": 0.00026825,
+        "memory_peak": 2162688
+      },
+      {
+        "label": "8c-rss-after-gc",
+        "mode": "memory",
+        "rss_kb": 36048,
+        "retained_delta_kb": 1584
+      },
+      {
+        "label": "8d-rss-before-near-cap-stdout",
+        "mode": "memory",
+        "rss_kb": 36048
+      },
+      {
+        "label": "8d-rss-while-holding-near-cap-stdout",
+        "mode": "memory",
+        "rss_kb": 38352,
+        "peak_delta_kb": 2304,
+        "stdout_bytesize": 1048576,
+        "stdout_truncated": true,
+        "wall_time": 0.005570167,
+        "memory_peak": 196608
+      },
+      {
+        "label": "8d-rss-after-near-cap-stdout-gc",
+        "mode": "memory",
+        "rss_kb": 38352,
+        "retained_delta_kb": 2304
+      }
+    ],
+    "preload_dispatch": [
+      {
+        "label": "9a-sandbox-new+preload-1-source",
+        "ips": 34787.29487793025,
+        "ips_mean": 34787.75414834541,
+        "ips_sd": 128,
+        "iterations": 131072,
+        "cycles": 4
+      },
+      {
+        "label": "9a-sandbox-new+preload-8-source",
+        "ips": 28840.24678970949,
+        "ips_mean": 28764.279286654695,
+        "ips_sd": 170,
+        "iterations": 98304,
+        "cycles": 3
+      },
+      {
+        "label": "9a-sandbox-new+preload-64-source",
+        "ips": 6229.9894290951,
+        "ips_mean": 6219.861042828244,
+        "ips_sd": 29,
+        "iterations": 20480,
+        "cycles": 5
+      },
+      {
+        "label": "9b-run-dispatch-empty",
+        "ips": 10654.04274620054,
+        "ips_mean": 10638.97618453863,
+        "ips_sd": 65,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000052500499999999996,
+        "wall_time_sd": 0.00000381237207208057,
+        "memory_peak": 131072
+      },
+      {
+        "label": "9c-run-dispatch-positional",
+        "ips": 10602.606499177906,
+        "ips_mean": 10584.860040912527,
+        "ips_sd": 70,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.000049708,
+        "wall_time_sd": 0.000002415548564760931,
+        "memory_peak": 131072
+      },
+      {
+        "label": "9d-run-dispatch-kwargs",
+        "ips": 10308.720552529909,
+        "ips_mean": 10304.772614471605,
+        "ips_sd": 25,
+        "iterations": 32768,
+        "cycles": 4,
+        "wall_time": 0.0000514795,
+        "wall_time_sd": 0.0000021188385588731955,
+        "memory_peak": 131072
+      },
+      {
+        "label": "9e-run-replay-0-snippets",
+        "ips": 12180.851142921305,
+        "ips_mean": 12161.618211408368,
+        "ips_sd": 81,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.000039542,
+        "wall_time_sd": 0.0000024163361090833998,
+        "memory_peak": 131072
+      },
+      {
+        "label": "9e-run-replay-8-snippets",
+        "ips": 7678.46430713859,
+        "ips_mean": 7660.34090015776,
+        "ips_sd": 32,
+        "iterations": 24576,
+        "cycles": 3,
+        "wall_time": 0.000084333,
+        "wall_time_sd": 0.0000037965393419898053,
+        "memory_peak": 131072
+      },
+      {
+        "label": "9e-run-replay-64-snippets",
+        "ips": 1800.124637535931,
+        "ips_mean": 1799.414380761914,
+        "ips_sd": 3,
+        "iterations": 6144,
+        "cycles": 3,
+        "wall_time": 0.0004885205,
+        "wall_time_sd": 0.000007891982665741024,
+        "memory_peak": 196608
+      },
+      {
+        "label": "9f-run-dispatch-autowrap",
+        "ips": 11543.930206570389,
+        "ips_mean": 11552.589488717767,
+        "ips_sd": 26,
+        "iterations": 40960,
+        "cycles": 5,
+        "wall_time": 0.00004175,
+        "wall_time_sd": 0.0000017851670133921692,
+        "memory_peak": 131072
+      }
+    ],
+    "dispatch_glue": [
+      {
+        "label": "10a-empty-call",
+        "ips": 404661.23607039714,
+        "ips_mean": 404408.1916809145,
+        "ips_sd": 3453,
+        "iterations": 1310720,
+        "cycles": 5
+      },
+      {
+        "label": "10b-primitive-arg",
+        "ips": 389090.66621149227,
+        "ips_mean": 388896.6052692995,
+        "ips_sd": 2473,
+        "iterations": 1310720,
+        "cycles": 5
+      },
+      {
+        "label": "10c-kwargs",
+        "ips": 303062.0525587966,
+        "ips_mean": 302911.382845425,
+        "ips_sd": 1091,
+        "iterations": 1048576,
+        "cycles": 4
+      },
+      {
+        "label": "10d-small-return-16",
+        "ips": 338621.7243406639,
+        "ips_mean": 338369.30999897665,
+        "ips_sd": 969,
+        "iterations": 1048576,
+        "cycles": 4
+      },
+      {
+        "label": "10e-large-return-256",
+        "ips": 112725.28372246645,
+        "ips_mean": 112591.67405702714,
+        "ips_sd": 492,
+        "iterations": 393216,
+        "cycles": 3
+      }
+    ],
+    "regexp": [
+      {
+        "label": "11a-compile-literal-loop",
+        "ips": 172.21036033672507,
+        "ips_mean": 171.84089035927195,
+        "ips_sd": 1,
+        "iterations": 640,
+        "cycles": 5,
+        "wall_time": 0.0057412915000000005,
+        "wall_time_sd": 0.00010024523786608546,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11b-compile-hoisted",
+        "ips": 187.35362997658098,
+        "ips_mean": 190.16553189800214,
+        "ips_sd": 9,
+        "iterations": 640,
+        "cycles": 5,
+        "wall_time": 0.005300583,
+        "wall_time_sd": 0.00022323357303168475,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11c-compile-match-p",
+        "ips": 837.8224470960971,
+        "ips_mean": 833.180320626497,
+        "ips_sd": 10,
+        "iterations": 2560,
+        "cycles": 5,
+        "wall_time": 0.0011429790000000001,
+        "wall_time_sd": 0.000025127638450536978,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11d-compile-only",
+        "ips": 774.0628472510936,
+        "ips_mean": 771.5817434024071,
+        "ips_sd": 6,
+        "iterations": 2560,
+        "cycles": 5,
+        "wall_time": 0.0012461255,
+        "wall_time_sd": 0.000022101141526843078,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11e-empty-loop",
+        "ips": 2364.646694846482,
+        "ips_mean": 2363.8710065472096,
+        "ips_sd": 36,
+        "iterations": 8192,
+        "cycles": 4,
+        "wall_time": 0.000380708,
+        "wall_time_sd": 0.000010946162643863123,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11f-match",
+        "ips": 170.31480890776993,
+        "ips_mean": 170.29424350086484,
+        "ips_sd": 1,
+        "iterations": 512,
+        "cycles": 4,
+        "wall_time": 0.005879125,
+        "wall_time_sd": 0.00010354921145152707,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11g-scan",
+        "ips": 223.79715585286417,
+        "ips_mean": 223.84412921551151,
+        "ips_sd": 0,
+        "iterations": 768,
+        "cycles": 3,
+        "wall_time": 0.004406958,
+        "wall_time_sd": 0.00015449279158810992,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11h-gsub",
+        "ips": 23.105894313639375,
+        "ips_mean": 23.04229528420583,
+        "ips_sd": 0,
+        "iterations": 80,
+        "cycles": 5,
+        "wall_time": 0.043325021,
+        "wall_time_sd": 0.0003029366188394504,
+        "memory_peak": 65536
+      },
+      {
+        "label": "11i-split",
+        "ips": 320.89275016638237,
+        "ips_mean": 321.04427627224794,
+        "ips_sd": 1,
+        "iterations": 1024,
+        "cycles": 4,
+        "wall_time": 0.003065,
+        "wall_time_sd": 0.00005879885811553189,
+        "memory_peak": 65536
+      }
+    ]
+  }
+}
