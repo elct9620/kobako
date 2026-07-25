@@ -45,16 +45,18 @@ The same untrusted script runs identically from either host frontend. It execute
 require "kobako"
 
 sandbox = Kobako::Sandbox.new
-sandbox.eval("1 + 2")  # => 3
+sandbox.eval("1 + 2").value  # => 3
 ```
 
 ```rust
 use kobako::{Options, Sandbox};
 
 // Options::default() is secure by default: no caps, hermetic isolation.
-let mut sandbox = Sandbox::new("kobako.wasm", Options::default())?;
-sandbox.eval("1 + 2")?;  // => Value::Int(3)
+let sandbox = Sandbox::new("kobako.wasm", Options::default())?;
+sandbox.eval("1 + 2")?.into_value()?;  // => Value::Int(3)
 ```
+
+Each invocation returns the record of that one run — `Kobako::Execution` in Ruby, `Execution` in Rust — carrying the guest value alongside the run's output and resource usage. Nothing a run observes is stored on the Sandbox, so the same Sandbox serves concurrent invocations without them seeing each other.
 
 The gem bundles its Guest Binary; a Rust host loads one explicitly — see [Frontends & Guest Binaries](#frontends--guest-binaries) for the packages and the Guest Binary variants.
 
@@ -69,7 +71,7 @@ The host embeds the sandbox and owns the SPEC wire codec. Choose by your host la
 | Frontend | Package | Add it | Best for |
 |----------|---------|--------|----------|
 | Ruby gem | `kobako` (RubyGems) | `gem install kobako` | A Ruby host — Services, Handles, snippets, and pooling out of the box |
-| Rust SDK | `kobako` (crates.io) | `kobako = "0.9"` | A Rust host — the same behavior contract behind an idiomatic Rust API |
+| Rust SDK | `kobako` (crates.io) | `kobako = "0.12"` | A Rust host — the same behavior contract behind an idiomatic Rust API |
 | Low-level crates | `kobako-wasmtime` + `kobako-runtime` + `kobako-codec` | Cargo deps | A custom host, or driving the wire directly in another language |
 
 The Rust crates are documented on [crates.io](https://crates.io/crates/kobako); the Ruby gem is this README. Two runnable Rust hosts show the choice: [`plugin-rs`](examples/plugin-rs) builds on the SDK, and [`wire-rs`](examples/wire-rs) assembles a host by hand on the low-level crates.
@@ -88,7 +90,7 @@ The gem bundles the pure `kobako.wasm`. Regexp and JSON are opt-in capabilities 
 
 ```ruby
 sandbox = Kobako::Sandbox.new(wasm_path: "kobako+full.wasm")
-sandbox.eval('JSON.generate({ n: "42".to_i })')  # => "{\"n\":42}"
+sandbox.eval('JSON.generate({ n: "42".to_i })').value  # => "{\"n\":42}"
 ```
 
 ### Custom Guest Binaries
@@ -133,9 +135,11 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 
 | Term | Meaning |
 |------|---------|
-| Sandbox | The runtime unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. |
+| Sandbox | The reusable unit (`Kobako::Sandbox`) that runs guest code and returns a result or raises a typed error. It holds configuration only — no state from any run. |
 | Service | A host object bound at a constant-path name (`MyService::KV`) — the guest's only path to host resources. |
-| Invocation | One `#eval` or `#run`; capability state resets between invocations. |
+| Invocation | One `#eval` or `#run`; capability state is scoped to it and ends with it. |
+| Execution | The frozen record one invocation returns (`Kobako::Execution`): its `#value`, output captures, and `#usage`. A failed run raises, carrying the same record on the error's `#execution`. |
+| Context | The per-invocation object the optional `#eval` / `#run` block receives; its `ctx.bind` supplies a Service object for that one run. |
 | Snippet | Named mruby code (source or bytecode) replayed into a fresh state before every invocation. |
 | Handle | An opaque token the guest holds for a host object the wire cannot transmit directly. |
 | Block | A guest mruby block passed to a Service; each `yield` is a synchronous round-trip into the guest. |
@@ -166,25 +170,37 @@ RUBY
 
 Each `::`-separated path segment must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#bind` raises `ArgumentError`.
 
-### Output Capture
+### Per-Invocation Bindings
 
-Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and exposed independently of the return value ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-04). Buffers clear at the start of each invocation; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
+A setup-time `bind` fixes one object for the Sandbox's life. When the object belongs to a single run instead — the current request, the acting user, a per-tenant store — declare the path at setup and fill it per invocation. `bind(path)` with no object reserves the name as a *fillable*: the guest sees the constant, while an unfilled dispatch fails closed as `Kobako::ServiceError`. The optional `#eval` / `#run` block fills it ([`docs/behavior/registration.md`](docs/behavior/registration.md) B-62..B-63).
 
 ```ruby
-result = sandbox.eval(<<~RUBY)
+sandbox.bind("Req::Current")  # declared, unfilled — stands for Kobako::Unresolved
+
+sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
+```
+
+`ctx.bind` also shadows an already-bound path for that one run. The Context is spent once the block returns, so a `ctx` captured out of it raises `ArgumentError`. Choosing the object per invocation instead of sharing one is what lets concurrent Threads invoke a single Sandbox and still keep their identities apart.
+
+### Output Capture
+
+Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and read off the run's Execution, independently of its `#value` ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-04). Each invocation captures its own; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
+
+```ruby
+execution = sandbox.eval(<<~RUBY)
   puts "hello"
   warn "be careful"
   42
 RUBY
 
-result          # => 42
-sandbox.stdout  # => "hello\n"
-sandbox.stderr  # => "be careful\n"
+execution.value   # => 42
+execution.stdout  # => "hello\n"
+execution.stderr  # => "be careful\n"
 ```
 
 ### Error Handling
 
-Every invocation either returns a value or raises exactly one of three classes, so you can route faults without inspecting messages. The full taxonomy lives in [`lib/kobako/errors.rb`](lib/kobako/errors.rb).
+Every invocation either returns an Execution or raises exactly one of three classes, so you can route faults without inspecting messages. The full taxonomy lives in [`lib/kobako/errors.rb`](lib/kobako/errors.rb).
 
 ```ruby
 begin
@@ -193,10 +209,13 @@ rescue Kobako::TrapError
   # Wasm engine fault or cap exhaustion. Discard the Sandbox.
 rescue Kobako::ServiceError
   # A host Service call failed and the script did not rescue it.
-rescue Kobako::SandboxError
+rescue Kobako::SandboxError => e
   # The script raised, failed to compile, or returned an unrepresentable value.
+  logger.warn(e.execution.stderr)  # the failed run's own captures and usage
 end
 ```
+
+Each of these carries the failed run's Execution on `#execution`, so a rescue reads that run's output and usage exactly as a successful caller reads them off the returned one. `#failed?` keeps the two apart when both `#value` are `nil` — a script whose last expression was `nil` versus one that never produced a value.
 
 | Class                           | Parent         | Trigger                                              |
 |---------------------------------|----------------|------------------------------------------------------|
@@ -209,7 +228,7 @@ end
 
 ### Resource Limits
 
-Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Sandbox#usage`](lib/kobako/sandbox.rb) after the call — populated on every outcome including traps — for actual consumption ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-35).
+Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Execution#usage`](lib/kobako/execution.rb) for actual consumption — populated on every outcome, so a rescued trap reports it just as a completed run does ([`docs/behavior/lifecycle.md`](docs/behavior/lifecycle.md) B-35).
 
 ```ruby
 sandbox = Kobako::Sandbox.new(
@@ -229,11 +248,23 @@ sandbox = Kobako::Sandbox.new(
 
 `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
 
-A fifth option, `profile:`, requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources — an explicit trade of reproducibility, with filesystem, environment, and network still unreachable. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
+Beyond the four caps, `profile:` requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources — an explicit trade of reproducibility, with filesystem, environment, and network still unreachable. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
+
+### Concurrency
+
+A Sandbox keeps no state from any run, so concurrent Threads may invoke distinct Sandboxes or share a single one; each invocation owns its Handles, captures, and usage either way ([`docs/behavior/runtime.md`](docs/behavior/runtime.md) B-22). One Thread still runs one invocation at a time. Sharing a Sandbox adds a single obligation: an object bound once at setup is reached by every Thread and must itself be thread-safe, while an object supplied per invocation — `ctx.bind`, or an Extension `provider:` — carries no such requirement.
+
+By default an invocation holds Ruby's GVL for its whole span, so guest execution across Threads serializes. `gvl: :release` drops the GVL for the guest span and re-acquires it for each guest→host dispatch, running guest code in parallel across Threads (B-64).
+
+```ruby
+sandbox = Kobako::Sandbox.new(gvl: :release)
+```
+
+The mode is per-Sandbox and fixed at construction; it changes scheduling only, leaving isolation, Handle lifetimes, captures, and outcomes identical. `:hold` remains the default because releasing pays a handoff cost at every dispatch: compute-bound scripts scale with Thread count, while dispatch-heavy ones match or trail `:hold`. `rake bench:gvl_scheduling` measures both ends on your own hardware.
 
 ### Invocation Lifecycle
 
-One Sandbox serves many invocations. Service bindings and preloaded snippets persist across calls; capability state (Handles, stdout, stderr, memory delta) resets between them.
+One Sandbox serves many invocations. Service bindings and preloaded snippets persist across calls; everything a run produces — Handles, captured output, memory delta — belongs to that run alone.
 
 ```
    ───────────── setup phase (mutable) ─────────────
@@ -265,11 +296,11 @@ One Sandbox serves many invocations. Service bindings and preloaded snippets per
 
      3. dispatch:  eval(source)  or  run(:Target, *args, **kwargs)
 
-     4. return value to host
+     4. return the run's Execution to host
 
-     5. discard the instance; reset per-invocation state:
+     5. discard the instance; per-invocation state ends with it:
           · Handles invalidated
-          · stdout / stderr buffers cleared
+          · captures frozen into the Execution
           · memory delta zeroed
 
      Services + snippets persist; invocation N+1 repeats.
@@ -281,14 +312,14 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`docs/behavior/runtime.md`](docs/behavior/runtime.md) B-46..B-48). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
-`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~28 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work).
+`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. B-49 bakes the shared boot state into the artifact and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the ~28 µs host-side `Sandbox.new`. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a significant gain (~4-5% in the [serverless example](examples/serverless/README.md), and proportionally less once the script itself does real work). What a Pool buys is warm setup and exclusive checkout, not isolation: a Sandbox holds no state from any run, so Threads sharing one are equally safe (see [Concurrency](#concurrency)).
 
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
   sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
 end
 
-pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))) }
+pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))).value }
 ```
 
 | Option | Meaning | Default |
@@ -296,7 +327,7 @@ pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))) }
 | `slots:` | Upper bound on constructed Sandboxes | required |
 | `checkout_timeout:` | Seconds `#with` waits for a free Sandbox; `nil` waits indefinitely | 5.0 |
 
-Sandboxes construct lazily on first demand. `#with` yields a Sandbox with empty output buffers and returns the block's value; at block exit the Sandbox returns to the pool, except a block that raises `Kobako::TrapError` discards its Sandbox and the slot refills by a fresh construction on next demand. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
+Sandboxes construct lazily on first demand. `#with` yields a Sandbox and returns the block's value; at block exit the Sandbox returns to the pool, except a block that raises `Kobako::TrapError` discards its Sandbox and the slot refills by a fresh construction on next demand. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
 
 ### Service Blocks
 
@@ -305,7 +336,7 @@ A Service method can accept a guest-supplied block via `&blk` and `yield` into i
 ```ruby
 sandbox.bind("Seq::Map", ->(items, &blk) { items.map(&blk) })
 
-sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }')
+sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }').value
 # => [2, 4, 6]
 ```
 
@@ -321,8 +352,8 @@ end
 
 sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
-sandbox.eval('Factory::Make.call("Bob").greet')  # => "hi, Bob"  (Handle round-trip inside guest)
-sandbox.eval('Factory::Make.call("Bob")')        # => #<Greeter @name="Bob">  (B-37 restoration)
+sandbox.eval('Factory::Make.call("Bob").greet').value  # => "hi, Bob"  (Handle round-trip inside guest)
+sandbox.eval('Factory::Make.call("Bob")').value        # => #<Greeter @name="Bob">  (B-37 restoration)
 ```
 
 A `break` value from a guest block is the one exception: it unwinds back to the guest Service call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
@@ -351,12 +382,14 @@ This is deliberate, not a leak. Handle IDs run to 2³¹ − 1 per invocation and
 
 ```ruby
 sandbox = Kobako::Sandbox.new
-sandbox.preload(code: "Adder   = ->(a, b)  { a + b }",          name: :Adder)
-sandbox.preload(code: 'Greeter = ->(name:) { "hello, #{name}" }', name: :Greeter)
+sandbox.preload(code: "Adder   = ->(a, b) { a + b }",                    name: :Adder)
+sandbox.preload(code: 'Greeter = ->(opts) { "hello, #{opts[:name]}" }', name: :Greeter)
 
-sandbox.run(:Adder, 2, 3)            # => 5
-sandbox.run(:Greeter, name: "world") # => "hello, world"
+sandbox.run(:Adder, 2, 3).value            # => 5
+sandbox.run(:Greeter, name: "world").value # => "hello, world"
 ```
+
+An entrypoint's `kwargs` arrive as a trailing positional Hash — mruby's C-side call path carries no keyword arguments — so declare a Hash parameter and unpack it yourself.
 
 ```
    per-invocation replay (every #eval / #run, snippets in insertion order):
@@ -370,7 +403,7 @@ sandbox.run(:Greeter, name: "world") # => "hello, world"
             └──▶ eval(source)  -or-  run(:Target, *args, **kwargs)
                        │
                        ▼
-                  return value, then instance discarded
+              return the Execution, then discard the instance
 ```
 
 `#preload` accepts two payload forms:
@@ -401,7 +434,7 @@ sandbox.install(
     source: FILE,
     backend: Kobako::Extension::Backend.new(
       path: "File",
-      provider: -> { OverlayFileSystem.new(root) }  # callable → fresh per invocation
+      provider: -> { OverlayFileSystem.new(root) }  # invoked once per invocation
     )
   )
 )
@@ -409,7 +442,15 @@ sandbox.install(
 sandbox.eval('File.read("sample.txt")')  # dispatches to the backend's #read
 ```
 
-The `backend.provider` sets the bound object's lifetime: a fixed object is shared across every invocation, while a callable is invoked once per invocation to yield a fresh object — the form a writable backend needs, so its state cannot leak across calls. kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked `File` that reads through to disk while protecting it from guest writes.
+A backend declares the bound object's lifetime by keyword, never by inference — so a static object that happens to be callable stays unambiguous.
+
+| Keyword     | Lifetime                                                                    |
+|-------------|-----------------------------------------------------------------------------|
+| `object:`   | One object, shared by every invocation                                       |
+| `provider:` | A no-argument callable invoked per invocation — what a writable backend needs, so its state cannot leak across runs |
+| neither     | A fillable, standing for `Kobako::Unresolved` until `ctx.bind` supplies the run's object |
+
+kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked `File` that reads through to disk while protecting it from guest writes.
 
 ## Security
 
@@ -425,7 +466,7 @@ end
 sandbox = Kobako::Sandbox.new
 sandbox.bind("Cfg::Settings", ThemeReader.new)  # not: bind("Cfg::Settings", AppConfig)
 
-sandbox.eval('Cfg::Settings.color')  # => "#3366ff"  — every other method raises NoMethodError
+sandbox.eval('Cfg::Settings.color').value  # => "#3366ff"  — every other method raises NoMethodError
 ```
 
 When a purpose-built wrapper is more than you need, an object can gate its own surface in
@@ -454,7 +495,7 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Snippet replay per invocation                                | ~7.6 µs each          |
 | Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. `ext/` does not release the GVL during wasmtime execution, so wasm work is GVL-serialized: aggregate throughput stays around 17k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 17k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any of the six SPEC-mandated benchmarks blocks release.
 
 Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4× `match?` (~1.2 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
 
