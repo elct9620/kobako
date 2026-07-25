@@ -12,10 +12,6 @@ module Kobako
       RESULTS_DIR = File.join(ROOT, "benchmark", "results")
       RESULTS_GLOB = File.join(RESULTS_DIR, "*.json")
       BASELINE_ANCHOR = File.join(ROOT, "benchmark", "baseline.json")
-      # Every probe script, and only those — +support/+ holds the tooling
-      # the probes drive, not probes. The roster test reads this to prove
-      # no probe escapes classification.
-      PROBE_GLOB = File.join(ROOT, "benchmark", "{*,concurrent/*}.rb")
       # The compiled native ext, under whichever suffix the platform
       # gives it. A probe cannot even load without it.
       NATIVE_EXT_GLOB = File.join(ROOT, "lib", "kobako", "kobako.{bundle,so}")
@@ -35,6 +31,15 @@ module Kobako
       # feature suffix (e.g. +"regexp-unicode"+ for +kobako+regexp-unicode.wasm+).
       def variant_wasm(name)
         File.join(ROOT, "data", "kobako+#{name}.wasm")
+      end
+
+      # Every probe script under +dir+ at any depth, and only those:
+      # +support/+ holds the tooling the probes drive rather than probes.
+      # Reaching any depth is what lets the roster's classification check
+      # see a probe a later reorganization groups into a directory of its
+      # own, instead of leaving a blind spot where one would land.
+      def probes(dir = File.join(ROOT, "benchmark"))
+        Dir[File.join(dir, "**", "*.rb")].reject { |path| path.start_with?(File.join(dir, "support", "")) }
       end
 
       # Absolute path to a committed fixture under +test/fixtures/+. The

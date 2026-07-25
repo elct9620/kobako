@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "fileutils"
+require "tmpdir"
 
 require_relative "../../benchmark/support/roster"
 
@@ -42,9 +44,24 @@ class KobakoBenchRosterTest < Minitest::Test
                  "state opposite intents and the gate would report both"
   end
 
+  # A probe grouped into a subdirectory of its own must still be seen, or
+  # the guard against silent omission has a blind spot exactly where a
+  # future reorganization would put one.
+  def test_a_probe_in_a_nested_directory_is_still_seen
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p([File.join(dir, "wire", "deep"), File.join(dir, "support")])
+      nested = File.join(dir, "wire", "deep", "p.rb")
+      FileUtils.touch([nested, File.join(dir, "top.rb"), File.join(dir, "support", "helper.rb")])
+
+      assert_equal [File.join(dir, "top.rb"), nested], Bench::Paths.probes(dir).sort,
+                   "probe discovery must reach any depth under benchmark/ and stop at support/, " \
+                   "which holds the tooling the probes drive rather than probes"
+    end
+  end
+
   private
 
   def probes_on_disk
-    Dir[Bench::Paths::PROBE_GLOB]
+    Bench::Paths.probes
   end
 end
