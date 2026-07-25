@@ -1,6 +1,6 @@
-//! YieldResponse envelope — the `Yield` value object + its wire codec.
+//! Yield Reply envelope — the `Yield` value object + its wire codec.
 //!
-//! docs/wire-codec.md § YieldResponse Envelope pins the byte layout:
+//! docs/wire-codec.md § Yield Reply Envelope pins the byte layout:
 //! one tag byte (`0x01` ok / `0x02` break / `0x03` reserved-reject /
 //! `0x04` error) followed by a single msgpack-encoded payload value.
 //! The guest writes one of these into a buffer allocated via
@@ -15,20 +15,20 @@
 use crate::codec::{self, Decoder, Encoder, Value};
 use crate::codec::{Decode, Encode};
 
-/// First byte of a YieldResponse for the success branch — payload is
+/// First byte of a Yield Reply for the success branch — payload is
 /// the block's return value encoded as a single msgpack value.
 pub const TAG_OK: u8 = 0x01;
 /// First byte for `break val` — payload is the break value.
 pub const TAG_BREAK: u8 = 0x02;
 /// Reserved for future `return val` support; both sides reject this
-/// tag as a wire violation (YieldResponse envelope contract), so it
+/// tag as a wire violation (Yield Reply envelope contract), so it
 /// never leaves the decoder and stays private.
 const TAG_RESERVED: u8 = 0x03;
 /// First byte for an error / fault outcome — payload is a
 /// `{"class", "message", "backtrace"}` Hash.
 pub const TAG_ERROR: u8 = 0x04;
 
-/// docs/wire-codec.md § YieldResponse Envelope. `tag` is one of the
+/// docs/wire-codec.md § Yield Reply Envelope. `tag` is one of the
 /// three live values (`TAG_OK` / `TAG_BREAK` / `TAG_ERROR`); `value`
 /// carries the decoded payload regardless of variant. Variants that
 /// reach the value-object layer are always live — `TAG_RESERVED` and
@@ -43,7 +43,7 @@ pub struct Yield {
 const LIVE_TAGS: &[u8] = &[TAG_OK, TAG_BREAK, TAG_ERROR];
 
 impl Encode for Yield {
-    /// Encode to YieldResponse bytes: one tag byte followed by an
+    /// Encode to Yield Reply bytes: one tag byte followed by an
     /// msgpack-encoded `value`.
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         debug_assert!(
@@ -65,24 +65,24 @@ impl Decode for Yield {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
         let Some((&tag, body)) = bytes.split_first() else {
             return Err(codec::Error::Malformed(
-                "YieldResponse must carry at least one byte",
+                "Yield Reply must carry at least one byte",
             ));
         };
         if !LIVE_TAGS.contains(&tag) {
             return Err(codec::Error::Malformed(match tag {
-                TAG_RESERVED => "YieldResponse tag 0x03 is reserved",
-                _ => "YieldResponse tag is not recognised",
+                TAG_RESERVED => "Yield Reply tag 0x03 is reserved",
+                _ => "Yield Reply tag is not recognised",
             }));
         }
 
         let mut dec = Decoder::new(body);
         let value = dec.read_only_value()?;
-        // A YieldResponse is a payload position: the Fault envelope's only
+        // A Yield Reply is a payload position: the Fault envelope's only
         // home is the Response fault field, so an ext 0x02 in the value is
         // a wire violation.
         if value.contains_errenv() {
             return Err(codec::Error::Malformed(
-                "Fault envelope (ext 0x02) is not a legal value in a YieldResponse",
+                "Fault envelope (ext 0x02) is not a legal value in a Yield Reply",
             ));
         }
         Ok(Yield { tag, value })
@@ -104,7 +104,7 @@ mod tests {
     }
 
     // E-50: the Fault envelope's only home is the Response fault field; a
-    // YieldResponse smuggling one — bare or nested — must fail decode.
+    // Yield Reply smuggling one — bare or nested — must fail decode.
     #[test]
     fn decode_rejects_errenv_in_ok_value() {
         let resp = Yield {

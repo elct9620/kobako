@@ -7,13 +7,13 @@ module Kobako
   # owns the +Yield+ envelope value object plus its +#encode+ / +.decode+
   # codec for the +__kobako_yield_to_block+ wire form.
   module Transport
-    # First byte of the YieldResponse for the success branch — body is
+    # First byte of the Yield Reply for the success branch — body is
     # the block's return value encoded as a single msgpack value.
     TAG_OK = 0x01
     # First byte for +break val+ — body is the break value.
     TAG_BREAK = 0x02
     # Reserved for future +return val+ support; both sides reject this
-    # tag as a wire violation (YieldResponse envelope contract).
+    # tag as a wire violation (Yield Reply envelope contract).
     TAG_RESERVED = 0x03
     # First byte for an error / fault outcome — body is a
     # +{"class", "message", "backtrace"}+ Hash.
@@ -22,8 +22,8 @@ module Kobako
     # Tags both sides currently accept on the wire.
     LIVE_TAGS = [TAG_OK, TAG_BREAK, TAG_ERROR].freeze
 
-    # Value object for a single YieldResponse envelope
-    # ({docs/wire-codec.md YieldResponse Envelope}[link:../../../docs/wire-codec.md]).
+    # Value object for a single Yield Reply envelope
+    # ({docs/wire-codec.md Yield Reply Envelope}[link:../../../docs/wire-codec.md]).
     #
     # The wire form is a one-byte tag followed by an msgpack payload.
     # The three live tags are +0x01+ (ok), +0x02+ (break), and +0x04+
@@ -52,7 +52,7 @@ module Kobako
       def break? = tag == Kobako::Transport::TAG_BREAK
       def error? = tag == Kobako::Transport::TAG_ERROR
 
-      # Encode this Yield to YieldResponse bytes: one tag byte followed
+      # Encode this Yield to Yield Reply bytes: one tag byte followed
       # by an msgpack-encoded +value+.
       def encode
         [tag].pack("C") + Codec::Encoder.encode(value)
@@ -61,16 +61,16 @@ module Kobako
       # Decode +bytes+ into a Yield. Rejects empty input, the reserved
       # tag 0x03, and any tag outside +LIVE_TAGS+ by raising
       # +Kobako::Codec::InvalidType+ — these are wire violations per the
-      # SPEC's YieldResponse envelope contract.
+      # SPEC's Yield Reply envelope contract.
       def self.decode(bytes)
         bytes = bytes.b
-        raise Codec::InvalidType, "YieldResponse must carry at least one byte" if bytes.empty?
+        raise Codec::InvalidType, "Yield Reply must carry at least one byte" if bytes.empty?
 
         tag = bytes.getbyte(0) # : Integer
         body = bytes.byteslice(1, bytes.bytesize - 1) # : String
 
         reject_dead_tag!(tag)
-        # A YieldResponse is a payload position: an ext 0x02 Fault in its
+        # A Yield Reply is a payload position: an ext 0x02 Fault in its
         # value is a wire violation (the Response fault field is the
         # envelope's only home).
         new(tag: tag, value: Codec.forbid_faults { Codec::Decoder.decode(body) })
@@ -80,10 +80,10 @@ module Kobako
         return if LIVE_TAGS.include?(tag)
 
         msg = if tag == TAG_RESERVED
-                "YieldResponse tag 0x03 is reserved"
+                "Yield Reply tag 0x03 is reserved"
               else
                 format(
-                  "YieldResponse tag 0x%02x is not recognised", tag
+                  "Yield Reply tag 0x%02x is not recognised", tag
                 )
               end
         raise Codec::InvalidType, msg

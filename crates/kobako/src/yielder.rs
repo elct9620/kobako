@@ -35,7 +35,7 @@ pub enum YieldError {
     /// propagate.
     Failure { class: String, message: String },
     /// The re-entry itself failed — the guest trapped mid-block or
-    /// answered with malformed YieldResponse bytes.
+    /// answered with malformed Yield Reply bytes.
     Aborted(String),
 }
 
@@ -95,7 +95,7 @@ impl<'y> Yielder<'y> {
             .yield_block(&payload)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         let response = Yield::decode(&bytes)
-            .map_err(|err| YieldError::Aborted(format!("malformed YieldResponse: {err}")))?;
+            .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
         match response.tag {
             TAG_OK => Ok(response.value),
             TAG_BREAK => {

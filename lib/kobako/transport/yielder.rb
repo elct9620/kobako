@@ -15,7 +15,7 @@ module Kobako
     # Service method observes it as an ordinary Ruby Proc through
     # #to_proc; +yield val+ / +block.call(val)+ invokes #yield, which
     # serialises the positional args, re-enters the guest via the injected
-    # +yield_to_guest+ lambda, and reifies the +YieldResponse+ into Ruby
+    # +yield_to_guest+ lambda, and reifies the +Yield Reply+ into Ruby
     # control flow:
     #
     #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
@@ -42,7 +42,7 @@ module Kobako
         @active = true
       end
 
-      # Re-enter the guest with +args+ and reify the YieldResponse into
+      # Re-enter the guest with +args+ and reify the Yield Reply into
       # Ruby control flow. Raises +LocalJumpError+ if called after
       # #invalidate!. The ok value is consumed by the host Service
       # method, so a Capability Handle in it is restored to its host object.
@@ -93,7 +93,7 @@ module Kobako
         Kobako::Codec::HandleWalk.deep_restore(value, @handler)
       end
 
-      # Reify a +YieldResponse+ tag 0x04 payload into a +RuntimeError+ the
+      # Reify a +Yield Reply+ tag 0x04 payload into a +RuntimeError+ the
       # Service method observes at its +yield+ site. The +{class, message,
       # backtrace}+ shape mirrors the +Kobako::Transport::Yield+ tag 0x04
       # payload; +default+ provides a fallback when the payload is not a

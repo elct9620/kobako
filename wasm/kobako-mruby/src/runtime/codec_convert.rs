@@ -13,7 +13,7 @@
 //!    yield-block result, and the dispatch Request args / kwargs. A value
 //!    with no wire representation yields `None`, never a coerced
 //!    `Object#to_s` string: the outcome caller emits a Panic envelope, the
-//!    yield caller a `0x04` error YieldResponse, and the dispatch caller
+//!    yield caller a `0x04` error Yield Reply, and the dispatch caller
 //!    raises at the guest call site. SPEC.md § Behavior pins "no implicit
 //!    inspect / to_h / to_s conversion" across all three guest→host value
 //!    paths.
@@ -207,7 +207,7 @@ impl Kobako {
     /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
     /// cycle necessarily does). No path coerces through an implicit `to_s` /
     /// `inspect`, so the caller surfaces the `None` as a Panic envelope
-    /// (outcome), a `0x04` error YieldResponse (yield), or a raise at the
+    /// (outcome), a `0x04` error Yield Reply (yield), or a raise at the
     /// dispatch call site rather than handing the host a misleading String.
     pub(crate) fn try_codec_value(&self, val: Value) -> Option<kobako_codec::codec::Value> {
         self.try_codec_value_at(val, 0)
@@ -243,7 +243,7 @@ impl Kobako {
             // short-circuits on the first `None`. Past `MAX_NESTING_DEPTH`
             // (a too-deep structure or a reference cycle) the arm falls
             // through to `None`, so the caller takes the Panic / error
-            // YieldResponse path rather than overflowing the wasm stack.
+            // Yield Reply path rather than overflowing the wasm stack.
             "Array" if depth < MAX_NESTING_DEPTH => self
                 .array_to_codec(val, depth)
                 .into_iter()

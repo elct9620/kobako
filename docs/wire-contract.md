@@ -173,7 +173,7 @@ Every envelope this document specifies exists as a wire-codable type on both pee
 
 The core layer's cross-check is cross-implementation, not cross-language, and the contract accepts the weaker guarantee there. Two implementations in one language, written against one reading of the contract, catch fewer specification ambiguities than two languages whose type systems and encoding conventions disagree. The cost is bounded by where ambiguity lives: the type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — sits entirely in the payload adapter, whose peers are cross-language. What the core layer asks two implementers to agree on is three routing fields and a byte string.
 
-Two standing divergences live outside the inventory comparison: success/failure is a value on the guest (`Outcome`) but return-or-raise on the host, and the `YieldReply` envelope's Rust file is named `block.rs` — `yield` is a Rust keyword and cannot name a module — while the type itself is `YieldReply` on both sides.
+Two standing divergences live outside the inventory comparison: success/failure is a value on the guest (`Outcome`) but return-or-raise on the host, and the adapter's yield envelope has its Rust file named `block.rs` — `yield` is a Rust keyword and cannot name a module — while the type itself is `Yield` on both sides. It carries no `Reply` qualifier because a Yield Call has no value object at either layer's adapter: the host writes the yield arguments as a bare payload, so there is only one yield envelope type to name.
 
 ### Accepted asymmetries
 

@@ -27,7 +27,7 @@ pub trait Guest {
     /// `__kobako_yield_to_block` — host-initiated re-entry into a
     /// guest block; `req` carries the yield
     /// arguments, the return value is the packed `(ptr, len)` of the
-    /// YieldResponse buffer.
+    /// Yield Reply buffer.
     fn yield_to_block(_req: &[u8]) -> u64 {
         panic!("no block support")
     }

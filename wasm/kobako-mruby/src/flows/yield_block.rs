@@ -18,7 +18,7 @@
 //!    `Proc::call` so any guest-side raise (or `break` / Proc-`return`
 //!    RBreak) lands as `Err` instead of long-jumping past the Rust
 //!    frame.
-//! 4. Encode the outcome as a `YieldResponse`:
+//! 4. Encode the outcome as a `Yield Reply`:
 //!     * normal return of a wire-representable value → `tag 0x01` ok
 //!       carrying the value through the standard codec
 //!     * a real `break` from a non-lambda block → `tag 0x02` break
@@ -119,7 +119,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
 }
 
 /// Classify the value the protected `Proc::call` surfaced on its `Err`
-/// path into a YieldResponse. mruby's VM already raises
+/// path into a Yield Reply. mruby's VM already raises
 /// `E_LOCALJUMP_ERROR` directly for the orphan-block / orphan-Proc
 /// shapes, so any RBreak we see here is either a
 /// real `break` from a non-lambda block or a non-orphan Proc `return`
@@ -155,7 +155,7 @@ fn classify_protected_error(
     }
 }
 
-/// Encode a value-carrying YieldResponse (ok or break tag). A value
+/// Encode a value-carrying Yield Reply (ok or break tag). A value
 /// with no wire representation surfaces as a 0x04 TypeError — the host
 /// Yielder reifies it at the Service's yield site — rather than being
 /// coerced to a String; `type_label` / `encode_fail_message` keep each
@@ -256,7 +256,7 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
     resp.encode().unwrap_or_default()
 }
 
-/// Write an error YieldResponse directly into a fresh guest buffer
+/// Write an error Yield Reply directly into a fresh guest buffer
 /// and return its packed `(ptr<<32)|len`. Used by the early-out paths
 /// that never reach the protect / classify steps.
 #[cfg(mruby_linked)]

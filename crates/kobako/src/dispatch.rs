@@ -167,7 +167,7 @@ mod tests {
         }
     }
 
-    /// A yield channel answering from a canned script of YieldResponse
+    /// A yield channel answering from a canned script of Yield Reply
     /// bytes.
     struct Scripted(std::collections::VecDeque<Vec<u8>>);
 

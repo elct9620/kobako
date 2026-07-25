@@ -9,7 +9,7 @@
 require "test_helper"
 
 module Kobako
-  class YieldResponseTest < Minitest::Test
+  class YieldEnvelopeTest < Minitest::Test
     T           = Kobako::Transport
     Yield       = Kobako::Transport::Yield
     Encoder     = Kobako::Codec::Encoder
@@ -39,14 +39,14 @@ module Kobako
     def test_round_trip_ok_with_primitive
       resp = Yield.new(tag: T::TAG_OK, value: 42)
       decoded = Yield.decode(resp.encode)
-      assert decoded.ok?, "an ok-tagged YieldResponse through encode/decode must stay ok"
+      assert decoded.ok?, "an ok-tagged Yield Reply through encode/decode must stay ok"
       assert_equal 42, decoded.value, "a primitive ok value through encode/decode must round-trip unchanged"
     end
 
     def test_round_trip_break_with_symbol
       resp = Yield.new(tag: T::TAG_BREAK, value: :stop)
       decoded = Yield.decode(resp.encode)
-      assert decoded.break?, "a break-tagged YieldResponse through encode/decode must stay break"
+      assert decoded.break?, "a break-tagged Yield Reply through encode/decode must stay break"
       assert_equal :stop, decoded.value, "a Symbol break value through encode/decode must round-trip unchanged"
     end
 
@@ -58,7 +58,7 @@ module Kobako
       }
       resp = Yield.new(tag: T::TAG_ERROR, value: payload)
       decoded = Yield.decode(resp.encode)
-      assert decoded.error?, "an error-tagged YieldResponse through encode/decode must stay error"
+      assert decoded.error?, "an error-tagged Yield Reply through encode/decode must stay error"
       assert_equal payload, decoded.value,
                    "a class/message/backtrace error payload through encode/decode must round-trip unchanged"
     end
@@ -84,7 +84,7 @@ module Kobako
     end
 
     def test_decode_rejects_empty_bytes
-      assert_raises(InvalidType, "a zero-length YieldResponse through Yield.decode must be a wire violation") do
+      assert_raises(InvalidType, "a zero-length Yield Reply through Yield.decode must be a wire violation") do
         Yield.decode("".b)
       end
     end

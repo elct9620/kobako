@@ -40,14 +40,14 @@ class TestTransportFaultPosition < Minitest::Test
                  "the rejection must surface as the dispatcher's malformed-request fault")
   end
 
-  # ---------- E-50 — inbound YieldResponse path ----------
+  # ---------- E-50 — inbound Yield Reply path ----------
 
   def test_yield_response_carrying_fault_raises_at_the_yield_site
     bytes = Kobako::Transport::Yield.new(tag: Kobako::Transport::TAG_OK, value: FAULT).encode
     yielder = Kobako::Transport::Yielder.new(->(_args) { bytes }, :__test_break__, @handler)
 
     assert_raises(Kobako::Codec::InvalidType,
-                  "E-50: a YieldResponse ok value carrying an ext 0x02 Fault must raise at the Service yield site") do
+                  "E-50: a Yield Reply ok value carrying an ext 0x02 Fault must raise at the Service yield site") do
       yielder.yield
     end
   end
