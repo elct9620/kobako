@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus four characterization suites (multi-thread, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation).
+Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus five characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation).
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -57,7 +57,7 @@ For "N-ops-in-one-invocation" cases (e.g. `2d-1000-calls-in-one-eval`) the per-o
 
 ## Latest baseline
 
-The anchor is `1eee1c8`, captured **2026-07-17** — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. Every gated figure below is from this capture; the shift against the previous anchor — the host-codec Factory decomposition and the Handle-walk recovery — is recorded in [What changed vs previous baseline](#what-changed-vs-previous-baseline). The characterization suites (#7-#9) were re-captured in the same round.
+The anchor is `1eee1c8`, captured **2026-07-17** — macOS arm64, Ruby 3.4.7, 16 CPUs, YJIT off. Every gated figure below is from this capture; the shift against the previous anchor — the host-codec Factory decomposition and the Handle-walk recovery — is recorded in [What changed vs previous baseline](#what-changed-vs-previous-baseline). The characterization suites carry their own capture stamp: #7 and the `gvl:` suite were re-captured 2026-07-25 on `5ea09e9b`, the rest still read from this anchor's round.
 
 ### Lifecycle & construction
 
@@ -226,24 +226,37 @@ Per-alloc cost holds 433-585 ns across four orders of magnitude — the gentle c
 
 #### Multi-Thread behavior ([`concurrent/threads.rb`](concurrent/threads.rb))
 
-`ext/` does not call `rb_thread_call_without_gvl` during wasm execution, so wasm-side work is GVL-serialized; Ruby-side `#eval` setup can still overlap. Wall-clock timing because that is where scheduler effects manifest.
+Captured under the default `gvl: :hold`, where wasm-side work is GVL-serialized and only Ruby-side `#eval` setup overlaps; the gvl suite below measures what `:release` changes. Wall-clock timing because that is where scheduler effects manifest. Re-captured 2026-07-25 on `5ea09e9b`, on a quiet machine — the previous round's ~14-15k rows were taken under elevated load.
 
 | Scenario                                                           | Result          |
 |--------------------------------------------------------------------|-----------------|
-| 1 Thread, owning one Sandbox                                       | 14.2k `#eval`/s |
-| 2 Threads, each owning one Sandbox                                 | 13.7k `#eval`/s |
-| 4 Threads, each owning one Sandbox                                 | 15.3k `#eval`/s |
-| 8 Threads, each owning one Sandbox                                 | 14.2k `#eval`/s |
-| Per-Sandbox `Sandbox.new` cost, single-Threaded                    | 0.206 ms        |
-| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel              | 0.089 ms each (0.714 ms total / 8) |
-| `#eval("nil")` baseline                                            | 0.062 ms        |
-| `#eval("nil")` while another Thread is in a long `#eval`           | 0.175 ms (2.8× baseline) |
+| 1 Thread, owning one Sandbox                                       | 17.2k `#eval`/s |
+| 2 Threads, each owning one Sandbox                                 | 19.1k `#eval`/s |
+| 4 Threads, each owning one Sandbox                                 | 19.1k `#eval`/s |
+| 8 Threads, each owning one Sandbox                                 | 17.4k `#eval`/s |
+| Per-Sandbox `Sandbox.new` cost, single-Threaded                    | 0.111 ms        |
+| Per-Sandbox `Sandbox.new` cost, 8 Threads in parallel              | 0.073 ms each (0.586 ms total / 8) |
+| `#eval("nil")` baseline                                            | 0.051 ms        |
+| `#eval("nil")` while another Thread is in a long `#eval`           | 0.290 ms (5.7× baseline) |
 
-A long-running script does not block other Threads' short `#eval` calls by hundreds of ms — host-side synchronization yields the GVL and the contending Thread interleaves. Run-to-run ratio swings 1.5-3× with scheduler quirks; the order of magnitude is the regression signal.
+Throughput stays flat across Thread counts, which is the `:hold` signature — the GVL, not the Sandbox count, is the bound. A long-running script still does not block other Threads' short `#eval` calls by hundreds of ms: host-side synchronization yields the GVL and the contending Thread interleaves. That contention ratio swings run to run with scheduler quirks; the order of magnitude is the regression signal, not the multiple.
+
+#### `gvl:` hold vs release ([`concurrent/gvl_scheduling.rb`](concurrent/gvl_scheduling.rb))
+
+What the per-Sandbox `gvl:` mode (B-64) buys and costs, bracketed by two opposed workloads plus an arm where every Thread shares one Sandbox (B-22). Weak scaling — each Thread does a fixed amount of work — so under perfect parallelism the `:release` column stays flat as N grows while `:hold` climbs with it. Wall-clock, not CPU time: parallel progress is exactly what a CPU-time sum cannot see. Captured 2026-07-25 on `5ea09e9b`.
+
+| Threads | compute (hold → release) | dispatch (hold → release) | compute, one shared Sandbox |
+|---------|--------------------------|---------------------------|-----------------------------|
+| 1       | 372 → 373 ms (1.00×)     | 30.3 → 28.5 ms (1.06×)    | 372 → 372 ms (1.00×)        |
+| 2       | 746 → 380 ms (1.96×)     | 54.1 → 109 ms (0.50×)     | 747 → 381 ms (1.96×)        |
+| 4       | 1490 → 388 ms (3.84×)    | 107 → 216 ms (0.49×)      | 1492 → 388 ms (3.84×)       |
+| 8       | 2987 → 392 ms (7.62×)    | 218 → 423 ms (0.52×)      | 2984 → 392 ms (7.60×)       |
+
+Three readings. The compute `:release` column moves 372 → 392 ms from 1 to 8 Threads, so guest compute parallelizes near-perfectly once the GVL is out of the way. The dispatch arm settles at a stable ~0.5× from 2 Threads up — every dispatch re-acquires the GVL, and that handoff costs more than the released span saves, making `:release` a net loss for dispatch-heavy work. And the shared-Sandbox arm tracks the distinct-Sandbox one to within 0.3 %, confirming that sharing a Sandbox costs no parallelism.
 
 #### Dispatch-glue isolation ([`dispatch_glue.rb`](dispatch_glue.rb))
 
-The predictive half of the GVL-impact toolkit; the Multi-Thread suite above (#7) is the confirmation half. It calls `Kobako::Transport::Dispatcher.dispatch` directly with pre-encoded Request bytes — no wasm, boundary, or guest codec in the window — to isolate `G`, the GVL-held host glue of one guest→host dispatch (decode → resolve → invoke → encode). A No-GVL design would parallelize everything *except* this glue, so the multi-core speedup ceiling for an invocation doing `k` dispatches in wall-time `T` is Amdahl-bounded by `d = k·G / T`. The Services are pure-CPU on purpose: a Service doing real I/O releases the GVL during the syscall, so its wait already overlaps today and must not count toward `G`. Captured 2026-07-17 on `1eee1c8`.
+The predictive half of the GVL-impact toolkit; the Multi-Thread suite above (#7) is the confirmation half. It calls `Kobako::Transport::Dispatcher.dispatch` directly with pre-encoded Request bytes — no wasm, boundary, or guest codec in the window — to isolate `G`, the GVL-held host glue of one guest→host dispatch (decode → resolve → invoke → encode). `gvl: :release` parallelizes everything *except* this glue, so the multi-core speedup ceiling for an invocation doing `k` dispatches in wall-time `T` is Amdahl-bounded by `d = k·G / T`. The Services are pure-CPU on purpose: a Service doing real I/O releases the GVL during the syscall, so its wait already overlaps today and must not count toward `G`. Captured 2026-07-17 on `1eee1c8`.
 
 | Case                          | `G` per dispatch | What it isolates                                     |
 |-------------------------------|------------------|------------------------------------------------------|
@@ -253,7 +266,7 @@ The predictive half of the GVL-impact toolkit; the Multi-Thread suite above (#7)
 | `10d-small-return-16`         | 4.5 µs           | Service returns a 16-element Array                   |
 | `10e-large-return-256`        | 11.7 µs          | 256-element Array — `G` grows with returned payload  |
 
-Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 6.8 µs/call) for the per-dispatch floor of `d`: glue 3.7 µs of a 6.8 µs roundtrip ⇒ `d ≈ 0.54`, since the remaining ~46 % (guest codec + boundary) parallelizes. So even a pure-dispatch workload has a ~1.85× multi-core ceiling, rising toward `N×` as compute per invocation grows. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
+Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 6.8 µs/call) for the per-dispatch floor of `d`: glue 3.7 µs of a 6.8 µs roundtrip ⇒ `d ≈ 0.54`, since the remaining ~46 % (guest codec + boundary) parallelizes. So even a pure-dispatch workload has a ~1.85× multi-core ceiling, rising toward `N×` as compute per invocation grows. The model prices the serialized glue but not the GVL handoff that reaching it costs: the gvl suite above measures ~0.5× on a dispatch-heavy shape, so read `d` as a ceiling that a dispatch-bound workload stays well under, and the compute end as where the ceiling is actually approached. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
 
 #### Memory cost ([`memory.rb`](memory.rb))
 
@@ -310,7 +323,7 @@ Real improvements, each clearing the +10 % floor and its noise band:
 - **`6d-yield-break` −27 % (290 → 220 µs)** — the parked Handle-walk-skip optimization landed (`cd63514` / `d2c4947` / `bca463b`). The codec records on decode whether an ext 0x01 Handle crossed the wire and skips `Codec::HandleWalk.deep_restore` entirely when none did — a Handle-free argument/result/yield tree resolves to itself. This recovers the regression `6d` absorbed at `2168a19` and drops below its pre-regression level; behaviour is unchanged because the skipped walk was already an identity pass.
 - Minor: `4e`/`4f` stdout −9–10 % and `4a` −7 % on `wall_time` cleared their noise bands; guest compute is otherwise flat against the unchanged binary.
 
-No accepted regressions this round. Two readings that look like regressions are not: the end-to-end totals (`2a`/`2b`/`2c`/`2e`, `6a`/`6b`, `1a`) read ~5–8 % higher than `2168a19` but every one stayed inside its noise band — a capture transient, with the gated `wall_time` rows and `1b` (96 µs) flat. The #7 concurrent suite was captured under elevated machine load, so its wall-clock throughput reads ~14–15k vs the quiet-machine ~17k `#eval`/s; the gated `1b` / `5c` eval-nil cost is unchanged, confirming the shortfall is load, not code. The cumulative budget resets to these blessed numbers.
+No accepted regressions this round. Two readings that look like regressions are not: the end-to-end totals (`2a`/`2b`/`2c`/`2e`, `6a`/`6b`, `1a`) read ~5–8 % higher than `2168a19` but every one stayed inside its noise band — a capture transient, with the gated `wall_time` rows and `1b` (96 µs) flat. The #7 concurrent suite was captured under elevated machine load and read ~14–15k `#eval`/s; the gated `1b` / `5c` eval-nil cost was unchanged, confirming the shortfall was load rather than code — which the quiet-machine re-capture now in that table bears out. The cumulative budget resets to these blessed numbers.
 
 ## Running
 
@@ -318,11 +331,12 @@ No accepted regressions this round. Two readings that look like regressions are 
 bundle exec rake bench                   # six gated benchmarks (CI-friendly, payloads ≤ 1 MiB)
 bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
+bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scaling
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
 bundle exec rake bench:regexp            # regexp characterization on the +regexp-unicode variant (#11)
-bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#11)
+bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#11 and gvl)
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.
@@ -401,6 +415,6 @@ bundle exec rake "bench:confirm[path/to/a.wasm]" # an explicit Guest Binary
 ## Known caveats
 
 - **Guest String size cap at 1 MiB.** `MRB_STR_LENGTH_MAX` is mruby's default; the guest-side codec cases stop at 512 KiB. The 16 MiB wire payload limit is reachable only through composite values.
-- **Aggregate throughput is GVL-bounded.** Multi-Thread scaling stays near-flat because `ext/` does not release the GVL during wasmtime execution.
+- **Aggregate throughput is GVL-bounded under the default `gvl: :hold`.** Multi-Thread scaling stays near-flat because that mode holds the GVL across wasm execution; a Sandbox opted into `gvl: :release` lifts the bound for guest compute and forfeits it for dispatch-heavy work (see the gvl suite).
 - **One-shot timings are filesystem-cache-sensitive.** The first `Sandbox.new` reads `data/kobako.wasm` from disk; cold vs hot page cache can vary 5-10 %. Warm one-shot rows report a median across rounds for exactly this class of reason.
 - **Per-suite ordering matters.** `5c` and `8d` are sensitive to GC / allocator state built up by earlier cases in the same process; re-running a case in isolation produces different numbers.
