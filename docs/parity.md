@@ -67,7 +67,7 @@ carries the concept's own name.
 | Service — the host object bound at a constant-path name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
 | Bound constant — the leaf name of a constant path | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
 | Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |
-| Block — the guest-side block body | never crosses the wire; only the Request's `block_given` flag travels | same — the wire contract is shared |
+| Block — the guest-side block body | never crosses the wire; only the Call's `block_given` flag travels | same — the wire contract is shared |
 | Invocation result — the value a run produced with its captures and usage | `Kobako::Execution`, returned from `#eval` / `#run` | `kobako::Execution`, returned from `eval` / `run` |
 
 The result surface carries the frontends' one lasting asymmetry, the

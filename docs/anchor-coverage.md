@@ -75,8 +75,8 @@ E-10
 - **E-10** — the official guest never presents an invalid wire payload
   in a dispatch position (`kobako-mruby` only re-emits Handles it
   received), so no `test/` scenario reaches the rejection; the
-  guest-side refusal is pinned by the `kobako-codec` Request decode
-  unit tests (a Request `target` must be a path or a Handle).
+  guest-side refusal is pinned by the `kobako-codec` Call decode
+  unit tests (a Call `target` must be a path or a Handle).
 
 ## Frontend witness asymmetries
 

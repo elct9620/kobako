@@ -10,7 +10,7 @@ and append-only across the corpus (N-8).
 |-------|-------|
 | **Initial State** | A Sandbox is executing a mruby script. A Service is bound at `MyService::KV`. |
 | **Operation** | Guest code executes `MyService::KV.method_name(arg1, ...) { |x| ... }` — a method call accompanied by a block. |
-| **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a Yielder into the resolved Service method as its block argument. The Service method observes it as a Ruby Proc: `block_given?` returns `true`, `yield` invokes the Yielder, and it is also accessible as `&block` if the method declares one. The Yielder is valid for the duration of this dispatch only. The block is not transmitted as a wire value — only a `block_given` flag on the Request signals its presence — and its body remains inside the guest, invoked through B-24's yield round-trip. The Yielder has loose Proc-style arity (extras dropped, missing arguments filled with `nil`); strict arity must come from a guest-side lambda, which mruby enforces during B-24. |
+| **Result / Final State** | The Host Gem dispatches the call as in B-12, but additionally passes a Yielder into the resolved Service method as its block argument. The Service method observes it as a Ruby Proc: `block_given?` returns `true`, `yield` invokes the Yielder, and it is also accessible as `&block` if the method declares one. The Yielder is valid for the duration of this dispatch only. The block is not transmitted as a wire value — only a `block_given` flag on the Call signals its presence — and its body remains inside the guest, invoked through B-24's yield round-trip. The Yielder has loose Proc-style arity (extras dropped, missing arguments filled with `nil`); strict arity must come from a guest-side lambda, which mruby enforces during B-24. |
 
 ---
 
@@ -80,4 +80,4 @@ and append-only across the corpus (N-8).
 |-------|-------|
 | **Initial State** | A Service method has been invoked with a block (B-23). |
 | **Operation** | The Service method body completes without ever invoking `yield` or `block.call`. |
-| **Result / Final State** | The block is silently discarded. The Service method's return value flows back to the guest as a normal Response (B-13 or B-14). No yield round-trip occurs; the guest block body is never executed. |
+| **Result / Final State** | The block is silently discarded. The Service method's return value flows back to the guest as a normal Reply (B-13 or B-14). No yield round-trip occurs; the guest block body is never executed. |
