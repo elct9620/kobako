@@ -26,14 +26,13 @@ class TestDispatchPermissiveReturn < Minitest::Test
   end
 
   def dispatch(method)
-    req = Kobako::Transport::Request.new(target: "Dsl::S", method_name: method, args: [])
-    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @services, @handler, @yield)
-    Kobako::Transport::Response.decode(bytes)
+    call = DispatcherHelpers.call_for("Dsl::S", method)
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
   def test_permissive_builder_return_crosses_as_handle
     resp = dispatch("widget")
-    assert_equal Kobako::Transport::STATUS_OK, resp.status,
+    assert_equal true, resp.ok?,
                  "a Service returning a permissive method_missing object must succeed, not mis-encode as nil"
     assert_instance_of Kobako::Handle, resp.payload,
                        "a permissive method_missing return must cross as a Capability Handle, never a nil payload"

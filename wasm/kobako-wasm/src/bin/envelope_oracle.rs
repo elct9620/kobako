@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! 4-byte BE length (of payload, including the kind tag)
-//! 1-byte kind: 'Q' Request, 'P' Response, 'R' Result envelope,
+//! 1-byte kind: 'R' Result envelope,
 //!              'X' Panic envelope, 'O' Outcome envelope,
 //!              'I' Invocation (Run) envelope
 //! N bytes: msgpack payload for the specified envelope kind
@@ -32,7 +32,7 @@ use std::io::{self, Read, Write};
 use kobako_codec::codec;
 use kobako_codec::codec::{Decode, Encode};
 use kobako_codec::outcome::{Outcome, Panic};
-use kobako_codec::transport::{Request, Response, Run};
+use kobako_codec::transport::Run;
 use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
 const ERROR_FLAG: u32 = 0x8000_0000;
@@ -87,14 +87,6 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 
 fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
     match kind {
-        b'Q' => {
-            let req = Request::decode(body).map_err(stringify)?;
-            req.encode().map_err(stringify)
-        }
-        b'P' => {
-            let resp = Response::decode(body).map_err(stringify)?;
-            resp.encode().map_err(stringify)
-        }
         b'R' => {
             // Result envelope is a bare codec value (no enclosing wrapper);
             // round-trip it straight through the codec, mirroring the host's

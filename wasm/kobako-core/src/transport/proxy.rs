@@ -20,8 +20,9 @@
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use kobako_codec::codec::{self, Decode, Decoder, Encode, Value};
-use kobako_codec::transport::{Request, Response, Target};
+use kobako_codec::codec::{self, Decoder, Encode, Value};
+use kobako_codec::envelope::{self, Call, Reply, Target};
+use kobako_codec::payload::Arguments;
 
 // ---------------------------------------------------------------------
 // Exception payload returned to mruby on the error path.
@@ -66,6 +67,15 @@ pub enum InvokeError {
 impl From<codec::Error> for InvokeError {
     fn from(e: codec::Error) -> Self {
         InvokeError::Codec(e)
+    }
+}
+
+impl From<envelope::Error> for InvokeError {
+    /// A malformed core envelope reaches mruby the same way a malformed
+    /// payload does: the guest cannot tell the two apart at the call site,
+    /// and both mean the host answered with something unusable.
+    fn from(e: envelope::Error) -> Self {
+        InvokeError::Codec(codec::Error::Malformed(e.0))
     }
 }
 
@@ -116,9 +126,9 @@ fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 }
 
 /// Invoke the host via `__kobako_dispatch` (or the loopback hook on
-/// host targets). On success, returns the value out of `Response::Ok`;
-/// on a Response.err path returns `InvokeError::Service`; on an
-/// wire fault returns `InvokeError::Codec`.
+/// host targets). On success, returns the value out of the Reply's ok
+/// arm; on the fault arm returns `InvokeError::Service`; on a wire fault
+/// returns `InvokeError::Codec`.
 pub fn invoke(
     target: Target,
     method: &str,
@@ -126,26 +136,33 @@ pub fn invoke(
     kwargs: &[(String, Value)],
     block_given: bool,
 ) -> Result<Value, InvokeError> {
-    let req = Request {
+    let call = Call {
         target,
         method: method.to_string(),
-        args: args.to_vec(),
-        kwargs: kwargs.to_vec(),
         block_given,
+        payload: Arguments::new(args.to_vec(), kwargs.to_vec()).encode()?,
     };
-    let req_bytes = req.encode()?;
-    let resp_bytes = host_call(&req_bytes)?;
-    let resp = Response::decode(&resp_bytes)?;
-    classify_response(resp)
+    let reply_bytes = host_call(&call.encode())?;
+    classify_reply(Reply::decode(&reply_bytes)?)
 }
 
-/// Demux a decoded Response into the `invoke` return type.
-fn classify_response(resp: Response) -> Result<Value, InvokeError> {
-    match resp {
-        Response::Ok(v) => Ok(v),
-        Response::Err(payload_bytes) => {
-            // Decode the inner ext 0x02 Exception map: {type, message, details}.
-            let mut dec = Decoder::new(&payload_bytes);
+/// Demux a decoded Reply into the `invoke` return type. The arm comes
+/// from the envelope's tag, so the guest knows whether the Service
+/// returned or failed before decoding a single payload byte.
+fn classify_reply(reply: Reply) -> Result<Value, InvokeError> {
+    match reply {
+        Reply::Ok(body) => Ok(Decoder::new(&body).read_only_value()?),
+        Reply::Fault(body) => {
+            // The fault body is the adapter's encoding of a Fault — an
+            // ext 0x02 frame whose payload is the {type, message,
+            // details} map.
+            let fault = Decoder::new(&body).read_only_value()?;
+            let Value::ErrEnv(inner_bytes) = fault else {
+                return Err(InvokeError::Codec(codec::Error::Malformed(
+                    "the fault arm of a Reply must carry a Fault (ext 0x02)",
+                )));
+            };
+            let mut dec = Decoder::new(&inner_bytes);
             let inner = dec.read_value()?;
             let pairs = match inner {
                 Value::Map(p) => p,
@@ -254,24 +271,34 @@ mod tests {
         set_loopback(None);
     }
 
-    fn errenv_payload(typ: &str, message: &str) -> Vec<u8> {
-        let mut enc = Encoder::new();
-        enc.write_value(&Value::Map(vec![
-            (Value::Str("type".into()), Value::Str(typ.into())),
-            (Value::Str("message".into()), Value::Str(message.into())),
-            (Value::Str("details".into()), Value::Nil),
-        ]))
-        .unwrap();
-        enc.into_bytes()
+    /// A Reply's fault body: the adapter's encoding of a Fault, which is
+    /// an ext 0x02 frame wrapping the `{type, message, details}` map.
+    fn fault_body(typ: &str, message: &str) -> Vec<u8> {
+        let mut inner = Encoder::new();
+        inner
+            .write_value(&Value::Map(vec![
+                (Value::Str("type".into()), Value::Str(typ.into())),
+                (Value::Str("message".into()), Value::Str(message.into())),
+                (Value::Str("details".into()), Value::Nil),
+            ]))
+            .unwrap();
+        Encoder::encode(&Value::ErrEnv(inner.into_bytes())).unwrap()
+    }
+
+    /// A Reply's ok body: the adapter's encoding of one return value.
+    fn ok_body(value: Value) -> Vec<u8> {
+        Encoder::encode(&value).unwrap()
     }
 
     // ---- invoke demux ----
 
     #[test]
-    fn invoke_returns_value_on_response_ok() {
+    fn invoke_returns_the_value_out_of_the_reply_ok_arm() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::Ok(Value::Int(42)).encode().unwrap();
-        install_canned(captured.clone(), response);
+        install_canned(
+            captured.clone(),
+            Reply::Ok(ok_body(Value::Int(42))).encode(),
+        );
 
         let out = invoke(
             Target::Path("MyService::Counter".into()),
@@ -282,27 +309,33 @@ mod tests {
         );
         clear_loopback();
 
-        assert_eq!(out, Ok(Value::Int(42)));
+        assert_eq!(
+            out,
+            Ok(Value::Int(42)),
+            "a Reply on its ok arm through invoke must yield the decoded return value"
+        );
 
-        // Cross-check: captured bytes are exactly what the envelope
-        // encoder would have produced for this Request.
-        let expected = Request {
+        let expected = Call {
             target: Target::Path("MyService::Counter".into()),
             method: "value".into(),
-            args: vec![],
-            kwargs: vec![],
             block_given: false,
+            payload: Arguments::default().encode().unwrap(),
         }
-        .encode()
-        .unwrap();
-        assert_eq!(*captured.lock().unwrap(), expected);
+        .encode();
+        assert_eq!(
+            *captured.lock().unwrap(),
+            expected,
+            "the bytes invoke writes must be exactly the Call envelope carrying an Arguments payload"
+        );
     }
 
     #[test]
-    fn invoke_handle_target_round_trip() {
+    fn a_handle_target_rides_the_envelope_rather_than_the_payload() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::Ok(Value::Str("ok".into())).encode().unwrap();
-        install_canned(captured.clone(), response);
+        install_canned(
+            captured.clone(),
+            Reply::Ok(ok_body(Value::Str("ok".into()))).encode(),
+        );
 
         let out = invoke(
             Target::Handle(7),
@@ -313,22 +346,27 @@ mod tests {
         );
         clear_loopback();
 
-        assert_eq!(out, Ok(Value::Str("ok".into())));
-        // Spot-check: first byte indicates fixarray 5 envelope; second
-        // byte is the ext 0x01 Handle marker (`0xd6`), proving the
-        // Handle target was encoded as ext rather than str.
-        let req = captured.lock().unwrap().clone();
-        assert_eq!(req[0], 0x95, "fixarray 5 envelope");
-        assert_eq!(req[1], 0xd6, "fixext 4 marker for Handle target");
+        assert_eq!(
+            out,
+            Ok(Value::Str("ok".into())),
+            "a Handle-targeted call through invoke must return the Service's value"
+        );
+        let sent = captured.lock().unwrap().clone();
+        assert_eq!(
+            sent[0..5],
+            [1, 0, 0, 0, 7],
+            "a Handle target must ride the envelope's kind tag and bare id, \
+             reachable without decoding the payload"
+        );
     }
 
     #[test]
-    fn invoke_returns_service_err_on_response_err() {
+    fn invoke_returns_a_service_error_on_the_reply_fault_arm() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let response = Response::Err(errenv_payload("runtime", "boom"))
-            .encode()
-            .unwrap();
-        install_canned(captured, response);
+        install_canned(
+            captured,
+            Reply::Fault(fault_body("runtime", "boom")).encode(),
+        );
 
         let out = invoke(
             Target::Path("MyService::KV".into()),
@@ -341,18 +379,36 @@ mod tests {
 
         match out {
             Err(InvokeError::Service(ex)) => {
-                assert_eq!(ex.kind, "runtime");
-                assert_eq!(ex.message, "boom");
+                assert_eq!(
+                    (ex.kind.as_str(), ex.message.as_str()),
+                    ("runtime", "boom"),
+                    "a Reply on its fault arm through invoke must surface the Fault's type and message"
+                );
             }
             other => panic!("expected Service, got {other:?}"),
         }
     }
 
     #[test]
-    fn invoke_propagates_envelope_error_on_garbage_response() {
+    fn a_malformed_reply_surfaces_as_a_wire_fault() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        // Garbage: a single 0xc1 byte (reserved msgpack family).
-        install_canned(captured, vec![0xc1]);
+        // A tag the envelope does not define, so the failure is caught
+        // before any payload byte is read.
+        install_canned(captured, vec![0x7f]);
+
+        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
+        clear_loopback();
+
+        match out {
+            Err(InvokeError::Codec(_)) => {}
+            other => panic!("expected Codec error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_fault_arm_carrying_something_other_than_a_fault_is_refused() {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        install_canned(captured, Reply::Fault(ok_body(Value::Int(1))).encode());
 
         let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
         clear_loopback();

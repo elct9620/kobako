@@ -47,6 +47,8 @@
 
 use wasmtime::Caller;
 
+use kobako_runtime::envelope::Call;
+
 use crate::invocation::Invocation;
 
 /// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
@@ -77,6 +79,11 @@ fn try_handle(
     req_len: i32,
 ) -> Result<i64, &'static str> {
     let req_bytes = crate::guest_mem::read(caller, req_ptr, req_len)?;
+    // The driver decodes the core envelope so the frontend never sees a
+    // frame; the payload inside it stays bytes the whole way through.
+    let call = Call::decode(&req_bytes).map_err(|_| {
+        "the guest sent a malformed Call envelope — please report this as a kobako bug"
+    })?;
 
     // `Kobako::Sandbox` always installs the dispatch handler before
     // invoking the runtime, so reaching this branch indicates a misuse
@@ -90,15 +97,15 @@ fn try_handle(
     // handler. The borrow ends with the block, freeing the Caller for
     // `write_response`; nested dispatch frames each build their own, so
     // the LIFO re-entry lives on the Rust stack — no shared slot.
-    let resp_bytes = {
+    let reply = {
         let mut yielder = crate::guest_mem::CallerYielder::new(caller);
-        handler.dispatch(&req_bytes, &mut yielder)
+        handler.dispatch(call, &mut yielder)
     }
     .ok_or(
         "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
     )?;
 
-    write_response(caller, &resp_bytes)
+    write_response(caller, &reply.encode())
 }
 
 /// Allocate a guest-side buffer and copy the response bytes into it via

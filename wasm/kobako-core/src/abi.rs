@@ -39,7 +39,7 @@ pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
 /// per-invocation instance discipline: the host drives every invocation
 /// on a fresh instance of the module, so an entry flow may leave its VM
 /// state dirty at exit.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Host import declaration.

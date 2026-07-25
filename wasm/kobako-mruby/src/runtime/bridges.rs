@@ -113,7 +113,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: kobako_codec::transport::Target,
+    target: kobako_codec::envelope::Target,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
@@ -186,7 +186,7 @@ fn forward_to_dispatch(
 ///
 /// Forwards to `forward_to_dispatch`.
 pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
-    use kobako_codec::transport::Target;
+    use kobako_codec::envelope::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
     // (the module was registered by it).

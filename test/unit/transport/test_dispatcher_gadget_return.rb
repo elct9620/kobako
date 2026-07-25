@@ -23,15 +23,14 @@ class TestDispatchGadgetReturn < Minitest::Test
   end
 
   def dispatch(method)
-    req = Kobako::Transport::Request.new(target: "Cfg::S", method_name: method, args: [])
-    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @services, @handler, @yield)
-    Kobako::Transport::Response.decode(bytes)
+    call = DispatcherHelpers.call_for("Cfg::S", method)
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
   def test_reflective_gadget_return_is_refused_not_wrapped
     %w[a_method a_binding an_unbound].each do |meth|
       resp = dispatch(meth)
-      assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+      assert_equal false, resp.ok?,
                    "a Service returning ##{meth} must not mint a callable Handle onto host reflection"
       assert_equal "runtime", resp.payload.type,
                    "##{meth} gadget return must surface as the runtime fault (E-44)"
@@ -44,7 +43,7 @@ class TestDispatchGadgetReturn < Minitest::Test
     # A Proc stays wrappable (its reflective #binding is blocked by B-42 on
     # the resulting Handle); only Binding / Method / UnboundMethod are refused.
     resp = dispatch("a_proc")
-    assert_equal Kobako::Transport::STATUS_OK, resp.status,
+    assert_equal true, resp.ok?,
                  "a returned Proc must still cross as a Capability Handle"
     assert_instance_of Kobako::Handle, resp.payload
   end

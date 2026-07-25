@@ -2,15 +2,16 @@
 //!
 //! The twin of the Ruby gem's `Transport::Dispatcher` contract: it
 //! **never fails** — every refusal, decode fault, and unencodable
-//! response folds into a `Response::Err` fault envelope the guest
-//! re-raises as a rescuable exception, so a Service misuse can never
-//! become a wasm trap.
+//! response folds into the Reply's fault arm, which the guest re-raises
+//! as a rescuable exception, so a Service misuse can never become a
+//! wasm trap.
 
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::codec::{Decode, Encode, Encoder, Value};
-use kobako_codec::transport::{Request, Response, Target};
+use kobako_codec::codec::{Decode, Encoder, Value};
+use kobako_codec::payload::Arguments;
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::envelope::{Call, Reply, Target};
 use kobako_runtime::yielder::Yielder as RawYielder;
 
 use crate::catalog::Catalog;
@@ -44,26 +45,38 @@ impl CatalogHandler {
         }
     }
 
-    fn handle(&self, request: &Request, channel: &mut dyn RawYielder) -> Response {
-        let object = match self.resolve_target(&request.target) {
+    /// The SDK is the Value adapter over the core envelope: the routing
+    /// fields arrive already decoded, and only the payload becomes the
+    /// `Value` arguments a `Receiver` takes.
+    fn handle(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
+        let arguments = match Arguments::decode(call.payload) {
+            Ok(arguments) => arguments,
+            Err(err) => {
+                return fault_reply(&Fault::new(
+                    FaultKind::Runtime,
+                    format!("Sandbox received a malformed request: {err}"),
+                ))
+            }
+        };
+        let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
-            Err(fault) => return fault_response(&fault),
+            Err(fault) => return fault_reply(&fault),
         };
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
-        if !object.respond_to_guest(&request.method) {
-            return fault_response(&Fault::new(
+        if !object.respond_to_guest(call.method) {
+            return fault_reply(&Fault::new(
                 FaultKind::Undefined,
-                format!("method :{} is not exposed to the guest", request.method),
+                format!("method :{} is not exposed to the guest", call.method),
             ));
         }
         let handles = Handles::new(&self.handles);
-        let mut block = request.block_given.then(|| Yielder::new(channel));
+        let mut block = call.block_given.then(|| Yielder::new(channel));
         let result = object.call(
-            &request.method,
-            &request.args,
-            &request.kwargs,
+            call.method,
+            &arguments.args,
+            &arguments.kwargs,
             block.as_mut(),
             &handles,
         );
@@ -71,11 +84,11 @@ impl CatalogHandler {
         // the break value no matter what the receiver returned, and the
         // value rides back verbatim rather than through host code.
         if let Some(value) = block.and_then(Yielder::into_break) {
-            return Response::Ok(value);
+            return ok_reply(&value);
         }
         match result {
-            Ok(value) => Response::Ok(value),
-            Err(fault) => fault_response(&fault),
+            Ok(value) => ok_reply(&value),
+            Err(fault) => fault_reply(&fault),
         }
     }
 
@@ -108,34 +121,17 @@ impl CatalogHandler {
 impl DispatchHandler for CatalogHandler {
     /// `None` is reserved for "the handler itself failed"; this
     /// handler reifies every failure as an envelope instead.
-    fn dispatch(&self, request: &[u8], channel: &mut dyn RawYielder) -> Option<Vec<u8>> {
-        let response = match Request::decode(request) {
-            Ok(request) => self.handle(&request, channel),
-            Err(err) => fault_response(&Fault::new(
-                FaultKind::Runtime,
-                format!("Sandbox received a malformed request: {err}"),
-            )),
-        };
-        let bytes = response.encode().unwrap_or_else(|err| {
-            // A value the wire cannot carry back folds like every
-            // other failure; the flat fault map itself always encodes.
-            fault_response(&Fault::new(
-                FaultKind::Runtime,
-                format!("response not encodable: {err}"),
-            ))
-            .encode()
-            .expect("a flat fault map always encodes")
-        });
-        Some(bytes)
+    fn dispatch(&self, call: Call<'_>, channel: &mut dyn RawYielder) -> Option<Reply> {
+        Some(self.handle(&call, channel))
     }
 }
 
-/// A `Response::Err` carrying the ext 0x02 fault payload — a msgpack
+/// The fault arm's body: an ext 0x02 Fault whose payload is a msgpack
 /// map of `type` (which proxy-side error the guest raises) and
 /// `message`.
-fn fault_response(fault: &Fault) -> Response {
-    let mut encoder = Encoder::new();
-    encoder
+fn fault_reply(fault: &Fault) -> Reply {
+    let mut inner = Encoder::new();
+    inner
         .write_value(&Value::Map(vec![
             (
                 Value::Str("type".into()),
@@ -147,12 +143,28 @@ fn fault_response(fault: &Fault) -> Response {
             ),
         ]))
         .expect("a str/str fault map always encodes");
-    Response::Err(encoder.into_bytes())
+    Reply::Fault(
+        Encoder::encode(&Value::ErrEnv(inner.into_bytes()))
+            .expect("a flat fault envelope always encodes"),
+    )
+}
+
+/// The ok arm's body: the return value alone, since the envelope's tag
+/// already carries the success. A value the adapter cannot represent
+/// folds into a fault like every other failure.
+fn ok_reply(value: &Value) -> Reply {
+    match Encoder::encode(value) {
+        Ok(bytes) => Reply::Ok(bytes),
+        Err(err) => fault_reply(&Fault::new(
+            FaultKind::Runtime,
+            format!("response not encodable: {err}"),
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::Decoder;
+    use kobako_codec::codec::{Decoder, Encode};
     use kobako_codec::transport::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
 
     use crate::receiver::Receiver;
@@ -260,27 +272,72 @@ mod tests {
         CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
-    fn roundtrip(request: &Request) -> Response {
+    /// One call in the owned form a `Call` envelope borrows from. The
+    /// wire carries an opaque payload; these tests stay written in the
+    /// `Value` vocabulary a Receiver actually sees.
+    struct Sent {
+        target: Target<'static>,
+        method: String,
+        args: Vec<Value>,
+        kwargs: Vec<(String, Value)>,
+        block_given: bool,
+    }
+
+    impl Sent {
+        fn encode(&self) -> Vec<u8> {
+            let payload = Arguments::new(self.args.clone(), self.kwargs.clone())
+                .encode()
+                .unwrap();
+            Call {
+                target: self.target,
+                method: &self.method,
+                block_given: self.block_given,
+                payload: &payload,
+            }
+            .encode()
+        }
+    }
+
+    /// A Reply read back in the same vocabulary: the arm the envelope
+    /// tagged, plus the body the adapter decoded.
+    #[derive(Debug, PartialEq)]
+    enum Answer {
+        Ok(Value),
+        Fault(Vec<u8>),
+    }
+
+    fn answer(reply: Reply) -> Answer {
+        match reply {
+            Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_only_value().unwrap()),
+            Reply::Fault(body) => match Decoder::new(&body).read_only_value().unwrap() {
+                Value::ErrEnv(inner) => Answer::Fault(inner),
+                other => panic!("the fault arm must carry a Fault, got {other:?}"),
+            },
+        }
+    }
+
+    fn roundtrip(request: &Sent) -> Answer {
         roundtrip_with(request, &mut NoYield)
     }
 
-    fn roundtrip_with(request: &Request, channel: &mut dyn RawYielder) -> Response {
+    fn roundtrip_with(request: &Sent, channel: &mut dyn RawYielder) -> Answer {
         roundtrip_on(&handler(), request, channel)
     }
 
     fn roundtrip_on(
         handler: &CatalogHandler,
-        request: &Request,
+        request: &Sent,
         channel: &mut dyn RawYielder,
-    ) -> Response {
-        let bytes = handler
-            .dispatch(&request.encode().unwrap(), channel)
+    ) -> Answer {
+        let bytes = request.encode();
+        let reply = handler
+            .dispatch(Call::decode(&bytes).unwrap(), channel)
             .expect("this handler never returns None");
-        Response::decode(&bytes).unwrap()
+        answer(reply)
     }
 
-    fn request(target: Target, method: &str, args: Vec<Value>) -> Request {
-        Request {
+    fn request(target: Target<'static>, method: &str, args: Vec<Value>) -> Sent {
+        Sent {
             target,
             method: method.into(),
             args,
@@ -291,26 +348,22 @@ mod tests {
 
     #[test]
     fn routed_call_returns_the_receiver_value() {
-        let req = request(
-            Target::Path("MyService::KV".into()),
-            "echo",
-            vec![Value::Int(7)],
-        );
-        assert_eq!(roundtrip(&req), Response::Ok(Value::Int(7)));
+        let req = request(Target::Path("MyService::KV"), "echo", vec![Value::Int(7)]);
+        assert_eq!(roundtrip(&req), Answer::Ok(Value::Int(7)));
     }
 
     #[test]
     fn kwargs_reach_the_receiver_intact() {
-        let mut req = request(Target::Path("MyService::KV".into()), "first_kwarg", vec![]);
+        let mut req = request(Target::Path("MyService::KV"), "first_kwarg", vec![]);
         req.kwargs = vec![("limit".into(), Value::Int(9))];
-        assert_eq!(roundtrip(&req), Response::Ok(Value::Int(9)));
+        assert_eq!(roundtrip(&req), Answer::Ok(Value::Int(9)));
     }
 
     /// The fault payload's `type` field — the discriminator the guest
     /// uses to pick the proxy-side error, so a test can tell a
     /// rejection kind apart from a receiver that ran and failed.
-    fn fault_type(response: &Response) -> String {
-        let Response::Err(bytes) = response else {
+    fn fault_type(response: &Answer) -> String {
+        let Answer::Fault(bytes) = response else {
             panic!("expected a fault envelope, got a success response");
         };
         let Ok(Value::Map(pairs)) = Decoder::new(bytes).read_only_value() else {
@@ -327,7 +380,7 @@ mod tests {
 
     #[test]
     fn receiver_fault_folds_into_a_runtime_fault() {
-        let req = request(Target::Path("MyService::KV".into()), "explode", vec![]);
+        let req = request(Target::Path("MyService::KV"), "explode", vec![]);
         assert_eq!(
             fault_type(&roundtrip(&req)),
             "runtime",
@@ -337,7 +390,7 @@ mod tests {
 
     #[test]
     fn unknown_path_folds_into_an_undefined_fault() {
-        let req = request(Target::Path("Nope::Nada".into()), "echo", vec![]);
+        let req = request(Target::Path("Nope::Nada"), "echo", vec![]);
         assert_eq!(
             fault_type(&roundtrip(&req)),
             "undefined",
@@ -369,10 +422,10 @@ mod tests {
                 Arc::new(Tagged("fresh")) as Arc<dyn Receiver>,
             )],
         );
-        let req = request(Target::Path("File".into()), "label", vec![]);
+        let req = request(Target::Path("File"), "label", vec![]);
         assert_eq!(
             roundtrip_on(&handler, &req, &mut NoYield),
-            Response::Ok(Value::Str("fresh".into())),
+            Answer::Ok(Value::Str("fresh".into())),
             "a path resolved for this invocation must win over the sealed Catalog"
         );
     }
@@ -380,8 +433,8 @@ mod tests {
     #[test]
     fn allocated_handle_routes_the_next_dispatch_to_its_object() {
         let handler = handler();
-        let make = request(Target::Path("MyService::KV".into()), "make", vec![]);
-        let Response::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
+        let make = request(Target::Path("MyService::KV"), "make", vec![]);
+        let Answer::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
             panic!("make must answer with a Handle token");
         };
         assert_eq!(
@@ -396,7 +449,7 @@ mod tests {
         let chained = request(Target::Handle(id), "label", vec![]);
         assert_eq!(
             roundtrip_on(&handler, &chained, &mut NoYield),
-            Response::Ok(Value::Str("bob".into())),
+            Answer::Ok(Value::Str("bob".into())),
             "a Handle target must route to the very object the allocation bound"
         );
     }
@@ -431,16 +484,16 @@ mod tests {
         catalog.bind("MyService::Narrow", Arc::new(Narrowed));
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
-            Target::Path("MyService::Narrow".into()),
+            Target::Path("MyService::Narrow"),
             "echo",
             vec![Value::Int(7)],
         );
         assert_eq!(
             roundtrip_on(&handler, &visible, &mut NoYield),
-            Response::Ok(Value::Int(7)),
+            Answer::Ok(Value::Int(7)),
             "a truthy predicate answer leaves the call unchanged"
         );
-        let hidden = request(Target::Path("MyService::Narrow".into()), "explode", vec![]);
+        let hidden = request(Target::Path("MyService::Narrow"), "explode", vec![]);
         assert_eq!(
             fault_type(&roundtrip_on(&handler, &hidden, &mut NoYield)),
             "undefined",
@@ -456,7 +509,7 @@ mod tests {
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);
         assert_eq!(
             roundtrip_on(&handler, &visible, &mut NoYield),
-            Response::Ok(Value::Int(7))
+            Answer::Ok(Value::Int(7))
         );
         let hidden = request(Target::Handle(id), "explode", vec![]);
         assert_eq!(
@@ -469,34 +522,41 @@ mod tests {
     #[test]
     fn handle_argument_resolves_to_the_live_object() {
         let handler = handler();
-        let make = request(Target::Path("MyService::KV".into()), "make", vec![]);
-        let Response::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
+        let make = request(Target::Path("MyService::KV"), "make", vec![]);
+        let Answer::Ok(token) = roundtrip_on(&handler, &make, &mut NoYield) else {
             panic!("make must answer with a Handle token");
         };
-        let read = request(
-            Target::Path("MyService::KV".into()),
-            "read_label",
-            vec![token],
-        );
+        let read = request(Target::Path("MyService::KV"), "read_label", vec![token]);
         assert_eq!(
             roundtrip_on(&handler, &read, &mut NoYield),
-            Response::Ok(Value::Str("bob".into())),
+            Answer::Ok(Value::Str("bob".into())),
             "a Handle passed back as an argument must resolve to the bound object"
         );
     }
 
     #[test]
-    fn malformed_request_bytes_fold_into_a_runtime_fault() {
-        let bytes = handler().dispatch(&[0xd9], &mut NoYield).unwrap();
+    fn a_malformed_payload_folds_into_a_runtime_fault() {
+        // The envelope is well-formed; only its payload is garbage — the
+        // arm the adapter owns, so the handler answers with a fault
+        // rather than letting the failure reach the driver.
+        let call = Call {
+            target: Target::Path("MyService::KV"),
+            method: "echo",
+            block_given: false,
+            payload: &[0xd9],
+        };
+        let reply = handler()
+            .dispatch(call, &mut NoYield)
+            .expect("this handler never returns None");
         assert_eq!(
-            fault_type(&Response::decode(&bytes).unwrap()),
+            fault_type(&answer(reply)),
             "runtime",
-            "undecodable request bytes must fold into the runtime fault envelope"
+            "an undecodable payload must fold into the runtime fault arm"
         );
     }
 
-    fn block_request(method: &str, args: Vec<Value>) -> Request {
-        let mut req = request(Target::Path("MyService::KV".into()), method, args);
+    fn block_request(method: &str, args: Vec<Value>) -> Sent {
+        let mut req = request(Target::Path("MyService::KV"), method, args);
         req.block_given = true;
         req
     }
@@ -507,7 +567,7 @@ mod tests {
         let mut channel = Scripted::new(vec![(TAG_OK, Value::Int(10)), (TAG_OK, Value::Int(20))]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
-            Response::Ok(Value::Array(vec![Value::Int(10), Value::Int(20)]))
+            Answer::Ok(Value::Array(vec![Value::Int(10), Value::Int(20)]))
         );
     }
 
@@ -523,7 +583,7 @@ mod tests {
         ]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
-            Response::Ok(Value::Sym("stop".into()))
+            Answer::Ok(Value::Sym("stop".into()))
         );
     }
 
@@ -533,7 +593,7 @@ mod tests {
         let mut channel = Scripted::new(vec![(TAG_BREAK, Value::Sym("stop".into()))]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
-            Response::Ok(Value::Sym("stop".into())),
+            Answer::Ok(Value::Sym("stop".into())),
             "the guest must receive the break value even when the receiver discards YieldError::Break"
         );
     }
@@ -543,7 +603,7 @@ mod tests {
         let req = block_request("ignores_block", vec![]);
         assert_eq!(
             roundtrip_with(&req, &mut NoYield),
-            Response::Ok(Value::Sym("ok".into()))
+            Answer::Ok(Value::Sym("ok".into()))
         );
     }
 

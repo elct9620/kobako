@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 # Wire-symmetric peer gate (docs/wire-contract.md § Wire-Symmetric
-# Peers): the transport envelope types and ext type codes of +lib/+ and
+# Peers): the wire-codable types and ext type codes of +lib/+ and
 # +crates/kobako-codec+ must match name-for-name, with one-sided entries
-# carried by the Accepted asymmetries ledger. The comparator's unit
-# coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
+# carried by the Accepted asymmetries ledger. This is the payload layer's
+# cross-language pair; the core envelope's two peers are both Rust and
+# are pinned by the byte oracle instead
+# (+crates/kobako-runtime/tests/envelope_oracle.rs+). The comparator's
+# unit coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
 
 require_relative "../support/anchors"
 require_relative "../support/wire_symmetry"
@@ -15,8 +18,12 @@ WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 # Every inventory scans its whole tier — façade file plus the recursive
 # subtree — so an envelope or registration that moves within the tier
 # cannot vanish from the gate, even when both peers move together.
-WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport.rb", "lib/kobako/transport/**/*.rb"]
-WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport.rs", "crates/kobako-codec/src/transport/**/*.rs"]
+WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport.rb", "lib/kobako/transport/**/*.rb",
+                               "lib/kobako/payload.rb", "lib/kobako/payload/**/*.rb"]
+WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport.rs",
+                               "crates/kobako-codec/src/transport/**/*.rs",
+                               "crates/kobako-codec/src/payload.rs",
+                               "crates/kobako-codec/src/payload/**/*.rs"]
 WIRE_RUBY_EXT = FileList["lib/kobako/codec.rb", "lib/kobako/codec/**/*.rb"]
 WIRE_RUST_EXT = FileList["crates/kobako-codec/src/**/*.rs"]
 

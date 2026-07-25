@@ -34,7 +34,7 @@ use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 /// carries the per-invocation instance discipline: the host
 /// drives every invocation on a fresh instance, so the guest may leave
 /// its VM state dirty at exit.
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {

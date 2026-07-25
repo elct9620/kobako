@@ -1,0 +1,21 @@
+module Kobako
+  module Transport
+    class Call < Data
+      attr_reader target: String | Integer
+      attr_reader method_name: String
+      attr_reader block_given: bool
+      attr_reader payload: String
+
+      def self.new: (target: String | Integer, method_name: String, block_given: bool, payload: String) -> Call
+                  | (String | Integer, String, bool, String) -> Call
+
+      def initialize: (target: String | Integer, method_name: String, block_given: bool, payload: String) -> void
+
+      def with: (?target: String | Integer, ?method_name: String, ?block_given: bool, ?payload: String) -> Call
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+    end
+  end
+end

@@ -6,27 +6,25 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      META_OWNERS: Array[Module]
 
-      GADGET_OWNERS: Array[Module]
 
-      CALLABLE_ALLOW: Array[Symbol]
 
-      def self?.dispatch: (String request_bytes, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> String
+      def self?.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> [bool, String]
 
-      def self?.resolve_call_args: (Kobako::Transport::Request request, Kobako::Codec::_HandleTable handler, bool carried_handle) -> [Array[untyped], Hash[Symbol, untyped]]
+      def self?.run: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler, Kobako::Transport::Yielder? yielder) -> untyped
+
+      def self?.resolve_call_args: (Kobako::Payload::Arguments arguments, Kobako::Codec::_HandleTable handler, bool carried_handle) -> [Array[untyped], Hash[Symbol, untyped]]
 
       def self?.encode_caught_error: (StandardError error) -> String
 
       def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
 
-      def self?.reject_meta_method!: (untyped target, Symbol name) -> void
+      def self?.reject_unreachable!: (untyped target, Symbol name) -> void
 
-      def self?.reject_unexposed!: (untyped target, Symbol name) -> void
 
       def self?.resolve_arg: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.resolve_target: (String | Kobako::Handle target, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler) -> untyped
+      def self?.resolve_target: (String | Integer target, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler) -> untyped
 
       def self?.resolve_path: (String path, Kobako::Transport::_ServiceRegistry resolver) -> untyped
 

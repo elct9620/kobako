@@ -116,8 +116,10 @@ module Kobako
     # a yielded block — which the +Dispatcher+ forwards to the
     # +Transport::Yielder+ it builds for the call.
     def dispatch_handler
-      lambda do |request_bytes, guest_yielder|
-        Transport::Dispatcher.dispatch(request_bytes, self, @handler, guest_yielder)
+      lambda do |target, method_name, block_given, payload, guest_yielder|
+        call = Transport::Call.new(target: target, method_name: method_name,
+                                   block_given: block_given, payload: payload)
+        Transport::Dispatcher.dispatch(call, self, @handler, guest_yielder)
       end
     end
 

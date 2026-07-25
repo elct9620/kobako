@@ -26,11 +26,17 @@ class TestTransportDispatchViolations < Minitest::Test
     "an Integer kwargs key" => { 42 => "v" }
   }.freeze
 
+  # A Call at the bound echo path carrying +payload+ verbatim, so a test
+  # can hand the payload decode a shape the value object would refuse to
+  # build.
+  def payload_call(payload)
+    Kobako::Transport::Call.new(target: "Logger::Echo", method_name: "call",
+                                block_given: false, payload: payload)
+  end
+
   def test_non_symbol_kwargs_key_is_wire_violation
     NON_SYMBOL_KWARGS.each do |shape, kwargs|
-      resp = decode_response(dispatch(
-                               Kobako::Codec::Encoder.encode(["Logger::Echo", "call", [], kwargs, false])
-                             ))
+      resp = decode_response(dispatch(payload_call(Kobako::Codec::Encoder.encode([[], kwargs]))))
 
       assert_predicate resp, :error?
       assert_equal "runtime", resp.payload.type
@@ -54,20 +60,19 @@ class TestTransportDispatchViolations < Minitest::Test
   # (its constructor rejects non-String/Handle target types). We hand-roll
   # the msgpack bytes via Kobako::Codec::Encoder so the malformed payload reaches
   # the dispatcher exactly as a misbehaving guest would emit it.
-  def test_raw_integer_target_is_rejected_by_wire_decoder_as_violation
-    bad_request_bytes = Kobako::Codec::Encoder.encode([42, "call", ["x"], {}, false])
-
-    resp = decode_response(dispatch(bad_request_bytes))
+  def test_an_id_the_table_never_issued_is_refused_as_undefined
+    resp = decode_response(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
 
     assert_predicate resp, :error?
-    # Kobako::Codec::Error rescues to type="runtime" with the
-    # "Sandbox received a malformed request" prefix; the
-    # dispatcher's contract pins this taxonomy and the guest
-    # observes a normal transport error rather than a wasm trap.
-    assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed request/, resp.payload.message)
-    # The malformed int never made it into the Catalog::Handles.
-    assert_equal 0, @handler.size
+    # The core envelope makes a Handle target an ordinary integer the
+    # guest picks, so the table's membership — not the wire shape — is
+    # what refuses it (B-65). The guest observes a normal transport
+    # error rather than a wasm trap.
+    assert_equal "undefined", resp.payload.type,
+                 "an integer through the Call target slot that the table never issued must be " \
+                 "refused as an undefined target"
+    assert_equal 0, @handler.size,
+                 "a refused Handle id must not enter the Catalog::Handles"
   end
 
   # ---------- Over-deep wire violation (docs/wire-codec.md § Structural Nesting Depth) ----------
@@ -81,9 +86,9 @@ class TestTransportDispatchViolations < Minitest::Test
   def test_over_deep_request_is_contained_as_runtime_error
     # 1000 nested single-element arrays terminated by nil — a misbehaving
     # guest emitting a request far past the ecosystem nesting bound.
-    over_deep_request = ("\x91".b * 1000) + "\xc0".b
+    over_deep_payload = "\x92#{"\x91" * 1000}\xC0\x80".b
 
-    resp = decode_response(dispatch(over_deep_request))
+    resp = decode_response(dispatch(payload_call(over_deep_payload)))
 
     assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type

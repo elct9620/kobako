@@ -74,9 +74,8 @@ class TestDispatchGuestNarrowing < Minitest::Test
   end
 
   def dispatch(target, method, args = [])
-    req = Kobako::Transport::Request.new(target: target, method_name: method, args: args)
-    bytes = Kobako::Transport::Dispatcher.dispatch(req.encode, @services, @handler, @yield)
-    Kobako::Transport::Response.decode(bytes)
+    call = DispatcherHelpers.call_for(target, method, args)
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
   # The undefined fault discloses nothing about which methods the object
@@ -84,7 +83,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   def test_opaque_object_rejects_every_method
     %w[token decrypt].each do |meth|
       resp = dispatch("Cfg::Cred", meth)
-      assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+      assert_equal false, resp.ok?,
                    "an opaque object's #{meth} through guest dispatch must be rejected, not invoked on the host"
       assert_equal "undefined", resp.payload.type,
                    "the opaque object's rejection must surface as the undefined fault (E-48)"
@@ -97,7 +96,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   def test_opaque_object_is_narrowed_through_a_handle_target
     id = @handler.alloc(Opaque.new).id
     resp = dispatch(Kobako::Handle.restore(id), "token")
-    assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+    assert_equal false, resp.ok?,
                  "an opaque object reached as a Handle target must be narrowed identically to a bound constant"
     assert_equal "undefined", resp.payload.type,
                  "the Handle-target rejection must surface as the undefined fault (E-48)"
@@ -105,13 +104,13 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   def test_allow_list_exposes_only_the_permitted_subset
     permitted = dispatch("Cfg::Report", "headers")
-    assert_equal Kobako::Transport::STATUS_OK, permitted.status,
+    assert_equal true, permitted.ok?,
                  "an allow-listed method through guest dispatch must stay reachable"
     assert_equal({ authorization: "Bearer x" }, permitted.payload,
                  "the permitted method through guest dispatch must return its value across the boundary")
 
     denied = dispatch("Cfg::Report", "body")
-    assert_equal Kobako::Transport::STATUS_ERROR, denied.status,
+    assert_equal false, denied.ok?,
                  "a method outside the allow-list through guest dispatch must be rejected"
     assert_equal "undefined", denied.payload.type,
                  "the non-permitted method rejection must surface as the undefined fault (E-48)"
@@ -119,13 +118,13 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   def test_predicate_cannot_widen_past_the_reflection_floor
     rce = dispatch("Cfg::Wide", "send", [:eval, "1"])
-    assert_equal Kobako::Transport::STATUS_ERROR, rce.status,
+    assert_equal false, rce.ok?,
                  "send must stay rejected by the floor even when the predicate permits every name"
     assert_equal "undefined", rce.payload.type,
                  "send must be rejected by the reflection floor (E-43 undefined), not incidentally by the predicate"
 
     own = dispatch("Cfg::Wide", "safe")
-    assert_equal Kobako::Transport::STATUS_OK, own.status,
+    assert_equal true, own.ok?,
                  "the object's own Service method must stay reachable when its predicate permits the name"
     assert_equal "ok", own.payload
   end
@@ -137,13 +136,13 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # failed dispatch as a narrowing rejection.
   def test_permitted_dynamic_name_runs_rather_than_being_narrowed
     handled = dispatch("Cfg::Dyn", "known")
-    assert_equal Kobako::Transport::STATUS_OK, handled.status,
+    assert_equal true, handled.ok?,
                  "a permitted name the dynamic Service satisfies must run and return its value"
     assert_equal "dynamic:known", handled.payload,
                  "the dynamic dispatch result must cross the boundary as the Service value"
 
     boom = dispatch("Cfg::Dyn", "missing")
-    assert_equal Kobako::Transport::STATUS_ERROR, boom.status,
+    assert_equal false, boom.ok?,
                  "a permitted name the dynamic Service cannot satisfy must fail at dispatch, not be narrowed away"
     assert_equal "runtime", boom.payload.type,
                  "the failed dynamic dispatch must surface as a runtime fault (E-11), not the undefined narrowing fault"
@@ -151,14 +150,14 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   def test_object_without_predicate_keeps_full_service_surface
     resp = dispatch("Cfg::Open", "hello")
-    assert_equal Kobako::Transport::STATUS_OK, resp.status,
+    assert_equal true, resp.ok?,
                  "an object without respond_to_guest? must keep its full Service surface through guest dispatch"
     assert_equal "hi", resp.payload
   end
 
   def test_guest_cannot_invoke_the_private_predicate_itself
     resp = dispatch("Cfg::Report", "respond_to_guest?", [:headers])
-    assert_equal Kobako::Transport::STATUS_ERROR, resp.status,
+    assert_equal false, resp.ok?,
                  "respond_to_guest? through guest dispatch must be unreachable, never invoked on the host"
     assert_equal "undefined", resp.payload.type,
                  "the unreachable predicate through guest dispatch must surface as the undefined fault"

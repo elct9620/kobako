@@ -17,15 +17,21 @@ class TestTransportFaultPosition < Minitest::Test
 
   FAULT = Kobako::Fault.new(type: "runtime", message: "smuggled")
 
-  # ---------- E-50 — inbound Request path ----------
+  # A Call at the bound echo path carrying +payload+ verbatim, so a test
+  # can hand the payload decode a shape the value object would refuse to
+  # build.
+  def call_carrying(payload)
+    Kobako::Transport::Call.new(target: "Echo::Id", method_name: "call",
+                                block_given: false, payload: payload)
+  end
+
+  # ---------- E-50 — inbound Call payload path ----------
 
   def test_request_carrying_fault_in_args_is_rejected_as_malformed
     @registry.bind("Echo::Id", ->(x) { x })
     # Hand-crafted via the bare codec: the raw wire tool stays permissive,
-    # the positional rule lives on the envelope decode.
-    req = Kobako::Codec::Encoder.encode(["Echo::Id", "call", [FAULT], {}, false])
-
-    resp = decode_response(dispatch(req))
+    # the positional rule lives on the payload decode.
+    resp = decode_response(dispatch(call_carrying(Kobako::Codec::Encoder.encode([[FAULT], {}]))))
 
     assert_predicate resp, :error?
     assert_equal "runtime", resp.payload.type,
@@ -73,13 +79,14 @@ class TestTransportFaultPosition < Minitest::Test
   # ---------- bracket hygiene — the forbid_faults analogue of the depth-residue guard ----------
 
   def test_rejected_payload_leaves_the_legal_position_usable_on_the_same_thread
-    bad = Kobako::Codec::Encoder.encode(["Echo::Id", "call", [FAULT], {}, false])
-    assert_raises(Kobako::Codec::InvalidType) { Kobako::Transport::Request.decode(bad) }
+    bad = Kobako::Codec::Encoder.encode([[FAULT], {}])
+    assert_raises(Kobako::Codec::InvalidType) { Kobako::Payload::Arguments.decode(bad) }
 
-    legal = Kobako::Transport::Response.error(FAULT).encode
-    decoded = Kobako::Transport::Response.decode(legal)
-    assert_equal FAULT, decoded.payload,
-                 "a rejected payload-position decode must leave no residue — the Response fault field " \
-                 "on the same thread stays decodable"
+    # The fault arm's body is the one position a Fault is legal in, and
+    # it is decoded outside the bracket the payload decode opens.
+    decoded = Kobako::Codec::Decoder.decode(Kobako::Codec::Encoder.encode(FAULT))
+    assert_equal FAULT, decoded,
+                 "a rejected payload-position decode must leave no residue — a Fault in the arm " \
+                 "the envelope tags stays decodable on the same thread"
   end
 end

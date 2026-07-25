@@ -1,0 +1,26 @@
+module Kobako
+  module Payload
+    class Arguments < Data
+      attr_reader args: Array[Kobako::Codec::wire_value]
+      attr_reader kwargs: Hash[Symbol, Kobako::Codec::wire_value]
+
+      def self.new: (?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value]) -> Arguments
+
+      def self.decode: (String bytes) -> Arguments
+
+      def initialize: (?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value]) -> void
+
+      def encode: () -> String
+
+      def with: (?args: Array[Kobako::Codec::wire_value], ?kwargs: Hash[Symbol, Kobako::Codec::wire_value]) -> Arguments
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+
+      private
+
+      def validate_kwargs!: (Hash[untyped, untyped] kwargs) -> void
+    end
+  end
+end

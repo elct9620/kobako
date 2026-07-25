@@ -19,7 +19,7 @@ module Kobako
 
     def collect_overrides: () { (Kobako::Context) -> void } -> void
 
-    def dispatch_handler: () -> ^(String, Kobako::Transport::_GuestYielder) -> String
+    def dispatch_handler: () -> ^(String | Integer, String, bool, String, Kobako::Transport::_GuestYielder) -> [bool, String]
 
     def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
 

@@ -12,6 +12,7 @@ use magnus::value::{Opaque, ReprValue};
 use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Value};
 
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::envelope::{Call, Reply, Target};
 use kobako_runtime::yielder::Yielder;
 
 /// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
@@ -121,13 +122,17 @@ impl RubyDispatchHandler {
 }
 
 impl DispatchHandler for RubyDispatchHandler {
-    /// Call the Ruby Proc with the request bytes and return the encoded
-    /// Response bytes. The Proc is contracted to fold every dispatch
-    /// failure into a `Response.err` envelope (see
-    /// `Kobako::Transport::Dispatcher.dispatch`), so a raise is a contract
-    /// violation surfaced as `None` — the dispatcher then walks the
-    /// 0-return wire-fault path.
-    fn dispatch(&self, request: &[u8], yielder: &mut dyn Yielder) -> Option<Vec<u8>> {
+    /// Call the Ruby Proc with the routed Call and return its Reply. The
+    /// envelope is already decoded, so Ruby receives the target, method,
+    /// and block flag as ordinary values and decodes only the payload —
+    /// through the MessagePack adapter it already owns, which keeps a
+    /// large payload's strings shared with the buffer rather than copied.
+    ///
+    /// The Proc is contracted to fold every dispatch failure into the
+    /// Reply's fault arm (see `Kobako::Transport::Dispatcher.dispatch`),
+    /// so a raise is a contract violation surfaced as `None` — the
+    /// dispatcher then walks the 0-return wire-fault path.
+    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply> {
         // The guest may be running GVL-free (`gvl: :release`); re-acquire the
         // GVL for the whole callback before touching any Ruby VALUE. In hold
         // mode `reenter` runs the body inline — the GVL is already held.
@@ -140,17 +145,35 @@ impl DispatchHandler for RubyDispatchHandler {
             // letting a nonsense error propagate.
             let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
             let proc_value: Value = ruby.get_inner(self.on_dispatch);
-            let req_str = ruby.str_from_slice(request);
-            // Hand the Proc a frame-scoped yielder object as its second arg and
+            // The target crosses in one slot, already discriminated: a
+            // String for a bound constant's path, an Integer for a Handle
+            // id. Ruby branches on the class it received rather than on a
+            // separate tag.
+            let target: Value = match call.target {
+                Target::Path(path) => ruby.str_new(path).as_value(),
+                Target::Handle(id) => ruby.integer_from_u64(u64::from(id)).as_value(),
+            };
+            // Hand the Proc a frame-scoped yielder object as its last arg and
             // invalidate it the instant the Proc returns, so a guest block that
             // escapes the dispatch frame can never deref the freed stack
             // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
             // mark — the GC has nothing to trace through it.
             let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
-            let resp: Result<RString, magnus::Error> =
-                proc_value.funcall("call", (req_str, guest_yielder));
+            let answer: Result<(bool, RString), magnus::Error> = proc_value.funcall(
+                "call",
+                (
+                    target,
+                    ruby.str_new(call.method),
+                    call.block_given,
+                    ruby.str_from_slice(call.payload),
+                    guest_yielder,
+                ),
+            );
             guest_yielder.invalidate();
-            resp.ok().map(super::rstring_to_vec)
+            answer.ok().map(|(ok, body)| match ok {
+                true => Reply::Ok(super::rstring_to_vec(body)),
+                false => Reply::Fault(super::rstring_to_vec(body)),
+            })
         })
     }
 }

@@ -1,0 +1,4 @@
+module Kobako
+  module Payload
+  end
+end
