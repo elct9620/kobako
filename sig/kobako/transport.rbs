@@ -6,7 +6,7 @@ module Kobako
     # modelled structurally so the Transport layer needs no upward
     # dependency on Runtime.
     interface _GuestYielder
-      def call: (String) -> String
+      def call: (String) -> [Integer, String, String?]
     end
 
     # The Service registry a dispatch resolves constant-path targets

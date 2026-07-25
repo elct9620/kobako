@@ -1,13 +1,13 @@
 //! kobako-codec — portable wire tier crate root.
 //!
 //! The Rust expression of the kobako Transport wire (SPEC.md "Wire
-//! Codec"), shared by both sides of the wasm boundary: `codec` is the
-//! MessagePack byte codec, `transport` the Request / Response / Yield
-//! envelope value objects, `outcome` the per-invocation Outcome /
-//! Panic records. The guest-ABI contract crate (`kobako-core`) builds
-//! its transport machinery on this tier; a Rust host encodes the same
-//! envelopes with it directly. Nothing here is guest-bound — no ABI
-//! import, no mruby, no engine.
+//! Codec"), shared by both sides of the wasm boundary: `envelope` is the
+//! core envelope, `codec` the MessagePack byte codec, `payload` the
+//! invocation arguments it carries, `outcome` the per-invocation
+//! Outcome / Panic records. The guest-ABI contract crate
+//! (`kobako-core`) builds its transport machinery on this tier; a Rust
+//! host encodes the same envelopes with it directly. Nothing here is
+//! guest-bound — no ABI import, no mruby, no engine.
 
 /// Width in bytes of the length prefix that precedes each stdin frame
 /// and outcome buffer (docs/wire-codec.md § Invocation channels).
@@ -30,5 +30,3 @@ pub mod codec;
 pub mod outcome;
 #[cfg(feature = "msgpack")]
 pub mod payload;
-#[cfg(feature = "msgpack")]
-pub mod transport;

@@ -9,8 +9,8 @@
 
 use std::fmt;
 
-use kobako_codec::codec::{Decode as _, Encoder, Value};
-use kobako_codec::transport::{Yield, TAG_BREAK, TAG_OK};
+use kobako_codec::codec::{Decoder, Encoder, Value};
+use kobako_runtime::envelope::YieldReply;
 use kobako_runtime::yielder::Yielder as RawYielder;
 
 use crate::receiver::{Fault, FaultKind};
@@ -94,17 +94,18 @@ impl<'y> Yielder<'y> {
             .channel
             .yield_block(&payload)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
-        let response = Yield::decode(&bytes)
+        let reply = YieldReply::decode(&bytes)
             .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
-        match response.tag {
-            TAG_OK => Ok(response.value),
-            TAG_BREAK => {
-                self.broke = Some(response.value);
+        match reply {
+            YieldReply::Ok(body) => decode_body(&body),
+            YieldReply::Break(body) => {
+                self.broke = Some(decode_body(&body)?);
                 Err(YieldError::Break)
             }
-            // `Yield::decode` admits only live tags; the remainder is
-            // the error tag.
-            _ => Err(failure(response.value)),
+            YieldReply::Error(record) => Err(YieldError::Failure {
+                class: record.class,
+                message: record.message,
+            }),
         }
     }
 
@@ -125,27 +126,13 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
     Ok(encoder.into_bytes())
 }
 
-/// Reify a tag `0x04` payload — a `{"class", "message", "backtrace"}`
-/// map — with the same fallbacks the Ruby Yielder applies to a
-/// malformed payload.
-fn failure(payload: Value) -> YieldError {
-    let mut class = None;
-    let mut message = None;
-    if let Value::Map(pairs) = payload {
-        for (key, value) in pairs {
-            if let (Value::Str(key), Value::Str(text)) = (key, value) {
-                match key.as_str() {
-                    "class" => class = Some(text),
-                    "message" => message = Some(text),
-                    _ => {}
-                }
-            }
-        }
-    }
-    YieldError::Failure {
-        class: class.unwrap_or_else(|| "RuntimeError".into()),
-        message: message.unwrap_or_else(|| "yield error".into()),
-    }
+/// Decode a value-carrying arm's payload. The envelope framed it, so a
+/// fault here is the adapter's — the guest answered with bytes this
+/// endpoint's schema cannot read.
+fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
+    Decoder::new(body)
+        .read_only_value()
+        .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply payload: {err}")))
 }
 
 #[cfg(test)]
@@ -153,7 +140,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use kobako_codec::codec::Encode as _;
-    use kobako_codec::transport::TAG_ERROR;
+    use kobako_runtime::envelope::ErrorRecord;
     use kobako_runtime::error::Trap;
 
     use super::*;
@@ -181,13 +168,13 @@ mod tests {
         }
     }
 
-    fn response(tag: u8, value: Value) -> Vec<u8> {
-        Yield { tag, value }.encode().unwrap()
+    fn response(arm: fn(Vec<u8>) -> YieldReply, value: Value) -> Vec<u8> {
+        arm(Encoder::encode(&value).unwrap()).encode()
     }
 
     #[test]
     fn call_ships_args_as_one_msgpack_array_and_returns_the_ok_value() {
-        let mut channel = Scripted::new(vec![Ok(response(TAG_OK, Value::Int(42)))]);
+        let mut channel = Scripted::new(vec![Ok(response(YieldReply::Ok, Value::Int(42)))]);
         let mut block = Yielder::new(&mut channel);
         let value = block.call(&[Value::Int(21)]).unwrap();
         assert_eq!(value, Value::Int(42));
@@ -197,7 +184,10 @@ mod tests {
 
     #[test]
     fn break_records_the_value_and_stops_re_entering_the_guest() {
-        let mut channel = Scripted::new(vec![Ok(response(TAG_BREAK, Value::Sym("stop".into())))]);
+        let mut channel = Scripted::new(vec![Ok(response(
+            YieldReply::Break,
+            Value::Sym("stop".into()),
+        ))]);
         let mut block = Yielder::new(&mut channel);
         assert_eq!(block.call(&[]), Err(YieldError::Break));
         assert_eq!(block.call(&[]), Err(YieldError::Break));
@@ -210,35 +200,31 @@ mod tests {
     }
 
     #[test]
-    fn error_tag_surfaces_the_class_and_message() {
-        let payload = Value::Map(vec![
-            (
-                Value::Str("class".into()),
-                Value::Str("LocalJumpError".into()),
-            ),
-            (Value::Str("message".into()), Value::Str("boom".into())),
-        ]);
-        let mut channel = Scripted::new(vec![Ok(response(TAG_ERROR, payload))]);
+    fn the_error_arm_surfaces_the_records_class_and_message() {
+        let record = YieldReply::Error(ErrorRecord {
+            class: "LocalJumpError".into(),
+            message: "boom".into(),
+            backtrace: vec!["(eval):1".into()],
+        });
+        let mut channel = Scripted::new(vec![Ok(record.encode())]);
         let mut block = Yielder::new(&mut channel);
         assert_eq!(
             block.call(&[]),
             Err(YieldError::Failure {
                 class: "LocalJumpError".into(),
                 message: "boom".into(),
-            })
+            }),
+            "a block that raised must reach the receiver as its own class and message"
         );
     }
 
     #[test]
-    fn error_tag_with_a_non_map_payload_falls_back_to_the_defaults() {
-        let mut channel = Scripted::new(vec![Ok(response(TAG_ERROR, Value::Nil))]);
+    fn an_ok_arm_the_adapter_cannot_read_aborts() {
+        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0xc1]).encode())]);
         let mut block = Yielder::new(&mut channel);
-        assert_eq!(
-            block.call(&[]),
-            Err(YieldError::Failure {
-                class: "RuntimeError".into(),
-                message: "yield error".into(),
-            })
+        assert!(
+            matches!(block.call(&[]), Err(YieldError::Aborted(_))),
+            "a well-framed reply whose payload this endpoint's schema cannot read must abort"
         );
     }
 

@@ -17,12 +17,14 @@ WIRE_SYMMETRY_ROOT = File.expand_path("../..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 # Every inventory scans its whole tier — façade file plus the recursive
 # subtree — so an envelope or registration that moves within the tier
-# cannot vanish from the gate, even when both peers move together.
-WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport.rb", "lib/kobako/transport/**/*.rb",
-                               "lib/kobako/payload.rb", "lib/kobako/payload/**/*.rb"]
-WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport.rs",
+# cannot vanish from the gate, even when both peers move together. The
+# patterns are globs rather than named files so a tier one side has
+# emptied reports as a one-sided inventory instead of aborting the gate.
+WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport*.rb", "lib/kobako/transport/**/*.rb",
+                               "lib/kobako/payload*.rb", "lib/kobako/payload/**/*.rb"]
+WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport*.rs",
                                "crates/kobako-codec/src/transport/**/*.rs",
-                               "crates/kobako-codec/src/payload.rs",
+                               "crates/kobako-codec/src/payload*.rs",
                                "crates/kobako-codec/src/payload/**/*.rs"]
 WIRE_RUBY_EXT = FileList["lib/kobako/codec.rb", "lib/kobako/codec/**/*.rb"]
 WIRE_RUST_EXT = FileList["crates/kobako-codec/src/**/*.rs"]

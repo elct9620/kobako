@@ -19,16 +19,17 @@
 //!    RBreak) lands as `Err` instead of long-jumping past the Rust
 //!    frame.
 //! 4. Encode the outcome as a `Yield Reply`:
-//!     * normal return of a wire-representable value → `tag 0x01` ok
-//!       carrying the value through the standard codec
-//!     * a real `break` from a non-lambda block → `tag 0x02` break
+//!     * normal return of a wire-representable value → the ok arm
+//!       carrying the value as an adapter-encoded payload
+//!     * a real `break` from a non-lambda block → the break arm
 //!     * a raised exception, a return value with no wire representation,
 //!       or an RBreak aimed past the yielder's frame (a non-orphan Proc
-//!       `return`)
-//!       → `tag 0x04` error with `{class, message, backtrace}`
+//!       `return`) → the error arm carrying an Error Record
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
+#[cfg(mruby_linked)]
+use kobako_codec::envelope::{ErrorRecord, YieldReply};
 #[cfg(mruby_linked)]
 use kobako_core::abi::pack_u64;
 
@@ -155,21 +156,20 @@ fn classify_protected_error(
     }
 }
 
-/// Encode a value-carrying Yield Reply (ok or break tag). A value
-/// with no wire representation surfaces as a 0x04 TypeError — the host
-/// Yielder reifies it at the Service's yield site — rather than being
-/// coerced to a String; `type_label` / `encode_fail_message` keep each
-/// tag's exact host-visible wording.
+/// Encode a value-carrying Yield Reply (the ok or break arm). A value
+/// with no wire representation surfaces as an error arm carrying a
+/// TypeError — the host Yielder reifies it at the Service's yield site —
+/// rather than being coerced to a String; `type_label` /
+/// `encode_fail_message` keep each arm's exact host-visible wording.
 #[cfg(mruby_linked)]
 fn encode_value_response(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
-    tag: u8,
+    arm: fn(Vec<u8>) -> YieldReply,
     type_label: &str,
     encode_fail_message: &str,
 ) -> Vec<u8> {
-    use kobako_codec::codec::Encode;
-    use kobako_codec::transport::Yield;
+    use kobako_codec::codec::Encoder;
     let Some(codec_value) = kobako.try_codec_value(value) else {
         return encode_error_bytes(
             "TypeError",
@@ -180,23 +180,18 @@ fn encode_value_response(
             Vec::new(),
         );
     };
-    let resp = Yield {
-        tag,
-        value: codec_value,
-    };
-    match resp.encode() {
-        Ok(bytes) => bytes,
+    match Encoder::encode(&codec_value) {
+        Ok(payload) => arm(payload).encode(),
         Err(_) => encode_error_bytes("Kobako::Transport::Error", encode_fail_message, Vec::new()),
     }
 }
 
 #[cfg(mruby_linked)]
 fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    use kobako_codec::transport::TAG_BREAK;
     encode_value_response(
         kobako,
         value,
-        TAG_BREAK,
+        YieldReply::Break,
         "break value",
         "failed to encode break value",
     )
@@ -217,11 +212,10 @@ fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_codec::codec::Value>, Stri
 
 #[cfg(mruby_linked)]
 fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    use kobako_codec::transport::TAG_OK;
     encode_value_response(
         kobako,
         value,
-        TAG_OK,
+        YieldReply::Ok,
         "block return value",
         "failed to encode yield ok value",
     )
@@ -238,22 +232,12 @@ fn encode_error_response_from_exception(
 
 #[cfg(mruby_linked)]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
-    use kobako_codec::codec::Encode;
-    use kobako_codec::codec::Value;
-    use kobako_codec::transport::{Yield, TAG_ERROR};
-    let payload = Value::Map(vec![
-        (Value::Str("class".into()), Value::Str(class.into())),
-        (Value::Str("message".into()), Value::Str(message.into())),
-        (
-            Value::Str("backtrace".into()),
-            Value::Array(backtrace.into_iter().map(Value::Str).collect()),
-        ),
-    ]);
-    let resp = Yield {
-        tag: TAG_ERROR,
-        value: payload,
-    };
-    resp.encode().unwrap_or_default()
+    YieldReply::Error(ErrorRecord {
+        class: class.into(),
+        message: message.into(),
+        backtrace,
+    })
+    .encode()
 }
 
 /// Write an error Yield Reply directly into a fresh guest buffer

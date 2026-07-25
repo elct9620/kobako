@@ -1,6 +1,10 @@
 module Kobako
   module Transport
     class Yielder
+      TAG_OK: Integer
+      TAG_BREAK: Integer
+      TAG_ERROR: Integer
+
       @yield_to_guest: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
       @handler: Kobako::Codec::_HandleTable
@@ -16,9 +20,9 @@ module Kobako
 
       private
 
-      def restore: (untyped value, bool carried_handle) -> untyped
+      def decode_body: (String body) -> [untyped, bool]
 
-      def yield_failure: (untyped payload, default: String) -> RuntimeError
+      def restore: (untyped value, bool carried_handle) -> untyped
     end
   end
 end

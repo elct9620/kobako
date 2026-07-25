@@ -150,9 +150,9 @@ fn ok_reply(value: &Value) -> Reply {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::{Decoder, Encode};
+    use kobako_codec::codec::{Decoder, Encode, Encoder};
     use kobako_codec::payload::Arguments;
-    use kobako_codec::transport::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
+    use kobako_runtime::envelope::{ErrorRecord, YieldReply};
 
     use crate::receiver::{ValueAdapter, ValueReceiver};
 
@@ -172,14 +172,14 @@ mod tests {
     struct Scripted(std::collections::VecDeque<Vec<u8>>);
 
     impl Scripted {
-        fn new(responses: Vec<(u8, Value)>) -> Self {
-            Scripted(
-                responses
-                    .into_iter()
-                    .map(|(tag, value)| Yield { tag, value }.encode().unwrap())
-                    .collect(),
-            )
+        fn new(replies: Vec<YieldReply>) -> Self {
+            Scripted(replies.into_iter().map(|reply| reply.encode()).collect())
         }
+    }
+
+    /// A value-carrying Yield Reply arm over an adapter-encoded payload.
+    fn arm(make: fn(Vec<u8>) -> YieldReply, value: Value) -> YieldReply {
+        make(Encoder::encode(&value).unwrap())
     }
 
     impl RawYielder for Scripted {
@@ -564,7 +564,10 @@ mod tests {
     #[test]
     fn yield_results_flow_back_through_the_receiver_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
-        let mut channel = Scripted::new(vec![(TAG_OK, Value::Int(10)), (TAG_OK, Value::Int(20))]);
+        let mut channel = Scripted::new(vec![
+            arm(YieldReply::Ok, Value::Int(10)),
+            arm(YieldReply::Ok, Value::Int(20)),
+        ]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
             Answer::Ok(Value::Array(vec![Value::Int(10), Value::Int(20)]))
@@ -578,8 +581,8 @@ mod tests {
             vec![Value::Int(1), Value::Int(2), Value::Int(3)],
         );
         let mut channel = Scripted::new(vec![
-            (TAG_OK, Value::Int(10)),
-            (TAG_BREAK, Value::Sym("stop".into())),
+            arm(YieldReply::Ok, Value::Int(10)),
+            arm(YieldReply::Break, Value::Sym("stop".into())),
         ]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
@@ -590,7 +593,7 @@ mod tests {
     #[test]
     fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
-        let mut channel = Scripted::new(vec![(TAG_BREAK, Value::Sym("stop".into()))]);
+        let mut channel = Scripted::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
         assert_eq!(
             roundtrip_with(&req, &mut channel),
             Answer::Ok(Value::Sym("stop".into())),
@@ -610,16 +613,11 @@ mod tests {
     #[test]
     fn propagated_block_failure_folds_into_a_runtime_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
-        let mut channel = Scripted::new(vec![(
-            TAG_ERROR,
-            Value::Map(vec![
-                (
-                    Value::Str("class".into()),
-                    Value::Str("LocalJumpError".into()),
-                ),
-                (Value::Str("message".into()), Value::Str("crossed".into())),
-            ]),
-        )]);
+        let mut channel = Scripted::new(vec![YieldReply::Error(ErrorRecord {
+            class: "LocalJumpError".into(),
+            message: "crossed".into(),
+            backtrace: Vec::new(),
+        })]);
         assert_eq!(
             fault_type(&roundtrip_with(&req, &mut channel)),
             "runtime",

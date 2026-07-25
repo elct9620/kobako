@@ -60,11 +60,11 @@ class KobakoWireSymmetryTest < Minitest::Test
 
   def test_rust_types_read_both_bare_and_qualified_impls
     sources = {
-      "block.rs" => "impl Encode for Yield {\n}\nimpl Decode for Yield {\n}\n",
-      "request.rs" => "impl codec::Encode for Request {\n}\n"
+      "payload.rs" => "impl Encode for Arguments {\n}\nimpl Decode for Arguments {\n}\n",
+      "probe.rs" => "impl codec::Encode for Probe {\n}\n"
     }
 
-    assert_equal %w[Request Yield], Symmetry.rust_types(sources),
+    assert_equal %w[Arguments Probe], Symmetry.rust_types(sources),
                  "bare and codec-qualified impls through rust_types must inventory each type once, sorted"
   end
 

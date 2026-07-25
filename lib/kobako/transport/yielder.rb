@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
-require_relative "yield"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
@@ -15,24 +14,33 @@ module Kobako
     # Service method observes it as an ordinary Ruby Proc through
     # #to_proc; +yield val+ / +block.call(val)+ invokes #yield, which
     # serialises the positional args, re-enters the guest via the injected
-    # +yield_to_guest+ lambda, and reifies the +Yield Reply+ into Ruby
+    # +yield_to_guest+ lambda, and reifies the Yield Reply into Ruby
     # control flow:
     #
-    #   * +tag 0x01+ ok    — return the decoded value to +yield+'s caller
-    #   * +tag 0x02+ break — +throw break_tag, value+ so the Dispatcher's
-    #     +catch+ frame unwinds the Service method
-    #   * +tag 0x04+ error — raise the +{class, message}+ payload at the
-    #     Service's yield site
+    #   * ok    — return the decoded value to +yield+'s caller
+    #   * break — +throw break_tag, value+ so the Dispatcher's +catch+
+    #     frame unwinds the Service method
+    #   * error — raise the guest's class and message at the Service's
+    #     yield site
     #
     # The Dispatcher calls #invalidate! from its +ensure+ block once
     # dispatch completes; any later call to a stashed Yielder then raises
     # +LocalJumpError+ — the observable shape of an escaped Yielder.
     class Yielder
-      # +yield_to_guest+ is a +String → String+ callable (the ext's
-      # per-dispatch +Kobako::Runtime::GuestYielder+) that
-      # #yield invokes to re-enter the guest; +break_tag+ is the +catch+
-      # throw tag the Dispatcher matches against to unwind the Service on
-      # +tag 0x02+. +handler+ is the Sandbox's +Kobako::Catalog::Handles+,
+      # The Yield Reply arms the native side hands back, named here so
+      # #yield branches on an outcome rather than a number. The values are
+      # the wire's own, so the two stay legible against
+      # {docs/wire/envelope.md}[link:../../../docs/wire/envelope.md].
+      TAG_OK = 0x01
+      TAG_BREAK = 0x02
+      TAG_ERROR = 0x04
+
+      # +yield_to_guest+ is the ext's per-dispatch
+      # +Kobako::Runtime::GuestYielder+, which #yield invokes to re-enter
+      # the guest: it takes the argument payload and answers the reply
+      # already split into +[tag, body, class]+. +break_tag+ is the
+      # +catch+ throw tag the Dispatcher matches against to unwind the
+      # Service on a break. +handler+ is the invocation's +Kobako::Catalog::Handles+,
       # used to restore a Capability Handle in the block's ok value back to
       # its host object before it reaches the Service +yield+ site.
       def initialize(yield_to_guest, break_tag, handler)
@@ -54,16 +62,16 @@ module Kobako
 
         # Yield arguments are a payload position: a +Kobako::Fault+ among
         # them has no wire representation, so the encode refuses it at
-        # this call site. The tracking bracket below opens only around the
-        # decode: the guest re-entry may run nested dispatches whose own
-        # brackets would otherwise pollute the signal.
-        bytes = @yield_to_guest.call(Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(args) })
-        response, carried_handle = Kobako::Codec.track_handles { Kobako::Transport::Yield.decode(bytes) }
-        return restore(response.value, carried_handle) if response.ok?
+        # this call site.
+        tag, body, klass = @yield_to_guest.call(
+          Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(args) }
+        )
+        raise "#{klass}: #{body}" if tag == TAG_ERROR
 
-        throw @break_tag, response.value if response.break?
+        value, carried_handle = decode_body(body)
+        throw @break_tag, value if tag == TAG_BREAK
 
-        raise yield_failure(response.value, default: "yield error")
+        restore(value, carried_handle)
       end
 
       # The Proc the Dispatcher passes as +&block+, binding #yield so a
@@ -81,6 +89,18 @@ module Kobako
 
       private
 
+      # Decode a value-carrying arm's payload, answering the value and
+      # whether the decode carried a Capability Handle. The tracking
+      # bracket opens only around this decode: the guest re-entry may run
+      # nested dispatches whose own brackets would otherwise pollute the
+      # signal. A +Kobako::Fault+ in the payload is a wire violation — its
+      # only home is a Reply's fault arm.
+      def decode_body(body)
+        Kobako::Codec.track_handles do
+          Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(body) }
+        end
+      end
+
       # Restore any Capability Handle in a block's ok value to its host
       # object via the injected +Catalog::Handles+. Only the
       # ok path calls this — host code consumes the ok value, whereas a
@@ -91,19 +111,6 @@ module Kobako
         return value unless carried_handle
 
         Kobako::Codec::HandleWalk.deep_restore(value, @handler)
-      end
-
-      # Reify a +Yield Reply+ tag 0x04 payload into a +RuntimeError+ the
-      # Service method observes at its +yield+ site. The +{class, message,
-      # backtrace}+ shape mirrors the +Kobako::Transport::Yield+ tag 0x04
-      # payload; +default+ provides a fallback when the payload is not a
-      # Hash.
-      def yield_failure(payload, default:)
-        return RuntimeError.new(default) unless payload.is_a?(Hash)
-
-        klass = payload["class"] || "RuntimeError"
-        message = payload["message"] || default
-        RuntimeError.new("#{klass}: #{message}")
       end
     end
   end

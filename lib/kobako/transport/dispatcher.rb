@@ -4,7 +4,6 @@ require_relative "../codec"
 require_relative "../payload"
 require_relative "call"
 require_relative "reflection"
-require_relative "yield"
 require_relative "yielder"
 
 module Kobako
