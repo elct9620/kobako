@@ -30,7 +30,7 @@ module Kobako
     # into the Run envelope the +__kobako_run+ command buffer carries.
     #
     # Built on the +class X < Data.define(...)+ subclass form (the
-    # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
+    # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
     class Run < Data.define(:entrypoint, :args, :kwargs)
       # Ruby constant-name pattern enforced on the +entrypoint+ Symbol.
       # Parallel to

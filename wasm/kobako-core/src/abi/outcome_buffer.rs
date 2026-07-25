@@ -13,8 +13,7 @@
 //! emitted by `export_guest!` in the shell crate; these are the plain
 //! functions they delegate to.
 
-use kobako_codec::codec::Encode;
-use kobako_codec::outcome::{Outcome, Panic};
+use kobako_codec::envelope::{Outcome, Panic};
 
 use std::sync::Mutex;
 
@@ -41,13 +40,9 @@ pub fn write_outcome(bytes: Vec<u8>) {
 }
 
 /// Encode `panic` as an Outcome envelope and stamp it into the
-/// outcome buffer. If encoding itself fails, the buffer stays
-/// empty — the host treats `len = 0` as a wire violation and follows
-/// the TrapError path.
+/// outcome buffer.
 pub fn write_panic(panic: Panic) {
-    if let Ok(bytes) = Outcome::Panic(panic).encode() {
-        write_outcome(bytes);
-    }
+    write_outcome(Outcome::Panic(panic).encode());
 }
 
 /// Guest allocator — hands out a `size`-byte buffer in wasm linear

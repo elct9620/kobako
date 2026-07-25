@@ -23,7 +23,7 @@ module Kobako
   # is the responsibility of the dispatch layer, not the codec.
   #
   # Built on the +class X < Data.define(...)+ subclass form (the
-  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
+  # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
   class Fault < Data.define(:type, :message, :details)
     VALID_TYPES = %w[runtime argument undefined].freeze
 

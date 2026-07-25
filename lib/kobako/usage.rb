@@ -27,7 +27,7 @@ module Kobako
   # invocation consumed.
   #
   # Built on the +class X < Data.define(...)+ subclass form (the
-  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
+  # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
   class Usage < Data.define(:wall_time, :memory_peak)
     # Pre-run sentinel. A fresh +Kobako::Context+ holds it until its guest
     # runs, so an Execution's +#usage+ is never +nil+.

@@ -2,9 +2,8 @@
 //!
 //! The Rust expression of the kobako Transport wire (SPEC.md "Wire
 //! Codec"), shared by both sides of the wasm boundary: `envelope` is the
-//! core envelope, `codec` the MessagePack byte codec, `payload` the
-//! invocation arguments it carries, `outcome` the per-invocation
-//! Outcome / Panic records. The guest-ABI contract crate
+//! core envelope and `codec` the MessagePack byte codec, with `payload`
+//! the invocation arguments it carries. The guest-ABI contract crate
 //! (`kobako-core`) builds its transport machinery on this tier; a Rust
 //! host encodes the same envelopes with it directly. Nothing here is
 //! guest-bound — no ABI import, no mruby, no engine.
@@ -26,7 +25,5 @@ pub mod envelope;
 
 #[cfg(feature = "msgpack")]
 pub mod codec;
-#[cfg(feature = "msgpack")]
-pub mod outcome;
 #[cfg(feature = "msgpack")]
 pub mod payload;

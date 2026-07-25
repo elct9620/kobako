@@ -166,12 +166,13 @@ module Kobako
       Execution.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture, failed: failed)
     end
 
-    # Decode a completed run's outcome into its +Execution+. A Capability
-    # Handle in the result is restored to its host object first. Decode sits in
-    # the rescue so a wire-violation trap or a Panic envelope both attach this
+    # Settle a completed run's outcome into its +Execution+. A Capability
+    # Handle in the result is restored to its host object first. The settle
+    # sits in the rescue so a wire-violation trap or a Panic both attach this
     # run's Execution, just like a guest-call trap does.
     def settle_outcome(snapshot, verb)
-      value, carried = Codec.track_handles { Outcome.decode(snapshot.outcome) }
+      kind, payload, panic = snapshot.outcome
+      value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic) }
       value = Codec::HandleWalk.deep_restore(value, @handler) if carried
       build_execution(value, failed: false)
     rescue Kobako::TrapError => e

@@ -24,7 +24,7 @@ use beni::Ccontext;
 use beni::Mrb;
 #[cfg(mruby_linked)]
 use kobako_codec::envelope::{Preamble, Snippet, Snippets};
-use kobako_codec::outcome::Panic;
+use kobako_codec::envelope::{ErrorRecord, Panic};
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty
@@ -32,13 +32,7 @@ use kobako_codec::outcome::Panic;
 /// `Kobako::BootError` panic shape — every boot-time failure should
 /// pass through here so the host-visible attribution stays uniform.
 pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
-    Panic {
-        origin: "sandbox".into(),
-        class: "Kobako::BootError".into(),
-        message: message.into(),
-        backtrace: Vec::new(),
-        details: None,
-    }
+    sandbox_panic("Kobako::BootError", message)
 }
 
 /// Build a Panic envelope for a wire-layer failure at the invocation
@@ -48,12 +42,22 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 /// for decode / encode faults on the invocation envelope, so the
 /// host-visible attribution stays uniform.
 pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
+    sandbox_panic("Kobako::Transport::Error", message)
+}
+
+/// The shape every host-detected failure at the invocation boundary
+/// shares: sandbox origin, no backtrace (the failure is the host's
+/// reading of the wire, not a guest stack), no details.
+#[cfg(any(mruby_linked, test))]
+fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
         origin: "sandbox".into(),
-        class: "Kobako::Transport::Error".into(),
-        message: message.into(),
-        backtrace: Vec::new(),
-        details: None,
+        error: ErrorRecord {
+            class: class.into(),
+            message: message.into(),
+            backtrace: Vec::new(),
+        },
+        details: Vec::new(),
     }
 }
 
@@ -66,16 +70,13 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
 /// which type failed without an implicit `inspect`.
 #[cfg(mruby_linked)]
 pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) -> Panic {
-    Panic {
-        origin: "sandbox".into(),
-        class: "Kobako::SandboxError".into(),
-        message: format!(
+    sandbox_panic(
+        "Kobako::SandboxError",
+        format!(
             "return value of type {} is not a supported sandbox value type",
             value.classname(kobako.mrb())
         ),
-        backtrace: Vec::new(),
-        details: None,
-    }
+    )
 }
 
 /// Serialize `result_val` as the invocation's Result envelope — or the
@@ -84,15 +85,15 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
 /// bodies, so the outcome attribution cannot drift between them.
 #[cfg(mruby_linked)]
 pub(super) fn write_value_outcome(kobako: &Kobako, result_val: beni::Value) {
-    use kobako_codec::codec::Encode;
-    use kobako_codec::outcome::Outcome;
+    use kobako_codec::codec::Encoder;
+    use kobako_codec::envelope::Outcome;
     use kobako_core::abi::{write_outcome, write_panic};
 
     let Some(codec_value) = kobako.try_codec_value(result_val) else {
         return write_panic(unrepresentable_return_panic(kobako, result_val));
     };
-    match Outcome::Value(codec_value).encode() {
-        Ok(bytes) => write_outcome(bytes),
+    match Encoder::encode(&codec_value) {
+        Ok(payload) => write_outcome(Outcome::Result(payload).encode()),
         Err(_) => write_panic(transport_panic("result envelope encode failed")),
     }
 }
@@ -177,7 +178,7 @@ pub(super) fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
 #[cfg(mruby_linked)]
 pub(crate) fn bake_boot<G: crate::MrbGuest>() {
     if let Err(panic) = boot_vm::<G>() {
-        panic!("canonical boot state bake failed: {}", panic.message);
+        panic!("canonical boot state bake failed: {}", panic.error.message);
     }
 }
 
@@ -236,11 +237,11 @@ pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(
 fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
     let class = match load {
         BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
-        BytecodeLoad::Loaded => panic.class,
+        BytecodeLoad::Loaded => panic.error.class,
     };
     Panic {
         origin: "sandbox".into(),
-        class,
+        error: ErrorRecord { class, ..panic.error },
         ..panic
     }
 }
@@ -356,10 +357,12 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
         origin: origin_for_class(&class).into(),
-        class,
-        message,
-        backtrace,
-        details: None,
+        error: ErrorRecord {
+            class,
+            message,
+            backtrace,
+        },
+        details: Vec::new(),
     }
 }
 
@@ -370,13 +373,7 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
 pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
     match err {
         beni::Error::Exception(exc) => panic_from_exception(kobako, exc),
-        beni::Error::Panic(message) => Panic {
-            origin: "sandbox".into(),
-            class: "RuntimeError".into(),
-            message,
-            backtrace: Vec::new(),
-            details: None,
-        },
+        beni::Error::Panic(message) => sandbox_panic("RuntimeError", message),
     }
 }
 
@@ -388,20 +385,20 @@ mod tests {
     fn boot_panic_carries_kobako_boot_defaults() {
         let p = boot_panic("failed to read preamble frame");
         assert_eq!(p.origin, "sandbox");
-        assert_eq!(p.class, "Kobako::BootError");
-        assert_eq!(p.message, "failed to read preamble frame");
-        assert!(p.backtrace.is_empty());
-        assert!(p.details.is_none());
+        assert_eq!(p.error.class, "Kobako::BootError");
+        assert_eq!(p.error.message, "failed to read preamble frame");
+        assert!(p.error.backtrace.is_empty());
+        assert!(p.details.is_empty());
     }
 
     #[test]
     fn transport_panic_carries_kobako_transport_defaults() {
         let p = transport_panic("failed to decode the invocation request");
         assert_eq!(p.origin, "sandbox");
-        assert_eq!(p.class, "Kobako::Transport::Error");
-        assert_eq!(p.message, "failed to decode the invocation request");
-        assert!(p.backtrace.is_empty());
-        assert!(p.details.is_none());
+        assert_eq!(p.error.class, "Kobako::Transport::Error");
+        assert_eq!(p.error.message, "failed to decode the invocation request");
+        assert!(p.error.backtrace.is_empty());
+        assert!(p.details.is_empty());
     }
 
     #[test]

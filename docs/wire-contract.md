@@ -101,9 +101,9 @@ The outcome envelope has two variants:
 | Variant | Meaning |
 |---------|---------|
 | **Result envelope** | The invocation completed without an uncaught top-level exception. Carries the serialized return value — the last mruby expression of `#eval`'s source, or the entrypoint's `#call` return for `#run`. The Host App reads the deserialized Ruby value as the run's `Execution#value`. |
-| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, `backtrace`, and optional `details` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`; `origin="sandbox"` or absent maps to `Kobako::SandboxError`. `details` carries optional structured diagnostics (e.g., the available top-level constant list for an undefined `#run` entrypoint, E-27). |
+| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, `backtrace`, and optional `details` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`, and every other value maps to `Kobako::SandboxError`, so an origin the contract does not reserve attributes to the sandbox rather than widening what a Service can claim. `details` carries optional structured diagnostics (e.g., the available top-level constant list for an undefined `#run` entrypoint, E-27). |
 
-The host reads zero-length outcome bytes or an unrecognized envelope tag as a wire-violation signal and raises `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted). Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via the run's `Execution#stdout` / `Execution#stderr`.
+Outcome bytes the host cannot frame as one of the two variants — an absent outcome included — are a wire-violation signal and raise `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted): a message the host cannot frame leaves nothing to attribute a failure to. Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via the run's `Execution#stdout` / `Execution#stderr`.
 
 ---
 

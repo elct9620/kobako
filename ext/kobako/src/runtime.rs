@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::envelope::{Preamble, Run, Snippet, Snippets};
+use kobako_runtime::envelope::{Outcome, Preamble, Run, Snippet, Snippets};
 use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
@@ -384,14 +384,45 @@ impl From<RuntimeSnapshot> for Snapshot {
 }
 
 impl Snapshot {
-    /// The guest's raw outcome bytes on a completed run; empty on a trap,
-    /// where `#trapped?` is the authoritative discriminator and the bytes
-    /// are never read.
-    fn outcome(&self) -> RString {
+    /// One completed run's outcome, already split off the core envelope:
+    /// `[kind, payload, panic]`. `kind` names the arm — `:result`,
+    /// `:panic`, `:absent` (nothing written), or `:malformed` (bytes the
+    /// envelope cannot frame). `payload` is adapter-encoded: the
+    /// invocation's value on `:result`, the Panic's details on `:panic`
+    /// (empty when absent). `panic` carries the attribution fields on
+    /// `:panic` and is `nil` otherwise, so the Ruby side maps a failure
+    /// onto its error taxonomy without decoding a payload byte.
+    ///
+    /// A trap answers `:absent` — `#trapped?` is the authoritative
+    /// discriminator there and this is never read.
+    fn outcome(
+        &self,
+    ) -> (
+        Symbol,
+        RString,
+        Option<(String, String, String, Vec<String>)>,
+    ) {
         let ruby = Ruby::get().expect("Ruby thread");
-        match &self.completion {
-            Completion::Outcome(bytes) => ruby.str_from_slice(bytes),
-            Completion::Trap(_) => ruby.str_from_slice(&[]),
+        let empty = || ruby.str_from_slice(&[]);
+        let Completion::Outcome(bytes) = &self.completion else {
+            return (ruby.to_symbol("absent"), empty(), None);
+        };
+        match Outcome::decode(bytes) {
+            Ok(Outcome::Result(value)) => {
+                (ruby.to_symbol("result"), ruby.str_from_slice(&value), None)
+            }
+            Ok(Outcome::Panic(panic)) => (
+                ruby.to_symbol("panic"),
+                ruby.str_from_slice(&panic.details),
+                Some((
+                    panic.origin,
+                    panic.error.class,
+                    panic.error.message,
+                    panic.error.backtrace,
+                )),
+            ),
+            Err(_) if bytes.is_empty() => (ruby.to_symbol("absent"), empty(), None),
+            Err(_) => (ruby.to_symbol("malformed"), empty(), None),
         }
     }
 

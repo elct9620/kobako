@@ -12,8 +12,8 @@ module Kobako
     # large argument's strings shared with the buffer the ext handed over.
     #
     # Built on the +class X < Data.define(...)+ subclass form so the class
-    # body is fully Steep-visible; see +lib/kobako/outcome/panic.rb+ for
-    # the rationale.
+    # body is fully Steep-visible; see +.rubocop.yml+ for the
+    # rationale.
     class Call < Data.define(:target, :method_name, :block_given, :payload)
     end
   end

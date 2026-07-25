@@ -1,24 +1,22 @@
 module Kobako
   module Outcome
-    TYPE_VALUE: Integer
-    TYPE_PANIC: Integer
+    ORIGIN_SANDBOX: String
+    ORIGIN_SERVICE: String
 
-    def self?.decode: (String bytes) -> untyped
+    type panic_fields = [String, String, String, Array[String]]
 
-    def self?.build_trap_error: (Integer? tag) -> TrapError
+    def self?.reify: (Symbol kind, String payload, panic_fields? panic) -> Kobako::Codec::wire_value
 
-    def self?.split_tag: (String bytes) -> [Integer?, String]
+    def self?.panic_error: (String details, panic_fields panic) -> (SandboxError | ServiceError)
 
-    def self?.decode_value: (String body) -> Kobako::Codec::wire_value
+    def self?.error_class: (String origin, String klass) -> (singleton(SandboxError) | singleton(ServiceError))
 
-    def self?.decode_panic: (String body) -> void
+    def self?.trap_error: (Symbol kind) -> TrapError
 
-    def self?.build_panic_record: (String body) -> Panic
+    def self?.decode_value: (String payload) -> Kobako::Codec::wire_value
 
-    def self?.build_panic_error: (Panic panic) -> (SandboxError | ServiceError)
+    def self?.decode_details: (String payload) -> Kobako::Codec::wire_value?
 
-    def self?.panic_target_class: (Panic panic) -> (singleton(SandboxError) | singleton(ServiceError))
-
-    def self?.build_transport_error: (String message, ?detail: String?) -> Transport::Error
+    def self?.wire_error: (String message, ?detail: String?) -> Transport::Error
   end
 end

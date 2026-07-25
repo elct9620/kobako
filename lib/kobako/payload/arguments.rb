@@ -14,8 +14,8 @@ module Kobako
     # construction so the value object is the single source of truth.
     #
     # Built on the +class X < Data.define(...)+ subclass form so the class
-    # body is fully Steep-visible; see +lib/kobako/outcome/panic.rb+ for
-    # the rationale.
+    # body is fully Steep-visible; see +.rubocop.yml+ for the
+    # rationale.
     class Arguments < Data.define(:args, :kwargs)
       def initialize(args: [], kwargs: {})
         raise ArgumentError, "payload args must be Array" unless args.is_a?(Array)

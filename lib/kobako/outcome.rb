@@ -1,160 +1,106 @@
 # frozen_string_literal: true
 
 require_relative "codec"
-require_relative "outcome/panic"
 require_relative "transport/error"
 
 module Kobako
-  # Host-facing boundary for the OUTCOME_BUFFER produced by
-  # +__kobako_eval+. Takes raw outcome bytes — a one-byte tag followed by
-  # the msgpack-encoded body — and maps them to either the unwrapped
-  # mruby return value or a raised three-layer exception.
+  # Host-facing boundary for the invocation outcome the native side split
+  # off the core envelope. Takes the arm it named plus the fields that arm
+  # carries, and settles the invocation the way a host does: return the
+  # value, or raise the exception the failure attributes to.
   #
-  # Self-contained: this module owns the wire framing (tag bytes,
-  # body decoding), and the +Panic+ wire record lives at
-  # +Kobako::Outcome::Panic+. The byte-level msgpack codec at
-  # +Kobako::Codec+ is invoked for the body itself; otherwise
-  # nothing in +Transport+ participates.
+  # This is the two-step attribution decision. The wire framing belongs to
+  # the native side; the payload adapter at +Kobako::Codec+ decodes only
+  # what an arm carries.
   module Outcome
-    # First byte of the OUTCOME_BUFFER for the success branch — body is
-    # the bare msgpack encoding of the returned value
-    # ({docs/wire-contract.md Outcome Envelope}[link:../../docs/wire-contract.md]).
-    TYPE_VALUE = 0x01
-    # First byte of the OUTCOME_BUFFER for the failure branch — body is
-    # the msgpack Panic map.
-    TYPE_PANIC = 0x02
+    # The two +origin+ values a Panic attributes with.
+    ORIGIN_SANDBOX = "sandbox"
+    ORIGIN_SERVICE = "service"
 
     module_function
 
-    def decode(bytes)
-      tag, body = split_tag(bytes)
-      case tag
-      when TYPE_VALUE
-        decode_value(body)
-      when TYPE_PANIC
-        decode_panic(body)
-      else
-        raise build_trap_error(tag)
-      end
+    # Settle one invocation. +kind+ names the arm, +payload+ is its
+    # adapter-encoded content (the value on +:result+, the Panic's details
+    # on +:panic+), and +panic+ carries the attribution fields
+    # +[origin, class, message, backtrace]+ — present on the panic arm and
+    # absent on every other, which is what tells the failure that has a
+    # record to attribute from apart from the two that do not.
+    def reify(kind, payload, panic)
+      return decode_value(payload) if kind == :result
+
+      raise panic ? panic_error(payload, panic) : trap_error(kind)
     end
 
-    # TrapError for unknown or absent tag
-    # ({docs/wire-codec.md ABI Signatures}[link:../../docs/wire-codec.md]:
-    # zero-length output and unrecognised first byte both walk the trap
-    # path). The absent-vs-present distinction selects the message;
-    # the raw byte is not actionable to a caller and is not surfaced.
-    def build_trap_error(tag)
-      if tag.nil?
-        TrapError.new("Sandbox exited without producing a result")
-      else
-        TrapError.new(
-          "Sandbox produced an unrecognised result; the runtime is corrupted, " \
-          "discard this Sandbox before another invocation"
-        )
-      end
+    # Map a Panic's attribution fields onto the three-layer taxonomy. The
+    # fields land on the exception verbatim — it carries the record rather
+    # than a translation of one.
+    def panic_error(details, panic)
+      origin, klass, message, backtrace = panic
+      error_class(origin, klass).new(
+        message, origin: origin, klass: klass,
+                 backtrace_lines: backtrace, details: decode_details(details)
+      )
     end
 
-    def split_tag(bytes)
-      bytes = bytes.b
-      return [nil, "".b] if bytes.empty?
+    # +origin == "service"+ selects ServiceError; a sandbox-origin failure
+    # carrying the bytecode rejection class selects the BytecodeError
+    # subclass so callers can rescue that path specifically.
+    def error_class(origin, klass)
+      return ServiceError if origin == ORIGIN_SERVICE
 
-      tag = bytes.getbyte(0) # : Integer
-      body = bytes.byteslice(1, bytes.bytesize - 1) # : String
-      [tag, body]
+      klass == "Kobako::BytecodeError" ? BytecodeError : SandboxError
     end
 
-    # Decode failure on the success tag is a SandboxError: the
-    # framing was fine, but the carried value is unrepresentable. The
-    # specific codec fault is stashed in +details+ rather
-    # than spliced into the message — callers cannot act on the inner
-    # "Symbol payload must be …" wording, but operators triaging a
-    # corrupted Sandbox runtime still need it.
-    def decode_value(body)
-      # The Result envelope is a payload position: an ext 0x02 Fault in it
-      # is a wire violation routed into the invalid-result rescue below.
-      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(body) }
+    # An arm the host cannot settle: the guest wrote nothing, or wrote
+    # bytes the envelope cannot frame. Either leaves nothing to attribute
+    # to, so both walk the trap path; only the absent-versus-present
+    # distinction selects the message.
+    def trap_error(kind)
+      return TrapError.new("Sandbox exited without producing a result") if kind == :absent
+
+      TrapError.new(
+        "Sandbox produced an unrecognised result; the runtime is corrupted, " \
+        "discard this Sandbox before another invocation"
+      )
+    end
+
+    # The Result arm's value. A decode fault means the framing was fine
+    # but the carried value is unrepresentable; the specific codec fault
+    # is stashed in +details+ rather than spliced into the message —
+    # callers cannot act on the inner "Symbol payload must be …" wording,
+    # but operators triaging a corrupted Sandbox runtime still need it.
+    def decode_value(payload)
+      # A Result is a payload position: an ext 0x02 Fault in it is a wire
+      # violation, since a Fault's only home is a Reply's fault arm.
+      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
     rescue Kobako::Codec::Error => e
-      raise build_transport_error(
-        "Sandbox produced an invalid result value",
-        detail: e.message
-      )
+      raise wire_error("Sandbox produced an invalid result value", detail: e.message)
     end
 
-    # Decode failure on the panic tag is a SandboxError. Either
-    # path raises — on success the decoded Panic is mapped to its three-
-    # layer exception via +build_panic_error+ and raised; on wire-decode
-    # failure the rescue path raises the wire-violation +SandboxError+.
-    def decode_panic(body)
-      raise build_panic_error(build_panic_record(body))
+    # A Panic's structured diagnostics, or +nil+ when the arm carried
+    # none. Details are a payload position, so an ext 0x02 Fault in them
+    # is a wire violation — a Panic whose diagnostics violate the wire is
+    # not a record worth attributing from, and the invalid-record channel
+    # takes it instead.
+    def decode_details(payload)
+      return nil if payload.empty?
+
+      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
     rescue Kobako::Codec::Error => e
-      raise build_transport_error(
-        "Sandbox produced an invalid panic record",
-        detail: e.message
-      )
+      raise wire_error("Sandbox produced an invalid panic record", detail: e.message)
     end
 
-    # Build a +Panic+ value object from the msgpack-decoded body. Raises
-    # +Kobako::Codec::InvalidType+ when the body is not a map or when
-    # required keys are missing — both routed by +decode_panic+ to
-    # +build_transport_error+. The decode runs in block form so
-    # +Panic.new+'s +ArgumentError+ invariants surface as +InvalidType+
-    # through the decoder boundary; the message itself is never user-
-    # facing — it lands in +details+ via the rescue chain above.
-    def build_panic_record(body)
-      # The Panic envelope is a payload position: an ext 0x02 Fault in its
-      # +details+ is a wire violation routed into the invalid-panic rescue.
-      Kobako::Codec.forbid_faults do
-        Kobako::Codec::Decoder.decode(body) do |map|
-          raise Kobako::Codec::InvalidType, "panic body must be a map, got #{map.class}" unless map.is_a?(Hash)
-
-          Panic.new(
-            origin: map["origin"], klass: map["class"], message: map["message"],
-            backtrace: map["backtrace"] || [], details: map["details"]
-          )
-        end
-      end
-    end
-
-    # Map a decoded Panic record into the corresponding three-layer
-    # Ruby exception. +origin == "service"+ → ServiceError; everything
-    # else → SandboxError.
-    def build_panic_error(panic)
-      panic_target_class(panic).new(
-        panic.message,
-        origin: panic.origin,
-        klass: panic.klass,
-        backtrace_lines: panic.backtrace,
-        details: panic.details
-      )
-    end
-
-    # Map the panic +class+ field to the matching Ruby exception subclass
-    # so callers can rescue specific failure paths. +origin="service"+ →
-    # +ServiceError+; +origin="sandbox"+ plus
-    # +class="Kobako::BytecodeError"+ selects the +BytecodeError+
-    # subclass. Everything else falls back to the base class for the
-    # origin.
-    def panic_target_class(panic)
-      case panic.origin
-      when Panic::ORIGIN_SERVICE
-        ServiceError
-      else
-        panic.klass == "Kobako::BytecodeError" ? BytecodeError : SandboxError
-      end
-    end
-
-    # Lift the wire-violation fallback to the real
+    # Lift a wire violation the host detected to the real
     # +Kobako::Transport::Error+ class so callers can +rescue+ it
     # specifically instead of pattern-matching on +error.klass+. The
-    # +klass+ field is still populated so existing operator-side
-    # tooling that greps on the string continues to work.
-    # +detail+ carries the inner codec / framing message, stashed
-    # directly into +details+ for operator diagnosis without polluting
-    # the user-facing +#message+.
-    def build_transport_error(message, detail: nil)
+    # +klass+ field is still populated so existing operator-side tooling
+    # that greps on the string continues to work. +detail+ carries the
+    # inner codec message for operator diagnosis without polluting the
+    # user-facing +#message+.
+    def wire_error(message, detail: nil)
       Kobako::Transport::Error.new(
         message,
-        origin: Panic::ORIGIN_SANDBOX,
+        origin: ORIGIN_SANDBOX,
         klass: "Kobako::Transport::Error",
         details: detail
       )

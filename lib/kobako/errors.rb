@@ -36,8 +36,8 @@ module Kobako
 
   # Wasm engine layer. Raised when the Wasm execution engine crashed
   # (trap, OOM, unreachable) or when the wire layer detected a structural
-  # violation that signals a corrupted guest execution environment
-  # (zero-length OUTCOME_BUFFER, unknown outcome tag).
+  # violation that signals a corrupted guest execution environment (an
+  # outcome the core envelope cannot frame, an absent one included).
   #
   # Two named subclasses cover the configured per-invocation caps:
   #
@@ -104,7 +104,8 @@ module Kobako
 
   # Sandbox / wire layer. Raised when the guest ran to completion but
   # execution failed due to a mruby script error, a protocol fault, or a
-  # host-side wire decode failure on an otherwise valid outcome tag.
+  # payload the host's adapter could not decode out of a well-framed
+  # outcome.
   class SandboxError < Error
     include Diagnosable
     include CarriesExecution

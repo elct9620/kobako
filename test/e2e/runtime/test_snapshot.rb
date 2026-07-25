@@ -31,13 +31,24 @@ class TestRuntimeSnapshot < Minitest::Test
     snapshot = drive_eval("42")
 
     refute_predicate snapshot, :trapped?
-    assert_kind_of String, snapshot.outcome
     assert_kind_of String, snapshot.stdout
     assert_kind_of String, snapshot.stderr
     assert_includes [true, false], snapshot.stdout_truncated?
     assert_includes [true, false], snapshot.stderr_truncated?
     assert_kind_of Float, snapshot.wall_time
     assert_kind_of Integer, snapshot.memory_peak
+  end
+
+  # The ext splits the outcome off the core envelope, so what reaches Ruby
+  # is the arm plus the fields that arm carries — pin the shape for the
+  # arm every successful run takes.
+  def test_snapshot_splits_a_successful_outcome_into_its_result_arm
+    kind, payload, panic = drive_eval("42").outcome
+
+    assert_equal :result, kind
+    assert_kind_of String, payload
+    assert_nil panic,
+               "an arm carrying no attribution record must answer nil rather than an empty tuple"
   end
 
   # The two capture channels are distinct readers; a reader swap in the ext

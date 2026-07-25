@@ -14,8 +14,7 @@
 //!
 //! ```text
 //! 4-byte BE length (of payload, including the kind tag)
-//! 1-byte kind: 'R' Result envelope, 'X' Panic envelope,
-//!              'O' Outcome envelope, 'A' invocation Arguments
+//! 1-byte kind: 'A' invocation Arguments
 //! N bytes: msgpack payload for the specified envelope kind
 //! ```
 //!
@@ -30,7 +29,6 @@ use std::io::{self, Read, Write};
 
 use kobako_codec::codec;
 use kobako_codec::codec::{Decode, Encode};
-use kobako_codec::outcome::{Outcome, Panic};
 use kobako_codec::payload::Arguments;
 use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
@@ -86,24 +84,6 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 
 fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
     match kind {
-        b'R' => {
-            // Result envelope is a bare codec value (no enclosing wrapper);
-            // round-trip it straight through the codec, mirroring the host's
-            // Outcome.decode success branch which calls Codec::Decoder.decode.
-            let mut dec = codec::Decoder::new(body);
-            let v = dec.read_value().map_err(stringify)?;
-            let mut enc = codec::Encoder::new();
-            enc.write_value(&v).map_err(stringify)?;
-            Ok(enc.into_bytes())
-        }
-        b'X' => {
-            let p = Panic::decode(body).map_err(stringify)?;
-            p.encode().map_err(stringify)
-        }
-        b'O' => {
-            let o = Outcome::decode(body).map_err(stringify)?;
-            o.encode().map_err(stringify)
-        }
         b'A' => {
             let arguments = Arguments::decode(body).map_err(stringify)?;
             arguments.encode().map_err(stringify)

@@ -8,7 +8,7 @@
 //! wire-level error class name, not a Ruby leakage.
 
 use kobako_codec::codec::{Decoder, Value};
-use kobako_codec::outcome::{Panic, OUTCOME_TAG_PANIC, OUTCOME_TAG_RESULT};
+use kobako_runtime::envelope::{Outcome, Panic};
 
 use crate::error::{Error, GuestFailure};
 
@@ -19,15 +19,16 @@ const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 /// Classify one OUTCOME_BUFFER: the decoded return value, or the
 /// `Error` variant its failure attributes to.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Value, Error> {
-    let Some((&tag, body)) = bytes.split_first() else {
-        return Err(Error::Trap(
+    match Outcome::decode(bytes) {
+        Ok(Outcome::Result(payload)) => decode_value(&payload),
+        Ok(Outcome::Panic(panic)) => Err(classify_panic(panic)),
+        // Framing the outcome is the one thing the host does before
+        // attribution, so a message it cannot frame — an empty buffer
+        // included — leaves nothing to attribute to.
+        Err(_) if bytes.is_empty() => Err(Error::Trap(
             "Sandbox exited without producing a result".into(),
-        ));
-    };
-    match tag {
-        OUTCOME_TAG_RESULT => decode_value(body),
-        OUTCOME_TAG_PANIC => Err(decode_panic(body)),
-        _ => Err(Error::Trap(
+        )),
+        Err(_) => Err(Error::Trap(
             "Sandbox produced an unrecognised result; the runtime is corrupted, \
              discard this Sandbox before another invocation"
                 .into(),
@@ -44,8 +45,8 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
         .read_only_value()
         .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))?;
     // A Result envelope is a payload position: the Fault envelope's only
-    // home is the Response fault field, so an ext 0x02 in the carried
-    // value is a wire violation.
+    // home is a Reply's fault arm, so an ext 0x02 in the carried value is
+    // a wire violation.
     if value.contains_errenv() {
         return Err(wire_violation(
             "Sandbox produced an invalid result value",
@@ -57,32 +58,50 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
     Ok(value)
 }
 
-/// Panic branch: a well-formed record maps onto the taxonomy by its
-/// origin and class; a malformed record is itself a wire violation.
-fn decode_panic(body: &[u8]) -> Error {
-    match <Panic as kobako_codec::codec::Decode>::decode(body) {
-        Ok(panic) => classify_panic(panic),
-        Err(err) => wire_violation("Sandbox produced an invalid panic record", &err),
-    }
-}
-
 /// `origin == "service"` → `Service`; a sandbox-origin panic carrying
 /// the bytecode rejection class → `Bytecode`; everything else →
-/// `Sandbox`.
+/// `Sandbox`. Details are a payload position, so an ext 0x02 Fault among
+/// them is a wire violation — a Panic whose diagnostics violate the wire
+/// is not a record worth attributing from.
 fn classify_panic(panic: Panic) -> Error {
-    let failure = GuestFailure {
-        class: panic.class,
-        message: panic.message,
-        backtrace: panic.backtrace,
-        details: panic.details,
+    let from_service = panic.from_service();
+    let details = match decode_details(&panic.details) {
+        Ok(details) => details,
+        Err(err) => return err,
     };
-    if panic.origin == "service" {
+    let failure = GuestFailure {
+        class: panic.error.class,
+        message: panic.error.message,
+        backtrace: panic.error.backtrace,
+        details,
+    };
+    if from_service {
         Error::Service(failure)
     } else if failure.class == "Kobako::BytecodeError" {
         Error::Bytecode(failure)
     } else {
         Error::Sandbox(failure)
     }
+}
+
+/// A Panic's structured diagnostics, or `None` when the arm carried
+/// none.
+fn decode_details(details: &[u8]) -> Result<Option<Value>, Error> {
+    if details.is_empty() {
+        return Ok(None);
+    }
+    let value = Decoder::new(details)
+        .read_only_value()
+        .map_err(|err| wire_violation("Sandbox produced an invalid panic record", &err))?;
+    if value.contains_errenv() {
+        return Err(wire_violation(
+            "Sandbox produced an invalid panic record",
+            &kobako_codec::codec::Error::Malformed(
+                "Fault envelope (ext 0x02) is not a legal value in a Panic envelope",
+            ),
+        ));
+    }
+    Ok(Some(value))
 }
 
 fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
@@ -96,38 +115,38 @@ fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::Encode;
-    use kobako_codec::outcome::Outcome;
+    use kobako_codec::codec::Encoder;
+    use kobako_runtime::envelope::ErrorRecord;
 
     use super::*;
 
     fn panic_bytes(origin: &str, class: &str) -> Vec<u8> {
         Outcome::Panic(Panic {
             origin: origin.into(),
-            class: class.into(),
-            message: "boom".into(),
-            backtrace: vec![],
-            details: None,
+            error: ErrorRecord {
+                class: class.into(),
+                message: "boom".into(),
+                backtrace: Vec::new(),
+            },
+            details: Vec::new(),
         })
         .encode()
-        .unwrap()
+    }
+
+    fn result_bytes(value: &Value) -> Vec<u8> {
+        Outcome::Result(Encoder::encode(value).unwrap()).encode()
     }
 
     #[test]
     fn value_branch_decodes_to_the_carried_value() {
-        let bytes = Outcome::Value(Value::Int(42)).encode().unwrap();
-        assert_eq!(decode(&bytes).unwrap(), Value::Int(42));
+        assert_eq!(decode(&result_bytes(&Value::Int(42))).unwrap(), Value::Int(42));
     }
 
     // E-50: a Result envelope smuggling an ext 0x02 surfaces through the
     // invalid-result wire-violation channel, matching the Ruby frontend.
     #[test]
     fn value_branch_rejects_errenv_as_wire_violation() {
-        let mut bytes = vec![0x01];
-        let mut enc = kobako_codec::codec::Encoder::new();
-        enc.write_value(&Value::ErrEnv(vec![0x80])).unwrap();
-        bytes.extend_from_slice(&enc.into_bytes());
-        let result = decode(&bytes);
+        let result = decode(&result_bytes(&Value::ErrEnv(vec![0x80])));
         assert!(
             matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("invalid result value")),
             "expected the invalid-result wire violation, got {result:?}"
@@ -164,17 +183,39 @@ mod tests {
 
     #[test]
     fn malformed_value_body_is_a_wire_violation_sandbox_error() {
-        // Tag 0x01 followed by a truncated msgpack str header.
-        let result = decode(&[OUTCOME_TAG_RESULT, 0xd9]);
+        // The Result arm followed by a truncated msgpack str header.
+        let result = decode(&Outcome::Result(vec![0xd9]).encode());
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.class == WIRE_ERROR_CLASS));
     }
 
     #[test]
-    fn malformed_panic_body_is_a_wire_violation_sandbox_error() {
-        // Tag 0x02 followed by a non-map payload.
-        let mut bad = vec![OUTCOME_TAG_PANIC];
-        bad.push(0x2a);
-        let result = decode(&bad);
-        assert!(matches!(result, Err(Error::Sandbox(f)) if f.class == WIRE_ERROR_CLASS));
+    fn a_panic_record_the_envelope_cannot_frame_walks_the_trap_path() {
+        // The Panic arm followed by a truncated origin length prefix.
+        let result = decode(&[0x02, 0x00, 0x00]);
+        assert!(
+            matches!(result, Err(Error::Trap(_))),
+            "a Panic the envelope cannot frame leaves nothing to attribute to, got {result:?}"
+        );
+    }
+
+    // E-50: a Panic smuggling an ext 0x02 in its details surfaces
+    // through the invalid-record channel, matching the Ruby frontend.
+    #[test]
+    fn panic_details_carrying_errenv_are_a_wire_violation() {
+        let bytes = Outcome::Panic(Panic {
+            origin: "sandbox".into(),
+            error: ErrorRecord {
+                class: "RuntimeError".into(),
+                message: "boom".into(),
+                backtrace: Vec::new(),
+            },
+            details: Encoder::encode(&Value::ErrEnv(vec![0x80])).unwrap(),
+        })
+        .encode();
+        let result = decode(&bytes);
+        assert!(
+            matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("invalid panic record")),
+            "expected the invalid-panic-record wire violation, got {result:?}"
+        );
     }
 }

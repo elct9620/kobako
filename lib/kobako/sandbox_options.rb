@@ -6,7 +6,7 @@ module Kobako
   # Kobako::SandboxOptions — immutable Value Object holding the four
   # per-Sandbox configuration caps and the requested isolation profile.
   # Built on the +class X < Data.define(...)+ subclass form (the
-  # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
+  # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
   #
   # The +initialize+ normalises every option before delegating to Data's
   # +super+: +timeout+ to Float seconds, +memory_limit+ / +stdout_limit+ /

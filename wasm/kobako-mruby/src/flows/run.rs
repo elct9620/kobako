@@ -41,9 +41,8 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use kobako_codec::codec::Decode;
-    use kobako_codec::envelope::Run;
-    use kobako_codec::outcome::Panic;
+    use kobako_codec::codec::{Decode, Encoder};
+    use kobako_codec::envelope::{ErrorRecord, Panic, Run};
     use kobako_codec::payload::Arguments;
     use kobako_core::abi::write_panic;
 
@@ -122,16 +121,19 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             .filter(|name| !baseline_set.contains(name))
             .map(Value::Sym)
             .collect();
-        let details = Value::Map(vec![(
+        let details = Encoder::encode(&Value::Map(vec![(
             Value::Str("available".into()),
             Value::Array(available),
-        )]);
+        )]))
+        .unwrap_or_default();
         return write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::SandboxError".into(),
-            message: format!("undefined entrypoint: {}", run.entrypoint),
-            backtrace: Vec::new(),
-            details: Some(details),
+            error: ErrorRecord {
+                class: "Kobako::SandboxError".into(),
+                message: format!("undefined entrypoint: {}", run.entrypoint),
+                backtrace: Vec::new(),
+            },
+            details,
         });
     }
 
@@ -148,10 +150,12 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     if !target_val.respond_to(mrb, call_sym) {
         return write_panic(Panic {
             origin: "sandbox".into(),
-            class: "Kobako::SandboxError".into(),
-            message: format!("entrypoint {} does not respond to :call", run.entrypoint),
-            backtrace: Vec::new(),
-            details: None,
+            error: ErrorRecord {
+                class: "Kobako::SandboxError".into(),
+                message: format!("entrypoint {} does not respond to :call", run.entrypoint),
+                backtrace: Vec::new(),
+            },
+            details: Vec::new(),
         });
     }
 

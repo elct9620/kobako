@@ -1,88 +1,58 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for Kobako::Outcome edge cases that
-# don't need a live wasmtime pipeline. The attribution logic is a
-# stateless module method, so each test decodes raw outcome bytes
-# through Kobako::Outcome.decode directly (see #decode) — no Sandbox.
+# Layer 3 unit tests for the Kobako::Outcome attribution edge cases that
+# don't need a live wasmtime pipeline. Attribution is a stateless module
+# method, so each test hands it the arm the native side names — no
+# Sandbox.
 #
 # Cross-references:
 #   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError
-#   - SPEC.md E-08 — missing required key in Panic envelope
-#   - SPEC.md Wire Codec — Result envelope decode failures map to SandboxError
+#   - SPEC.md Wire Codec — a Result payload the adapter cannot read maps to SandboxError
 
 require "test_helper"
 
 class TestOutcomeAttributionEdgeCases < Minitest::Test
-  include OutcomeBytesHelpers
-
-  # Decode a raw outcome byte-string through the Kobako::Outcome module
-  # without building a wasmtime pipeline.
-  def decode(bytes)
-    Kobako::Outcome.decode(bytes)
+  def reify_panic(origin:, klass:, message:, details: "".b)
+    Kobako::Outcome.reify(:panic, details, [origin, klass, message, []])
   end
 
   # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---
   #
-  # SPEC: origin values other than "service" and "sandbox" are treated as
-  # sandbox-side failures (the panic_target_class method returns SandboxError
-  # for any origin that is not exactly "service").  This is the third branch
-  # of the origin decision tree.
+  # Origins other than "service" attribute to the sandbox — the third
+  # branch of the origin decision tree, and the one an origin the
+  # contract does not reserve lands on.
   def test_panic_with_unknown_origin_raises_sandbox_error
-    bytes = panic_outcome_bytes(origin: "unknown", klass: "Kobako::SomeError", message: "strange")
+    err = assert_raises(Kobako::SandboxError) do
+      reify_panic(origin: "unknown", klass: "Kobako::SomeError", message: "strange")
+    end
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::ServiceError, err,
-                   "unknown origin must not produce ServiceError"
+                   "an origin outside the reserved set must not produce ServiceError"
     assert_equal "strange", err.message
-    # The unknown origin value is propagated verbatim (not overwritten).
-    assert_equal "unknown", err.origin
+    assert_equal "unknown", err.origin,
+                 "the unrecognised origin rides through verbatim rather than being overwritten"
   end
 
-  # --- Panic with origin "sandbox" explicitly raises SandboxError (not ServiceError) ---
-  #
-  # Belt-and-suspenders: pin the canonical "sandbox" origin path at unit
-  # level, independent of the fixture-driven test in test/unit/outcome/test_decoding.rb.
+  # Belt-and-suspenders: pin the canonical "sandbox" origin path
+  # independently of the fixture-driven cases in test_decoding.rb.
   def test_panic_with_sandbox_origin_raises_sandbox_error_not_service_error
-    panic = Kobako::Outcome::Panic.new(
-      origin: "sandbox", klass: "RuntimeError", message: "box-side error"
-    )
-    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, encode_panic_body(panic))
+    err = assert_raises(Kobako::SandboxError) do
+      reify_panic(origin: "sandbox", klass: "RuntimeError", message: "box-side error")
+    end
 
-    err = assert_raises(Kobako::SandboxError) { decode(bytes) }
     refute_kind_of Kobako::ServiceError, err
     assert_equal "box-side error", err.message
   end
 
-  # --- Panic with missing "class" field raises SandboxError (SPEC E-08) ---
+  # --- Result arm with an empty payload raises Transport::Error (E-09) ---
   #
-  # decode_panic calls Envelope.decode_panic, which raises Kobako::Codec::InvalidType
-  # when a required key is absent.  The Sandbox rescue chain wraps that as
-  # SandboxError with klass="Kobako::Transport::Error".
-  def test_panic_with_missing_class_field_raises_sandbox_error
-    # Hand-roll a panic map that omits "class" — cannot use Panic.new because
-    # it requires the field; build the raw bytes directly.
-    raw_map = Kobako::Codec::Encoder.encode(
-      "origin" => "sandbox", "message" => "missing class"
-    )
-    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
+  # An empty payload is not a valid msgpack value, so the adapter raises
+  # and the host wraps it as a Transport::Error whose user-facing message
+  # stays in caller vocabulary; the inner codec diagnostic is preserved
+  # under +details+ for operators.
+  def test_result_arm_with_an_empty_payload_raises_sandbox_error
+    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:result, "".b, nil) }
 
-    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
-    refute_kind_of Kobako::TrapError, err
-    assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::Transport::Error", err.klass
-  end
-
-  # --- Result envelope with empty bytes body raises Transport::Error (SPEC E-09) ---
-  #
-  # An empty result body is not a valid msgpack value, so decode_value
-  # raises Kobako::Codec::Truncated (a Kobako::Codec::Error subclass).
-  # The Sandbox rescue chain wraps that as a Transport::Error (E-09) whose
-  # user-facing message stays in caller vocabulary; the inner codec
-  # diagnostic is preserved under +details+ for operators.
-  def test_result_envelope_with_empty_body_raises_sandbox_error
-    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, "".b)
-
-    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
     assert_equal "Kobako::Transport::Error", err.klass
@@ -93,32 +63,20 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
                    "operator-side codec diagnostic must be preserved in details"
   end
 
-  # --- Result envelope carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
+  # --- Result arm carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
   #
-  # The Fault envelope's sole legal wire position is the Response status=1
-  # field; a Result envelope smuggling one would hand host code a Fault
-  # whose details can nest Handles nothing outside the wire layer can
-  # resolve. The bare codec stays permissive — the positional rule lives
-  # on the envelope decode.
-  def test_result_envelope_carrying_fault_raises_transport_error
+  # The Fault envelope's sole legal wire position is a Reply's fault arm;
+  # a Result smuggling one would hand host code a Fault whose details can
+  # nest Handles nothing outside the wire layer can resolve. The bare
+  # codec stays permissive — the positional rule lives on this decode.
+  def test_result_arm_carrying_fault_raises_transport_error
     fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
-    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_VALUE, Kobako::Codec::Encoder.encode(fault))
 
-    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
+    err = assert_raises(Kobako::Transport::Error) do
+      Kobako::Outcome.reify(:result, Kobako::Codec::Encoder.encode(fault), nil)
+    end
+
     assert_match(/Sandbox produced an invalid result value/, err.message,
-                 "E-50: a Result envelope carrying ext 0x02 must surface as an invalid result value")
-  end
-
-  # --- Panic envelope carrying an ext 0x02 Fault in details raises Transport::Error (E-50) ---
-  def test_panic_envelope_carrying_fault_in_details_raises_transport_error
-    fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
-    raw_map = Kobako::Codec::Encoder.encode(
-      "origin" => "sandbox", "class" => "RuntimeError", "message" => "boom", "details" => fault
-    )
-    bytes = build_outcome_bytes(Kobako::Outcome::TYPE_PANIC, raw_map)
-
-    err = assert_raises(Kobako::Transport::Error) { decode(bytes) }
-    assert_match(/Sandbox produced an invalid panic record/, err.message,
-                 "E-50: a Panic envelope carrying ext 0x02 in details must surface as an invalid panic record")
+                 "E-50: a Result arm carrying ext 0x02 must surface as an invalid result value")
   end
 end
