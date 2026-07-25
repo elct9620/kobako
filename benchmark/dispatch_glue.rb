@@ -3,10 +3,15 @@
 # Characterization benchmark #10 (not in SPEC.md release gate) —
 # isolates the GVL-held host glue of a single guest->host dispatch: the
 # work the +Runtime#on_dispatch+ Proc performs on the Ruby side (decode
-# Request -> resolve target -> invoke Service -> encode Response). It
-# calls +Kobako::Transport::Dispatcher.dispatch+ directly with
-# pre-encoded Request bytes, so NO wasm, boundary crossing, or
+# payload -> resolve target -> invoke Service -> encode the reply body).
+# It calls +Kobako::Transport::Dispatcher.dispatch+ directly with a
+# routed +Transport::Call+, so NO wasm, boundary crossing, or
 # guest-side codec is in the measurement window.
+#
+# The core envelope is framed by the driver, which decodes it and encodes
+# the Reply outside the GVL re-acquisition — so that framing is
+# parallelizable and deliberately outside this window. What remains here
+# is the whole of the serial fraction.
 #
 # This is the predictive half of the GVL-impact toolkit; #7
 # (concurrent/threads.rb) is the confirmation half. A No-GVL design
@@ -27,12 +32,12 @@
 # across threads today and must NOT count toward G. G is exactly the
 # Ruby-CPU glue — codec + resolution + the Service's own CPU.
 #
-#   10a — empty call: Service returns nil. Floor: decode 5-field
-#         envelope + path lookup + invoke + encode nil Response.
+#   10a — empty call: Service returns nil. Floor: decode the payload +
+#         path lookup + invoke + encode a nil reply body.
 #   10b — primitive arg: one Integer arg decoded and returned verbatim.
 #   10c — kwargs: Symbol-keyed kwargs (ext 0x00) decoded into the call.
 #   10d — small structured return: Service returns a 16-element Integer
-#         Array. Isolates the Response-encode growth a data-returning
+#         Array. Isolates the reply-encode growth a data-returning
 #         Binding pays over 10a's nil return.
 #   10e — larger structured return: 256-element Array. The 10d->10e
 #         slope characterizes how G scales with returned-payload size —
@@ -67,42 +72,44 @@ services.bind("Bench::Noop", -> {})
 # invoked; a raising stub localises any accidental block path.
 yield_to_guest = ->(_bytes) { raise "yield_to_guest must not fire in dispatch_glue" }
 
-# Pre-encode Request bytes ONCE so msgpack envelope construction stays
-# out of the measurement window — only Dispatcher.dispatch is timed.
-def request_bytes(target, method_name, args: [], kwargs: {})
-  Kobako::Transport::Request.new(
-    target: "Bench::#{target}", method_name: method_name, args: args, kwargs: kwargs
-  ).encode
+# Build each routed Call ONCE — the driver hands Ruby an already-decoded
+# target and a payload it has not touched, so payload encoding stays out
+# of the measurement window and only Dispatcher.dispatch is timed.
+def call_for(target, method_name, args: [], kwargs: {})
+  Kobako::Transport::Call.new(
+    target: "Bench::#{target}", method_name: method_name, block_given: false,
+    payload: Kobako::Payload::Arguments.new(args: args, kwargs: kwargs).encode
+  )
 end
 
-NOOP_REQ  = request_bytes(:Noop, "call")
-ECHO_REQ  = request_bytes(:Echo, "call", args: [42])
-GREET_REQ = request_bytes(:Greet, "call", kwargs: { name: :alice })
-SMALL_REQ = request_bytes(:Small, "call")
-LARGE_REQ = request_bytes(:Large, "call")
+NOOP_CALL  = call_for(:Noop, "call")
+ECHO_CALL  = call_for(:Echo, "call", args: [42])
+GREET_CALL = call_for(:Greet, "call", kwargs: { name: :alice })
+SMALL_CALL = call_for(:Small, "call")
+LARGE_CALL = call_for(:Large, "call")
 
 # Warm process-wide codec / inline caches so the first measured case
 # does not pay cold-cache cost. Mirrors the warm-up in the other suites.
-Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, services, handler, yield_to_guest)
+Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handler, yield_to_guest)
 
 runner.case("10a-empty-call") do
-  Kobako::Transport::Dispatcher.dispatch(NOOP_REQ, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handler, yield_to_guest)
 end
 
 runner.case("10b-primitive-arg") do
-  Kobako::Transport::Dispatcher.dispatch(ECHO_REQ, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(ECHO_CALL, services, handler, yield_to_guest)
 end
 
 runner.case("10c-kwargs") do
-  Kobako::Transport::Dispatcher.dispatch(GREET_REQ, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(GREET_CALL, services, handler, yield_to_guest)
 end
 
 runner.case("10d-small-return-16") do
-  Kobako::Transport::Dispatcher.dispatch(SMALL_REQ, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(SMALL_CALL, services, handler, yield_to_guest)
 end
 
 runner.case("10e-large-return-256") do
-  Kobako::Transport::Dispatcher.dispatch(LARGE_REQ, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handler, yield_to_guest)
 end
 
 puts runner.write!
