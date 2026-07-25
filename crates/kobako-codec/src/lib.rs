@@ -20,5 +20,6 @@ pub const FRAME_LEN_SIZE: usize = 4;
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 pub mod codec;
+pub mod envelope;
 pub mod outcome;
 pub mod transport;

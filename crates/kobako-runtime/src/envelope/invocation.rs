@@ -1,0 +1,242 @@
+//! The host→guest invocation envelopes: the Run entrypoint dispatch and
+//! the two stdin frames every entry point consumes.
+//!
+//! Run is Call's reverse-direction sibling — `entrypoint` routes it, the
+//! payload feeds it. It carries no `method` because the entrypoint is
+//! invoked through its own `#call`, and no `block_given` because `#run`
+//! supplies no block.
+
+use super::codec::{Reader, Writer};
+use super::Error;
+
+const SNIPPET_SOURCE: u8 = 0;
+const SNIPPET_BYTECODE: u8 = 1;
+
+/// One `#run` invocation: which top-level constant, and its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Run {
+    pub entrypoint: String,
+    pub payload: Vec<u8>,
+}
+
+impl Run {
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        let mut reader = Reader::new(bytes);
+        let entrypoint = reader.text()?.to_owned();
+        Ok(Run {
+            entrypoint,
+            payload: reader.remaining().to_vec(),
+        })
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut writer = Writer::new();
+        writer
+            .bytes(self.entrypoint.as_bytes())
+            .remainder(&self.payload);
+        writer.into_bytes()
+    }
+}
+
+/// Frame 1 — the bound constant paths the guest installs proxies from.
+/// Always present; an empty list means no Service is bound.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Preamble {
+    pub paths: Vec<String>,
+}
+
+impl Preamble {
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        let mut reader = Reader::new(bytes);
+        let paths = reader.text_list()?;
+        reader.finish()?;
+        Ok(Preamble { paths })
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut writer = Writer::new();
+        writer.list(&self.paths);
+        writer.into_bytes()
+    }
+}
+
+/// One preloaded snippet. Source carries the filename the guest compiles
+/// under; bytecode does not, because its filename — when it has one — lives
+/// in the bytecode's own debug section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Snippet {
+    Source { name: String, body: String },
+    Bytecode { body: Vec<u8> },
+}
+
+/// Frame 3 — the preloaded snippets, in insertion order. Always present;
+/// a zero count means nothing was preloaded.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Snippets {
+    pub entries: Vec<Snippet>,
+}
+
+impl Snippets {
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        let mut reader = Reader::new(bytes);
+        let count = reader.u32()? as usize;
+        // Each entry costs at least a kind byte, so a count past the bytes
+        // left cannot be satisfied; refusing it bounds the allocation.
+        if count > reader.remaining().len() {
+            return Err(Error("Frame 3 declares more entries than the frame holds"));
+        }
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            entries.push(match reader.u8()? {
+                SNIPPET_SOURCE => Snippet::Source {
+                    name: reader.text()?.to_owned(),
+                    body: reader.text()?.to_owned(),
+                },
+                SNIPPET_BYTECODE => Snippet::Bytecode {
+                    body: reader.bytes()?.to_vec(),
+                },
+                _ => return Err(Error("Frame 3 snippet kind must be 0 or 1")),
+            });
+        }
+        reader.finish()?;
+        Ok(Snippets { entries })
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut writer = Writer::new();
+        writer.u32(self.entries.len() as u32);
+        for entry in &self.entries {
+            match entry {
+                Snippet::Source { name, body } => {
+                    writer
+                        .u8(SNIPPET_SOURCE)
+                        .bytes(name.as_bytes())
+                        .bytes(body.as_bytes());
+                }
+                Snippet::Bytecode { body } => {
+                    writer.u8(SNIPPET_BYTECODE).bytes(body);
+                }
+            }
+        }
+        writer.into_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_round_trips() {
+        let run = Run {
+            entrypoint: "Entry".into(),
+            payload: vec![0x92, 0x90, 0x80],
+        };
+        let encoded = run.encode();
+        assert_eq!(
+            Run::decode(&encoded),
+            Ok(run),
+            "a Run must survive a host encode and decode unchanged"
+        );
+    }
+
+    #[test]
+    fn a_run_with_no_arguments_round_trips() {
+        let run = Run {
+            entrypoint: "Entry".into(),
+            payload: Vec::new(),
+        };
+        let encoded = run.encode();
+        assert_eq!(
+            Run::decode(&encoded),
+            Ok(run),
+            "a Run with an empty payload must decode as empty, not as a truncation"
+        );
+    }
+
+    #[test]
+    fn an_empty_preamble_round_trips() {
+        let encoded = Preamble::default().encode();
+        assert_eq!(
+            Preamble::decode(&encoded),
+            Ok(Preamble::default()),
+            "a Sandbox with no bindings must send a present, empty Frame 1"
+        );
+    }
+
+    #[test]
+    fn a_preamble_round_trips_every_path() {
+        let preamble = Preamble {
+            paths: vec!["MyService::KV".into(), "File".into()],
+        };
+        let encoded = preamble.encode();
+        assert_eq!(
+            Preamble::decode(&encoded),
+            Ok(preamble),
+            "Frame 1 must carry every bound path in order"
+        );
+    }
+
+    #[test]
+    fn snippets_round_trip_both_kinds_in_order() {
+        let snippets = Snippets {
+            entries: vec![
+                Snippet::Source {
+                    name: "Helper".into(),
+                    body: "def helper; end".into(),
+                },
+                Snippet::Bytecode {
+                    body: vec![0x52, 0x49, 0x54, 0x45],
+                },
+            ],
+        };
+        let encoded = snippets.encode();
+        assert_eq!(
+            Snippets::decode(&encoded),
+            Ok(snippets),
+            "Frame 3 must carry source and bytecode entries in insertion order"
+        );
+    }
+
+    #[test]
+    fn an_empty_snippet_table_round_trips() {
+        let encoded = Snippets::default().encode();
+        assert_eq!(
+            Snippets::decode(&encoded),
+            Ok(Snippets::default()),
+            "a Sandbox with no preloads must send a present, zero-count Frame 3"
+        );
+    }
+
+    #[test]
+    fn an_unknown_snippet_kind_is_refused() {
+        let bytes = {
+            let mut w = Writer::new();
+            w.u32(1).u8(9);
+            w.into_bytes()
+        };
+        assert!(
+            Snippets::decode(&bytes).is_err(),
+            "a Frame 3 snippet kind that is neither source nor bytecode must be rejected"
+        );
+    }
+
+    #[test]
+    fn a_snippet_count_the_frame_cannot_satisfy_is_refused() {
+        let bytes = [0xff, 0xff, 0xff, 0xff];
+        assert!(
+            Snippets::decode(&bytes).is_err(),
+            "a Frame 3 count larger than the frame must be rejected before any allocation"
+        );
+    }
+
+    #[test]
+    fn trailing_bytes_after_a_frame_are_refused() {
+        let mut encoded = Preamble::default().encode();
+        encoded.push(0);
+        assert!(
+            Preamble::decode(&encoded).is_err(),
+            "bytes past Frame 1's last field must fail loudly as a framing desync"
+        );
+    }
+}

@@ -880,6 +880,9 @@ dependencies = [
 [[package]]
 name = "kobako-runtime"
 version = "0.12.0"
+dependencies = [
+ "kobako-codec",
+]
 
 [[package]]
 name = "kobako-wasmtime"

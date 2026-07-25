@@ -11,6 +11,7 @@
 //! so the engine stays swappable.
 
 pub mod dispatch;
+pub mod envelope;
 pub mod error;
 pub mod profile;
 pub mod runtime;

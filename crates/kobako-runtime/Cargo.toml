@@ -21,3 +21,9 @@ repository = "https://github.com/elct9620/kobako"
 readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
+
+# The guest-side peer of the core envelope, for the byte oracle in
+# `tests/envelope_oracle.rs`. A dev-dependency, so it stays out of the
+# gem's shipped crate closure and out of any wasm32 dependency graph.
+[dev-dependencies]
+kobako-codec = { path = "../kobako-codec" }
