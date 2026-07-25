@@ -14,6 +14,10 @@ Hand-written text-format modules around the B-40 construction-time ABI version c
 
 Hand-written text-format module that passes the B-40 ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for the `docs/behavior/errors.md` E-31 branch: the host cannot reserve the `#run` invocation envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
 
+## `minimal_null_guest.wat`
+
+Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload adapter's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).

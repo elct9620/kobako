@@ -74,15 +74,19 @@ namespace :bench do
   desc "Run dispatch-glue isolation characterization (#10; not in release gate)."
   task(:dispatch_glue) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/dispatch_glue.rb" } }
 
+  desc "Run host per-invocation cost characterization (#12; not in release gate)."
+  task(:host_invocation) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/host_invocation.rb" } }
+
   # The whole-round sweep for a manual capture: the 16 MiB gated set plus every
-  # characterization (#7-#11), merged into one results file. bench:full stays
+  # characterization (#7-#12), merged into one results file. bench:full stays
   # lean and pure-binary for the release gate; bench:all additionally builds the
   # regexp-unicode variant #11 drives. When a json characterization lands, add
   # its variant prerequisite and suite here.
-  desc "Run the whole sweep: gated (16 MiB) + every characterization (#7-#11)."
+  desc "Run the whole sweep: gated (16 MiB) + every characterization (#7-#12)."
   task all: ["wasm:build:regexp_unicode"] do
     Kobako::Bench::Lock.hold do
-      %w[full concurrent gvl_scheduling memory preload_dispatch dispatch_glue regexp].each do |suite|
+      %w[full concurrent gvl_scheduling memory preload_dispatch dispatch_glue host_invocation
+         regexp].each do |suite|
         Rake::Task["bench:#{suite}"].invoke
       end
     end

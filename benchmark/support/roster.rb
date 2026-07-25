@@ -23,6 +23,7 @@ module Kobako
     SMOKE_BENCHES = (RELEASE_BENCHES + %w[
       preload_dispatch
       dispatch_glue
+      host_invocation
     ].map { |name| Paths.probe(name) }).uniq.freeze
 
     # Probes the smoke gate leaves out, each with the reason the gate

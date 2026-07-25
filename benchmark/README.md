@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus five characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation).
+Kobako maintains a regression benchmark suite covering the six performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip) plus six characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, dispatch-glue isolation, host per-invocation cost).
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -335,8 +335,9 @@ bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scali
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
+bundle exec rake bench:host_invocation   # host per-invocation cost against the null guest (#12)
 bundle exec rake bench:regexp            # regexp characterization on the +regexp-unicode variant (#11)
-bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#11 and gvl)
+bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#12 and gvl)
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.

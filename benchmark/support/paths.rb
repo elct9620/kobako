@@ -36,6 +36,14 @@ module Kobako
       def variant_wasm(name)
         File.join(ROOT, "data", "kobako+#{name}.wasm")
       end
+
+      # Absolute path to a committed fixture under +test/fixtures/+. The
+      # wasm fixtures live in one place whoever drives them, so a probe
+      # standing a guest in declares the reach here rather than counting
+      # directories of its own.
+      def fixture(name)
+        File.join(ROOT, "test", "fixtures", name)
+      end
     end
   end
 end
