@@ -15,13 +15,12 @@ module Kobako
     # carries no mutation API. Callers (chiefly +Catalog::Snippets+)
     # construct instances via keyword form +Source.new(name: ..., body: ...)+.
     # Wire-form construction is the registry's responsibility: as a leaf
-    # carrier this Source stays pure and +Catalog::Snippets#encode+ reads
-    # its attributes off the outside rather than asking it to self-encode.
+    # carrier this Source stays pure and +Catalog::Snippets#entries+ reads
+    # its attributes off the outside rather than asking it to project itself.
     class Source < Data.define(:name, :body)
-      # The +kind+ field value carried by source snippets in their Frame
-      # 3 wire envelope entry
-      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-      KIND = "source"
+      # Names the snippet form the guest replays this entry as. The wire's
+      # discriminant byte is assigned by the core envelope, not here.
+      KIND = :source
     end
   end
 end

@@ -1,19 +1,19 @@
 # frozen_string_literal: true
 
-require_relative "../codec"
 require_relative "../errors"
 
 module Kobako
   module Catalog
     # Kobako::Catalog::Services — per-Sandbox registry of Service
     # bindings keyed by their constant-path name. Holds the flat
-    # path→object table and the preamble emitted on Frame 1.
+    # path→object table and the declared path set every invocation
+    # announces on Frame 1.
     #
     # Public API:
     #
     #   services = Kobako::Catalog::Services.new
     #   services.bind("MyService::KV", kv_object)  # => services (chainable)
-    #   services.encode                            # => msgpack bytes for Frame 1
+    #   services.paths                             # => ["MyService::KV"]
     #   services.lookup("MyService::KV")           # => kv_object
     #
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
@@ -31,7 +31,6 @@ module Kobako
       def initialize
         @bindings = {} # : Hash[String, untyped]
         @sealed = false
-        @encoded = nil # : String?
       end
 
       # Bind +object+ as the Service reachable at +path+ — a +Symbol+ or
@@ -66,27 +65,20 @@ module Kobako
         @bindings[target_str]
       end
 
-      # Encode the preamble as msgpack bytes for stdin Frame 1 delivery —
-      # a flat array of the bound constant paths, in bind order:
-      # +["MyService::KV", "File"]+. Routes through Kobako::Codec::Encoder
-      # like every other host-side wire encode; the preamble carries only
-      # Strings, so none of the kobako ext types fire. Returns a binary
-      # +String+ of msgpack bytes.
-      #
-      # The bytes are pinned eagerly by #seal! at the first invocation, so
-      # every subsequent call is a pure read of the frozen preamble — a bind
-      # can never reach the registry after the seal to alter Frame 1.
-      def encode
-        @encoded || Codec::Encoder.encode(@bindings.keys).freeze
+      # The bound constant paths in bind order — +["MyService::KV",
+      # "File"]+ — which +Runtime#eval+ / +#run+ frame into the Frame 1
+      # preamble. The registry holds the bindings; the wire layout is the
+      # native side's.
+      def paths
+        @bindings.keys
       end
 
-      # Mark the registry as sealed and pin the Frame 1 preamble bytes so
-      # registration can never alter them afterwards. Called by +Sandbox+ on
-      # the first invocation; afterwards #bind raises ArgumentError.
-      # Idempotent; returns +self+.
+      # Mark the registry as sealed so registration can never alter the
+      # declared path set afterwards. Called by +Sandbox+ on the first
+      # invocation; afterwards #bind raises ArgumentError. Idempotent;
+      # returns +self+.
       def seal!
         @sealed = true
-        @encoded ||= Codec::Encoder.encode(@bindings.keys).freeze
         self
       end
 

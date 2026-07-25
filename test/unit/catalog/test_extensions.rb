@@ -64,7 +64,7 @@ module Kobako
       end
     end
 
-    def snippet_names = MessagePack.unpack(@snippets.encode).map { |entry| entry["name"] }
+    def snippet_names = @snippets.entries.map { |entry| entry[1] }
   end
 
   # B-55 composition, B-57 / E-52 dependency presence, E-53 malformed shape.
@@ -88,7 +88,7 @@ module Kobako
       install(extension(name: :Errno, source: "module Errno; end"))
 
       assert_equal ["Errno"], snippet_names
-      assert_equal [], MessagePack.unpack(@services.encode),
+      assert_empty @services.paths,
                    "a pure-guest Extension (no backend) must bind no Service (B-55)"
     end
 

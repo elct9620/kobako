@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../codec"
 require_relative "../snippet"
 
 module Kobako
@@ -28,32 +27,16 @@ module Kobako
 
       def initialize
         @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
-        @encoded = nil # : String?
       end
 
-      # Serialize the registered snippets to wire bytes. Each entry
-      # contributes a msgpack map shape; the collection rides as a single
-      # msgpack array. An empty registry serializes to an empty array, never
-      # absent. The wire codec is an implementation detail — callers
-      # receive a binary +String+ that the +Kobako::Runtime+ layer ships
-      # through the invocation channel. The entry value objects stay pure
-      # carriers — this collection-tier method reads their attributes
-      # externally via +entry_payload+ rather than asking each entry to
-      # self-encode.
-      #
-      # Before the first invocation this recomputes from the still-open
-      # table; #seal! then pins the bytes, so every later call is a pure
-      # read of the frozen memo.
-      def encode
-        @encoded || Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
-      end
-
-      # Freeze the Frame 3 table bytes at the first invocation so the
-      # replayed snippet set can never change afterwards. Called by +Sandbox+
-      # alongside the Service / Extension seals. Idempotent; returns +self+.
-      def seal!
-        @encoded ||= Codec::Encoder.encode(@entries.map { |entry| entry_payload(entry) }).freeze
-        self
+      # The registered snippets in insertion order, each projected as the
+      # +[kind, name, body]+ triple +Runtime#eval+ / +#run+ frame into
+      # Frame 3 — +kind+ names the form as a Symbol, +name+ is +nil+ for
+      # the bytecode form. The entry value objects stay pure carriers, so
+      # this collection-tier method reads their attributes externally
+      # rather than asking each entry to project itself.
+      def entries
+        @entries.map { |entry| entry_tuple(entry) }
       end
 
       # Register one preloaded snippet in either of two forms.
@@ -124,17 +107,16 @@ module Kobako
         nil
       end
 
-      # Build the msgpack-ready Hash for one entry. Source entries
-      # contribute their host-side +name+; Binary entries omit it
-      # because the canonical name lives in the bytecode's embedded
-      # +debug_info+ and is read by the guest at load time
-      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-      def entry_payload(entry)
+      # Project one entry as its +[kind, name, body]+ triple. Source
+      # entries contribute their host-side +name+; Binary entries carry
+      # +nil+ because the canonical name lives in the bytecode's embedded
+      # +debug_info+ and is read by the guest at load time.
+      def entry_tuple(entry)
         case entry
         when Snippet::Source
-          { "name" => entry.name.to_s, "kind" => Snippet::Source::KIND, "body" => entry.body }
-        when Snippet::Binary
-          { "kind" => Snippet::Binary::KIND, "body" => entry.body }
+          [Snippet::Source::KIND, entry.name.to_s, entry.body]
+        else
+          [Snippet::Binary::KIND, nil, entry.body]
         end
       end
 

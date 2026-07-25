@@ -136,55 +136,49 @@ module Kobako
     end
   end
 
-  # Frame 1 wire shape: the flat preamble emitted by Services#encode
+  # The declared path set every invocation ships on Frame 1
   # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot
   # — every invocation after the seal ships the bindings that existed at
   # that moment.
-  class CatalogServicesPreambleTest < Minitest::Test
+  class CatalogServicesPathsTest < Minitest::Test
     def setup
       @services = Kobako::Catalog::Services.new
     end
 
-    def test_encoded_preamble_decodes_to_a_flat_array_of_bind_paths
+    def test_paths_lists_every_bound_path_in_bind_order
       @services.bind("MyService::KV", :kv).bind("MyService::Logger", :log)
       @services.bind("File", :fs)
 
-      bytes = @services.encode
-      assert_kind_of String, bytes
-      assert_equal Encoding::ASCII_8BIT, bytes.encoding
-
-      decoded = MessagePack.unpack(bytes)
-      assert_equal %w[MyService::KV MyService::Logger File], decoded
+      assert_equal %w[MyService::KV MyService::Logger File], @services.paths,
+                   "a bound registry through #paths must list every path in bind order"
     end
 
-    def test_encoded_preamble_empty_registry_is_valid_msgpack_array
-      decoded = MessagePack.unpack(@services.encode)
-      assert_equal [], decoded
+    def test_paths_on_an_empty_registry_is_the_empty_list
+      assert_empty @services.paths,
+                   "a registry with no bindings through #paths must be empty, never absent"
     end
 
-    def test_encoded_preamble_before_seal_reflects_new_bindings
+    def test_paths_before_seal_reflects_new_bindings
       @services.bind("MyService::KV", :kv)
-      first = MessagePack.unpack(@services.encode)
+      first = @services.paths
       @services.bind("MyService::Logger", :log)
 
       assert_equal %w[MyService::KV], first
-      assert_equal %w[MyService::KV MyService::Logger], MessagePack.unpack(@services.encode),
-                   "binding a Service on an unsealed registry must surface in the next Frame 1 encode (B-08)"
+      assert_equal %w[MyService::KV MyService::Logger], @services.paths,
+                   "binding a Service on an unsealed registry must surface in the next #paths read (B-08)"
     end
 
     # B-33 seals Service registration (B-08) at the first invocation.
-    # Binding past the seal raises (E-45), so the sealed Frame 1 preamble
-    # is stable by construction.
-    def test_encoded_preamble_after_seal_excludes_paths_bound_later
+    # Binding past the seal raises (E-45), so the declared path set is
+    # stable by construction.
+    def test_paths_after_seal_excludes_paths_bound_later
       @services.bind("MyService::KV", :kv)
       @services.seal!
-      sealed_bytes = @services.encode
 
       assert_raises(ArgumentError) { @services.bind("MyService::Late", :late) }
 
-      assert_equal sealed_bytes, @services.encode,
-                   "a bind rejected after the seal must not alter the Frame 1 preamble (B-33 / E-45)"
-      assert_equal %w[MyService::KV], MessagePack.unpack(@services.encode)
+      assert_equal %w[MyService::KV], @services.paths,
+                   "a bind rejected after the seal must not alter the declared path set (B-33 / E-45)"
     end
   end
 end

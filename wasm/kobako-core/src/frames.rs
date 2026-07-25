@@ -2,15 +2,10 @@
 //!
 //! Every invocation entry point consumes length-prefixed stdin frames
 //! (4-byte big-endian u32 length + payload — docs/wire-codec.md
-//! § Invocation channels): `read_frame` is the channel reader and
-//! `decode_preamble` parses Frame 1 (the flat list of bind paths every
-//! dispatching guest installs proxies from).
-//! Frame payload semantics that belong to a guest language — e.g. the
-//! bundled guest's Frame 3 snippet kinds (mruby source / RITE
-//! bytecode) — stay in the implementation crate; this module carries
-//! only the language-neutral wire shapes.
+//! § Invocation channels). This module carries only the channel itself;
+//! what a frame's bytes mean is the core envelope's business
+//! (`kobako_codec::envelope`).
 
-use kobako_codec::codec::{Decoder, Value};
 use kobako_codec::MAX_FRAME_LEN;
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF, short
@@ -34,59 +29,9 @@ fn read_frame_from<R: std::io::Read>(input: &mut R) -> Option<Vec<u8>> {
     Some(payload)
 }
 
-/// Decode the Frame 1 preamble: a flat list of bind paths
-/// (`["MyService::KV", "File", ...]`). Each entry is the constant path a
-/// bound Service is installed at. Pure parser — host-buildable so the
-/// decoder can be unit-tested outside the wasm target.
-pub fn decode_preamble(bytes: &[u8]) -> Option<Vec<String>> {
-    let mut dec = Decoder::new(bytes);
-    let outer = dec.read_only_value().ok()?;
-    let Value::Array(items) = outer else {
-        return None;
-    };
-    let mut paths = Vec::with_capacity(items.len());
-    for item in items {
-        match item {
-            Value::Str(s) => paths.push(s),
-            _ => return None,
-        }
-    }
-    Some(paths)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_codec::codec::Encoder;
-
-    fn encode(v: &Value) -> Vec<u8> {
-        let mut enc = Encoder::new();
-        enc.write_value(v).unwrap();
-        enc.into_bytes()
-    }
-
-    #[test]
-    fn decode_preamble_accepts_a_flat_path_list() {
-        let bytes = encode(&Value::Array(vec![
-            Value::Str("KV::Get".into()),
-            Value::Str("KV::Set".into()),
-            Value::Str("File".into()),
-        ]));
-        let out = decode_preamble(&bytes).unwrap();
-        assert_eq!(out, vec!["KV::Get", "KV::Set", "File"]);
-    }
-
-    #[test]
-    fn decode_preamble_rejects_non_array_outer() {
-        let bytes = encode(&Value::Map(Vec::new()));
-        assert!(decode_preamble(&bytes).is_none());
-    }
-
-    #[test]
-    fn decode_preamble_rejects_a_non_string_entry() {
-        let bytes = encode(&Value::Array(vec![Value::Int(1)]));
-        assert!(decode_preamble(&bytes).is_none());
-    }
 
     #[test]
     fn read_frame_from_round_trips_a_prefixed_payload() {

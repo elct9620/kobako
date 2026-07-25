@@ -29,7 +29,7 @@ mod gvl;
 
 use magnus::{
     function, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
-    Error as MagnusError, RModule, RString, Ruby, Symbol, TypedData, Value,
+    Error as MagnusError, RArray, RModule, RString, Ruby, Symbol, TypedData, Value,
 };
 
 use std::path::Path;
@@ -37,6 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::envelope::{Preamble, Snippet, Snippets};
 use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
@@ -52,6 +53,47 @@ use kobako_wasmtime::{Config, Driver};
 fn rstring_to_vec(s: RString) -> Vec<u8> {
     // SAFETY: see item doc.
     unsafe { s.as_slice() }.to_vec()
+}
+
+/// Frame the Frame 1 preamble from the Service registry's bind paths.
+/// The core envelope's byte layout lives on this side of the boundary,
+/// so the registry stays a registry and never holds a wire image.
+fn frame_preamble(paths: RArray) -> Result<Vec<u8>, MagnusError> {
+    Ok(Preamble {
+        paths: paths.to_vec()?,
+    }
+    .encode())
+}
+
+/// Frame the Frame 3 snippet table from the registry's entries — one
+/// `[kind, name, body]` triple each, `kind` a Symbol naming the form so
+/// the wire's discriminant byte stays here. An off-ladder kind raises
+/// rather than defaulting, the same fail-closed posture `from_path`
+/// takes on its Symbol options.
+fn frame_snippets(ruby: &Ruby, entries: RArray) -> Result<Vec<u8>, MagnusError> {
+    let mut frame = Snippets {
+        entries: Vec::with_capacity(entries.len()),
+    };
+    for index in 0..entries.len() as isize {
+        let entry: RArray = entries.entry(index)?;
+        let kind: Symbol = entry.entry(0)?;
+        frame.entries.push(match kind.name()?.as_ref() {
+            "source" => Snippet::Source {
+                name: entry.entry(1)?,
+                body: entry.entry(2)?,
+            },
+            "bytecode" => Snippet::Bytecode {
+                body: rstring_to_vec(entry.entry(2)?),
+            },
+            other => {
+                return Err(MagnusError::new(
+                    ruby.exception_arg_error(),
+                    format!("snippet kind must be :source or :bytecode, got :{other}"),
+                ))
+            }
+        });
+    }
+    Ok(frame.encode())
 }
 
 // ---------------------------------------------------------------------------
@@ -203,21 +245,22 @@ impl Runtime {
     // -----------------------------------------------------------------
 
     /// One-shot mruby source execution (`#eval`). Builds the dispatch
-    /// handler from `dispatch` (the per-invocation Proc), hands the three
-    /// stdin frames (`preamble`, `source`, `snippets`) and the source to the
-    /// driver, and returns the run's `Snapshot`.
+    /// handler from `dispatch` (the per-invocation Proc), frames the two
+    /// stdin invocation frames from the registry state (`paths`,
+    /// `snippets`), hands them and the source to the driver, and returns
+    /// the run's `Snapshot`.
     fn eval(
         &self,
         dispatch: Value,
-        preamble: RString,
+        paths: RArray,
         source: RString,
-        snippets: RString,
+        snippets: RArray,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = build_handler(dispatch);
-        let preamble = rstring_to_vec(preamble);
+        let preamble = frame_preamble(paths)?;
         let source = rstring_to_vec(source);
-        let snippets = rstring_to_vec(snippets);
+        let snippets = frame_snippets(&ruby, snippets)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).
@@ -245,14 +288,14 @@ impl Runtime {
     fn run(
         &self,
         dispatch: Value,
-        preamble: RString,
-        snippets: RString,
+        paths: RArray,
+        snippets: RArray,
         envelope: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = build_handler(dispatch);
-        let preamble = rstring_to_vec(preamble);
-        let snippets = rstring_to_vec(snippets);
+        let preamble = frame_preamble(paths)?;
+        let snippets = frame_snippets(&ruby, snippets)?;
         let envelope = rstring_to_vec(envelope);
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // see the note in `#eval`.

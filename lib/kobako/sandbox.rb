@@ -153,12 +153,11 @@ module Kobako
     #
     # Source delivery uses the WASI stdin three-frame protocol
     # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]):
-    # Frame 1 carries the msgpack-encoded preamble (Service registry
-    # snapshot), Frame 2 carries the user source UTF-8 bytes, and
-    # Frame 3 carries the snippet table registered via +#preload+.
-    # Each frame is prefixed by a 4-byte big-endian u32 length; Frame 3 is
-    # mandatory-presence — an empty snippet table sends an empty msgpack
-    # array, never an absent frame.
+    # Frame 1 carries the preamble (Service registry snapshot), Frame 2 the
+    # user source UTF-8 bytes, and Frame 3 the snippet table registered via
+    # +#preload+. Each frame is prefixed by a 4-byte big-endian u32 length;
+    # Frame 1 and Frame 3 are mandatory-presence — an empty registry sends a
+    # present, empty frame rather than an absent one.
     #
     # The first invocation seals the Service registry and snippet table;
     # subsequent +#bind+ / +#preload+ calls raise +ArgumentError+.
@@ -197,13 +196,13 @@ module Kobako
       Context.new(runtime: @runtime, services: @services, snippets: @snippets, extensions: @extensions)
     end
 
-    # Per-invocation prologue on the config tier: seals the Service / snippet /
+    # Per-invocation prologue on the config tier: seals the Service and
     # Extension registries on the first call (idempotent — asserting Extension
-    # dependencies then). Per-invocation provider resolution and observable
+    # dependencies then). The Service seal is the one +#bind+ / +#preload+ /
+    # +#install+ all gate on. Per-invocation provider resolution and observable
     # state live on the +Context+, not here.
     def begin_invocation!
       @services.seal!
-      @snippets.seal!
       @extensions.seal!
     end
   end

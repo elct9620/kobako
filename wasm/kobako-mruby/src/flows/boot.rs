@@ -22,6 +22,8 @@ use crate::runtime::{InstallError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
+#[cfg(mruby_linked)]
+use kobako_codec::envelope::{Preamble, Snippet, Snippets};
 use kobako_codec::outcome::Panic;
 
 /// Build a Panic envelope carrying the kobako boot defaults
@@ -108,23 +110,25 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
     }
 }
 
-/// Read Frame 1 from stdin and decode it into the Group / bind-path list.
+/// Read Frame 1 from stdin and decode it into the bind-path list.
 /// Either step failing surfaces as a `boot_panic`.
 #[cfg(mruby_linked)]
 pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
-    kobako_core::frames::decode_preamble(&bytes)
-        .ok_or_else(|| boot_panic("failed to decode the Sandbox setup data"))
+    Preamble::decode(&bytes)
+        .map(|preamble| preamble.paths)
+        .map_err(|_| boot_panic("failed to decode the Sandbox setup data"))
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
 #[cfg(mruby_linked)]
-pub(super) fn read_snippets() -> Result<Vec<super::snippets::Snippet>, Panic> {
+pub(super) fn read_snippets() -> Result<Vec<Snippet>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
-    super::snippets::decode_snippets(&bytes)
-        .ok_or_else(|| boot_panic("failed to decode the preloaded snippets"))
+    Snippets::decode(&bytes)
+        .map(|snippets| snippets.entries)
+        .map_err(|_| boot_panic("failed to decode the preloaded snippets"))
 }
 
 /// Open an mruby VM into the empty `super::mrb_slot::MRB` slot and
@@ -203,18 +207,15 @@ pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), 
 /// a successful load that then raised at top level keeps the
 /// natural mruby class.
 #[cfg(mruby_linked)]
-pub(super) fn replay_snippets(
-    kobako: &Kobako,
-    snippets: &[super::snippets::Snippet],
-) -> Result<(), Panic> {
+pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(), Panic> {
     let mrb = kobako.mrb();
     for entry in snippets {
         let load = match entry {
-            super::snippets::Snippet::Source { name, body } => {
+            Snippet::Source { name, body } => {
                 load_source_snippet(mrb, name, body)?;
                 BytecodeLoad::Loaded
             }
-            super::snippets::Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
+            Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
         };
         if let Some(panic) = take_pending_panic(kobako) {
             return Err(reshape_replay_panic(panic, load));

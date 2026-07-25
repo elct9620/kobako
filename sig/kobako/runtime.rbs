@@ -14,15 +14,15 @@ module Kobako
 
     def eval: (
       ^(String, Kobako::Transport::_GuestYielder) -> String dispatch,
-      String preamble,
+      Array[String] paths,
       String source,
-      String snippets
+      Array[Kobako::Catalog::Snippets::tuple] snippets
     ) -> Kobako::Runtime::Snapshot
 
     def run: (
       ^(String, Kobako::Transport::_GuestYielder) -> String dispatch,
-      String preamble,
-      String snippets,
+      Array[String] paths,
+      Array[Kobako::Catalog::Snippets::tuple] snippets,
       String envelope
     ) -> Kobako::Runtime::Snapshot
 

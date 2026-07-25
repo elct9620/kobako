@@ -18,10 +18,9 @@ module Kobako
     # form +Binary.new(body: ...)+. Wire-form construction is the
     # registry's responsibility.
     class Binary < Data.define(:body)
-      # The +kind+ field value carried by bytecode snippets in their
-      # Frame 3 wire envelope entry
-      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-      KIND = "bytecode"
+      # Names the snippet form the guest replays this entry as. The wire's
+      # discriminant byte is assigned by the core envelope, not here.
+      KIND = :bytecode
     end
   end
 end

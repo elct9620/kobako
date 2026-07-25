@@ -121,4 +121,18 @@ class TestRuntime < Minitest::Test
     end
     assert_match(/gvl must be :hold or :release/, err.message)
   end
+
+  # Same fail-closed posture one layer in: the ext names a snippet's form
+  # when it frames Frame 3, so an unrecognized kind must raise rather than
+  # default to either form. +Catalog::Snippets+ only ever emits the two,
+  # so this exercises the guard on a direct +#eval+ call.
+  def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind
+    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+
+    runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
+    err = assert_raises(ArgumentError) do
+      runtime.eval(nil, [], "nil".b, [[:mrbc, "Helper", "X = 1"]])
+    end
+    assert_match(/snippet kind must be :source or :bytecode/, err.message)
+  end
 end

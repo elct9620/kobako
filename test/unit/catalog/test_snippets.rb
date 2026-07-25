@@ -9,17 +9,18 @@ module Kobako
   # boundary lives in test/e2e/sandbox/test_preload.rb; this file pins the
   # table's own contract.
   #
-  # The table exposes only #register (mutation) and #encode (wire shape)
-  # to the outside world — every observable contract is therefore stated
-  # against the msgpack-decoded #encode output rather than internal
+  # The table exposes only #register (mutation) and #entries (the
+  # invocation's projection) to the outside world — every observable
+  # contract is therefore stated against #entries rather than internal
   # enumeration helpers.
   class CatalogSnippetsTest < Minitest::Test
     def setup
       @table = Catalog::Snippets.new
     end
 
-    def test_new_table_encodes_to_empty_msgpack_array
-      assert_equal [], decoded
+    def test_a_new_table_has_no_entries
+      assert_empty @table.entries,
+                   "a table with nothing preloaded through #entries must be empty, never absent"
     end
 
     def test_register_returns_symbol_name_for_source_form
@@ -83,7 +84,7 @@ module Kobako
       bytes = String.new("X = 1", encoding: Encoding::ASCII_8BIT)
       @table.register(code: bytes, name: :Helper)
 
-      body = decoded.first["body"]
+      body = @table.entries.first.last
       assert_equal Encoding::UTF_8, body.encoding
       assert_equal "X = 1", body
     end
@@ -93,77 +94,54 @@ module Kobako
       @table.register(code: original, name: :Helper)
       original << " # mutated"
 
-      assert_equal "X = 1", decoded.first["body"]
-    end
-
-    private
-
-    def decoded
-      MessagePack.unpack(@table.encode)
+      assert_equal "X = 1", @table.entries.first.last
     end
   end
 
-  # docs/wire-codec.md § Invocation channels: Frame 3 is a msgpack array of
-  # per-entry maps. Source entries carry "name" / "kind" = "source" /
-  # "body" (UTF-8 str); Binary entries carry "kind" = "bytecode" / "body"
-  # (bin) and no "name". The encoder lives on the collection
-  # (Catalog::Snippets#encode) to keep wire knowledge in one place; the
-  # leaf Snippet::Source / Snippet::Binary entries stay pure carriers.
-  class CatalogSnippetsEncodingTest < Minitest::Test
+  # The projection every invocation frames into Frame 3
+  # (docs/wire-codec.md § Invocation channels): one +[kind, name, body]+
+  # triple per entry in insertion order. Source entries name themselves;
+  # Binary entries carry no name, because a bytecode snippet's canonical
+  # name lives in its RITE debug_info and is read by the guest at load
+  # time. The projection lives on the collection so the leaf
+  # Snippet::Source / Snippet::Binary entries stay pure carriers.
+  class CatalogSnippetsEntriesTest < Minitest::Test
     def setup
       @table = Catalog::Snippets.new
     end
 
-    def test_encode_source_entry_wire_shape
+    def test_a_source_entry_carries_its_kind_name_and_body
       @table.register(code: "X = 1", name: :Helper)
 
-      decoded = MessagePack.unpack(@table.encode)
-
-      assert_equal 1, decoded.length
-      assert_equal({ "name" => "Helper", "kind" => "source", "body" => "X = 1" }, decoded.first)
+      assert_equal [[:source, "Helper", "X = 1"]], @table.entries,
+                   "a code: snippet through #entries must carry the source kind, its name, and its body"
     end
 
-    def test_encode_binary_entry_omits_name_and_carries_bin_body
+    def test_a_binary_entry_carries_no_name_and_keeps_its_bytes
       @table.register(binary: "RITE\x00bytes")
 
-      decoded = MessagePack.unpack(@table.encode)
-
-      assert_equal 1, decoded.length
-      assert_equal({ "kind" => "bytecode", "body" => "RITE\x00bytes".b }, decoded.first)
-      refute_includes decoded.first.keys, "name",
-                      "binary entry's canonical name lives in bytecode debug_info, not on the wire"
+      assert_equal [[:bytecode, nil, "RITE\x00bytes".b]], @table.entries,
+                   "a binary: snippet through #entries must carry the bytecode kind and no name"
     end
 
-    def test_encode_preserves_insertion_order_across_source_entries
-      @table.register(code: "A", name: :Alpha)
-      @table.register(code: "B", name: :Beta)
-      @table.register(code: "C", name: :Gamma)
-
-      decoded = MessagePack.unpack(@table.encode)
-
-      assert_equal(%w[Alpha Beta Gamma], decoded.map { |e| e["name"] })
-    end
-
-    def test_encode_after_register_reflects_the_newly_registered_entry
-      @table.register(code: "A", name: :Alpha)
-      first = MessagePack.unpack(@table.encode)
-      @table.register(code: "B", name: :Beta)
-
-      assert_equal(%w[Alpha], first.map { |e| e["name"] })
-      assert_equal %w[Alpha Beta], MessagePack.unpack(@table.encode).map { |e| e["name"] },
-                   "a snippet registered after a prior encode must appear in the next Frame 3 encode"
-    end
-
-    def test_encode_preserves_insertion_order_across_mixed_entry_kinds
+    def test_entries_preserve_insertion_order_across_mixed_kinds
       @table.register(code: "A", name: :Alpha)
       @table.register(binary: "RITE\x00first")
       @table.register(code: "B", name: :Beta)
 
-      decoded = MessagePack.unpack(@table.encode)
+      assert_equal [%i[source bytecode source], ["Alpha", nil, "Beta"]],
+                   [@table.entries.map(&:first), @table.entries.map { |entry| entry[1] }],
+                   "a mixed snippet table through #entries must stay in registration order"
+    end
 
-      assert_equal(%w[source bytecode source], decoded.map { |e| e["kind"] })
-      assert_equal "Alpha", decoded[0]["name"]
-      assert_equal "Beta",  decoded[2]["name"]
+    def test_entries_after_register_include_the_newly_registered_entry
+      @table.register(code: "A", name: :Alpha)
+      first = @table.entries
+      @table.register(code: "B", name: :Beta)
+
+      assert_equal(["Alpha"], first.map { |entry| entry[1] })
+      assert_equal %w[Alpha Beta], @table.entries.map { |entry| entry[1] },
+                   "a snippet registered on an unsealed table must appear in the next #entries read"
     end
   end
 end

@@ -18,12 +18,9 @@
 //! * `run` — `__kobako_run` body + invocation-envelope parser.
 //! * `yield_block` — `__kobako_yield_to_block` body (host-initiated
 //!   re-entry into a guest block).
-//! * `boot` — canonical-boot-state acquisition / preamble install /
-//!   snippet replay / pending-exception extraction helpers used by
-//!   both entry points, plus the build-time `bake_boot` body.
-//! * `snippets` — Frame 3 snippet decoding (mruby source / RITE
-//!   bytecode kinds); the channel reader and the Frame 1 preamble
-//!   parser live in `kobako_core::frames`.
+//! * `boot` — canonical-boot-state acquisition / frame reads / preamble
+//!   install / snippet replay / pending-exception extraction helpers
+//!   used by both entry points, plus the build-time `bake_boot` body.
 //! * `mrb_slot` — module-level static carrying the live VM across the
 //!   dispatch re-entry boundary (the block stack lives beside its
 //!   bridge writers in `crate::runtime::block_stack`).
@@ -35,8 +32,6 @@ mod eval;
 #[cfg(mruby_linked)]
 mod mrb_slot;
 mod run;
-#[cfg(any(mruby_linked, test))]
-mod snippets;
 mod yield_block;
 
 #[cfg(mruby_linked)]

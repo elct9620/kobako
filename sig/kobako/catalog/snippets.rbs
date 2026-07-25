@@ -5,13 +5,13 @@ module Kobako
 
       type entry = Kobako::Snippet::Source | Kobako::Snippet::Binary
 
+      type tuple = [Symbol, String?, String]
+
       def initialize: () -> void
 
       def register: (?code: String?, ?name: (Symbol | String)?, ?binary: String?) -> (Symbol | nil)
 
-      def encode: () -> String
-
-      def seal!: () -> self
+      def entries: () -> Array[tuple]
 
       private
 
@@ -21,7 +21,7 @@ module Kobako
 
       def register_binary!: (String bytes) -> nil
 
-      def entry_payload: (entry) -> Hash[String, untyped]
+      def entry_tuple: (entry) -> tuple
 
       def normalize_name: (Symbol | String name) -> Symbol
     end

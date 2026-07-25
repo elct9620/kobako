@@ -79,7 +79,7 @@ module Kobako
     def eval(code, &block)
       collect_overrides(&block) if block
       invoke!(:eval) do
-        @runtime.eval(dispatch_handler, @services.encode, code.b, @snippets.encode)
+        @runtime.eval(dispatch_handler, @services.paths, code.b, @snippets.entries)
       end
     end
 
@@ -89,7 +89,7 @@ module Kobako
     def run(run_envelope, &block)
       collect_overrides(&block) if block
       invoke!(:run) do
-        @runtime.run(dispatch_handler, @services.encode, @snippets.encode, run_envelope.encode(@handler))
+        @runtime.run(dispatch_handler, @services.paths, @snippets.entries, run_envelope.encode(@handler))
       end
     end
 

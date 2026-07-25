@@ -1,7 +1,7 @@
 module Kobako
   module Snippet
     class Source < Data
-      KIND: String
+      KIND: Symbol
 
       attr_reader name: Symbol
       attr_reader body: String

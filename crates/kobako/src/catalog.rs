@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use kobako_codec::codec::{Encoder, Value};
+use kobako_runtime::envelope::Preamble;
 
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
@@ -47,16 +47,10 @@ impl Catalog {
     /// Encode the Frame 1 registration preamble: a flat list of bind
     /// paths (`["MyService::KV", "File"]`) in bind order.
     pub(crate) fn preamble(&self) -> Vec<u8> {
-        let paths = self
-            .bindings
-            .iter()
-            .map(|(path, _)| Value::Str(path.clone()))
-            .collect();
-        let mut encoder = Encoder::new();
-        encoder
-            .write_value(&Value::Array(paths))
-            .expect("a str preamble always encodes");
-        encoder.into_bytes()
+        Preamble {
+            paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),
+        }
+        .encode()
     }
 }
 
@@ -101,25 +95,29 @@ mod tests {
         assert!(catalog.lookup("MyService::KV").is_some());
     }
 
-    // The preamble byte shape is the guest's registration input; pin
-    // the exact encoding for one bound path so drift in the frame
-    // builder is caught here rather than inside an E2E run.
+    // The preamble is the guest's registration input; bind order is the
+    // property that matters to it, so read it back through the envelope
+    // rather than pinning bytes the envelope's own tests already own.
     #[test]
-    fn preamble_encodes_the_flat_path_list() {
+    fn the_preamble_carries_every_bound_path_in_bind_order() {
         let mut catalog = Catalog::default();
         catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
-        let expected = {
-            let mut encoder = Encoder::new();
-            encoder
-                .write_value(&Value::Array(vec![Value::Str("MyService::KV".into())]))
-                .unwrap();
-            encoder.into_bytes()
-        };
-        assert_eq!(catalog.preamble(), expected);
+        catalog.bind("File", Arc::new(ValueAdapter::new(Probe)));
+        assert_eq!(
+            Preamble::decode(&catalog.preamble()),
+            Ok(Preamble {
+                paths: vec!["MyService::KV".into(), "File".into()]
+            }),
+            "a bound catalog must send every path on Frame 1 in bind order"
+        );
     }
 
     #[test]
-    fn empty_catalog_preamble_is_the_explicit_empty_array() {
-        assert_eq!(Catalog::default().preamble(), vec![0x90]);
+    fn an_empty_catalog_sends_a_present_empty_preamble() {
+        assert_eq!(
+            Preamble::decode(&Catalog::default().preamble()),
+            Ok(Preamble::default()),
+            "a catalog with no bindings must send a present, empty Frame 1"
+        );
     }
 }

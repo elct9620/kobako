@@ -9,15 +9,9 @@
 //! present, lives in the RITE `debug_info` the guest reads at load
 //! time.
 
-use kobako_codec::codec::{Encoder, Value};
+use kobako_runtime::envelope::{Snippet, Snippets as Frame};
 
 use crate::error::Error;
-
-/// One preloaded snippet in its registered form.
-enum Snippet {
-    Source { name: String, body: String },
-    Binary { body: Vec<u8> },
-}
 
 /// Insertion-ordered snippet table for one Sandbox.
 #[derive(Default)]
@@ -55,33 +49,17 @@ impl Snippets {
     /// Register a binary-form snippet: RITE bytecode recorded verbatim,
     /// structurally validated by the guest at first replay.
     pub(crate) fn register_binary(&mut self, body: Vec<u8>) {
-        self.entries.push(Snippet::Binary { body });
+        self.entries.push(Snippet::Bytecode { body });
     }
 
-    /// Encode the Frame 3 snippet-replay payload: a msgpack array of
-    /// entry maps in insertion order, empty but present when nothing is
-    /// preloaded (docs/wire-codec.md § Invocation channels).
+    /// Encode the Frame 3 snippet-replay payload in insertion order,
+    /// empty but present when nothing is preloaded (docs/wire-codec.md
+    /// § Invocation channels).
     pub(crate) fn frame(&self) -> Vec<u8> {
-        let entries = self
-            .entries
-            .iter()
-            .map(|entry| match entry {
-                Snippet::Source { name, body } => Value::Map(vec![
-                    (Value::Str("name".into()), Value::Str(name.clone())),
-                    (Value::Str("kind".into()), Value::Str("source".into())),
-                    (Value::Str("body".into()), Value::Str(body.clone())),
-                ]),
-                Snippet::Binary { body } => Value::Map(vec![
-                    (Value::Str("kind".into()), Value::Str("bytecode".into())),
-                    (Value::Str("body".into()), Value::Bin(body.clone())),
-                ]),
-            })
-            .collect();
-        let mut encoder = Encoder::new();
-        encoder
-            .write_value(&Value::Array(entries))
-            .expect("a str/bin snippet table always encodes");
-        encoder.into_bytes()
+        Frame {
+            entries: self.entries.clone(),
+        }
+        .encode()
     }
 }
 
@@ -97,29 +75,38 @@ pub(crate) fn constant_name(name: &str) -> bool {
 mod tests {
     use super::*;
 
+    // Replay order is the property the guest depends on; read it back
+    // through the envelope rather than pinning bytes the envelope's own
+    // tests already own.
     #[test]
-    fn frame_encodes_source_and_binary_entries_in_insertion_order() {
+    fn the_frame_carries_source_and_binary_entries_in_insertion_order() {
         let mut snippets = Snippets::default();
         snippets.register_source("Helper", "X = 1").unwrap();
         snippets.register_binary(vec![0x01, 0x02]);
-        // The wire image the Ruby host emits for the same table
-        // (`Catalog::Snippets#encode` with one source + one binary entry).
-        let expected: Vec<u8> = [
-            "92", // fixarray 2
-            "83a46e616d65a648656c706572a46b696e64a6736f75726365a4626f6479a558203d2031",
-            "82a46b696e64a862797465636f6465a4626f6479c4020102",
-        ]
-        .concat()
-        .as_bytes()
-        .chunks(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-        .collect();
-        assert_eq!(snippets.frame(), expected);
+        assert_eq!(
+            Frame::decode(&snippets.frame()),
+            Ok(Frame {
+                entries: vec![
+                    Snippet::Source {
+                        name: "Helper".into(),
+                        body: "X = 1".into()
+                    },
+                    Snippet::Bytecode {
+                        body: vec![0x01, 0x02]
+                    },
+                ]
+            }),
+            "a mixed snippet table must reach the guest in registration order"
+        );
     }
 
     #[test]
-    fn empty_table_frame_is_the_explicit_empty_array() {
-        assert_eq!(Snippets::default().frame(), vec![0x90]);
+    fn an_empty_table_sends_a_present_zero_count_frame() {
+        assert_eq!(
+            Frame::decode(&Snippets::default().frame()),
+            Ok(Frame::default()),
+            "a Sandbox with no preloads must send a present, zero-count Frame 3"
+        );
     }
 
     #[test]

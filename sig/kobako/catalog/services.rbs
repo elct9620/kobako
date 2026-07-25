@@ -11,7 +11,7 @@ module Kobako
 
       def lookup: (Symbol | String target) -> untyped
 
-      def encode: () -> String
+      def paths: () -> Array[String]
 
       def seal!: () -> self
 
