@@ -2,6 +2,7 @@
 
 require_relative "../handle"
 require_relative "../codec"
+require_relative "../payload"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
@@ -16,20 +17,17 @@ module Kobako
     # arguments. Host pre-flight (entrypoint type / name pattern, forged
     # Handle, kwargs-key type) is enforced at construction so the Value
     # Object is the single source of truth — anything that passes
-    # +Run.new+ is safe to encode and ship to the guest.
+    # +Run.new+ is safe to ship to the guest.
     #
-    # Run is the host→guest entrypoint dispatch envelope (the +#run+
-    # request shape), the symmetric counterpart to the guest→host
-    # +Request+ envelope. +#encode+ takes the Sandbox's
-    # +Catalog::Handles+ and routes any non-wire-representable +args+ /
-    # +kwargs+ leaf through it as a +Kobako::Handle+ — the
-    # symmetric counterpart of the guest→host wrap path in the
-    # dispatcher. A +Kobako::Handle+ that arrives **already
+    # +#payload+ takes the invocation's +Catalog::Handles+ and routes any
+    # non-wire-representable +args+ / +kwargs+ leaf through it as a
+    # +Kobako::Handle+ — the symmetric counterpart of the guest→host wrap
+    # path in the dispatcher. A +Kobako::Handle+ that arrives **already
     # constructed** in the caller's +args+ / +kwargs+ is rejected at
-    # construction: legitimate Handles only enter Host App code
-    # through error fields, so a Handle reaching the call site is by
-    # definition smuggled in. The +#encode+ output is the "Run envelope"
-    # that ships through the +__kobako_run+ command buffer.
+    # construction: legitimate Handles only enter Host App code through
+    # error fields, so a Handle reaching the call site is by definition
+    # smuggled in. +Runtime#run+ frames that payload with the entrypoint
+    # into the Run envelope the +__kobako_run+ command buffer carries.
     #
     # Built on the +class X < Data.define(...)+ subclass form (the
     # Steep-friendly shape — see +lib/kobako/outcome/panic.rb+).
@@ -48,25 +46,19 @@ module Kobako
         super
       end
 
-      # Encode this Run to the msgpack bytes the guest's +__kobako_run+
-      # entry point consumes as its command-buffer payload
-      # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
+      # Encode this Run's arguments as the adapter payload the Run
+      # envelope carries — +Runtime#run+ frames it with the entrypoint.
       # Walks +args+ / +kwargs+ through Codec::HandleWalk.deep_wrap so
       # any non-wire-representable leaf is allocated into +handler+ and
-      # replaced with a +Kobako::Handle+; the
-      # +handler+ argument is the Sandbox's table, sharing the same
-      # allocator the guest→host return path uses.
-      #
-      # Layout: msgpack map with string keys +"entrypoint"+ (Symbol via
-      # ext 0x00), +"args"+ (Array), +"kwargs"+ (Map with Symbol keys);
-      # any wrapped leaf rides as ext 0x01 in its original position
-      # (docs/wire-codec.md § ext 0x01 position rules).
-      def encode(handler)
-        Codec::Encoder.encode(
-          "entrypoint" => entrypoint,
-          "args" => Codec::HandleWalk.deep_wrap(args, handler),
-          "kwargs" => Codec::HandleWalk.deep_wrap(kwargs, handler)
-        )
+      # replaced with a +Kobako::Handle+; the +handler+ argument is the
+      # invocation's table, sharing the same allocator the guest→host
+      # return path uses. A wrapped leaf rides as ext 0x01 in its
+      # original position (docs/wire-codec.md § ext 0x01 position rules).
+      def payload(handler)
+        Payload::Arguments.new(
+          args: Codec::HandleWalk.deep_wrap(args, handler),
+          kwargs: Codec::HandleWalk.deep_wrap(kwargs, handler)
+        ).encode
       end
 
       private

@@ -23,7 +23,8 @@ module Kobako
       ^(String, Kobako::Transport::_GuestYielder) -> String dispatch,
       Array[String] paths,
       Array[Kobako::Catalog::Snippets::tuple] snippets,
-      String envelope
+      String entrypoint,
+      String payload
     ) -> Kobako::Runtime::Snapshot
 
     def profile: () -> Symbol

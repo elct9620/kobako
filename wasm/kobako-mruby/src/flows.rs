@@ -15,7 +15,7 @@
 //! One sibling file per flow alongside the helpers it owns:
 //!
 //! * `eval` — `__kobako_eval` body.
-//! * `run` — `__kobako_run` body + invocation-envelope parser.
+//! * `run` — `__kobako_run` body.
 //! * `yield_block` — `__kobako_yield_to_block` body (host-initiated
 //!   re-entry into a guest block).
 //! * `boot` — canonical-boot-state acquisition / frame reads / preamble

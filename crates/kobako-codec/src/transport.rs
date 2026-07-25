@@ -1,11 +1,10 @@
-//! Kobako transport envelopes — mirror of the host's
-//! `lib/kobako/transport/` directory. One file per value object —
-//! `Request` (`request`), `Response` (`response`), `Run` (`run`),
-//! `Yield` (`block`) — each re-exported at this root so call sites name it
-//! `transport::Request` etc., matching the host's flat
-//! `Kobako::Transport::Request`. The guest dispatch path that drives
-//! these envelopes over the ABI lives in `kobako-core`
-//! (`transport::proxy` there), keeping this module wire-only.
+//! Kobako transport envelopes — the adapter-layer value objects that
+//! mirror the host's `lib/kobako/transport/` directory. One file per
+//! value object, re-exported at this root so call sites name it
+//! `transport::Yield`, matching the host's flat
+//! `Kobako::Transport::Yield`. The guest dispatch path that drives these
+//! envelopes over the ABI lives in `kobako-core` (`transport::proxy`
+//! there), keeping this module wire-only.
 //!
 //! Each envelope type carries its own wire codec through the
 //! `crate::codec::Encode` / `crate::codec::Decode` traits — the
@@ -17,8 +16,4 @@
 
 pub mod block;
 
-pub mod run;
-
 pub use block::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
-
-pub use run::Run;

@@ -14,7 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kobako_codec::codec::{Encode as _, Value};
-use kobako_codec::transport::Run;
+use kobako_codec::payload::Arguments;
+use kobako_runtime::envelope::Run;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
@@ -315,13 +316,14 @@ impl Sandbox {
             .into_iter()
             .map(|(key, arg)| Ok((key, wrap_run_arg(&handles, arg)?)))
             .collect::<Result<_, Error>>()?;
+        let payload = Arguments::new(args, kwargs)
+            .encode()
+            .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
         let envelope = Run {
             entrypoint: target.to_string(),
-            args,
-            kwargs,
+            payload,
         }
-        .encode()
-        .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
+        .encode();
         self.invoke(
             catalog,
             handles,

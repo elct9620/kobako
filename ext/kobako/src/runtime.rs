@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::envelope::{Preamble, Snippet, Snippets};
+use kobako_runtime::envelope::{Preamble, Run, Snippet, Snippets};
 use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
@@ -108,7 +108,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 7))?;
     runtime.define_method("eval", method!(Runtime::eval, 4))?;
-    runtime.define_method("run", method!(Runtime::run, 4))?;
+    runtime.define_method("run", method!(Runtime::run, 5))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
@@ -282,21 +282,27 @@ impl Runtime {
     /// `Snapshot`.
     ///
     /// The two-frame stdin protocol (preamble + snippets; no user source
-    /// frame — docs/wire-codec.md § Invocation channels) plus the
-    /// `envelope` copied into guest linear memory; cap semantics match
-    /// `#eval`.
+    /// frame — docs/wire-codec.md § Invocation channels) plus the Run
+    /// envelope copied into guest linear memory — `entrypoint` routes it,
+    /// `payload` feeds it, and this side frames the two together. Cap
+    /// semantics match `#eval`.
     fn run(
         &self,
         dispatch: Value,
         paths: RArray,
         snippets: RArray,
-        envelope: RString,
+        entrypoint: String,
+        payload: RString,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = build_handler(dispatch);
         let preamble = frame_preamble(paths)?;
         let snippets = frame_snippets(&ruby, snippets)?;
-        let envelope = rstring_to_vec(envelope);
+        let envelope = Run {
+            entrypoint,
+            payload: rstring_to_vec(payload),
+        }
+        .encode();
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // see the note in `#eval`.
         let result = gvl::region(self.release_gvl, || {

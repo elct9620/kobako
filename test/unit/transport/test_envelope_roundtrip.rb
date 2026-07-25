@@ -27,10 +27,6 @@ require "test_helper"
 class TestEnvelopeRoundtrip < Minitest::Test
   include OutcomeBytesHelpers
 
-  Envelope = Kobako::Transport
-  Handle   = Kobako::Handle
-  Exc      = Kobako::Fault
-
   CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "envelope_oracle")
 
@@ -51,7 +47,7 @@ class TestEnvelopeRoundtrip < Minitest::Test
   # Send one envelope frame to the oracle and read its response.
   # +kind+ is a single-byte tag picked by the oracle protocol
   # ('Q' Request, 'P' Response, 'R' Result, 'X' Panic, 'O' Outcome,
-  # 'I' Invocation/Run).
+  # 'A' invocation Arguments).
   def oracle_roundtrip(kind, payload)
     @channel.send_frame(+"".b << kind << payload.b)
     body, error = @channel.read_frame
@@ -59,25 +55,26 @@ class TestEnvelopeRoundtrip < Minitest::Test
     body
   end
 
-  # ---------- Run (Invocation) envelope ----------
+  # ---------- invocation Arguments payload ----------
 
-  def test_run_envelope_round_trips
-    run = Envelope::Run.new(entrypoint: :Handler, args: [42, "alice"], kwargs: { active: true })
-    bytes = run.encode(Kobako::Catalog::Handles.new)
-    assert_equal bytes, oracle_roundtrip("I", bytes)
+  def test_invocation_arguments_round_trip
+    bytes = Kobako::Payload::Arguments.new(args: [42, "alice"], kwargs: { active: true }).encode
+    assert_equal bytes, oracle_roundtrip("A", bytes),
+                 "an args-and-kwargs payload must survive the guest adapter byte-identically"
   end
 
-  def test_run_envelope_with_wrapped_leaf_round_trips
-    # A non-wire-representable arg auto-wraps into the Handles table and
-    # rides as ext 0x01 in its args position — the Invocation-envelope
-    # Handle position docs/wire-codec.md § ext 0x01 licenses.
-    run = Envelope::Run.new(entrypoint: :Main, args: [Object.new], kwargs: {})
-    bytes = run.encode(Kobako::Catalog::Handles.new)
-    assert_equal bytes, oracle_roundtrip("I", bytes)
+  def test_invocation_arguments_carrying_a_wrapped_leaf_round_trip
+    # A non-wire-representable argument auto-wraps into the Handles table
+    # and rides as ext 0x01 in its args position — the payload Handle
+    # position docs/wire/payload-msgpack.md § ext 0x01 licenses.
+    wrapped = Kobako::Codec::HandleWalk.deep_wrap([Object.new], Kobako::Catalog::Handles.new)
+    bytes = Kobako::Payload::Arguments.new(args: wrapped, kwargs: {}).encode
+    assert_equal bytes, oracle_roundtrip("A", bytes),
+                 "a Handle in an argument position must cross to the guest adapter unchanged"
   end
 
-  # The empty-args/kwargs Run shape is byte-pinned cross-language by the
-  # Rust golden (run_golden_empty_args_and_kwargs), so no oracle case here.
+  # The empty-args/kwargs payload shape is byte-pinned cross-language by
+  # the Rust golden vectors, so no oracle case here.
 
   # ---------- Result envelope (bare codec value) ----------
 

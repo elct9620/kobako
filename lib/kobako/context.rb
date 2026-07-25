@@ -89,7 +89,8 @@ module Kobako
     def run(run_envelope, &block)
       collect_overrides(&block) if block
       invoke!(:run) do
-        @runtime.run(dispatch_handler, @services.paths, @snippets.entries, run_envelope.encode(@handler))
+        @runtime.run(dispatch_handler, @services.paths, @snippets.entries,
+                     run_envelope.entrypoint.to_s, run_envelope.payload(@handler))
       end
     end
 

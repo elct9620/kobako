@@ -12,8 +12,9 @@
 //!    preamble proxy classes; replay snippets. Any failure writes a Panic envelope
 //!    with the snippet's backtrace attribution
 //!    and returns.
-//! 2. Decode the invocation envelope from `(env_ptr, env_len)` via
-//!    `parse_invocation`. Decode failure writes a Panic envelope.
+//! 2. Decode the Run envelope from `(env_ptr, env_len)`, then its
+//!    payload through the adapter. Either failure writes a Panic
+//!    envelope.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
 //!    `sys::mrb_const_defined` and confirm the constant
 //!    responds to `:call` via `sys::mrb_respond_to`. Each
@@ -26,93 +27,8 @@
 //!    value as a Result envelope or convert the pending mruby
 //!    exception into a Panic envelope.
 
-#[cfg(any(mruby_linked, test))]
+#[cfg(mruby_linked)]
 use kobako_codec::codec::Value;
-
-/// Decoded invocation envelope. `target` is the entrypoint constant
-/// name (a Symbol on the codec side); the parser has already narrowed
-/// `args` to the array's elements and `kwargs` to the map's pairs, so
-/// callers hand them straight to
-/// `crate::runtime::Kobako::to_mrb_value` without re-checking.
-#[cfg(any(mruby_linked, test))]
-#[derive(Debug, PartialEq)]
-pub(super) struct Invocation {
-    pub target: String,
-    pub args: Vec<Value>,
-    pub kwargs: Vec<(Value, Value)>,
-}
-
-/// Reasons the invocation envelope failed to decode. Each variant
-/// carries the host-visible Panic message verbatim; the wrapper at
-/// `__kobako_run` folds the variant back into a
-/// `Kobako::Transport::Error` Panic.
-#[cfg(any(mruby_linked, test))]
-#[derive(Debug, PartialEq)]
-pub(super) enum InvocationError {
-    /// Envelope was not a msgpack map.
-    NotMap,
-    /// `entrypoint` key was absent or its value was not a Symbol.
-    MissingEntrypoint,
-    /// `args` key was present but its value was not an Array.
-    ArgsNotArray,
-    /// `kwargs` key was present but its value was not a Map.
-    KwargsNotMap,
-}
-
-#[cfg(any(mruby_linked, test))]
-impl InvocationError {
-    pub(super) fn message(&self) -> &'static str {
-        match self {
-            Self::NotMap => "malformed invocation request",
-            Self::MissingEntrypoint => "invocation request is missing an entrypoint",
-            Self::ArgsNotArray => "invocation arguments must be an array",
-            Self::KwargsNotMap => "invocation keyword arguments must be a map",
-        }
-    }
-}
-
-/// Parse a decoded msgpack `Value` into an `Invocation`. Unknown
-/// keys are silently ignored for forward compatibility; `args` /
-/// `kwargs` default to empty when absent but must carry their wire
-/// shape when present. Pure parser — host-buildable for unit testing.
-#[cfg(any(mruby_linked, test))]
-pub(super) fn parse_invocation(envelope: Value) -> Result<Invocation, InvocationError> {
-    let pairs = match envelope {
-        Value::Map(p) => p,
-        _ => return Err(InvocationError::NotMap),
-    };
-    let mut target: Option<String> = None;
-    let mut args: Option<Vec<Value>> = None;
-    let mut kwargs: Option<Vec<(Value, Value)>> = None;
-    for (k, v) in pairs {
-        let key = match k {
-            Value::Str(s) => s,
-            _ => continue,
-        };
-        match key.as_str() {
-            "entrypoint" => {
-                if let Value::Sym(name) = v {
-                    target = Some(name);
-                }
-            }
-            "args" => match v {
-                Value::Array(items) => args = Some(items),
-                _ => return Err(InvocationError::ArgsNotArray),
-            },
-            "kwargs" => match v {
-                Value::Map(entries) => kwargs = Some(entries),
-                _ => return Err(InvocationError::KwargsNotMap),
-            },
-            _ => {}
-        }
-    }
-    let target = target.ok_or(InvocationError::MissingEntrypoint)?;
-    Ok(Invocation {
-        target,
-        args: args.unwrap_or_default(),
-        kwargs: kwargs.unwrap_or_default(),
-    })
-}
 
 /// Invocation entry behind the `__kobako_run` export — see module
 /// docs. `G` supplies the shell-chosen gem set via
@@ -125,8 +41,10 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use kobako_codec::codec::Decoder;
+    use kobako_codec::codec::Decode;
+    use kobako_codec::envelope::Run;
     use kobako_codec::outcome::Panic;
+    use kobako_codec::payload::Arguments;
     use kobako_core::abi::write_panic;
 
     let preamble = match boot::read_preamble() {
@@ -159,24 +77,25 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         return write_panic(panic);
     }
 
-    let envelope = {
-        let mut dec = Decoder::new(env);
-        match dec.read_only_value() {
-            Ok(v) => v,
-            Err(_) => {
-                return write_panic(boot::transport_panic(
-                    "failed to decode the invocation request",
-                ));
-            }
+    // Wire faults reject here, before entrypoint resolution: a request
+    // that is both malformed and aimed at a missing entrypoint reports
+    // its wire-shape violation, not the entrypoint miss. The two layers
+    // report separately, so a caller can tell a framing desync from a
+    // payload the adapter could not read.
+    let run = match Run::decode(env) {
+        Ok(run) => run,
+        Err(_) => {
+            return write_panic(boot::transport_panic(
+                "failed to decode the invocation request",
+            ));
         }
     };
-    // Envelope faults reject here, before entrypoint resolution: a
-    // request that is both malformed and aimed at a missing entrypoint
-    // reports its wire-shape violation, not the entrypoint miss.
-    let invocation = match parse_invocation(envelope) {
-        Ok(inv) => inv,
-        Err(err) => {
-            return write_panic(boot::transport_panic(err.message()));
+    let arguments = match Arguments::decode(&run.payload) {
+        Ok(arguments) => arguments,
+        Err(_) => {
+            return write_panic(boot::transport_panic(
+                "failed to decode the invocation arguments",
+            ));
         }
     };
 
@@ -185,7 +104,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
-    let target_sym = mrb.intern_str(mrb.str_new(invocation.target.as_bytes()).as_value());
+    let target_sym = mrb.intern_str(mrb.str_new(run.entrypoint.as_bytes()).as_value());
     // SAFETY: the cached `object_class` pointer was produced by the
     // same `mrb_state` and is GC-stable for the VM's lifetime.
     let object_value = unsafe { mrb.object_class().to_value(mrb) };
@@ -210,7 +129,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::SandboxError".into(),
-            message: format!("undefined entrypoint: {}", invocation.target),
+            message: format!("undefined entrypoint: {}", run.entrypoint),
             backtrace: Vec::new(),
             details: Some(details),
         });
@@ -230,7 +149,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         return write_panic(Panic {
             origin: "sandbox".into(),
             class: "Kobako::SandboxError".into(),
-            message: format!("entrypoint {} does not respond to :call", invocation.target),
+            message: format!("entrypoint {} does not respond to :call", run.entrypoint),
             backtrace: Vec::new(),
             details: None,
         });
@@ -252,7 +171,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // 32-bit range — fails the invocation rather than reaching the
     // entrypoint with a saturated value (docs/wire-codec.md § Integer
     // Range).
-    let mut argv: Vec<beni::Value> = match invocation
+    let mut argv: Vec<beni::Value> = match arguments
         .args
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))
@@ -261,8 +180,15 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Ok(argv) => argv,
         Err(err) => return write_panic(boot::transport_panic(err.message())),
     };
-    if !invocation.kwargs.is_empty() {
-        match kobako.to_mrb_value(Value::Map(invocation.kwargs)) {
+    if !arguments.kwargs.is_empty() {
+        // The adapter already established every key is a Symbol, so the
+        // Hash is rebuilt from the names it decoded.
+        let kwargs = arguments
+            .kwargs
+            .into_iter()
+            .map(|(name, value)| (Value::Sym(name), value))
+            .collect();
+        match kobako.to_mrb_value(Value::Map(kwargs)) {
             Ok(kwargs_val) => argv.push(kwargs_val),
             Err(err) => return write_panic(boot::transport_panic(err.message())),
         }
@@ -274,138 +200,4 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     };
 
     boot::write_value_outcome(&kobako, result_val);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_invocation_accepts_complete_envelope() {
-        let envelope = Value::Map(vec![
-            (
-                Value::Str("entrypoint".into()),
-                Value::Sym("Greeter".into()),
-            ),
-            (
-                Value::Str("args".into()),
-                Value::Array(vec![Value::Int(42)]),
-            ),
-            (
-                Value::Str("kwargs".into()),
-                Value::Map(vec![(Value::Sym("flag".into()), Value::Bool(true))]),
-            ),
-        ]);
-        let inv = parse_invocation(envelope).unwrap();
-        assert_eq!(inv.target, "Greeter");
-        assert_eq!(inv.args, vec![Value::Int(42)]);
-        assert_eq!(
-            inv.kwargs,
-            vec![(Value::Sym("flag".into()), Value::Bool(true))]
-        );
-    }
-
-    #[test]
-    fn parse_invocation_defaults_missing_args_and_kwargs() {
-        let envelope = Value::Map(vec![(
-            Value::Str("entrypoint".into()),
-            Value::Sym("Greeter".into()),
-        )]);
-        let inv = parse_invocation(envelope).unwrap();
-        assert!(inv.args.is_empty());
-        assert!(inv.kwargs.is_empty());
-    }
-
-    #[test]
-    fn parse_invocation_rejects_non_array_args() {
-        let envelope = Value::Map(vec![
-            (
-                Value::Str("entrypoint".into()),
-                Value::Sym("Greeter".into()),
-            ),
-            (Value::Str("args".into()), Value::Int(1)),
-        ]);
-        assert_eq!(
-            parse_invocation(envelope),
-            Err(InvocationError::ArgsNotArray)
-        );
-    }
-
-    #[test]
-    fn parse_invocation_rejects_non_map_kwargs() {
-        let envelope = Value::Map(vec![
-            (
-                Value::Str("entrypoint".into()),
-                Value::Sym("Greeter".into()),
-            ),
-            (Value::Str("kwargs".into()), Value::Array(Vec::new())),
-        ]);
-        assert_eq!(
-            parse_invocation(envelope),
-            Err(InvocationError::KwargsNotMap)
-        );
-    }
-
-    #[test]
-    fn parse_invocation_rejects_non_map() {
-        let envelope = Value::Array(Vec::new());
-        assert_eq!(parse_invocation(envelope), Err(InvocationError::NotMap));
-    }
-
-    #[test]
-    fn parse_invocation_rejects_missing_entrypoint() {
-        let envelope = Value::Map(vec![(Value::Str("args".into()), Value::Array(Vec::new()))]);
-        assert_eq!(
-            parse_invocation(envelope),
-            Err(InvocationError::MissingEntrypoint)
-        );
-    }
-
-    #[test]
-    fn parse_invocation_rejects_non_symbol_entrypoint() {
-        let envelope = Value::Map(vec![(
-            Value::Str("entrypoint".into()),
-            Value::Str("Greeter".into()),
-        )]);
-        assert_eq!(
-            parse_invocation(envelope),
-            Err(InvocationError::MissingEntrypoint)
-        );
-    }
-
-    #[test]
-    fn parse_invocation_ignores_unknown_keys() {
-        let envelope = Value::Map(vec![
-            (
-                Value::Str("entrypoint".into()),
-                Value::Sym("Greeter".into()),
-            ),
-            (
-                Value::Str("future_field".into()),
-                Value::Str("ignored".into()),
-            ),
-        ]);
-        let inv = parse_invocation(envelope).unwrap();
-        assert_eq!(inv.target, "Greeter");
-    }
-
-    #[test]
-    fn invocation_error_messages_match_panic_text() {
-        assert_eq!(
-            InvocationError::NotMap.message(),
-            "malformed invocation request"
-        );
-        assert_eq!(
-            InvocationError::MissingEntrypoint.message(),
-            "invocation request is missing an entrypoint"
-        );
-        assert_eq!(
-            InvocationError::ArgsNotArray.message(),
-            "invocation arguments must be an array"
-        );
-        assert_eq!(
-            InvocationError::KwargsNotMap.message(),
-            "invocation keyword arguments must be a map"
-        );
-    }
 }

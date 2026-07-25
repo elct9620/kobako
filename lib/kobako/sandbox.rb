@@ -133,8 +133,8 @@ module Kobako
     end
 
     # Dispatch into a preloaded entrypoint constant. Delegates host
-    # pre-flight and wire encoding to +Kobako::Transport::Run+ /
-    # +Kobako::Transport::Run#encode+: a non-Symbol/String +target+ raises
+    # pre-flight and argument encoding to +Kobako::Transport::Run+ /
+    # +Kobako::Transport::Run#payload+: a non-Symbol/String +target+ raises
     # +TypeError+, while a +target+ failing the constant pattern, a forged
     # +Kobako::Handle+ in +args+ / +kwargs+, or a non-Symbol +kwargs+ key
     # raise +ArgumentError+. The guest resolves +target+ as a top-level
