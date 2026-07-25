@@ -115,5 +115,46 @@ module Kobako
       assert_same obj_b, next_run.fetch(id_b)
       refute_same obj_a, next_run.fetch(id_b)
     end
+
+    # ---------- No reachable un-delivered Handle (SPEC B-65) ----------
+    #
+    # An opaque payload lets a guest write any integer where a Handle id
+    # goes, so the boundary cannot rest on the guest being unable to name
+    # one. These two pin what actually holds it: the table's lifetime.
+
+    def test_an_id_the_table_never_issued_resolves_to_no_object
+      table = Table.new
+      delivered = table.alloc(Object.new).id
+
+      [delivered + 1, delivered + 1000, Kobako::Handle::MAX_ID].each do |guess|
+        assert_raises(Kobako::SandboxError, "an unissued Handle id #{guess} through " \
+                                            "Catalog::Handles#fetch must resolve to no object") do
+          table.fetch(guess)
+        end
+      end
+    end
+
+    def test_ids_minted_before_a_failed_wrap_leave_with_their_table
+      # An argument walk that rejects a later leaf has already minted ids
+      # for the leaves before it. Those ids stay confined to the table the
+      # abandoned invocation held.
+      table = Table.new
+      wrap_that_fails_after_minting(table)
+
+      assert_kind_of Object, table.fetch(1), "a walk that fails part-way through must leave its " \
+                                             "already-minted id bound in its own table"
+      assert_raises(Kobako::SandboxError, "an id minted by an abandoned walk must resolve to " \
+                                          "no object in the next invocation's table") do
+        Table.new.fetch(1)
+      end
+    end
+
+    # Walk a value whose first leaf is wrappable and whose second is a
+    # non-representable Hash key, so the walk mints an id and then aborts.
+    def wrap_that_fails_after_minting(table)
+      assert_raises(Kobako::SandboxError) do
+        Kobako::Codec::HandleWalk.deep_wrap([Object.new, { Object.new => 1 }], table)
+      end
+    end
   end
 end
