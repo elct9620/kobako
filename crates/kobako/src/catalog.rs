@@ -64,13 +64,13 @@ impl Catalog {
 mod tests {
     use kobako_codec::codec::Value;
 
-    use crate::receiver::{Fault, Receiver};
+    use crate::receiver::{Fault, ValueAdapter, ValueReceiver};
 
     use super::*;
 
     struct Probe;
 
-    impl Receiver for Probe {
+    impl ValueReceiver for Probe {
         fn call(
             &self,
             _method: &str,
@@ -86,8 +86,8 @@ mod tests {
     #[test]
     fn bind_then_lookup_resolves_the_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        catalog.bind("File", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
+        catalog.bind("File", Arc::new(ValueAdapter::new(Probe)));
         assert!(catalog.lookup("MyService::KV").is_some());
         assert!(catalog.lookup("File").is_some());
         assert!(catalog.lookup("MyService::Other").is_none());
@@ -96,8 +96,8 @@ mod tests {
     #[test]
     fn rebind_replaces_the_object_at_the_same_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
+        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
         assert!(catalog.lookup("MyService::KV").is_some());
     }
 
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn preamble_encodes_the_flat_path_list() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
         let expected = {
             let mut encoder = Encoder::new();
             encoder

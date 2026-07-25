@@ -874,6 +874,7 @@ name = "kobako-parity"
 version = "0.0.0"
 dependencies = [
  "kobako",
+ "kobako-codec",
  "serde_json",
 ]
 

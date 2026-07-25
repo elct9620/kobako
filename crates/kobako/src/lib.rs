@@ -27,6 +27,6 @@ pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
 pub use kobako_codec::codec::Value;
 pub use kobako_runtime::profile::Profile;
-pub use receiver::{Fault, FaultKind, Receiver};
+pub use receiver::{Fault, FaultKind, Receiver, ValueAdapter, ValueReceiver};
 pub use sandbox::{Context, Options, RunArg, Sandbox, Usage};
 pub use yielder::{YieldError, Yielder};

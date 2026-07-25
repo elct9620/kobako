@@ -1,15 +1,16 @@
 //! The Receiver seam: the host object a guest dispatch resolves its
 //! target to — a bound constant's path or a capability Handle.
 //!
-//! A `Receiver` answers the guest's dispatches with wire `Value`s
-//! or a `Fault` — the three refusal kinds the dispatch contract lets
-//! a Service surface. The dispatcher folds everything else (decode
-//! failures, unencodable responses) itself, so implementations never
-//! need to think about the wire.
+//! A `Receiver` answers the guest's dispatches with payload bytes or a
+//! `Fault` — the three refusal kinds the dispatch contract lets a Service
+//! surface. What those bytes mean is the Receiver's own choice of schema;
+//! `ValueReceiver` plus `ValueAdapter` is the path for the default
+//! MessagePack one.
 
 use std::any::Any;
 
-use kobako_codec::codec::Value;
+use kobako_codec::codec::{Decode, Encoder, Value};
+use kobako_codec::payload::Arguments;
 
 use crate::handles::Handles;
 use crate::yielder::Yielder;
@@ -83,7 +84,41 @@ impl Fault {
 /// concrete type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>`
 /// and `downcast` — the Rust spelling of the Ruby frontend's
 /// restore-to-original-object.
+/// The payload is bytes, not a decoded shape, because a `Catalog` holds
+/// heterogeneous receivers behind `Arc<dyn Receiver>`: a trait object has
+/// one signature, so a payload type on the trait would force every
+/// Service in one Sandbox onto a single schema. Decoding belongs inside
+/// each implementation, which is what lets one Service speak protobuf
+/// while another speaks MessagePack.
+///
+/// Implement `ValueReceiver` instead when the payload is kobako's default
+/// MessagePack shape, and bind it through `ValueAdapter`.
 pub trait Receiver: Any + Send + Sync {
+    fn call(
+        &self,
+        method: &str,
+        payload: &[u8],
+        block: Option<&mut Yielder<'_>>,
+        handles: &Handles<'_>,
+    ) -> Result<Vec<u8>, Fault>;
+
+    /// Opt-in least-privilege narrowing of the guest-reachable method
+    /// surface: a `false` answer rejects the dispatch as `undefined`
+    /// before `call` runs, and the guest cannot reach the predicate
+    /// itself. The default leaves the surface unchanged.
+    fn respond_to_guest(&self, method: &str) -> bool {
+        let _ = method;
+        true
+    }
+}
+
+/// A Receiver that speaks kobako's default payload adapter: positional
+/// and keyword arguments as wire `Value`s, answering with one.
+///
+/// This is the shape a Service written against the bundled mruby guest
+/// wants. `ValueAdapter` bridges it onto the opaque `Receiver` the
+/// Catalog stores.
+pub trait ValueReceiver: Any + Send + Sync {
     fn call(
         &self,
         method: &str,
@@ -93,12 +128,58 @@ pub trait Receiver: Any + Send + Sync {
         handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
 
-    /// Opt-in least-privilege narrowing of the guest-reachable method
-    /// surface: a `false` answer rejects the dispatch as `undefined`
-    /// before `call` runs, and the guest cannot reach the predicate
-    /// itself. The default leaves the surface unchanged.
+    /// Same narrowing contract as `Receiver::respond_to_guest`; the
+    /// adapter forwards it unchanged.
     fn respond_to_guest(&self, method: &str) -> bool {
         let _ = method;
         true
+    }
+}
+
+/// Binds a `ValueReceiver` into a Catalog by decoding the payload with
+/// the MessagePack adapter and encoding the answer back.
+///
+/// A malformed payload and an unencodable answer both surface as a
+/// `runtime` fault, matching how the Ruby frontend folds the same two
+/// failures.
+pub struct ValueAdapter<V>(V);
+
+impl<V: ValueReceiver> ValueAdapter<V> {
+    pub fn new(receiver: V) -> Self {
+        ValueAdapter(receiver)
+    }
+
+    /// The wrapped receiver. A Handle resolved back to its object
+    /// downcasts to `ValueAdapter<V>` rather than to `V`, since the
+    /// adapter is what the Catalog stores; this is how a caller reaches
+    /// its own type from there.
+    pub fn receiver(&self) -> &V {
+        &self.0
+    }
+}
+
+impl<V: ValueReceiver> Receiver for ValueAdapter<V> {
+    fn call(
+        &self,
+        method: &str,
+        payload: &[u8],
+        block: Option<&mut Yielder<'_>>,
+        handles: &Handles<'_>,
+    ) -> Result<Vec<u8>, Fault> {
+        let arguments = Arguments::decode(payload).map_err(|err| {
+            Fault::new(
+                FaultKind::Runtime,
+                format!("Sandbox received a malformed request: {err}"),
+            )
+        })?;
+        let value = self
+            .0
+            .call(method, &arguments.args, &arguments.kwargs, block, handles)?;
+        Encoder::encode(&value)
+            .map_err(|err| Fault::new(FaultKind::Runtime, format!("response not encodable: {err}")))
+    }
+
+    fn respond_to_guest(&self, method: &str) -> bool {
+        self.0.respond_to_guest(method)
     }
 }

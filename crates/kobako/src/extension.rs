@@ -13,8 +13,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use kobako_codec::codec::Value;
-
 use crate::error::Error;
 use crate::handles::Handles;
 use crate::receiver::{Fault, FaultKind, Receiver};
@@ -83,14 +81,15 @@ pub enum Provider {
 struct Unresolved;
 
 impl Receiver for Unresolved {
+    /// Refuses before reading the payload: an unfilled fillable has no
+    /// schema of its own, and the refusal is the same whatever arrived.
     fn call(
         &self,
         _method: &str,
-        _args: &[Value],
-        _kwargs: &[(String, Value)],
+        _payload: &[u8],
         _block: Option<&mut Yielder<'_>>,
         _handles: &Handles<'_>,
-    ) -> Result<Value, Fault> {
+    ) -> Result<Vec<u8>, Fault> {
         Err(Fault::new(
             FaultKind::Undefined,
             "service is declared but unresolved this invocation",
@@ -192,10 +191,12 @@ impl Extensions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receiver::{ValueAdapter, ValueReceiver};
+    use kobako_codec::codec::Value;
 
     struct Probe;
 
-    impl Receiver for Probe {
+    impl ValueReceiver for Probe {
         fn call(
             &self,
             _method: &str,
@@ -273,7 +274,8 @@ mod tests {
     // resolution carries every path that provider backs.
     #[test]
     fn resolve_shares_one_object_across_paths_of_a_shared_provider() {
-        let shared: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
+        let shared: ProviderFn =
+            Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
         let resolved = resolve_of(&[("File", shared.clone()), ("Dir", shared.clone())]);
         assert_eq!(resolved.len(), 2);
         assert!(
@@ -284,8 +286,8 @@ mod tests {
 
     #[test]
     fn resolve_gives_distinct_providers_distinct_objects() {
-        let a: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
-        let b: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
+        let a: ProviderFn = Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
+        let b: ProviderFn = Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
         let resolved = resolve_of(&[("File", a), ("Dir", b)]);
         assert!(
             !Arc::ptr_eq(&resolved[0].1, &resolved[1].1),

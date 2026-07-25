@@ -93,10 +93,11 @@ impl<'a> Handles<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receiver::{ValueAdapter, ValueReceiver};
 
     struct Probe;
 
-    impl Receiver for Probe {
+    impl ValueReceiver for Probe {
         fn call(
             &self,
             _method: &str,
@@ -112,14 +113,14 @@ mod tests {
     #[test]
     fn ids_start_at_one_and_increase_monotonically() {
         let mut table = HandleTable::default();
-        assert_eq!(table.alloc(Arc::new(Probe)), Ok(1));
-        assert_eq!(table.alloc(Arc::new(Probe)), Ok(2));
+        assert_eq!(table.alloc(Arc::new(ValueAdapter::new(Probe))), Ok(1));
+        assert_eq!(table.alloc(Arc::new(ValueAdapter::new(Probe))), Ok(2));
     }
 
     #[test]
     fn get_rejects_the_zero_sentinel_and_unissued_ids() {
         let mut table = HandleTable::default();
-        table.alloc(Arc::new(Probe)).unwrap();
+        table.alloc(Arc::new(ValueAdapter::new(Probe))).unwrap();
         assert!(table.get(0).is_none());
         assert!(table.get(2).is_none());
     }
@@ -128,7 +129,7 @@ mod tests {
     fn facade_round_trips_an_object_through_alloc_and_resolve() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
-        let object: Arc<dyn Receiver> = Arc::new(Probe);
+        let object: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(Probe));
         let token = handles.alloc(object.clone()).unwrap();
         let resolved = handles.resolve(&token).expect("the id is live");
         assert!(
@@ -142,12 +143,18 @@ mod tests {
     fn resolved_receiver_downcasts_to_its_concrete_type() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
-        let token = handles.alloc(Arc::new(Probe)).unwrap();
+        let token = handles.alloc(Arc::new(ValueAdapter::new(Probe))).unwrap();
         let resolved = handles.resolve(&token).expect("the id is live");
         let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
+        // A Value-based receiver enters the table wrapped, so the Any
+        // upcast recovers the adapter; `receiver` reaches the caller's
+        // own type from there.
+        let adapter = any.downcast::<ValueAdapter<Probe>>().expect(
+            "a resolved Handle must recover the concrete receiver type through the Any upcast",
+        );
         assert!(
-            any.downcast::<Probe>().is_ok(),
-            "a resolved Handle must recover the concrete receiver type through the Any upcast"
+            adapter.receiver().respond_to_guest("label"),
+            "the adapter must hand back the wrapped receiver, whose own narrowing predicate answers"
         );
     }
 }

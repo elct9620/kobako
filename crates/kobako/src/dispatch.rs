@@ -8,8 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::codec::{Decode, Encoder, Value};
-use kobako_codec::payload::Arguments;
+use kobako_codec::codec::{Encoder, Value};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::envelope::{Call, Reply, Target};
 use kobako_runtime::yielder::Yielder as RawYielder;
@@ -45,19 +44,10 @@ impl CatalogHandler {
         }
     }
 
-    /// The SDK is the Value adapter over the core envelope: the routing
-    /// fields arrive already decoded, and only the payload becomes the
-    /// `Value` arguments a `Receiver` takes.
+    /// Routes a Call to its Receiver and hands the payload through
+    /// untouched: what the bytes mean is the Receiver's own schema, so
+    /// this layer never decodes them.
     fn handle(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
-        let arguments = match Arguments::decode(call.payload) {
-            Ok(arguments) => arguments,
-            Err(err) => {
-                return fault_reply(&Fault::new(
-                    FaultKind::Runtime,
-                    format!("Sandbox received a malformed request: {err}"),
-                ))
-            }
-        };
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
             Err(fault) => return fault_reply(&fault),
@@ -73,21 +63,17 @@ impl CatalogHandler {
         }
         let handles = Handles::new(&self.handles);
         let mut block = call.block_given.then(|| Yielder::new(channel));
-        let result = object.call(
-            call.method,
-            &arguments.args,
-            &arguments.kwargs,
-            block.as_mut(),
-            &handles,
-        );
+        let result = object.call(call.method, call.payload, block.as_mut(), &handles);
         // A break unwinds the receiver transparently: the guest receives
         // the break value no matter what the receiver returned, and the
-        // value rides back verbatim rather than through host code.
+        // value rides back verbatim rather than through host code. The
+        // break value comes from the yield adapter, so it is encoded
+        // here rather than by the Receiver.
         if let Some(value) = block.and_then(Yielder::into_break) {
             return ok_reply(&value);
         }
         match result {
-            Ok(value) => ok_reply(&value),
+            Ok(body) => Reply::Ok(body),
             Err(fault) => fault_reply(&fault),
         }
     }
@@ -165,9 +151,10 @@ fn ok_reply(value: &Value) -> Reply {
 #[cfg(test)]
 mod tests {
     use kobako_codec::codec::{Decoder, Encode};
+    use kobako_codec::payload::Arguments;
     use kobako_codec::transport::{Yield, TAG_BREAK, TAG_ERROR, TAG_OK};
 
-    use crate::receiver::Receiver;
+    use crate::receiver::{ValueAdapter, ValueReceiver};
 
     use super::*;
 
@@ -205,7 +192,7 @@ mod tests {
     /// with its tag.
     struct Tagged(&'static str);
 
-    impl Receiver for Tagged {
+    impl ValueReceiver for Tagged {
         fn call(
             &self,
             method: &str,
@@ -223,7 +210,7 @@ mod tests {
 
     struct Echo;
 
-    impl Receiver for Echo {
+    impl ValueReceiver for Echo {
         fn call(
             &self,
             method: &str,
@@ -253,13 +240,22 @@ mod tests {
                     let _ = block.call(&[Value::Int(0)]);
                     Ok(Value::Sym("swallowed".into()))
                 }
-                "make" => handles.alloc(Arc::new(Tagged("bob"))),
+                "make" => handles.alloc(Arc::new(ValueAdapter::new(Tagged("bob")))),
                 "read_label" => {
                     let object = args
                         .first()
                         .and_then(|arg| handles.resolve(arg))
                         .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
-                    object.call("label", &[], &[], None, handles)
+                    // Reaching another Receiver means speaking its schema:
+                    // this one is a ValueAdapter, so encode the empty
+                    // argument payload and decode what it answers with.
+                    let payload = Arguments::default()
+                        .encode()
+                        .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))?;
+                    let body = object.call("label", &payload, None, handles)?;
+                    Decoder::new(&body)
+                        .read_only_value()
+                        .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))
                 }
                 _ => Err(Fault::new(FaultKind::Undefined, "no such method")),
             }
@@ -268,7 +264,7 @@ mod tests {
 
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Echo));
+        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Echo)));
         CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
@@ -413,13 +409,13 @@ mod tests {
     #[test]
     fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
-        catalog.bind("File", Arc::new(Echo));
+        catalog.bind("File", Arc::new(ValueAdapter::new(Echo)));
         let handler = CatalogHandler::new(
             Arc::new(catalog),
             Arc::default(),
             vec![(
                 "File".to_string(),
-                Arc::new(Tagged("fresh")) as Arc<dyn Receiver>,
+                Arc::new(ValueAdapter::new(Tagged("fresh"))) as Arc<dyn Receiver>,
             )],
         );
         let req = request(Target::Path("File"), "label", vec![]);
@@ -457,7 +453,7 @@ mod tests {
     /// An Echo narrowed to its `echo` method by the opt-in predicate.
     struct Narrowed;
 
-    impl Receiver for Narrowed {
+    impl ValueReceiver for Narrowed {
         fn call(
             &self,
             method: &str,
@@ -481,7 +477,7 @@ mod tests {
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::Narrow", Arc::new(Narrowed));
+        catalog.bind("MyService::Narrow", Arc::new(ValueAdapter::new(Narrowed)));
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
             Target::Path("MyService::Narrow"),
@@ -504,7 +500,11 @@ mod tests {
     #[test]
     fn narrowing_predicate_applies_to_a_handle_target() {
         let handles: Arc<Mutex<HandleTable>> = Arc::default();
-        let id = handles.lock().unwrap().alloc(Arc::new(Narrowed)).unwrap();
+        let id = handles
+            .lock()
+            .unwrap()
+            .alloc(Arc::new(ValueAdapter::new(Narrowed)))
+            .unwrap();
         let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles, Vec::new());
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);
         assert_eq!(

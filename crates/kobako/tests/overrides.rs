@@ -7,7 +7,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use kobako::{Error, Fault, Handles, Options, Receiver, Sandbox, Value, Yielder};
+use kobako::{
+    Error, Fault, Handles, Options, Sandbox, Value, ValueAdapter, ValueReceiver, Yielder,
+};
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -15,7 +17,7 @@ const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm"
 /// fixed value so a test can witness which object backed the path.
 struct Kv(&'static str);
 
-impl Receiver for Kv {
+impl ValueReceiver for Kv {
     fn call(
         &self,
         _method: &str,
@@ -50,7 +52,7 @@ fn eval_with_fills_a_fillable_for_the_invocation() {
 
     let value = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(Kv("filled")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("filled"))))
         })
         .expect("a filled fillable must dispatch to the override object (B-63)")
         .into_value()
@@ -69,12 +71,12 @@ fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
         return;
     };
     sandbox
-        .bind("Store", Arc::new(Kv("base")))
+        .bind("Store", Arc::new(ValueAdapter::new(Kv("base"))))
         .expect("bind a static Service");
 
     let overridden = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(Kv("override")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("override"))))
         })
         .expect("an override shadows the static binding")
         .into_value()
@@ -108,8 +110,8 @@ fn a_second_override_of_a_path_wins_over_the_first() {
 
     let value = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(Kv("first")))?;
-            ctx.bind("Store", Arc::new(Kv("second")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("first"))))?;
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("second"))))
         })
         .expect("a repeated override resolves to a live object")
         .into_value()
@@ -133,7 +135,9 @@ fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
         .expect("declare a fillable path");
 
     let err = sandbox
-        .eval_with("1", |ctx| ctx.bind("Undeclared", Arc::new(Kv("x"))))
+        .eval_with("1", |ctx| {
+            ctx.bind("Undeclared", Arc::new(ValueAdapter::new(Kv("x"))))
+        })
         .expect_err("overriding an undeclared path must fail before the guest runs (B-63)");
 
     assert!(
@@ -156,7 +160,7 @@ fn run_with_fills_a_fillable_for_the_invocation() {
 
     let value = sandbox
         .run_with("Worker", vec![], vec![], |ctx| {
-            ctx.bind("Store", Arc::new(Kv("filled")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("filled"))))
         })
         .expect("a filled fillable must dispatch to the override object (B-63)")
         .into_value()
@@ -178,12 +182,12 @@ fn run_with_shadows_a_static_binding_for_one_invocation_only() {
         .preload("Worker", "Worker = ->(*_a, **_k) { Store.get(1) }")
         .expect("preload the entrypoint");
     sandbox
-        .bind("Store", Arc::new(Kv("base")))
+        .bind("Store", Arc::new(ValueAdapter::new(Kv("base"))))
         .expect("bind a static Service");
 
     let overridden = sandbox
         .run_with("Worker", vec![], vec![], |ctx| {
-            ctx.bind("Store", Arc::new(Kv("override")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("override"))))
         })
         .expect("an override shadows the static binding")
         .into_value()
@@ -220,7 +224,7 @@ fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
 
     let err = sandbox
         .run_with("Worker", vec![], vec![], |ctx| {
-            ctx.bind("Undeclared", Arc::new(Kv("x")))
+            ctx.bind("Undeclared", Arc::new(ValueAdapter::new(Kv("x"))))
         })
         .expect_err("overriding an undeclared path must fail before the guest runs (B-63)");
 

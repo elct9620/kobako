@@ -10,7 +10,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use kobako::{
-    Backend, Error, Extension, Fault, Handles, Options, Provider, Receiver, Sandbox, Value, Yielder,
+    Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Value, ValueAdapter,
+    ValueReceiver, Yielder,
 };
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
@@ -30,7 +31,7 @@ fn real_sandbox() -> Option<Sandbox> {
 /// its fixed value so a test can witness the fill.
 struct Kv(&'static str);
 
-impl Receiver for Kv {
+impl ValueReceiver for Kv {
     fn call(
         &self,
         _method: &str,
@@ -146,7 +147,7 @@ fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
 
     let value = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(Kv("filled")))
+            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("filled"))))
         })
         .expect("the guest ran")
         .into_value()

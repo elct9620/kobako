@@ -13,13 +13,16 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+use kobako_codec::codec::{Decoder, Encode};
+use kobako_codec::payload::Arguments;
 use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
 use kobako::{
     Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile, Provider,
-    Receiver, RunArg, Sandbox, Value, Yielder,
+    Receiver, RunArg, Sandbox, Value, ValueAdapter, ValueReceiver, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -184,15 +187,16 @@ impl Extension for ScenarioExtension {
 /// invocations.
 fn build_provider(backend: &Json) -> Result<Provider, String> {
     match backend["provider"].as_str() {
-        Some("fixed") => Ok(Provider::Static(Arc::new(build_backend_stub(
-            &backend["methods"],
-        )?))),
+        Some("fixed") => Ok(Provider::Static(Arc::new(ValueAdapter::new(
+            build_backend_stub(&backend["methods"])?,
+        )))),
         Some("per_invocation") => {
             let methods = backend["methods"].clone();
             build_backend_stub(&methods)?; // validate; the closure rebuilds
             Ok(Provider::PerInvocation(Arc::new(move || {
-                Arc::new(build_backend_stub(&methods).expect("methods validated at install"))
-                    as Arc<dyn Receiver>
+                Arc::new(ValueAdapter::new(
+                    build_backend_stub(&methods).expect("methods validated at install"),
+                )) as Arc<dyn Receiver>
             })))
         }
         other => Err(format!("unknown provider kind {other:?}")),
@@ -266,7 +270,10 @@ fn bind_service(
         None => None,
     };
     sandbox
-        .bind(path, Arc::new(StubReceiver { methods, exposed }))
+        .bind(
+            path,
+            Arc::new(ValueAdapter::new(StubReceiver { methods, exposed })),
+        )
         .map_err(|err| format!("bind failed: {err}"))
 }
 
@@ -333,9 +340,9 @@ fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, St
 /// Create and register a labeled opaque object so the tagger can
 /// recover its identity from a resolved Handle.
 fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn Receiver> {
-    let object: Arc<dyn Receiver> = Arc::new(OpaqueStub {
+    let object: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(OpaqueStub {
         label: label.to_string(),
-    });
+    }));
     opaques.push((label.to_string(), object.clone()));
     object
 }
@@ -347,7 +354,7 @@ struct OpaqueStub {
     label: String,
 }
 
-impl Receiver for OpaqueStub {
+impl ValueReceiver for OpaqueStub {
     fn call(
         &self,
         method: &str,
@@ -374,7 +381,7 @@ struct StubReceiver {
     exposed: Option<Vec<String>>,
 }
 
-impl Receiver for StubReceiver {
+impl ValueReceiver for StubReceiver {
     fn call(
         &self,
         method: &str,
@@ -437,7 +444,16 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
     let object = handles
         .resolve(arg)
         .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs a live Handle"))?;
-    object.call("label", &[], &[], None, handles)
+    // Reaching another Receiver means speaking its schema: every stub
+    // here is a ValueAdapter, so encode the empty argument payload and
+    // decode what it answers with.
+    let payload = Arguments::default()
+        .encode()
+        .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))?;
+    let body = object.call("label", &payload, None, handles)?;
+    Decoder::new(&body)
+        .read_only_value()
+        .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))
 }
 
 /// Yield each positional argument, collecting the block results. A
@@ -622,10 +638,10 @@ fn build_override_stubs(
                     methods.insert(name.clone(), parse_behavior(behavior, opaques)?);
                 }
             }
-            let stub: Arc<dyn Receiver> = Arc::new(StubReceiver {
+            let stub: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(StubReceiver {
                 methods,
                 exposed: None,
-            });
+            }));
             Ok((path, stub))
         })
         .collect()
@@ -641,7 +657,9 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
         methods: HashMap::new(),
         exposed: None,
     };
-    Ok(sandbox.bind(path, Arc::new(stub)).map(|()| Value::Nil))
+    Ok(sandbox
+        .bind(path, Arc::new(ValueAdapter::new(stub)))
+        .map(|()| Value::Nil))
 }
 
 /// The neutral parity status of each error variant, plus the guest
