@@ -77,17 +77,24 @@ module Kobako
       raise wire_error("Sandbox produced an invalid result value", detail: e.message)
     end
 
-    # A Panic's structured diagnostics, or +nil+ when the arm carried
-    # none. Details are a payload position, so an ext 0x02 Fault in them
-    # is a wire violation — a Panic whose diagnostics violate the wire is
-    # not a record worth attributing from, and the invalid-record channel
-    # takes it instead.
+    # A Panic's structured diagnostics, or +nil+ when the arm carried none
+    # or the adapter could not read what it carried. Attribution comes off
+    # the core envelope, so diagnostics it cannot read are dropped rather
+    # than replacing a real failure with a report about its supplementary
+    # field.
+    #
+    # A Fault (ext 0x02) among them is the one exception: that is a
+    # placement violation rather than unreadable bytes, and it takes the
+    # invalid-record channel so a guest breaking the rule is not silently
+    # tolerated.
     def decode_details(payload)
       return nil if payload.empty?
 
       Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
-    rescue Kobako::Codec::Error => e
+    rescue Kobako::Codec::MisplacedFault => e
       raise wire_error("Sandbox produced an invalid panic record", detail: e.message)
+    rescue Kobako::Codec::Error
+      nil
     end
 
     # Lift a wire violation the host detected to the real

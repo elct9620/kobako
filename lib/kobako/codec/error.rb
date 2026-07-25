@@ -21,6 +21,14 @@ module Kobako
     # type mapping (e.g. an unknown ext code, or a reserved msgpack tag).
     class InvalidType < Error; end
 
+    # An ext 0x02 Fault appeared in a payload position, where its only
+    # legal home is the whole of a Reply's fault body. A subclass of
+    # InvalidType because it is one — the distinction it adds is that the
+    # bytes were readable and the placement was wrong, which lets a caller
+    # tell a guest that broke the rule from one that merely sent
+    # unreadable bytes.
+    class MisplacedFault < InvalidType; end
+
     # A msgpack +str+ payload was not valid UTF-8, or an ext 0x00 Symbol
     # payload was not valid UTF-8 — both are wire violations per SPEC.
     class InvalidEncoding < Error; end

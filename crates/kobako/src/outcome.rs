@@ -84,15 +84,23 @@ fn classify_panic(panic: Panic) -> Error {
     }
 }
 
-/// A Panic's structured diagnostics, or `None` when the arm carried
-/// none.
+/// A Panic's structured diagnostics, or `None` when the arm carried none
+/// or this endpoint's adapter could not read what it carried.
+/// Attribution comes off the core envelope, so diagnostics it cannot read
+/// are dropped rather than replacing a real failure with a report about
+/// its supplementary field.
+///
+/// A Fault (ext 0x02) among them is the one exception: that is a
+/// placement violation rather than unreadable bytes, and it takes the
+/// invalid-record channel so a guest breaking the rule is not silently
+/// tolerated.
 fn decode_details(details: &[u8]) -> Result<Option<Value>, Error> {
     if details.is_empty() {
         return Ok(None);
     }
-    let value = Decoder::new(details)
-        .read_only_value()
-        .map_err(|err| wire_violation("Sandbox produced an invalid panic record", &err))?;
+    let Ok(value) = Decoder::new(details).read_only_value() else {
+        return Ok(None);
+    };
     if value.contains_errenv() {
         return Err(wire_violation(
             "Sandbox produced an invalid panic record",
@@ -198,6 +206,28 @@ mod tests {
         assert!(
             matches!(result, Err(Error::Trap(_))),
             "a Panic the envelope cannot frame leaves nothing to attribute to, got {result:?}"
+        );
+    }
+
+    // B-66: attribution comes off the core envelope, so diagnostics this
+    // endpoint's adapter cannot read are dropped rather than replacing the
+    // failure with a report about its supplementary field.
+    #[test]
+    fn panic_details_the_adapter_cannot_read_are_dropped() {
+        let bytes = Outcome::Panic(Panic {
+            origin: "service".into(),
+            error: ErrorRecord {
+                class: "Kobako::ServiceError".into(),
+                message: "connection refused".into(),
+                backtrace: Vec::new(),
+            },
+            details: vec![0xc1],
+        })
+        .encode();
+        let result = decode(&bytes);
+        assert!(
+            matches!(result, Err(Error::Service(ref f)) if f.message == "connection refused" && f.details.is_none()),
+            "a Service failure must keep attributing to the Service with its own message, got {result:?}"
         );
     }
 

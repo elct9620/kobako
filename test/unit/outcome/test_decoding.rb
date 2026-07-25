@@ -83,16 +83,30 @@ class TestOutcomeDecoding < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # docs/behavior/errors.md E-08: a Panic whose diagnostics violate the
-  # wire is not a record worth attributing from, so it takes the
-  # invalid-record channel rather than the class its origin names.
-  def test_panic_details_the_adapter_cannot_read_raise_an_invalid_record
+  # B-66: attribution reads the core envelope, so diagnostics the adapter
+  # cannot read are dropped rather than replacing the failure with a
+  # report about its supplementary field.
+  def test_panic_details_the_adapter_cannot_read_are_dropped
     fields = panic(origin: "sandbox", klass: "RuntimeError", message: "boom")
 
-    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:panic, "\xc1".b, fields) }
+    err = assert_raises(Kobako::SandboxError) { Kobako::Outcome.reify(:panic, "\xc1".b, fields) }
 
-    assert_match(/Sandbox produced an invalid panic record/, err.message,
-                 "a Panic whose diagnostics violate the wire must take the invalid-record channel")
+    refute_kind_of Kobako::Transport::Error, err,
+                   "B-66: unreadable diagnostics must not turn a real failure into a wire-violation report"
+    assert_equal "RuntimeError", err.klass
+    assert_equal "boom", err.message
+    assert_nil err.details
+  end
+
+  # B-66 on the attribution that matters most: a Service failure keeps
+  # attributing to the Service even when its diagnostics are unreadable.
+  def test_a_service_panic_with_unreadable_details_still_attributes_to_the_service
+    fields = panic(origin: "service", klass: "Kobako::ServiceError", message: "connection refused")
+
+    err = assert_raises(Kobako::ServiceError) { Kobako::Outcome.reify(:panic, "\xc1".b, fields) }
+
+    assert_equal "connection refused", err.message,
+                 "B-66: the guest's own message must survive a diagnostics payload the adapter cannot read"
   end
 
   # E-50: the Fault envelope's sole legal wire position is a Reply's
