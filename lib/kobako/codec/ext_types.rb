@@ -64,7 +64,7 @@ module Kobako
       end
 
       # Validate the ext-0x00 payload as UTF-8 and intern. Raises
-      # InvalidEncoding on invalid bytes — SPEC forbids the
+      # InvalidEncodingError on invalid bytes — SPEC forbids the
       # binary-encoding fallback that msgpack-gem's default unpacker
       # would otherwise apply. The re-tag step lives here because the
       # msgpack ext-type unpacker hands us binary bytes; the assertion
@@ -86,14 +86,14 @@ module Kobako
       # Peel off the fixext-4 frame, hand the bytes to the
       # Host-Gem-internal +Kobako::Handle.restore+ factory, and
       # translate the +ArgumentError+ raised by Handle's invariants
-      # into a wire-layer +InvalidType+ via Codec::Utils.with_boundary.
+      # into a wire-layer +InvalidTypeError+ via Codec::Utils.with_boundary.
       # The Value Object owns the id-range contract; this method only
       # owns the frame shape. Records the Handle sighting on +state+ so a
       # Handle-free decode can skip the downstream resolution walk.
       def unpack_handle(payload, state)
         state.record_handle!
         bytes = payload.b
-        raise InvalidType, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
+        raise InvalidTypeError, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
         id = bytes.unpack1("N") # : Integer
         Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
@@ -107,7 +107,7 @@ module Kobako
       # the Dispatcher's auto-wrap rescue, or a raise at the yield site.
       def pack_fault(fault, state)
         if state.faults_forbidden?
-          raise UnsupportedType, "Kobako::Fault has no wire representation in a payload position"
+          raise UnsupportedTypeError, "Kobako::Fault has no wire representation in a payload position"
         end
 
         Encoder.encode("type" => fault.type, "message" => fault.message)
@@ -115,7 +115,7 @@ module Kobako
 
       # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
       # inside Decoder.decode's block form, so the value-object's
-      # +ArgumentError+ invariants surface as +InvalidType+ through the
+      # +ArgumentError+ invariants surface as +InvalidTypeError+ through the
       # decoder boundary. Inner decode goes through Decoder (not the raw
       # factory) so the embedded +str+ payloads flow through the same
       # UTF-8 validation as a top-level decode. In a payload position
@@ -127,11 +127,14 @@ module Kobako
       # at the first level rather than letting the ext unpacker recurse
       # through a hostile chain until the native stack gives out.
       def unpack_fault(payload, state)
-        raise InvalidType, "a Fault (ext 0x02) is not a legal value in a payload position" if state.faults_forbidden?
+        if state.faults_forbidden?
+          raise InvalidTypeError,
+                "a Fault (ext 0x02) is not a legal value in a payload position"
+        end
 
         state.forbid_faults do
           Decoder.decode(payload) do |map|
-            raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
+            raise InvalidTypeError, "Fault payload must be a map" unless map.is_a?(Hash)
 
             Kobako::Fault.new(type: map["type"], message: map["message"])
           end
@@ -163,7 +166,7 @@ module Kobako
       end
 
       # A catch-all packer that rejects any value with no wire representation
-      # as +UnsupportedType+. Registered on +BasicObject+ so it also covers
+      # as +UnsupportedTypeError+. Registered on +BasicObject+ so it also covers
       # BasicObject-based proxies; the narrower Symbol / Handle / Fault
       # registrations still win by most-specific match, and native types never
       # reach it. Packer-only: the guard never writes bytes, so its id is inert
@@ -178,7 +181,7 @@ module Kobako
       def register_unrepresentable(factory)
         factory.register_type(
           UNREPRESENTABLE_GUARD_ID, BasicObject,
-          packer: ->(_value) { raise UnsupportedType, "value has no wire representation" }
+          packer: ->(_value) { raise UnsupportedTypeError, "value has no wire representation" }
         )
       end
     end

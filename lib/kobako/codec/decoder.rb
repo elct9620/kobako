@@ -12,7 +12,7 @@ module Kobako
     # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type Mapping).
     #
     # Translates msgpack gem exceptions into the kobako error taxonomy
-    # (Truncated, InvalidType, InvalidEncoding, UnsupportedType) so
+    # (TruncatedInputError, InvalidTypeError, InvalidEncodingError, UnsupportedTypeError) so
     # callers can pattern-match on the SPEC's wire-violation categories
     # without leaking the gem's internal exception classes.
     #
@@ -21,14 +21,14 @@ module Kobako
     # because callers always decode exactly one wire value at a time.
     module Decoder
       # Decode +bytes+ into one Ruby value and validate transitively
-      # against the SPEC type mapping. Raises Truncated, InvalidType,
-      # or InvalidEncoding on wire violations.
+      # against the SPEC type mapping. Raises TruncatedInputError, InvalidTypeError,
+      # or InvalidEncodingError on wire violations.
       #
       # When a block is given, the decoded value is yielded and the block's
       # result is returned — wire Value Objects use this to build themselves
       # from the decoded payload. The block runs inside this method's
       # rescue, so a Value Object's +ArgumentError+ invariant failure
-      # surfaces as InvalidType without a separate Utils.with_boundary
+      # surfaces as InvalidTypeError without a separate Utils.with_boundary
       # wrapper at the call site.
       def self.decode(bytes)
         value = FACTORY.load(bytes.b)
@@ -37,15 +37,15 @@ module Kobako
       # msgpack gem raises the format/type errors below; +ArgumentError+
       # comes from our ext-type validators (Handle id range, Exception type
       # whitelist) and from a yielded block's Value Object invariants — both
-      # are wire violations, so both map to InvalidType.
+      # are wire violations, so both map to InvalidTypeError.
       rescue ::MessagePack::UnknownExtTypeError, ::MessagePack::MalformedFormatError,
              ::MessagePack::StackError, ::ArgumentError => e
-        raise InvalidType, e.message
+        raise InvalidTypeError, e.message
       # +UnpackError+ is the gem's umbrella class for short-read /
       # incomplete-buffer faults; +EOFError+ covers underflow at the
       # buffer edge.
       rescue ::MessagePack::UnpackError, ::EOFError => e
-        raise Truncated, e.message
+        raise TruncatedInputError, e.message
       end
 
       # SPEC pins +str+ family payloads to UTF-8

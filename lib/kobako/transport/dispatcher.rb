@@ -179,14 +179,14 @@ module Kobako
       # Encode +value+ as the body of a Reply's ok arm — the value alone,
       # since the envelope's tag already carries the success. A value that
       # is not wire-representable per the codec's type mapping raises
-      # +UnsupportedType+; the rescue routes it through the
+      # +UnsupportedTypeError+; the rescue routes it through the
       # Catalog::Handles via #wrap_as_handle and re-encodes with the
       # Capability Handle in place. The happy path encodes exactly once.
       # The bracket keeps a Fault out of this payload position — its only
       # home is the fault arm the native side tags.
       def encode_ok(value, handler)
         Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(value) }
-      rescue Kobako::Codec::UnsupportedType
+      rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
       end
 

@@ -31,7 +31,8 @@ class TestCodecExtTypes < Minitest::Test
     # ext 0x00 payload must decode as UTF-8 — SPEC forbids the
     # binary-encoded Symbol fallback.
     bytes = "\xc7\x02\x00\xff\xfe".b
-    assert_raises(InvalidEncoding, "a Symbol (ext 0x00) with non-UTF-8 payload bytes must raise InvalidEncoding") do
+    assert_raises(InvalidEncodingError,
+                  "a Symbol (ext 0x00) with non-UTF-8 payload bytes must raise InvalidEncodingError") do
       Decoder.decode(bytes)
     end
   end
@@ -65,26 +66,27 @@ class TestCodecExtTypes < Minitest::Test
   def test_handle_zero_id_on_wire_rejected
     # Manually construct fixext4 + 0x01 + zero ID
     bytes = "\xd6\x01\x00\x00\x00\x00".b
-    assert_raises(InvalidType, "a wire Handle with id 0 must be rejected as InvalidType") do
+    assert_raises(InvalidTypeError, "a wire Handle with id 0 must be rejected as InvalidTypeError") do
       Decoder.decode(bytes)
     end
   end
 
   def test_handle_over_cap_on_wire_rejected
     bytes = "\xd6\x01\x80\x00\x00\x00".b
-    assert_raises(InvalidType, "a wire Handle id past the cap must be rejected as InvalidType") do
+    assert_raises(InvalidTypeError, "a wire Handle id past the cap must be rejected as InvalidTypeError") do
       Decoder.decode(bytes)
     end
   end
 
   # The factory's unpack_handle validates that the ext 0x01 payload is
   # exactly 4 bytes.  A fixext1 (0xd4 type=0x01, 1-byte payload) is a
-  # deliberate wire violation that must raise InvalidType, not silently
+  # deliberate wire violation that must raise InvalidTypeError, not silently
   # decode as a Handle with a truncated id.
   def test_handle_wrong_payload_length_on_wire_rejected
     # fixext1: 0xd4  type=0x01  payload=0x01 (1 byte instead of 4)
     bytes = "\xd4\x01\x01".b
-    err = assert_raises(InvalidType, "a Handle ext with a non-4-byte payload must be rejected as InvalidType") do
+    err = assert_raises(InvalidTypeError,
+                        "a Handle ext with a non-4-byte payload must be rejected as InvalidTypeError") do
       Decoder.decode(bytes)
     end
     assert_match(/4 bytes/, err.message, "the rejection must name the required 4-byte Handle payload length")

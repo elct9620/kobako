@@ -13,7 +13,7 @@ module Kobako
 
     def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
-    def run: (Kobako::Transport::Run run_envelope) ?{ (Kobako::Context) -> void } -> Kobako::Execution
+    def run: (Kobako::Transport::Run request) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
     private
 

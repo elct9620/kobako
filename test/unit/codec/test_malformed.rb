@@ -10,36 +10,36 @@ class TestCodecMalformed < Minitest::Test
   include CodecHelpers
 
   def test_truncated_empty_input
-    assert_raises(Truncated) { Decoder.decode("".b) }
+    assert_raises(TruncatedInputError) { Decoder.decode("".b) }
   end
 
   def test_truncated_in_str_payload
     # fixstr len=5 but only 2 bytes follow
     bytes = "\xa5ab".b
-    assert_raises(Truncated) { Decoder.decode(bytes) }
+    assert_raises(TruncatedInputError) { Decoder.decode(bytes) }
   end
 
   def test_truncated_in_int64
     bytes = "\xcf\x00\x00\x00".b
-    assert_raises(Truncated) { Decoder.decode(bytes) }
+    assert_raises(TruncatedInputError) { Decoder.decode(bytes) }
   end
 
   def test_invalid_type_tag
     # 0xc1 is reserved as "never used" in msgpack -> wire violation
     bytes = "\xc1".b
-    assert_raises(InvalidType) { Decoder.decode(bytes) }
+    assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
   end
 
   def test_unknown_ext_code_rejected
     # fixext1 with type 0x99 (not 0x01 or 0x02)
     bytes = "\xd4\x99\x00".b
-    assert_raises(InvalidType) { Decoder.decode(bytes) }
+    assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
   end
 
   def test_invalid_utf8_in_str_rejected
     # fixstr len=2 with invalid UTF-8 bytes (lone continuation byte)
     bytes = "\xa2\xff\xfe".b
-    assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+    assert_raises(InvalidEncodingError) { Decoder.decode(bytes) }
   end
 
   # The validation walk must cover both halves of every map entry — a
@@ -48,19 +48,19 @@ class TestCodecMalformed < Minitest::Test
   def test_invalid_utf8_in_map_key_rejected
     # fixmap1 { fixstr2 <invalid> => fixint 1 }
     bytes = "\x81\xa2\xff\xfe\x01".b
-    assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+    assert_raises(InvalidEncodingError) { Decoder.decode(bytes) }
   end
 
   def test_invalid_utf8_in_map_value_rejected
     # fixmap1 { fixstr1 "a" => fixstr2 <invalid> }
     bytes = "\x81\xa1a\xa2\xff\xfe".b
-    assert_raises(InvalidEncoding) { Decoder.decode(bytes) }
+    assert_raises(InvalidEncodingError) { Decoder.decode(bytes) }
   end
 
   def test_unsupported_ruby_type_at_encode
     # SPEC's 12-entry mapping is closed; types outside it (Object,
-    # Range, Time, ...) raise UnsupportedType.
-    assert_raises(UnsupportedType) { Encoder.encode(Object.new) }
+    # Range, Time, ...) raise UnsupportedTypeError.
+    assert_raises(UnsupportedTypeError) { Encoder.encode(Object.new) }
   end
 
   # Decoder-wide half of the single-msgpack-value rule (SPEC.md § Wire
@@ -69,7 +69,7 @@ class TestCodecMalformed < Minitest::Test
   # comes from the Decoder itself, for every payload shape.
   def test_trailing_bytes_after_a_complete_value_rejected
     bytes = Encoder.encode(42) + Encoder.encode(nil)
-    assert_raises(InvalidType,
+    assert_raises(InvalidTypeError,
                   "bytes past one complete msgpack value through Decoder.decode must be a wire violation") do
       Decoder.decode(bytes)
     end
@@ -83,8 +83,8 @@ class TestCodecMalformed < Minitest::Test
   # escape the codec's rescue, since SystemStackError is not a Codec::Error.
   # Refusing the second level is what keeps the chain from ever forming.
   def test_nested_fault_rejected
-    assert_raises(InvalidType,
-                  "ext 0x02 nested inside a Fault through #decode must raise InvalidType, not trap the stack") do
+    assert_raises(InvalidTypeError,
+                  "ext 0x02 nested inside a Fault through #decode must raise InvalidTypeError, not trap the stack") do
       Decoder.decode(nested_fault_bytes(200))
     end
   end
@@ -94,7 +94,7 @@ class TestCodecMalformed < Minitest::Test
   # otherwise one bad payload would poison every subsequent invocation
   # sharing that thread.
   def test_nested_fault_rejection_leaves_no_residue
-    assert_raises(InvalidType) { Decoder.decode(nested_fault_bytes(200)) }
+    assert_raises(InvalidTypeError) { Decoder.decode(nested_fault_bytes(200)) }
     decoded = Decoder.decode(Encoder.encode(Kobako::Fault.new(type: "runtime", message: "x")))
     assert_instance_of Kobako::Fault, decoded,
                        "a lone Fault decoded after a rejected nested chain must still succeed"

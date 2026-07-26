@@ -98,5 +98,11 @@ module Kobako
         diagnostic: diagnostic
       )
     end
+
+    # +reify+ is the whole seam: one call settles one invocation, matching
+    # the single entry point the Rust frontend's twin exposes. Everything
+    # else here is how that decision is reached.
+    private_class_method :panic_error, :error_class, :trap_error, :decode_value, :wire_error
+    private_constant :ORIGIN_SANDBOX, :ORIGIN_SERVICE, :SUBCLASSES
   end
 end

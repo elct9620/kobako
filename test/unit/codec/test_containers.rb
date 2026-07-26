@@ -72,13 +72,13 @@ class TestCodecContainers < Minitest::Test
   # wire violation, never a Ruby SystemStackError or a host crash. The
   # guest→host dispatch path depends on this: the dispatcher rescues only
   # StandardError, so an over-deep guest request stays catchable solely
-  # because the overflow is mapped into the InvalidType taxonomy here.
+  # because the overflow is mapped into the InvalidTypeError taxonomy here.
   def test_over_deep_nesting_decodes_as_a_catchable_wire_violation
     # 1000 nested single-element arrays terminated by nil — far beyond the
     # ecosystem bound, well within the 16 MiB payload cap.
     over_deep = ("\x91".b * 1000) + "\xc0".b
 
-    error = assert_raises(InvalidType) { Decoder.decode(over_deep) }
+    error = assert_raises(InvalidTypeError) { Decoder.decode(over_deep) }
 
     assert_kind_of StandardError, error,
                    "an over-deep wire value must surface as a catchable wire violation, " \

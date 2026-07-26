@@ -9,10 +9,10 @@ module CodecHelpers
   Decoder         = Kobako::Codec::Decoder
   Handle          = Kobako::Handle
   Fault           = Kobako::Fault
-  Truncated       = Kobako::Codec::Truncated
-  InvalidType     = Kobako::Codec::InvalidType
-  InvalidEncoding = Kobako::Codec::InvalidEncoding
-  UnsupportedType = Kobako::Codec::UnsupportedType
+  TruncatedInputError  = Kobako::Codec::TruncatedInputError
+  InvalidTypeError     = Kobako::Codec::InvalidTypeError
+  InvalidEncodingError = Kobako::Codec::InvalidEncodingError
+  UnsupportedTypeError = Kobako::Codec::UnsupportedTypeError
 
   def roundtrip(value)
     bytes = Encoder.encode(value)

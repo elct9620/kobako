@@ -47,7 +47,7 @@ class TestTransportFaultPosition < Minitest::Test
     reply = [:ok, Kobako::Codec::Encoder.encode(FAULT), nil]
     yielder = Kobako::Transport::Yielder.new(->(_args) { reply }, :__test_break__, @handler)
 
-    assert_raises(Kobako::Codec::InvalidType,
+    assert_raises(Kobako::Codec::InvalidTypeError,
                   "E-50: a Yield Reply ok value carrying an ext 0x02 Fault must raise at the Service yield site") do
       yielder.yield
     end
@@ -71,7 +71,7 @@ class TestTransportFaultPosition < Minitest::Test
   def test_fault_yield_argument_is_refused_at_the_yield_site
     yielder = Kobako::Transport::Yielder.new(->(_args) { flunk "guest must not be re-entered" }, :__t__, @handler)
 
-    assert_raises(Kobako::Codec::UnsupportedType,
+    assert_raises(Kobako::Codec::UnsupportedTypeError,
                   "a Fault yield argument has no wire representation in a payload position and must be refused") do
       yielder.yield(FAULT)
     end
@@ -81,7 +81,7 @@ class TestTransportFaultPosition < Minitest::Test
 
   def test_rejected_payload_leaves_the_legal_position_usable_on_the_same_thread
     bad = Kobako::Codec::Encoder.encode([[FAULT], {}])
-    assert_raises(Kobako::Codec::InvalidType) { Kobako::Payload::Arguments.decode(bad) }
+    assert_raises(Kobako::Codec::InvalidTypeError) { Kobako::Payload::Arguments.decode(bad) }
 
     # The fault arm's body is the one position a Fault is legal in, and
     # it is decoded outside the bracket the payload decode opens.

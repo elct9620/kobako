@@ -104,7 +104,7 @@ class TestCodecHandleWalk < Minitest::Test
 
     assert_match(/Hash key/, err.message,
                  "a non-wire-representable Hash key must be rejected with a public SandboxError, " \
-                 "not left to leak the internal codec UnsupportedType at encode")
+                 "not left to leak the internal codec UnsupportedTypeError at encode")
     assert_equal 0, @table.size, "a rejected key must allocate no Handle"
   end
 

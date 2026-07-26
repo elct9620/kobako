@@ -16,7 +16,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # 2-element payload, then fails the Payload::Arguments kwargs-key
   # invariant; because that invariant is checked inside the block
   # Arguments.decode yields to, Codec::Decoder.decode rescues the
-  # ArgumentError and re-raises it as a wire-decode InvalidType, so the
+  # ArgumentError and re-raises it as a wire-decode InvalidTypeError, so the
   # dispatcher reports type="runtime". The payload MUST carry both
   # elements: a 1-element array would trip the shape guard first and never
   # reach the kwargs-key check — the second message assertion witnesses
@@ -102,7 +102,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # Kobako::HandleExhaustedError (a SandboxError subclass). The
   # dispatcher's wrap_return path is the call site that triggers this
   # during a normal transport call: a Service method returns a non-wire-representable
-  # value, the codec raises UnsupportedType, wrap_return falls through to
+  # value, the codec raises UnsupportedTypeError, wrap_return falls through to
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain on the fault arm the guest observes.
   def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm

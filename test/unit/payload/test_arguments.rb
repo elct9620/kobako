@@ -54,7 +54,7 @@ module Kobako
     def test_a_frame_of_the_wrong_arity_is_refused
       bytes = Kobako::Codec::Encoder.encode([[]])
 
-      assert_raises(Kobako::Codec::InvalidType,
+      assert_raises(Kobako::Codec::InvalidTypeError,
                     "a payload that is not a 2-element array through Arguments.decode must be " \
                     "rejected as a wire violation") do
         Arguments.decode(bytes)
@@ -65,7 +65,7 @@ module Kobako
       fault = Kobako::Fault.new(type: "runtime", message: "boom")
       bytes = Kobako::Codec::Encoder.encode([[fault], {}])
 
-      assert_raises(Kobako::Codec::InvalidType,
+      assert_raises(Kobako::Codec::InvalidTypeError,
                     "a Fault inside an argument through Arguments.decode must be rejected — " \
                     "its only home is a Reply's fault arm") do
         Arguments.decode(bytes)
@@ -76,7 +76,7 @@ module Kobako
       fault = Kobako::Fault.new(type: "runtime", message: "boom")
       bytes = Kobako::Codec::Encoder.encode([[], { cause: [fault] }])
 
-      assert_raises(Kobako::Codec::InvalidType,
+      assert_raises(Kobako::Codec::InvalidTypeError,
                     "a Fault nested inside a kwargs value through Arguments.decode must be " \
                     "rejected as deeply as a bare one") do
         Arguments.decode(bytes)

@@ -42,7 +42,7 @@ module Kobako
       # representable. Integers outside the codec's signed-64 /
       # unsigned-64 union are rejected so the predicate agrees with the
       # msgpack gem's encode-time +RangeError+ behaviour the codec
-      # already surfaces as UnsupportedType.
+      # already surfaces as UnsupportedTypeError.
       #
       # The optional +depth+ bounds the recursive descent at the wire's
       # structural nesting cap so a self-referential container — reachable

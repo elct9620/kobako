@@ -83,14 +83,14 @@ module Kobako
       end
     end
 
-    # Dispatch a +Transport::Run+ envelope into a preloaded entrypoint and
-    # return the decoded result. A given +block+ runs first, receiving this
-    # Context to collect +ctx.bind+ overrides before the guest drives.
-    def run(run_envelope, &block)
+    # Dispatch a +Transport::Run+ into a preloaded entrypoint and return the
+    # decoded result. A given +block+ runs first, receiving this Context to
+    # collect +ctx.bind+ overrides before the guest drives.
+    def run(request, &block)
       collect_overrides(&block) if block
-      invoke!(:run, entrypoint: run_envelope.entrypoint) do
+      invoke!(:run, entrypoint: request.entrypoint) do
         @runtime.run(dispatch_handler, @services.paths, @snippets.entries,
-                     run_envelope.entrypoint.to_s, run_envelope.payload(@handler))
+                     request.entrypoint.to_s, request.payload(@handler))
       end
     end
 

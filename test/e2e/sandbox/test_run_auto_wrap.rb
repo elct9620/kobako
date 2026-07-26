@@ -35,7 +35,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   # Auto-wrap applies to Hash values, not keys: a non-wire-representable
   # object may cross as a value (above) but not as a key. #run rejects such
   # a key with a public SandboxError rather than leaking the internal codec
-  # UnsupportedType that a raw encode would otherwise raise.
+  # UnsupportedTypeError that a raw encode would otherwise raise.
   def test_non_representable_hash_key_argument_is_rejected_as_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(h) { h.size }", name: :App)

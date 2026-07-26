@@ -23,7 +23,7 @@ module Kobako
     module Encoder
       # Encode +value+ to wire bytes (binary-encoded String).
       # SPEC's 12-entry type mapping is a closed set: a value outside it is
-      # rejected as +UnsupportedType+ by the factory's +BasicObject+ guard
+      # rejected as +UnsupportedTypeError+ by the factory's +BasicObject+ guard
       # (ExtTypes#register_unrepresentable), which raises before the msgpack
       # gem can route the value through +to_msgpack+ — so a permissive
       # +method_missing+ object cannot answer that probe and mis-encode. The
@@ -33,7 +33,7 @@ module Kobako
       def self.encode(value)
         FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e
-        raise UnsupportedType, e.message
+        raise UnsupportedTypeError, e.message
       end
     end
   end

@@ -8,6 +8,8 @@ module Kobako
 
     def self?.reify: (Symbol kind, String payload, panic_fields? panic, ?entrypoint: Symbol?) -> Kobako::Codec::wire_value
 
+    # Everything below is private_class_method at runtime; RBS cannot mark a
+    # `self?` method private, so the declarations stay visible to the checker.
     def self?.panic_error: (panic_fields panic, Symbol? entrypoint) -> (SandboxError | ServiceError)
 
     def self?.error_class: (String origin, String klass) -> (singleton(SandboxError) | singleton(ServiceError))

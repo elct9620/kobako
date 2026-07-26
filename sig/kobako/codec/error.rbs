@@ -3,16 +3,16 @@ module Kobako
     class Error < StandardError
     end
 
-    class Truncated < Error
+    class TruncatedInputError < Error
     end
 
-    class InvalidType < Error
+    class InvalidTypeError < Error
     end
 
-    class InvalidEncoding < Error
+    class InvalidEncodingError < Error
     end
 
-    class UnsupportedType < Error
+    class UnsupportedTypeError < Error
     end
   end
 end

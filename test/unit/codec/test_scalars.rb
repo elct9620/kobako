@@ -50,10 +50,12 @@ class TestCodecScalars < Minitest::Test
   end
 
   def test_integer_overflow_raises
-    assert_raises(UnsupportedType, "an integer past u64 max through Encoder.encode must raise UnsupportedType") do
+    assert_raises(UnsupportedTypeError,
+                  "an integer past u64 max through Encoder.encode must raise UnsupportedTypeError") do
       Encoder.encode(0x1_0000_0000_0000_0000)
     end
-    assert_raises(UnsupportedType, "an integer below i64 min through Encoder.encode must raise UnsupportedType") do
+    assert_raises(UnsupportedTypeError,
+                  "an integer below i64 min through Encoder.encode must raise UnsupportedTypeError") do
       Encoder.encode(-0x8000_0000_0000_0001)
     end
   end

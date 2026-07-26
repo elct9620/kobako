@@ -68,7 +68,8 @@ class TestE2EJourneys < Minitest::Test
   # mruby Exception object so the Host App can see where the failure
   # originated inside the user script; an empty array hides which line the
   # author needs to fix and forces blind debugging. The host-side decoder
-  # already pins the Array-of-String type invariant via +Outcome::Panic+,
+  # already pins the Array-of-String type invariant via the RBS alias
+  # +Outcome::panic_fields+,
   # so this E2E only asserts the non-empty contract.
   def test_j01_script_ruby_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

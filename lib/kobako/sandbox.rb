@@ -143,8 +143,8 @@ module Kobako
     # and snippet table. Runtime errors follow the same three-class
     # taxonomy as +#eval+.
     def run(target, *args, **kwargs, &block)
-      run_envelope = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      new_invocation.run(run_envelope, &block)
+      request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
+      new_invocation.run(request, &block)
     end
 
     # Execute a guest mruby source string in a fresh +mrb_state+. +code+ is
