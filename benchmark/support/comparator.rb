@@ -34,9 +34,23 @@ module Kobako
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0
+      # Ceiling on the archive-derived half of the band. The archive is a
+      # committed input that grows by ordinary means, so without a ceiling a
+      # row's bar rises with whatever was archived — and the anchor's own
+      # "moves only by a deliberate re-bless" rule would not cover it. Three
+      # times the floor: past that the anchor cannot say anything useful
+      # about the row, so widening stops rather than turning the row off
+      # quietly. {Gate} names every row the archive widens, capped or not.
+      MAX_ARCHIVE_BAND_PCT = 30.0
 
       # One gated regression that cleared the floor and the noise band.
       class Finding < Data.define(:suite, :label, :metric, :baseline, :current, :delta_pct, :band_pct)
+      end
+
+      # One gated row whose bar comes from the archive rather than from the
+      # dispersion its own run recorded. Reported whether or not it
+      # regressed: it is the standing looseness a reader needs to see.
+      class Widening < Data.define(:suite, :label, :metric, :recorded_pct, :archive_pct, :capped)
       end
 
       # One gated case present in one results payload but absent from the
@@ -129,13 +143,39 @@ module Kobako
         SIGMA * Math.sqrt((cv(cur_c, cur_sd)**2) + (cv(base_c, base_sd)**2)) * 100
       end
 
-      # SIGMA times the row's typical between-run move, as a percentage.
-      # The move is already the scale of a run-to-run difference, so it
-      # needs no quadrature — it is the counterpart of {noise_band}'s
-      # combined term, not of one run's deviation. Zero when the archive
-      # carries no estimate, leaving the recorded deviation to govern.
+      # SIGMA times the row's typical between-run move, as a percentage,
+      # clamped to MAX_ARCHIVE_BAND_PCT. The move is already the scale of a
+      # run-to-run difference, so it needs no quadrature — it is the
+      # counterpart of {noise_band}'s combined term, not of one run's
+      # deviation. Zero when the archive carries no estimate, leaving the
+      # recorded deviation to govern.
       def between_run_band(move)
-        SIGMA * move.to_f * 100
+        [SIGMA * move.to_f * 100, MAX_ARCHIVE_BAND_PCT].min
+      end
+
+      # Every gated row whose bar the archive raised above what its own run
+      # recorded, as an Array of Widening. {Gate} prints these on a clean
+      # pass too: a row gating on an archive band is one the floor no longer
+      # governs, and archiving a run captured on a loaded machine is how
+      # that happens without anyone deciding it.
+      def archive_widened(current, baseline, suites: release_suites, history: {})
+        map_run_rows(current, baseline, suites) do |suite, label, row, base_rows|
+          base = base_rows[label]
+          base && widening_for(suite, label, row, base, history)
+        end
+      end
+
+      # Build a Widening when the archive governs +row+'s band, else nil.
+      def widening_for(suite, label, row, base, history)
+        metric = gate_metric(row)
+        return nil unless metric
+
+        move = history[[suite, label, metric]]
+        archive = between_run_band(move)
+        recorded = noise_band(*central_sd(row, metric), *central_sd(base, metric))
+        return nil unless archive > recorded
+
+        Widening.new(suite, label, metric, recorded, archive, archive >= MAX_ARCHIVE_BAND_PCT)
       end
 
       # +wall_time+ when present (sandbox-driven), else +ips+, else nil

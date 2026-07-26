@@ -430,6 +430,11 @@ Interpretation rules:
 - **Never read `ips_sd` as the uncertainty of a cross-run comparison** — between-run transients dominate it severalfold.
 - **Long measurement arms alias transients into fake effects.** Worked example (2026-06-07): an A/B with 5-minute arms showed a freshly migrated Guest Binary a consistent-looking 5–6 % slower on `mruby_eval` with tight within-arm spread; 45-second alternating arms across four guest builds then measured all of them within ±2 %, and a rapid 3-pair alternation caught ±6–7 % swings between *adjacent identical processes*. The build chains had been verified equivalent (`libmruby.a` code-byte-identical), so the original signal was aliasing, not code.
 
+The gate reads that between-run scale off the archived runs (`History`, median move over the last 10) and takes the wider of it and the within-run band. Two rules keep that from loosening the gate by accident, because unlike the anchor — which moves only by a deliberate `bench:bless` — the archive grows whenever a run is committed:
+
+- **The archive half stops at 30 %**, three times the floor. Past that the archive says nothing useful about the row, so the bar stops rising instead of quietly switching the row off.
+- **Every gated row the archive widens is named on each gate run**, clean pass included, with what its own run recorded alongside. A pass on an archive-widened row is looser than a pass on a row the floor still governs, and the NOTE is what makes the difference legible.
+
 When `bench:gate` flags, arbitrate with stage 2:
 
 ```bash

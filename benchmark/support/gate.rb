@@ -30,8 +30,10 @@ module Kobako
         run = load_payload(current)
         anchor = load_payload(baseline)
         puts "gate: #{File.basename(current)} vs anchor #{File.basename(baseline)}"
-        enforce(Comparator.compare(run, anchor, history: History.dispersion),
-                Comparator.gated_absences(run, anchor), Comparator.gated_absences(anchor, run))
+        history = History.dispersion
+        enforce(Comparator.compare(run, anchor, history: history),
+                Comparator.gated_absences(run, anchor), Comparator.gated_absences(anchor, run),
+                Comparator.archive_widened(run, anchor, history: history))
       end
 
       # Re-bless the anchor baseline from +run+ (a results JSON path),
@@ -85,8 +87,8 @@ module Kobako
       # Report findings then abort on any blocking issue. Regressions and
       # unanchored cases block; a case in the anchor but absent from the run
       # (+dropped+) is only a NOTE, since the next re-bless records the drop.
-      def enforce(regressions, missing, dropped)
-        report(regressions, missing, dropped)
+      def enforce(regressions, missing, dropped, widened = [])
+        report(regressions, missing, dropped, widened)
         problems = regressions.size + missing.size
         return if problems.zero?
 
@@ -94,16 +96,33 @@ module Kobako
               "`rake bench:confirm[<last release>]` before a re-bless or release."
       end
 
-      # Print dropped-case NOTEs (non-blocking), then the unanchored cases
-      # and gated regressions, or a clean-pass line when neither blocks.
-      def report(regressions, missing, dropped)
+      # Print dropped-case NOTEs (non-blocking), the rows the archive
+      # widened, then the unanchored cases and gated regressions, or a
+      # clean-pass line when neither blocks.
+      def report(regressions, missing, dropped, widened = [])
         note_dropped(dropped)
+        note_widened(widened)
         if regressions.empty? && missing.empty?
           return puts "gate: clean — every gated case anchored, none past the +10% floor and noise band."
         end
 
         missing.each { |row| puts "  NO ANCHOR  #{row.suite}/#{row.label} (#{row.metric}) — re-bless required" }
         regressions.each { |finding| puts "  REGRESSION  #{describe(finding)}" }
+      end
+
+      # NOTE: the gated rows whose bar the archive raised above their own
+      # recorded dispersion. Non-blocking, and printed on a clean pass too —
+      # a pass on an archive-widened row says less than a pass on a row the
+      # floor still governs, and only saying so makes that legible.
+      def note_widened(widened)
+        return if widened.empty?
+
+        capped = widened.count(&:capped)
+        widest = widened.max_by(&:archive_pct)
+        puts "  NOTE  #{widened.size} gated row(s) gate on an archive-widened band, widest " \
+             "#{widest.suite}/#{widest.label} ±#{format("%.1f", widest.archive_pct)}% " \
+             "(own run recorded ±#{format("%.1f", widest.recorded_pct)}%)" \
+             "#{"; #{capped} at the #{Comparator::MAX_ARCHIVE_BAND_PCT}% ceiling" unless capped.zero?}"
       end
 
       # NOTE: each gated case the anchor carries that the run no longer
