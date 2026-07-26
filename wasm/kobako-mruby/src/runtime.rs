@@ -52,6 +52,12 @@ use kobako_core::transport::proxy::ExceptionPayload;
 /// silently when the ivar layout changes.
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
+/// Largest Handle id the wire admits (docs/wire-contract.md § Capability
+/// Handle). Named here because `Kobako::mint_handle` enforces it for
+/// itself: every layer that can admit an id states the bound rather than
+/// inheriting it from the one before.
+const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
+
 /// Failures returned by `Kobako::install_bindings` when a preamble entry
 /// cannot be registered — a path segment that cannot pass through the
 /// mruby C API (which expects NUL-terminated strings), or a registration
@@ -80,6 +86,23 @@ impl std::fmt::Display for InstallError {
 }
 
 impl std::error::Error for InstallError {}
+
+/// An inbound integer fell outside the guest's signed 32-bit `Integer`
+/// range, which the MRB_INT32 build cannot hold. `Kobako::narrow_int`
+/// refuses it rather than saturating to the nearest bound; each call site
+/// fails its path the way that path reports any malformed inbound payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IntegerOutOfRange(pub(crate) i128);
+
+impl IntegerOutOfRange {
+    /// Operator-facing message naming the value the guest could not hold.
+    pub(crate) fn message(self) -> String {
+        format!(
+            "integer {} is outside the guest's 32-bit Integer range",
+            self.0
+        )
+    }
+}
 
 /// Handle to a Kobako runtime installed on a live mruby VM.
 ///
@@ -368,6 +391,54 @@ impl Kobako {
             0
         } else {
             id as u32
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Sanctioned value construction. A payload adapter is chosen by the
+    // shell and may be replaced, so the two constructions that carry an
+    // invariant of their own are reachable only by calling them — never
+    // by an adapter assembling the value itself.
+    // ----------------------------------------------------------------
+
+    /// Mint the `Kobako::Handle` naming `id`, frozen so the guest cannot
+    /// re-point it at an id it was never handed. The exact class matters as
+    /// much as the freeze: dispatch derives a Handle target from an exact
+    /// `Kobako::Handle` receiver, so a subclass would carry no target.
+    ///
+    /// The id cap is re-checked here rather than trusted from the caller.
+    /// An adapter is replaceable, so an id it failed to bound must not
+    /// reach the `i32` the ivar holds and come back out as a different
+    /// number.
+    ///
+    /// An id past the cap, like a Handle mruby declined to allocate,
+    /// degrades to `nil`: the guest then holds a value that answers no
+    /// dispatch, which fails at its next call rather than silently naming
+    /// something else.
+    pub(crate) fn mint_handle(&self, id: u32) -> Value {
+        use beni::IntoValue;
+        if id > HANDLE_ID_MAX {
+            return Value::nil();
+        }
+        let mrb = self.mrb();
+        self.handle_class
+            .obj_new(mrb, &[(id as i32).into_value(mrb)])
+            .map(|handle| handle.freeze(mrb))
+            .unwrap_or(Value::nil())
+    }
+
+    /// Represent `n` as an mruby `Integer`, refusing anything the MRB_INT32
+    /// build cannot hold rather than saturating it — neither side may ever
+    /// see a different number than the wire carried
+    /// (docs/wire/payload-msgpack.md § Integer Range).
+    pub(crate) fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
+    where
+        N: TryInto<i32> + Into<i128> + Copy,
+    {
+        use beni::IntoValue;
+        match n.try_into() {
+            Ok(narrowed) => Ok(i32::into_value(narrowed, self.mrb())),
+            Err(_) => Err(IntegerOutOfRange(n.into())),
         }
     }
 }

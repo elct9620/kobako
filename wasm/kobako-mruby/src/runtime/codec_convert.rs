@@ -24,31 +24,12 @@
 //!    `try_codec_value` and reporting the first unrepresentable value as
 //!    `UnrepresentableArg`.
 
-use super::Kobako;
+use super::{IntegerOutOfRange, Kobako};
 use beni::Value;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
 // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
 use kobako_codec::codec::MAX_NESTING_DEPTH;
-
-/// An inbound integer fell outside the guest's signed 32-bit `Integer`
-/// range, which the MRB_INT32 build cannot hold. `to_mrb_value` refuses
-/// it rather than saturating to the nearest bound
-/// (docs/wire/payload-msgpack.md § Integer Range); each call site fails
-/// its path the way it reports any
-/// malformed inbound payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct IntegerOutOfRange(pub(crate) i128);
-
-impl IntegerOutOfRange {
-    /// Operator-facing message naming the value the guest could not hold.
-    pub(crate) fn message(self) -> String {
-        format!(
-            "integer {} is outside the guest's 32-bit Integer range",
-            self.0
-        )
-    }
-}
 
 /// A dispatch argument (or kwargs value) the guest tried to send has no
 /// wire representation. The guest rejects it at the dispatch call site
@@ -277,32 +258,11 @@ impl Kobako {
         Ok(match val {
             CodecValue::Nil => Value::nil(),
             CodecValue::Bool(b) => b.into_value(mrb),
-            CodecValue::Int(n) => {
-                // mrb_int on wasm32 is signed 32-bit (MRB_INT32); a value
-                // outside that range has no faithful guest representation
-                // and is refused rather than saturated.
-                let n32 = i32::try_from(n).map_err(|_| IntegerOutOfRange(n as i128))?;
-                n32.into_value(mrb)
-            }
-            CodecValue::UInt(n) => {
-                let n32 = i32::try_from(n).map_err(|_| IntegerOutOfRange(n as i128))?;
-                n32.into_value(mrb)
-            }
+            CodecValue::Int(n) => self.narrow_int(n)?,
+            CodecValue::UInt(n) => self.narrow_int(n)?,
             CodecValue::Float(f) => f.into_value(mrb),
             CodecValue::Str(s) => mrb.str_new(s.as_bytes()).as_value(),
-            CodecValue::Handle(id) => self
-                .handle_class
-                .obj_new(mrb, &[(id as i32).into_value(mrb)])
-                // Freeze the minted Handle so the guest cannot re-point its
-                // id ivar to one it was not handed; dispatch only reads the
-                // id, so immutability leaves forwarding intact.
-                .map(|handle| handle.freeze(mrb))
-                // `Kobako::Handle#initialize` only stores an ivar on the
-                // fresh instance and cannot raise; a lost Handle degrades
-                // to `nil` (the error channel is reserved for the
-                // integer-range refusal, the one conversion that fails on
-                // ordinary data).
-                .unwrap_or(Value::nil()),
+            CodecValue::Handle(id) => self.mint_handle(id),
             CodecValue::Bin(bytes) => mrb.str_new(&bytes).as_value(),
             CodecValue::Sym(name) => {
                 // Intern via String#to_sym — mruby's mrb_symbol_value
