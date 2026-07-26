@@ -49,9 +49,8 @@
 
 use beni::{Module, Mrb, Value};
 
-use crate::codec::{
-    dispatch_decode_fault, dispatch_decode_value, dispatch_encode_arguments, CodecError,
-};
+use crate::codec::CodecError;
+use crate::runtime::codec_slot;
 
 /// Ambient reflection / eval method names the guest proxy refuses to
 /// forward. This is a best-effort opacity mirror,
@@ -150,7 +149,7 @@ fn forward_to_dispatch(
     // An argument (or kwargs value) with no representation in this guest's
     // schema is rejected at the dispatch call site rather than coerced to
     // an Object#to_s string, uniform with the return / yield rejection.
-    let payload = match dispatch_encode_arguments(&kobako, rest, kwargs_hash) {
+    let payload = match codec_slot::get().encode_arguments(&kobako, rest, kwargs_hash) {
         Ok(payload) => payload,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(err) => unsafe { raise_codec_error(&kobako, err, "argument", envelope_err_msg) },
@@ -159,7 +158,7 @@ fn forward_to_dispatch(
     match dispatch(target, &method_name, block_given, &payload) {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
-        Ok(body) => match dispatch_decode_value(&kobako, &body) {
+        Ok(body) => match codec_slot::get().decode_value(&kobako, &body) {
             Ok(value) => value,
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Err(err) => unsafe {
@@ -168,7 +167,7 @@ fn forward_to_dispatch(
         },
         // The fault arm is the normal path for a Service raising; a fault
         // body this codec cannot read is a wire fault like any other.
-        Err(DispatchError::Fault(body)) => match dispatch_decode_fault(&body) {
+        Err(DispatchError::Fault(body)) => match codec_slot::get().decode_fault(&body) {
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Ok(ex) => unsafe { kobako.raise_service_error(&ex) },
             // SAFETY: as above.

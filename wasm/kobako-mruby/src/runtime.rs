@@ -37,6 +37,7 @@
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
+pub(crate) mod codec_slot;
 mod init;
 
 use beni::sys;
@@ -163,7 +164,7 @@ impl Kobako {
     pub fn init<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
         // The dispatch bridge mruby calls is a bare function pointer, so it
         // reads the guest's codec from here rather than from `G`.
-        crate::codec::install_dispatch_ops::<G::Codec>();
+        codec_slot::install::<G::Codec>();
         mrb.init_gem::<init::KobakoBridge>()?;
         G::init_gems(mrb)?;
 
