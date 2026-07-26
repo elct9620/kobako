@@ -7,7 +7,7 @@
 //! variant. The wire-violation attribution string is the SPEC-pinned
 //! wire-level error class name, not a Ruby leakage.
 
-use kobako_codec::codec::{Decoder, Value};
+use kobako_codec::msgpack::codec::{Decoder, Value};
 use kobako_runtime::envelope::{Outcome, Panic};
 
 use crate::error::{Error, Failure};
@@ -49,7 +49,7 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
     if value.contains_fault() {
         return Err(wire_violation(
             "Sandbox produced an invalid result value",
-            &kobako_codec::codec::Error::Malformed(
+            &kobako_codec::msgpack::codec::Error::Malformed(
                 "a Fault is not a legal value in a Result envelope",
             ),
         ));
@@ -79,7 +79,7 @@ fn classify_panic(panic: Panic) -> Error {
     }
 }
 
-fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
+fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
     Error::Sandbox(Box::new(Failure {
         class: WIRE_ERROR_CLASS.into(),
         message: message.into(),
@@ -91,7 +91,7 @@ fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::Encoder;
+    use kobako_codec::msgpack::codec::Encoder;
     use kobako_runtime::envelope::ErrorRecord;
 
     use super::*;

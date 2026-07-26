@@ -250,7 +250,7 @@ mod tests {
     use super::*;
     // The round-trip cases exercise the decoder's reconstruction of what
     // the encoder wrote, so the sibling `Encoder` rides in as a fixture.
-    use crate::codec::Encoder;
+    use crate::msgpack::codec::Encoder;
 
     fn roundtrip(v: Value) -> Value {
         let bytes = encode(&v);

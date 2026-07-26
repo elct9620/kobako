@@ -9,8 +9,8 @@
 
 use std::any::Any;
 
-use kobako_codec::codec::{Decode, Encoder, Value};
-use kobako_codec::payload::Arguments;
+use kobako_codec::msgpack::codec::{Decode, Encoder, Value};
+use kobako_codec::msgpack::payload::Arguments;
 
 use crate::handles::Handles;
 use crate::yielder::Yielder;

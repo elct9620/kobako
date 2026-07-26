@@ -22,10 +22,10 @@ WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 # emptied reports as a one-sided inventory instead of aborting the gate.
 WIRE_RUBY_TRANSPORT = FileList["lib/kobako/transport*.rb", "lib/kobako/transport/**/*.rb",
                                "lib/kobako/payload*.rb", "lib/kobako/payload/**/*.rb"]
-WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/transport*.rs",
-                               "crates/kobako-codec/src/transport/**/*.rs",
-                               "crates/kobako-codec/src/payload*.rs",
-                               "crates/kobako-codec/src/payload/**/*.rs"]
+WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/**/transport*.rs",
+                               "crates/kobako-codec/src/**/transport/**/*.rs",
+                               "crates/kobako-codec/src/**/payload*.rs",
+                               "crates/kobako-codec/src/**/payload/**/*.rs"]
 WIRE_RUBY_EXT = FileList["lib/kobako/codec.rb", "lib/kobako/codec/**/*.rb"]
 WIRE_RUST_EXT = FileList["crates/kobako-codec/src/**/*.rs"]
 

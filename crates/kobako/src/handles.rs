@@ -10,7 +10,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::codec::Value;
+use kobako_codec::msgpack::codec::Value;
 
 use crate::receiver::{Fault, FaultKind, Receiver};
 

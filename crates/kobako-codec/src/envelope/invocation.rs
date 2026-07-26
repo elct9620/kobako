@@ -3,7 +3,7 @@
 //! The guest decodes all three: a Run on the command buffer, and the two
 //! stdin frames every entry point consumes before its verb-specific work.
 
-use super::codec::{
+use super::bytes::{
     expect_end, put_bytes, put_list, put_u32, rest, take_bytes, take_text, take_text_list,
     take_u32, take_u8,
 };

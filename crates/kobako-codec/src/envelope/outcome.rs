@@ -4,7 +4,7 @@
 //! export returns. Every Panic field is typed here, so only the Result arm
 //! asks the payload adapter for anything.
 
-use super::codec::{expect_end, put_bytes, put_list, rest, take_text, take_text_list, take_u8};
+use super::bytes::{expect_end, put_bytes, put_list, rest, take_text, take_text_list, take_u8};
 use super::{Error, ErrorRecord};
 
 const TAG_RESULT: u8 = 0x01;

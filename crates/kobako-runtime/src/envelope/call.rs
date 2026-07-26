@@ -4,7 +4,7 @@
 //! Borrows from the buffer it decoded, so the payload reaches a frontend
 //! as a view rather than a copy.
 
-use super::codec::{Reader, Writer};
+use super::bytes::{Reader, Writer};
 use super::Error;
 
 /// Whether `target` names a bound constant or a capability Handle. The tag

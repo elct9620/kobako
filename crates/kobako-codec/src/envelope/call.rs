@@ -3,7 +3,7 @@
 //! The guest builds a Call for every dispatch it initiates, and decodes
 //! one only in the reverse-direction tests that pin the layout.
 
-use super::codec::{put_bytes, put_u32, rest, take_text, take_u32, take_u8};
+use super::bytes::{put_bytes, put_u32, rest, take_text, take_u32, take_u8};
 use super::Error;
 
 const KIND_PATH: u8 = 0;

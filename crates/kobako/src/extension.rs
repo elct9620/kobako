@@ -192,7 +192,7 @@ impl Extensions {
 mod tests {
     use super::*;
     use crate::receiver::{ValueAdapter, ValueReceiver};
-    use kobako_codec::codec::Value;
+    use kobako_codec::msgpack::codec::Value;
 
     struct Probe;
 

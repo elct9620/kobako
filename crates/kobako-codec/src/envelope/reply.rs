@@ -5,7 +5,7 @@
 //! Yield Reply after every block the host re-enters, so both directions
 //! meet here.
 
-use super::codec::{expect_end, rest, take_u8};
+use super::bytes::{expect_end, rest, take_u8};
 use super::{Error, ErrorRecord};
 
 const TAG_OK: u8 = 0;

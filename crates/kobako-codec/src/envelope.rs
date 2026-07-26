@@ -11,8 +11,8 @@
 //!
 //! [core envelope]: ../../../docs/wire/envelope.md
 
+pub mod bytes;
 pub mod call;
-pub mod codec;
 pub mod error_record;
 pub mod invocation;
 pub mod outcome;

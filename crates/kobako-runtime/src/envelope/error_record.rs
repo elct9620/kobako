@@ -6,7 +6,7 @@
 //! by one of three reserved type names the guest maps to a proxy-side
 //! error.
 
-use super::codec::{Reader, Writer};
+use super::bytes::{Reader, Writer};
 use super::Error;
 
 /// Exception class, message, and backtrace as the guest saw them.

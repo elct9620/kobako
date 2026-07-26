@@ -2,8 +2,10 @@
 //!
 //! The surface where a wasm engine implementation and a host frontend
 //! meet: the `Runtime` trait, the isolation `Profile` a runtime
-//! declares, the neutral per-invocation value types, and the
-//! dispatch / yield re-entry traits a frontend supplies.
+//! declares, the neutral per-invocation value types, the dispatch /
+//! yield re-entry traits a frontend supplies, and `envelope` — this
+//! side's implementation of the core envelope, the byte-oracle peer of
+//! the one in `kobako-codec`.
 //! Nothing here depends on an engine or a frontend type — each engine
 //! hides its own machinery behind `Runtime`, and each frontend maps
 //! these shapes onto its own host-language surface at its boundary

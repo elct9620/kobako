@@ -56,7 +56,7 @@ impl Catalog {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::Value;
+    use kobako_codec::msgpack::codec::Value;
 
     use crate::receiver::{Fault, ValueAdapter, ValueReceiver};
 

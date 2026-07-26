@@ -8,7 +8,7 @@
 //!
 //! [payload adapter]: ../../../docs/wire/payload-msgpack.md
 
-use crate::codec::{self, Decode, Decoder, Encode, Encoder, Value};
+use super::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 
 /// The invocation arguments a Call or a Run carries: a 2-element msgpack
 /// array, `args` then `kwargs`. Both elements are always present, so field

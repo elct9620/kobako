@@ -1,5 +1,5 @@
-//! kobako — the assembled mruby implementation of the kobako Guest
-//! ABI.
+//! kobako-mruby — the assembled mruby implementation of the kobako
+//! Guest ABI.
 //!
 //! `MrbGuest` is the harness: one required `init_gems` hook naming
 //! the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /

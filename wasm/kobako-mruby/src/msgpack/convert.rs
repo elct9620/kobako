@@ -29,11 +29,11 @@
 use crate::codec::CodecError;
 use crate::runtime::{Fault, IntegerOutOfRange, Kobako};
 use beni::Value;
-use kobako_codec::codec::{self, Decoder, Value as CodecValue};
+use kobako_codec::msgpack::codec::{self, Decoder, Value as CodecValue};
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
 // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
-use kobako_codec::codec::MAX_NESTING_DEPTH;
+use kobako_codec::msgpack::codec::MAX_NESTING_DEPTH;
 
 /// Read a Reply's fault body — an ext 0x02 frame wrapping the
 /// `{type, message}` map — into the two fields the bridge raises with.
@@ -75,8 +75,8 @@ pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
 /// The unpacked form of a dispatch Call's argument list: positional args
 /// followed by Symbol-keyed kwargs pairs.
 type UnpackedArgs = (
-    Vec<kobako_codec::codec::Value>,
-    Vec<(String, kobako_codec::codec::Value)>,
+    Vec<kobako_codec::msgpack::codec::Value>,
+    Vec<(String, kobako_codec::msgpack::codec::Value)>,
 );
 
 impl Kobako {
@@ -92,7 +92,7 @@ impl Kobako {
     pub(crate) fn extract_hash_kwargs(
         &self,
         hash: beni::Hash,
-        out: &mut Vec<(String, kobako_codec::codec::Value)>,
+        out: &mut Vec<(String, kobako_codec::msgpack::codec::Value)>,
     ) -> Result<(), CodecError> {
         let keys_ary = hash.keys(self.mrb());
         for key_val in keys_ary.entries() {
@@ -123,7 +123,7 @@ impl Kobako {
         rest: &[Value],
         kwargs_hash: beni::Hash,
     ) -> Result<UnpackedArgs, CodecError> {
-        let mut args: Vec<kobako_codec::codec::Value> = Vec::with_capacity(rest.len());
+        let mut args: Vec<kobako_codec::msgpack::codec::Value> = Vec::with_capacity(rest.len());
         for &mrb_val in rest {
             let encoded = self
                 .try_codec_value(mrb_val)
@@ -131,7 +131,7 @@ impl Kobako {
             args.push(encoded);
         }
 
-        let mut kwargs: Vec<(String, kobako_codec::codec::Value)> = Vec::new();
+        let mut kwargs: Vec<(String, kobako_codec::msgpack::codec::Value)> = Vec::new();
         self.extract_hash_kwargs(kwargs_hash, &mut kwargs)?;
 
         Ok((args, kwargs))
@@ -140,7 +140,11 @@ impl Kobako {
     /// Convert each element of an mruby Array through the strict value
     /// converter, returning a `Vec<Option<..>>` the caller collapses to a
     /// single `None` when any element has no wire representation.
-    fn array_to_codec(&self, val: Value, depth: usize) -> Vec<Option<kobako_codec::codec::Value>> {
+    fn array_to_codec(
+        &self,
+        val: Value,
+        depth: usize,
+    ) -> Vec<Option<kobako_codec::msgpack::codec::Value>> {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
@@ -162,8 +166,8 @@ impl Kobako {
         val: Value,
         depth: usize,
     ) -> Vec<(
-        Option<kobako_codec::codec::Value>,
-        Option<kobako_codec::codec::Value>,
+        Option<kobako_codec::msgpack::codec::Value>,
+        Option<kobako_codec::msgpack::codec::Value>,
     )> {
         // SAFETY: callers reach this only after a `classname == "Hash"`
         // gate, so the unchecked wrap is sound.
@@ -183,7 +187,7 @@ impl Kobako {
         pairs
     }
 
-    /// Convert a `Value` to a kobako `kobako_codec::codec::Value` — the
+    /// Convert a `Value` to a kobako `kobako_codec::msgpack::codec::Value` — the
     /// single guest→host value converter, shared by the `#eval` / `#run`
     /// outcome, the yield-block result, and the dispatch Call args /
     /// kwargs. Symbol values map to `Value::Sym` (ext 0x00); Array / Hash
@@ -203,11 +207,18 @@ impl Kobako {
     /// `inspect`, so the caller surfaces the `None` as a Panic envelope
     /// (outcome), a `0x04` error Yield Reply (yield), or a raise at the
     /// dispatch call site rather than handing the host a misleading String.
-    pub(crate) fn try_codec_value(&self, val: Value) -> Option<kobako_codec::codec::Value> {
+    pub(crate) fn try_codec_value(
+        &self,
+        val: Value,
+    ) -> Option<kobako_codec::msgpack::codec::Value> {
         self.try_codec_value_at(val, 0)
     }
 
-    fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<kobako_codec::codec::Value> {
+    fn try_codec_value_at(
+        &self,
+        val: Value,
+        depth: usize,
+    ) -> Option<kobako_codec::msgpack::codec::Value> {
         use beni::FromValue;
         // Scalar-leaf downcast through the safe `FromValue` seam.
         if let Some(n) = i32::from_value(val) {
@@ -252,7 +263,7 @@ impl Kobako {
         }
     }
 
-    /// Convert a kobako `kobako_codec::codec::Value` into a `Value`
+    /// Convert a kobako `kobako_codec::msgpack::codec::Value` into a `Value`
     /// suitable for handing back to the mruby VM. Handle values are
     /// boxed into a fresh `Kobako::Handle` instance carrying the id
     /// (subsequent method calls on it route to the host through
@@ -260,7 +271,7 @@ impl Kobako {
     /// `forward_to_dispatch` round-trip).
     pub(crate) fn to_mrb_value(
         &self,
-        val: kobako_codec::codec::Value,
+        val: kobako_codec::msgpack::codec::Value,
     ) -> Result<Value, IntegerOutOfRange> {
         use beni::IntoValue;
         let mrb = self.mrb();

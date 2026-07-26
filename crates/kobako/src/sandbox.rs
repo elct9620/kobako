@@ -13,8 +13,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kobako_codec::codec::{Encode as _, Value};
-use kobako_codec::payload::Arguments;
+use kobako_codec::msgpack::codec::{Encode as _, Value};
+use kobako_codec::msgpack::payload::Arguments;
 use kobako_runtime::envelope::Run;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};

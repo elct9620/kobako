@@ -4,7 +4,7 @@
 //! payload value, so a side learns the outcome of a Call whatever schema
 //! the payload carries.
 
-use super::codec::{Reader, Writer};
+use super::bytes::{Reader, Writer};
 use super::{Error, ErrorRecord};
 
 const TAG_OK: u8 = 0;

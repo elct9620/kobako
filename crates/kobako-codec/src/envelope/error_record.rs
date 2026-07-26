@@ -3,7 +3,7 @@
 //! A block failure and an invocation failure carry the same three fields,
 //! so the host re-raises from either without consulting a payload adapter.
 
-use super::codec::{put_bytes, put_list, take_text, take_text_list};
+use super::bytes::{put_bytes, put_list, take_text, take_text_list};
 use super::Error;
 
 /// Exception class, message, and backtrace as the guest saw them.

@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use kobako_codec::codec::{Decoder, Encoder, Value};
+use kobako_codec::msgpack::codec::{Decoder, Encoder, Value};
 use kobako_runtime::envelope::YieldReply;
 use kobako_runtime::yielder::Yielder as RawYielder;
 

@@ -22,7 +22,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::codec::Value;
+use kobako_codec::msgpack::codec::Value;
 use kobako_runtime::snapshot::{Capture, Usage};
 
 use crate::error::Error;

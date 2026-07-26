@@ -4,7 +4,7 @@
 //! invocation and reports the correction for it without decoding a payload
 //! byte. Only the Result arm carries adapter-encoded bytes.
 
-use super::codec::{Reader, Writer};
+use super::bytes::{Reader, Writer};
 use super::{Error, ErrorRecord};
 
 const TAG_RESULT: u8 = 0x01;

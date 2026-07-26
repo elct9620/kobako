@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::codec::{Encoder, Value};
+use kobako_codec::msgpack::codec::{Encoder, Value};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::envelope::{Call, Reply, Target};
 use kobako_runtime::yielder::Yielder as RawYielder;
@@ -150,8 +150,8 @@ fn ok_reply(value: &Value) -> Reply {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::codec::{Decoder, Encode, Encoder};
-    use kobako_codec::payload::Arguments;
+    use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder};
+    use kobako_codec::msgpack::payload::Arguments;
     use kobako_runtime::envelope::{ErrorRecord, YieldReply};
 
     use crate::receiver::{ValueAdapter, ValueReceiver};

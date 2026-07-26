@@ -13,8 +13,8 @@
 mod convert;
 
 use beni::Value;
-use kobako_codec::codec::{Decoder, Encode, Encoder, Value as CodecValue};
-use kobako_codec::payload;
+use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value as CodecValue};
+use kobako_codec::msgpack::payload;
 
 use crate::codec::{Arguments, CodecError, PayloadCodec};
 use crate::runtime::{Fault, Kobako};
@@ -35,7 +35,7 @@ impl PayloadCodec for MsgpackCodec {
     }
 
     fn decode_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError> {
-        use kobako_codec::codec::Decode;
+        use kobako_codec::msgpack::codec::Decode;
         let arguments = payload::Arguments::decode(bytes).map_err(|_| CodecError::Malformed)?;
         let args = arguments
             .args

@@ -6,7 +6,7 @@
 //! invoked through its own `#call`, and no `block_given` because `#run`
 //! supplies no block.
 
-use super::codec::{Reader, Writer};
+use super::bytes::{Reader, Writer};
 use super::Error;
 
 const SNIPPET_SOURCE: u8 = 0;

@@ -14,8 +14,8 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use kobako_codec::codec::{Decoder, Encode};
-use kobako_codec::payload::Arguments;
+use kobako_codec::msgpack::codec::{Decoder, Encode};
+use kobako_codec::msgpack::payload::Arguments;
 use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
