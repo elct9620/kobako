@@ -153,9 +153,9 @@ module Kobako
         [SIGMA * move.to_f * 100, MAX_ARCHIVE_BAND_PCT].min
       end
 
-      # Every gated row whose bar the archive raised above what its own run
-      # recorded, as an Array of Widening. {Gate} prints these on a clean
-      # pass too: a row gating on an archive band is one the floor no longer
+      # Every gated row the archive, not the row's own run, sets the bar
+      # for — as an Array of Widening. {Gate} prints these on a clean pass
+      # too: a row gating on an archive band is one the floor no longer
       # governs, and archiving a run captured on a loaded machine is how
       # that happens without anyone deciding it.
       def archive_widened(current, baseline, suites: release_suites, history: {})
@@ -166,6 +166,10 @@ module Kobako
       end
 
       # Build a Widening when the archive governs +row+'s band, else nil.
+      # It governs only when it beats both the row's own dispersion and the
+      # floor: under the floor the bar is the floor either way, so a wider
+      # archive term there changes no verdict and naming it would bury the
+      # rows where it does.
       def widening_for(suite, label, row, base, history)
         metric = gate_metric(row)
         return nil unless metric
@@ -173,7 +177,7 @@ module Kobako
         move = history[[suite, label, metric]]
         archive = between_run_band(move)
         recorded = noise_band(*central_sd(row, metric), *central_sd(base, metric))
-        return nil unless archive > recorded
+        return nil unless archive > recorded && archive > FLOOR_PCT
 
         Widening.new(suite, label, metric, recorded, archive, archive >= MAX_ARCHIVE_BAND_PCT)
       end

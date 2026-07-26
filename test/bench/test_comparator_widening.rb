@@ -22,13 +22,20 @@ class KobakoBenchComparatorWideningTest < Minitest::Test
 
   def test_a_row_the_archive_widens_is_reported_even_when_it_does_not_regress
     widened = widened_demo(ips_row("h", 995.0, 5.0), ips_row("h", 1000.0, 5.0),
-                           history: { ["demo", "h", :ips] => 0.05 })
+                           history: { ["demo", "h", :ips] => 0.1 })
 
     assert_equal ["h"], widened.map(&:label),
                  "a gated row whose bar comes from the archive must be named on a clean pass too — " \
                  "a pass the floor no longer governs is looser than it reads"
     assert_operator widened.first.archive_pct, :>, widened.first.recorded_pct
     refute widened.first.capped, "a band below the ceiling must not report as capped"
+  end
+
+  def test_an_archive_band_under_the_floor_is_not_a_widening
+    assert_empty widened_demo(ips_row("h", 995.0, 5.0), ips_row("h", 1000.0, 5.0),
+                              history: { ["demo", "h", :ips] => 0.02 }),
+                 "under the floor the bar is the floor either way, so a wider archive term there " \
+                 "changes no verdict and must not crowd out the rows where it does"
   end
 
   def test_a_row_whose_own_run_is_noisier_than_the_archive_is_not_reported_as_widened

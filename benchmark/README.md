@@ -433,7 +433,7 @@ Interpretation rules:
 The gate reads that between-run scale off the archived runs (`History`, median move over the last 10) and takes the wider of it and the within-run band. Two rules keep that from loosening the gate by accident, because unlike the anchor — which moves only by a deliberate `bench:bless` — the archive grows whenever a run is committed:
 
 - **The archive half stops at 30 %**, three times the floor. Past that the archive says nothing useful about the row, so the bar stops rising instead of quietly switching the row off.
-- **Every gated row the archive widens is named on each gate run**, clean pass included, with what its own run recorded alongside. A pass on an archive-widened row is looser than a pass on a row the floor still governs, and the NOTE is what makes the difference legible.
+- **Every gated row the archive sets the bar for is named on each gate run**, clean pass included, with what its own run recorded alongside. A row counts only when its archive band beats both its own dispersion and the floor — below the floor the bar is the floor either way. A pass on such a row is looser than a pass on a row the floor still governs, and the NOTE is what makes the difference legible.
 
 When `bench:gate` flags, arbitrate with stage 2:
 
