@@ -4,11 +4,11 @@
 # N-8 invariant once the behavior spec is split across +docs/behavior/+:
 # every +B-xx+ / +E-xx+ / +RX-xx+ / +JS-xx+ is defined exactly once, the
 # sequence is contiguous up to the ceiling +SPEC.md+ states (gaps only where a
-# retired tombstone declares one), and every reference resolves to a
-# definition. +B+ / +RX+ / +JS+ anchors are defined by a Markdown heading, +E+
-# anchors by an error-table row; +RX-xx+ (regexp.md) and +JS-xx+ (json.md) are
-# topic-doc-local sequences with no SPEC ceiling, so each top is the highest
-# anchor of that prefix defined.
+# retired tombstone declares one, the ceiling itself included), and every
+# reference resolves to a definition. +B+ / +RX+ / +JS+ anchors are defined by
+# a Markdown heading, +E+ anchors by an error-table row; +RX-xx+ (regexp.md)
+# and +JS-xx+ (json.md) are topic-doc-local sequences with no SPEC ceiling, so
+# each top is the highest anchor of that prefix defined.
 module KobakoAnchors
   module_function
 
@@ -81,7 +81,7 @@ module KobakoAnchors
 
     duplicate_violations(defs) +
       sequence_violations(defs, retired, ceilings) +
-      ceiling_violations(defs, ceilings) +
+      ceiling_violations(defs, retired, ceilings) +
       dangling_violations(defs, retired, refs)
   end
 
@@ -127,12 +127,17 @@ module KobakoAnchors
     end
   end
 
-  def ceiling_violations(defs, ceilings)
+  # The ceiling is the highest number ever *assigned*, which a retired
+  # tombstone holds as firmly as a definition — N-8 reserves a retired
+  # number permanently, so the top anchor retiring must not free its number
+  # for the next one.
+  def ceiling_violations(defs, retired, ceilings)
     ceilings.filter_map do |prefix, stated|
-      highest = defs.fetch(prefix, {}).keys.max
+      assigned = defs.fetch(prefix, {}).keys.to_set | retired.fetch(prefix, Set.new)
+      highest = assigned.max
       next if highest.nil? || highest == stated
 
-      "ceiling mismatch for #{prefix}: SPEC states #{stated} but highest defined is #{prefix}-#{highest}"
+      "ceiling mismatch for #{prefix}: SPEC states #{stated} but highest assigned is #{prefix}-#{highest}"
     end
   end
 

@@ -98,7 +98,19 @@ class KobakoAnchorsTest < Minitest::Test
     violations = audit("B", { "lifecycle.md" => "## B-01 — x\n## B-02 — y\n" }, ceilings: { "B" => 5 })
 
     assert(violations.any? { |v| v.downcase.include?("ceiling") },
-           "SPEC's stated ceiling must match the highest anchor actually defined")
+           "a stated ceiling above every assigned number through audit must be flagged")
+  end
+
+  # N-8 reserves a retired number permanently. If retiring the top anchor
+  # freed its number, the next anchor would take it and every historical
+  # citation would rebind to unrelated content.
+  def test_a_retired_top_anchor_still_holds_the_ceiling
+    text = "## B-01 — x\n## B-02 — y\n\n## B-03 (retired)\n\nB-03 is a retired anchor — reserved (N-8).\n"
+
+    violations = audit("B", { "lifecycle.md" => text }, ceilings: { "B" => 3 })
+
+    assert_empty violations,
+                 "a corpus whose top anchor is a tombstone through audit must keep that number as the ceiling"
   end
 
   def test_a_reference_to_an_undefined_anchor_is_dangling
