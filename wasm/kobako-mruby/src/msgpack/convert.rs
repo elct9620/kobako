@@ -36,9 +36,9 @@ use kobako_codec::codec::{self, Decoder, Value as CodecValue};
 use kobako_codec::codec::MAX_NESTING_DEPTH;
 
 /// Read a Reply's fault body — an ext 0x02 frame wrapping the
-/// `{type, message, details}` map — into the two fields the bridge raises
-/// with. The envelope named the arm; this reads what it carried, which is
-/// the payload adapter's half of the job.
+/// `{type, message}` map — into the two fields the bridge raises with.
+/// The envelope named the arm; this reads what it carried, which is the
+/// payload adapter's half of the job.
 pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
     let CodecValue::Fault(inner_bytes) = Decoder::new(body).read_only_value()? else {
         return Err(codec::Error::Malformed(

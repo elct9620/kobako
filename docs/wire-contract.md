@@ -72,13 +72,14 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ## Fault
 
-A Fault describes a Service-layer failure. Its sole legal wire position is the whole of a Reply's fault variant; a payload in any other position carrying one is a wire violation the receiving side rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). Maps to the Ruby value object `Kobako::Fault`. It carries three fields:
+A Fault describes a Service-layer failure. Its sole legal wire position is the whole of a Reply's fault variant; a payload in any other position carrying one is a wire violation the receiving side rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). Maps to the Ruby value object `Kobako::Fault`. It carries two fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `type` | string | One of the three reserved error type names (see table below). Identifies the failure category. |
 | `message` | string | Human-readable description of the failure. |
-| `details` | any (optional) | Structured supplementary information. Omitted or null when not present. |
+
+A Fault travels host→guest, and its author controls only the message. Host-side structure — a backtrace, a path, an object graph — would cross the trust boundary as content no author can bound, so a Fault carries none. The reverse direction is not symmetric: a Panic and a Yield Reply's error arm both carry a backtrace, and those flow untrusted→trusted.
 
 The three reserved `type` values are:
 

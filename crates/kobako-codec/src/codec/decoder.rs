@@ -535,7 +535,6 @@ mod tests {
             .write_value(&Value::Map(vec![
                 (Value::Str("type".into()), Value::Str("runtime".into())),
                 (Value::Str("message".into()), Value::Str("boom".into())),
-                (Value::Str("details".into()), Value::Nil),
             ]))
             .unwrap();
         let payload = inner.into_bytes();

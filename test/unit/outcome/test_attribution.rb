@@ -12,8 +12,8 @@
 require "test_helper"
 
 class TestOutcomeAttributionEdgeCases < Minitest::Test
-  def reify_panic(origin:, klass:, message:, details: "".b)
-    Kobako::Outcome.reify(:panic, details, [origin, klass, message, []])
+  def reify_panic(origin:, klass:, message:, payload: "".b)
+    Kobako::Outcome.reify(:panic, payload, [origin, klass, message, []])
   end
 
   # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---
@@ -66,9 +66,9 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
   # --- Result arm carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
   #
   # A Fault's sole legal wire position is a Reply's fault arm;
-  # a Result smuggling one would hand host code a Fault whose details can
-  # nest Handles nothing outside the wire layer can resolve. The bare
-  # codec stays permissive — the positional rule lives on this decode.
+  # a Result smuggling one would hand host code a failure record as the
+  # invocation's ordinary return value. The bare codec stays permissive —
+  # the positional rule lives on this decode.
   def test_result_arm_carrying_fault_raises_transport_error
     fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
 

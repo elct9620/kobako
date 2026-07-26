@@ -3,19 +3,11 @@
 require "test_helper"
 
 # Kobako::Fault is the value object for a Fault (ext 0x02)
-# (docs/wire/payload-msgpack.md § Ext Types → ext 0x02): a {type, message, details}
-# triple whose type is drawn from a closed taxonomy. This file pins the
+# (docs/wire/payload-msgpack.md § Ext Types → ext 0x02): a {type, message}
+# pair whose type is drawn from a closed taxonomy. This file pins the
 # constructor's own validation contract; the codec round-trip of the
 # encoded form lives in test/unit/codec/test_ext_types.rb.
 class TestFault < Minitest::Test
-  def test_details_default_to_nil_when_omitted
-    fault = Kobako::Fault.new(type: "runtime", message: "boom")
-
-    assert_nil fault.details,
-               "a Fault built without details: through Kobako::Fault.new must carry nil, " \
-               "the wire's absent-details sentinel"
-  end
-
   def test_instances_are_frozen
     fault = Kobako::Fault.new(type: "runtime", message: "boom")
 

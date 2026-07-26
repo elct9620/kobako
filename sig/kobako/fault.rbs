@@ -4,13 +4,12 @@ module Kobako
 
     attr_reader type: String
     attr_reader message: String
-    attr_reader details: untyped
 
-    def self.new: (type: String, message: String, ?details: untyped) -> Fault
+    def self.new: (type: String, message: String) -> Fault
 
-    def initialize: (type: String, message: String, ?details: untyped) -> void
+    def initialize: (type: String, message: String) -> void
 
-    def with: (?type: String, ?message: String, ?details: untyped) -> Fault
+    def with: (?type: String, ?message: String) -> Fault
 
     def ==: (untyped other) -> bool
 

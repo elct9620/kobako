@@ -269,15 +269,7 @@ class WireValueGenerator
     @coverage[:fault] += 1
     type = FAULT_TYPES.sample(random: @rng)
     message = random_utf8_string(@rng.rand(1..40))
-    Fault.new(type: type, message: message, details: generate_fault_details)
-  end
-
-  def generate_fault_details
-    case @rng.rand(3)
-    when 0 then nil
-    when 1 then random_utf8_string(@rng.rand(1..32))
-    else        { "field" => random_utf8_string(@rng.rand(1..16)) }
-    end
+    Fault.new(type: type, message: message)
   end
 
   def track(key)

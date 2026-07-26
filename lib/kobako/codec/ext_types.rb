@@ -101,22 +101,16 @@ module Kobako
 
       # Encode the inner ext-0x02 map via Encoder (not the raw factory) so
       # the embedded payload flows through the same boundary as a top-level
-      # encode — nested kobako values (Handle, nested Fault) reach the
-      # registered ext-type packers. A +details+ chain nested past the
-      # +state+ depth cap has no wire representation and surfaces as
-      # +UnsupportedType+. In a payload position (+state+ inside a
-      # forbid_faults bracket) a Fault has no wire representation at
-      # all, so the refusal routes the value into the position's
-      # non-representable handling — the Dispatcher's auto-wrap rescue,
-      # or a raise at the yield site.
+      # encode. In a payload position (+state+ inside a forbid_faults
+      # bracket) a Fault has no wire representation at all, so the refusal
+      # routes the value into the position's non-representable handling —
+      # the Dispatcher's auto-wrap rescue, or a raise at the yield site.
       def pack_fault(fault, state)
         if state.faults_forbidden?
           raise UnsupportedType, "Kobako::Fault has no wire representation in a payload position"
         end
 
-        state.within_ext_frame(UnsupportedType) do
-          Encoder.encode("type" => fault.type, "message" => fault.message, "details" => fault.details)
-        end
+        Encoder.encode("type" => fault.type, "message" => fault.message)
       end
 
       # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
@@ -124,20 +118,22 @@ module Kobako
       # +ArgumentError+ invariants surface as +InvalidType+ through the
       # decoder boundary. Inner decode goes through Decoder (not the raw
       # factory) so the embedded +str+ payloads flow through the same
-      # UTF-8 validation as a top-level decode. A nested ext 0x02 in
-      # +details+ re-enters this method, so the +state+ ext-frame guard
-      # bounds the chain depth to keep it from exhausting the native stack.
-      # In a payload position (+state+ inside a forbid_faults bracket) a
-      # Fault is a wire violation outright — its sole legal position is
-      # a Reply's fault arm.
+      # UTF-8 validation as a top-level decode. In a payload position
+      # (+state+ inside a forbid_faults bracket) a Fault is a wire
+      # violation outright — its sole legal position is a Reply's fault arm.
+      #
+      # A Fault occupies the whole of that arm, so everything inside one is
+      # itself a payload position: the inner bracket refuses a nested Fault
+      # at the first level rather than letting the ext unpacker recurse
+      # through a hostile chain until the native stack gives out.
       def unpack_fault(payload, state)
         raise InvalidType, "a Fault (ext 0x02) is not a legal value in a payload position" if state.faults_forbidden?
 
-        state.within_ext_frame(InvalidType) do
+        state.forbid_faults do
           Decoder.decode(payload) do |map|
             raise InvalidType, "Fault payload must be a map" unless map.is_a?(Hash)
 
-            Kobako::Fault.new(type: map["type"], message: map["message"], details: map["details"])
+            Kobako::Fault.new(type: map["type"], message: map["message"])
           end
         end
       end

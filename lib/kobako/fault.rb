@@ -5,18 +5,20 @@ module Kobako
   #
   # Top-level shared wire primitive: like +Kobako::Handle+ (ext 0x01),
   # +Fault+ is a MessagePack ext-type leaf registered by
-  # +Kobako::Codec::ExtTypes+ and rides nested inside other envelopes (a
-  # body of a Reply's fault arm, or another Fault's
-  # +details+). It lives at the kobako root rather than under +Transport+
+  # +Kobako::Codec::ExtTypes+ and rides as the body of a Reply's fault
+  # arm. It lives at the kobako root rather than under +Transport+
   # because the Codec layer must register it, and Codec must not depend
   # upward on Transport.
   #
   # SPEC pins the payload
   # ({docs/wire/payload-msgpack.md}[link:../../docs/wire/payload-msgpack.md] § Ext Types
-  # → ext 0x02) to a msgpack map with exactly three keys:
+  # → ext 0x02) to a msgpack map with exactly two keys:
   #   * "type"    — one of "runtime", "argument", "undefined"
   #   * "message" — human-readable string
-  #   * "details" — any wire-legal value, or nil when absent
+  #
+  # A Fault travels host→guest, so it carries only what its author can
+  # keep bounded: the message a Service chose to expose. Host-side
+  # structure — backtraces, paths, object graphs — never crosses.
   #
   # This object holds the *encoded* form. Reifying the corresponding Ruby
   # exception class (RuntimeError, ArgumentError, Kobako::ServiceError, ...)
@@ -24,10 +26,10 @@ module Kobako
   #
   # Built on the +class X < Data.define(...)+ subclass form (the
   # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
-  class Fault < Data.define(:type, :message, :details)
+  class Fault < Data.define(:type, :message)
     VALID_TYPES = %w[runtime argument undefined].freeze
 
-    def initialize(type:, message:, details: nil)
+    def initialize(type:, message:)
       raise ArgumentError, "type must be String"    unless type.is_a?(String)
       raise ArgumentError, "message must be String" unless message.is_a?(String)
       raise ArgumentError, "type=#{type.inspect} not one of #{VALID_TYPES.inspect}" unless VALID_TYPES.include?(type)

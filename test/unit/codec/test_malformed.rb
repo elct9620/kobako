@@ -75,49 +75,29 @@ class TestCodecMalformed < Minitest::Test
     end
   end
 
-  # A hostile guest can chain ext 0x02 Faults through each
-  # other's +details+ field. Every nested Fault re-enters the decoder with
-  # a fresh msgpack unpacker, so the gem's per-unpacker stack guard resets
-  # at each level and the ext-envelope recursion is unbounded on the Ruby
-  # call stack — deep enough input would exhaust the stack and escape the
-  # codec's rescue (SystemStackError is not a Codec::Error). Over-deep
-  # ext nesting must surface as a clean wire violation, matching the
-  # nesting-depth guarantee for plain Array / Hash payloads.
-  def test_over_deep_nested_fault_rejected
+  # A Fault occupies the whole of a Reply's fault body, so everything
+  # inside one is a payload position where a Fault is illegal (E-50). A
+  # hostile guest that chains ext 0x02 through the inner map's values gets
+  # a decoder re-entry per level, each with a fresh msgpack unpacker whose
+  # stack guard resets — deep enough input would exhaust the Ruby stack and
+  # escape the codec's rescue, since SystemStackError is not a Codec::Error.
+  # Refusing the second level is what keeps the chain from ever forming.
+  def test_nested_fault_rejected
     assert_raises(InvalidType,
-                  "ext 0x02 nested past the depth cap through #decode must raise InvalidType, not trap the stack") do
+                  "ext 0x02 nested inside a Fault through #decode must raise InvalidType, not trap the stack") do
       Decoder.decode(nested_fault_bytes(200))
     end
   end
 
-  def test_nested_fault_within_cap_round_trips
-    decoded = Decoder.decode(nested_fault_bytes(8))
-    assert_instance_of Kobako::Fault, decoded,
-                       "a Fault chain within the nesting cap through #decode must decode to a Kobako::Fault"
-  end
-
-  # The depth counter is unwound by an ensure, so a rejected over-deep
-  # chain must leave no residue that trips a later decode on the same
-  # thread — otherwise one bad payload would poison every subsequent
-  # invocation sharing that thread.
-  def test_over_deep_rejection_leaves_no_depth_residue
+  # The payload-position flag is unwound by an ensure, so a rejected chain
+  # must leave no residue that trips a later decode on the same thread —
+  # otherwise one bad payload would poison every subsequent invocation
+  # sharing that thread.
+  def test_nested_fault_rejection_leaves_no_residue
     assert_raises(InvalidType) { Decoder.decode(nested_fault_bytes(200)) }
-    decoded = Decoder.decode(nested_fault_bytes(8))
+    decoded = Decoder.decode(Encoder.encode(Kobako::Fault.new(type: "runtime", message: "x")))
     assert_instance_of Kobako::Fault, decoded,
-                       "a within-cap decode after a rejected over-deep chain must still succeed"
-  end
-
-  # A host that builds an over-deep Fault chain (e.g. a Service that wraps
-  # its own faults without bound) must be refused at the encode boundary
-  # rather than recurse until the stack overflows.
-  def test_over_deep_nested_fault_rejected_at_encode
-    deep = (1..200).reduce(Kobako::Fault.new(type: "runtime", message: "x")) do |inner, _|
-      Kobako::Fault.new(type: "runtime", message: "x", details: inner)
-    end
-    assert_raises(UnsupportedType,
-                  "an over-deep Fault chain through #encode must raise UnsupportedType, not trap the stack") do
-      Encoder.encode(deep)
-    end
+                       "a lone Fault decoded after a rejected nested chain must still succeed"
   end
 
   private
@@ -129,14 +109,14 @@ class TestCodecMalformed < Minitest::Test
     [0xc9, payload_bytes.bytesize, 0x02].pack("CNC").b + payload_bytes
   end
 
-  # A fixmap-3 { "type" => "runtime", "message" => "x", "details" => ... }
-  # whose +details+ carries the already-encoded inner bytes.
-  def fault_map(details_bytes)
-    "\x83\xa4type\xa7runtime\xa7message\xa1x\xa7details".b + details_bytes
+  # A fixmap-2 { "type" => <nested>, "message" => "x" } smuggling the
+  # already-encoded inner bytes into the position a type string belongs in.
+  def fault_map(nested_bytes)
+    "\x82\xa4type".b + nested_bytes + "\xa7message\xa1x".b
   end
 
-  # Wire bytes for +depth+ ext 0x02 Faults chained through +details+,
-  # innermost +details+ being nil.
+  # Wire bytes for +depth+ ext 0x02 Faults chained through each other,
+  # the innermost carrying nil where a nested Fault would sit.
   def nested_fault_bytes(depth)
     depth.times.reduce("\xc0".b) { |inner, _| ext_fault(fault_map(inner)) }
   end

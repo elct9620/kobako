@@ -5,8 +5,9 @@ require "test_helper"
 # A Fault's positional legality on the transport paths (E-50):
 # its sole legal wire position is a Reply's fault arm, so a
 # guest→host payload smuggling an ext 0x02 is rejected — otherwise a
-# Handle nested in its details would reach host code as a token nothing
-# can resolve. Outbound, the host never emits one in a payload position:
+# failure record would reach host code as an ordinary value, past the tag
+# that is supposed to decide success from failure. Outbound, the host
+# never emits one in a payload position:
 # a Fault return value takes the B-14 auto-wrap path and a Fault yield
 # argument is refused at the yield site. The outcome-envelope paths of
 # E-50 are pinned in test/unit/outcome/test_attribution.rb; the shipped guest

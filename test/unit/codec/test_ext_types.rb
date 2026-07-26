@@ -92,20 +92,13 @@ class TestCodecExtTypes < Minitest::Test
 
   # ---------- ext 0x02 Fault ----------
 
-  def test_exception_roundtrip_minimal
+  def test_fault_roundtrip_minimal
     e = Fault.new(type: "runtime", message: "boom")
     _, decoded = roundtrip(e)
     assert_equal e, decoded, "a minimal Fault (ext 0x02) must round-trip unchanged"
   end
 
-  def test_exception_roundtrip_with_details
-    e = Fault.new(type: "argument", message: "bad arg",
-                  details: { "field" => "x", "expected" => "Integer" })
-    _, decoded = roundtrip(e)
-    assert_equal e, decoded, "a Fault with a nested details Hash must round-trip unchanged"
-  end
-
-  def test_exception_all_valid_types
+  def test_fault_all_valid_types
     Fault::VALID_TYPES.each do |t|
       e = Fault.new(type: t, message: "m")
       _, decoded = roundtrip(e)

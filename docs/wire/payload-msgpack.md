@@ -88,7 +88,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Fault `type` field value | str only | bin → wire violation, reject |
 | Fault `message` field value | str only | bin → wire violation, reject |
-| Fault map keys (`type`, `message`, `details`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
+| Fault map keys (`type`, `message`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
 The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `class`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this adapter (→ [`envelope.md`](envelope.md)).
 
@@ -135,14 +135,13 @@ ext 0x01 may appear in any payload position, at any nesting depth, in both direc
 
 ### ext 0x02 — Fault
 
-**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x02`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x02`, payload) depending on payload size. The payload is an embedded msgpack **map** with exactly three keys:
+**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x02`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x02`, payload) depending on payload size. The payload is an embedded msgpack **map** with exactly two keys:
 
 | Map key | Value type | Meaning |
 |---------|-----------|---------|
 | `"type"` | str | One of the three reserved error type names: `"runtime"`, `"argument"`, `"undefined"` (→ [`../wire-contract.md`](../wire-contract.md) § Fault) |
 | `"message"` | str | Human-readable description |
-| `"details"` | any wire-legal type, or nil | Structured supplementary information; nil or absent when not present |
 
-ext 0x02 may appear only as the whole of a Reply's `tag=1` body — including nested within that body's own `details` chain — and must not appear in any other position. A payload in any other position carrying ext 0x02 anywhere is a wire violation the receiving side rejects (→ [`../behavior/errors.md`](../behavior/errors.md) E-50). The Host Gem never emits one elsewhere: a `Kobako::Fault` in a host→guest payload position is not wire-representable there and follows that path's non-representable handling — auto-wrap on a dispatch return value (→ [`../behavior/dispatch.md`](../behavior/dispatch.md) § B-14), refusal on a yield argument.
+ext 0x02 may appear only as the whole of a Reply's `tag=1` body and must not appear in any other position. A payload in any other position carrying ext 0x02 anywhere is a wire violation the receiving side rejects (→ [`../behavior/errors.md`](../behavior/errors.md) E-50). The Host Gem never emits one elsewhere: a `Kobako::Fault` in a host→guest payload position is not wire-representable there and follows that path's non-representable handling — auto-wrap on a dispatch return value (→ [`../behavior/dispatch.md`](../behavior/dispatch.md) § B-14), refusal on a yield argument.
 
-Whether a decoder counts nested ext frames against the structural budget or against a separate 128-level budget is implementation-defined, so a payload mixing deep structural nesting with nested Faults may be rejected at different combined depths by different implementers — always as a clean wire error, never a trap.
+A Fault occupies the whole of that body, so everything inside one is itself a payload position: a Fault never nests inside a Fault. A decoder that reads the inner map recursively refuses the second level on that rule rather than counting frames, which is what keeps a hostile chain from recursing until the native stack gives out.
