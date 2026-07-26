@@ -14,7 +14,7 @@ module DispatcherHelpers
   NO_YIELD = ->(_) { raise "unexpected yield in dispatch-only test" }
 
   # A Reply read back in the vocabulary these tests are written in: the
-  # arm the native side tagged, plus the adapter-decoded body. The
+  # arm the native side tagged, plus the codec-decoded body. The
   # envelope itself never reaches Ruby, so this is the whole of what the
   # Dispatcher answers with.
   Answer = Struct.new(:ok, :payload) do
@@ -34,7 +34,7 @@ module DispatcherHelpers
   end
 
   # Reify the Dispatcher's +[ok, bytes]+ answer into the arm plus its
-  # adapter-decoded body.
+  # codec-decoded body.
   def self.reify(answer)
     ok, bytes = answer
     Answer.new(ok, Kobako::Codec::Decoder.decode(bytes))

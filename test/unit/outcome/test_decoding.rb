@@ -37,7 +37,7 @@ class TestOutcomeDecoding < Minitest::Test
                  "an unframeable outcome must tell the caller to discard the Sandbox")
   end
 
-  def test_a_result_payload_the_adapter_cannot_read_raises_sandbox_error
+  def test_a_result_payload_the_codec_cannot_read_raises_sandbox_error
     err = assert_raises(Kobako::Transport::Error) do
       Kobako::Outcome.reify(:result, "\xc1\xc1\xc1".b, nil)
     end
@@ -83,7 +83,7 @@ class TestOutcomeDecoding < Minitest::Test
   end
 
   # Every Panic field is typed at the core envelope, so a Panic arm never
-  # asks the adapter for anything: whatever bytes sit in the value slot,
+  # asks the codec for anything: whatever bytes sit in the value slot,
   # the failure still names itself.
   def test_a_panic_attributes_without_reading_the_value_slot
     fields = panic(origin: "service", klass: "Kobako::ServiceError", message: "connection refused")

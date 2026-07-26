@@ -3,9 +3,9 @@
 # Cross-language payload-codec round-trip E2E (SPEC.md F-05 / F-09).
 #
 # Drives the Rust `payload_oracle` subprocess from the host: each test
-# Ruby-encodes one adapter payload, prefixes a single-byte kind tag, and
+# Ruby-encodes one codec payload, prefixes a single-byte kind tag, and
 # asks the oracle to decode + re-encode it. The Ruby side then asserts
-# byte-identical round-trip — proving the two adapter peers agree on the
+# byte-identical round-trip — proving the two codec peers agree on the
 # argument shape, not just the underlying msgpack codec already covered
 # by test/fuzz/test_roundtrip_fuzz.rb.
 #
@@ -51,7 +51,7 @@ class TestArgumentsRoundtrip < Minitest::Test
   def test_invocation_arguments_round_trip
     bytes = Kobako::Payload::Arguments.new(args: [42, "alice"], kwargs: { active: true }).encode
     assert_equal bytes, oracle_roundtrip("A", bytes),
-                 "an args-and-kwargs payload must survive the guest adapter byte-identically"
+                 "an args-and-kwargs payload must survive the guest codec byte-identically"
   end
 
   def test_invocation_arguments_carrying_a_wrapped_leaf_round_trip
@@ -61,7 +61,7 @@ class TestArgumentsRoundtrip < Minitest::Test
     wrapped = Kobako::Codec::HandleWalk.deep_wrap([Object.new], Kobako::Catalog::Handles.new)
     bytes = Kobako::Payload::Arguments.new(args: wrapped, kwargs: {}).encode
     assert_equal bytes, oracle_roundtrip("A", bytes),
-                 "a Handle in an argument position must cross to the guest adapter unchanged"
+                 "a Handle in an argument position must cross to the guest codec unchanged"
   end
 
   # The empty-args/kwargs payload shape is byte-pinned cross-language by

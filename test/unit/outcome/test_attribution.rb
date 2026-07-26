@@ -7,7 +7,7 @@
 #
 # Cross-references:
 #   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError
-#   - SPEC.md Wire Codec — a Result payload the adapter cannot read maps to SandboxError
+#   - SPEC.md Wire Codec — a Result payload the codec cannot read maps to SandboxError
 
 require "test_helper"
 
@@ -46,7 +46,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
 
   # --- Result arm with an empty payload raises Transport::Error (E-09) ---
   #
-  # An empty payload is not a valid msgpack value, so the adapter raises
+  # An empty payload is not a valid msgpack value, so the codec raises
   # and the host wraps it as a Transport::Error whose user-facing message
   # stays in caller vocabulary; the inner codec diagnostic reaches an
   # operator through Ruby's own +#detailed_message+ channel.

@@ -21,7 +21,7 @@ path = "src/main.rs"
 # The SDK under test.
 kobako = { path = "../kobako" }
 
-# The payload adapter a stub speaks when it reaches another Receiver
+# The payload codec a stub speaks when it reaches another Receiver
 # through the opaque `Receiver::call` seam.
 kobako-codec = { path = "../kobako-codec" }
 

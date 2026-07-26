@@ -22,7 +22,7 @@
 #   12a — #eval: the floor every invocation pays.
 #   12b — #run with no arguments: adds the Run envelope over 12a.
 #   12c — #run with positional and keyword arguments: adds the payload
-#         adapter's argument encoding over 12b.
+#         codec's argument encoding over 12b.
 #   12d — the same #eval on a Sandbox carrying bound Services: the HOST
 #         half of what a registry costs each invocation, which is the
 #         preamble it encodes. The guest half — materializing each
