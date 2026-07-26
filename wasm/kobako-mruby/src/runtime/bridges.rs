@@ -49,8 +49,8 @@
 
 use beni::{Module, Mrb, Value};
 
-use crate::adapter::{
-    dispatch_decode_fault, dispatch_decode_value, dispatch_encode_arguments, AdapterError,
+use crate::codec::{
+    dispatch_decode_fault, dispatch_decode_value, dispatch_encode_arguments, CodecError,
 };
 
 /// Ambient reflection / eval method names the guest proxy refuses to
@@ -109,7 +109,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// via `kobako_core::transport::proxy::dispatch`; and reads back whichever
 /// body the Reply's arm named — raising `Kobako::ServiceError` on a fault
 /// arm and `Kobako::Transport::Error` on an envelope fault (both raise
-/// paths diverge). The payload adapter is this side's to run: the
+/// paths diverge). The payload codec is this side's to run: the
 /// transport beneath routes the Call without reading a byte of it.
 /// The `Kobako` token supplies only the VM-level primitives (arg/result
 /// conversion, error raising); the dispatch orchestration lives here.
@@ -153,7 +153,7 @@ fn forward_to_dispatch(
     let payload = match dispatch_encode_arguments(&kobako, rest, kwargs_hash) {
         Ok(payload) => payload,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(err) => unsafe { raise_adapter_error(&kobako, err, "argument", envelope_err_msg) },
+        Err(err) => unsafe { raise_codec_error(&kobako, err, "argument", envelope_err_msg) },
     };
 
     match dispatch(target, &method_name, block_given, &payload) {
@@ -163,11 +163,11 @@ fn forward_to_dispatch(
             Ok(value) => value,
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Err(err) => unsafe {
-                raise_adapter_error(&kobako, err, "return value", envelope_err_msg)
+                raise_codec_error(&kobako, err, "return value", envelope_err_msg)
             },
         },
         // The fault arm is the normal path for a Service raising; a fault
-        // body this adapter cannot read is a wire fault like any other.
+        // body this codec cannot read is a wire fault like any other.
         Err(DispatchError::Fault(body)) => match dispatch_decode_fault(&body) {
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Ok(ex) => unsafe { kobako.raise_service_error(&ex) },
@@ -181,7 +181,7 @@ fn forward_to_dispatch(
     }
 }
 
-/// Raise the guest exception an adapter refusal surfaces as at a dispatch
+/// Raise the guest exception a codec refusal surfaces as at a dispatch
 /// call site. `label` names the slot the value came from so the wording
 /// matches the return and yield rejections; `malformed` is the caller's
 /// wire-fault message, used when the bytes themselves were unreadable.
@@ -189,19 +189,19 @@ fn forward_to_dispatch(
 /// # Safety
 ///
 /// As `Kobako::raise_transport_error`.
-unsafe fn raise_adapter_error(
+unsafe fn raise_codec_error(
     kobako: &super::Kobako,
-    err: AdapterError,
+    err: CodecError,
     label: &str,
     malformed: &core::ffi::CStr,
 ) -> ! {
     let message = match err {
-        AdapterError::Unrepresentable { type_name } => {
+        CodecError::Unrepresentable { type_name } => {
             format!("{label} of type {type_name} is not a supported sandbox value type")
         }
-        AdapterError::OutOfRange { message } => message,
+        CodecError::OutOfRange { message } => message,
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        AdapterError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
+        CodecError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
     };
     let msg = std::ffi::CString::new(message).unwrap_or_default();
     // SAFETY: as above.

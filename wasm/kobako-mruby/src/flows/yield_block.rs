@@ -12,15 +12,15 @@
 //! 1. Resolve the active `mrb_state` via the module-level `MRB` slot and
 //!    read the topmost block off `BLOCK_STACK`.
 //! 2. Read the yield arguments out of the request buffer through the
-//!    guest's payload adapter, which needs that VM to build values.
+//!    guest's payload codec, which needs that VM to build values.
 //! 3. Yield to the block through beni's protected `Proc::call` so any
 //!    guest-side raise (or `break` / Proc-`return` RBreak) lands as `Err`
 //!    instead of long-jumping past the Rust frame.
 //! 4. Encode the outcome as a `Yield Reply`:
 //!     * normal return of a representable value → the ok arm carrying the
-//!       value as an adapter-encoded payload
+//!       value as a codec-encoded payload
 //!     * a real `break` from a non-lambda block → the break arm
-//!     * a raised exception, a return value the adapter has no
+//!     * a raised exception, a return value the codec has no
 //!       representation for, or an RBreak aimed past the yielder's frame
 //!       (a non-orphan Proc `return`) → the error arm carrying an Error
 //!       Record
@@ -43,13 +43,13 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> u64 {
 #[cfg(mruby_linked)]
 fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     use super::mrb_slot::MRB;
-    use crate::adapter::PayloadAdapter;
+    use crate::codec::PayloadCodec;
     use crate::runtime::block_stack::BLOCK_STACK;
     use crate::runtime::Kobako;
     use beni::{sys, FromValue, Proc};
 
     // Step 1: resolve the active VM + Kobako runtime + bound block. The
-    // adapter needs the VM to build values, so the buffer is read after it.
+    // codec needs the VM to build values, so the buffer is read after it.
     let Some(mrb) = MRB.as_ref() else {
         return write_error_response(
             "RuntimeError",
@@ -65,16 +65,16 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 2: read the yield arguments through the guest's adapter. One
+    // Step 2: read the yield arguments through the guest's codec. One
     // the guest cannot represent — an integer outside the 32-bit range —
     // fails the round-trip rather than reaching the block with a saturated
     // value (docs/wire/payload-msgpack.md § Integer Range).
-    let args = match G::Payload::decode_values(&kobako, req) {
+    let args = match G::Codec::decode_values(&kobako, req) {
         Ok(args) => args,
         Err(err) => {
             return write_error_response(
                 "Kobako::Transport::Error",
-                adapter_failure_message(err, "block argument"),
+                codec_failure_message(err, "block argument"),
                 Vec::new(),
             )
         }
@@ -144,17 +144,17 @@ fn classify_protected_error<G: crate::MrbGuest>(
     }
 }
 
-/// Phrase an adapter refusal for the guest-visible error arm. `label`
+/// Phrase a codec refusal for the guest-visible error arm. `label`
 /// names the slot the value came from, keeping each arm's wording.
 #[cfg(mruby_linked)]
-fn adapter_failure_message(err: crate::adapter::AdapterError, label: &str) -> String {
-    use crate::adapter::AdapterError;
+fn codec_failure_message(err: crate::codec::CodecError, label: &str) -> String {
+    use crate::codec::CodecError;
     match err {
-        AdapterError::Unrepresentable { type_name } => {
+        CodecError::Unrepresentable { type_name } => {
             format!("{label} of type {type_name} is not a supported sandbox value type")
         }
-        AdapterError::OutOfRange { message } => message,
-        AdapterError::Malformed => format!("failed to read the {label}"),
+        CodecError::OutOfRange { message } => message,
+        CodecError::Malformed => format!("failed to read the {label}"),
     }
 }
 
@@ -169,19 +169,19 @@ fn encode_value_response<G: crate::MrbGuest>(
     arm: fn(Vec<u8>) -> YieldReply,
     type_label: &str,
 ) -> Vec<u8> {
-    use crate::adapter::{AdapterError, PayloadAdapter};
-    match G::Payload::encode_value(kobako, value) {
+    use crate::codec::{CodecError, PayloadCodec};
+    match G::Codec::encode_value(kobako, value) {
         Ok(payload) => arm(payload).encode(),
         // An unrepresentable value is the guest's own type error; bytes the
         // schema could not write are a transport fault.
-        Err(err @ AdapterError::Unrepresentable { .. }) => encode_error_bytes(
+        Err(err @ CodecError::Unrepresentable { .. }) => encode_error_bytes(
             "TypeError",
-            &adapter_failure_message(err, type_label),
+            &codec_failure_message(err, type_label),
             Vec::new(),
         ),
         Err(err) => encode_error_bytes(
             "Kobako::Transport::Error",
-            &adapter_failure_message(err, type_label),
+            &codec_failure_message(err, type_label),
             Vec::new(),
         ),
     }

@@ -1,10 +1,10 @@
 //! MessagePack ↔ mruby value conversion, the walk beneath
-//! `super::MsgpackAdapter`.
+//! `super::MsgpackCodec`.
 //!
 //! The methods stay on `Kobako` (so call sites read
 //! `kobako.try_codec_value(val)` rather than
 //! `convert::try_codec_value(&kobako, val)`) via a second `impl` block;
-//! the adapter façade frames what they produce into payload positions.
+//! the codec façade frames what they produce into payload positions.
 //!
 //! Three concerns:
 //!
@@ -22,11 +22,11 @@
 //!    convert a dispatch call's positional rest slice and its separate
 //!    keyword Hash into wire args and kwargs, running each leaf through
 //!    `try_codec_value` and reporting the first unrepresentable value as an
-//!    `AdapterError`.
+//!    `CodecError`.
 //! 3. **Fault reading** (`decode_fault`) — the Reply arm the envelope
 //!    tagged as a failure, read into the fields the bridge raises with.
 
-use crate::adapter::AdapterError;
+use crate::codec::CodecError;
 use crate::runtime::{Fault, IntegerOutOfRange, Kobako};
 use beni::Value;
 use kobako_codec::codec::{self, Decoder, Value as CodecValue};
@@ -38,7 +38,7 @@ use kobako_codec::codec::MAX_NESTING_DEPTH;
 /// Read a Reply's fault body — an ext 0x02 frame wrapping the
 /// `{type, message}` map — into the two fields the bridge raises with.
 /// The envelope named the arm; this reads what it carried, which is the
-/// payload adapter's half of the job.
+/// payload codec's half of the job.
 pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
     let CodecValue::Fault(inner_bytes) = Decoder::new(body).read_only_value()? else {
         return Err(codec::Error::Malformed(
@@ -87,13 +87,13 @@ impl Kobako {
     /// docs/wire/payload-msgpack.md § Ext Types. Keys arriving as either
     /// mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. A value with no wire
-    /// representation aborts the walk with `AdapterError` so the
+    /// representation aborts the walk with `CodecError` so the
     /// caller raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
         hash: beni::Hash,
         out: &mut Vec<(String, kobako_codec::codec::Value)>,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<(), CodecError> {
         let keys_ary = hash.keys(self.mrb());
         for key_val in keys_ary.entries() {
             // A hostile Hash subclass whose `[]` raises reads as `nil`
@@ -101,7 +101,7 @@ impl Kobako {
             let val = hash.get(self.mrb(), key_val).unwrap_or(Value::nil());
             let encoded = self
                 .try_codec_value(val)
-                .ok_or_else(|| AdapterError::unrepresentable(self, val))?;
+                .ok_or_else(|| CodecError::unrepresentable(self, val))?;
             out.push((key_val.to_string(self.mrb()), encoded));
         }
         Ok(())
@@ -122,12 +122,12 @@ impl Kobako {
         &self,
         rest: &[Value],
         kwargs_hash: beni::Hash,
-    ) -> Result<UnpackedArgs, AdapterError> {
+    ) -> Result<UnpackedArgs, CodecError> {
         let mut args: Vec<kobako_codec::codec::Value> = Vec::with_capacity(rest.len());
         for &mrb_val in rest {
             let encoded = self
                 .try_codec_value(mrb_val)
-                .ok_or_else(|| AdapterError::unrepresentable(self, mrb_val))?;
+                .ok_or_else(|| CodecError::unrepresentable(self, mrb_val))?;
             args.push(encoded);
         }
 

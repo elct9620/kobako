@@ -19,7 +19,7 @@ The core envelope carries what routing and attribution need, and nothing else: a
 
 Two properties follow, and they are the reason for the split:
 
-- **The adapter is replaceable.** A host and guest that agree on another schema swap [`wire/payload-msgpack.md`](wire/payload-msgpack.md) for their own and carry no MessagePack dependency. MessagePack is kobako's default adapter, not the wire's only codec. Each side names its choice at one seam — a Rust host at `Receiver`, a guest shell at `MrbGuest::Payload` — and the tiers beneath route messages without reading a payload byte, which `rake gate:payload:optional` holds them to.
+- **The codec is replaceable.** A host and guest that agree on another schema swap [`wire/payload-msgpack.md`](wire/payload-msgpack.md) for their own and carry no MessagePack dependency. MessagePack is kobako's default payload codec, not the wire's only one. Each side names its choice at one seam — a Rust host at `Receiver`, a guest shell at `MrbGuest::Codec` — and the tiers beneath route messages without reading a payload byte, which `rake gate:payload:optional` holds them to.
 - **The two decodes are separable.** Decoding an envelope requires nothing from the adapter, and decoding a payload requires nothing from the envelope beyond its bytes and length. A frontend may split the two across its own internal boundaries, and an endpoint that only routes messages needs no adapter at all.
 
 An adapter substitution changes neither the ABI surface below nor the envelope layout; a change to either of those is an ABI version increment.

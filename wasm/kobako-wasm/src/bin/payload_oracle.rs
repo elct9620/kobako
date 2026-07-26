@@ -1,9 +1,9 @@
-//! Payload-adapter round-trip oracle — cross-language encoder/decoder
+//! Payload-codec round-trip oracle — cross-language encoder/decoder
 //! agreement check between the Ruby host and the wasm guest.
 //!
 //! The document sibling of `roundtrip_oracle`: where that one round-trips
 //! a bare value to check the type mapping, this one round-trips a whole
-//! adapter document to check its shape. The Ruby side sends a
+//! codec document to check its shape. The Ruby side sends a
 //! length-prefixed frame, the oracle decodes it as a named document kind,
 //! re-encodes it, and writes the bytes back; the Ruby driver asserts byte
 //! equality. The two stay separate because a document carries structural
@@ -26,7 +26,7 @@
 //! the re-encoded bytes (no kind tag — the Ruby driver knows which kind
 //! it sent).
 //!
-//! No deps beyond the adapter under test and `std`.
+//! No deps beyond the codec under test and `std`.
 
 use std::io::{self, Read, Write};
 

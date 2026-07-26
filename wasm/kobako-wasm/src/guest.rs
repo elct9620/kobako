@@ -15,7 +15,7 @@ impl kobako_mruby::MrbGuest for KobakoGuest {
     // than assumed below: the harness and the transport read no payload
     // byte of their own, so a shell wanting another wire names it here
     // and nothing beneath changes.
-    type Payload = kobako_mruby::MsgpackAdapter;
+    type Codec = kobako_mruby::MsgpackCodec;
 
     // KobakoBridge is the harness built-in — the provided flows
     // install it themselves; the hook wires the rest of the bundled

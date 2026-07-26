@@ -43,7 +43,7 @@ use beni::sys;
 use beni::Mrb;
 use beni::Value;
 
-/// A Reply's fault arm after the payload adapter has read it — exactly the
+/// A Reply's fault arm after the payload codec has read it — exactly the
 /// fields the bridge needs to raise the guest exception. SPEC pins every
 /// fault arm to the single guest-side `Kobako::ServiceError`, so nothing
 /// beyond these two is carried.
@@ -162,8 +162,8 @@ impl Kobako {
     /// boot-time registration; the boot path surfaces it as a Panic.
     pub fn init<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
         // The dispatch bridge mruby calls is a bare function pointer, so it
-        // reads the guest's adapter from here rather than from `G`.
-        crate::adapter::install_dispatch_ops::<G::Payload>();
+        // reads the guest's codec from here rather than from `G`.
+        crate::codec::install_dispatch_ops::<G::Codec>();
         mrb.init_gem::<init::KobakoBridge>()?;
         G::init_gems(mrb)?;
 
@@ -409,10 +409,10 @@ impl Kobako {
     }
 
     // ----------------------------------------------------------------
-    // Sanctioned value construction. A payload adapter is chosen by the
+    // Sanctioned value construction. A payload codec is chosen by the
     // shell and may be replaced, so the two constructions that carry an
     // invariant of their own are reachable only by calling them — never
-    // by an adapter assembling the value itself.
+    // by a codec assembling the value itself.
     // ----------------------------------------------------------------
 
     /// Mint the `Kobako::Handle` naming `id`, frozen so the guest cannot
@@ -421,7 +421,7 @@ impl Kobako {
     /// `Kobako::Handle` receiver, so a subclass would carry no target.
     ///
     /// The id cap is re-checked here rather than trusted from the caller.
-    /// An adapter is replaceable, so an id it failed to bound must not
+    /// A codec is replaceable, so an id it failed to bound must not
     /// reach the `i32` the ivar holds and come back out as a different
     /// number.
     ///

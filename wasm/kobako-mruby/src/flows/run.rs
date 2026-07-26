@@ -13,7 +13,7 @@
 //!    with the snippet's backtrace attribution
 //!    and returns.
 //! 2. Decode the Run envelope from `(env_ptr, env_len)`, then its
-//!    payload through the adapter. Either failure writes a Panic
+//!    payload through the codec. Either failure writes a Panic
 //!    envelope.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
 //!    `sys::mrb_const_defined` and confirm the constant
@@ -40,7 +40,7 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use crate::adapter::PayloadAdapter;
+    use crate::codec::PayloadCodec;
     use kobako_codec::envelope::{ErrorRecord, Panic, Run};
     use kobako_core::abi::write_panic;
 
@@ -78,7 +78,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // that is both malformed and aimed at a missing entrypoint reports
     // its wire-shape violation, not the entrypoint miss. The two layers
     // report separately, so a caller can tell a framing desync from a
-    // payload the adapter could not read.
+    // payload the codec could not read.
     let run = match Run::decode(env) {
         Ok(run) => run,
         Err(_) => {
@@ -87,7 +87,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             ));
         }
     };
-    let arguments = match G::Payload::decode_arguments(&kobako, &run.payload) {
+    let arguments = match G::Codec::decode_arguments(&kobako, &run.payload) {
         Ok(arguments) => arguments,
         Err(_) => {
             return write_panic(boot::transport_panic(

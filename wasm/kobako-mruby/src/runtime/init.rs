@@ -15,7 +15,7 @@ use super::bridges;
 /// via `resolve_raw`; `init` itself stays stateless per the `Gem`
 /// contract.
 ///
-/// The gem carries no adapter: `mrb_func_t` is a bare function pointer,
+/// The gem carries no codec: `mrb_func_t` is a bare function pointer,
 /// so the dispatch bridge reads the guest's choice from the table
 /// `Kobako::init` installs rather than from a type parameter.
 pub(super) struct KobakoBridge;

@@ -25,15 +25,15 @@
 //! from `beni-sys` (see `build.rs`) — a placeholder-mode call panics
 //! at runtime instead of failing the build.
 
-mod adapter;
+mod codec;
 mod flows;
 #[cfg(feature = "msgpack")]
 mod msgpack;
 mod runtime;
 
-pub use adapter::{AdapterError, CallArguments, PayloadAdapter};
+pub use codec::{Arguments, CodecError, PayloadCodec};
 #[cfg(feature = "msgpack")]
-pub use msgpack::MsgpackAdapter;
+pub use msgpack::MsgpackCodec;
 pub use runtime::{Fault, InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
@@ -49,9 +49,9 @@ use beni::{Error, Mrb};
 pub trait MrbGuest {
     /// The schema this guest reads and writes payloads with. Nothing
     /// below the flows names one, so a shell speaking its own wire picks
-    /// its adapter here and the transport is unchanged. `MsgpackAdapter`
+    /// its codec here and the transport is unchanged. `MsgpackCodec`
     /// is what the bundled Guest Binary chooses.
-    type Payload: PayloadAdapter;
+    type Codec: PayloadCodec;
 
     /// Install the shell-chosen gem set onto the freshly booted VM,
     /// via `Mrb::init_gem`. Runs once per boot — at the build-time

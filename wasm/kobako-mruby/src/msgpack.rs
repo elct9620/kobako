@@ -1,42 +1,42 @@
-//! The MessagePack payload adapter — kobako's default schema for the
+//! The MessagePack payload codec — kobako's default schema for the
 //! mruby guest, and what the bundled Guest Binary speaks.
 //!
 //! This is the whole of the guest's MessagePack surface: the transport
 //! tier routes a Call without reading its payload, so a shell that names a
-//! different `MrbGuest::Payload` leaves every byte below untouched. The
+//! different `MrbGuest::Codec` leaves every byte below untouched. The
 //! mruby ↔ wire value walk lives in the sibling `convert` module; this
-//! file is the adapter's own face, framing those values into the payload
+//! file is the codec's own face, framing those values into the payload
 //! positions the wire contract defines.
 //!
-//! [payload adapter]: ../../../docs/wire/payload-msgpack.md
+//! [payload codec]: ../../../docs/wire/payload-msgpack.md
 
 mod convert;
 
 use beni::Value;
 use kobako_codec::codec::{Decoder, Encode, Encoder, Value as CodecValue};
-use kobako_codec::payload::Arguments;
+use kobako_codec::payload;
 
-use crate::adapter::{AdapterError, CallArguments, PayloadAdapter};
+use crate::codec::{Arguments, CodecError, PayloadCodec};
 use crate::runtime::{Fault, Kobako};
 
-/// kobako's default payload adapter.
-pub struct MsgpackAdapter;
+/// kobako's default payload codec.
+pub struct MsgpackCodec;
 
-impl PayloadAdapter for MsgpackAdapter {
+impl PayloadCodec for MsgpackCodec {
     fn encode_arguments(
         kobako: &Kobako,
         rest: &[Value],
         kwargs: beni::Hash,
-    ) -> Result<Vec<u8>, AdapterError> {
+    ) -> Result<Vec<u8>, CodecError> {
         let (args, kwargs) = kobako.unpack_args_kwargs(rest, kwargs)?;
-        Arguments::new(args, kwargs)
+        payload::Arguments::new(args, kwargs)
             .encode()
-            .map_err(|_| AdapterError::Malformed)
+            .map_err(|_| CodecError::Malformed)
     }
 
-    fn decode_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<CallArguments, AdapterError> {
+    fn decode_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError> {
         use kobako_codec::codec::Decode;
-        let arguments = Arguments::decode(bytes).map_err(|_| AdapterError::Malformed)?;
+        let arguments = payload::Arguments::decode(bytes).map_err(|_| CodecError::Malformed)?;
         let args = arguments
             .args
             .into_iter()
@@ -54,38 +54,38 @@ impl PayloadAdapter for MsgpackAdapter {
                 .collect();
             Some(kobako.to_mrb_value(CodecValue::Map(pairs))?)
         };
-        Ok(CallArguments { args, kwargs })
+        Ok(Arguments { args, kwargs })
     }
 
-    fn encode_value(kobako: &Kobako, value: Value) -> Result<Vec<u8>, AdapterError> {
+    fn encode_value(kobako: &Kobako, value: Value) -> Result<Vec<u8>, CodecError> {
         let encoded = kobako
             .try_codec_value(value)
-            .ok_or_else(|| AdapterError::unrepresentable(kobako, value))?;
-        Encoder::encode(&encoded).map_err(|_| AdapterError::Malformed)
+            .ok_or_else(|| CodecError::unrepresentable(kobako, value))?;
+        Encoder::encode(&encoded).map_err(|_| CodecError::Malformed)
     }
 
-    fn decode_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, AdapterError> {
+    fn decode_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
         let value = Decoder::new(bytes)
             .read_only_value()
-            .map_err(|_| AdapterError::Malformed)?;
+            .map_err(|_| CodecError::Malformed)?;
         Ok(kobako.to_mrb_value(value)?)
     }
 
-    fn decode_values(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, AdapterError> {
+    fn decode_values(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError> {
         let CodecValue::Array(items) = Decoder::new(bytes)
             .read_only_value()
-            .map_err(|_| AdapterError::Malformed)?
+            .map_err(|_| CodecError::Malformed)?
         else {
-            return Err(AdapterError::Malformed);
+            return Err(CodecError::Malformed);
         };
         items
             .into_iter()
             .map(|value| kobako.to_mrb_value(value))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AdapterError::from)
+            .map_err(CodecError::from)
     }
 
-    fn decode_fault(bytes: &[u8]) -> Result<Fault, AdapterError> {
-        convert::decode_fault(bytes).map_err(|_| AdapterError::Malformed)
+    fn decode_fault(bytes: &[u8]) -> Result<Fault, CodecError> {
+        convert::decode_fault(bytes).map_err(|_| CodecError::Malformed)
     }
 }
