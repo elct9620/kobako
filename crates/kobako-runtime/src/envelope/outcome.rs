@@ -1,8 +1,8 @@
 //! The Outcome envelope — one invocation's final result.
 //!
-//! Attribution reads `origin` at this layer, so a host maps a failed
-//! invocation onto its own error classes without decoding a payload byte;
-//! `details` stays supplementary rather than something attribution needs.
+//! Every Panic field is typed here, so a host attributes a failed
+//! invocation and reports the correction for it without decoding a payload
+//! byte. Only the Result arm carries adapter-encoded bytes.
 
 use super::codec::{Reader, Writer};
 use super::{Error, ErrorRecord};
@@ -25,13 +25,14 @@ pub enum Outcome {
     Panic(Panic),
 }
 
-/// An uncaught top-level failure, plus the two fields attribution needs.
+/// An uncaught top-level failure, plus what attribution and correction need.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Panic {
     pub origin: String,
     pub error: ErrorRecord,
-    /// Structured diagnostics, adapter-encoded. Empty means absent.
-    pub details: Vec<u8>,
+    /// The names the invocation could have used in place of the one it
+    /// named. Empty when the failure offers no correction.
+    pub available: Vec<String>,
 }
 
 impl Panic {
@@ -50,10 +51,12 @@ impl Outcome {
             TAG_PANIC => {
                 let origin = reader.text()?.to_owned();
                 let error = ErrorRecord::read(&mut reader)?;
+                let available = reader.text_list()?;
+                reader.finish()?;
                 Ok(Outcome::Panic(Panic {
                     origin,
                     error,
-                    details: reader.remaining().to_vec(),
+                    available,
                 }))
             }
             _ => Err(Error("Outcome tag must be 0x01 (result) or 0x02 (panic)")),
@@ -69,7 +72,7 @@ impl Outcome {
             Outcome::Panic(panic) => {
                 writer.u8(TAG_PANIC).bytes(panic.origin.as_bytes());
                 panic.error.write(&mut writer);
-                writer.remainder(&panic.details);
+                writer.list(&panic.available);
             }
         }
         writer.into_bytes()
@@ -88,7 +91,7 @@ mod tests {
                 message: "boom".into(),
                 backtrace: vec!["(eval):1".into()],
             },
-            details: Vec::new(),
+            available: Vec::new(),
         }
     }
 
@@ -115,45 +118,54 @@ mod tests {
     }
 
     #[test]
-    fn a_panic_carrying_details_round_trips() {
+    fn a_panic_carrying_available_names_round_trips() {
         let outcome = Outcome::Panic(Panic {
-            details: vec![0x91, 0xa1, b'x'],
+            available: vec!["Worker".into(), "Helper".into()],
             ..panic_sample()
         });
         let encoded = outcome.encode();
         assert_eq!(
             Outcome::decode(&encoded),
             Ok(outcome),
-            "a Panic with structured details must carry them through as opaque bytes"
+            "a Panic offering a correction must carry its names through in order"
         );
     }
 
     #[test]
-    fn absent_details_decode_as_empty() {
+    fn a_panic_offering_no_correction_decodes_as_an_empty_list() {
         let encoded = Outcome::Panic(panic_sample()).encode();
         match Outcome::decode(&encoded) {
             Ok(Outcome::Panic(panic)) => assert!(
-                panic.details.is_empty(),
-                "a Panic with no details must decode as an empty remainder, not a decode error"
+                panic.available.is_empty(),
+                "a Panic with no correction to offer must decode as an empty list, not a decode error"
             ),
             other => panic!("expected a Panic, got {other:?}"),
         }
     }
 
     #[test]
-    fn attribution_reads_origin_without_touching_details() {
+    fn attribution_reads_origin_alone() {
         let service = Panic {
             origin: ORIGIN_SERVICE.into(),
-            details: vec![0xc1],
             ..panic_sample()
         };
         assert!(
             service.from_service(),
-            "an origin of \"service\" must attribute to the Service without decoding details"
+            "an origin of \"service\" must attribute to the Service"
         );
         assert!(
             !panic_sample().from_service(),
             "any other origin must attribute to the sandbox"
+        );
+    }
+
+    #[test]
+    fn bytes_past_the_available_list_are_refused() {
+        let mut encoded = Outcome::Panic(panic_sample()).encode();
+        encoded.push(0x2a);
+        assert!(
+            Outcome::decode(&encoded).is_err(),
+            "a Panic is self-delimiting to its last field, so trailing bytes must fail as a framing desync"
         );
     }
 
@@ -187,7 +199,7 @@ mod tests {
                 message: "m".into(),
                 backtrace: vec!["l".into()],
             },
-            details: vec![0x2a],
+            available: vec!["W".into()],
         };
         assert_eq!(
             Outcome::Panic(panic).encode(),
@@ -198,7 +210,8 @@ mod tests {
                 0, 0, 0, 1, b'm', // message
                 0, 0, 0, 1, // backtrace count
                 0, 0, 0, 1, b'l', // backtrace[0]
-                0x2a, // details remainder
+                0, 0, 0, 1, // available count
+                0, 0, 0, 1, b'W', // available[0]
             ],
             "attribution reads origin before the Error Record, so the field order must stay fixed"
         );

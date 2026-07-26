@@ -63,31 +63,32 @@ class TestSandboxRun < Minitest::Test
   end
 
   # E-27: target Symbol does not resolve to a defined top-level constant.
-  # Surfaces as Kobako::SandboxError via the guest's Panic envelope path.
-  def test_e27_undefined_entrypoint_raises_sandbox_error
+  # Surfaces as the UndefinedEntrypointError subclass, which a caller
+  # rescuing plain SandboxError still catches.
+  def test_e27_undefined_entrypoint_raises_the_named_subclass
     sandbox = Kobako::Sandbox.new
-    err = assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
+    err = assert_raises(Kobako::UndefinedEntrypointError) { sandbox.run(:Missing) }
     assert_match(/undefined entrypoint: Missing/, err.message)
+    assert_equal :Missing, err.name,
+                 "an unresolved entrypoint through #run must name the target the caller asked for"
   end
 
-  # E-27 details: the panic envelope carries the snippet-contributed
-  # top-level constants so callers can see what was actually available
-  # when their entrypoint name failed to resolve (docs/behavior/invocation.md B-31).
-  def test_e27_details_includes_snippet_contributed_constants
+  # E-27: the error carries the snippet-contributed top-level constants so
+  # callers can correct the name from the error itself, without reading the
+  # guest source (docs/behavior/invocation.md B-31).
+  def test_e27_available_includes_snippet_contributed_constants
     err = run_missing_against_sandbox_with_preloads
-    available = err.details.fetch("available")
-    assert_includes available, :Worker
-    assert_includes available, :Helper
+    assert_includes err.available, :Worker
+    assert_includes err.available, :Helper
   end
 
-  # E-27 details (baseline filtering): kobako-installed runtime classes and
-  # mruby builtins are subtracted from `available`, so callers only see
-  # constants introduced by the preloaded snippets themselves.
-  def test_e27_details_filters_baseline_constants
+  # E-27 (baseline filtering): kobako-installed runtime classes and mruby
+  # builtins are subtracted, so callers only see constants introduced by
+  # the preloaded snippets themselves.
+  def test_e27_available_filters_baseline_constants
     err = run_missing_against_sandbox_with_preloads
-    available = err.details.fetch("available")
-    refute_includes available, :Object
-    refute_includes available, :Kobako
+    refute_includes err.available, :Object
+    refute_includes err.available, :Kobako
   end
 
   # E-28: entrypoint constant is defined but does not respond to #call.
@@ -114,6 +115,6 @@ class TestSandboxRun < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
     sandbox.preload(code: "Helper = Module.new", name: :Helper)
-    assert_raises(Kobako::SandboxError) { sandbox.run(:Missing) }
+    assert_raises(Kobako::UndefinedEntrypointError) { sandbox.run(:Missing) }
   end
 end

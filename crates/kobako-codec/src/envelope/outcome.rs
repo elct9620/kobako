@@ -1,10 +1,10 @@
 //! The Outcome envelope — guest side.
 //!
 //! The guest writes exactly one of these per invocation before its entry
-//! export returns. `origin` is what the host attributes on, so it stays in
-//! the envelope rather than in `details`.
+//! export returns. Every Panic field is typed here, so only the Result arm
+//! asks the payload adapter for anything.
 
-use super::codec::{put_bytes, rest, take_text, take_u8};
+use super::codec::{expect_end, put_bytes, put_list, rest, take_text, take_text_list, take_u8};
 use super::{Error, ErrorRecord};
 
 const TAG_RESULT: u8 = 0x01;
@@ -25,13 +25,14 @@ pub enum Outcome {
     Panic(Panic),
 }
 
-/// An uncaught top-level failure, plus the two fields attribution needs.
+/// An uncaught top-level failure, plus what attribution and correction need.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Panic {
     pub origin: String,
     pub error: ErrorRecord,
-    /// Structured diagnostics, adapter-encoded. Empty means absent.
-    pub details: Vec<u8>,
+    /// The names the invocation could have used in place of the one it
+    /// named. Empty when the failure offers no correction.
+    pub available: Vec<String>,
 }
 
 impl Outcome {
@@ -42,10 +43,12 @@ impl Outcome {
             TAG_PANIC => {
                 let origin = take_text(bytes, &mut at)?.to_owned();
                 let error = ErrorRecord::take(bytes, &mut at)?;
+                let available = take_text_list(bytes, &mut at)?;
+                expect_end(bytes, &at)?;
                 Ok(Outcome::Panic(Panic {
                     origin,
                     error,
-                    details: rest(bytes, &at).to_vec(),
+                    available,
                 }))
             }
             _ => Err(Error("Outcome tag must be 0x01 (result) or 0x02 (panic)")),
@@ -63,7 +66,7 @@ impl Outcome {
                 out.push(TAG_PANIC);
                 put_bytes(&mut out, panic.origin.as_bytes());
                 panic.error.put(&mut out);
-                out.extend_from_slice(&panic.details);
+                put_list(&mut out, &panic.available);
             }
         }
         out
@@ -82,7 +85,7 @@ mod tests {
                 message: "boom".into(),
                 backtrace: vec!["(eval):1".into()],
             },
-            details: Vec::new(),
+            available: Vec::new(),
         }
     }
 
@@ -109,29 +112,39 @@ mod tests {
     }
 
     #[test]
-    fn a_panic_carrying_details_round_trips() {
+    fn a_panic_carrying_available_names_round_trips() {
         let outcome = Outcome::Panic(Panic {
-            details: vec![0x91, 0xa1, b'x'],
+            available: vec!["Worker".into(), "Helper".into()],
             ..panic_sample()
         });
         let encoded = outcome.encode();
         assert_eq!(
             Outcome::decode(&encoded),
             Ok(outcome),
-            "a Panic with structured details must carry them through as opaque bytes"
+            "a Panic offering a correction must carry its names through in order"
         );
     }
 
     #[test]
-    fn absent_details_decode_as_empty() {
+    fn a_panic_offering_no_correction_decodes_as_an_empty_list() {
         let encoded = Outcome::Panic(panic_sample()).encode();
         match Outcome::decode(&encoded) {
             Ok(Outcome::Panic(panic)) => assert!(
-                panic.details.is_empty(),
-                "a Panic with no details must decode as an empty remainder, not a decode error"
+                panic.available.is_empty(),
+                "a Panic with no correction to offer must decode as an empty list, not a decode error"
             ),
             other => panic!("expected a Panic, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn bytes_past_the_available_list_are_refused() {
+        let mut encoded = Outcome::Panic(panic_sample()).encode();
+        encoded.push(0x2a);
+        assert!(
+            Outcome::decode(&encoded).is_err(),
+            "a Panic is self-delimiting to its last field, so trailing bytes must fail as a framing desync"
+        );
     }
 
     #[test]
@@ -152,7 +165,7 @@ mod tests {
                 message: "m".into(),
                 backtrace: Vec::new(),
             },
-            details: Vec::new(),
+            available: vec!["W".into()],
         })
         .encode();
         assert_eq!(
@@ -162,7 +175,9 @@ mod tests {
                 0, 0, 0, 7, b's', b'e', b'r', b'v', b'i', b'c', b'e', //
                 0, 0, 0, 1, b'E', //
                 0, 0, 0, 1, b'm', //
-                0, 0, 0, 0, //
+                0, 0, 0, 0, // backtrace count
+                0, 0, 0, 1, // available count
+                0, 0, 0, 1, b'W', //
             ],
             "attribution must read origin before any Error Record field, so the layout pins it first"
         );

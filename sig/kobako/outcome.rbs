@@ -2,12 +2,13 @@ module Kobako
   module Outcome
     ORIGIN_SANDBOX: String
     ORIGIN_SERVICE: String
+    SUBCLASSES: Hash[String, singleton(SandboxError)]
 
-    type panic_fields = [String, String, String, Array[String]]
+    type panic_fields = [String, String, String, Array[String], Array[String]]
 
-    def self?.reify: (Symbol kind, String payload, panic_fields? panic) -> Kobako::Codec::wire_value
+    def self?.reify: (Symbol kind, String payload, panic_fields? panic, ?entrypoint: Symbol?) -> Kobako::Codec::wire_value
 
-    def self?.panic_error: (String details, panic_fields panic) -> (SandboxError | ServiceError)
+    def self?.panic_error: (panic_fields panic, Symbol? entrypoint) -> (SandboxError | ServiceError)
 
     def self?.error_class: (String origin, String klass) -> (singleton(SandboxError) | singleton(ServiceError))
 
@@ -15,8 +16,6 @@ module Kobako
 
     def self?.decode_value: (String payload) -> Kobako::Codec::wire_value
 
-    def self?.decode_details: (String payload) -> Kobako::Codec::wire_value?
-
-    def self?.wire_error: (String message, ?detail: String?) -> Transport::Error
+    def self?.wire_error: (String message, ?diagnostic: String?) -> Transport::Error
   end
 end

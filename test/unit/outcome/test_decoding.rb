@@ -5,14 +5,13 @@ require "test_helper"
 # Attribution coverage for the branches that don't need a live Sandbox:
 # the two arms that carry no record, an unreadable Result payload, and
 # the Panic class-to-Ruby-class mapping (including the +BytecodeError+
-# subclass selection). Attribution lives on +Kobako::Outcome+ as a
-# stateless module of pure functions, so the arms the native side names
-# are handed to it directly.
+# and +UndefinedEntrypointError+ subclass selections). Attribution lives
+# on +Kobako::Outcome+ as a stateless module of pure functions, so the
+# arms the native side names are handed to it directly.
 class TestOutcomeDecoding < Minitest::Test
-  # One panic arm's attribution fields, in the order the native side
-  # hands them over.
-  def panic(origin:, klass:, message:, backtrace: [])
-    [origin, klass, message, backtrace]
+  # One panic arm's fields, in the order the native side hands them over.
+  def panic(origin:, klass:, message:, backtrace: [], available: [])
+    [origin, klass, message, backtrace, available]
   end
 
   # docs/behavior/errors.md E-02: a guest that wrote nothing is a wire
@@ -83,53 +82,34 @@ class TestOutcomeDecoding < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # B-66: attribution reads the core envelope, so diagnostics the adapter
-  # cannot read are dropped rather than replacing the failure with a
-  # report about its supplementary field.
-  def test_panic_details_the_adapter_cannot_read_are_dropped
-    fields = panic(origin: "sandbox", klass: "RuntimeError", message: "boom")
-
-    err = assert_raises(Kobako::SandboxError) { Kobako::Outcome.reify(:panic, "\xc1".b, fields) }
-
-    refute_kind_of Kobako::Transport::Error, err,
-                   "B-66: unreadable diagnostics must not turn a real failure into a wire-violation report"
-    assert_equal "RuntimeError", err.klass
-    assert_equal "boom", err.message
-    assert_nil err.details
-  end
-
-  # B-66 on the attribution that matters most: a Service failure keeps
-  # attributing to the Service even when its diagnostics are unreadable.
-  def test_a_service_panic_with_unreadable_details_still_attributes_to_the_service
+  # Every Panic field is typed at the core envelope, so a Panic arm never
+  # asks the adapter for anything: whatever bytes sit in the value slot,
+  # the failure still names itself.
+  def test_a_panic_attributes_without_reading_the_value_slot
     fields = panic(origin: "service", klass: "Kobako::ServiceError", message: "connection refused")
 
     err = assert_raises(Kobako::ServiceError) { Kobako::Outcome.reify(:panic, "\xc1".b, fields) }
 
+    refute_kind_of Kobako::Transport::Error, err,
+                   "a panic arm through reify must never settle as a wire violation, whatever the value slot holds"
     assert_equal "connection refused", err.message,
-                 "B-66: the guest's own message must survive a diagnostics payload the adapter cannot read"
+                 "a panic arm through reify must raise with the guest's own message"
   end
 
-  # E-50: the Fault envelope's sole legal wire position is a Reply's
-  # fault arm. A Panic smuggling one in its details would hand host code
-  # a Fault whose own details can nest Handles nothing outside the wire
-  # layer can resolve.
-  def test_panic_details_carrying_a_fault_raise_an_invalid_record
-    fields = panic(origin: "sandbox", klass: "RuntimeError", message: "boom")
-    smuggled = Kobako::Codec::Encoder.encode(Kobako::Fault.new(type: "runtime", message: "smuggled"))
+  # E-27: an unresolved entrypoint reaches the caller as its own subclass
+  # carrying both halves of the correction — the name asked for, which
+  # only the host knows, and the names it could have been.
+  def test_an_unresolved_entrypoint_raises_the_subclass_carrying_its_correction
+    fields = panic(origin: "sandbox", klass: "Kobako::UndefinedEntrypointError",
+                   message: "undefined entrypoint: Wrker", available: %w[Worker Helper])
 
-    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:panic, smuggled, fields) }
+    err = assert_raises(Kobako::UndefinedEntrypointError) do
+      Kobako::Outcome.reify(:panic, "".b, fields, entrypoint: :Wrker)
+    end
 
-    assert_match(/Sandbox produced an invalid panic record/, err.message,
-                 "E-50: an ext 0x02 in a Panic's details must surface as an invalid panic record")
-  end
-
-  def test_panic_details_reach_the_error_when_the_adapter_can_read_them
-    fields = panic(origin: "sandbox", klass: "Kobako::SandboxError", message: "undefined entrypoint: Missing")
-    details = Kobako::Codec::Encoder.encode({ "available" => %i[Worker] })
-
-    err = assert_raises(Kobako::SandboxError) { Kobako::Outcome.reify(:panic, details, fields) }
-
-    assert_equal({ "available" => %i[Worker] }, err.details,
-                 "a Panic's structured diagnostics must reach the raised error intact")
+    assert_equal :Wrker, err.name,
+                 "an unresolved entrypoint through reify must name what the host asked for"
+    assert_equal %i[Worker Helper], err.available,
+                 "an unresolved entrypoint through reify must carry the names it could have been, as Symbols"
   end
 end

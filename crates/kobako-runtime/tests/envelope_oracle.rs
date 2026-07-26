@@ -177,7 +177,7 @@ fn a_panic_crosses_with_its_attribution_intact() {
             message: "boom".into(),
             backtrace: vec!["(eval):2".into()],
         },
-        details: OPAQUE.to_vec(),
+        available: vec!["Worker".into(), "Helper".into()],
     });
 
     match host::Outcome::decode(&guest_panic.encode()) {
@@ -191,8 +191,9 @@ fn a_panic_crosses_with_its_attribution_intact() {
                 "the Error Record must cross with its class intact"
             );
             assert_eq!(
-                panic.details, OPAQUE,
-                "panic details must cross as opaque bytes the envelope never parses"
+                panic.available,
+                vec!["Worker".to_string(), "Helper".to_string()],
+                "the names a Panic offers as a correction must cross in order"
             );
         }
         other => panic!("expected a Panic, got {other:?}"),

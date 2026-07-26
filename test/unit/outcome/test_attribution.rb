@@ -48,8 +48,8 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
   #
   # An empty payload is not a valid msgpack value, so the adapter raises
   # and the host wraps it as a Transport::Error whose user-facing message
-  # stays in caller vocabulary; the inner codec diagnostic is preserved
-  # under +details+ for operators.
+  # stays in caller vocabulary; the inner codec diagnostic reaches an
+  # operator through Ruby's own +#detailed_message+ channel.
   def test_result_arm_with_an_empty_payload_raises_sandbox_error
     err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:result, "".b, nil) }
 
@@ -59,8 +59,8 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     assert_match(/Sandbox produced an invalid result value/, err.message)
     refute_match(/envelope|decode failed/, err.message,
                  "internal codec vocabulary must not leak into the user-facing message")
-    assert_kind_of String, err.details,
-                   "operator-side codec diagnostic must be preserved in details"
+    refute_equal err.message, err.detailed_message(highlight: false),
+                 "an unreadable Result through reify must carry its codec diagnostic on #detailed_message"
   end
 
   # --- Result arm carrying an ext 0x02 Fault raises Transport::Error (E-50) ---

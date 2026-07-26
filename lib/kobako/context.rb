@@ -88,7 +88,7 @@ module Kobako
     # Context to collect +ctx.bind+ overrides before the guest drives.
     def run(run_envelope, &block)
       collect_overrides(&block) if block
-      invoke!(:run) do
+      invoke!(:run, entrypoint: run_envelope.entrypoint) do
         @runtime.run(dispatch_handler, @services.paths, @snippets.entries,
                      run_envelope.entrypoint.to_s, run_envelope.payload(@handler))
       end
@@ -169,10 +169,12 @@ module Kobako
     # Settle a completed run's outcome into its +Execution+. A Capability
     # Handle in the result is restored to its host object first. The settle
     # sits in the rescue so a wire-violation trap or a Panic both attach this
-    # run's Execution, just like a guest-call trap does.
-    def settle_outcome(snapshot, verb)
+    # run's Execution, just like a guest-call trap does. +entrypoint+ is the
+    # name +#run+ asked for, which the host knows and the wire never carries,
+    # so an unresolved one names itself on the error it raises.
+    def settle_outcome(snapshot, verb, entrypoint)
       kind, payload, panic = snapshot.outcome
-      value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic) }
+      value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic, entrypoint: entrypoint) }
       value = Codec::HandleWalk.deep_restore(value, @handler) if carried
       build_execution(value, failed: false)
     rescue Kobako::TrapError => e
@@ -190,7 +192,7 @@ module Kobako
     # so a trapped Snapshot's error carries them just like a completed run's
     # return value. A could-not-start fault ran no invocation at all, so it
     # carries no Execution and gains only the verb prefix.
-    def invoke!(verb)
+    def invoke!(verb, entrypoint: nil)
       @resolved = @extensions.resolve
       begin
         snapshot = yield
@@ -198,7 +200,7 @@ module Kobako
         raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
       end
       populate_observability!(snapshot)
-      return settle_outcome(snapshot, verb) unless snapshot.trapped?
+      return settle_outcome(snapshot, verb, entrypoint) unless snapshot.trapped?
 
       raise trap_error_for(snapshot, verb).with_execution(build_execution(nil, failed: true))
     end

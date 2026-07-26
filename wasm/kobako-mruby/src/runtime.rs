@@ -351,11 +351,11 @@ impl Kobako {
 
     /// Snapshot every top-level constant currently defined on `Object`
     /// by calling `Object.constants` and unpacking the returned Symbol
-    /// Array into a `Vec<String>`. Used by `__kobako_run` to compute
-    /// the `details:` payload: a baseline taken after kobako
-    /// install + preamble materialise (before snippet replay) is
-    /// subtracted from a post-replay snapshot, yielding the constants
-    /// the preloaded snippets contributed.
+    /// Array into a `Vec<String>`. Used by `__kobako_run` to name the
+    /// entrypoints an unresolved one could have been: a baseline taken
+    /// after kobako install + preamble materialise (before snippet
+    /// replay) is subtracted from a post-replay snapshot, yielding the
+    /// constants the preloaded snippets contributed.
     pub fn top_level_constants(&self) -> Vec<String> {
         // SAFETY: `mrb->object_class` lives until `mrb_close`; the
         // shim behind `RClass::to_value` reuses mruby's own boxing

@@ -60,21 +60,17 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
 
 /// `origin == "service"` → `Service`; a sandbox-origin panic carrying
 /// the bytecode rejection class → `Bytecode`; everything else →
-/// `Sandbox`. Details are a payload position, so an ext 0x02 Fault among
-/// them is a wire violation — a Panic whose diagnostics violate the wire
-/// is not a record worth attributing from.
+/// `Sandbox`. Every field is typed at the envelope, so classifying a
+/// Panic reads no payload byte and cannot fail.
 fn classify_panic(panic: Panic) -> Error {
     let from_service = panic.from_service();
-    let details = match decode_details(&panic.details) {
-        Ok(details) => details,
-        Err(err) => return err,
-    };
-    let failure = GuestFailure {
+    let failure = Box::new(GuestFailure {
         class: panic.error.class,
         message: panic.error.message,
         backtrace: panic.error.backtrace,
-        details,
-    };
+        available: panic.available,
+        diagnostic: None,
+    });
     if from_service {
         Error::Service(failure)
     } else if failure.class == "Kobako::BytecodeError" {
@@ -84,41 +80,14 @@ fn classify_panic(panic: Panic) -> Error {
     }
 }
 
-/// A Panic's structured diagnostics, or `None` when the arm carried none
-/// or this endpoint's adapter could not read what it carried.
-/// Attribution comes off the core envelope, so diagnostics it cannot read
-/// are dropped rather than replacing a real failure with a report about
-/// its supplementary field.
-///
-/// A Fault (ext 0x02) among them is the one exception: that is a
-/// placement violation rather than unreadable bytes, and it takes the
-/// invalid-record channel so a guest breaking the rule is not silently
-/// tolerated.
-fn decode_details(details: &[u8]) -> Result<Option<Value>, Error> {
-    if details.is_empty() {
-        return Ok(None);
-    }
-    let Ok(value) = Decoder::new(details).read_only_value() else {
-        return Ok(None);
-    };
-    if value.contains_errenv() {
-        return Err(wire_violation(
-            "Sandbox produced an invalid panic record",
-            &kobako_codec::codec::Error::Malformed(
-                "Fault envelope (ext 0x02) is not a legal value in a Panic envelope",
-            ),
-        ));
-    }
-    Ok(Some(value))
-}
-
 fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
-    Error::Sandbox(GuestFailure {
+    Error::Sandbox(Box::new(GuestFailure {
         class: WIRE_ERROR_CLASS.into(),
         message: message.into(),
         backtrace: Vec::new(),
-        details: Some(Value::Str(detail.to_string())),
-    })
+        available: Vec::new(),
+        diagnostic: Some(detail.to_string()),
+    }))
 }
 
 #[cfg(test)]
@@ -136,7 +105,7 @@ mod tests {
                 message: "boom".into(),
                 backtrace: Vec::new(),
             },
-            details: Vec::new(),
+            available: Vec::new(),
         })
         .encode()
     }
@@ -209,46 +178,25 @@ mod tests {
         );
     }
 
-    // B-66: attribution comes off the core envelope, so diagnostics this
-    // endpoint's adapter cannot read are dropped rather than replacing the
-    // failure with a report about its supplementary field.
+    // E-27: an unresolved entrypoint reaches the caller with the names it
+    // could have been, matching what the Ruby frontend exposes as
+    // `#available` on its own subclass.
     #[test]
-    fn panic_details_the_adapter_cannot_read_are_dropped() {
-        let bytes = Outcome::Panic(Panic {
-            origin: "service".into(),
-            error: ErrorRecord {
-                class: "Kobako::ServiceError".into(),
-                message: "connection refused".into(),
-                backtrace: Vec::new(),
-            },
-            details: vec![0xc1],
-        })
-        .encode();
-        let result = decode(&bytes);
-        assert!(
-            matches!(result, Err(Error::Service(ref f)) if f.message == "connection refused" && f.details.is_none()),
-            "a Service failure must keep attributing to the Service with its own message, got {result:?}"
-        );
-    }
-
-    // E-50: a Panic smuggling an ext 0x02 in its details surfaces
-    // through the invalid-record channel, matching the Ruby frontend.
-    #[test]
-    fn panic_details_carrying_errenv_are_a_wire_violation() {
+    fn an_unresolved_entrypoint_carries_the_names_it_could_have_been() {
         let bytes = Outcome::Panic(Panic {
             origin: "sandbox".into(),
             error: ErrorRecord {
-                class: "RuntimeError".into(),
-                message: "boom".into(),
+                class: "Kobako::UndefinedEntrypointError".into(),
+                message: "undefined entrypoint: Wrker".into(),
                 backtrace: Vec::new(),
             },
-            details: Encoder::encode(&Value::ErrEnv(vec![0x80])).unwrap(),
+            available: vec!["Worker".into(), "Helper".into()],
         })
         .encode();
         let result = decode(&bytes);
         assert!(
-            matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("invalid panic record")),
-            "expected the invalid-panic-record wire violation, got {result:?}"
+            matches!(result, Err(Error::Sandbox(ref f)) if f.available == ["Worker", "Helper"]),
+            "an unresolved entrypoint must reach the caller with its correction, got {result:?}"
         );
     }
 }

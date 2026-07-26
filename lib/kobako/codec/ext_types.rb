@@ -132,7 +132,7 @@ module Kobako
       # a Reply's fault arm.
       def unpack_fault(payload, state)
         if state.faults_forbidden?
-          raise MisplacedFault, "Fault envelope (ext 0x02) is not a legal value in a payload position"
+          raise InvalidType, "Fault envelope (ext 0x02) is not a legal value in a payload position"
         end
 
         state.within_ext_frame(InvalidType) do

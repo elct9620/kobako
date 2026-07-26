@@ -1,6 +1,17 @@
 module Kobako
   module Transport
     class Error < Kobako::SandboxError
+      @diagnostic: String?
+
+      def initialize: (
+        String message,
+        ?diagnostic: String?,
+        ?origin: String?,
+        ?klass: String?,
+        ?backtrace_lines: Array[String]?
+      ) -> void
+
+      def detailed_message: (?highlight: bool, **untyped) -> String
     end
   end
 end

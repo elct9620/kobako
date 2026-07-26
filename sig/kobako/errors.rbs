@@ -28,14 +28,12 @@ module Kobako
     attr_reader origin: String?
     attr_reader klass: String?
     attr_reader backtrace_lines: Array[String]?
-    attr_reader details: untyped
 
     def initialize: (
       String message,
       ?origin: String?,
       ?klass: String?,
-      ?backtrace_lines: Array[String]?,
-      ?details: untyped
+      ?backtrace_lines: Array[String]?
     ) -> void
   end
 
@@ -53,6 +51,20 @@ module Kobako
   end
 
   class BytecodeError < SandboxError
+  end
+
+  class UndefinedEntrypointError < SandboxError
+    attr_reader name: Symbol?
+    attr_reader available: Array[Symbol]
+
+    def initialize: (
+      String message,
+      ?name: Symbol?,
+      ?available: Array[Symbol],
+      ?origin: String?,
+      ?klass: String?,
+      ?backtrace_lines: Array[String]?
+    ) -> void
   end
 
   class PoolTimeoutError < Error

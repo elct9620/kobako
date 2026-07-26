@@ -29,8 +29,8 @@ module Kobako
 
     def build_execution: (untyped value, failed: bool) -> Kobako::Execution
 
-    def settle_outcome: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::Execution
+    def settle_outcome: (Kobako::Runtime::Snapshot snapshot, Symbol verb, Symbol? entrypoint) -> Kobako::Execution
 
-    def invoke!: (Symbol verb) { () -> Kobako::Runtime::Snapshot } -> Kobako::Execution
+    def invoke!: (Symbol verb, ?entrypoint: Symbol?) { () -> Kobako::Runtime::Snapshot } -> Kobako::Execution
   end
 end

@@ -44,10 +44,11 @@ use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
 use kobako_wasmtime::{Config, Driver};
 
-/// A Panic's attribution fields as they cross to Ruby: origin, class,
-/// message, backtrace. Named so the Ruby side reads them positionally
-/// against one shape, matching the `Kobako::Outcome::panic_fields` alias.
-type PanicFields = (String, String, String, Vec<String>);
+/// A Panic's fields as they cross to Ruby: origin, class, message,
+/// backtrace, and the names the invocation could have used in place of the
+/// one it named. Named so the Ruby side reads them positionally against one
+/// shape, matching the `Kobako::Outcome::panic_fields` alias.
+type PanicFields = (String, String, String, Vec<String>, Vec<String>);
 
 /// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
 /// what would otherwise be an inline `unsafe { rstring.as_slice() }
@@ -392,11 +393,11 @@ impl Snapshot {
     /// One completed run's outcome, already split off the core envelope:
     /// `[kind, payload, panic]`. `kind` names the arm — `:result`,
     /// `:panic`, `:absent` (nothing written), or `:malformed` (bytes the
-    /// envelope cannot frame). `payload` is adapter-encoded: the
-    /// invocation's value on `:result`, the Panic's details on `:panic`
-    /// (empty when absent). `panic` carries the attribution fields on
-    /// `:panic` and is `nil` otherwise, so the Ruby side maps a failure
-    /// onto its error taxonomy without decoding a payload byte.
+    /// envelope cannot frame). `payload` is the invocation's
+    /// adapter-encoded value, carried only by `:result`; every other arm
+    /// answers empty. `panic` carries the Panic's own fields on `:panic`
+    /// and is `nil` otherwise, so the Ruby side maps a failure onto its
+    /// error taxonomy without decoding a payload byte.
     ///
     /// A trap answers `:absent` — `#trapped?` is the authoritative
     /// discriminator there and this is never read.
@@ -412,12 +413,13 @@ impl Snapshot {
             }
             Ok(Outcome::Panic(panic)) => (
                 ruby.to_symbol("panic"),
-                ruby.str_from_slice(&panic.details),
+                empty(),
                 Some((
                     panic.origin,
                     panic.error.class,
                     panic.error.message,
                     panic.error.backtrace,
+                    panic.available,
                 )),
             ),
             Err(_) if bytes.is_empty() => (ruby.to_symbol("absent"), empty(), None),

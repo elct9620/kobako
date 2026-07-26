@@ -17,9 +17,11 @@
 //!    envelope.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
 //!    `sys::mrb_const_defined` and confirm the constant
-//!    responds to `:call` via `sys::mrb_respond_to`. Each
-//!    failure writes a Panic envelope directly with the SPEC-mandated
-//!    `Kobako::SandboxError` class string.
+//!    responds to `:call` via `sys::mrb_respond_to`. Each failure writes
+//!    a Panic envelope directly, naming the host class the host raises:
+//!    `Kobako::UndefinedEntrypointError` for an unresolved name, which
+//!    also carries the names it could have been, and
+//!    `Kobako::SandboxError` for a constant that answers no `:call`.
 //! 4. Invoke `target.call(*args, **kwargs)` through `mrb_funcall_argv`
 //!    by concatenating the decoded args Array and (when non-empty)
 //!    appending the kwargs Hash as the trailing element — the same
@@ -41,7 +43,7 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use kobako_codec::codec::{Decode, Encoder};
+    use kobako_codec::codec::Decode;
     use kobako_codec::envelope::{ErrorRecord, Panic, Run};
     use kobako_codec::payload::Arguments;
     use kobako_core::abi::write_panic;
@@ -67,9 +69,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
 
     // Baseline snapshot of top-level constants taken after kobako
     // install + preamble materialisation but before snippet replay.
-    // Used to compute the `details:` payload — subtracting this
-    // baseline from a post-replay snapshot yields exactly the
-    // constants the preloaded snippets contributed.
+    // Subtracting it from a post-replay snapshot yields exactly the
+    // constants the preloaded snippets contributed, which an unresolved
+    // entrypoint offers as its correction.
     let baseline_constants = kobako.top_level_constants();
 
     if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
@@ -109,31 +111,24 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let object_value = unsafe { mrb.object_class().to_value(mrb) };
 
     if !object_value.const_defined(mrb, target_sym) {
-        // Compute the snippet-contributed constants by subtracting the
-        // pre-replay baseline from the current top-level set. Wrapped
-        // as `{ "available" => [Sym, ...] }` so the host decoder can
-        // pull the Array via `panic.details["available"]`.
+        // Subtracting the pre-replay baseline from the current top-level
+        // set leaves exactly the constants the preloaded snippets
+        // contributed — the names this entrypoint could have been.
         use std::collections::HashSet;
         let baseline_set: HashSet<&String> = baseline_constants.iter().collect();
-        let post_constants = kobako.top_level_constants();
-        let available: Vec<Value> = post_constants
+        let available: Vec<String> = kobako
+            .top_level_constants()
             .into_iter()
             .filter(|name| !baseline_set.contains(name))
-            .map(Value::Sym)
             .collect();
-        let details = Encoder::encode(&Value::Map(vec![(
-            Value::Str("available".into()),
-            Value::Array(available),
-        )]))
-        .unwrap_or_default();
         return write_panic(Panic {
             origin: "sandbox".into(),
             error: ErrorRecord {
-                class: "Kobako::SandboxError".into(),
+                class: "Kobako::UndefinedEntrypointError".into(),
                 message: format!("undefined entrypoint: {}", run.entrypoint),
                 backtrace: Vec::new(),
             },
-            details,
+            available,
         });
     }
 
@@ -155,7 +150,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
                 message: format!("entrypoint {} does not respond to :call", run.entrypoint),
                 backtrace: Vec::new(),
             },
-            details: Vec::new(),
+            available: Vec::new(),
         });
     }
 

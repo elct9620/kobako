@@ -11,44 +11,54 @@ module Kobako
   #
   # This is the two-step attribution decision. The wire framing belongs to
   # the native side; the payload adapter at +Kobako::Codec+ decodes only
-  # what an arm carries.
+  # the one arm that carries a value.
   module Outcome
     # The two +origin+ values a Panic attributes with.
     ORIGIN_SANDBOX = "sandbox"
     ORIGIN_SERVICE = "service"
 
+    # The guest-written class names that select a +SandboxError+ subclass.
+    # A name absent here settles as plain +SandboxError+, so the guest
+    # widens the taxonomy only by naming a class the host already defines.
+    SUBCLASSES = {
+      "Kobako::BytecodeError" => BytecodeError,
+      "Kobako::UndefinedEntrypointError" => UndefinedEntrypointError
+    }.freeze
+
     module_function
 
-    # Settle one invocation. +kind+ names the arm, +payload+ is its
-    # adapter-encoded content (the value on +:result+, the Panic's details
-    # on +:panic+), and +panic+ carries the attribution fields
-    # +[origin, class, message, backtrace]+ — present on the panic arm and
-    # absent on every other, which is what tells the failure that has a
-    # record to attribute from apart from the two that do not.
-    def reify(kind, payload, panic)
+    # Settle one invocation. +kind+ names the arm, +payload+ is the
+    # adapter-encoded value the +:result+ arm carries, and +panic+ carries
+    # the Panic's fields +[origin, class, message, backtrace, available]+ —
+    # present on the panic arm and absent on every other, which is what
+    # tells the failure that has a record to attribute from apart from the
+    # two that do not. +entrypoint+ is the name this invocation asked for,
+    # which the host knows and the wire therefore never carries.
+    def reify(kind, payload, panic, entrypoint: nil)
       return decode_value(payload) if kind == :result
 
-      raise panic ? panic_error(payload, panic) : trap_error(kind)
+      raise panic ? panic_error(panic, entrypoint) : trap_error(kind)
     end
 
-    # Map a Panic's attribution fields onto the three-layer taxonomy. The
-    # fields land on the exception verbatim — it carries the record rather
-    # than a translation of one.
-    def panic_error(details, panic)
-      origin, klass, message, backtrace = panic
-      error_class(origin, klass).new(
-        message, origin: origin, klass: klass,
-                 backtrace_lines: backtrace, details: decode_details(details)
-      )
+    # Map a Panic's fields onto the three-layer taxonomy. The fields land
+    # on the exception verbatim — it carries the record rather than a
+    # translation of one.
+    def panic_error(panic, entrypoint)
+      origin, klass, message, backtrace, available = panic
+      selected = error_class(origin, klass)
+      attribution = { origin: origin, klass: klass, backtrace_lines: backtrace }
+      return selected.new(message, **attribution) unless selected == UndefinedEntrypointError
+
+      UndefinedEntrypointError.new(message, name: entrypoint, available: available.map(&:to_sym), **attribution)
     end
 
     # +origin == "service"+ selects ServiceError; a sandbox-origin failure
-    # carrying the bytecode rejection class selects the BytecodeError
-    # subclass so callers can rescue that path specifically.
+    # naming one of the guest-written subclass names selects that subclass
+    # so callers can rescue that path specifically.
     def error_class(origin, klass)
       return ServiceError if origin == ORIGIN_SERVICE
 
-      klass == "Kobako::BytecodeError" ? BytecodeError : SandboxError
+      SUBCLASSES.fetch(klass, SandboxError)
     end
 
     # An arm the host cannot settle: the guest wrote nothing, or wrote
@@ -64,52 +74,28 @@ module Kobako
       )
     end
 
-    # The Result arm's value. A decode fault means the framing was fine
-    # but the carried value is unrepresentable; the specific codec fault
-    # is stashed in +details+ rather than spliced into the message —
-    # callers cannot act on the inner "Symbol payload must be …" wording,
-    # but operators triaging a corrupted Sandbox runtime still need it.
+    # The Result arm's value — the one position a payload adapter still
+    # owns on this path. A decode fault means the framing was fine but the
+    # carried value is unrepresentable.
     def decode_value(payload)
       # A Result is a payload position: an ext 0x02 Fault in it is a wire
       # violation, since a Fault's only home is a Reply's fault arm.
       Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
     rescue Kobako::Codec::Error => e
-      raise wire_error("Sandbox produced an invalid result value", detail: e.message)
-    end
-
-    # A Panic's structured diagnostics, or +nil+ when the arm carried none
-    # or the adapter could not read what it carried. Attribution comes off
-    # the core envelope, so diagnostics it cannot read are dropped rather
-    # than replacing a real failure with a report about its supplementary
-    # field.
-    #
-    # A Fault (ext 0x02) among them is the one exception: that is a
-    # placement violation rather than unreadable bytes, and it takes the
-    # invalid-record channel so a guest breaking the rule is not silently
-    # tolerated.
-    def decode_details(payload)
-      return nil if payload.empty?
-
-      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
-    rescue Kobako::Codec::MisplacedFault => e
-      raise wire_error("Sandbox produced an invalid panic record", detail: e.message)
-    rescue Kobako::Codec::Error
-      nil
+      raise wire_error("Sandbox produced an invalid result value", diagnostic: e.message)
     end
 
     # Lift a wire violation the host detected to the real
     # +Kobako::Transport::Error+ class so callers can +rescue+ it
     # specifically instead of pattern-matching on +error.klass+. The
     # +klass+ field is still populated so existing operator-side tooling
-    # that greps on the string continues to work. +detail+ carries the
-    # inner codec message for operator diagnosis without polluting the
-    # user-facing +#message+.
-    def wire_error(message, detail: nil)
+    # that greps on the string continues to work.
+    def wire_error(message, diagnostic: nil)
       Kobako::Transport::Error.new(
         message,
         origin: ORIGIN_SANDBOX,
         klass: "Kobako::Transport::Error",
-        details: detail
+        diagnostic: diagnostic
       )
     end
   end

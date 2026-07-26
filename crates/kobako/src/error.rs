@@ -12,18 +12,23 @@
 
 use std::fmt;
 
-use kobako_codec::codec::Value;
 pub use kobako_runtime::error::SetupError;
 
 /// A guest-side failure decoded from a Panic envelope: the guest
-/// exception class and message plus the optional backtrace / details
-/// the wire carried.
+/// exception class and message, the backtrace the wire carried, and the
+/// names the invocation could have used in place of the one it named.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuestFailure {
     pub class: String,
     pub message: String,
     pub backtrace: Vec<String>,
-    pub details: Option<Value>,
+    /// Empty unless the failure offers a correction — the top-level
+    /// constants an unresolved `#run` entrypoint could have been.
+    pub available: Vec<String>,
+    /// The codec fault behind a host-detected wire violation. Kept out of
+    /// `message`, which names the failure a caller can act on, and carried
+    /// here for the operator triaging a corrupted runtime.
+    pub diagnostic: Option<String>,
 }
 
 impl fmt::Display for GuestFailure {
@@ -49,12 +54,12 @@ pub enum Error {
     Trap(String),
     /// Guest-origin failure — uncaught exception, compile failure, or
     /// a wire violation (Ruby: `Kobako::SandboxError`).
-    Sandbox(GuestFailure),
+    Sandbox(Box<GuestFailure>),
     /// Rejected RITE bytecode at replay (Ruby: `Kobako::BytecodeError`).
-    Bytecode(GuestFailure),
+    Bytecode(Box<GuestFailure>),
     /// Service-origin failure — the bound object raised or the
     /// dispatch refused the call (Ruby: `Kobako::ServiceError`).
-    Service(GuestFailure),
+    Service(Box<GuestFailure>),
     /// The invocation never started: guest artifact absent or
     /// unusable, or a host-side pre-call step failed.
     Setup(SetupError),

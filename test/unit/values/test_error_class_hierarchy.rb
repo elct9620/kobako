@@ -28,6 +28,14 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::HandleExhaustedError < Kobako::SandboxError
   end
 
+  # SPEC E-27: the named subclass for an unresolved `#run` entrypoint. A
+  # Host App that only wants "the guest failed" must still catch it with
+  # one `rescue Kobako::SandboxError`.
+  def test_undefined_entrypoint_chains_under_sandbox_error
+    assert Kobako::UndefinedEntrypointError < Kobako::SandboxError
+    assert Kobako::UndefinedEntrypointError < Kobako::Error
+  end
+
   # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named
   # TrapError subclasses for the configured per-run caps from B-01.
   def test_timeout_error_chains_under_trap_error

@@ -9,9 +9,6 @@ module Kobako
     class InvalidType < Error
     end
 
-    class MisplacedFault < InvalidType
-    end
-
     class InvalidEncoding < Error
     end
 

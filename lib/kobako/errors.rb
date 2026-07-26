@@ -85,20 +85,23 @@ module Kobako
   class ModuleNotBuiltError < SetupError; end
 
   # The structured attribution the two invocation-failure classes carry
-  # from a decoded guest exception — its +origin+, original +klass+,
-  # +backtrace_lines+, and +details+ — so a Host App can inspect a failure
-  # beyond its message. Mixed into both rather than promoted to a shared
-  # superclass because +SandboxError+ and +ServiceError+ sit in distinct
-  # branches of the invocation-outcome taxonomy under +Kobako::Error+.
+  # from a decoded guest exception — its +origin+, original +klass+, and
+  # +backtrace_lines+ — so a Host App can inspect a failure beyond its
+  # message. Mixed into both rather than promoted to a shared superclass
+  # because +SandboxError+ and +ServiceError+ sit in distinct branches of
+  # the invocation-outcome taxonomy under +Kobako::Error+.
+  #
+  # Data specific to one kind of failure rides a named reader on the
+  # subclass that failure raises, the way Ruby pairs NameError#name with
+  # +NameError#local_variables+ — see UndefinedEntrypointError.
   module Diagnosable
-    attr_reader :origin, :klass, :backtrace_lines, :details
+    attr_reader :origin, :klass, :backtrace_lines
 
-    def initialize(message, origin: nil, klass: nil, backtrace_lines: nil, details: nil)
+    def initialize(message, origin: nil, klass: nil, backtrace_lines: nil)
       super(message)
       @origin = origin
       @klass = klass
       @backtrace_lines = backtrace_lines
-      @details = details
     end
   end
 
@@ -135,6 +138,23 @@ module Kobako
   # snippet failures while callers wanting bytecode-specific handling
   # can +rescue Kobako::BytecodeError+ directly.
   class BytecodeError < SandboxError; end
+
+  # UndefinedEntrypointError is the SandboxError subclass raised when a
+  # +#run+ target names no top-level constant in the guest. It carries the
+  # +#name+ that was asked for and the +#available+ names it could have
+  # been — the top-level constants the preloaded snippets contributed — so
+  # a caller corrects the name from the error rather than by reading the
+  # guest source. Ruby pairs NameError#name with
+  # +NameError#local_variables+ for the same reason.
+  class UndefinedEntrypointError < SandboxError
+    attr_reader :name, :available
+
+    def initialize(message, name: nil, available: [], **)
+      super(message, **)
+      @name = name
+      @available = available
+    end
+  end
 
   # Pool checkout layer. Raised by +Kobako::Pool#with+ when the checkout
   # wait exceeded the configured +checkout_timeout+ while every slot was

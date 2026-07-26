@@ -28,7 +28,7 @@ use kobako_codec::envelope::{Preamble, Snippet, Snippets};
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty
-/// backtrace, no details). The exclusive constructor for the
+/// backtrace, no correction to offer). The exclusive constructor for the
 /// `Kobako::BootError` panic shape — every boot-time failure should
 /// pass through here so the host-visible attribution stays uniform.
 pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
@@ -37,7 +37,7 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 
 /// Build a Panic envelope for a wire-layer failure at the invocation
 /// boundary (`origin = "sandbox"`, `class = "Kobako::Transport::Error"`,
-/// empty backtrace, no details). The exclusive constructor for the
+/// empty backtrace, no correction to offer). The exclusive constructor for the
 /// `Kobako::Transport::Error` panic shape — the sibling of `boot_panic`
 /// for decode / encode faults on the invocation envelope, so the
 /// host-visible attribution stays uniform.
@@ -47,7 +47,7 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
 
 /// The shape every host-detected failure at the invocation boundary
 /// shares: sandbox origin, no backtrace (the failure is the host's
-/// reading of the wire, not a guest stack), no details.
+/// reading of the wire, not a guest stack), no correction to offer.
 #[cfg(any(mruby_linked, test))]
 fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
@@ -57,7 +57,7 @@ fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
             message: message.into(),
             backtrace: Vec::new(),
         },
-        details: Vec::new(),
+        available: Vec::new(),
     }
 }
 
@@ -365,7 +365,7 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
             message,
             backtrace,
         },
-        details: Vec::new(),
+        available: Vec::new(),
     }
 }
 
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(p.error.class, "Kobako::BootError");
         assert_eq!(p.error.message, "failed to read preamble frame");
         assert!(p.error.backtrace.is_empty());
-        assert!(p.details.is_empty());
+        assert!(p.available.is_empty());
     }
 
     #[test]
@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(p.error.class, "Kobako::Transport::Error");
         assert_eq!(p.error.message, "failed to decode the invocation request");
         assert!(p.error.backtrace.is_empty());
-        assert!(p.details.is_empty());
+        assert!(p.available.is_empty());
     }
 
     #[test]

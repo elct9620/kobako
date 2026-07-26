@@ -416,12 +416,13 @@ fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Erro
             .alloc(object)
             .map(Value::Handle)
             .map_err(|message| {
-                Error::Sandbox(GuestFailure {
+                Error::Sandbox(Box::new(GuestFailure {
                     class: "Kobako::HandleExhaustedError".into(),
                     message,
                     backtrace: Vec::new(),
-                    details: None,
-                })
+                    available: Vec::new(),
+                    diagnostic: None,
+                }))
             }),
     }
 }
@@ -435,12 +436,13 @@ fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(
             if Handles::new(handles).resolve(value).is_some() {
                 Ok(())
             } else {
-                Err(Error::Sandbox(GuestFailure {
+                Err(Error::Sandbox(Box::new(GuestFailure {
                     class: "Kobako::SandboxError".into(),
                     message: format!("unknown Handle id: {id}"),
                     backtrace: Vec::new(),
-                    details: None,
-                }))
+                    available: Vec::new(),
+                    diagnostic: None,
+                })))
             }
         }
         Value::Array(items) => items
