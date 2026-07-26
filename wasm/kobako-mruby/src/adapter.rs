@@ -25,7 +25,11 @@ use crate::runtime::{ExceptionPayload, IntegerOutOfRange, Kobako};
 /// own guest-visible failure: a yield raises `TypeError`, an outcome
 /// writes a `Kobako::SandboxError` Panic, and a dispatch argument raises
 /// `Kobako::Transport::Error` — all from the same refusal.
+///
+/// Non-exhaustive so a later kind does not break the adapters that match
+/// on it; every variant here stays constructible by one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AdapterError {
     /// The value has no representation in this schema. Carries the mruby
     /// class name, which each call site templates into its own wording.

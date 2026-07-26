@@ -174,8 +174,10 @@ fn forward_to_dispatch(
             // SAFETY: as above.
             Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
         },
+        // Anything that is not the Service's own fault means the exchange
+        // did not complete, which reaches the guest as a wire fault.
         // SAFETY: as above.
-        Err(DispatchError::Wire(_)) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
+        Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
     }
 }
 

@@ -24,7 +24,13 @@ use crate::abi::unpack_u64;
 use kobako_codec::envelope::{self, Call, Reply, Target};
 
 /// Why a dispatch came back without a value.
+///
+/// Non-exhaustive: a guest matches on this, and a later way for the
+/// exchange to fail should not break the ones already written. Keep a
+/// wildcard arm and treat it the way `Wire` is treated — anything that is
+/// not the Service's own fault means the exchange did not complete.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DispatchError {
     /// The host answered on the fault arm — the *normal* path for a
     /// Service raising an exception. The bytes are the fault body as the

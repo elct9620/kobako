@@ -17,7 +17,12 @@ pub use kobako_runtime::error::SetupError;
 /// A guest-side failure decoded from a Panic envelope: the guest
 /// exception class and message, the backtrace the wire carried, and the
 /// names the invocation could have used in place of the one it named.
+///
+/// Non-exhaustive because a Panic gains fields as the wire does, and an
+/// embedder reads this rather than building one — so a later field is a
+/// wire change, not a break in this API.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct GuestFailure {
     pub class: String,
     pub message: String,
