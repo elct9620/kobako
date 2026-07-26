@@ -86,10 +86,6 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ---
 
-## B-66 — Read a failed invocation whose Panic carries unreadable diagnostics
+## B-66 (retired)
 
-| Field | Value |
-|-------|-------|
-| **Initial State** | An invocation ended with an uncaught top-level exception. The guest wrote a Panic whose attribution fields — `origin`, class, message, backtrace — the core envelope frames, and whose `details` the payload adapter cannot read. |
-| **Operation** | `sandbox.eval(code)` (or `sandbox.run(...)`) settles that outcome. |
-| **Result / Final State** | The invocation raises the class its `origin` attributes to (`Kobako::ServiceError` for `"service"`, `Kobako::SandboxError` otherwise), carrying the guest's own exception class, message, and backtrace; `#details` is `nil`. Attribution reads the core envelope, so it never depends on the adapter reading the diagnostics — a Panic that names a real failure keeps naming it rather than being replaced by a wire-violation report of its supplementary field. The two positions the adapter can fail on are not alike: an unreadable Result value leaves the caller nothing to receive and is a wire violation (E-09), while unreadable diagnostics leave the failure itself intact. A `details` payload carrying an ext 0x02 Fault is the one exception — that is a placement violation rather than an unreadable payload, and it raises `Kobako::Transport::Error` (E-50). |
+B-66 is a retired anchor — permanently reserved and never reassigned (N-8). Every Panic field is typed at the core envelope, so a Panic carries nothing the payload adapter reads and attribution cannot depend on one.

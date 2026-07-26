@@ -23,7 +23,7 @@ If no trap occurred, the Host Gem frames the outcome bytes produced by `__kobako
 | Panic | `origin == "service"` | `Kobako::ServiceError` |
 | Panic | any other `origin` | `Kobako::SandboxError` |
 
-Attribution reads the core envelope alone, so the adapter takes no part in it: a Panic names its class, message, and backtrace whether or not its `details` can be read (B-66). Diagnostics the adapter cannot read are dropped; one carrying an ext 0x02 Fault is a placement violation and raises `Kobako::Transport::Error` (E-50).
+Attribution reads the core envelope alone, and the adapter takes no part in it: every Panic field — `origin`, class, message, backtrace, and the `available` names a correction can be offered from — is typed at that layer, so a Panic carries nothing the adapter reads.
 
 `stdout` and `stderr` bytes do not participate in attribution dispatch. They are always available via the run's `Execution` — the one a raised error carries on `#execution` — after a rescue, including after error-raising runs.
 
@@ -61,7 +61,7 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping, or that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth) | B-24 — yield round-trip |
 | E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
-| E-50 | A guest→host payload carries an ext 0x02 Fault — in a Call payload, a Yield Reply value, a Result value, or a Panic's `details` — violating the Fault's sole legal position under the MessagePack payload adapter (the whole of a Reply's fault body, → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § ext 0x02). This is an adapter-layer guarantee, not a core-envelope one: the core envelope discriminates success from fault with its own tag, and an adapter that carries no Fault representation has no position to violate. The Result / Panic paths raise `Kobako::Transport::Error`; the Call path rejects the dispatch through the malformed-payload channel (`type="runtime"`), and the Yield Reply path raises at the Service yield site — both surfacing as `Kobako::ServiceError` when the script leaves the failure unrescued | B-06 — return value; B-12 — dispatch; B-24 — yield round-trip |
+| E-50 | A guest→host payload carries an ext 0x02 Fault — in a Call payload, a Yield Reply value, or a Result value — violating the Fault's sole legal position under the MessagePack payload adapter (the whole of a Reply's fault body, → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § ext 0x02). This is an adapter-layer guarantee, not a core-envelope one: the core envelope discriminates success from fault with its own tag, and an adapter that carries no Fault representation has no position to violate. The Result path raises `Kobako::Transport::Error`; the Call path rejects the dispatch through the malformed-payload channel (`type="runtime"`), and the Yield Reply path raises at the Service yield site — both surfacing as `Kobako::ServiceError` when the script leaves the failure unrescued | B-06 — return value; B-12 — dispatch; B-24 — yield round-trip |
 
 ---
 
@@ -85,7 +85,7 @@ A guest attempting to forge a Handle from a bare integer is rejected by the gues
 
 When the guest wraps a Service call in `begin/rescue`, the dispatch failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
 
-E-08 is a retired anchor — permanently reserved and never reassigned (N-8). The Panic arm's diagnostics are supplementary: an unreadable `details` payload is dropped and the failure attributes from the core envelope (B-66), while one carrying an ext 0x02 Fault is a placement violation (E-50).
+E-08 is a retired anchor — permanently reserved and never reassigned (N-8). A Panic is framed entirely by the core envelope, so there is no adapter read on that arm to fail.
 
 E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 
@@ -142,7 +142,7 @@ These error scenarios are specific to the `#run(target, *args, **kwargs)` entryp
 | E-24 | `#run` `target` is neither Symbol nor String | host pre-flight | `TypeError` |
 | E-25 | `#run` `target` (after `.to_s`) does not match `/\A[A-Z]\w*\z/` — including any `::`-segmented name | host pre-flight | `ArgumentError` |
 | E-26 | The invocation envelope written to the command buffer fails to decode as msgpack, fails shape validation on guest entry, or carries an argument value with no faithful guest representation — an integer outside the signed 32-bit range (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Integer Range) | guest entry | `Kobako::SandboxError` |
-| E-27 | `#run` target Symbol does not resolve to a defined constant on top-level `Object`; the guest's Panic envelope `details:` field carries the available top-level constants contributed by preloaded snippets | guest: target Symbol does not name a defined top-level constant | `Kobako::SandboxError` |
+| E-27 | `#run` target Symbol does not resolve to a defined constant on top-level `Object`; the guest's Panic envelope `available` field carries the top-level constants contributed by preloaded snippets, which the raised error exposes as `#available` alongside the `#name` that was asked for | guest: target Symbol does not name a defined top-level constant | `Kobako::UndefinedEntrypointError` |
 | E-28 | `#run` entrypoint constant is defined but does not respond to `#call` | guest: entrypoint constant does not respond to `#call` | `Kobako::SandboxError` |
 | E-29 | `#run` `args` or `kwargs` contains a `Kobako::Handle` instance. The Handle constructor is internal to the Host Gem; legitimate Handle production paths (B-14 service return, B-34 host-side auto-wrap) live inside the wire layer and never expose a Handle object to the Host App's call site. Any Handle reaching this position is therefore forged through a non-public path and is rejected | host pre-flight | `ArgumentError` |
 | E-30 | `#run` `kwargs` contains a key that is not a Symbol | host pre-flight | `ArgumentError` |

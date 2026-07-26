@@ -32,7 +32,7 @@ The obligations are positions to fill, not an encoding to use. An adapter that f
 |------------|---------------------------|
 | Call and Run payloads express positional and keyword arguments distinguishably | The host dispatches through `public_send`, where the two are not interchangeable |
 | A Reply's fault body carries the three reserved `type` values (`"runtime"`, `"argument"`, `"undefined"`) and a message | The guest raises a different proxy-side error per type, and `"undefined"` must stay indistinguishable across its three causes (→ [`wire-contract.md`](wire-contract.md) § Fault Envelope) |
-| A Yield Reply ok or break body, an Outcome result body, and a Panic `details` body each carry one value | These are single-value positions; an adapter needs no framing beyond its own value encoding |
+| A Yield Reply ok or break body and an Outcome result body each carry one value | These are single-value positions; an adapter needs no framing beyond its own value encoding |
 
 An adapter without a Handle representation is legal. Handles then ride only the envelope's `target` field, so a guest still reaches a stateful receiver and only forgoes passing Handles as arguments or receiving them as values.
 

@@ -117,7 +117,7 @@ A zero-length OUTCOME_BUFFER or any other tag is a wire violation; the host rais
 
 ### Panic
 
-The Error Record plus the two fields attribution needs.
+The Error Record plus the fields attribution and correction need.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -125,9 +125,11 @@ The Error Record plus the two fields attribution needs.
 | `class` | `bytes` | Exception class name as UTF-8. |
 | `message` | `bytes` | Exception message as UTF-8. |
 | `backtrace` | `list<bytes>` | mruby backtrace, one UTF-8 line per element. |
-| `details` | remainder | Structured diagnostics, encoded by the payload adapter. An empty remainder means absent. |
+| `available` | `list<bytes>` | The names the invocation could have used in place of the one it named, as UTF-8 — the top-level constants a `#run` entrypoint failed to resolve against. An empty list is legal and means the failure offers no correction. |
 
-Attribution reads `origin` at this layer: `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`../behavior/errors.md`](../behavior/errors.md)). A host therefore attributes a failed invocation without decoding a payload byte, and `details` stays optional supplementary information rather than a field attribution depends on.
+Panic carries no adapter-encoded field. Attribution reads `origin` here — `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`../behavior/errors.md`](../behavior/errors.md)) — and `available` is a plain list at this layer, so a host reports a failure and the correction for it without decoding a payload byte.
+
+`available` is the last field and is self-delimiting, so bytes past it are a framing desync the receiving side rejects.
 
 ---
 

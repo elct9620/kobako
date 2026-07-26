@@ -22,7 +22,6 @@ An adapter owns exactly these positions. Everything else in a message belongs to
 | Yield Call | The block's yield arguments as an ordered list |
 | Yield Reply `body`, `tag` `0x01` / `0x02` | The block's value, or the `break` value |
 | Outcome `body`, `tag=0x01` | The invocation's value |
-| Panic `details` | Optional structured diagnostics |
 | Run `payload` | The entrypoint's `args` and `kwargs` |
 | Frame 3 entry `body` | Not adapter-encoded — raw UTF-8 source or RITE bytecode |
 
@@ -74,7 +73,7 @@ The Host Gem represents `Integer` at arbitrary precision; the Guest Binary repre
 
 Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit.
 
-**The budget is per document.** The core envelope carries no nesting of its own (→ [`envelope.md`](envelope.md) § Size and Depth Bounds), and each payload it hands through is decoded as its own document with its own 128-level budget. A Panic's `details` payload and the Panic that carries it do not share a budget.
+**The budget is per document.** The core envelope carries no nesting of its own (→ [`envelope.md`](envelope.md) § Size and Depth Bounds), and each payload it hands through is decoded as its own document with its own 128-level budget.
 
 Every decoder enforces the bound: the Host Gem's codec library on its decode path, and the Guest Binary's decoder on every inbound payload, so a host→guest value nesting deeper than the bound fails as a clean wire error rather than overflowing the wasm stack. The Guest Binary encoder caps its recursive walk at the same depth: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as E-06 / E-22 (→ [`../behavior/errors.md`](../behavior/errors.md)) rather than a hard trap. The host rejects a `#run` argument nesting deeper — as a reference cycle necessarily does — while encoding the payload, raising `Kobako::SandboxError` (E-54). The guest likewise rejects a dispatch argument nesting deeper — and, more broadly, any dispatch argument or kwargs value outside the wire type set — at the dispatch call site rather than coercing it to a string, surfacing as E-55. The guest cap and the host library's limit sit at the same depth; a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
 
