@@ -27,30 +27,30 @@ class TestYielder < Minitest::Test
     @handle = @table.alloc(@object)
   end
 
-  # Build a Yielder whose guest re-entry always answers on +tag+ carrying
-  # +value+ (the bound Handle unless overridden), in the +[tag, body,
+  # Build a Yielder whose guest re-entry always answers on +arm+ carrying
+  # +value+ (the bound Handle unless overridden), in the +[arm, body,
   # class]+ shape the ext's GuestYielder hands back.
-  def yielder_answering(tag, value: @handle)
-    reply = [tag, Kobako::Codec::Encoder.encode(value), nil]
+  def yielder_answering(arm, value: @handle)
+    reply = [arm, Kobako::Codec::Encoder.encode(value), nil]
     Yielder.new(->(_args) { reply }, BREAK_TAG, @table)
   end
 
   def test_ok_value_handle_is_restored_to_its_host_object
-    result = yielder_answering(Kobako::Transport::Yielder::TAG_OK).yield
+    result = yielder_answering(:ok).yield
 
     assert_same @object, result,
-                "B-37: a Handle in a 0x01 ok payload reaches the Service yield site as its host object"
+                "B-37: a Handle in an ok payload reaches the Service yield site as its host object"
   end
 
   def test_handle_free_ok_value_passes_through_unchanged
-    result = yielder_answering(Kobako::Transport::Yielder::TAG_OK, value: ["sum", { "count" => 42 }]).yield
+    result = yielder_answering(:ok, value: ["sum", { "count" => 42 }]).yield
 
     assert_equal ["sum", { "count" => 42 }], result,
-                 "a Handle-free 0x01 ok payload reaches the Service yield site unchanged"
+                 "a Handle-free ok payload reaches the Service yield site unchanged"
   end
 
   def test_break_value_handle_passes_through_without_restoration
-    thrown = catch(BREAK_TAG) { yielder_answering(Kobako::Transport::Yielder::TAG_BREAK).yield }
+    thrown = catch(BREAK_TAG) { yielder_answering(:break).yield }
 
     assert_kind_of Kobako::Handle, thrown,
                    "B-25/B-37: a break value returns to the guest, so a Handle passes through " \

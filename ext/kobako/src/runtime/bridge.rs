@@ -9,19 +9,19 @@ use core::cell::Cell;
 use core::ptr::NonNull;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Value};
+use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Symbol, Value};
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::envelope::{Call, Reply, Target, YieldReply};
 use kobako_runtime::yielder::Yielder;
 
-/// The tags the host `Transport::Yielder` branches on. They mirror the
-/// Yield Reply's arms so the Ruby side names an outcome rather than a
-/// position, and they are the wire's own values so the two stay legible
-/// against `docs/wire/envelope.md`.
-const TAG_OK: u8 = 0x01;
-const TAG_BREAK: u8 = 0x02;
-const TAG_ERROR: u8 = 0x04;
+/// The names the host `Transport::Yielder` branches on — one per Yield
+/// Reply arm. Neutral Symbols rather than the envelope's tag bytes, the
+/// same way `Snapshot#outcome` names its arms: the core envelope is this
+/// side's to read, so no byte value of it reaches Ruby.
+const ARM_OK: &str = "ok";
+const ARM_BREAK: &str = "break";
+const ARM_ERROR: &str = "error";
 
 /// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
 /// `crate::runtime::init` after `Kobako::Runtime` is defined so the
@@ -87,16 +87,16 @@ impl GuestYielder {
         self.yielder.set(None);
     }
 
-    /// Ruby-visible `call(args_payload) -> [tag, body, class]`: drive one
-    /// yield round-trip and hand back the reply already split. The tag and
-    /// the error arm's class come off the core envelope here, so the host
-    /// `Transport::Yielder` decodes only a payload — and only on the two
-    /// arms that carry one, where `body` is the block's value; on the
-    /// error arm it is the message, and `class` names what raised.
+    /// Ruby-visible `call(args_payload) -> [arm, body, class]`: drive one
+    /// yield round-trip and hand back the reply already split. The arm is
+    /// named here off the core envelope, so the host `Transport::Yielder`
+    /// decodes only a payload — and only on the two arms that carry one,
+    /// where `body` is the block's value; on the error arm it is the
+    /// message, and `class` names what raised.
     /// Raises `Kobako::TrapError` when the handle has been invalidated
     /// (escaped guest block), when the re-entry itself traps, or when the
     /// guest answers with bytes the envelope cannot frame.
-    fn call(&self, args: RString) -> Result<(u8, RString, Option<String>), MagnusError> {
+    fn call(&self, args: RString) -> Result<(Symbol, RString, Option<String>), MagnusError> {
         let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_yield");
         let Some(mut ptr) = self.yielder.get() else {
             return Err(super::errors::trap_err(
@@ -114,11 +114,17 @@ impl GuestYielder {
             .yield_block(&bytes)
             .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
         match YieldReply::decode(&resp) {
-            Ok(YieldReply::Ok(body)) => Ok((TAG_OK, ruby.str_from_slice(&body), None)),
-            Ok(YieldReply::Break(body)) => Ok((TAG_BREAK, ruby.str_from_slice(&body), None)),
-            Ok(YieldReply::Error(record)) => {
-                Ok((TAG_ERROR, ruby.str_new(&record.message), Some(record.class)))
+            Ok(YieldReply::Ok(body)) => {
+                Ok((ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None))
             }
+            Ok(YieldReply::Break(body)) => {
+                Ok((ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&body), None))
+            }
+            Ok(YieldReply::Error(record)) => Ok((
+                ruby.to_symbol(ARM_ERROR),
+                ruby.str_new(&record.message),
+                Some(record.class),
+            )),
             Err(err) => Err(super::errors::trap_err(&ruby, err.to_string())),
         }
     }

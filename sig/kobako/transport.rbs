@@ -6,7 +6,7 @@ module Kobako
     # modelled structurally so the Transport layer needs no upward
     # dependency on Runtime.
     interface _GuestYielder
-      def call: (String) -> [Integer, String, String?]
+      def call: (String) -> [Symbol, String, String?]
     end
 
     # The per-invocation dispatch Proc, taking the routing fields the native

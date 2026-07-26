@@ -1,10 +1,6 @@
 module Kobako
   module Transport
     class Yielder
-      TAG_OK: Integer
-      TAG_BREAK: Integer
-      TAG_ERROR: Integer
-
       @yield_to_guest: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
       @handler: Kobako::Codec::_HandleTable

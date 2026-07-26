@@ -43,7 +43,7 @@ class TestTransportFaultPosition < Minitest::Test
   # ---------- E-50 — inbound Yield Reply path ----------
 
   def test_yield_reply_carrying_fault_raises_at_the_yield_site
-    reply = [Kobako::Transport::Yielder::TAG_OK, Kobako::Codec::Encoder.encode(FAULT), nil]
+    reply = [:ok, Kobako::Codec::Encoder.encode(FAULT), nil]
     yielder = Kobako::Transport::Yielder.new(->(_args) { reply }, :__test_break__, @handler)
 
     assert_raises(Kobako::Codec::InvalidType,

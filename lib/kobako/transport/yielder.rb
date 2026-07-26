@@ -27,18 +27,10 @@ module Kobako
     # dispatch completes; any later call to a stashed Yielder then raises
     # +LocalJumpError+ — the observable shape of an escaped Yielder.
     class Yielder
-      # The Yield Reply arms the native side hands back, named here so
-      # #yield branches on an outcome rather than a number. The values are
-      # the wire's own, so the two stay legible against
-      # {docs/wire/envelope.md}[link:../../../docs/wire/envelope.md].
-      TAG_OK = 0x01
-      TAG_BREAK = 0x02
-      TAG_ERROR = 0x04
-
       # +yield_to_guest+ is the ext's per-dispatch
       # +Kobako::Runtime::GuestYielder+, which #yield invokes to re-enter
       # the guest: it takes the argument payload and answers the reply
-      # already split into +[tag, body, class]+. +break_tag+ is the
+      # already split into +[arm, body, class]+. +break_tag+ is the
       # +catch+ throw tag the Dispatcher matches against to unwind the
       # Service on a break. +handler+ is the invocation's +Kobako::Catalog::Handles+,
       # used to restore a Capability Handle in the block's ok value back to
@@ -63,13 +55,13 @@ module Kobako
         # Yield arguments are a payload position: a +Kobako::Fault+ among
         # them has no wire representation, so the encode refuses it at
         # this call site.
-        tag, body, klass = @yield_to_guest.call(
+        arm, body, klass = @yield_to_guest.call(
           Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(args) }
         )
-        raise "#{klass}: #{body}" if tag == TAG_ERROR
+        raise "#{klass}: #{body}" if arm == :error
 
         value, carried_handle = decode_body(body)
-        throw @break_tag, value if tag == TAG_BREAK
+        throw @break_tag, value if arm == :break
 
         restore(value, carried_handle)
       end

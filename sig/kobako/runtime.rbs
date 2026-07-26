@@ -34,7 +34,7 @@ module Kobako
     # +Kobako::Transport::_GuestYielder+, answering the Yield Reply already
     # split off the core envelope.
     class GuestYielder
-      def call: (String args_bytes) -> [Integer, String, String?]
+      def call: (String args_bytes) -> [Symbol, String, String?]
     end
 
     # One invocation's result — the whole Snapshot the driver produced.
