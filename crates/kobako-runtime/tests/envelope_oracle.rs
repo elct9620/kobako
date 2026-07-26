@@ -1,12 +1,11 @@
 //! Byte oracle between the two core-envelope implementations.
 //!
 //! `kobako-runtime` encodes for the host, `kobako-codec` for the guest.
-//! Neither was derived from the other, so this is what keeps them from
-//! drifting: each side's bytes must decode on the other into the same
-//! message, in both directions and on every arm the layout defines.
-//!
-//! The layer's own unit tests pin each side against its golden vectors;
-//! this pins the two sides against each other.
+//! Both are Rust written against one reading of the layout, so the pin
+//! against a *shared* misreading is each side's golden vectors, derived
+//! from `docs/wire/envelope.md` rather than from the other side's code.
+//! This oracle catches what those cannot — the two sides drifting apart —
+//! in both directions and on every arm the layout defines.
 
 use kobako_codec::envelope as guest;
 use kobako_runtime::envelope as host;

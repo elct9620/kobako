@@ -13,14 +13,14 @@ module Kobako
     ) -> Runtime
 
     def eval: (
-      ^(String, Kobako::Transport::_GuestYielder) -> String dispatch,
+      Kobako::Transport::dispatch_proc dispatch,
       Array[String] paths,
       String source,
       Array[Kobako::Catalog::Snippets::tuple] snippets
     ) -> Kobako::Runtime::Snapshot
 
     def run: (
-      ^(String, Kobako::Transport::_GuestYielder) -> String dispatch,
+      Kobako::Transport::dispatch_proc dispatch,
       Array[String] paths,
       Array[Kobako::Catalog::Snippets::tuple] snippets,
       String entrypoint,
@@ -30,10 +30,11 @@ module Kobako
     def profile: () -> Symbol
 
     # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
-    # its second argument; stands in as the +String -> String+ callable the
-    # host +Transport::Yielder+ invokes for a block yield.
+    # its last argument — the production conformer of
+    # +Kobako::Transport::_GuestYielder+, answering the Yield Reply already
+    # split off the core envelope.
     class GuestYielder
-      def call: (String args_bytes) -> String
+      def call: (String args_bytes) -> [Integer, String, String?]
     end
 
     # One invocation's result — the whole Snapshot the driver produced.
