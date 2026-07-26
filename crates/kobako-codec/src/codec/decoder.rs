@@ -4,7 +4,7 @@
 use rmp::decode::{read_marker, RmpRead};
 use rmp::Marker;
 
-use super::{Error, Value, EXT_ERRENV, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
+use super::{Error, Value, EXT_FAULT, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
 
 #[derive(Debug)]
 pub struct Decoder<'a> {
@@ -222,15 +222,15 @@ fn read_ext(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error
             }
             Ok(Value::Handle(id))
         }
-        EXT_ERRENV => {
+        EXT_FAULT => {
             let payload = take(cursor, len)?;
             // Validate the payload is exactly one msgpack map.
             let mut inner = &payload[..];
             match read_value_from(&mut inner, depth + 1) {
                 Ok(Value::Map(_)) if inner.is_empty() => {}
-                _ => return Err(Error::InvalidErrEnv),
+                _ => return Err(Error::InvalidFault),
             }
-            Ok(Value::ErrEnv(payload))
+            Ok(Value::Fault(payload))
         }
         _ => Err(Error::InvalidType),
     }
@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_errenv_payload() {
+    fn roundtrip_fault_payload() {
         let mut inner = Encoder::new();
         inner
             .write_value(&Value::Map(vec![
@@ -539,20 +539,20 @@ mod tests {
             ]))
             .unwrap();
         let payload = inner.into_bytes();
-        let v = Value::ErrEnv(payload.clone());
-        assert_eq!(roundtrip(v), Value::ErrEnv(payload));
+        let v = Value::Fault(payload.clone());
+        assert_eq!(roundtrip(v), Value::Fault(payload));
     }
 
     #[test]
     fn roundtrip_deeply_nested_mixed() {
-        let inner_errenv = {
+        let inner_fault = {
             let mut e = Encoder::new();
             e.write_value(&Value::Map(vec![
                 (Value::Str("type".into()), Value::Str("argument".into())),
                 (Value::Str("message".into()), Value::Str("bad".into())),
             ]))
             .unwrap();
-            Value::ErrEnv(e.into_bytes())
+            Value::Fault(e.into_bytes())
         };
         let v = Value::Array(vec![
             Value::Handle(7),
@@ -561,7 +561,7 @@ mod tests {
                     Value::Str("xs".into()),
                     Value::Array(vec![Value::Int(1), Value::Int(-1), Value::Float(2.5)]),
                 ),
-                (Value::Str("err".into()), inner_errenv),
+                (Value::Str("err".into()), inner_fault),
                 (Value::Str("blob".into()), Value::Bin(vec![0, 1, 2, 3])),
             ]),
         ]);
@@ -642,10 +642,10 @@ mod tests {
     }
 
     #[test]
-    fn decode_errenv_with_non_map_payload_returns_invalid_errenv() {
+    fn decode_fault_with_non_map_payload_returns_invalid_fault() {
         let bytes = [0xc7, 0x01, 0x02, 0xc0];
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_value(), Err(Error::InvalidErrEnv));
+        assert_eq!(dec.read_value(), Err(Error::InvalidFault));
     }
 
     #[test]

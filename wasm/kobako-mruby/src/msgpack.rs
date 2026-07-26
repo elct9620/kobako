@@ -17,7 +17,7 @@ use kobako_codec::codec::{Decoder, Encode, Encoder, Value as CodecValue};
 use kobako_codec::payload::Arguments;
 
 use crate::adapter::{AdapterError, CallArguments, PayloadAdapter};
-use crate::runtime::{ExceptionPayload, Kobako};
+use crate::runtime::{Fault, Kobako};
 
 /// kobako's default payload adapter.
 pub struct MsgpackAdapter;
@@ -85,7 +85,7 @@ impl PayloadAdapter for MsgpackAdapter {
             .map_err(AdapterError::from)
     }
 
-    fn decode_fault(bytes: &[u8]) -> Result<ExceptionPayload, AdapterError> {
+    fn decode_fault(bytes: &[u8]) -> Result<Fault, AdapterError> {
         convert::decode_fault(bytes).map_err(|_| AdapterError::Malformed)
     }
 }

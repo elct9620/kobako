@@ -106,7 +106,7 @@ fn codec_to_tag(e: codec::Error) -> (u8, String) {
         codec::Error::InvalidType => b'I',
         codec::Error::Utf8 => b'U',
         codec::Error::InvalidHandle => b'H',
-        codec::Error::InvalidErrEnv => b'E',
+        codec::Error::InvalidFault => b'E',
         codec::Error::PayloadTooLarge => b'P',
         // Structural faults are produced by the envelope layer, not by
         // the value-level round-trip this oracle drives; unreachable here.

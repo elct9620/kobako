@@ -75,7 +75,7 @@ class TestCodecMalformed < Minitest::Test
     end
   end
 
-  # A hostile guest can chain ext 0x02 (Fault) envelopes through each
+  # A hostile guest can chain ext 0x02 Faults through each
   # other's +details+ field. Every nested Fault re-enters the decoder with
   # a fresh msgpack unpacker, so the gem's per-unpacker stack guard resets
   # at each level and the ext-envelope recursion is unbounded on the Ruby
@@ -122,7 +122,7 @@ class TestCodecMalformed < Minitest::Test
 
   private
 
-  # Frame +payload_bytes+ (a msgpack map) as an ext 0x02 Fault envelope.
+  # Frame +payload_bytes+ (a msgpack map) as an ext 0x02 Fault.
   # ext 32 (0xc9) keeps the length field wide enough for the growing
   # nested chain.
   def ext_fault(payload_bytes)
@@ -135,7 +135,7 @@ class TestCodecMalformed < Minitest::Test
     "\x83\xa4type\xa7runtime\xa7message\xa1x\xa7details".b + details_bytes
   end
 
-  # Wire bytes for +depth+ ext 0x02 envelopes chained through +details+,
+  # Wire bytes for +depth+ ext 0x02 Faults chained through +details+,
   # innermost +details+ being nil.
   def nested_fault_bytes(depth)
     depth.times.reduce("\xc0".b) { |inner, _| ext_fault(fault_map(inner)) }

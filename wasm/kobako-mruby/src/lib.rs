@@ -34,7 +34,7 @@ mod runtime;
 pub use adapter::{AdapterError, CallArguments, PayloadAdapter};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackAdapter;
-pub use runtime::{ExceptionPayload, InstallError, IntegerOutOfRange, Kobako};
+pub use runtime::{Fault, InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
 

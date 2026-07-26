@@ -90,24 +90,24 @@ class TestCodecExtTypes < Minitest::Test
     assert_match(/4 bytes/, err.message, "the rejection must name the required 4-byte Handle payload length")
   end
 
-  # ---------- ext 0x02 Exception ----------
+  # ---------- ext 0x02 Fault ----------
 
   def test_exception_roundtrip_minimal
-    e = Exc.new(type: "runtime", message: "boom")
+    e = Fault.new(type: "runtime", message: "boom")
     _, decoded = roundtrip(e)
     assert_equal e, decoded, "a minimal Fault (ext 0x02) must round-trip unchanged"
   end
 
   def test_exception_roundtrip_with_details
-    e = Exc.new(type: "argument", message: "bad arg",
-                details: { "field" => "x", "expected" => "Integer" })
+    e = Fault.new(type: "argument", message: "bad arg",
+                  details: { "field" => "x", "expected" => "Integer" })
     _, decoded = roundtrip(e)
     assert_equal e, decoded, "a Fault with a nested details Hash must round-trip unchanged"
   end
 
   def test_exception_all_valid_types
-    Exc::VALID_TYPES.each do |t|
-      e = Exc.new(type: t, message: "m")
+    Fault::VALID_TYPES.each do |t|
+      e = Fault.new(type: t, message: "m")
       _, decoded = roundtrip(e)
       assert_equal e, decoded, "a Fault of type #{t.inspect} must round-trip unchanged"
     end

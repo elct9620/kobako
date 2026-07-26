@@ -21,7 +21,7 @@ require "kobako/fault"
 # reader.
 class WireValueGenerator
   Handle = Kobako::Handle
-  Exc    = Kobako::Fault
+  Fault  = Kobako::Fault
 
   MAX_DEPTH = 4
 
@@ -90,7 +90,7 @@ class WireValueGenerator
   # smallest str bands too.
   MULTIBYTE_SAMPLES = ["蒼", "時", "弦", "也", "🌸", "λ", "Ω", "α"].freeze
 
-  EXC_TYPES = %w[runtime argument undefined].freeze
+  FAULT_TYPES = %w[runtime argument undefined].freeze
 
   # Vocabulary of coverage keys the generator may bump as a side effect.
   # Tests assert that every key in this set was visited at least once
@@ -101,7 +101,7 @@ class WireValueGenerator
     nil bool int_pos_fix int_neg_fix int_u8 int_u16 int_u32 int_u64
     int_i8 int_i16 int_i32 int_i64 float str_empty str_fix str_8 str_16
     bin_empty bin_8 bin_16 array_empty array_fix array_16 map_empty
-    map_fix map_16 symbol handle exception nesting
+    map_fix map_16 symbol handle fault nesting
   ].freeze
 
   attr_reader :coverage
@@ -123,7 +123,7 @@ class WireValueGenerator
     when 70..82 then generate_array(depth: depth + 1)
     when 83..94 then generate_map(depth: depth + 1)
     when 95..96 then generate_handle
-    when 97..99 then generate_exception
+    when 97..99 then generate_fault
     end
   end
 
@@ -265,14 +265,14 @@ class WireValueGenerator
     Handle.restore(@rng.rand(Handle::MIN_ID..Handle::MAX_ID))
   end
 
-  def generate_exception
-    @coverage[:exception] += 1
-    type = EXC_TYPES.sample(random: @rng)
+  def generate_fault
+    @coverage[:fault] += 1
+    type = FAULT_TYPES.sample(random: @rng)
     message = random_utf8_string(@rng.rand(1..40))
-    Exc.new(type: type, message: message, details: generate_exception_details)
+    Fault.new(type: type, message: message, details: generate_fault_details)
   end
 
-  def generate_exception_details
+  def generate_fault_details
     case @rng.rand(3)
     when 0 then nil
     when 1 then random_utf8_string(@rng.rand(1..32))

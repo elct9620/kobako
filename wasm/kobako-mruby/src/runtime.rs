@@ -48,7 +48,7 @@ use beni::Value;
 /// fault arm to the single guest-side `Kobako::ServiceError`, so nothing
 /// beyond these two is carried.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExceptionPayload {
+pub struct Fault {
     /// The fault's `type` field (`"runtime"`, `"undefined"`, …). Named
     /// `kind` on the Rust side to avoid the raw-identifier escape.
     pub kind: String,
@@ -292,13 +292,13 @@ impl Kobako {
     /// does not return.
     ///
     /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
-    /// § Fault Envelope pin every fault-arm `type` value to the
+    /// § Fault pin every fault-arm `type` value to the
     /// single guest-side `Kobako::ServiceError` class.
     ///
     /// # Safety
     ///
     /// As `Kobako::raise_transport_error`.
-    pub(crate) unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
+    pub(crate) unsafe fn raise_service_error(&self, ex: &Fault) -> ! {
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
         unsafe { self.service_error_class.raise(self.mrb(), &msg) };

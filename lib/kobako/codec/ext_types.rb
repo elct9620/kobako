@@ -26,12 +26,12 @@ module Kobako
       # → ext 0x01). Module-private — mirrors +codec::EXT_HANDLE+ on the
       # Rust side.
       EXT_HANDLE = 0x01
-      # MessagePack ext type code reserved for Exception envelope
+      # MessagePack ext type code reserved for Fault
       # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
-      # → ext 0x02). Module-private — mirrors +codec::EXT_ERRENV+ on the
+      # → ext 0x02). Module-private — mirrors +codec::EXT_FAULT+ on the
       # Rust side.
-      EXT_ERRENV = 0x02
-      private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_ERRENV
+      EXT_FAULT = 0x02
+      private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_FAULT
 
       # Inert ext id the unrepresentable-value guard registers under. It is
       # never emitted (the guard's packer always raises) and never decoded
@@ -105,7 +105,7 @@ module Kobako
       # registered ext-type packers. A +details+ chain nested past the
       # +state+ depth cap has no wire representation and surfaces as
       # +UnsupportedType+. In a payload position (+state+ inside a
-      # forbid_faults bracket) the envelope has no wire representation at
+      # forbid_faults bracket) a Fault has no wire representation at
       # all, so the refusal routes the value into the position's
       # non-representable handling — the Dispatcher's auto-wrap rescue,
       # or a raise at the yield site.
@@ -127,13 +127,11 @@ module Kobako
       # UTF-8 validation as a top-level decode. A nested ext 0x02 in
       # +details+ re-enters this method, so the +state+ ext-frame guard
       # bounds the chain depth to keep it from exhausting the native stack.
-      # In a payload position (+state+ inside a forbid_faults bracket) the
-      # envelope is a wire violation outright — its sole legal position is
+      # In a payload position (+state+ inside a forbid_faults bracket) a
+      # Fault is a wire violation outright — its sole legal position is
       # a Reply's fault arm.
       def unpack_fault(payload, state)
-        if state.faults_forbidden?
-          raise InvalidType, "Fault envelope (ext 0x02) is not a legal value in a payload position"
-        end
+        raise InvalidType, "a Fault (ext 0x02) is not a legal value in a payload position" if state.faults_forbidden?
 
         state.within_ext_frame(InvalidType) do
           Decoder.decode(payload) do |map|
@@ -162,7 +160,7 @@ module Kobako
 
       def register_fault(factory)
         factory.register_type(
-          EXT_ERRENV, Kobako::Fault,
+          EXT_FAULT, Kobako::Fault,
           packer: ->(fault) { ExtTypes.pack_fault(fault, State.current) },
           unpacker: ->(payload) { ExtTypes.unpack_fault(payload, State.current) }
         )

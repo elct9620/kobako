@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# The Fault envelope's positional legality on the transport paths (E-50):
+# A Fault's positional legality on the transport paths (E-50):
 # its sole legal wire position is a Reply's fault arm, so a
 # guest→host payload smuggling an ext 0x02 is rejected — otherwise a
 # Handle nested in its details would reach host code as a token nothing

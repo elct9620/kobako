@@ -22,12 +22,12 @@ module Kobako
   #
   # Backed by the official +msgpack+ gem: ExtTypes registers the three
   # kobako-specific ext types (0x00 Symbol, 0x01 Capability Handle,
-  # 0x02 Exception envelope) on one process-wide +MessagePack::Factory+,
+  # 0x02 Fault) on one process-wide +MessagePack::Factory+,
   # and Encoder / Decoder are thin wrappers over it. The Rust side
   # mirrors this layer as the +codec+ module in the +kobako-codec+ crate;
   # the ext-code constants live as module-private values on ExtTypes
   # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ /
-  # +codec::EXT_ERRENV+ on that side.
+  # +codec::EXT_FAULT+ on that side.
   module Codec
     # The maximum structural nesting depth the wire represents (the
     # MessagePack ecosystem's bound), shared with the guest +kobako_codec+

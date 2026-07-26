@@ -6,7 +6,7 @@ use rmp::encode::{
     write_sint, write_str, write_uint,
 };
 
-use super::{Error, Value, EXT_ERRENV, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
+use super::{Error, Value, EXT_FAULT, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
 
 #[derive(Debug, Default)]
 pub struct Encoder {
@@ -84,9 +84,9 @@ impl Encoder {
                 write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| Error::Truncated)?;
                 self.buf.extend_from_slice(&id.to_be_bytes());
             }
-            Value::ErrEnv(payload) => {
+            Value::Fault(payload) => {
                 let len = u32::try_from(payload.len()).map_err(|_| Error::PayloadTooLarge)?;
-                write_ext_meta(&mut self.buf, len, EXT_ERRENV).map_err(|_| Error::Truncated)?;
+                write_ext_meta(&mut self.buf, len, EXT_FAULT).map_err(|_| Error::Truncated)?;
                 self.buf.extend_from_slice(payload);
             }
         }
@@ -126,7 +126,7 @@ mod tests {
     fn ext_codes_match_spec() {
         assert_eq!(EXT_SYMBOL, 0x00);
         assert_eq!(EXT_HANDLE, 0x01);
-        assert_eq!(EXT_ERRENV, 0x02);
+        assert_eq!(EXT_FAULT, 0x02);
     }
 
     #[test]

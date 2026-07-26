@@ -54,7 +54,7 @@ end
 end
 
 # 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 12 entries).
-# Handle (ext 0x01) and Exception envelope (ext 0x02) round-trip
+# Handle (ext 0x01) and Fault (ext 0x02) round-trip
 # through the Factory just like the primitives.
 sample_exception = Kobako::Fault.new(type: "runtime", message: "boom")
 wire_types = {

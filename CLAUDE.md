@@ -124,7 +124,7 @@ Root            dependency-free value objects and error classes at Kobako::* —
 
 **Accepted lateral edge:** `Outcome` requires `transport/error.rb`. The `Kobako::Transport::Error` name is SPEC-pinned (SPEC.md "Wire-level error class"), so the class stays at its namespace path; the file itself depends only on root `errors.rb`, so the edge cannot close into a cycle. Do not relocate the definition to "fix" this.
 
-**Per-operation codec state:** `Codec.forbid_faults` and `Codec.track_handles` are brackets over the Codec tier's private `State` — `forbid_faults` enforces that the Fault envelope (ext 0x02) is legal only in its envelope position, so every payload-position decode is wrapped in it (E-50). Brackets wrap **only the decode call**: a bracket spanning guest re-entry would leak the flag into nested operations.
+**Per-operation codec state:** `Codec.forbid_faults` and `Codec.track_handles` are brackets over the Codec tier's private `State` — `forbid_faults` enforces that a Fault (ext 0x02) is legal only in a Reply's fault body, so every payload-position decode is wrapped in it (E-50). Brackets wrap **only the decode call**: a bracket spanning guest re-entry would leak the flag into nested operations.
 
 ### Host native stack (`ext/` + `crates/`)
 

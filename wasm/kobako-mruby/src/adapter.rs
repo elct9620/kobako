@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use beni::Value;
 
-use crate::runtime::{ExceptionPayload, IntegerOutOfRange, Kobako};
+use crate::runtime::{Fault, IntegerOutOfRange, Kobako};
 
 /// Why an adapter could not carry a value across.
 ///
@@ -104,7 +104,7 @@ pub trait PayloadAdapter {
 
     /// Read a Reply's fault body into the fields the guest raises with.
     /// Takes no `Kobako`: a fault becomes an exception, never a value.
-    fn decode_fault(bytes: &[u8]) -> Result<ExceptionPayload, AdapterError>;
+    fn decode_fault(bytes: &[u8]) -> Result<Fault, AdapterError>;
 }
 
 /// The three adapter operations a guest→host dispatch needs.
@@ -124,7 +124,7 @@ struct DispatchOps {
 
 type EncodeArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, AdapterError>;
 type DecodeValueFn = fn(&Kobako, &[u8]) -> Result<Value, AdapterError>;
-type DecodeFaultFn = fn(&[u8]) -> Result<ExceptionPayload, AdapterError>;
+type DecodeFaultFn = fn(&[u8]) -> Result<Fault, AdapterError>;
 
 static DISPATCH_OPS: OnceLock<DispatchOps> = OnceLock::new();
 
@@ -154,7 +154,7 @@ pub(crate) fn dispatch_decode_value(kobako: &Kobako, bytes: &[u8]) -> Result<Val
 }
 
 /// Read a Reply's fault body with the installed adapter.
-pub(crate) fn dispatch_decode_fault(bytes: &[u8]) -> Result<ExceptionPayload, AdapterError> {
+pub(crate) fn dispatch_decode_fault(bytes: &[u8]) -> Result<Fault, AdapterError> {
     (ops().decode_fault)(bytes)
 }
 

@@ -3,7 +3,7 @@ module Kobako
     module ExtTypes
       EXT_SYMBOL: Integer
       EXT_HANDLE: Integer
-      EXT_ERRENV: Integer
+      EXT_FAULT: Integer
       UNREPRESENTABLE_GUARD_ID: Integer
 
       def self?.build_factory: () -> MessagePack::Factory

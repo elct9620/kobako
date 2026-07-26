@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Kobako
-  # Wire-level value object for an ext-0x02 Exception envelope.
+  # Wire-level value object for a Fault (ext 0x02).
   #
   # Top-level shared wire primitive: like +Kobako::Handle+ (ext 0x01),
   # +Fault+ is a MessagePack ext-type leaf registered by

@@ -3,8 +3,8 @@
 //! The kobako codec (docs/wire-codec.md) is plain MessagePack with
 //! three ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes), 0x01 Capability Handle (`fixext 4`,
-//! big-endian u32) and 0x02 Exception envelope (variable-length ext
-//! wrapping an embedded msgpack map). The Ruby host encodes through the
+//! big-endian u32) and 0x02 Fault (variable-length ext wrapping an
+//! embedded msgpack map). The Ruby host encodes through the
 //! official `msgpack` gem; the Rust side encodes through `rmp` here.
 //! Both pickers apply MessagePack's narrowest-encoding rule, which
 //! keeps the two implementations byte-aligned without any cross-language
@@ -40,10 +40,10 @@ const EXT_SYMBOL: i8 = 0x00;
 /// encoder/decoder that needs it lives inside this module.
 const EXT_HANDLE: i8 = 0x01;
 
-/// MessagePack ext type code reserved for Exception envelope
+/// MessagePack ext type code reserved for Fault
 /// (docs/wire/payload-msgpack.md § Ext Types → ext 0x02). Module-private — every
 /// encoder/decoder that needs it lives inside this module.
-const EXT_ERRENV: i8 = 0x02;
+const EXT_FAULT: i8 = 0x02;
 
 /// Maximum legal Capability Handle ID (docs/wire/payload-msgpack.md § Ext Types
 /// → ext 0x01). Module-private.

@@ -16,7 +16,7 @@ pub enum Error {
     InvalidType,
     Utf8,
     InvalidHandle,
-    InvalidErrEnv,
+    InvalidFault,
     PayloadTooLarge,
     /// Decoded as a valid msgpack value, but its structure violates the
     /// expected shape. The message is a self-contained description of
@@ -32,7 +32,7 @@ impl std::fmt::Display for Error {
             Error::InvalidType => f.write_str("invalid msgpack type for kobako codec"),
             Error::Utf8 => f.write_str("invalid UTF-8 in msgpack str"),
             Error::InvalidHandle => f.write_str("invalid Capability Handle (ext 0x01)"),
-            Error::InvalidErrEnv => f.write_str("invalid Exception envelope (ext 0x02)"),
+            Error::InvalidFault => f.write_str("invalid Fault (ext 0x02)"),
             Error::PayloadTooLarge => f.write_str("msgpack payload exceeds u32 length"),
             Error::Malformed(msg) => write!(f, "malformed msgpack structure: {msg}"),
         }

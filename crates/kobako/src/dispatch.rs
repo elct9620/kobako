@@ -130,7 +130,7 @@ fn fault_reply(fault: &Fault) -> Reply {
         ]))
         .expect("a str/str fault map always encodes");
     Reply::Fault(
-        Encoder::encode(&Value::ErrEnv(inner.into_bytes()))
+        Encoder::encode(&Value::Fault(inner.into_bytes()))
             .expect("a flat fault envelope always encodes"),
     )
 }
@@ -306,7 +306,7 @@ mod tests {
         match reply {
             Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_only_value().unwrap()),
             Reply::Fault(body) => match Decoder::new(&body).read_only_value().unwrap() {
-                Value::ErrEnv(inner) => Answer::Fault(inner),
+                Value::Fault(inner) => Answer::Fault(inner),
                 other => panic!("the fault arm must carry a Fault, got {other:?}"),
             },
         }

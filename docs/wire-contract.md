@@ -47,7 +47,7 @@ A Reply splits the same way a Call does: `tag` is the envelope, and what follows
 | Variant | Envelope | Payload | Meaning |
 |---------|----------|---------|---------|
 | **Success** | `tag=0` | `value` | The call completed successfully. `value` carries the return value (a primitive or a Capability Handle reference). |
-| **Fault** | `tag=1` | fault envelope | The call failed. The fault envelope (see Fault Envelope below) describes the failure category and message. |
+| **Fault** | `tag=1` | fault body | The call failed. The Fault (see Fault below) describes the failure category and message. |
 
 Success-versus-fault is an envelope decision, not a payload one: a side learns whether the call succeeded by reading `tag`, without interpreting a payload byte. A Reply always matches exactly one variant. There is no partial success or streaming answer. The Yield Reply answering a Yield Call carries a third outcome the dispatch Reply has no counterpart for — `break` — and is specified under Yield Reply Envelope.
 
@@ -70,9 +70,9 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ---
 
-## Fault Envelope
+## Fault
 
-The fault envelope describes a Service-layer failure. Its sole legal wire position is the whole of a Reply's fault variant; a payload in any other position carrying one is a wire violation the receiving side rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). Maps to the Ruby value object `Kobako::Fault`. It carries three fields:
+A Fault describes a Service-layer failure. Its sole legal wire position is the whole of a Reply's fault variant; a payload in any other position carrying one is a wire violation the receiving side rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). Maps to the Ruby value object `Kobako::Fault`. It carries three fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|

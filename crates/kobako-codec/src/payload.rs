@@ -86,8 +86,8 @@ impl Decode for Arguments {
         // A Fault's only legal position is a Reply's fault arm, which the
         // envelope discriminates; one inside an argument tree is a wire
         // violation this adapter refuses (E-50).
-        if args.iter().any(Value::contains_errenv)
-            || kwargs.iter().any(|(_, value)| value.contains_errenv())
+        if args.iter().any(Value::contains_fault)
+            || kwargs.iter().any(|(_, value)| value.contains_fault())
         {
             return Err(codec::Error::Malformed(
                 "a Fault (ext 0x02) is not a legal value in an invocation payload",
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn a_fault_inside_an_argument_is_refused() {
         let bytes = Encoder::encode(&Value::Array(vec![
-            Value::Array(vec![Value::ErrEnv(fault_body())]),
+            Value::Array(vec![Value::Fault(fault_body())]),
             Value::Map(Vec::new()),
         ]))
         .unwrap();
@@ -197,7 +197,7 @@ mod tests {
             Value::Array(Vec::new()),
             Value::Map(vec![(
                 Value::Sym("cause".into()),
-                Value::Array(vec![Value::ErrEnv(fault_body())]),
+                Value::Array(vec![Value::Fault(fault_body())]),
             )]),
         ]))
         .unwrap();

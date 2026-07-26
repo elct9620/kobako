@@ -46,7 +46,7 @@ module KobakoPubSurface
       extract_backtrace top_level_constants set_handle_id extract_handle_id
     ].to_h { |name| [name, BRIDGE_REASON] }
                            .merge(%w[
-                             PayloadAdapter AdapterError CallArguments ExceptionPayload
+                             PayloadAdapter AdapterError CallArguments Fault
                              IntegerOutOfRange unrepresentable message mint_handle narrow_int
                            ].to_h { |name| [name, ADAPTER_REASON] })
   }.freeze

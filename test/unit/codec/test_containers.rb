@@ -56,7 +56,7 @@ class TestCodecContainers < Minitest::Test
 
   def test_deeply_nested_mixed
     h = Handle.restore(7)
-    e = Exc.new(type: "undefined", message: "missing")
+    e = Fault.new(type: "undefined", message: "missing")
     value = [
       { "handles" => [h, h], "errors" => [e] },
       [{ "deep" => [{ "deeper" => [h] }] }]

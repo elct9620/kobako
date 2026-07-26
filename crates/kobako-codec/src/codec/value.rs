@@ -20,23 +20,23 @@ pub enum Value {
     Sym(String),
     Handle(u32),
     /// Raw bytes of the embedded msgpack map carried inside an ext 0x02
-    /// envelope. Re-decoding the inner map is the boot script's job; the
+    /// frame. Re-decoding the inner map is the boot script's job; the
     /// codec only validates it parses as a single msgpack map.
-    ErrEnv(Vec<u8>),
+    Fault(Vec<u8>),
 }
 
 impl Value {
-    /// Whether this tree carries an `ErrEnv` leaf anywhere. The Fault
-    /// envelope's sole legal wire position is a Reply's fault arm,
-    /// so the host-side envelope decoders reject a payload-position
-    /// tree this answers `true` for.
-    pub fn contains_errenv(&self) -> bool {
+    /// Whether this tree carries a `Fault` leaf anywhere. A Fault's sole
+    /// legal wire position is a Reply's fault arm, so the host-side
+    /// envelope decoders reject a payload-position tree this answers
+    /// `true` for.
+    pub fn contains_fault(&self) -> bool {
         match self {
-            Value::ErrEnv(_) => true,
-            Value::Array(items) => items.iter().any(Value::contains_errenv),
+            Value::Fault(_) => true,
+            Value::Array(items) => items.iter().any(Value::contains_fault),
             Value::Map(pairs) => pairs
                 .iter()
-                .any(|(k, v)| k.contains_errenv() || v.contains_errenv()),
+                .any(|(k, v)| k.contains_fault() || v.contains_fault()),
             _ => false,
         }
     }
@@ -59,6 +59,6 @@ mod tests {
         let _ = Value::Array(Vec::new());
         let _ = Value::Map(Vec::new());
         let _ = Value::Handle(1);
-        let _ = Value::ErrEnv(Vec::new());
+        let _ = Value::Fault(Vec::new());
     }
 }

@@ -27,7 +27,7 @@
 //!    tagged as a failure, read into the fields the bridge raises with.
 
 use crate::adapter::AdapterError;
-use crate::runtime::{ExceptionPayload, IntegerOutOfRange, Kobako};
+use crate::runtime::{Fault, IntegerOutOfRange, Kobako};
 use beni::Value;
 use kobako_codec::codec::{self, Decoder, Value as CodecValue};
 // The encode-side walk caps at the same depth the decoder enforces; the
@@ -39,8 +39,8 @@ use kobako_codec::codec::MAX_NESTING_DEPTH;
 /// `{type, message, details}` map — into the two fields the bridge raises
 /// with. The envelope named the arm; this reads what it carried, which is
 /// the payload adapter's half of the job.
-pub(crate) fn decode_fault(body: &[u8]) -> Result<ExceptionPayload, codec::Error> {
-    let CodecValue::ErrEnv(inner_bytes) = Decoder::new(body).read_only_value()? else {
+pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
+    let CodecValue::Fault(inner_bytes) = Decoder::new(body).read_only_value()? else {
         return Err(codec::Error::Malformed(
             "the fault arm of a Reply must carry a Fault (ext 0x02)",
         ));
@@ -62,7 +62,7 @@ pub(crate) fn decode_fault(body: &[u8]) -> Result<ExceptionPayload, codec::Error
             _ => {}
         }
     }
-    Ok(ExceptionPayload {
+    Ok(Fault {
         kind: kind.ok_or(codec::Error::Malformed(
             "error response from the host is missing the field: type",
         ))?,
@@ -305,7 +305,7 @@ impl Kobako {
             // (`raise_service_error`) before reaching value
             // conversion; the defensive nil here covers any
             // malformed Reply that smuggles one through.
-            CodecValue::ErrEnv(_) => Value::nil(),
+            CodecValue::Fault(_) => Value::nil(),
         })
     }
 }

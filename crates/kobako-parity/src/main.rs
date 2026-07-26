@@ -710,7 +710,7 @@ fn tag_value(value: &Value, execution: &Execution, opaques: &Opaques) -> Json {
         Value::Handle(_) => {
             json!({"t": "opaque", "label": handle_label(value, execution, opaques)})
         }
-        Value::ErrEnv(bytes) => json!({"t": "errenv", "hex": hex(bytes)}),
+        Value::Fault(bytes) => json!({"t": "fault", "hex": hex(bytes)}),
     }
 }
 

@@ -58,7 +58,7 @@ class TestCodecGoldenVectors < Minitest::Test
   end
 
   def test_golden_vector_exception_minimal
-    # Exception(type: "runtime", message: "boom", details: nil)
+    # Fault(type: "runtime", message: "boom", details: nil)
     # Inner map (3 entries) bytes:
     #   83                          fixmap len=3
     #   a4 74 79 70 65              fixstr "type"
@@ -74,7 +74,7 @@ class TestCodecGoldenVectors < Minitest::Test
                 "a76d657373616765a4626f6f6d" \
                 "a764657461696c73c0"
     expected = "c72402#{inner_hex}"
-    assert_bytes expected, Exc.new(type: "runtime", message: "boom")
+    assert_bytes expected, Fault.new(type: "runtime", message: "boom")
   end
 
   # ---------- narrow zero-length tags (SPEC Wire Codec Type Mapping) ----------

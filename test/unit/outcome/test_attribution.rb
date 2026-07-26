@@ -65,7 +65,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
 
   # --- Result arm carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
   #
-  # The Fault envelope's sole legal wire position is a Reply's fault arm;
+  # A Fault's sole legal wire position is a Reply's fault arm;
   # a Result smuggling one would hand host code a Fault whose details can
   # nest Handles nothing outside the wire layer can resolve. The bare
   # codec stays permissive — the positional rule lives on this decode.
