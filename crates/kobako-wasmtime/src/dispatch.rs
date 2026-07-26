@@ -5,19 +5,19 @@
 //! through the closure registered by `instance_pre::build_linker`.
 //! That closure delegates here. The dispatcher:
 //!
-//!   1. Reads the Request bytes from guest linear memory.
+//!   1. Reads the Call bytes from guest linear memory.
 //!   2. Invokes the bound `DispatchHandler` (the frontend's dispatch
-//!      bridge, e.g. a Ruby Proc) and recovers Response bytes.
+//!      bridge, e.g. a Ruby Proc) and recovers Reply bytes.
 //!   3. Allocates a guest buffer via `__kobako_alloc(len)` invoked
 //!      through `Caller::get_export`.
-//!   4. Writes the Response bytes into the guest buffer.
+//!   4. Writes the Reply bytes into the guest buffer.
 //!   5. Returns packed `(ptr<<32)|len` for the guest to decode.
 //!
 //! Returns 0 on any step failure. `Kobako::Sandbox#initialize` always
 //! installs the dispatch handler before any invocation, so reaching the
 //! dispatcher with no handler bound is itself a wire-layer fault; the
 //! guest maps a 0 return to a trap. Failures during normal dispatch
-//! surface as Response.err envelopes from
+//! take the Reply's fault arm from
 //! `Kobako::Transport::Dispatcher.dispatch` itself — they never reach
 //! this 0-return path.
 //!
@@ -58,7 +58,7 @@ use crate::invocation::Invocation;
 /// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to
 /// `stderr` so operators have a breadcrumb when the guest sees a 0
 /// return and traps. The bound dispatch handler is contracted never to
-/// raise (it folds Service exceptions into Response.err envelopes),
+/// raise (it folds Service exceptions onto the Reply's fault arm),
 /// so reaching the failure path is always a wiring bug or wire-layer
 /// fault rather than an expected path.
 pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {

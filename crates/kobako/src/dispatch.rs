@@ -19,7 +19,7 @@ use crate::receiver::{Fault, FaultKind, Receiver};
 use crate::yielder::Yielder;
 
 /// `DispatchHandler` over a sealed Catalog and the invocation's Handle
-/// table: resolve each Request's target to its Receiver and fold every
+/// table: resolve each Call's target to its Receiver and fold every
 /// failure into a fault envelope.
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
@@ -78,7 +78,7 @@ impl CatalogHandler {
         }
     }
 
-    /// Resolve the Request target: a path against the sealed Catalog,
+    /// Resolve the Call target: a path against the sealed Catalog,
     /// a Handle id against the invocation's table. Either miss is the
     /// `undefined` fault the guest re-raises.
     fn resolve_target(&self, target: &Target) -> Result<Arc<dyn Receiver>, Fault> {

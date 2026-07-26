@@ -1,7 +1,7 @@
 //! Caller-based guest linear-memory I/O shared by the host-import paths.
 //!
 //! Both directions of a host↔guest buffer handoff that run *inside* a wasm
-//! callback frame go through here: writing the transport Response back
+//! callback frame go through here: writing the transport Reply back
 //! (`crate::dispatch`) and shipping block-yield args into the guest
 //! (`drive_yield`, below) performed the same `__kobako_alloc` +
 //! bounds-check + `memory.write` dance with only the diagnostic strings

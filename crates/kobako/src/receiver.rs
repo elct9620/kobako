@@ -59,7 +59,7 @@ impl Fault {
     }
 }
 
-/// The host object a dispatch runs the Request's method on, reached
+/// The host object a dispatch runs the Call's method on, reached
 /// as `MyService::KV` or through a capability Handle.
 ///
 /// `Send + Sync` because the dispatch handler crosses the engine

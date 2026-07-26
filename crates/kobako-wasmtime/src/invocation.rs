@@ -85,7 +85,7 @@ impl Invocation {
 
     /// Bind the dispatch handler for this invocation. From this point on,
     /// every `__kobako_dispatch` host import invocation hands the handler
-    /// the request bytes and expects encoded Response bytes back.
+    /// the Call bytes and expects encoded Reply bytes back.
     pub(crate) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
         self.on_dispatch = Some(handler);
     }

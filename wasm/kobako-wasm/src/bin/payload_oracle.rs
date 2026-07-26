@@ -21,7 +21,7 @@
 //! N bytes: msgpack payload for the specified document kind
 //! ```
 //!
-//! Response frames have the same layout as `roundtrip_oracle`: a 4-byte
+//! Result frames have the same layout as `roundtrip_oracle`: a 4-byte
 //! length header (high bit clear on success, set on error) followed by
 //! the re-encoded bytes (no kind tag — the Ruby driver knows which kind
 //! it sent).

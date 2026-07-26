@@ -53,7 +53,7 @@ pub const ABI_VERSION: u32 = 3;
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
-    /// Host-provided transport bridge. Guest writes a Request payload at
+    /// Host-provided transport bridge. Guest writes a Call payload at
     /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a
     /// packed u64 holding (response_ptr, response_len) of a buffer the
     /// host allocated via `__kobako_alloc` inside the same call frame.

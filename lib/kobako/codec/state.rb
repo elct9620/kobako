@@ -55,8 +55,8 @@ module Kobako
       end
 
       # Bracket a codec operation in a payload position, where an ext 0x02
-      # Fault envelope has no legal wire representation: the fault field of
-      # an error Response is its only home. The ext-type conversions
+      # Fault envelope has no legal wire representation: a Reply's fault
+      # arm is its only home. The ext-type conversions
       # consult #faults_forbidden? and refuse the envelope in both
       # directions while the bracket is open. Save/restore keeps a nested
       # legal operation on the same thread unaffected.

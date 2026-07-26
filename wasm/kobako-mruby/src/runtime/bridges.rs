@@ -101,9 +101,9 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// bound constant, a Handle id for a `Kobako::Handle` instance) plus two
 /// error labels: `sym_err_msg` for a null method symbol, `envelope_err_msg`
 /// for a transport envelope fault. Extracts the method symbol, args/kwargs,
-/// and block; rounds the request through the host via
+/// and block; rounds the Call through the host via
 /// `kobako_core::transport::proxy::invoke`; and converts the result back
-/// to an mruby value — raising `Kobako::ServiceError` on a Response.err and
+/// to an mruby value — raising `Kobako::ServiceError` on a fault arm and
 /// `Kobako::Transport::Error` on an envelope fault (both raise paths
 /// diverge). The `Kobako` token supplies only the VM-level primitives
 /// (arg/result conversion, error raising); the dispatch orchestration
@@ -175,7 +175,7 @@ fn forward_to_dispatch(
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
 /// forwarding entry the module contributes to both proxy shapes.
 /// `Kobako::Proxy` is extended onto each bound-Service constant and included
-/// into `Kobako::Handle`. The Request `Target` follows the receiver's
+/// into `Kobako::Handle`. The Call `Target` follows the receiver's
 /// identity: an exact `Kobako::Handle` instance yields `Target::Handle`
 /// from its `@__kobako_id__` ivar, and a class receiver yields
 /// `Target::Path` from its constant name. Any other receiver — a subclass
@@ -217,7 +217,7 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
 
 /// Refuse a dispatch from a receiver that mixed in `Kobako::Proxy` yet is
 /// neither a `Kobako::Handle` nor a class: it carries no dispatch target,
-/// so the call raises `NoMethodError` in-guest and sends no Request rather
+/// so the call raises `NoMethodError` in-guest and sends no Call rather
 /// than forwarding a target read off arbitrary instance state.
 fn raise_no_target(mrb: &Mrb, self_: Value) -> Value {
     let nomethod = mrb

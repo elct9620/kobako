@@ -10,9 +10,9 @@
 //! Each frame is a 4-byte big-endian length followed by `length` bytes of
 //! payload.
 //!
-//! * Request frame (Ruby -> oracle): payload is exactly one msgpack value
+//! * Input frame (Ruby -> oracle): payload is exactly one msgpack value
 //!   produced by `Kobako::Codec::Encoder`.
-//! * Response frame (oracle -> Ruby):
+//! * Result frame (oracle -> Ruby):
 //!     - `length` with the high bit clear: payload is the re-encoded msgpack
 //!       value the oracle produced after a decode + re-encode cycle.
 //!     - `length` with the high bit set (0x8000_0000): error frame. The

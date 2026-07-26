@@ -31,23 +31,23 @@ module Kobako
 
       module_function
 
-      # Internal sentinel raised when target resolution fails. Mapped to
-      # Response.error with type="undefined". Contained at the wire boundary —
+      # Internal sentinel raised when target resolution fails. Becomes a
+      # Fault with type="undefined". Contained at the wire boundary —
       # not part of the public Kobako error taxonomy.
       class UndefinedTargetError < StandardError; end
 
-      # Dispatch a single transport request and return the encoded
-      # Response bytes. Invoked from the per-invocation dispatch Proc that
+      # Answer a single routed Call with +[ok, bytes]+, which the native
+      # side puts on the Reply's ok or fault arm. Invoked from the
+      # per-invocation dispatch Proc that
       # +Kobako::Context+ hands to +Runtime#eval+ / +#run+; +resolver+,
       # +handler+, and +yield_to_guest+ are captured in that Proc's
       # closure so the Dispatcher stays stateless and neither the resolver
       # nor the Context needs to publish accessors for the per-invocation
       # +Catalog::Handles+ or +Runtime+. +yield_to_guest+ is a +String → String+ callable
       # (the ext's per-dispatch +Kobako::Runtime::GuestYielder+) used only
-      # when the Request carries +block_given: true+. Always
-      # returns a binary String — every failure path is reified as a
-      # Response.error envelope so the guest sees a transport error rather
-      # than a wasm trap.
+      # when the Call carries +block_given: true+. Never raises — every
+      # failure path takes the fault arm instead, so the guest sees a
+      # transport error rather than a wasm trap.
       #
       # The decode runs inside +Codec.track_handles+ so #resolve_call_args
       # can skip the argument walk when no Capability Handle crossed the
@@ -106,7 +106,7 @@ module Kobako
       end
 
       # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed
-      # (the +Request+ invariant pins it). The empty-kwargs branch omits
+      # (the +Payload::Arguments+ invariant pins it). The empty-kwargs branch omits
       # the +**+ splat so Ruby 3.x's strict kwargs separation does not
       # reject calls to no-kwarg methods when the wire carries the
       # uniform empty-map shape.

@@ -255,7 +255,7 @@ impl Kobako {
     /// does not return.
     ///
     /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
-    /// § Fault Envelope pin every Response.err `type` value to the
+    /// § Fault Envelope pin every fault-arm `type` value to the
     /// single guest-side `Kobako::ServiceError` class.
     ///
     /// # Safety

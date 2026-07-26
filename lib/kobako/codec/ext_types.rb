@@ -129,7 +129,7 @@ module Kobako
       # bounds the chain depth to keep it from exhausting the native stack.
       # In a payload position (+state+ inside a forbid_faults bracket) the
       # envelope is a wire violation outright — its sole legal position is
-      # the Response fault field.
+      # a Reply's fault arm.
       def unpack_fault(payload, state)
         if state.faults_forbidden?
           raise MisplacedFault, "Fault envelope (ext 0x02) is not a legal value in a payload position"

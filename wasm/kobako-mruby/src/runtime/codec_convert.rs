@@ -10,7 +10,7 @@
 //!
 //! 1. **Value conversion** (`try_codec_value`) — the single guest→host
 //!    value converter, shared by the `#eval` / `#run` outcome, the
-//!    yield-block result, and the dispatch Request args / kwargs. A value
+//!    yield-block result, and the dispatch Call args / kwargs. A value
 //!    with no wire representation yields `None`, never a coerced
 //!    `Object#to_s` string: the outcome caller emits a Panic envelope, the
 //!    yield caller a `0x04` error Yield Reply, and the dispatch caller
@@ -72,7 +72,7 @@ impl UnrepresentableArg {
     }
 }
 
-/// The unpacked form of a dispatch Request's argument list: positional args
+/// The unpacked form of a dispatch Call's argument list: positional args
 /// followed by Symbol-keyed kwargs pairs.
 type UnpackedArgs = (
     Vec<kobako_codec::codec::Value>,
@@ -82,7 +82,7 @@ type UnpackedArgs = (
 impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; `Request`'s `kobako_codec::codec::Encode` impl re-emits
+    /// key's name; `payload::Arguments`'s `Encode` impl re-emits
     /// each name as a `Value::Sym` (ext 0x00) per
     /// docs/wire/payload-msgpack.md § Ext Types. Keys arriving as either
     /// mruby `Symbol` or `String` reduce
@@ -193,7 +193,7 @@ impl Kobako {
 
     /// Convert a `Value` to a kobako `kobako_codec::codec::Value` — the
     /// single guest→host value converter, shared by the `#eval` / `#run`
-    /// outcome, the yield-block result, and the dispatch Request args /
+    /// outcome, the yield-block result, and the dispatch Call args /
     /// kwargs. Symbol values map to `Value::Sym` (ext 0x00); Array / Hash
     /// values map to `Value::Array` / `Value::Map` recursively
     /// (docs/wire/payload-msgpack.md § Type Mapping #7-#8) so a collection retains
@@ -335,7 +335,7 @@ impl Kobako {
             // ext 0x02 envelopes are consumed by the exception path
             // (`raise_service_error`) before reaching value
             // conversion; the defensive nil here covers any
-            // malformed Response that smuggles one through.
+            // malformed Reply that smuggles one through.
             CodecValue::ErrEnv(_) => Value::nil(),
         })
     }

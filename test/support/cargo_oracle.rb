@@ -142,7 +142,7 @@ class CargoOracle
       @stdin.flush
     end
 
-    # Read one response frame. Returns +[body, error_flag]+. Raises
+    # Read one result frame. Returns +[body, error_flag]+. Raises
     # +EOFError+ if the stream closed before a full header arrived, or
     # +IOError+ if the body is shorter than the header advertised.
     def read_frame

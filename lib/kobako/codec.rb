@@ -44,7 +44,7 @@ module Kobako
     end
 
     # Bracket a codec operation in a payload position: an ext 0x02 Fault
-    # envelope is only legal in the Response fault field, so the envelope
+    # envelope is only legal on a Reply's fault arm, so the envelope
     # layers open this bracket around every other encode / decode and the
     # ext-type conversions refuse the envelope while it is open — a wire
     # violation on decode, no wire representation on encode.

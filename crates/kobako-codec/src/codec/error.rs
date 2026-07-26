@@ -20,7 +20,8 @@ pub enum Error {
     PayloadTooLarge,
     /// Decoded as a valid msgpack value, but its structure violates the
     /// expected shape. The message is a self-contained description of
-    /// what was expected (e.g. "Request must be a 5-element array").
+    /// what was expected (e.g. "an invocation payload must be a
+    /// 2-element array of args and kwargs").
     Malformed(&'static str),
 }
 

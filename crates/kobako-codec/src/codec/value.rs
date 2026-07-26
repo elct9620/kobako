@@ -27,7 +27,7 @@ pub enum Value {
 
 impl Value {
     /// Whether this tree carries an `ErrEnv` leaf anywhere. The Fault
-    /// envelope's sole legal wire position is the Response fault field,
+    /// envelope's sole legal wire position is a Reply's fault arm,
     /// so the host-side envelope decoders reject a payload-position
     /// tree this answers `true` for.
     pub fn contains_errenv(&self) -> bool {

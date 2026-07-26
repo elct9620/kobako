@@ -8,11 +8,11 @@
 //! docs/wire-contract.md § Call Shape / § Reply Shape pins the contract
 //! this module implements.
 //!
-//! `invoke` builds a `Request`, encodes it, calls the host, and
-//! demuxes the decoded `Response` — `Ok(value)` back to the bridge,
-//! `Err(payload)` into the exception the bridge raises. The envelope
-//! codec is already pinned at the value-object layer (`request.rs` /
-//! `response.rs` golden vectors); on the host target a thread-local
+//! `invoke` builds a `Call`, encodes it, calls the host, and demuxes the
+//! decoded `Reply` — `Ok(value)` back to the bridge, `Err(payload)` into
+//! the exception the bridge raises. The envelope layout is already pinned
+//! at the value-object layer (`envelope::{call,reply}` golden vectors and
+//! the byte oracle); on the host target a thread-local
 //! loopback hook stands in for `__kobako_dispatch` so the demux logic
 //! tests without a real wasm runtime.
 
@@ -28,9 +28,9 @@ use kobako_codec::payload::Arguments;
 // Exception payload returned to mruby on the error path.
 // ---------------------------------------------------------------------
 
-/// The shape of a Response.err payload after envelope-level decoding —
+/// The shape of a fault-arm payload after envelope-level decoding —
 /// exactly the fields the consuming bridge needs to raise the guest
-/// exception (SPEC pins every Response.err to the single guest-side
+/// exception (SPEC pins every fault arm to the single guest-side
 /// `Kobako::ServiceError`, so nothing beyond `kind` and `message` is
 /// carried).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,17 +48,17 @@ pub struct ExceptionPayload {
 
 /// Error variants returned by `invoke`.
 ///
-/// `Service` carries the SPEC-mandated Response.err path payload;
-/// `Codec` covers everything that fails *before* the response can be
+/// `Service` carries the SPEC-mandated fault-arm payload; `Codec` covers
+/// everything that fails *before* the Reply can be
 /// classified (wire-shape violations, codec faults, host returning
 /// `len == 0`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum InvokeError {
-    /// The host returned a Response.err — this is the *normal* path for
+    /// The host answered on the fault arm — this is the *normal* path for
     /// a Service raising an exception, surfaced to mruby as a re-raise.
     Service(ExceptionPayload),
-    /// A wire-layer fault — host returned malformed bytes, the response
-    /// was not a Response envelope, or the host signalled `len == 0`. In
+    /// A wire-layer fault — host returned malformed bytes, the answer
+    /// was not a Reply envelope, or the host signalled `len == 0`. In
     /// a real run this routes to `Kobako::SandboxError` / `TrapError` via
     /// the boot script's panic path.
     Codec(codec::Error),
@@ -104,8 +104,8 @@ impl std::error::Error for InvokeError {
 // ---------------------------------------------------------------------
 
 /// Function signature for the host-target loopback. Receives the
-/// *Request bytes* the caller would have written into wasm linear
-/// memory and returns the Response bytes the host would have written
+/// *Call bytes* the caller would have written into wasm linear
+/// memory and returns the Reply bytes the host would have written
 /// back via `__kobako_alloc`. Pure in/out; no shared state.
 #[cfg(not(target_arch = "wasm32"))]
 type LoopbackFn = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + 'static>;
