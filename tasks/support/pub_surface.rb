@@ -20,6 +20,14 @@ module KobakoPubSurface
   BRIDGE_REASON = "placeholder-rule liveness — pub keeps the mruby-less host build " \
                   "warning-free; crate-internal to the flows, not third-party API"
 
+  # The payload-adapter seam. A shell names its schema on
+  # `MrbGuest::Payload`, and an adapter written outside this crate reaches
+  # these to build guest values — so the only in-repo consumer is the
+  # bundled MessagePack adapter, which the grep does not count as
+  # downstream.
+  ADAPTER_REASON = "payload-adapter API — what a shell-supplied adapter implements " \
+                   "and calls; the bundled MessagePack one is the only in-repo user"
+
   # Pub items confirmed to stay public for a reason the in-repo grep cannot
   # see — macro-expanded third-party API, or pub reachability a
   # placeholder-rule crate relies on. gate:surface fails the day an entry
@@ -37,6 +45,10 @@ module KobakoPubSurface
       InstallError install_bindings Kobako init resolve_raw raise_transport_error
       extract_backtrace top_level_constants set_handle_id extract_handle_id
     ].to_h { |name| [name, BRIDGE_REASON] }
+                           .merge(%w[
+                             PayloadAdapter AdapterError CallArguments ExceptionPayload
+                             IntegerOutOfRange unrepresentable message mint_handle narrow_int
+                           ].to_h { |name| [name, ADAPTER_REASON] })
   }.freeze
 
   # A crate's public Rust surface; +pub(crate)+ and narrower stay out,
