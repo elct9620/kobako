@@ -53,7 +53,7 @@ module Kobako
       # replaced with a +Kobako::Handle+; the +handler+ argument is the
       # invocation's table, sharing the same allocator the guest→host
       # return path uses. A wrapped leaf rides as ext 0x01 in its
-      # original position (docs/wire-codec.md § ext 0x01 position rules).
+      # original position (docs/wire/payload-msgpack.md § ext 0x01).
       def payload(handler)
         Payload::Arguments.new(
           args: Codec::HandleWalk.deep_wrap(args, handler),

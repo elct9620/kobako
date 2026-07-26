@@ -75,7 +75,7 @@ class TestTransportDispatchViolations < Minitest::Test
                  "a refused Handle id must not enter the Catalog::Handles"
   end
 
-  # ---------- Over-deep wire violation (docs/wire-codec.md § Structural Nesting Depth) ----------
+  # ---------- Over-deep wire violation (docs/wire/payload-msgpack.md § Structural Nesting Depth) ----------
 
   # A guest request nested beyond the codec's depth bound must come back as a
   # Response.error with type="runtime" — the same containment as any other

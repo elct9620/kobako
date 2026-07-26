@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — host→guest integer representability through real mruby
-# (docs/wire-codec.md § Integer Range). The guest is built MRB_INT32, so a
+# (docs/wire/payload-msgpack.md § Integer Range). The guest is built MRB_INT32, so a
 # wire integer outside the signed 32-bit range has no faithful guest
 # representation. The guest refuses such a value rather than saturating it
 # to the nearest bound, so the script never receives a different number

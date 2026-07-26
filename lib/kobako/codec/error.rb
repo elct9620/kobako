@@ -5,7 +5,7 @@ module Kobako
     # Base class for all wire-codec faults raised by the pure-Ruby host codec.
     #
     # The wire codec implements the binary contract pinned in
-    # {docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type Mapping.
+    # {docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type Mapping.
     # Every wire violation surfaces as a
     # subclass of Error so callers can pattern-match on the specific
     # fault while still rescuing all codec faults via this base class.

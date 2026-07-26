@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Kobako::Fault is the value object for an ext-0x02 Exception envelope
-# (docs/wire-codec.md § Ext Types → ext 0x02): a {type, message, details}
+# (docs/wire/payload-msgpack.md § Ext Types → ext 0x02): a {type, message, details}
 # triple whose type is drawn from a closed taxonomy. This file pins the
 # constructor's own validation contract; the codec round-trip of the
 # encoded form lives in test/unit/codec/test_ext_types.rb.

@@ -12,7 +12,7 @@ module Kobako
   # upward on Transport.
   #
   # SPEC pins the payload
-  # ({docs/wire-codec.md}[link:../../docs/wire-codec.md] § Ext Types
+  # ({docs/wire/payload-msgpack.md}[link:../../docs/wire/payload-msgpack.md] § Ext Types
   # → ext 0x02) to a msgpack map with exactly three keys:
   #   * "type"    — one of "runtime", "argument", "undefined"
   #   * "message" — human-readable string

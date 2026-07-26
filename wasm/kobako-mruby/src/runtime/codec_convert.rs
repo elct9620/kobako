@@ -28,13 +28,14 @@ use super::Kobako;
 use beni::Value;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
-// (docs/wire-codec.md § Structural Nesting Depth).
+// (docs/wire/payload-msgpack.md § Structural Nesting Depth).
 use kobako_codec::codec::MAX_NESTING_DEPTH;
 
 /// An inbound integer fell outside the guest's signed 32-bit `Integer`
 /// range, which the MRB_INT32 build cannot hold. `to_mrb_value` refuses
-/// it rather than saturating to the nearest bound (docs/wire-codec.md
-/// § Integer Range); each call site fails its path the way it reports any
+/// it rather than saturating to the nearest bound
+/// (docs/wire/payload-msgpack.md § Integer Range); each call site fails
+/// its path the way it reports any
 /// malformed inbound payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct IntegerOutOfRange(pub(crate) i128);
@@ -82,8 +83,9 @@ impl Kobako {
     /// Decode every key/value pair from an mruby Hash into `out` as
     /// `(String, codec::Value)` pairs. The outer `String` carries the
     /// key's name; `Request`'s `kobako_codec::codec::Encode` impl re-emits
-    /// each name as a `Value::Sym` (ext 0x00) per docs/wire-codec.md § Ext
-    /// Types. Keys arriving as either mruby `Symbol` or `String` reduce
+    /// each name as a `Value::Sym` (ext 0x00) per
+    /// docs/wire/payload-msgpack.md § Ext Types. Keys arriving as either
+    /// mruby `Symbol` or `String` reduce
     /// to the same UTF-8 name via `Object#to_s`. A value with no wire
     /// representation aborts the walk with `UnrepresentableArg` so the
     /// caller raises at the guest dispatch call site rather than coercing it.
@@ -161,8 +163,8 @@ impl Kobako {
     /// Convert each key/value pair of an mruby Hash through the strict value
     /// converter. Both the key and the value flow through it so a `Symbol`
     /// key arrives as `Value::Sym` (ext 0x00) and a `String` key as
-    /// `Value::Str` — distinct codec encodings per docs/wire-codec.md § Ext
-    /// Types.
+    /// `Value::Str` — distinct codec encodings per
+    /// docs/wire/payload-msgpack.md § Ext Types.
     fn hash_to_codec(
         &self,
         val: Value,
@@ -194,7 +196,7 @@ impl Kobako {
     /// outcome, the yield-block result, and the dispatch Request args /
     /// kwargs. Symbol values map to `Value::Sym` (ext 0x00); Array / Hash
     /// values map to `Value::Array` / `Value::Map` recursively
-    /// (docs/wire-codec.md § Type Mapping #7-#8) so a collection retains
+    /// (docs/wire/payload-msgpack.md § Type Mapping #7-#8) so a collection retains
     /// element-level fidelity.
     ///
     /// A `Kobako::Handle` proxy the guest holds (a Service return, or a

@@ -139,7 +139,7 @@ mod tests {
     fn encoder_accepts_nesting_at_max_depth() {
         // The encode-side guard mirrors the decode-side boundary: a value
         // nested exactly to the cap must encode, so the two paths agree on
-        // which structures are legal (docs/wire-codec.md § Structural
+        // which structures are legal (docs/wire/payload-msgpack.md § Structural
         // Nesting Depth).
         let mut v = Value::Nil;
         for _ in 0..MAX_NESTING_DEPTH {
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn golden_sym_empty_uses_ext8_with_zero_length() {
-        // docs/wire-codec.md § Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
+        // docs/wire/payload-msgpack.md § Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
         assert_eq!(encode(&Value::Sym(String::new())), vec![0xc7, 0x00, 0x00]);
     }
 

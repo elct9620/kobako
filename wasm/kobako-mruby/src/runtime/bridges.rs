@@ -158,7 +158,7 @@ fn forward_to_dispatch(
         Ok(value) => match kobako.to_mrb_value(value) {
             Ok(mrb_value) => mrb_value,
             // A dispatch return value the guest cannot represent raises in
-            // the calling guest code (docs/wire-codec.md § Integer Range).
+            // the calling guest code (docs/wire/payload-msgpack.md § Integer Range).
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Err(err) => {
                 let msg = std::ffi::CString::new(err.message()).unwrap_or_default();

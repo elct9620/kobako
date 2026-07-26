@@ -316,7 +316,7 @@ impl Kobako {
     /// Rust `Vec<String>`. Used by the guest panic path
     /// (`crate::flows::eval` / `crate::flows::run`) to populate the Panic
     /// envelope's `backtrace` field
-    /// (docs/wire-codec.md § Panic Envelope).
+    /// (docs/wire/envelope.md § Panic).
     ///
     /// mruby's default build keeps the backtrace, so `.backtrace`
     /// returns an Array of String. If the runtime is ever rebuilt

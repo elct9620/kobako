@@ -2,7 +2,7 @@
 //! types the kobako wire allows.
 
 /// A decoded msgpack value, restricted to the 12 codec types the kobako
-/// codec accepts (docs/wire-codec.md § Type Mapping). Anything outside
+/// codec accepts (docs/wire/payload-msgpack.md § Type Mapping). Anything outside
 /// this set is rejected at decode time with `Error::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

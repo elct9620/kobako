@@ -11,23 +11,23 @@ require_relative "../fault"
 module Kobako
   module Codec
     # The kobako wire ext-type conversions
-    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types)
+    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types)
     # as pure functions: per-operation decode state is threaded in as an
     # argument, so the module itself holds nothing. #build_factory assembles
     # the one +MessagePack::Factory+ these conversions are registered on.
     module ExtTypes
       # MessagePack ext type code reserved for Symbol
-      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
       # → ext 0x00). Module-private — mirrors +codec::EXT_SYMBOL+ on the
       # Rust side.
       EXT_SYMBOL = 0x00
       # MessagePack ext type code reserved for Capability Handle
-      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
       # → ext 0x01). Module-private — mirrors +codec::EXT_HANDLE+ on the
       # Rust side.
       EXT_HANDLE = 0x01
       # MessagePack ext type code reserved for Exception envelope
-      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Ext Types
+      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
       # → ext 0x02). Module-private — mirrors +codec::EXT_ERRENV+ on the
       # Rust side.
       EXT_ERRENV = 0x02

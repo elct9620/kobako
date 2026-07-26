@@ -22,9 +22,9 @@ use crate::runtime::{InstallError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
+use kobako_codec::envelope::{ErrorRecord, Panic};
 #[cfg(mruby_linked)]
 use kobako_codec::envelope::{Preamble, Snippet, Snippets};
-use kobako_codec::envelope::{ErrorRecord, Panic};
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty
@@ -241,7 +241,10 @@ fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
     };
     Panic {
         origin: "sandbox".into(),
-        error: ErrorRecord { class, ..panic.error },
+        error: ErrorRecord {
+            class,
+            ..panic.error
+        },
         ..panic
     }
 }

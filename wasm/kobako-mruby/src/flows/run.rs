@@ -173,7 +173,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // multiplier: 1)`).
     // An argument the guest cannot represent — an integer outside the
     // 32-bit range — fails the invocation rather than reaching the
-    // entrypoint with a saturated value (docs/wire-codec.md § Integer
+    // entrypoint with a saturated value (docs/wire/payload-msgpack.md § Integer
     // Range).
     let mut argv: Vec<beni::Value> = match arguments
         .args

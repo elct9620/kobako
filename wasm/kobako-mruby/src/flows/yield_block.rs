@@ -80,7 +80,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     // Step 3: convert codec args → Value args. A yielded argument the
     // guest cannot represent — an integer outside the 32-bit range —
     // fails the yield round-trip rather than reaching the block with a
-    // saturated value (docs/wire-codec.md § Integer Range).
+    // saturated value (docs/wire/payload-msgpack.md § Integer Range).
     let args: Vec<beni::Value> = match args_codec
         .into_iter()
         .map(|v| kobako.to_mrb_value(v))

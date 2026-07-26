@@ -302,7 +302,7 @@ mod tests {
     fn decoder_accepts_nesting_at_max_depth() {
         // A value nested exactly to the cap round-trips — the boundary
         // value is accepted, mirroring the encode-side limit
-        // (docs/wire-codec.md § Structural Nesting Depth).
+        // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
         let mut v = Value::Nil;
         for _ in 0..MAX_NESTING_DEPTH {
             v = Value::Array(vec![v]);
@@ -314,7 +314,7 @@ mod tests {
     fn decoder_rejects_nesting_past_max_depth() {
         // One level past the cap fails as a clean wire error instead of
         // recursing until the wasm stack overflows and hard-traps the
-        // guest (docs/wire-codec.md § Structural Nesting Depth). The bytes
+        // guest (docs/wire/payload-msgpack.md § Structural Nesting Depth). The bytes
         // are hand-built — `0x91` is a one-element fixarray, `0xc0` the
         // innermost nil — because the encoder now refuses to emit an
         // over-deep tree (encoder_rejects_nesting_past_max_depth), so it
@@ -632,8 +632,9 @@ mod tests {
 
     #[test]
     fn decode_handle_zero_returns_invalid_handle() {
-        // ID 0 is the reserved invalid sentinel (docs/wire-codec.md
-        // § ext 0x01); forged bytes carrying it must be a wire violation,
+        // ID 0 is the reserved invalid sentinel
+        // (docs/wire/payload-msgpack.md § ext 0x01); forged bytes carrying
+        // it must be a wire violation,
         // matching the Ruby peer's Handle::MIN_ID floor.
         let bytes = [0xd6, 0x01, 0x00, 0x00, 0x00, 0x00];
         let mut dec = Decoder::new(&bytes);

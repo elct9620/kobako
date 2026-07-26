@@ -5,8 +5,8 @@
 //! shims in `kobako-mruby`'s bridge module, whose shared
 //! `forward_to_dispatch` body calls `invoke` here) and the wasm-level
 //! `__kobako_dispatch` host import declared in `crate::abi`.
-//! docs/wire-contract.md § Request / Response pins the contract this
-//! module implements.
+//! docs/wire-contract.md § Call Shape / § Reply Shape pins the contract
+//! this module implements.
 //!
 //! `invoke` builds a `Request`, encodes it, calls the host, and
 //! demuxes the decoded `Response` — `Ok(value)` back to the bridge,

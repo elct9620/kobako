@@ -68,7 +68,7 @@ class TestCodecContainers < Minitest::Test
 
   # A structure nested beyond the codec's depth bound (the MessagePack
   # ecosystem's limit the host library enforces on decode —
-  # docs/wire-codec.md § Structural Nesting Depth) must surface as a clean
+  # docs/wire/payload-msgpack.md § Structural Nesting Depth) must surface as a clean
   # wire violation, never a Ruby SystemStackError or a host crash. The
   # guest→host dispatch path depends on this: the dispatcher rescues only
   # StandardError, so an over-deep guest request stays catchable solely

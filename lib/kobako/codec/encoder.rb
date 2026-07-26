@@ -8,7 +8,7 @@ require_relative "ext_types"
 module Kobako
   module Codec
     # Module-level entry point for the host side of the kobako wire
-    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type Mapping).
+    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type Mapping).
     #
     # The codec backbone is the official +msgpack+ gem: integers, floats,
     # strings, arrays, and maps go through the gem's narrowest-encoding

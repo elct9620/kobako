@@ -24,8 +24,8 @@ keywords = ["wasm", "mruby", "sandbox", "wasi", "msgpack"]
 categories = ["wasm", "encoding"]
 
 [features]
-# The MessagePack payload adapter — the `codec` / `payload` / `transport`
-# modules and everything `rmp` backs. On by default because it is what
+# The MessagePack payload adapter — the `codec` and `payload` modules
+# and everything `rmp` backs. On by default because it is what
 # the bundled mruby guest and the Ruby frontend speak; turning it off
 # leaves the core envelope, which two endpoints sharing another schema
 # can drive with no MessagePack in their dependency graph at all.

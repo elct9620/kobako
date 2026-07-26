@@ -29,27 +29,28 @@ pub use encoder::{Encode, Encoder};
 pub use error::Error;
 pub use value::Value;
 
-/// MessagePack ext type code reserved for Symbol (docs/wire-codec.md
-/// § Ext Types → ext 0x00). Module-private — mirrors the `EXT_SYMBOL`
+/// MessagePack ext type code reserved for Symbol
+/// (docs/wire/payload-msgpack.md § Ext Types → ext 0x00). Module-private
+/// — mirrors the `EXT_SYMBOL`
 /// constant on the Ruby Factory side.
 const EXT_SYMBOL: i8 = 0x00;
 
 /// MessagePack ext type code reserved for Capability Handle
-/// (docs/wire-codec.md § Ext Types → ext 0x01). Module-private — every
+/// (docs/wire/payload-msgpack.md § Ext Types → ext 0x01). Module-private — every
 /// encoder/decoder that needs it lives inside this module.
 const EXT_HANDLE: i8 = 0x01;
 
 /// MessagePack ext type code reserved for Exception envelope
-/// (docs/wire-codec.md § Ext Types → ext 0x02). Module-private — every
+/// (docs/wire/payload-msgpack.md § Ext Types → ext 0x02). Module-private — every
 /// encoder/decoder that needs it lives inside this module.
 const EXT_ERRENV: i8 = 0x02;
 
-/// Maximum legal Capability Handle ID (docs/wire-codec.md § Ext Types
+/// Maximum legal Capability Handle ID (docs/wire/payload-msgpack.md § Ext Types
 /// → ext 0x01). Module-private.
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
 /// Maximum structural nesting depth the guest codec walks on both the
-/// encode and decode paths (docs/wire-codec.md § Structural Nesting
+/// encode and decode paths (docs/wire/payload-msgpack.md § Structural Nesting
 /// Depth). The cap keeps a reference cycle or a pathologically deep
 /// payload from overflowing the wasm stack and hard-trapping the guest;
 /// it sits far below that overflow threshold and matches the limit the
