@@ -4,7 +4,7 @@ require "test_helper"
 
 # Unit-level coverage of Transport::Dispatcher containment: malformed wire
 # payloads (non-Symbol kwargs keys, forged integer targets per B-20,
-# over-deep nesting) come back as Response.error — never a host crash —
+# over-deep nesting) come back on the Reply's fault arm — never a host crash —
 # and Catalog::Handles exhaustion (B-21 / E-07) surfaces through the same
 # rescue chain. Well-formed dispatch lives in test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
@@ -13,14 +13,14 @@ class TestTransportDispatchViolations < Minitest::Test
   # SPEC Wire Codec → Ext Types → ext 0x00: kwargs map keys MUST be ext
   # 0x00 Symbols. A non-Symbol key (String and Integer cover the natively
   # msgpack-representable shapes) decodes to a structurally valid
-  # 5-element envelope, then fails the Request value object's kwargs-key
-  # invariant; because that invariant is checked inside Request.decode's
-  # block, Codec::Decoder.decode rescues the ArgumentError and re-raises
-  # it as a wire-decode InvalidType, so the dispatcher reports
-  # type="runtime". The envelope MUST carry all five elements: a
-  # 4-element array would trip the arity guard first and never reach the
-  # kwargs-key check — the second message assertion witnesses that the
-  # kwargs-key path, not the arity guard, produced this error.
+  # 2-element payload, then fails the Payload::Arguments kwargs-key
+  # invariant; because that invariant is checked inside the block
+  # Arguments.decode yields to, Codec::Decoder.decode rescues the
+  # ArgumentError and re-raises it as a wire-decode InvalidType, so the
+  # dispatcher reports type="runtime". The payload MUST carry both
+  # elements: a 1-element array would trip the shape guard first and never
+  # reach the kwargs-key check — the second message assertion witnesses
+  # that the kwargs-key path, not the shape guard, produced this error.
   NON_SYMBOL_KWARGS = {
     "a String kwargs key" => { "name" => "alice" },
     "an Integer kwargs key" => { 42 => "v" }
@@ -36,12 +36,12 @@ class TestTransportDispatchViolations < Minitest::Test
 
   def test_non_symbol_kwargs_key_is_wire_violation
     NON_SYMBOL_KWARGS.each do |shape, kwargs|
-      resp = decode_response(dispatch(payload_call(Kobako::Codec::Encoder.encode([[], kwargs]))))
+      answer = reify(dispatch(payload_call(Kobako::Codec::Encoder.encode([[], kwargs]))))
 
-      assert_predicate resp, :error?
-      assert_equal "runtime", resp.payload.type
-      assert_match(/Sandbox received a malformed request/, resp.payload.message)
-      assert_match(/kwargs keys must be Symbol/, resp.payload.message,
+      assert_predicate answer, :error?
+      assert_equal "runtime", answer.payload.type
+      assert_match(/Sandbox received a malformed request/, answer.payload.message)
+      assert_match(/kwargs keys must be Symbol/, answer.payload.message,
                    "#{shape} must be rejected by the kwargs-key invariant, not the arity guard")
     end
   end
@@ -50,25 +50,25 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # SPEC B-20: a guest cannot forge a Capability Handle from a bare
   # integer. The host-side wire decoder rejects the malformed encoding
-  # before the value reaches the Catalog::Handles. Operationally, a Request
+  # before the value reaches the Catalog::Handles. Operationally, a Call
   # whose target slot carries a raw msgpack int (no ext 0x01 framing)
-  # fails Request.decode's type validation and the dispatcher
-  # surfaces it as a Response.error. The integer never reaches resolve_target
+  # fails the payload decode's type validation and the dispatcher
+  # answers on the fault arm. The integer never reaches resolve_target
   # or Catalog::Handles#fetch — see the assertion on table size below.
   #
-  # The test seam: we cannot construct such a Request via Request.new
+  # The test seam: we cannot construct such a Call via Call.new
   # (its constructor rejects non-String/Handle target types). We hand-roll
   # the msgpack bytes via Kobako::Codec::Encoder so the malformed payload reaches
   # the dispatcher exactly as a misbehaving guest would emit it.
   def test_an_id_the_table_never_issued_is_refused_as_undefined
-    resp = decode_response(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
+    answer = reify(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
 
-    assert_predicate resp, :error?
+    assert_predicate answer, :error?
     # The core envelope makes a Handle target an ordinary integer the
     # guest picks, so the table's membership — not the wire shape — is
     # what refuses it (B-65). The guest observes a normal transport
     # error rather than a wasm trap.
-    assert_equal "undefined", resp.payload.type,
+    assert_equal "undefined", answer.payload.type,
                  "an integer through the Call target slot that the table never issued must be " \
                  "refused as an undefined target"
     assert_equal 0, @handler.size,
@@ -77,22 +77,22 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # ---------- Over-deep wire violation (docs/wire/payload-msgpack.md § Structural Nesting Depth) ----------
 
-  # A guest request nested beyond the codec's depth bound must come back as a
-  # Response.error with type="runtime" — the same containment as any other
-  # malformed request, never a host crash or a wasm trap. The dispatcher
+  # A guest Call nested beyond the codec's depth bound must come back on the
+  # fault arm with type="runtime" — the same containment as any other
+  # malformed payload, never a host crash or a wasm trap. The dispatcher
   # rescues only StandardError; this holds because the codec maps the nesting
   # overflow into the Kobako::Codec::Error taxonomy before it can become a
   # Ruby SystemStackError that would escape the rescue.
-  def test_over_deep_request_is_contained_as_runtime_error
+  def test_over_deep_call_is_contained_as_runtime_error
     # 1000 nested single-element arrays terminated by nil — a misbehaving
-    # guest emitting a request far past the ecosystem nesting bound.
+    # guest emitting a payload far past the ecosystem nesting bound.
     over_deep_payload = "\x92#{"\x91" * 1000}\xC0\x80".b
 
-    resp = decode_response(dispatch(payload_call(over_deep_payload)))
+    answer = reify(dispatch(payload_call(over_deep_payload)))
 
-    assert_predicate resp, :error?
-    assert_equal "runtime", resp.payload.type
-    assert_match(/Sandbox received a malformed request/, resp.payload.message)
+    assert_predicate answer, :error?
+    assert_equal "runtime", answer.payload.type
+    assert_match(/Sandbox received a malformed request/, answer.payload.message)
   end
 
   # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------
@@ -104,8 +104,8 @@ class TestTransportDispatchViolations < Minitest::Test
   # during a normal transport call: a Service method returns a non-wire-representable
   # value, the codec raises UnsupportedType, wrap_return falls through to
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
-  # rescue chain as a Response.error the guest observes.
-  def test_handler_exhaustion_during_wrap_return_is_response_err
+  # rescue chain on the fault arm the guest observes.
+  def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
     # Test seam: Catalog::Handles.new(next_id:) lets us pin the counter
     # at MAX_ID + 1 without 2^31 allocations. SPEC documents this seam
     # at Catalog::Handles "Build a fresh, empty Handler" — the parameter
@@ -113,13 +113,13 @@ class TestTransportDispatchViolations < Minitest::Test
     exhausted = Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
     registry = Kobako::Catalog::Services.new
     registry.bind("Factory::Make", object_factory)
-    req = encode_request("Factory::Make", "make", [], {})
+    call = build_call("Factory::Make", "make", [], {})
 
-    resp = decode_response(dispatch(req, server: registry, handler: exhausted))
+    answer = reify(dispatch(call, server: registry, handler: exhausted))
 
-    assert_predicate resp, :error?
-    assert_equal "runtime", resp.payload.type
-    assert_match(/Kobako::HandleExhaustedError/, resp.payload.message)
+    assert_predicate answer, :error?
+    assert_equal "runtime", answer.payload.type
+    assert_match(/Kobako::HandleExhaustedError/, answer.payload.message)
   end
 
   def test_handler_exhaustion_propagates_as_sandbox_error_class
@@ -127,7 +127,7 @@ class TestTransportDispatchViolations < Minitest::Test
     # (per Kobako::errors). This matters because Sandbox-invocation-
     # level callers rescuing SandboxError must catch the exhaustion path;
     # the dispatcher's rescue StandardError branch turns the raise into
-    # a Response.error so the guest can observe it, but the underlying
+    # a fault the guest can observe, but the underlying
     # class identity is what SPEC B-21 pins.
     assert_operator Kobako::HandleExhaustedError, :<, Kobako::SandboxError
 
@@ -142,19 +142,19 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # ---------- Host-level fault escapes the rescue by design ----------
 
-  # The dispatcher folds a Service's StandardError into a Response.error so
+  # The dispatcher folds a Service's StandardError onto the fault arm so
   # the guest can rescue it, but the boundary is StandardError by intent: a
   # host-process-level fault (here SecurityError, a non-StandardError) must
   # escape dispatch to trap the invocation rather than be masked as a
   # rescuable fault — the complement of the containment cases above.
   def test_non_standard_error_from_a_service_escapes_the_rescue
     @registry.bind("Boom::Fatal", ->(_) { raise SecurityError, "host fault" })
-    req = encode_request("Boom::Fatal", "call", ["x"], {})
+    call = build_call("Boom::Fatal", "call", ["x"], {})
 
-    error = assert_raises(SecurityError) { dispatch(req) }
+    error = assert_raises(SecurityError) { dispatch(call) }
     assert_equal "host fault", error.message,
                  "a non-StandardError raised by a Service must escape the dispatch rescue " \
-                 "to trap the invocation, not fold into a guest-rescuable Response.error"
+                 "to trap the invocation, not fold into a guest-rescuable fault"
   end
 
   private

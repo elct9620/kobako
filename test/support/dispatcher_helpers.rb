@@ -54,25 +54,15 @@ module DispatcherHelpers
     Kobako::Transport::Dispatcher.dispatch(call, server, handler, NO_YIELD)
   end
 
-  # Build the Call the native side would hand Ruby. +target+ is a
+  # Instance-side shorthands for the two module functions above, so an
+  # including test class reads without the namespace. +target+ is a
   # constant-path String or a Handle id Integer — the two forms the core
   # envelope's +kind+ tag already discriminated.
-  def encode_request(target, method, args, kwargs, block_given: false)
-    Kobako::Transport::Call.new(
-      target: target,
-      method_name: method,
-      block_given: block_given,
-      payload: Kobako::Payload::Arguments.new(args: args, kwargs: kwargs).encode
-    )
+  def build_call(target, method, args = [], kwargs = {}, block_given: false)
+    DispatcherHelpers.call_for(target, method, args, kwargs, block_given: block_given)
   end
 
-  # Reify the Dispatcher's +[ok, bytes]+ answer. The ok arm decodes to
-  # the return value; the fault arm to the +Kobako::Fault+ the guest
-  # re-raises.
-  def decode_response(answer)
-    ok, bytes = answer
-    Answer.new(ok, Kobako::Codec::Decoder.decode(bytes))
-  end
+  def reify(answer) = DispatcherHelpers.reify(answer)
 
   # Allocate +obj+ in the test's own Catalog::Handles and return the id —
   # the host side of every Handle the guest could legitimately hold.
@@ -83,6 +73,6 @@ module DispatcherHelpers
   # Round-trip a Handle-target Call through the dispatcher: build,
   # dispatch, reify — the shape a guest emits for B-17 chaining.
   def dispatch_handle_target(id, method, args = [], kwargs = {}, **dispatch_opts)
-    decode_response(dispatch(encode_request(id, method, args, kwargs), **dispatch_opts))
+    reify(dispatch(build_call(id, method, args, kwargs), **dispatch_opts))
   end
 end

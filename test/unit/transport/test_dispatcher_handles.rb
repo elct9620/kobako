@@ -14,27 +14,27 @@ class TestTransportDispatchHandles < Minitest::Test
 
   # SPEC B-14: a Service method whose return value falls outside the wire
   # type set (B-13) is automatically allocated a Catalog::Handles entry, and
-  # the guest sees a Kobako::Handle in the Response.ok payload.
+  # the guest sees a Kobako::Handle on the Reply's ok arm.
   def test_non_wire_return_value_is_wrapped_as_handle
     @registry.bind("Factory::Make", ->(name) { greeter(name) })
-    req = encode_request("Factory::Make", "call", ["Alice"], {})
+    call = build_call("Factory::Make", "call", ["Alice"], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_kind_of Kobako::Handle, resp.payload
-    bound = @handler.fetch(resp.payload.id)
+    assert_predicate answer, :ok?
+    assert_kind_of Kobako::Handle, answer.payload
+    bound = @handler.fetch(answer.payload.id)
     assert_equal "hi,Alice", bound.greet
   end
 
   def test_primitive_return_value_is_not_wrapped
     @registry.bind("Logger::Echo", ->(arg) { arg })
-    req = encode_request("Logger::Echo", "call", ["plain"], {})
+    call = build_call("Logger::Echo", "call", ["plain"], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "plain", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "plain", answer.payload
     assert_equal 0, @handler.size
   end
 
@@ -50,12 +50,12 @@ class TestTransportDispatchHandles < Minitest::Test
     end.new("Alice")
     handle_id = alloc_id(greeter)
     @registry.bind("Echo::Wrap", ->(g) { "wrapped:#{g.greet}" })
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id)], {})
+    call = build_call("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id)], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "wrapped:hello,Alice", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "wrapped:hello,Alice", answer.payload
   end
 
   def test_handle_kwarg_is_resolved_to_bound_object_before_dispatch
@@ -64,23 +64,23 @@ class TestTransportDispatchHandles < Minitest::Test
     handle_id = alloc_id(obj)
     capture = []
     @registry.bind("K::Run", target_kwarg_runner(capture))
-    req = encode_request("K::Run", "run", [], { target: Kobako::Handle.restore(handle_id) })
+    call = build_call("K::Run", "run", [], { target: Kobako::Handle.restore(handle_id) })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "done", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "done", answer.payload
     assert_equal ["kw_ok"], capture
   end
 
   def test_unknown_handle_arg_returns_undefined_exception
-    req = encode_request("Logger::Echo", "call", [Kobako::Handle.restore(999)], {})
+    call = build_call("Logger::Echo", "call", [Kobako::Handle.restore(999)], {})
     @registry.bind("Logger::Echo", ->(x) { x })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "undefined", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "undefined", answer.payload.type
   end
 
   # ---------- B-17 — guest passes Handle as target (chained composition) -
@@ -93,30 +93,30 @@ class TestTransportDispatchHandles < Minitest::Test
     end.new
     handle_id = alloc_id(obj)
 
-    resp = dispatch_handle_target(handle_id, "find", [42])
+    answer = dispatch_handle_target(handle_id, "find", [42])
 
-    assert_predicate resp, :ok?
-    assert_equal "row:42", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "row:42", answer.payload
   end
 
   def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
     # B-17 + B-14 chained: invoking a Handle target whose method returns
-    # another non-primitive object yields a fresh Handle in the response.
+    # another non-primitive object yields a fresh Handle on the ok arm.
     parent_id = alloc_id(leaf_factory)
 
-    resp = dispatch_handle_target(parent_id, "make")
+    answer = dispatch_handle_target(parent_id, "make")
 
-    assert_predicate resp, :ok?
-    assert_kind_of Kobako::Handle, resp.payload
-    refute_equal parent_id, resp.payload.id
-    assert_equal "leaf", @handler.fetch(resp.payload.id).kind
+    assert_predicate answer, :ok?
+    assert_kind_of Kobako::Handle, answer.payload
+    refute_equal parent_id, answer.payload.id
+    assert_equal "leaf", @handler.fetch(answer.payload.id).kind
   end
 
   def test_unknown_handle_target_returns_undefined_exception
-    resp = dispatch_handle_target(7, "any")
+    answer = dispatch_handle_target(7, "any")
 
-    assert_predicate resp, :error?
-    assert_equal "undefined", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "undefined", answer.payload.type
   end
 
   private

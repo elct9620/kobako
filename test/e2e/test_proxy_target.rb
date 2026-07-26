@@ -3,17 +3,17 @@
 require "test_helper"
 
 # E2E (Layer 4) — guest→host dispatch target derivation through real mruby.
-# The Kobako::Proxy seam derives a Request target from the receiver's exact
+# The Kobako::Proxy seam derives a Call target from the receiver's exact
 # identity: an exact Kobako::Handle by its id, a class by its constant path.
 # A receiver that mixed in the module without being either has no target and
-# is refused in-guest, emitting no wire Request (B-59). The positive paths are
+# is refused in-guest, emitting no wire Call (B-59). The positive paths are
 # pinned by B-12 (bound constant) and B-17 (Handle) elsewhere.
 class TestE2EProxyTarget < Minitest::Test
   include E2eGuestHelper
 
   # A guest class that mixes in Kobako::Proxy is neither an exact
   # Kobako::Handle nor a class, so method_missing finds no target and refuses
-  # before any wire Request; uncaught it surfaces as SandboxError (E-04).
+  # before any wire Call; uncaught it surfaces as SandboxError (E-04).
   def test_b59_foreign_proxy_holder_is_refused_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })

@@ -9,63 +9,63 @@ require "test_helper"
 class TestTransportDispatchUnit < Minitest::Test
   include DispatcherHelpers
 
-  def test_dispatches_string_target_and_returns_response_ok_bytes
+  def test_dispatches_string_target_and_returns_ok_arm_bytes
     @registry.bind("Logger::Echo", lambda(&:upcase))
-    req = encode_request("Logger::Echo", "call", ["hi"], {})
+    call = build_call("Logger::Echo", "call", ["hi"], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "HI", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "HI", answer.payload
   end
 
   def test_passes_kwargs_as_symbols_to_bound_object
     capture = []
     @registry.bind("Logger::Tag", kwarg_tag_recorder(capture))
-    req = encode_request("Logger::Tag", "tag", ["x"], { key: "value" })
+    call = build_call("Logger::Tag", "tag", ["x"], { key: "value" })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
+    assert_predicate answer, :ok?
     assert_equal [%w[x value]], capture
   end
 
   # E-12: a dispatch target path matching no registered Service surfaces as
-  # the type="undefined" error envelope; the dispatcher never raises.
+  # the type="undefined" fault; the dispatcher never raises.
   def test_unknown_target_returns_undefined_exception
-    req = encode_request("Missing::Method", "call", ["x"], {})
+    call = build_call("Missing::Method", "call", ["x"], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "undefined", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "undefined", answer.payload.type
   end
 
   def test_method_raise_returns_runtime_exception
     @registry.bind("Boom::Bang", ->(_) { raise "boom" })
-    req = encode_request("Boom::Bang", "call", ["x"], {})
+    call = build_call("Boom::Bang", "call", ["x"], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "runtime", resp.payload.type
-    assert_match(/boom/, resp.payload.message)
+    assert_predicate answer, :error?
+    assert_equal "runtime", answer.payload.type
+    assert_match(/boom/, answer.payload.message)
   end
 
   def test_argument_error_returns_argument_exception
     @registry.bind("Service::M", ->(_a, _b) { :ok })
     # Missing argument — Ruby ArgumentError on dispatch.
-    req = encode_request("Service::M", "call", [], {})
+    call = build_call("Service::M", "call", [], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "argument", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "argument", answer.payload.type
   end
 
   # ---------- E-15 — kwargs dispatch (Testing Layer 4) -------------------
 
-  # SPEC E-15 + Wire Contract Request kwargs + Ext Types → ext 0x00.
+  # SPEC E-15 + Wire Contract Call kwargs + Ext Types → ext 0x00.
   # Keyword argument names travel on the wire as Symbols; the dispatcher
   # forwards them to +public_send+ without further conversion.
 
@@ -75,12 +75,12 @@ class TestTransportDispatchUnit < Minitest::Test
   # the empty map is the wire-uniform shape for "no kwargs".
   def test_empty_kwargs_dispatches_to_no_kwarg_method
     @registry.bind("Math::Add", ->(a, b) { a + b })
-    req = encode_request("Math::Add", "call", [2, 3], {})
+    call = build_call("Math::Add", "call", [2, 3], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal 5, resp.payload
+    assert_predicate answer, :ok?
+    assert_equal 5, answer.payload
   end
 
   # SPEC E-15 explicit: "Passing keyword arguments to a method whose
@@ -92,13 +92,13 @@ class TestTransportDispatchUnit < Minitest::Test
   # is asserted alongside the fault type.
   def test_kwargs_to_no_kwarg_method_returns_argument_exception
     @registry.bind("Math::Add", ->(a, b) { a + b })
-    req = encode_request("Math::Add", "call", [2, 3], { extra: 1 })
+    call = build_call("Math::Add", "call", [2, 3], { extra: 1 })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "argument", resp.payload.type
-    assert_equal Encoding::UTF_8, resp.payload.message.encoding,
+    assert_predicate answer, :error?
+    assert_equal "argument", answer.payload.type
+    assert_equal Encoding::UTF_8, answer.payload.message.encoding,
                  "a binding-failure fault through Dispatcher.dispatch must carry its message as a wire str, not bin"
   end
 
@@ -108,12 +108,12 @@ class TestTransportDispatchUnit < Minitest::Test
       define_method(:greet) { |name:| "hi,#{name}" }
     end
     @registry.bind("Hello::Greet", klass.new)
-    req = encode_request("Hello::Greet", "greet", [], { name: "alice", bogus: "x" })
+    call = build_call("Hello::Greet", "greet", [], { name: "alice", bogus: "x" })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :error?
-    assert_equal "argument", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "argument", answer.payload.type
   end
 
   # Mixed positional + kwargs: the dispatcher passes positional args
@@ -123,12 +123,12 @@ class TestTransportDispatchUnit < Minitest::Test
       define_method(:set) { |key, value:| "#{key}=#{value}" }
     end
     @registry.bind("KV::Set", klass.new)
-    req = encode_request("KV::Set", "set", ["k"], { value: "v" })
+    call = build_call("KV::Set", "set", ["k"], { value: "v" })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "k=v", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "k=v", answer.payload
   end
 
   # Method with **rest accepts any keys; the dispatcher forwards them
@@ -136,12 +136,12 @@ class TestTransportDispatchUnit < Minitest::Test
   def test_keyrest_method_accepts_arbitrary_kwargs
     obj = keyrest_recorder
     @registry.bind("K::Cap", obj)
-    req = encode_request("K::Cap", "capture", [], { a: 1, b: 2 })
+    call = build_call("K::Cap", "capture", [], { a: 1, b: 2 })
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_equal "ok", resp.payload
+    assert_predicate answer, :ok?
+    assert_equal "ok", answer.payload
     assert_equal({ a: 1, b: 2 }, obj.captured)
   end
 

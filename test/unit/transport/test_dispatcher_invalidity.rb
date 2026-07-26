@@ -27,7 +27,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
   # SPEC B-19: Handle IDs are Sandbox-private. A Handle ID issued by
   # Sandbox A's Catalog::Handles has no meaning in Sandbox B's Catalog::Handles;
   # presenting it there resolves to "ID not found" and surfaces as a
-  # Response.error with type="undefined". Distinct from B-18 (cross-#run
+  # the fault arm with type="undefined". Distinct from B-18 (cross-#run
   # within one Sandbox): here two physically separate Catalog::Handles
   # instances back two separate dispatchers, mirroring two live Sandboxes.
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
@@ -53,11 +53,11 @@ class TestTransportDispatchInvalidity < Minitest::Test
     server_b, table_b = sandbox_b
     server_b.bind("Echo::Wrap", ->(g) { "wrapped:#{g}" })
 
-    req = encode_request("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
-    resp = decode_response(dispatch(req, server: server_b, handler: table_b))
+    call = build_call("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
+    answer = reify(dispatch(call, server: server_b, handler: table_b))
 
-    assert_predicate resp, :error?
-    assert_equal "undefined", resp.payload.type
+    assert_predicate answer, :error?
+    assert_equal "undefined", answer.payload.type
   end
 
   private

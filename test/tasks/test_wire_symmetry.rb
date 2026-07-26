@@ -90,7 +90,7 @@ class KobakoWireSymmetryTest < Minitest::Test
 
   def test_one_sided_type_without_ledger_entry_is_a_violation
     violations = Symmetry.violations(
-      ruby_types: %w[Request Yield], rust_types: %w[Request],
+      ruby_types: %w[Arguments Yield], rust_types: %w[Arguments],
       ruby_ext: {}, rust_ext: {}, accepted: []
     )
 
@@ -100,7 +100,7 @@ class KobakoWireSymmetryTest < Minitest::Test
 
   def test_ledger_entry_silences_a_one_sided_type
     violations = Symmetry.violations(
-      ruby_types: %w[Request], rust_types: %w[Request Probe],
+      ruby_types: %w[Arguments], rust_types: %w[Arguments Probe],
       ruby_ext: {}, rust_ext: {}, accepted: %w[Probe]
     )
 
@@ -113,7 +113,7 @@ class KobakoWireSymmetryTest < Minitest::Test
   # the ledger must shed.
   def test_ledger_entry_with_no_current_divergence_is_a_violation
     violations = Symmetry.violations(
-      ruby_types: %w[Request], rust_types: %w[Request],
+      ruby_types: %w[Arguments], rust_types: %w[Arguments],
       ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x01" }, accepted: %w[Probe]
     )
 

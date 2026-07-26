@@ -3,7 +3,7 @@
 require "test_helper"
 
 # The Fault envelope's positional legality on the transport paths (E-50):
-# its sole legal wire position is the Response status=1 field, so a
+# its sole legal wire position is a Reply's fault arm, so a
 # guest→host payload smuggling an ext 0x02 is rejected — otherwise a
 # Handle nested in its details would reach host code as a token nothing
 # can resolve. Outbound, the host never emits one in a payload position:
@@ -27,22 +27,22 @@ class TestTransportFaultPosition < Minitest::Test
 
   # ---------- E-50 — inbound Call payload path ----------
 
-  def test_request_carrying_fault_in_args_is_rejected_as_malformed
+  def test_call_carrying_fault_in_args_is_rejected_as_malformed
     @registry.bind("Echo::Id", ->(x) { x })
     # Hand-crafted via the bare codec: the raw wire tool stays permissive,
     # the positional rule lives on the payload decode.
-    resp = decode_response(dispatch(call_carrying(Kobako::Codec::Encoder.encode([[FAULT], {}]))))
+    answer = reify(dispatch(call_carrying(Kobako::Codec::Encoder.encode([[FAULT], {}]))))
 
-    assert_predicate resp, :error?
-    assert_equal "runtime", resp.payload.type,
-                 "E-50: a Request carrying an ext 0x02 Fault must be rejected through the malformed-payload channel"
-    assert_match(/malformed request/, resp.payload.message,
+    assert_predicate answer, :error?
+    assert_equal "runtime", answer.payload.type,
+                 "E-50: a Call carrying an ext 0x02 Fault must be rejected through the malformed-payload channel"
+    assert_match(/malformed request/, answer.payload.message,
                  "the rejection must surface as the dispatcher's malformed-request fault")
   end
 
   # ---------- E-50 — inbound Yield Reply path ----------
 
-  def test_yield_response_carrying_fault_raises_at_the_yield_site
+  def test_yield_reply_carrying_fault_raises_at_the_yield_site
     reply = [Kobako::Transport::Yielder::TAG_OK, Kobako::Codec::Encoder.encode(FAULT), nil]
     yielder = Kobako::Transport::Yielder.new(->(_args) { reply }, :__test_break__, @handler)
 
@@ -56,14 +56,14 @@ class TestTransportFaultPosition < Minitest::Test
 
   def test_fault_return_value_is_wrapped_as_handle
     @registry.bind("Errors::Last", -> { FAULT })
-    req = encode_request("Errors::Last", "call", [], {})
+    call = build_call("Errors::Last", "call", [], {})
 
-    resp = decode_response(dispatch(req))
+    answer = reify(dispatch(call))
 
-    assert_predicate resp, :ok?
-    assert_kind_of Kobako::Handle, resp.payload,
+    assert_predicate answer, :ok?
+    assert_kind_of Kobako::Handle, answer.payload,
                    "a Fault returned by a Service must take the B-14 auto-wrap path, never ride as ext 0x02"
-    assert_same FAULT, @handler.fetch(resp.payload.id),
+    assert_same FAULT, @handler.fetch(answer.payload.id),
                 "the Handle must resolve back to the original Fault object"
   end
 
