@@ -9,9 +9,7 @@ module Kobako
   #
   # Keeping the two apart is what lets an endpoint with its own schema
   # replace this layer and keep the envelope, so nothing here may reach for
-  # a routing field. It is also why a large payload still decodes through
-  # the MessagePack gem: its strings stay shared with the buffer the ext
-  # handed over rather than copied out of it.
+  # a routing field.
   #
   # +Kobako::Payload::Arguments+ is the wire-symmetric peer of
   # +kobako_codec::payload::Arguments+.
