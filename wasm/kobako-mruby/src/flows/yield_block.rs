@@ -153,7 +153,7 @@ fn codec_failure_message(err: crate::codec::CodecError, label: &str) -> String {
         CodecError::Unrepresentable { type_name } => {
             format!("{label} of type {type_name} is not a supported sandbox value type")
         }
-        CodecError::OutOfRange { message } => message,
+        CodecError::Guest(err) => err.message(),
         CodecError::Malformed => format!("failed to read the {label}"),
     }
 }

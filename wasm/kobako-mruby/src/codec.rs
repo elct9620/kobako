@@ -34,10 +34,11 @@ pub enum CodecError {
     Unrepresentable { type_name: String },
     /// Bytes this schema cannot read, or a value it cannot write.
     Malformed,
-    /// An inbound value has no faithful guest representation — an integer
-    /// past what the MRB_INT32 build holds. Carries the operator-facing
-    /// message, which is the same wherever it surfaces.
-    OutOfRange { message: String },
+    /// The interpreter refused the value, not the schema. A codec reaches
+    /// this by forwarding a refusal it did not make — the only place that
+    /// conversion happens is inside a codec, so it travels on the codec's
+    /// paths while naming whose refusal it is.
+    Guest(IntegerOutOfRange),
 }
 
 impl CodecError {
@@ -50,13 +51,11 @@ impl CodecError {
 }
 
 impl From<IntegerOutOfRange> for CodecError {
-    /// The MRB_INT32 refusal is the guest's, not the schema's, but it
-    /// surfaces on the same paths — so it travels as a codec failure
-    /// whichever codec was running.
+    /// Lets a codec forward the interpreter's refusal with `?` — every
+    /// codec builds its guest values through `Kobako`, so every codec
+    /// meets this one.
     fn from(err: IntegerOutOfRange) -> Self {
-        CodecError::OutOfRange {
-            message: err.message(),
-        }
+        CodecError::Guest(err)
     }
 }
 

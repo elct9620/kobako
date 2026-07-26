@@ -94,7 +94,7 @@ pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_va
         Err(CodecError::Unrepresentable { .. }) => {
             write_panic(unrepresentable_return_panic(kobako, result_val))
         }
-        Err(CodecError::OutOfRange { message }) => write_panic(transport_panic(message)),
+        Err(CodecError::Guest(err)) => write_panic(transport_panic(err.message())),
         Err(CodecError::Malformed) => write_panic(transport_panic("result envelope encode failed")),
     }
 }

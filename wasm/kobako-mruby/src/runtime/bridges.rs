@@ -198,7 +198,7 @@ unsafe fn raise_codec_error(
         CodecError::Unrepresentable { type_name } => {
             format!("{label} of type {type_name} is not a supported sandbox value type")
         }
-        CodecError::OutOfRange { message } => message,
+        CodecError::Guest(err) => err.message(),
         // SAFETY: bridge frame — caller upholds the unwind contract.
         CodecError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
     };
