@@ -73,7 +73,7 @@ Raised when the guest execution environment ran to completion, the mruby script 
 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
-| E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch response as `status=1`, error `type="runtime"`, and the mruby script does not rescue it | B-12 — Transport dispatch |
+| E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch Reply's fault body (`tag=1`) as error `type="runtime"`, and the mruby script does not rescue it | B-12 — Transport dispatch |
 | E-12 | The dispatch `target` path (e.g., `"MyService::KV"`) does not match any registered Service; error `type="undefined"` returned; mruby script does not rescue it | B-08, B-12 — undefined target |
 | E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); error `type="undefined"` | B-18 — stale Handle cross-invocation |
 | E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); error `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |

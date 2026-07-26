@@ -42,14 +42,14 @@ A **Yield Call** carries only the block's yield arguments; the dispatch frame it
 
 ## Reply Shape
 
-A Reply splits the same way a Call does: `status` is the envelope, and what follows it is the payload of exactly one of two mutually exclusive variants.
+A Reply splits the same way a Call does: `tag` is the envelope, and what follows it is the payload of exactly one of two mutually exclusive variants.
 
 | Variant | Envelope | Payload | Meaning |
 |---------|----------|---------|---------|
-| **Success** | `status=0` | `value` | The call completed successfully. `value` carries the return value (a primitive or a Capability Handle reference). |
-| **Fault** | `status=1` | fault envelope | The call failed. The fault envelope (see Fault Envelope below) describes the failure category and message. |
+| **Success** | `tag=0` | `value` | The call completed successfully. `value` carries the return value (a primitive or a Capability Handle reference). |
+| **Fault** | `tag=1` | fault envelope | The call failed. The fault envelope (see Fault Envelope below) describes the failure category and message. |
 
-Success-versus-fault is an envelope decision, not a payload one: a side learns whether the call succeeded by reading `status`, without interpreting a payload byte. A Reply always matches exactly one variant. There is no partial success or streaming answer. The Yield Reply answering a Yield Call carries a third outcome the dispatch Reply has no counterpart for — `break` — and is specified under Yield Reply Envelope.
+Success-versus-fault is an envelope decision, not a payload one: a side learns whether the call succeeded by reading `tag`, without interpreting a payload byte. A Reply always matches exactly one variant. There is no partial success or streaming answer. The Yield Reply answering a Yield Call carries a third outcome the dispatch Reply has no counterpart for — `break` — and is specified under Yield Reply Envelope.
 
 ---
 
