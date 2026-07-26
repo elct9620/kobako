@@ -1,6 +1,6 @@
 # Core Envelope
 
-This document pins the byte layout of the **core envelope** — the outer frame of every host↔guest message. The core envelope is a fixed layout, not MessagePack: it carries only what routing and outcome attribution need, and hands everything else through as an opaque `payload` the payload adapter owns (→ [`payload-msgpack.md`](payload-msgpack.md) for the default adapter).
+This document pins the byte layout of the **core envelope** — the outer frame of every host↔guest message. The core envelope is a fixed layout, not MessagePack: it carries only what routing and outcome attribution need, and hands everything else through as an opaque `payload` the payload codec owns (→ [`payload-msgpack.md`](payload-msgpack.md) for the default codec).
 
 `docs/wire-codec.md` is the anchor that relates the two layers and holds the ABI surface; this document is the core layer's byte-level reference. The abstract shape it encodes is specified in [`../wire-contract.md`](../wire-contract.md).
 
@@ -12,7 +12,7 @@ Both the Host Gem's native side (`crates/kobako-runtime`) and the Guest Binary (
 
 Two properties define the core envelope, and every layout below satisfies both.
 
-- **Decodable without the payload adapter.** A side resolves a Call's target, names its method, learns whether a Reply succeeded, and attributes a failed invocation using only the fields here. It never interprets a payload byte to do so. This is what makes the adapter replaceable: two endpoints sharing a protobuf schema carry no MessagePack dependency at all.
+- **Decodable without the payload codec.** A side resolves a Call's target, names its method, learns whether a Reply succeeded, and attributes a failed invocation using only the fields here. It never interprets a payload byte to do so. This is what makes the codec replaceable: two endpoints sharing a protobuf schema carry no MessagePack dependency at all.
 - **Non-recursive.** Every field is a scalar, a byte string, or a flat list. The layer has no nesting to bound and cannot overflow a stack on untrusted input.
 
 ---
@@ -52,7 +52,7 @@ The guest→host dispatch Call, and the shape every reverse-direction Call is me
 | `target` | `bytes` when `kind=0`, `u32` when `kind=1` | The constant path as UTF-8 (`"MyService::KV"`, `"File"`), or the Handle ID. |
 | `method` | `bytes` | The method name as UTF-8. One method per Call. |
 | `block_given` | `u8` | `0` or `1`. No other value is legal. |
-| `payload` | remainder | The invocation arguments, encoded by the payload adapter. Opaque to this layer. |
+| `payload` | remainder | The invocation arguments, encoded by the payload codec. Opaque to this layer. |
 
 The two `target` forms are discriminated by the explicit `kind` tag rather than by the shape of `target` itself, so a side reads the routing fields without consulting any encoding but this one.
 
@@ -67,7 +67,7 @@ The answer to one dispatch Call.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `tag` | `u8` | `0` — success; `1` — fault. No other value is legal. |
-| `body` | remainder | `tag=0`: the return value, encoded by the payload adapter. `tag=1`: the fault, encoded by the payload adapter (→ [`payload-msgpack.md`](payload-msgpack.md) § ext 0x02). |
+| `body` | remainder | `tag=0`: the return value, encoded by the payload codec. `tag=1`: the fault, encoded by the payload codec (→ [`payload-msgpack.md`](payload-msgpack.md) § ext 0x02). |
 
 Success-versus-fault is decided at this layer, not inside the payload: a guest learns whether the Service returned or raised by reading one byte, whatever schema the payload carries. That is why the fault rides its own arm rather than a reserved payload value.
 
@@ -77,20 +77,20 @@ Success-versus-fault is decided at this layer, not inside the payload: a guest l
 
 The reverse-direction pair, nested inside the dispatch frame the host is still answering.
 
-**Yield Call** is the payload alone — the block's yield arguments, encoded by the payload adapter. The ABI's `req_len` frames it (→ `docs/wire-codec.md` § ABI Signatures), so no length prefix is repeated.
+**Yield Call** is the payload alone — the block's yield arguments, encoded by the payload codec. The ABI's `req_len` frames it (→ `docs/wire-codec.md` § ABI Signatures), so no length prefix is repeated.
 
 **Yield Reply**:
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `tag` | `u8` | `0x01` ok · `0x02` break · `0x04` error. `0x03` is reserved and rejected by both sides; so is any other value. |
-| `body` | remainder | `tag` `0x01` / `0x02`: the block's value or the `break` value, encoded by the payload adapter. `tag` `0x04`: an Error Record. |
+| `body` | remainder | `tag` `0x01` / `0x02`: the block's value or the `break` value, encoded by the payload codec. `tag` `0x04`: an Error Record. |
 
 A zero-length Yield Reply is a wire violation.
 
 ### Error Record
 
-The guest's report that something it was running raised. A block failure and an invocation failure share this layout, and the host re-raises from these fields without consulting the payload adapter.
+The guest's report that something it was running raised. A block failure and an invocation failure share this layout, and the host re-raises from these fields without consulting the payload codec.
 
 It is distinct from a Fault, which travels the other way: a Fault is the host refusing or failing a Call, categorized by one of three reserved `type` values the guest maps to a proxy-side error, and it lives in the payload (→ [`payload-msgpack.md`](payload-msgpack.md) § ext 0x02). An Error Record names a guest-side exception class verbatim and carries no category.
 
@@ -109,7 +109,7 @@ The per-invocation final result, written to OUTCOME_BUFFER by the invocation exp
 | Field | Type | Meaning |
 |-------|------|---------|
 | `tag` | `u8` | `0x01` — a Result follows; `0x02` — a Panic follows. No other value is legal. |
-| `body` | remainder | `tag=0x01`: the invocation's value, encoded by the payload adapter. `tag=0x02`: a Panic. |
+| `body` | remainder | `tag=0x01`: the invocation's value, encoded by the payload codec. `tag=0x02`: a Panic. |
 
 A Result is the value alone — the `tag` already discriminates the variant, so no further framing is added.
 
@@ -127,7 +127,7 @@ The Error Record plus the fields attribution and correction need.
 | `backtrace` | `list<bytes>` | mruby backtrace, one UTF-8 line per element. |
 | `available` | `list<bytes>` | The names the invocation could have used in place of the one it named, as UTF-8 — the top-level constants a `#run` entrypoint failed to resolve against. An empty list is legal and means the failure offers no correction. |
 
-Panic carries no adapter-encoded field. Attribution reads `origin` here — `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`../behavior/errors.md`](../behavior/errors.md)) — and `available` is a plain list at this layer, so a host reports a failure and the correction for it without decoding a payload byte.
+Panic carries no codec-encoded field. Attribution reads `origin` here — `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`../behavior/errors.md`](../behavior/errors.md)) — and `available` is a plain list at this layer, so a host reports a failure and the correction for it without decoding a payload byte.
 
 `available` is the last field and is self-delimiting, so bytes past it are a framing desync the receiving side rejects.
 
@@ -140,7 +140,7 @@ The host→guest entrypoint dispatch envelope, delivered on the command buffer t
 | Field | Type | Meaning |
 |-------|------|---------|
 | `entrypoint` | `bytes` | The top-level constant name as UTF-8, matching `/\A[A-Z]\w*\z/`. The host normalizes a String argument before encoding. |
-| `payload` | remainder | The entrypoint's arguments, encoded by the payload adapter. |
+| `payload` | remainder | The entrypoint's arguments, encoded by the payload codec. |
 
 Run is the reverse-direction sibling of Call: `entrypoint` routes it, the payload feeds it. It carries no `method` — the entrypoint is invoked through its own `#call` — and no `block_given`, because `#run` supplies no block.
 
@@ -175,4 +175,4 @@ Frame 2 — the `#eval` user source — is raw UTF-8 bytes with no envelope of i
 
 **16 MiB per dispatch, applied to the whole envelope** in either direction, not to the payload alone. A side checks the bound before allocating, so an oversized message is a wire violation rather than an allocation the receiver has to survive.
 
-**Nesting bounds belong to the payload adapter.** This layer is non-recursive (→ § Properties of this layer), so it has no depth to budget. The adapter budgets depth per document, and the envelope and each payload it carries are separate documents with separate budgets (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).
+**Nesting bounds belong to the payload codec.** This layer is non-recursive (→ § Properties of this layer), so it has no depth to budget. The codec budgets depth per document, and the envelope and each payload it carries are separate documents with separate budgets (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).

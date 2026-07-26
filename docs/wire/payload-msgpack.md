@@ -1,18 +1,18 @@
-# MessagePack Payload Adapter
+# MessagePack Payload Codec
 
-This document pins the byte encoding of the **payload** — the opaque `bytes` field every core envelope hands through (→ [`envelope.md`](envelope.md)). MessagePack is kobako's default payload adapter: it is what the bundled Guest Binary and the Ruby frontend speak, and what a host gets without choosing anything.
+This document pins the byte encoding of the **payload** — the opaque `bytes` field every core envelope hands through (→ [`envelope.md`](envelope.md)). MessagePack is kobako's default payload codec: it is what the bundled Guest Binary and the Ruby frontend speak, and what a host gets without choosing anything.
 
-It is not the only adapter the wire admits. The core envelope routes and attributes without reading a payload byte, so a host and guest that agree on another schema replace this document with their own and carry no MessagePack dependency. What is fixed for every adapter is the envelope, not this encoding.
+It is not the only codec the wire admits. The core envelope routes and attributes without reading a payload byte, so a host and guest that agree on another schema replace this document with their own and carry no MessagePack dependency. What is fixed for every codec is the envelope, not this encoding.
 
-`docs/wire-codec.md` is the anchor that relates the two layers; this document is the default adapter's byte-level reference. The abstract shape it encodes is specified in [`../wire-contract.md`](../wire-contract.md).
+`docs/wire-codec.md` is the anchor that relates the two layers; this document is the default codec's byte-level reference. The abstract shape it encodes is specified in [`../wire-contract.md`](../wire-contract.md).
 
-The Host Gem (`lib/kobako/`) and the Guest Binary (`crates/kobako-codec`) implement this adapter independently in different languages; byte-level round-trips between them are pinned by the oracle fuzz checks (→ `docs/wire-codec.md` § Consistency Guarantee).
+The Host Gem (`lib/kobako/`) and the Guest Binary (`crates/kobako-codec`) implement this codec independently in different languages; byte-level round-trips between them are pinned by the oracle fuzz checks (→ `docs/wire-codec.md` § Consistency Guarantee).
 
 ---
 
 ## Payload Positions
 
-An adapter owns exactly these positions. Everything else in a message belongs to the core envelope.
+A codec owns exactly these positions. Everything else in a message belongs to the core envelope.
 
 | Position | Content |
 |----------|---------|
@@ -23,7 +23,7 @@ An adapter owns exactly these positions. Everything else in a message belongs to
 | Yield Reply `body`, `tag` `0x01` / `0x02` | The block's value, or the `break` value |
 | Outcome `body`, `tag=0x01` | The invocation's value |
 | Run `payload` | The entrypoint's `args` and `kwargs` |
-| Frame 3 entry `body` | Not adapter-encoded — raw UTF-8 source or RITE bytecode |
+| Frame 3 entry `body` | Not codec-encoded — raw UTF-8 source or RITE bytecode |
 
 A payload is exactly one MessagePack value. Bytes remaining after that value are a wire violation; the receiving side rejects the payload instead of ignoring the excess.
 
@@ -38,13 +38,13 @@ Both carry a 2-element MessagePack array with fixed positions:
 
 Both elements are always present. An empty `args` is the empty array; an empty `kwargs` is the empty map (`0x80`) — never absent, so field positions stay stable.
 
-Positional-versus-keyword partition is an adapter concern: a schema without Ruby's call semantics carries whatever shape its own language needs, and the core envelope is unchanged.
+Positional-versus-keyword partition is a codec concern: a schema without Ruby's call semantics carries whatever shape its own language needs, and the core envelope is unchanged.
 
 ---
 
 ## Type Mapping
 
-The following 12 entries constitute the complete set of MessagePack types this adapter recognizes. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode further.
+The following 12 entries constitute the complete set of MessagePack types this codec recognizes. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode further.
 
 | # | msgpack family | Wire use | Host Gem Ruby type | Guest Binary mruby / Rust type |
 |---|----------------|----------|--------------------|-------------------------------|
@@ -56,7 +56,7 @@ The following 12 entries constitute the complete set of MessagePack types this a
 | 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
 | 7 | array (fixarray / array 16 / array 32) | Ordered sequences; the `args` / `kwargs` payload framing | `Array` | `Array` (mruby) / `Vec<T>` |
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs` | `Hash` | `Hash` (mruby) / struct or `HashMap` |
-| 9 | ext (general channel) | Dispatch point; this adapter uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
+| 9 | ext (general channel) | Dispatch point; this codec uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
 | 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
 | 12 | ext 0x02 | Fault (see Ext Types below) | `Kobako::Fault` | `Errenv` struct |
@@ -90,7 +90,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | Fault `message` field value | str only | bin → wire violation, reject |
 | Fault map keys (`type`, `message`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
-The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `class`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this adapter (→ [`envelope.md`](envelope.md)).
+The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `class`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
 
 Symbols travel as ext 0x00. A Symbol encoded on one side and decoded on the other arrives as a Symbol with the same UTF-8 name; symbol identity across the wire is established by name equality, not by interned-id sharing. A `str` or `bin` value carrying the bytes of a symbol name is **not** wire-equivalent to that Symbol; the two are distinguishable on the wire and must remain distinguishable end-to-end.
 
@@ -131,7 +131,7 @@ The Handle ID field carries the opaque identifier allocated by `Catalog::Handles
 
 ext 0x01 may appear in any payload position, at any nesting depth, in both directions: `args` elements and `kwargs` values of a Call or a Run alike, a Reply's success value, the Outcome's value, and a Yield Reply's ok or break value. Run payload positions carry Handles produced by host-side auto-wrap (→ [`../behavior/dispatch.md`](../behavior/dispatch.md) § B-34); the framing and ID semantics are identical in every position.
 
-**A Handle in the `target` position is a core-envelope field, not an ext value** (→ [`envelope.md`](envelope.md) § Call): the envelope's `kind` byte carries the discrimination and the ID rides as a bare `u32`. An adapter that carries no Handle representation at all still reaches a Handle target — which is the common case for a stateful receiver — and only forgoes passing Handles as arguments.
+**A Handle in the `target` position is a core-envelope field, not an ext value** (→ [`envelope.md`](envelope.md) § Call): the envelope's `kind` byte carries the discrimination and the ID rides as a bare `u32`. A codec that carries no Handle representation at all still reaches a Handle target — which is the common case for a stateful receiver — and only forgoes passing Handles as arguments.
 
 ### ext 0x02 — Fault
 

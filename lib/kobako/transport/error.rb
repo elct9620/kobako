@@ -6,7 +6,7 @@ module Kobako
   module Transport
     # +Kobako::SandboxError+ subclass raised when the host detects a
     # structural violation of the wire contract while reading what the
-    # guest produced — an invocation value the payload adapter cannot
+    # guest produced — an invocation value the payload codec cannot
     # decode. Distinct from a Wasm trap (engine signalled the guest
     # runtime is unrecoverable) and from a normal sandbox-layer failure
     # (the script raised but the protocol was respected): a

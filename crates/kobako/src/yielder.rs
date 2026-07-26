@@ -127,7 +127,7 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
 }
 
 /// Decode a value-carrying arm's payload. The envelope framed it, so a
-/// fault here is the adapter's — the guest answered with bytes this
+/// fault here is the codec's — the guest answered with bytes this
 /// endpoint's schema cannot read.
 fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
     Decoder::new(body)
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn an_ok_arm_the_adapter_cannot_read_aborts() {
+    fn an_ok_arm_the_codec_cannot_read_aborts() {
         let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0xc1]).encode())]);
         let mut block = Yielder::new(&mut channel);
         assert!(

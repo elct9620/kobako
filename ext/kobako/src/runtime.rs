@@ -394,7 +394,7 @@ impl Snapshot {
     /// `[kind, payload, panic]`. `kind` names the arm — `:result`,
     /// `:panic`, `:absent` (nothing written), or `:malformed` (bytes the
     /// envelope cannot frame). `payload` is the invocation's
-    /// adapter-encoded value, carried only by `:result`; every other arm
+    /// codec-encoded value, carried only by `:result`; every other arm
     /// answers empty. `panic` carries the Panic's own fields on `:panic`
     /// and is `nil` otherwise, so the Ruby side maps a failure onto its
     /// error taxonomy without decoding a payload byte.

@@ -2,7 +2,7 @@
 //!
 //! The guest writes exactly one of these per invocation before its entry
 //! export returns. Every Panic field is typed here, so only the Result arm
-//! asks the payload adapter for anything.
+//! asks the payload codec for anything.
 
 use super::bytes::{expect_end, put_bytes, put_list, rest, take_text, take_text_list, take_u8};
 use super::{Error, ErrorRecord};
@@ -19,7 +19,7 @@ pub const ORIGIN_SANDBOX: &str = "sandbox";
 /// How an invocation ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// The invocation completed; the bytes are its value, adapter-encoded.
+    /// The invocation completed; the bytes are its value, codec-encoded.
     Result(Vec<u8>),
     /// The invocation terminated with an uncaught exception.
     Panic(Panic),

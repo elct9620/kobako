@@ -88,4 +88,4 @@ This behavior refines the Result of B-02 / B-03 by specifying the exact value `#
 
 ## B-66 (retired)
 
-B-66 is a retired anchor — permanently reserved and never reassigned (N-8). Every Panic field is typed at the core envelope, so a Panic carries nothing the payload adapter reads and attribution cannot depend on one.
+B-66 is a retired anchor — permanently reserved and never reassigned (N-8). Every Panic field is typed at the core envelope, so a Panic carries nothing the payload codec reads and attribution cannot depend on one.

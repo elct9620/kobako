@@ -112,7 +112,7 @@ pub trait Receiver: Any + Send + Sync {
     }
 }
 
-/// A Receiver that speaks kobako's default payload adapter: positional
+/// A Receiver that speaks kobako's default payload codec: positional
 /// and keyword arguments as wire `Value`s, answering with one.
 ///
 /// This is the shape a Service written against the bundled mruby guest
@@ -137,7 +137,7 @@ pub trait ValueReceiver: Any + Send + Sync {
 }
 
 /// Binds a `ValueReceiver` into a Catalog by decoding the payload with
-/// the MessagePack adapter and encoding the answer back.
+/// the MessagePack codec and encoding the answer back.
 ///
 /// A malformed payload and an unencodable answer both surface as a
 /// `runtime` fault, matching how the Ruby frontend folds the same two

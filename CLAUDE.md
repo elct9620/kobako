@@ -153,12 +153,12 @@ Mirrors `lib/` tier-for-tier — `crates/kobako-codec` is the wire-symmetric pee
 
 ```
 kobako-wasm     unpublished leaf shell (cdylib-only) — KobakoGuest names the
-      │           payload adapter and wires the capability gems via init_gems;
+      │           payload codec and wires the capability gems via init_gems;
       │           export_guest! emits the __kobako_* ABI exports
 kobako-mruby    assembled mruby implementation (publishable rlib) — MrbGuest trait
-      │           (required init_gems hook + Payload adapter choice; provided
+      │           (required init_gems hook + MrbGuest::Codec choice; provided
       │           eval / run / yield flows), per-invocation entry flows, Kobako
-      │           runtime bridge, and the default MessagePack adapter behind the
+      │           runtime bridge, and the default MessagePack codec behind the
       │           on-by-default `msgpack` feature
 kobako-io / kobako-regexp / kobako-json
       │         capability gems (publishable rlibs, kobako-mruby-free) — pure-Rust
@@ -168,7 +168,7 @@ kobako-core     guest ABI contract (publishable rlib, mruby-free) — Guest trai
       │           transport::proxy driving __kobako_dispatch
 kobako-codec    portable wire tier (publishable rlib in crates/, mruby- and
                 engine-free) — the core envelope plus the MessagePack
-                payload adapter, whose adapter half is the wire-symmetric
+                payload codec, whose codec half is the wire-symmetric
                 peer of lib/
 
 (mruby)         beni (typed wrapper) → beni-sys (bindgen FFI) — crates.io;
@@ -181,7 +181,7 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 
 | Topic | Entry points | Notes |
 |-------|--------------|-------|
-| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/`; Rust side `crates/kobako-codec/src/{envelope/,msgpack/}` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md` is the anchor over two layers — `docs/wire/envelope.md` (fixed-layout core) and `docs/wire/payload-msgpack.md` (default payload adapter). Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
+| Wire format / codec | host `lib/kobako/codec/`, `lib/kobako/transport/`; Rust side `crates/kobako-codec/src/{envelope/,msgpack/}` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md` is the anchor over two layers — `docs/wire/envelope.md` (fixed-layout core) and `docs/wire/payload-msgpack.md` (default payload codec). Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior/errors.md`. |
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako-mruby/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the Proc `Kobako::Context` passes to `Runtime#eval` / `#run` per invocation (`lib/kobako/transport/dispatcher.rb`). Every invocation settles into a frozen `Kobako::Execution` (`lib/kobako/execution.rb`), returned on success and carried on a failed run's error. B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
@@ -193,6 +193,7 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 | Extension installation (`#install`) | host `lib/kobako/extension.rb`, `lib/kobako/catalog/extensions.rb`; SDK `crates/kobako/src/extension.rs` | B-55..B-57 / E-51..E-53 in `docs/behavior/extension.md`; contract + File example in `docs/extensions.md`. Composes a guest idiom (`source`) with an optional host backend over `#preload` + `#bind`. A backend declares its kind by keyword, never by inference: `object:` is fixed for the Sandbox's life, `provider:` refreshes per invocation (Ruby `Catalog::Extensions#resolve` into the `Context`, Rust the per-invocation resolution the dispatch handler layers on), and neither is a fillable awaiting `ctx.bind`. kobako ships no concrete Extension. |
 | Security model / reflection denial | `docs/security-model.md` (host guidance, not a SPEC contract); anchors in `docs/behavior/security.md` | Guest-side rejection mirrors are non-authoritative; the host is the boundary. |
 | Guest Binary variants | `docs/variants.md`, `tasks/wasm/build.rake` | Variant matrix and composition rules. |
+| Third-party customization points | `docs/customization.md` | The interfaces someone outside this repo implements — payload codec, capability set, invocation flows, whole guest, engine — with each one's obligations. `variants.md` is what we ship; this is what they replace. Grades are commitments (N-9). |
 | ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-mruby/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |
 | E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/e2e/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/e2e/runtime/test_runtime.rb`) covers only `from_path`. |
 | Ruby↔Rust parity harness | `docs/parity.md`, `test/parity/` + `test/support/parity/`, `crates/kobako` + `crates/kobako-parity` | Differential: one scenario, two frontends, normalized observables compared. CORE manifest in the doc; `rake gate:parity:coverage` gates it. |

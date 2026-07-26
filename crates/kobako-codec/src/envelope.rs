@@ -4,7 +4,7 @@
 //! Routing and outcome attribution live here; everything a resolved method
 //! consumes rides through as an opaque `payload` this layer never reads.
 //! A guest whose host shares another schema keeps this module and replaces
-//! only the payload adapter.
+//! only the payload codec.
 //!
 //! `crates/kobako-runtime` carries the host-side implementation of the
 //! same layout, written separately so the two cross-check each other.

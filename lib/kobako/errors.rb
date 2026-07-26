@@ -107,7 +107,7 @@ module Kobako
 
   # Sandbox / wire layer. Raised when the guest ran to completion but
   # execution failed due to a mruby script error, a protocol fault, or a
-  # payload the host's adapter could not decode out of a well-framed
+  # payload the host's codec could not decode out of a well-framed
   # outcome.
   class SandboxError < Error
     include Diagnosable

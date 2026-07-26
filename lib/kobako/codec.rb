@@ -11,8 +11,8 @@ require_relative "codec/decoder"
 module Kobako
   # Host-side MessagePack codec for the kobako wire contract — the
   # byte-level layer ({docs/wire-codec.md}[link:../../docs/wire-codec.md]).
-  # This is the payload adapter: the core envelope is framed natively, so
-  # what reaches here is one adapter document — an invocation's arguments
+  # This is the payload codec: the core envelope is framed natively, so
+  # what reaches here is one codec document — an invocation's arguments
   # (+Kobako::Payload::Arguments+), a dispatch or yield value, or an
   # invocation's value and a Panic's diagnostics
   # (+Kobako::Outcome+). The ext-type leaves this layer

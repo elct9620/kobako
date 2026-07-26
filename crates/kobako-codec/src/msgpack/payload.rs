@@ -1,4 +1,4 @@
-//! The MessagePack payload adapter — what rides inside a core envelope's
+//! The MessagePack payload codec — what rides inside a core envelope's
 //! opaque `payload` field.
 //!
 //! The envelope routes a message; this decides what the resolved method
@@ -6,7 +6,7 @@
 //! replace this module and keep the envelope, so nothing here may leak
 //! into `crate::envelope`.
 //!
-//! [payload adapter]: ../../../docs/wire/payload-msgpack.md
+//! [payload codec]: ../../../docs/wire/payload-msgpack.md
 
 use super::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 
@@ -16,7 +16,7 @@ use super::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 ///
 /// The positional-versus-keyword split lives here rather than in the
 /// envelope because it is Ruby's call semantics, not the wire's: an
-/// adapter for a language without them carries whatever shape it needs and
+/// codec for a language without them carries whatever shape it needs and
 /// the envelope is unchanged.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Arguments {
@@ -85,7 +85,7 @@ impl Decode for Arguments {
 
         // A Fault's only legal position is a Reply's fault arm, which the
         // envelope discriminates; one inside an argument tree is a wire
-        // violation this adapter refuses (E-50).
+        // violation this codec refuses (E-50).
         if args.iter().any(Value::contains_fault)
             || kwargs.iter().any(|(_, value)| value.contains_fault())
         {

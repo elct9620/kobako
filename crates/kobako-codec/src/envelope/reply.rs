@@ -19,10 +19,10 @@ const YIELD_ERROR: u8 = 0x04;
 /// The answer to one dispatch Call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
-    /// The method returned; the bytes are the value, adapter-encoded.
+    /// The method returned; the bytes are the value, codec-encoded.
     Ok(Vec<u8>),
     /// The method refused or failed; the bytes are the fault,
-    /// adapter-encoded.
+    /// codec-encoded.
     Fault(Vec<u8>),
 }
 
@@ -54,10 +54,10 @@ impl Reply {
 /// Reply has no counterpart for, because a block can end its caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum YieldReply {
-    /// The block completed; the bytes are its value, adapter-encoded.
+    /// The block completed; the bytes are its value, codec-encoded.
     Ok(Vec<u8>),
     /// The block ran `break`; the bytes are the break value,
-    /// adapter-encoded. It returns to the guest rather than to host code.
+    /// codec-encoded. It returns to the guest rather than to host code.
     Break(Vec<u8>),
     /// The block raised, or failed in a way the host re-raises at the
     /// yield site.

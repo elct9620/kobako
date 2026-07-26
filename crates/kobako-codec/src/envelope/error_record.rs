@@ -1,7 +1,7 @@
 //! The guest's report that something it was running raised — guest side.
 //!
 //! A block failure and an invocation failure carry the same three fields,
-//! so the host re-raises from either without consulting a payload adapter.
+//! so the host re-raises from either without consulting a payload codec.
 
 use super::bytes::{put_bytes, put_list, take_text, take_text_list};
 use super::Error;

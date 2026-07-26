@@ -64,7 +64,7 @@ A **Capability Handle** is an opaque token used on either side of the wire to re
 - **ID cap**: the opaque ID component of a Handle is bounded by `0x7fff_ffff` (2³¹ − 1). Allocation beyond this cap raises `Kobako::HandleExhaustedError` immediately (fail-fast; no silent wraparound).
 - **No reachable un-delivered Handle**: a Handle ID names an object only for as long as the invocation that minted it, and every ID that invocation minted was handed to the guest in the same message that minted it. A guest naming an arbitrary integer as a Handle therefore reaches either an object it already holds or nothing at all (B-65 → [`behavior/security.md`](behavior/security.md)). This is a property of the table's lifetime, not of an enumeration of allocation sites: the table is minted per invocation, its IDs ascend from 1, and it is discarded whole when the invocation ends — so an invocation that fails part-way through minting takes its un-delivered IDs with it.
 
-The last property is what lets an opaque payload carry Handle IDs safely. When the payload adapter is one kobako does not define, a Handle ID inside it is an ordinary integer the guest can set to any value; the boundary holds because of the table's lifetime, not because the guest was unable to write the number.
+The last property is what lets an opaque payload carry Handle IDs safely. When the payload codec is one kobako does not define, a Handle ID inside it is an ordinary integer the guest can set to any value; the boundary holds because of the table's lifetime, not because the guest was unable to write the number.
 
 Byte-level encoding of the Capability Handle (ext type number, binary layout) is specified in [`docs/wire-codec.md`](wire-codec.md).
 
@@ -102,7 +102,7 @@ The outcome envelope has two variants:
 | Variant | Meaning |
 |---------|---------|
 | **Result envelope** | The invocation completed without an uncaught top-level exception. Carries the serialized return value — the last mruby expression of `#eval`'s source, or the entrypoint's `#call` return for `#run`. The Host App reads the deserialized Ruby value as the run's `Execution#value`. |
-| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, `backtrace`, and `available` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`, and every other value maps to `Kobako::SandboxError`, so an origin the contract does not reserve attributes to the sandbox rather than widening what a Service can claim. `available` lists the names the invocation could have used in place of the one it named — the top-level constants an undefined `#run` entrypoint failed to resolve against (E-27) — and is empty for a failure that offers no correction. Every field is typed at the envelope layer; a Panic carries no adapter-encoded content. |
+| **Panic envelope** | The invocation terminated with an uncaught top-level exception. Carries `origin`, `class`, `message`, `backtrace`, and `available` fields. The host reads `origin` to determine attribution: `origin="service"` maps to `Kobako::ServiceError`, and every other value maps to `Kobako::SandboxError`, so an origin the contract does not reserve attributes to the sandbox rather than widening what a Service can claim. `available` lists the names the invocation could have used in place of the one it named — the top-level constants an undefined `#run` entrypoint failed to resolve against (E-27) — and is empty for a failure that offers no correction. Every field is typed at the envelope layer; a Panic carries no codec-encoded content. |
 
 Outcome bytes the host cannot frame as one of the two variants — an absent outcome included — are a wire-violation signal and raise `Kobako::TrapError` (the fallback path when the guest runtime is structurally corrupted): a message the host cannot frame leaves nothing to attribute a failure to. Guest stdout and stderr do not participate in attribution — they are always captured separately and exposed via the run's `Execution#stdout` / `Execution#stderr`.
 
@@ -137,7 +137,7 @@ The `0x01` ok payload follows the same type mapping as any Reply success value (
 
 The `0x02` break payload carries the value supplied to `break`. The Host Gem unwinds the Service method's invocation, presenting `payload` to the guest dispatch site as the Service method's return value. A Capability Handle here is **not** restored — the value returns to the guest, not to host code, so it rides back unchanged on the same ID (§ B-37 Notes).
 
-The `0x04` error variant carries an **Error Record** — the same three fields a Panic reports a failure with, so the two failure channels share one shape and the host re-raises from either without consulting the payload adapter:
+The `0x04` error variant carries an **Error Record** — the same three fields a Panic reports a failure with, so the two failure channels share one shape and the host re-raises from either without consulting the payload codec:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -168,15 +168,22 @@ Each of the two layers has two independent implementations, and neither layer ha
 | Layer | Host peer | Guest peer | Cross-check |
 |-------|-----------|------------|-------------|
 | Core envelope | `crates/kobako-runtime` | `crates/kobako-codec` | Cross-implementation (both Rust) |
-| Payload adapter | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
+| Payload codec | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
 
-Every envelope this document specifies exists as a wire-codable type on both peers of its layer under the same name, both payload peers register the same ext type codes, and byte-level round-trips are pinned by the oracle checks (→ [`docs/wire-codec.md`](wire-codec.md) § Consistency Guarantee). Each layer is held to that by the mechanism its peers admit: the core layer's two peers are both Rust, so the byte oracle compares them directly; the payload adapter's are not, so `rake gate:wire:symmetry` compares its two inventories by name. A wire-codable type or ext code present on one side of that comparison only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
+Every envelope this document specifies exists as a wire-codable type on both peers of its layer under the same name, both payload peers register the same ext type codes, and byte-level round-trips are pinned by the oracle checks (→ [`docs/wire-codec.md`](wire-codec.md) § Consistency Guarantee). Each layer is held to that by the mechanism its peers admit: the core layer's two peers are both Rust, so the byte oracle compares them directly; the payload codec's are not, so `rake gate:wire:symmetry` compares its two inventories by name. A wire-codable type or ext code present on one side of that comparison only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
 
-The core layer's cross-check is cross-implementation, not cross-language, and the contract accepts the weaker guarantee there. Two implementations in one language, written against one reading of the contract, catch fewer specification ambiguities than two languages whose type systems and encoding conventions disagree. The cost is bounded by where ambiguity lives: the type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — sits entirely in the payload adapter, whose peers are cross-language. What the core layer asks two implementers to agree on is three routing fields and a byte string.
+The core layer's cross-check is cross-implementation, not cross-language, and the contract accepts the weaker guarantee there. Two implementations in one language, written against one reading of the contract, catch fewer specification ambiguities than two languages whose type systems and encoding conventions disagree. The cost is bounded by where ambiguity lives: the type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — sits entirely in the payload codec, whose peers are cross-language. What the core layer asks two implementers to agree on is three routing fields and a byte string.
 
 One standing divergence lives outside the inventory comparison: success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. It is a difference in what each side's language makes idiomatic, not in what the wire carries, so the inventories stay comparable without it.
 
 ### Accepted asymmetries
+
+The ledger below compares type names and ext codes, which is the granularity
+the gate reads. Field names inside a type are not compared, and one divergence
+lives there: a Call's method name is `method` on the Rust peer and
+`method_name` on the Ruby one, because `method` is `Object#method` in Ruby and
+a `Data` member cannot shadow it. The wire position is the same; only the
+reader's name for it differs.
 
 ```
 ```

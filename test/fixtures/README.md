@@ -16,7 +16,7 @@ Hand-written text-format module that passes the B-40 ABI version check but whose
 
 ## `minimal_null_guest.wat`
 
-Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload adapter's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
+Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload codec's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 

@@ -11,7 +11,7 @@ use kobako_codec::envelope as guest;
 use kobako_runtime::envelope as host;
 
 /// Bytes both sides must agree carry no meaning at this layer — the shape
-/// of a payload is the adapter's business, so the oracle deliberately uses
+/// of a payload is the codec's business, so the oracle deliberately uses
 /// bytes no MessagePack decoder would accept.
 const OPAQUE: &[u8] = &[0xc1, 0x00, 0xff, 0x92];
 

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Unit tests for the MessagePack payload adapter's invocation arguments.
+# Unit tests for the MessagePack payload codec's invocation arguments.
 #
 # The core envelope is decoded natively and pinned by the Rust peers'
 # golden vectors and byte oracle; what stays on the Ruby side is this

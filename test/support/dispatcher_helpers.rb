@@ -2,7 +2,7 @@
 
 # Shared scaffolding for the Transport::Dispatcher unit classes under
 # test/unit/transport/ — fast and deterministic, exercising the
-# Dispatcher / payload adapter directly without a live Sandbox.
+# Dispatcher / payload codec directly without a live Sandbox.
 # Live-Sandbox elevation of these paths lives in +test/e2e/+ via real
 # mruby.
 module DispatcherHelpers

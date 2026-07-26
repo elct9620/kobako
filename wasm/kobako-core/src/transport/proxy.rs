@@ -11,7 +11,7 @@
 //! `dispatch` builds a `Call` around a payload it never reads, calls the
 //! host, and hands back the arm the Reply's tag named — the ok body to the
 //! caller, the fault body as an error. What either body means is the
-//! payload adapter's business, which is what lets a guest with its own
+//! payload codec's business, which is what lets a guest with its own
 //! schema drive this layer with no MessagePack in its dependency graph.
 //! On the host target a thread-local loopback hook stands in for
 //! `__kobako_dispatch` so the demux logic tests without a real wasm
@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     /// Bytes standing in for a payload this layer must not interpret —
-    /// deliberately not valid under any adapter kobako ships.
+    /// deliberately not valid under any codec kobako ships.
     const OPAQUE: &[u8] = &[0xc1, 0x00, 0xff, 0x92];
 
     /// Helper: install a one-shot loopback that captures the request

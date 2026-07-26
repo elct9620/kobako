@@ -95,7 +95,7 @@ impl Encoder {
 }
 
 /// A wire value object that encodes itself to its kobako-codec bytes.
-/// Implemented by every payload document the adapter carries — the
+/// Implemented by every payload document the codec carries — the
 /// invocation `payload::Arguments` today — which is why the trait
 /// lives here at the codec tier rather than under `payload`. It is the
 /// Rust-native expression of the contract the Ruby host gets via duck

@@ -10,7 +10,7 @@ module Kobako
   # value, or raise the exception the failure attributes to.
   #
   # This is the two-step attribution decision. The wire framing belongs to
-  # the native side; the payload adapter at +Kobako::Codec+ decodes only
+  # the native side; the payload codec at +Kobako::Codec+ decodes only
   # the one arm that carries a value.
   module Outcome
     # The two +origin+ values a Panic attributes with.
@@ -28,7 +28,7 @@ module Kobako
     module_function
 
     # Settle one invocation. +kind+ names the arm, +payload+ is the
-    # adapter-encoded value the +:result+ arm carries, and +panic+ carries
+    # codec-encoded value the +:result+ arm carries, and +panic+ carries
     # the Panic's fields +[origin, class, message, backtrace, available]+ —
     # present on the panic arm and absent on every other, which is what
     # tells the failure that has a record to attribute from apart from the
@@ -74,7 +74,7 @@ module Kobako
       )
     end
 
-    # The Result arm's value — the one position a payload adapter still
+    # The Result arm's value — the one position a payload codec still
     # owns on this path. A decode fault means the framing was fine but the
     # carried value is unrepresentable.
     def decode_value(payload)

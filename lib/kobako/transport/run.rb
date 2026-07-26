@@ -46,7 +46,7 @@ module Kobako
         super
       end
 
-      # Encode this Run's arguments as the adapter payload the Run
+      # Encode this Run's arguments as the codec payload the Run
       # envelope carries — +Runtime#run+ frames it with the entrypoint.
       # Walks +args+ / +kwargs+ through Codec::HandleWalk.deep_wrap so
       # any non-wire-representable leaf is allocated into +handler+ and

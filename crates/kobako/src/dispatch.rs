@@ -67,7 +67,7 @@ impl CatalogHandler {
         // A break unwinds the receiver transparently: the guest receives
         // the break value no matter what the receiver returned, and the
         // value rides back verbatim rather than through host code. The
-        // break value comes from the yield adapter, so it is encoded
+        // break value comes from the yield codec, so it is encoded
         // here rather than by the Receiver.
         if let Some(value) = block.and_then(Yielder::into_break) {
             return ok_reply(&value);
@@ -136,7 +136,7 @@ fn fault_reply(fault: &Fault) -> Reply {
 }
 
 /// The ok arm's body: the return value alone, since the envelope's tag
-/// already carries the success. A value the adapter cannot represent
+/// already carries the success. A value the codec cannot represent
 /// folds into a fault like every other failure.
 fn ok_reply(value: &Value) -> Reply {
     match Encoder::encode(value) {
@@ -177,7 +177,7 @@ mod tests {
         }
     }
 
-    /// A value-carrying Yield Reply arm over an adapter-encoded payload.
+    /// A value-carrying Yield Reply arm over a codec-encoded payload.
     fn arm(make: fn(Vec<u8>) -> YieldReply, value: Value) -> YieldReply {
         make(Encoder::encode(&value).unwrap())
     }
@@ -295,7 +295,7 @@ mod tests {
     }
 
     /// A Reply read back in the same vocabulary: the arm the envelope
-    /// tagged, plus the body the adapter decoded.
+    /// tagged, plus the body the codec decoded.
     #[derive(Debug, PartialEq)]
     enum Answer {
         Ok(Value),
@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn a_malformed_payload_folds_into_a_runtime_fault() {
         // The envelope is well-formed; only its payload is garbage — the
-        // arm the adapter owns, so the handler answers with a fault
+        // arm the codec owns, so the handler answers with a fault
         // rather than letting the failure reach the driver.
         let call = Call {
             target: Target::Path("MyService::KV"),

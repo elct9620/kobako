@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Cross-language payload-adapter round-trip E2E (SPEC.md F-05 / F-09).
+# Cross-language payload-codec round-trip E2E (SPEC.md F-05 / F-09).
 #
 # Drives the Rust `payload_oracle` subprocess from the host: each test
 # Ruby-encodes one adapter payload, prefixes a single-byte kind tag, and

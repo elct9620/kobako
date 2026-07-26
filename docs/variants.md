@@ -5,6 +5,10 @@ onto a common base. The governing summary lives in [`SPEC.md`](../SPEC.md)
 § Scope; this file is the per-variant reference for the matrix, the naming
 convention, and the packaging policy.
 
+Variants are the artifacts **we ship**. The interfaces **a third party
+replaces** — payload codec, capability set, invocation flows, the whole guest,
+the engine — are in [`customization.md`](customization.md).
+
 ## The base surface
 
 Every variant — including the default — links the mruby core, the curated

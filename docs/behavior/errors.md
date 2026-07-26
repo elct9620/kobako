@@ -19,11 +19,11 @@ If no trap occurred, the Host Gem frames the outcome bytes produced by `__kobako
 |-------------|-------|--------------|
 | — | The bytes are not an Outcome the envelope can frame, an absent outcome included | `Kobako::TrapError` — wire violation fallback (a *wire violation* is any guest binary output that does not conform to the wire codec; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping) |
 | Result | The value decodes | Return value (no error raised) |
-| Result | The payload adapter cannot read the value | `Kobako::SandboxError` |
+| Result | The payload codec cannot read the value | `Kobako::SandboxError` |
 | Panic | `origin == "service"` | `Kobako::ServiceError` |
 | Panic | any other `origin` | `Kobako::SandboxError` |
 
-Attribution reads the core envelope alone, and the adapter takes no part in it: every Panic field — `origin`, class, message, backtrace, and the `available` names a correction can be offered from — is typed at that layer, so a Panic carries nothing the adapter reads.
+Attribution reads the core envelope alone, and the codec takes no part in it: every Panic field — `origin`, class, message, backtrace, and the `available` names a correction can be offered from — is typed at that layer, so a Panic carries nothing the codec reads.
 
 `stdout` and `stderr` bytes do not participate in attribution dispatch. They are always available via the run's `Execution` — the one a raised error carries on `#execution` — after a rescue, including after error-raising runs.
 
@@ -55,13 +55,13 @@ Raised when the guest execution environment ran to completion but the overall ex
 | E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
 | E-06 | The invocation's return value has no wire representation — the `#eval` last expression or the `#run` entrypoint's `#call` return is a raw mruby `Object` with no MessagePack encoding, or nests beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth); the Result arm is present but its value fails to decode | B-06, B-31 — return value semantics |
 | E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1); raised as the `Kobako::HandleExhaustedError` subclass | B-21 — Handle counter exhaustion |
-| E-09 | The Outcome's Result arm carries a value the payload adapter cannot read | Step 2 attribution; B-06 fallback |
+| E-09 | The Outcome's Result arm carries a value the payload codec cannot read | Step 2 attribution; B-06 fallback |
 | E-10 | Guest presents an invalid wire payload as a dispatch argument (e.g., a raw integer where a Capability Handle ext type `0x01` is required) | B-20 — guest cannot forge Handles |
 | E-55 | Guest passes a dispatch argument or kwargs value with no wire representation — a value outside the 12-entry wire type set, or a collection nesting beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth). The guest rejects it at the dispatch call site rather than coercing it to an `Object#to_s` string, uniform with the return-value (E-06) and yield-block (E-22) rejections | B-12 — dispatch argument conversion |
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping, or that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth) | B-24 — yield round-trip |
 | E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
-| E-50 | A guest→host payload carries an ext 0x02 Fault — in a Call payload, a Yield Reply value, or a Result value — violating the Fault's sole legal position under the MessagePack payload adapter (the whole of a Reply's fault body, → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § ext 0x02). This is an adapter-layer guarantee, not a core-envelope one: the core envelope discriminates success from fault with its own tag, and an adapter that carries no Fault representation has no position to violate. The Result path raises `Kobako::Transport::Error`; the Call path rejects the dispatch through the malformed-payload channel (`type="runtime"`), and the Yield Reply path raises at the Service yield site — both surfacing as `Kobako::ServiceError` when the script leaves the failure unrescued | B-06 — return value; B-12 — dispatch; B-24 — yield round-trip |
+| E-50 | A guest→host payload carries an ext 0x02 Fault — in a Call payload, a Yield Reply value, or a Result value — violating the Fault's sole legal position under the MessagePack payload codec (the whole of a Reply's fault body, → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § ext 0x02). This is a codec-layer guarantee, not a core-envelope one: the core envelope discriminates success from fault with its own tag, and a codec that carries no Fault representation has no position to violate. The Result path raises `Kobako::Transport::Error`; the Call path rejects the dispatch through the malformed-payload channel (`type="runtime"`), and the Yield Reply path raises at the Service yield site — both surfacing as `Kobako::ServiceError` when the script leaves the failure unrescued | B-06 — return value; B-12 — dispatch; B-24 — yield round-trip |
 
 ---
 
@@ -85,7 +85,7 @@ A guest attempting to forge a Handle from a bare integer is rejected by the gues
 
 When the guest wraps a Service call in `begin/rescue`, the dispatch failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
 
-E-08 is a retired anchor — permanently reserved and never reassigned (N-8). A Panic is framed entirely by the core envelope, so there is no adapter read on that arm to fail.
+E-08 is a retired anchor — permanently reserved and never reassigned (N-8). A Panic is framed entirely by the core envelope, so there is no codec read on that arm to fail.
 
 E-14 is a retired anchor — permanently reserved and never reassigned (N-8).
 

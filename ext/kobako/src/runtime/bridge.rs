@@ -150,7 +150,7 @@ impl DispatchHandler for RubyDispatchHandler {
     /// Call the Ruby Proc with the routed Call and return its Reply. The
     /// envelope is already decoded, so Ruby receives the target, method,
     /// and block flag as ordinary values and decodes only the payload —
-    /// through the MessagePack adapter it already owns, which keeps a
+    /// through the MessagePack codec it already owns, which keeps a
     /// large payload's strings shared with the buffer rather than copied.
     ///
     /// The Proc is contracted to fold every dispatch failure into the

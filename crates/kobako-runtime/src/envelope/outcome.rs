@@ -2,7 +2,7 @@
 //!
 //! Every Panic field is typed here, so a host attributes a failed
 //! invocation and reports the correction for it without decoding a payload
-//! byte. Only the Result arm carries adapter-encoded bytes.
+//! byte. Only the Result arm carries codec-encoded bytes.
 
 use super::bytes::{Reader, Writer};
 use super::{Error, ErrorRecord};
@@ -19,7 +19,7 @@ const ORIGIN_SERVICE: &str = "service";
 /// How an invocation ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// The invocation completed; the bytes are its value, adapter-encoded.
+    /// The invocation completed; the bytes are its value, codec-encoded.
     Result(Vec<u8>),
     /// The invocation terminated with an uncaught exception.
     Panic(Panic),

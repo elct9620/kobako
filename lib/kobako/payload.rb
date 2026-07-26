@@ -3,7 +3,7 @@
 require_relative "payload/arguments"
 
 module Kobako
-  # The MessagePack payload adapter — what rides inside a core envelope's
+  # The MessagePack payload codec — what rides inside a core envelope's
   # opaque payload field. The envelope routes a message and the native side
   # decodes it; this layer decides what the resolved method receives.
   #
