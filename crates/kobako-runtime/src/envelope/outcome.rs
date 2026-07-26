@@ -170,6 +170,41 @@ mod tests {
     }
 
     #[test]
+    fn golden_layout_pins_the_result_tag() {
+        assert_eq!(
+            Outcome::Result(vec![0x2a]).encode(),
+            vec![TAG_RESULT, 0x2a],
+            "a Result must be the tag byte followed by the value alone"
+        );
+    }
+
+    #[test]
+    fn golden_layout_pins_the_panic_field_order() {
+        let panic = Panic {
+            origin: ORIGIN_SERVICE.into(),
+            error: ErrorRecord {
+                class: "E".into(),
+                message: "m".into(),
+                backtrace: vec!["l".into()],
+            },
+            details: vec![0x2a],
+        };
+        assert_eq!(
+            Outcome::Panic(panic).encode(),
+            vec![
+                TAG_PANIC, //
+                0, 0, 0, 7, b's', b'e', b'r', b'v', b'i', b'c', b'e', // origin
+                0, 0, 0, 1, b'E', // class
+                0, 0, 0, 1, b'm', // message
+                0, 0, 0, 1, // backtrace count
+                0, 0, 0, 1, b'l', // backtrace[0]
+                0x2a, // details remainder
+            ],
+            "attribution reads origin before the Error Record, so the field order must stay fixed"
+        );
+    }
+
+    #[test]
     fn a_zero_length_outcome_is_refused() {
         assert!(
             Outcome::decode(&[]).is_err(),

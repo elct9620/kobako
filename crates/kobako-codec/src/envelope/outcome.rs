@@ -135,6 +135,15 @@ mod tests {
     }
 
     #[test]
+    fn golden_layout_pins_the_result_tag() {
+        assert_eq!(
+            Outcome::Result(vec![0x2a]).encode(),
+            vec![TAG_RESULT, 0x2a],
+            "a Result must be the tag byte followed by the value alone"
+        );
+    }
+
+    #[test]
     fn origin_precedes_the_error_record() {
         let encoded = Outcome::Panic(Panic {
             origin: ORIGIN_SERVICE.into(),

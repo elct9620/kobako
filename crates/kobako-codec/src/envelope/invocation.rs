@@ -208,6 +208,77 @@ mod tests {
     }
 
     #[test]
+    fn golden_layout_pins_the_run_field_order() {
+        let run = Run {
+            entrypoint: "E".into(),
+            payload: vec![0xc0],
+        };
+        assert_eq!(
+            run.encode(),
+            vec![
+                0, 0, 0, 1, b'E', //
+                0xc0,
+            ],
+            "the Run byte layout must stay fixed for both peers to agree"
+        );
+    }
+
+    #[test]
+    fn golden_layout_pins_the_preamble_as_a_counted_list() {
+        let preamble = Preamble {
+            paths: vec!["A".into()],
+        };
+        assert_eq!(
+            preamble.encode(),
+            vec![
+                0, 0, 0, 1, //
+                0, 0, 0, 1, b'A',
+            ],
+            "Frame 1 must be a counted list of paths, so the count precedes the first entry"
+        );
+    }
+
+    #[test]
+    fn golden_layout_pins_the_snippet_entry_shape() {
+        let snippets = Snippets {
+            entries: vec![
+                Snippet::Source {
+                    name: "N".into(),
+                    body: "b".into(),
+                },
+                Snippet::Bytecode { body: vec![0x52] },
+            ],
+        };
+        assert_eq!(
+            snippets.encode(),
+            vec![
+                0,
+                0,
+                0,
+                2, //
+                SNIPPET_SOURCE,
+                0,
+                0,
+                0,
+                1,
+                b'N',
+                0,
+                0,
+                0,
+                1,
+                b'b',
+                SNIPPET_BYTECODE,
+                0,
+                0,
+                0,
+                1,
+                0x52,
+            ],
+            "a bytecode entry carries no name, so the two kinds must stay distinguishable by their tag alone"
+        );
+    }
+
+    #[test]
     fn an_unknown_snippet_kind_is_refused() {
         let mut bytes = Vec::new();
         put_u32(&mut bytes, 1);
