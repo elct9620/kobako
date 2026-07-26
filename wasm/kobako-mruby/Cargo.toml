@@ -1,12 +1,13 @@
 # kobako-mruby — the assembled mruby implementation of the Guest ABI.
 #
-# The `MrbGuest` trait harness (required `init_gems` hook +
-# provided `eval` / `run` / `yield_to_block` flows over mruby), the
-# wire-tied `KobakoBridge` built-in gem (Service / Handle dispatch,
-# block/yield machinery), and the mruby ↔ wire codec conversion. A
-# guest shell implements `MrbGuest`, forwards `kobako_core::Guest` to
-# it, and emits the exports with `kobako_core::export_guest!` — the
-# in-repo `kobako-wasm` shell is the worked example.
+# The `MrbGuest` trait harness (required `init_gems` hook + a
+# `Payload` adapter choice + provided `eval` / `run` / `yield_to_block`
+# flows over mruby), the wire-tied `KobakoBridge` built-in gem (Service
+# / Handle dispatch, block/yield machinery), and the bundled
+# MessagePack adapter behind the `msgpack` feature. A guest shell
+# implements `MrbGuest`, forwards `kobako_core::Guest` to it, and emits
+# the exports with `kobako_core::export_guest!` — the in-repo
+# `kobako-wasm` shell is the worked example.
 
 [package]
 name = "kobako-mruby"
@@ -19,10 +20,20 @@ readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm"]
 
+[features]
+# The bundled MessagePack payload adapter — `MsgpackAdapter` and the
+# mruby ↔ wire value walk beneath it. On by default because it is what
+# the shipped Guest Binary and the Ruby frontend speak; a shell naming
+# its own `MrbGuest::Payload` turns it off and carries no MessagePack.
+default = ["msgpack"]
+msgpack = ["kobako-codec/msgpack"]
+
 [dependencies]
-# Portable wire tier — codec, envelopes, outcome — shared with the
-# host side; the flows encode outcomes and convert values against it.
-kobako-codec = { path = "../../crates/kobako-codec", version = "0.12.0" }
+# Portable wire tier. The core envelope is unconditional — the flows
+# frame every message with it — while the payload adapter rides the
+# `msgpack` feature, since which schema fills those frames is the
+# shell's choice.
+kobako-codec = { path = "../../crates/kobako-codec", version = "0.12.0", default-features = false }
 
 # Guest ABI contract crate — the ABI primitives (outcome buffer,
 # frames, dispatch proxy) the provided flows implement the contract

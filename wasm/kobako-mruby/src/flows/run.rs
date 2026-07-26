@@ -29,9 +29,6 @@
 //!    value as a Result envelope or convert the pending mruby
 //!    exception into a Panic envelope.
 
-#[cfg(mruby_linked)]
-use kobako_codec::codec::Value;
-
 /// Invocation entry behind the `__kobako_run` export — see module
 /// docs. `G` supplies the shell-chosen gem set via
 /// `MrbGuest::init_gems`.
@@ -43,9 +40,8 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 #[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
-    use kobako_codec::codec::Decode;
+    use crate::adapter::PayloadAdapter;
     use kobako_codec::envelope::{ErrorRecord, Panic, Run};
-    use kobako_codec::payload::Arguments;
     use kobako_core::abi::write_panic;
 
     let preamble = match boot::read_preamble() {
@@ -91,7 +87,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             ));
         }
     };
-    let arguments = match Arguments::decode(&run.payload) {
+    let arguments = match G::Payload::decode_arguments(&kobako, &run.payload) {
         Ok(arguments) => arguments,
         Err(_) => {
             return write_panic(boot::transport_panic(
@@ -170,27 +166,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // 32-bit range — fails the invocation rather than reaching the
     // entrypoint with a saturated value (docs/wire/payload-msgpack.md § Integer
     // Range).
-    let mut argv: Vec<beni::Value> = match arguments
-        .args
-        .into_iter()
-        .map(|v| kobako.to_mrb_value(v))
-        .collect()
-    {
-        Ok(argv) => argv,
-        Err(err) => return write_panic(boot::transport_panic(err.message())),
-    };
-    if !arguments.kwargs.is_empty() {
-        // The adapter already established every key is a Symbol, so the
-        // Hash is rebuilt from the names it decoded.
-        let kwargs = arguments
-            .kwargs
-            .into_iter()
-            .map(|(name, value)| (Value::Sym(name), value))
-            .collect();
-        match kobako.to_mrb_value(Value::Map(kwargs)) {
-            Ok(kwargs_val) => argv.push(kwargs_val),
-            Err(err) => return write_panic(boot::transport_panic(err.message())),
-        }
+    let mut argv = arguments.args;
+    if let Some(kwargs) = arguments.kwargs {
+        argv.push(kwargs);
     }
 
     let result_val = match target_val.funcall_argv(mrb, call_sym, &argv) {
@@ -198,5 +176,5 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
     };
 
-    boot::write_value_outcome(&kobako, result_val);
+    boot::write_value_outcome::<G>(&kobako, result_val);
 }

@@ -37,7 +37,6 @@
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
-pub(crate) mod codec_convert;
 mod init;
 
 use beni::sys;
@@ -49,12 +48,12 @@ use beni::Value;
 /// fault arm to the single guest-side `Kobako::ServiceError`, so nothing
 /// beyond these two is carried.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExceptionPayload {
+pub struct ExceptionPayload {
     /// The fault's `type` field (`"runtime"`, `"undefined"`, …). Named
     /// `kind` on the Rust side to avoid the raw-identifier escape.
-    pub(crate) kind: String,
+    pub kind: String,
     /// Human-readable description.
-    pub(crate) message: String,
+    pub message: String,
 }
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
@@ -104,11 +103,11 @@ impl std::error::Error for InstallError {}
 /// refuses it rather than saturating to the nearest bound; each call site
 /// fails its path the way that path reports any malformed inbound payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct IntegerOutOfRange(pub(crate) i128);
+pub struct IntegerOutOfRange(pub i128);
 
 impl IntegerOutOfRange {
     /// Operator-facing message naming the value the guest could not hold.
-    pub(crate) fn message(self) -> String {
+    pub fn message(self) -> String {
         format!(
             "integer {} is outside the guest's 32-bit Integer range",
             self.0
@@ -162,6 +161,9 @@ impl Kobako {
     /// resulting class registrations. An `Err` means mruby rejected a
     /// boot-time registration; the boot path surfaces it as a Panic.
     pub fn init<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
+        // The dispatch bridge mruby calls is a bare function pointer, so it
+        // reads the guest's adapter from here rather than from `G`.
+        crate::adapter::install_dispatch_ops::<G::Payload>();
         mrb.init_gem::<init::KobakoBridge>()?;
         G::init_gems(mrb)?;
 
@@ -313,7 +315,7 @@ impl Kobako {
     /// of `&self`, which the `Kobako` construction contract ties
     /// to the underlying `mrb_state`'s liveness.
     #[inline]
-    pub(crate) fn mrb(&self) -> &Mrb {
+    pub fn mrb(&self) -> &Mrb {
         // SAFETY: `Kobako` is only constructed against a live
         // `mrb_state` (via `init` / `resolve_raw`), and the caller
         // upholds liveness for the duration of any method call on it.
@@ -427,7 +429,7 @@ impl Kobako {
     /// degrades to `nil`: the guest then holds a value that answers no
     /// dispatch, which fails at its next call rather than silently naming
     /// something else.
-    pub(crate) fn mint_handle(&self, id: u32) -> Value {
+    pub fn mint_handle(&self, id: u32) -> Value {
         use beni::IntoValue;
         if id > HANDLE_ID_MAX {
             return Value::nil();
@@ -443,7 +445,7 @@ impl Kobako {
     /// build cannot hold rather than saturating it — neither side may ever
     /// see a different number than the wire carried
     /// (docs/wire/payload-msgpack.md § Integer Range).
-    pub(crate) fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
+    pub fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
     where
         N: TryInto<i32> + Into<i128> + Copy,
     {

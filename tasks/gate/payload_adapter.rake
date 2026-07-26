@@ -8,15 +8,21 @@
 # a third party assembling their own schema would find out.
 #
 # `kobako-codec` is the wire tier itself; `kobako-core` is the guest ABI
-# contract every third-party guest builds on, so a guest that speaks
-# another schema reaches the ABI without MessagePack in its graph.
+# contract every third-party guest builds on; `kobako-mruby` is the
+# harness whose `MrbGuest::Payload` the shell names — so a guest that
+# speaks another schema reaches all three without MessagePack in its graph.
 
 CODEC_BARE = "--no-default-features"
-# Each routing-only tier with the workspace its manifest lives in.
+# Each tier that must stand without a payload adapter, with the workspace
+# its manifest lives in.
 ADAPTER_FREE_TIERS = {
   "kobako-codec" => File.expand_path("../../crates", __dir__),
-  "kobako-core" => File.expand_path("../../wasm", __dir__)
+  "kobako-core" => File.expand_path("../../wasm", __dir__),
+  "kobako-mruby" => File.expand_path("../../wasm", __dir__)
 }.freeze
+# Crates an adapter-free build may still resolve to: the tiers themselves
+# plus the mruby wrapper, which is the interpreter rather than a schema.
+ADAPTER_FREE_ALLOWED = (ADAPTER_FREE_TIERS.keys + %w[beni beni-sys]).freeze
 
 # Report why +crate+ is not adapter-free, or +nil+ when it is. A crate is
 # adapter-free when it builds with no adapter selected and that build
@@ -37,7 +43,7 @@ end
 def adapter_free_tree_violation(crate)
   tree = `cargo tree -p #{crate} #{CODEC_BARE} -e normal 2>/dev/null`
   pulled = tree.lines.drop(1).filter_map { |line| line[/[a-z0-9-]+(?= v[0-9])/] }
-  external = pulled.reject { |dep| ADAPTER_FREE_TIERS.key?(dep) }
+  external = pulled.reject { |dep| ADAPTER_FREE_ALLOWED.include?(dep) }
   return if external.empty?
 
   "#{crate}'s adapter-free build still pulls #{external.size} " \

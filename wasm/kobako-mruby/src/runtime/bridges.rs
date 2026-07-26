@@ -49,6 +49,10 @@
 
 use beni::{Module, Mrb, Value};
 
+use crate::adapter::{
+    dispatch_decode_fault, dispatch_decode_value, dispatch_encode_arguments, AdapterError,
+};
+
 /// Ambient reflection / eval method names the guest proxy refuses to
 /// forward. This is a best-effort opacity mirror,
 /// not a security boundary: the host's owner-based guard re-checks every
@@ -119,9 +123,6 @@ fn forward_to_dispatch(
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
     use super::block_stack::BlockFrame;
-    use super::codec_convert::decode_fault;
-    use kobako_codec::codec::{Decoder, Encode};
-    use kobako_codec::payload::Arguments;
     use kobako_core::transport::proxy::{dispatch, DispatchError};
 
     let (method_sym, rest, kwargs_hash, block) =
@@ -146,46 +147,28 @@ fn forward_to_dispatch(
         return raise_reflection_blocked(kobako.mrb(), &method_name);
     }
 
-    // An argument (or kwargs value) with no wire representation is rejected
-    // at the guest dispatch call site rather than coerced to an Object#to_s
-    // string, uniform with the return / yield rejection.
-    let (args, kwargs) = match kobako.unpack_args_kwargs(rest, kwargs_hash) {
-        Ok(unpacked) => unpacked,
+    // An argument (or kwargs value) with no representation in this guest's
+    // schema is rejected at the dispatch call site rather than coerced to
+    // an Object#to_s string, uniform with the return / yield rejection.
+    let payload = match dispatch_encode_arguments(&kobako, rest, kwargs_hash) {
+        Ok(payload) => payload,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(unrep) => {
-            let msg = std::ffi::CString::new(unrep.message()).unwrap_or_default();
-            unsafe { kobako.raise_transport_error(&msg) }
-        }
-    };
-
-    // The envelope carries the arguments as an opaque payload, so this
-    // side encodes them and reads back whichever body the Reply's arm
-    // named — the adapter's half of a dispatch, which the transport layer
-    // beneath never touches.
-    let Ok(payload) = Arguments::new(args, kwargs).encode() else {
-        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        unsafe { kobako.raise_transport_error(envelope_err_msg) }
+        Err(err) => unsafe { raise_adapter_error(&kobako, err, "argument", envelope_err_msg) },
     };
 
     match dispatch(target, &method_name, block_given, &payload) {
-        Ok(body) => match Decoder::new(&body).read_only_value() {
-            Ok(value) => match kobako.to_mrb_value(value) {
-                Ok(mrb_value) => mrb_value,
-                // A dispatch return value the guest cannot represent raises
-                // in the calling guest code
-                // (docs/wire/payload-msgpack.md § Integer Range).
-                // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-                Err(err) => {
-                    let msg = std::ffi::CString::new(err.message()).unwrap_or_default();
-                    unsafe { kobako.raise_transport_error(&msg) }
-                }
+        // A dispatch return value the guest cannot represent raises in the
+        // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
+        Ok(body) => match dispatch_decode_value(&kobako, &body) {
+            Ok(value) => value,
+            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+            Err(err) => unsafe {
+                raise_adapter_error(&kobako, err, "return value", envelope_err_msg)
             },
-            // SAFETY: as above.
-            Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
         },
         // The fault arm is the normal path for a Service raising; a fault
         // body this adapter cannot read is a wire fault like any other.
-        Err(DispatchError::Fault(body)) => match decode_fault(&body) {
+        Err(DispatchError::Fault(body)) => match dispatch_decode_fault(&body) {
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Ok(ex) => unsafe { kobako.raise_service_error(&ex) },
             // SAFETY: as above.
@@ -194,6 +177,33 @@ fn forward_to_dispatch(
         // SAFETY: as above.
         Err(DispatchError::Wire(_)) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
     }
+}
+
+/// Raise the guest exception an adapter refusal surfaces as at a dispatch
+/// call site. `label` names the slot the value came from so the wording
+/// matches the return and yield rejections; `malformed` is the caller's
+/// wire-fault message, used when the bytes themselves were unreadable.
+///
+/// # Safety
+///
+/// As `Kobako::raise_transport_error`.
+unsafe fn raise_adapter_error(
+    kobako: &super::Kobako,
+    err: AdapterError,
+    label: &str,
+    malformed: &core::ffi::CStr,
+) -> ! {
+    let message = match err {
+        AdapterError::Unrepresentable { type_name } => {
+            format!("{label} of type {type_name} is not a supported sandbox value type")
+        }
+        AdapterError::OutOfRange { message } => message,
+        // SAFETY: bridge frame — caller upholds the unwind contract.
+        AdapterError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
+    };
+    let msg = std::ffi::CString::new(message).unwrap_or_default();
+    // SAFETY: as above.
+    unsafe { kobako.raise_transport_error(&msg) }
 }
 
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single

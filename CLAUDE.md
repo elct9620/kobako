@@ -152,13 +152,14 @@ Inside `kobako-wasmtime`, sibling modules reference each other as `crate::dispat
 Mirrors `lib/` tier-for-tier — `crates/kobako-codec` is the wire-symmetric peer and `kobako-core` adds the guest-ABI machinery on top; `kobako-mruby` implements the contract over mruby; the cdylib-only `kobako-wasm` shell composes the published crates into `data/kobako.wasm`.
 
 ```
-kobako-wasm     unpublished leaf shell (cdylib-only) — KobakoGuest wires the
-      │           capability gems via init_gems; export_guest! emits the
-      │           __kobako_* ABI exports
+kobako-wasm     unpublished leaf shell (cdylib-only) — KobakoGuest names the
+      │           payload adapter and wires the capability gems via init_gems;
+      │           export_guest! emits the __kobako_* ABI exports
 kobako-mruby    assembled mruby implementation (publishable rlib) — MrbGuest trait
-      │           (required init_gems hook; provided eval / run / yield flows),
-      │           per-invocation entry flows, Kobako runtime bridge, mrb ↔ wire
-      │           value conversion
+      │           (required init_gems hook + Payload adapter choice; provided
+      │           eval / run / yield flows), per-invocation entry flows, Kobako
+      │           runtime bridge, and the default MessagePack adapter behind the
+      │           on-by-default `msgpack` feature
 kobako-io / kobako-regexp / kobako-json
       │         capability gems (publishable rlibs, kobako-mruby-free) — pure-Rust
       │           beni::Gem impls over wasi-libc write(2) / fancy-regex / serde_json

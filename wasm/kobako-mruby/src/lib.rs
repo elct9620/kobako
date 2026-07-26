@@ -25,10 +25,16 @@
 //! from `beni-sys` (see `build.rs`) — a placeholder-mode call panics
 //! at runtime instead of failing the build.
 
+mod adapter;
 mod flows;
+#[cfg(feature = "msgpack")]
+mod msgpack;
 mod runtime;
 
-pub use runtime::{InstallError, Kobako};
+pub use adapter::{AdapterError, CallArguments, PayloadAdapter};
+#[cfg(feature = "msgpack")]
+pub use msgpack::MsgpackAdapter;
+pub use runtime::{ExceptionPayload, InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
 
@@ -41,6 +47,12 @@ use beni::{Error, Mrb};
 /// method matches one `kobako_core::Guest` entry; a shell forwards
 /// them in its own `Guest` impl.
 pub trait MrbGuest {
+    /// The schema this guest reads and writes payloads with. Nothing
+    /// below the flows names one, so a shell speaking its own wire picks
+    /// its adapter here and the transport is unchanged. `MsgpackAdapter`
+    /// is what the bundled Guest Binary chooses.
+    type Payload: PayloadAdapter;
+
     /// Install the shell-chosen gem set onto the freshly booted VM,
     /// via `Mrb::init_gem`. Runs once per boot — at the build-time
     /// bake, or on a non-baked artifact's first entry — after
@@ -87,7 +99,15 @@ pub trait MrbGuest {
     where
         Self: Sized,
     {
-        flows::yield_to_block(req)
+        #[cfg(mruby_linked)]
+        {
+            flows::yield_to_block::<Self>(req)
+        }
+        #[cfg(not(mruby_linked))]
+        {
+            let _ = req;
+            not_linked()
+        }
     }
 
     /// Bake the canonical boot state into the

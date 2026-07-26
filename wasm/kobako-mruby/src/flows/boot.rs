@@ -84,17 +84,20 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
 /// envelope encode fails. The shared tail of the eval and run entry
 /// bodies, so the outcome attribution cannot drift between them.
 #[cfg(mruby_linked)]
-pub(super) fn write_value_outcome(kobako: &Kobako, result_val: beni::Value) {
-    use kobako_codec::codec::Encoder;
+pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
+    use crate::adapter::{AdapterError, PayloadAdapter};
     use kobako_codec::envelope::Outcome;
     use kobako_core::abi::{write_outcome, write_panic};
 
-    let Some(codec_value) = kobako.try_codec_value(result_val) else {
-        return write_panic(unrepresentable_return_panic(kobako, result_val));
-    };
-    match Encoder::encode(&codec_value) {
+    match G::Payload::encode_value(kobako, result_val) {
         Ok(payload) => write_outcome(Outcome::Result(payload).encode()),
-        Err(_) => write_panic(transport_panic("result envelope encode failed")),
+        Err(AdapterError::Unrepresentable { .. }) => {
+            write_panic(unrepresentable_return_panic(kobako, result_val))
+        }
+        Err(AdapterError::OutOfRange { message }) => write_panic(transport_panic(message)),
+        Err(AdapterError::Malformed) => {
+            write_panic(transport_panic("result envelope encode failed"))
+        }
     }
 }
 

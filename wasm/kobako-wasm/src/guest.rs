@@ -11,6 +11,12 @@ use beni::{Error, Mrb};
 pub(crate) struct KobakoGuest;
 
 impl kobako_mruby::MrbGuest for KobakoGuest {
+    // MessagePack is the schema this binary speaks, chosen here rather
+    // than assumed below: the harness and the transport read no payload
+    // byte of their own, so a shell wanting another wire names it here
+    // and nothing beneath changes.
+    type Payload = kobako_mruby::MsgpackAdapter;
+
     // KobakoBridge is the harness built-in — the provided flows
     // install it themselves; the hook wires the rest of the bundled
     // gem set.

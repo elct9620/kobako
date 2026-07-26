@@ -9,22 +9,21 @@
 //!
 //! ## Body
 //!
-//! 1. Decode the yield arguments (msgpack array of positional args)
-//!    out of the request buffer.
-//! 2. Resolve the active `mrb_state` via the module-level `MRB`
-//!    slot and read the topmost block off `BLOCK_STACK`.
-//! 3. Convert codec args → `Value` args via the standard runtime
-//!    converter, then yield to the block through beni's protected
-//!    `Proc::call` so any guest-side raise (or `break` / Proc-`return`
-//!    RBreak) lands as `Err` instead of long-jumping past the Rust
-//!    frame.
+//! 1. Resolve the active `mrb_state` via the module-level `MRB` slot and
+//!    read the topmost block off `BLOCK_STACK`.
+//! 2. Read the yield arguments out of the request buffer through the
+//!    guest's payload adapter, which needs that VM to build values.
+//! 3. Yield to the block through beni's protected `Proc::call` so any
+//!    guest-side raise (or `break` / Proc-`return` RBreak) lands as `Err`
+//!    instead of long-jumping past the Rust frame.
 //! 4. Encode the outcome as a `Yield Reply`:
-//!     * normal return of a wire-representable value → the ok arm
-//!       carrying the value as an adapter-encoded payload
+//!     * normal return of a representable value → the ok arm carrying the
+//!       value as an adapter-encoded payload
 //!     * a real `break` from a non-lambda block → the break arm
-//!     * a raised exception, a return value with no wire representation,
-//!       or an RBreak aimed past the yielder's frame (a non-orphan Proc
-//!       `return`) → the error arm carrying an Error Record
+//!     * a raised exception, a return value the adapter has no
+//!       representation for, or an RBreak aimed past the yielder's frame
+//!       (a non-orphan Proc `return`) → the error arm carrying an Error
+//!       Record
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
@@ -36,32 +35,21 @@ use kobako_core::abi::pack_u64;
 /// Invocation entry behind the `__kobako_yield_to_block` export —
 /// see module docs. Signature pinned by docs/wire-codec.md § ABI
 /// Signatures (5 guest exports).
-pub(crate) fn yield_to_block(req: &[u8]) -> u64 {
-    #[cfg(mruby_linked)]
-    {
-        yield_to_block_body(req)
-    }
-    #[cfg(not(mruby_linked))]
-    {
-        let _ = req;
-        crate::not_linked()
-    }
+#[cfg(mruby_linked)]
+pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> u64 {
+    yield_to_block_body::<G>(req)
 }
 
 #[cfg(mruby_linked)]
-fn yield_to_block_body(req: &[u8]) -> u64 {
+fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     use super::mrb_slot::MRB;
+    use crate::adapter::PayloadAdapter;
     use crate::runtime::block_stack::BLOCK_STACK;
     use crate::runtime::Kobako;
     use beni::{sys, FromValue, Proc};
 
-    // Step 1: decode positional args off the request buffer.
-    let args_codec = match decode_yield_args(req) {
-        Ok(items) => items,
-        Err(msg) => return write_error_response("Kobako::Transport::Error", msg, Vec::new()),
-    };
-
-    // Step 2: resolve the active VM + Kobako runtime + bound block.
+    // Step 1: resolve the active VM + Kobako runtime + bound block. The
+    // adapter needs the VM to build values, so the buffer is read after it.
     let Some(mrb) = MRB.as_ref() else {
         return write_error_response(
             "RuntimeError",
@@ -77,26 +65,26 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 3: convert codec args → Value args. A yielded argument the
-    // guest cannot represent — an integer outside the 32-bit range —
-    // fails the yield round-trip rather than reaching the block with a
-    // saturated value (docs/wire/payload-msgpack.md § Integer Range).
-    let args: Vec<beni::Value> = match args_codec
-        .into_iter()
-        .map(|v| kobako.to_mrb_value(v))
-        .collect()
-    {
+    // Step 2: read the yield arguments through the guest's adapter. One
+    // the guest cannot represent — an integer outside the 32-bit range —
+    // fails the round-trip rather than reaching the block with a saturated
+    // value (docs/wire/payload-msgpack.md § Integer Range).
+    let args = match G::Payload::decode_values(&kobako, req) {
         Ok(args) => args,
         Err(err) => {
-            return write_error_response("Kobako::Transport::Error", err.message(), Vec::new())
+            return write_error_response(
+                "Kobako::Transport::Error",
+                adapter_failure_message(err, "block argument"),
+                Vec::new(),
+            )
         }
     };
 
-    // Step 4: protected yield via beni's `Proc::call`, which folds the
+    // Step 3: protected yield via beni's `Proc::call`, which folds the
     // `mrb_yield_argv` + protect machinery — a guest-side raise / break /
     // Proc-`return` surfaces as `Err` instead of long-jumping past the
     // Rust frame. Snapshot the current callinfo index *before* the call
-    // so step 5's classification can place any RBreak destination
+    // so step 4's classification can place any RBreak destination
     // relative to this yielder's frame.
     // SAFETY: `mrb` is live by the outer `&Mrb` borrow; the shim reads
     // the VM-internal `mrb_context.ci` / `cibase` frame indices, which
@@ -104,13 +92,13 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
     let enter_idx = unsafe { sys::mrb_current_ci_index_func(mrb.as_ptr()) };
     let result = block.call(mrb, &args);
 
-    // Step 5: encode the outcome. Extract any exception fields
+    // Step 4: encode the outcome. Extract any exception fields
     // immediately on the Err path before any other mruby allocation
     // could sweep the exception object out of the GC arena. RBreak
     // outcomes split on `ci_break_index` vs `enter_idx`.
     let bytes = match result {
-        Ok(value) => encode_ok_response(&kobako, value),
-        Err(beni::Error::Exception(exc)) => classify_protected_error(&kobako, exc, enter_idx),
+        Ok(value) => encode_ok_response::<G>(&kobako, value),
+        Err(beni::Error::Exception(exc)) => classify_protected_error::<G>(&kobako, exc, enter_idx),
         // A Rust panic inside the protected yield can only surface
         // here under unwinding panics; the guest builds with
         // `panic = "abort"`, so this arm is unreachable in production.
@@ -128,7 +116,7 @@ fn yield_to_block_body(req: &[u8]) -> u64 {
 /// the `enter_idx` snapshot taken immediately before the protected
 /// yield.
 #[cfg(mruby_linked)]
-fn classify_protected_error(
+fn classify_protected_error<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     exc: beni::Value,
     enter_idx: usize,
@@ -143,7 +131,7 @@ fn classify_protected_error(
     // MRB_API accessor, so it stays on the unsafe `sys` seam.
     let brk_idx = unsafe { sys::mrb_break_ci_index_func(exc.as_raw()) };
     if brk_idx >= enter_idx {
-        encode_break_response(kobako, brk.value())
+        encode_break_response::<G>(kobako, brk.value())
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
@@ -156,69 +144,63 @@ fn classify_protected_error(
     }
 }
 
-/// Encode a value-carrying Yield Reply (the ok or break arm). A value
-/// with no wire representation surfaces as an error arm carrying a
-/// TypeError — the host Yielder reifies it at the Service's yield site —
-/// rather than being coerced to a String; `type_label` /
-/// `encode_fail_message` keep each arm's exact host-visible wording.
+/// Phrase an adapter refusal for the guest-visible error arm. `label`
+/// names the slot the value came from, keeping each arm's wording.
 #[cfg(mruby_linked)]
-fn encode_value_response(
+fn adapter_failure_message(err: crate::adapter::AdapterError, label: &str) -> String {
+    use crate::adapter::AdapterError;
+    match err {
+        AdapterError::Unrepresentable { type_name } => {
+            format!("{label} of type {type_name} is not a supported sandbox value type")
+        }
+        AdapterError::OutOfRange { message } => message,
+        AdapterError::Malformed => format!("failed to read the {label}"),
+    }
+}
+
+/// Encode a value-carrying Yield Reply (the ok or break arm). A value
+/// with no representation in this guest's schema surfaces as an error arm
+/// carrying a TypeError — the host Yielder reifies it at the Service's
+/// yield site — rather than being coerced to a String.
+#[cfg(mruby_linked)]
+fn encode_value_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
     arm: fn(Vec<u8>) -> YieldReply,
     type_label: &str,
-    encode_fail_message: &str,
 ) -> Vec<u8> {
-    use kobako_codec::codec::Encoder;
-    let Some(codec_value) = kobako.try_codec_value(value) else {
-        return encode_error_bytes(
-            "TypeError",
-            &format!(
-                "{type_label} of type {} is not a supported sandbox value type",
-                value.classname(kobako.mrb())
-            ),
-            Vec::new(),
-        );
-    };
-    match Encoder::encode(&codec_value) {
+    use crate::adapter::{AdapterError, PayloadAdapter};
+    match G::Payload::encode_value(kobako, value) {
         Ok(payload) => arm(payload).encode(),
-        Err(_) => encode_error_bytes("Kobako::Transport::Error", encode_fail_message, Vec::new()),
+        // An unrepresentable value is the guest's own type error; bytes the
+        // schema could not write are a transport fault.
+        Err(err @ AdapterError::Unrepresentable { .. }) => encode_error_bytes(
+            "TypeError",
+            &adapter_failure_message(err, type_label),
+            Vec::new(),
+        ),
+        Err(err) => encode_error_bytes(
+            "Kobako::Transport::Error",
+            &adapter_failure_message(err, type_label),
+            Vec::new(),
+        ),
     }
 }
 
 #[cfg(mruby_linked)]
-fn encode_break_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    encode_value_response(
-        kobako,
-        value,
-        YieldReply::Break,
-        "break value",
-        "failed to encode break value",
-    )
+fn encode_break_response<G: crate::MrbGuest>(
+    kobako: &crate::runtime::Kobako,
+    value: beni::Value,
+) -> Vec<u8> {
+    encode_value_response::<G>(kobako, value, YieldReply::Break, "break value")
 }
 
 #[cfg(mruby_linked)]
-fn decode_yield_args(req: &[u8]) -> Result<Vec<kobako_codec::codec::Value>, String> {
-    use kobako_codec::codec::{Decoder, Value};
-    let mut dec = Decoder::new(req);
-    let frame = dec
-        .read_only_value()
-        .map_err(|e| format!("failed to decode the block arguments: {e}"))?;
-    match frame {
-        Value::Array(items) => Ok(items),
-        _ => Err("block arguments must be an array".to_string()),
-    }
-}
-
-#[cfg(mruby_linked)]
-fn encode_ok_response(kobako: &crate::runtime::Kobako, value: beni::Value) -> Vec<u8> {
-    encode_value_response(
-        kobako,
-        value,
-        YieldReply::Ok,
-        "block return value",
-        "failed to encode yield ok value",
-    )
+fn encode_ok_response<G: crate::MrbGuest>(
+    kobako: &crate::runtime::Kobako,
+    value: beni::Value,
+) -> Vec<u8> {
+    encode_value_response::<G>(kobako, value, YieldReply::Ok, "block return value")
 }
 
 #[cfg(mruby_linked)]

@@ -32,6 +32,7 @@ mod eval;
 #[cfg(mruby_linked)]
 mod mrb_slot;
 mod run;
+#[cfg(mruby_linked)]
 mod yield_block;
 
 #[cfg(mruby_linked)]
@@ -40,4 +41,5 @@ pub(crate) use boot::bake_boot;
 pub(crate) use eval::eval;
 #[cfg(mruby_linked)]
 pub(crate) use run::run;
+#[cfg(mruby_linked)]
 pub(crate) use yield_block::yield_to_block;
