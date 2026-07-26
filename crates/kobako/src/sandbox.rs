@@ -24,7 +24,7 @@ use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
-use crate::error::{Error, GuestFailure};
+use crate::error::{Error, Failure};
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::{HandleTable, Handles};
@@ -416,7 +416,7 @@ fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Erro
             .alloc(object)
             .map(Value::Handle)
             .map_err(|message| {
-                Error::Sandbox(Box::new(GuestFailure {
+                Error::Sandbox(Box::new(Failure {
                     class: "Kobako::HandleExhaustedError".into(),
                     message,
                     backtrace: Vec::new(),
@@ -436,7 +436,7 @@ fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(
             if Handles::new(handles).resolve(value).is_some() {
                 Ok(())
             } else {
-                Err(Error::Sandbox(Box::new(GuestFailure {
+                Err(Error::Sandbox(Box::new(Failure {
                     class: "Kobako::SandboxError".into(),
                     message: format!("unknown Handle id: {id}"),
                     backtrace: Vec::new(),

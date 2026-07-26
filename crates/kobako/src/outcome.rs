@@ -10,7 +10,7 @@
 use kobako_codec::codec::{Decoder, Value};
 use kobako_runtime::envelope::{Outcome, Panic};
 
-use crate::error::{Error, GuestFailure};
+use crate::error::{Error, Failure};
 
 /// SPEC-pinned wire-level error class, carried as the attribution of
 /// host-detected wire violations on both frontends.
@@ -63,7 +63,7 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
 /// Panic reads no payload byte and cannot fail.
 fn classify_panic(panic: Panic) -> Error {
     let from_service = panic.from_service();
-    let failure = Box::new(GuestFailure {
+    let failure = Box::new(Failure {
         class: panic.error.class,
         message: panic.error.message,
         backtrace: panic.error.backtrace,
@@ -80,7 +80,7 @@ fn classify_panic(panic: Panic) -> Error {
 }
 
 fn wire_violation(message: &str, detail: &kobako_codec::codec::Error) -> Error {
-    Error::Sandbox(Box::new(GuestFailure {
+    Error::Sandbox(Box::new(Failure {
         class: WIRE_ERROR_CLASS.into(),
         message: message.into(),
         backtrace: Vec::new(),

@@ -34,17 +34,17 @@ use kobako_codec::envelope::{self, Call, Reply, Target};
 pub enum DispatchError {
     /// The host answered on the fault arm — the *normal* path for a
     /// Service raising an exception. The bytes are the fault body as the
-    /// payload adapter encoded it; reading them is the caller's business.
+    /// payload codec encoded it; reading them is the caller's business.
     Fault(Vec<u8>),
     /// The exchange failed before a Reply could be framed: malformed
     /// bytes, an answer that is not a Reply envelope, or the host
     /// signalling `len == 0`.
-    Wire(envelope::Error),
+    Envelope(envelope::Error),
 }
 
 impl From<envelope::Error> for DispatchError {
     fn from(err: envelope::Error) -> Self {
-        DispatchError::Wire(err)
+        DispatchError::Envelope(err)
     }
 }
 
@@ -52,7 +52,7 @@ impl std::fmt::Display for DispatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DispatchError::Fault(_) => f.write_str("the Service answered on the fault arm"),
-            DispatchError::Wire(err) => write!(f, "Sandbox communication error: {err}"),
+            DispatchError::Envelope(err) => write!(f, "Sandbox communication error: {err}"),
         }
     }
 }
@@ -130,7 +130,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     let (ptr, len) = unpack_u64(packed);
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
-        return Err(DispatchError::Wire(envelope::Error(
+        return Err(DispatchError::Envelope(envelope::Error(
             "the host returned an empty response",
         )));
     }
@@ -144,7 +144,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     LOOPBACK.with(|cell| match cell.borrow().as_ref() {
         Some(hook) => Ok(hook(req_bytes)),
-        None => Err(DispatchError::Wire(envelope::Error(
+        None => Err(DispatchError::Envelope(envelope::Error(
             "no loopback hook installed; install one with set_loopback() \
              when calling dispatch on the host target",
         ))),
@@ -258,7 +258,7 @@ mod tests {
         clear_loopback();
 
         assert!(
-            matches!(out, Err(DispatchError::Wire(_))),
+            matches!(out, Err(DispatchError::Envelope(_))),
             "a tag the Reply envelope does not define must fail as a wire fault, got {out:?}"
         );
     }
@@ -270,7 +270,7 @@ mod tests {
         clear_loopback();
         let out = dispatch(Target::Path("G::M".into()), "x", false, &[]);
         match out {
-            Err(DispatchError::Wire(envelope::Error(msg))) => {
+            Err(DispatchError::Envelope(envelope::Error(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");
             }
             other => panic!("expected a wire fault naming the missing loopback, got {other:?}"),

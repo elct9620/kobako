@@ -14,16 +14,20 @@ use std::fmt;
 
 pub use kobako_runtime::error::SetupError;
 
-/// A guest-side failure decoded from a Panic envelope: the guest
-/// exception class and message, the backtrace the wire carried, and the
-/// names the invocation could have used in place of the one it named.
+/// One record of a failed invocation: the exception class, message and
+/// backtrace the wire carried, the names the invocation could have used in
+/// place of the one it named, and — when the host itself detected the
+/// violation — the codec detail behind it.
+///
+/// Each `Error` variant names where the failure came from, so the record
+/// itself only has to say what failed.
 ///
 /// Non-exhaustive because a Panic gains fields as the wire does, and an
 /// embedder reads this rather than building one — so a later field is a
 /// wire change, not a break in this API.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct GuestFailure {
+pub struct Failure {
     pub class: String,
     pub message: String,
     pub backtrace: Vec<String>,
@@ -36,7 +40,7 @@ pub struct GuestFailure {
     pub diagnostic: Option<String>,
 }
 
-impl fmt::Display for GuestFailure {
+impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.class, self.message)
     }
@@ -59,12 +63,12 @@ pub enum Error {
     Trap(String),
     /// Guest-origin failure — uncaught exception, compile failure, or
     /// a wire violation (Ruby: `Kobako::SandboxError`).
-    Sandbox(Box<GuestFailure>),
+    Sandbox(Box<Failure>),
     /// Rejected RITE bytecode at replay (Ruby: `Kobako::BytecodeError`).
-    Bytecode(Box<GuestFailure>),
+    Bytecode(Box<Failure>),
     /// Service-origin failure — the bound object raised or the
     /// dispatch refused the call (Ruby: `Kobako::ServiceError`).
-    Service(Box<GuestFailure>),
+    Service(Box<Failure>),
     /// The invocation never started: guest artifact absent or
     /// unusable, or a host-side pre-call step failed.
     Setup(SetupError),

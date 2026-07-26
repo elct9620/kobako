@@ -21,7 +21,7 @@ pub mod sandbox;
 mod snippet;
 pub mod yielder;
 
-pub use error::{Error, GuestFailure};
+pub use error::{Error, Failure};
 pub use execution::Execution;
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;

@@ -667,7 +667,7 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
 /// answers a status the Ruby executor never produces, so an SDK error
 /// variant this runner does not yet classify surfaces as a loud
 /// parity mismatch instead of a silent bucket.
-fn classify(error: &Error) -> (&'static str, Option<&kobako::GuestFailure>) {
+fn classify(error: &Error) -> (&'static str, Option<&kobako::Failure>) {
     match error {
         Error::Timeout(_) => ("timeout", None),
         Error::MemoryLimit(_) => ("memory_limit", None),
