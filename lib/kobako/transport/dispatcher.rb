@@ -54,16 +54,14 @@ module Kobako
       # wire.
       def dispatch(call, resolver, handler, yield_to_guest)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if call.block_given
-        reply = [true, encode_ok(run(call, resolver, handler, yielder), handler)] # : [bool, String]
-        reply
+        [true, encode_ok(run(call, resolver, handler, yielder), handler)] # : [bool, String]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
       # host-process failure (NoMemoryError, SignalException, a bare Exception)
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        fault = [false, encode_caught_error(e)] # : [bool, String]
-        fault
+        [false, encode_caught_error(e)] # : [bool, String]
       ensure
         yielder&.invalidate!
       end

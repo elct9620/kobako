@@ -267,32 +267,36 @@ fn both_invocation_frames_cross_from_host_to_guest() {
 }
 
 #[test]
-fn both_peers_refuse_the_same_malformed_messages() {
-    let cases: [(&str, &[u8]); 4] = [
-        ("an unknown Call kind", &[9, 0, 0, 0, 0]),
-        ("a zero-length Reply", &[]),
-        ("the reserved Yield Reply tag", &[0x03]),
-        ("an unknown Outcome tag", &[0x7f, 0x00]),
-    ];
+fn both_peers_refuse_an_unknown_call_kind() {
+    let bytes: &[u8] = &[9, 0, 0, 0, 0];
     assert!(
-        host::Call::decode(cases[0].1).is_err() && guest::Call::decode(cases[0].1).is_err(),
-        "both peers must reject {}",
-        cases[0].0
+        host::Call::decode(bytes).is_err() && guest::Call::decode(bytes).is_err(),
+        "a Call kind that is neither path nor handle must be refused by both peers"
     );
+}
+
+#[test]
+fn both_peers_refuse_a_zero_length_reply() {
     assert!(
-        host::Reply::decode(cases[1].1).is_err() && guest::Reply::decode(cases[1].1).is_err(),
-        "both peers must reject {}",
-        cases[1].0
+        host::Reply::decode(&[]).is_err() && guest::Reply::decode(&[]).is_err(),
+        "a Reply carrying not even a tag must be refused by both peers"
     );
+}
+
+#[test]
+fn both_peers_refuse_the_reserved_yield_reply_tag() {
+    let bytes: &[u8] = &[0x03];
     assert!(
-        host::YieldReply::decode(cases[2].1).is_err()
-            && guest::YieldReply::decode(cases[2].1).is_err(),
-        "both peers must reject {}",
-        cases[2].0
+        host::YieldReply::decode(bytes).is_err() && guest::YieldReply::decode(bytes).is_err(),
+        "the reserved 0x03 Yield Reply tag must be refused by both peers"
     );
+}
+
+#[test]
+fn both_peers_refuse_an_unknown_outcome_tag() {
+    let bytes: &[u8] = &[0x7f, 0x00];
     assert!(
-        host::Outcome::decode(cases[3].1).is_err() && guest::Outcome::decode(cases[3].1).is_err(),
-        "both peers must reject {}",
-        cases[3].0
+        host::Outcome::decode(bytes).is_err() && guest::Outcome::decode(bytes).is_err(),
+        "an Outcome tag that is neither result nor panic must be refused by both peers"
     );
 }
