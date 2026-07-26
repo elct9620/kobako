@@ -26,7 +26,7 @@
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
-//!   kobako_core::transport::proxy::invoke(...)
+//!   kobako_core::transport::proxy::dispatch(...)
 //! ```
 //!
 //! `proxy_method_missing` is the single forwarding entry the
@@ -101,13 +101,14 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// bound constant, a Handle id for a `Kobako::Handle` instance) plus two
 /// error labels: `sym_err_msg` for a null method symbol, `envelope_err_msg`
 /// for a transport envelope fault. Extracts the method symbol, args/kwargs,
-/// and block; rounds the Call through the host via
-/// `kobako_core::transport::proxy::invoke`; and converts the result back
-/// to an mruby value — raising `Kobako::ServiceError` on a fault arm and
-/// `Kobako::Transport::Error` on an envelope fault (both raise paths
-/// diverge). The `Kobako` token supplies only the VM-level primitives
-/// (arg/result conversion, error raising); the dispatch orchestration
-/// lives here, not on the token.
+/// and block; encodes the arguments and rounds the Call through the host
+/// via `kobako_core::transport::proxy::dispatch`; and reads back whichever
+/// body the Reply's arm named — raising `Kobako::ServiceError` on a fault
+/// arm and `Kobako::Transport::Error` on an envelope fault (both raise
+/// paths diverge). The payload adapter is this side's to run: the
+/// transport beneath routes the Call without reading a byte of it.
+/// The `Kobako` token supplies only the VM-level primitives (arg/result
+/// conversion, error raising); the dispatch orchestration lives here.
 ///
 /// The helper runs `kobako.mrb().get_args::<NRestKwBlock>()` itself, so
 /// callers must not have already consumed the arglist.
@@ -118,7 +119,10 @@ fn forward_to_dispatch(
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
     use super::block_stack::BlockFrame;
-    use kobako_core::transport::proxy::{invoke, InvokeError};
+    use super::codec_convert::decode_fault;
+    use kobako_codec::codec::{Decoder, Encode};
+    use kobako_codec::payload::Arguments;
+    use kobako_core::transport::proxy::{dispatch, DispatchError};
 
     let (method_sym, rest, kwargs_hash, block) =
         kobako.mrb().get_args::<beni::format::NRestKwBlock>();
@@ -154,21 +158,41 @@ fn forward_to_dispatch(
         }
     };
 
-    match invoke(target, &method_name, &args, &kwargs, block_given) {
-        Ok(value) => match kobako.to_mrb_value(value) {
-            Ok(mrb_value) => mrb_value,
-            // A dispatch return value the guest cannot represent raises in
-            // the calling guest code (docs/wire/payload-msgpack.md § Integer Range).
-            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            Err(err) => {
-                let msg = std::ffi::CString::new(err.message()).unwrap_or_default();
-                unsafe { kobako.raise_transport_error(&msg) }
-            }
-        },
+    // The envelope carries the arguments as an opaque payload, so this
+    // side encodes them and reads back whichever body the Reply's arm
+    // named — the adapter's half of a dispatch, which the transport layer
+    // beneath never touches.
+    let Ok(payload) = Arguments::new(args, kwargs).encode() else {
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(InvokeError::Service(ex)) => unsafe { kobako.raise_service_error(&ex) },
+        unsafe { kobako.raise_transport_error(envelope_err_msg) }
+    };
+
+    match dispatch(target, &method_name, block_given, &payload) {
+        Ok(body) => match Decoder::new(&body).read_only_value() {
+            Ok(value) => match kobako.to_mrb_value(value) {
+                Ok(mrb_value) => mrb_value,
+                // A dispatch return value the guest cannot represent raises
+                // in the calling guest code
+                // (docs/wire/payload-msgpack.md § Integer Range).
+                // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+                Err(err) => {
+                    let msg = std::ffi::CString::new(err.message()).unwrap_or_default();
+                    unsafe { kobako.raise_transport_error(&msg) }
+                }
+            },
+            // SAFETY: as above.
+            Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
+        },
+        // The fault arm is the normal path for a Service raising; a fault
+        // body this adapter cannot read is a wire fault like any other.
+        Err(DispatchError::Fault(body)) => match decode_fault(&body) {
+            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+            Ok(ex) => unsafe { kobako.raise_service_error(&ex) },
+            // SAFETY: as above.
+            Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
+        },
         // SAFETY: as above.
-        Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
+        Err(DispatchError::Wire(_)) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
     }
 }
 

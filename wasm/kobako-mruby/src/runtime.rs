@@ -43,7 +43,19 @@ mod init;
 use beni::sys;
 use beni::Mrb;
 use beni::Value;
-use kobako_core::transport::proxy::ExceptionPayload;
+
+/// A Reply's fault arm after the payload adapter has read it — exactly the
+/// fields the bridge needs to raise the guest exception. SPEC pins every
+/// fault arm to the single guest-side `Kobako::ServiceError`, so nothing
+/// beyond these two is carried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExceptionPayload {
+    /// The fault's `type` field (`"runtime"`, `"undefined"`, …). Named
+    /// `kind` on the Rust side to avoid the raw-identifier escape.
+    pub(crate) kind: String,
+    /// Human-readable description.
+    pub(crate) message: String,
+}
 
 /// Mangled instance-variable name that `Kobako::Handle#initialize`
 /// stores the Handle id under. Read back through `Kobako::extract_handle_id`
@@ -284,7 +296,7 @@ impl Kobako {
     /// # Safety
     ///
     /// As `Kobako::raise_transport_error`.
-    pub unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
+    pub(crate) unsafe fn raise_service_error(&self, ex: &ExceptionPayload) -> ! {
         let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
         unsafe { self.service_error_class.raise(self.mrb(), &msg) };

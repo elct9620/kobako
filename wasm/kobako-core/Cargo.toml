@@ -25,4 +25,7 @@ categories = ["wasm"]
 [dependencies]
 # The portable wire tier — codec, envelopes, outcome — shared with any
 # Rust host; this crate adds only the guest-bound ABI machinery on top.
-kobako-codec = { version = "0.12.0", path = "../../crates/kobako-codec" }
+# The core envelope only. This crate routes messages and never reads a
+# payload, so it takes no payload adapter — which is what keeps MessagePack
+# out of the dependency graph of a guest that speaks another schema.
+kobako-codec = { version = "0.12.0", path = "../../crates/kobako-codec", default-features = false }

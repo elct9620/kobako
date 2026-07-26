@@ -6,7 +6,10 @@
 //! `codec_convert::try_codec_value(&kobako, val)`) via a second `impl`
 //! block.
 //!
-//! Two concerns live here:
+//! This is the whole of what the MessagePack adapter does for the mruby
+//! guest: the transport beneath routes a Call without reading a payload
+//! byte, so every translation between the wire's bytes and mruby's values
+//! happens here. Three concerns:
 //!
 //! 1. **Value conversion** (`try_codec_value`) — the single guest→host
 //!    value converter, shared by the `#eval` / `#run` outcome, the
@@ -23,13 +26,53 @@
 //!    keyword Hash into wire args and kwargs, running each leaf through
 //!    `try_codec_value` and reporting the first unrepresentable value as
 //!    `UnrepresentableArg`.
+//! 3. **Fault reading** (`decode_fault`) — the Reply arm the envelope
+//!    tagged as a failure, read into the fields the bridge raises with.
 
-use super::{IntegerOutOfRange, Kobako};
+use super::{ExceptionPayload, IntegerOutOfRange, Kobako};
 use beni::Value;
+use kobako_codec::codec::{self, Decoder, Value as CodecValue};
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
 // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
 use kobako_codec::codec::MAX_NESTING_DEPTH;
+
+/// Read a Reply's fault body — an ext 0x02 frame wrapping the
+/// `{type, message, details}` map — into the two fields the bridge raises
+/// with. The envelope named the arm; this reads what it carried, which is
+/// the payload adapter's half of the job.
+pub(crate) fn decode_fault(body: &[u8]) -> Result<ExceptionPayload, codec::Error> {
+    let CodecValue::ErrEnv(inner_bytes) = Decoder::new(body).read_only_value()? else {
+        return Err(codec::Error::Malformed(
+            "the fault arm of a Reply must carry a Fault (ext 0x02)",
+        ));
+    };
+    let CodecValue::Map(pairs) = Decoder::new(&inner_bytes).read_value()? else {
+        return Err(codec::Error::Malformed(
+            "malformed error response from the host",
+        ));
+    };
+
+    let mut kind = None;
+    let mut message = None;
+    for (key, value) in pairs {
+        match (key, value) {
+            (CodecValue::Str(name), CodecValue::Str(text)) if name == "type" => kind = Some(text),
+            (CodecValue::Str(name), CodecValue::Str(text)) if name == "message" => {
+                message = Some(text)
+            }
+            _ => {}
+        }
+    }
+    Ok(ExceptionPayload {
+        kind: kind.ok_or(codec::Error::Malformed(
+            "error response from the host is missing the field: type",
+        ))?,
+        message: message.ok_or(codec::Error::Malformed(
+            "error response from the host is missing the field: message",
+        ))?,
+    })
+}
 
 /// A dispatch argument (or kwargs value) the guest tried to send has no
 /// wire representation. The guest rejects it at the dispatch call site
@@ -198,7 +241,6 @@ impl Kobako {
 
     fn try_codec_value_at(&self, val: Value, depth: usize) -> Option<kobako_codec::codec::Value> {
         use beni::FromValue;
-        use kobako_codec::codec::Value as CodecValue;
         // Scalar-leaf downcast through the safe `FromValue` seam.
         if let Some(n) = i32::from_value(val) {
             return Some(CodecValue::Int(n as i64));
@@ -253,7 +295,6 @@ impl Kobako {
         val: kobako_codec::codec::Value,
     ) -> Result<Value, IntegerOutOfRange> {
         use beni::IntoValue;
-        use kobako_codec::codec::Value as CodecValue;
         let mrb = self.mrb();
         Ok(match val {
             CodecValue::Nil => Value::nil(),

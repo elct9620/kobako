@@ -3,101 +3,55 @@
 //! This module is the glue between the interpreter-side bridge of the
 //! consuming guest crate (for the bundled guest: the `method_missing`
 //! shims in `kobako-mruby`'s bridge module, whose shared
-//! `forward_to_dispatch` body calls `invoke` here) and the wasm-level
+//! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
 //! `__kobako_dispatch` host import declared in `crate::abi`.
 //! docs/wire-contract.md § Call Shape / § Reply Shape pins the contract
 //! this module implements.
 //!
-//! `invoke` builds a `Call`, encodes it, calls the host, and demuxes the
-//! decoded `Reply` — `Ok(value)` back to the bridge, `Err(payload)` into
-//! the exception the bridge raises. The envelope layout is already pinned
-//! at the value-object layer (`envelope::{call,reply}` golden vectors and
-//! the byte oracle); on the host target a thread-local
-//! loopback hook stands in for `__kobako_dispatch` so the demux logic
-//! tests without a real wasm runtime.
+//! `dispatch` builds a `Call` around a payload it never reads, calls the
+//! host, and hands back the arm the Reply's tag named — the ok body to the
+//! caller, the fault body as an error. What either body means is the
+//! payload adapter's business, which is what lets a guest with its own
+//! schema drive this layer with no MessagePack in its dependency graph.
+//! On the host target a thread-local loopback hook stands in for
+//! `__kobako_dispatch` so the demux logic tests without a real wasm
+//! runtime.
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use kobako_codec::codec::{self, Decoder, Encode, Value};
 use kobako_codec::envelope::{self, Call, Reply, Target};
-use kobako_codec::payload::Arguments;
 
-// ---------------------------------------------------------------------
-// Exception payload returned to mruby on the error path.
-// ---------------------------------------------------------------------
-
-/// The shape of a fault-arm payload after envelope-level decoding —
-/// exactly the fields the consuming bridge needs to raise the guest
-/// exception (SPEC pins every fault arm to the single guest-side
-/// `Kobako::ServiceError`, so nothing beyond `kind` and `message` is
-/// carried).
+/// Why a dispatch came back without a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExceptionPayload {
-    /// The envelope `type` field of the inner ext 0x02 map (e.g.
-    /// `"runtime"`, `"undefined"`). Named `kind` on the Rust side to
-    /// avoid the raw-identifier escape for the `type` keyword.
-    /// docs/wire-contract.md § Fault Envelope pins the field shape;
-    /// the reserved `type` values are governed by SPEC.md § Error
-    /// Classes.
-    pub kind: String,
-    /// Human-readable message (`message` field of the inner map).
-    pub message: String,
+pub enum DispatchError {
+    /// The host answered on the fault arm — the *normal* path for a
+    /// Service raising an exception. The bytes are the fault body as the
+    /// payload adapter encoded it; reading them is the caller's business.
+    Fault(Vec<u8>),
+    /// The exchange failed before a Reply could be framed: malformed
+    /// bytes, an answer that is not a Reply envelope, or the host
+    /// signalling `len == 0`.
+    Wire(envelope::Error),
 }
 
-/// Error variants returned by `invoke`.
-///
-/// `Service` carries the SPEC-mandated fault-arm payload; `Codec` covers
-/// everything that fails *before* the Reply can be
-/// classified (wire-shape violations, codec faults, host returning
-/// `len == 0`).
-#[derive(Debug, Clone, PartialEq)]
-pub enum InvokeError {
-    /// The host answered on the fault arm — this is the *normal* path for
-    /// a Service raising an exception, surfaced to mruby as a re-raise.
-    Service(ExceptionPayload),
-    /// A wire-layer fault — host returned malformed bytes, the answer
-    /// was not a Reply envelope, or the host signalled `len == 0`. In
-    /// a real run this routes to `Kobako::SandboxError` / `TrapError` via
-    /// the boot script's panic path.
-    Codec(codec::Error),
-}
-
-impl From<codec::Error> for InvokeError {
-    fn from(e: codec::Error) -> Self {
-        InvokeError::Codec(e)
+impl From<envelope::Error> for DispatchError {
+    fn from(err: envelope::Error) -> Self {
+        DispatchError::Wire(err)
     }
 }
 
-impl From<envelope::Error> for InvokeError {
-    /// A malformed core envelope reaches mruby the same way a malformed
-    /// payload does: the guest cannot tell the two apart at the call site,
-    /// and both mean the host answered with something unusable.
-    fn from(e: envelope::Error) -> Self {
-        InvokeError::Codec(codec::Error::Malformed(e.0))
-    }
-}
-
-impl std::fmt::Display for InvokeError {
+impl std::fmt::Display for DispatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InvokeError::Service(ex) => {
-                write!(f, "service raised {}: {}", ex.kind, ex.message)
-            }
-            InvokeError::Codec(e) => write!(f, "Sandbox communication error: {e}"),
+            DispatchError::Fault(_) => f.write_str("the Service answered on the fault arm"),
+            DispatchError::Wire(err) => write!(f, "Sandbox communication error: {err}"),
         }
     }
 }
 
-impl std::error::Error for InvokeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            InvokeError::Codec(e) => Some(e),
-            InvokeError::Service(_) => None,
-        }
-    }
-}
+impl std::error::Error for DispatchError {}
 
 // ---------------------------------------------------------------------
 // Full transport round-trip with loopback hook for host-target tests.
@@ -125,80 +79,27 @@ fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
     LOOPBACK.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), hook))
 }
 
-/// Invoke the host via `__kobako_dispatch` (or the loopback hook on
-/// host targets). On success, returns the value out of the Reply's ok
-/// arm; on the fault arm returns `InvokeError::Service`; on a wire fault
-/// returns `InvokeError::Codec`.
-pub fn invoke(
+/// Route one Call to the host and answer with the body its Reply tagged.
+///
+/// `payload` crosses untouched: the arm comes off the envelope's tag, so
+/// the guest learns whether the Service returned or failed before any
+/// schema reads a byte.
+pub fn dispatch(
     target: Target,
     method: &str,
-    args: &[Value],
-    kwargs: &[(String, Value)],
     block_given: bool,
-) -> Result<Value, InvokeError> {
+    payload: &[u8],
+) -> Result<Vec<u8>, DispatchError> {
     let call = Call {
         target,
         method: method.to_string(),
         block_given,
-        payload: Arguments::new(args.to_vec(), kwargs.to_vec()).encode()?,
+        payload: payload.to_vec(),
     };
     let reply_bytes = host_call(&call.encode())?;
-    classify_reply(Reply::decode(&reply_bytes)?)
-}
-
-/// Demux a decoded Reply into the `invoke` return type. The arm comes
-/// from the envelope's tag, so the guest knows whether the Service
-/// returned or failed before decoding a single payload byte.
-fn classify_reply(reply: Reply) -> Result<Value, InvokeError> {
-    match reply {
-        Reply::Ok(body) => Ok(Decoder::new(&body).read_only_value()?),
-        Reply::Fault(body) => {
-            // The fault body is the adapter's encoding of a Fault — an
-            // ext 0x02 frame whose payload is the {type, message,
-            // details} map.
-            let fault = Decoder::new(&body).read_only_value()?;
-            let Value::ErrEnv(inner_bytes) = fault else {
-                return Err(InvokeError::Codec(codec::Error::Malformed(
-                    "the fault arm of a Reply must carry a Fault (ext 0x02)",
-                )));
-            };
-            let mut dec = Decoder::new(&inner_bytes);
-            let inner = dec.read_value()?;
-            let pairs = match inner {
-                Value::Map(p) => p,
-                _ => {
-                    return Err(InvokeError::Codec(codec::Error::Malformed(
-                        "malformed error response from the host",
-                    )));
-                }
-            };
-            let mut typ = None;
-            let mut msg = None;
-            for (k, v) in pairs {
-                if let Value::Str(name) = k {
-                    match name.as_str() {
-                        "type" => {
-                            if let Value::Str(s) = v {
-                                typ = Some(s);
-                            }
-                        }
-                        "message" => {
-                            if let Value::Str(s) = v {
-                                msg = Some(s);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            let kind = typ.ok_or(InvokeError::Codec(codec::Error::Malformed(
-                "error response from the host is missing the field: type",
-            )))?;
-            let message = msg.ok_or(InvokeError::Codec(codec::Error::Malformed(
-                "error response from the host is missing the field: message",
-            )))?;
-            Err(InvokeError::Service(ExceptionPayload { kind, message }))
-        }
+    match Reply::decode(&reply_bytes)? {
+        Reply::Ok(body) => Ok(body),
+        Reply::Fault(body) => Err(DispatchError::Fault(body)),
     }
 }
 
@@ -207,7 +108,7 @@ fn classify_reply(reply: Reply) -> Result<Value, InvokeError> {
 // ---------------------------------------------------------------------
 
 #[cfg(target_arch = "wasm32")]
-fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
+fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     // On wasm32, pass the request by its current linear-memory address
     // and call the host import. The host reads `[req_ptr, req_ptr+len)`
     // out of our memory, writes the response into a buffer it allocated
@@ -223,7 +124,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
     let (ptr, len) = unpack_u64(packed);
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
-        return Err(InvokeError::Codec(codec::Error::Malformed(
+        return Err(DispatchError::Wire(envelope::Error(
             "the host returned an empty response",
         )));
     }
@@ -234,12 +135,12 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
+fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     LOOPBACK.with(|cell| match cell.borrow().as_ref() {
         Some(hook) => Ok(hook(req_bytes)),
-        None => Err(InvokeError::Codec(codec::Error::Malformed(
+        None => Err(DispatchError::Wire(envelope::Error(
             "no loopback hook installed; install one with set_loopback() \
-             when calling invoke on the host target",
+             when calling dispatch on the host target",
         ))),
     })
 }
@@ -251,7 +152,10 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, InvokeError> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use kobako_codec::codec::Encoder;
+
+    /// Bytes standing in for a payload this layer must not interpret —
+    /// deliberately not valid under any adapter kobako ships.
+    const OPAQUE: &[u8] = &[0xc1, 0x00, 0xff, 0x92];
 
     /// Helper: install a one-shot loopback that captures the request
     /// bytes and returns a canned response.
@@ -271,86 +175,48 @@ mod tests {
         set_loopback(None);
     }
 
-    /// A Reply's fault body: the adapter's encoding of a Fault, which is
-    /// an ext 0x02 frame wrapping the `{type, message, details}` map.
-    fn fault_body(typ: &str, message: &str) -> Vec<u8> {
-        let mut inner = Encoder::new();
-        inner
-            .write_value(&Value::Map(vec![
-                (Value::Str("type".into()), Value::Str(typ.into())),
-                (Value::Str("message".into()), Value::Str(message.into())),
-                (Value::Str("details".into()), Value::Nil),
-            ]))
-            .unwrap();
-        Encoder::encode(&Value::ErrEnv(inner.into_bytes())).unwrap()
-    }
-
-    /// A Reply's ok body: the adapter's encoding of one return value.
-    fn ok_body(value: Value) -> Vec<u8> {
-        Encoder::encode(&value).unwrap()
-    }
-
-    // ---- invoke demux ----
-
     #[test]
-    fn invoke_returns_the_value_out_of_the_reply_ok_arm() {
+    fn dispatch_returns_the_ok_body_uninterpreted() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(
-            captured.clone(),
-            Reply::Ok(ok_body(Value::Int(42))).encode(),
-        );
+        install_canned(captured.clone(), Reply::Ok(OPAQUE.to_vec()).encode());
 
-        let out = invoke(
+        let out = dispatch(
             Target::Path("MyService::Counter".into()),
             "value",
-            &[],
-            &[],
             false,
+            OPAQUE,
         );
         clear_loopback();
 
         assert_eq!(
             out,
-            Ok(Value::Int(42)),
-            "a Reply on its ok arm through invoke must yield the decoded return value"
+            Ok(OPAQUE.to_vec()),
+            "a Reply on its ok arm through dispatch must hand back the body no schema read"
         );
 
         let expected = Call {
             target: Target::Path("MyService::Counter".into()),
             method: "value".into(),
             block_given: false,
-            payload: Arguments::default().encode().unwrap(),
+            payload: OPAQUE.to_vec(),
         }
         .encode();
         assert_eq!(
             *captured.lock().unwrap(),
             expected,
-            "the bytes invoke writes must be exactly the Call envelope carrying an Arguments payload"
+            "the bytes dispatch writes must be the Call envelope carrying the payload verbatim"
         );
     }
 
     #[test]
     fn a_handle_target_rides_the_envelope_rather_than_the_payload() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(
-            captured.clone(),
-            Reply::Ok(ok_body(Value::Str("ok".into()))).encode(),
-        );
+        install_canned(captured.clone(), Reply::Ok(Vec::new()).encode());
 
-        let out = invoke(
-            Target::Handle(7),
-            "commit",
-            &[Value::Bool(true)],
-            &[("force".into(), Value::Bool(false))],
-            false,
-        );
+        let out = dispatch(Target::Handle(7), "commit", false, OPAQUE);
         clear_loopback();
 
-        assert_eq!(
-            out,
-            Ok(Value::Str("ok".into())),
-            "a Handle-targeted call through invoke must return the Service's value"
-        );
+        assert!(out.is_ok(), "a Handle-targeted call must reach the host");
         let sent = captured.lock().unwrap().clone();
         assert_eq!(
             sent[0..5],
@@ -361,75 +227,47 @@ mod tests {
     }
 
     #[test]
-    fn invoke_returns_a_service_error_on_the_reply_fault_arm() {
+    fn the_fault_arm_hands_back_its_body_for_the_caller_to_read() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(
-            captured,
-            Reply::Fault(fault_body("runtime", "boom")).encode(),
-        );
+        install_canned(captured, Reply::Fault(OPAQUE.to_vec()).encode());
 
-        let out = invoke(
-            Target::Path("MyService::KV".into()),
-            "get",
-            &[Value::Str("missing".into())],
-            &[],
-            false,
-        );
+        let out = dispatch(Target::Path("MyService::KV".into()), "get", false, &[]);
         clear_loopback();
 
-        match out {
-            Err(InvokeError::Service(ex)) => {
-                assert_eq!(
-                    (ex.kind.as_str(), ex.message.as_str()),
-                    ("runtime", "boom"),
-                    "a Reply on its fault arm through invoke must surface the Fault's type and message"
-                );
-            }
-            other => panic!("expected Service, got {other:?}"),
-        }
+        assert_eq!(
+            out,
+            Err(DispatchError::Fault(OPAQUE.to_vec())),
+            "a Reply on its fault arm must surface the body unread — its schema is the caller's"
+        );
     }
 
     #[test]
-    fn a_malformed_reply_surfaces_as_a_wire_fault() {
+    fn a_reply_the_envelope_cannot_frame_is_a_wire_fault() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         // A tag the envelope does not define, so the failure is caught
         // before any payload byte is read.
         install_canned(captured, vec![0x7f]);
 
-        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
+        let out = dispatch(Target::Path("G::M".into()), "x", false, &[]);
         clear_loopback();
 
-        match out {
-            Err(InvokeError::Codec(_)) => {}
-            other => panic!("expected Codec error, got {other:?}"),
-        }
+        assert!(
+            matches!(out, Err(DispatchError::Wire(_))),
+            "a tag the Reply envelope does not define must fail as a wire fault, got {out:?}"
+        );
     }
 
     #[test]
-    fn a_fault_arm_carrying_something_other_than_a_fault_is_refused() {
-        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(captured, Reply::Fault(ok_body(Value::Int(1))).encode());
-
-        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
-        clear_loopback();
-
-        match out {
-            Err(InvokeError::Codec(_)) => {}
-            other => panic!("expected Codec error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn invoke_without_loopback_returns_envelope_error() {
+    fn dispatch_without_loopback_fails_loudly() {
         // Defensive: if a test forgets to install a loopback, the
-        // function must fail loudly rather than block or panic.
+        // function must fail rather than block or panic.
         clear_loopback();
-        let out = invoke(Target::Path("G::M".into()), "x", &[], &[], false);
+        let out = dispatch(Target::Path("G::M".into()), "x", false, &[]);
         match out {
-            Err(InvokeError::Codec(codec::Error::Malformed(msg))) => {
+            Err(DispatchError::Wire(envelope::Error(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");
             }
-            other => panic!("expected Codec(Malformed) error, got {other:?}"),
+            other => panic!("expected a wire fault naming the missing loopback, got {other:?}"),
         }
     }
 }

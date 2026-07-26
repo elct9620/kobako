@@ -35,8 +35,7 @@ module KobakoPubSurface
     },
     "wasm/kobako-mruby" => %w[
       InstallError install_bindings Kobako init resolve_raw raise_transport_error
-      raise_service_error extract_backtrace top_level_constants set_handle_id
-      extract_handle_id
+      extract_backtrace top_level_constants set_handle_id extract_handle_id
     ].to_h { |name| [name, BRIDGE_REASON] }
   }.freeze
 
