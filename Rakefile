@@ -82,4 +82,10 @@ desc "Run every gate:* verification check (the release gate's verification tier)
 task gate: %w[gate:rbs:lock gate:anchors gate:anchors:coverage gate:wire:symmetry gate:payload:optional
               gate:parity:coverage gate:surface gate:gvl:isolation gate:bench:smoke]
 
-task default: %i[compile test rubocop steep gate]
+# `crates:test` joins the canonical gate because the core envelope's only
+# cross-check lives there: its two peers are both Rust, so the byte oracle
+# between them (crates/kobako-runtime/tests/envelope_oracle.rs) is what
+# SPEC's Consistency guarantee rests on for that layer, and a default run
+# that skipped it would report green on an unverified wire. The guest
+# crates' own units stay in `wasm:test`, which carries no such claim.
+task default: %i[compile test crates:test rubocop steep gate]

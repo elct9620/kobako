@@ -45,8 +45,6 @@ jobs:
         run: bundle exec rake
       - name: Rust unit tests (kobako-wasm, host target)
         run: bundle exec rake wasm:test
-      - name: Rust unit tests (crates/ host workspace)
-        run: bundle exec rake crates:test
       - name: cargo fmt --check (ext + crates + wasm crate)
         run: |
           cargo fmt --manifest-path ext/kobako/Cargo.toml -- --check
