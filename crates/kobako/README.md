@@ -3,10 +3,11 @@
 Rust host SDK for [kobako](https://github.com/elct9620/kobako), an
 in-process Wasm sandbox for running untrusted mruby scripts.
 
-`Sandbox` composes the published tiers (`kobako-codec` wire,
-`kobako-runtime` contract, `kobako-wasmtime` driver) into the same
-host behavior contract the kobako Ruby gem exposes, kept aligned by a
-differential parity harness rather than by mirrored API shapes:
+`Sandbox` composes the published tiers (`kobako-transport` envelope,
+`kobako-codec` payload, `kobako-runtime` contract, `kobako-wasmtime`
+driver) into the same host behavior contract the kobako Ruby gem
+exposes, kept aligned by a differential parity harness rather than by
+mirrored API shapes:
 
 - `Sandbox` — one guest per instance: `define` / `bind` / `preload`
   fill the registration tables until the first invocation seals them,

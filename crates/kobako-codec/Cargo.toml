@@ -25,10 +25,13 @@ categories = ["wasm", "encoding"]
 
 [features]
 # The MessagePack payload codec — the `msgpack` namespace and
-# everything `rmp` backs. On by default because it is what
-# the bundled mruby guest and the Ruby frontend speak; turning it off
-# leaves the core envelope, which two endpoints sharing another schema
-# can drive with no MessagePack in their dependency graph at all.
+# everything `rmp` backs. On by default because it is what the bundled
+# mruby guest and the Ruby frontend speak. One feature per namespace is
+# what makes a second schema an addition here rather than a fork; with
+# every namespace off nothing of this crate remains, so a guest that
+# speaks its own schema drops the dependency rather than paring it down
+# (`kobako-mruby` is where that happens — the dependency is optional
+# there and unconditional wherever the schema is the point).
 default = ["msgpack"]
 msgpack = ["dep:rmp"]
 

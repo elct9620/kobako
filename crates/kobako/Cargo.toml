@@ -1,11 +1,12 @@
 # kobako — the Rust host SDK over the engine-neutral runtime contract.
 #
 # The bare-name crate a Rust embedder depends on: `Sandbox` composes
-# the published tiers (`kobako-codec` wire, `kobako-runtime` contract,
-# `kobako-wasmtime` driver) into the same host behavior contract the
-# Ruby gem exposes — Service dispatch, capability Handles, snippet
-# replay, seal-once registration. The Ruby-parity behavior surface is
-# pinned by the differential harness under `test/parity/`.
+# the published tiers (`kobako-transport` envelope, `kobako-codec`
+# payload, `kobako-runtime` contract, `kobako-wasmtime` driver) into the
+# same host behavior contract the Ruby gem exposes — Service dispatch,
+# capability Handles, snippet replay, seal-once registration. The
+# Ruby-parity behavior surface is pinned by the differential harness
+# under `test/parity/`.
 
 [package]
 name = "kobako"
