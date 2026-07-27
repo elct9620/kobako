@@ -1,10 +1,10 @@
 //! `__kobako_run` — entrypoint dispatch entry.
 //!
-//! `(env_ptr, env_len)` locate the host-supplied invocation envelope on
-//! linear memory. Frames read from stdin: Frame 1 preamble + Frame 2
-//! snippets only (no user-source frame — the entrypoint is already
-//! resident as a top-level constant contributed by a preloaded
-//! snippet).
+//! `(env_ptr, env_len)` locate the host-supplied Run envelope on linear
+//! memory. Frames read from stdin: Frame 1 preamble + Frame 3 snippets
+//! (docs/wire-codec.md § Invocation channels). Frame 2 is the `#eval`
+//! user source and never reaches here — the entrypoint is already
+//! resident as a top-level constant a preloaded snippet contributed.
 //!
 //! Body sequence:
 //!
