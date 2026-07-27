@@ -87,7 +87,7 @@ module Kobako
       # Handle objects only through raised error fields, so a Handle
       # reaching +args+ is a forged or smuggled token. Non-wire-
       # representable arguments that are not Handles are handled by
-      # auto-wrap inside +#encode+ — the reject path is reserved
+      # auto-wrap inside +#payload+ — the reject path is reserved
       # for Handle objects specifically.
       def validate_args!(args)
         raise ArgumentError, "arguments must be an Array" unless args.is_a?(Array)

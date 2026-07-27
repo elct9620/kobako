@@ -222,7 +222,7 @@ Driven against `test/fixtures/minimal_null_guest.wat`, a guest that satisfies th
 |-------------------------------|---------------------|-----------------------------------------------------|
 | `12a-eval`                    | 20.5 µs             | The floor every invocation pays                     |
 | `12b-run-no-args`             | 24.8 µs             | + 4.3 µs for the `#run` envelope                    |
-| `12c-run-args`                | 26.6 µs             | + 1.8 µs for the payload adapter's argument encoding |
+| `12c-run-args`                | 26.6 µs             | + 1.8 µs for the payload codec's argument encoding |
 | `12d-eval-8-bound-services`   | 20.9 µs             | + 0.4 µs for the preamble eight bound Services add  |
 
 Read `12a` against `2a-empty-call` (78.9 µs total): roughly a quarter of a minimal round-trip is host-side work outside the guest export. `12d` is the **host** half of what a registry costs each invocation, and it is nearly free — the guest half, materializing each binding into the `mrb_state`, is out of frame by construction, which is the point: the two were previously only measurable together, and only their sum was known.

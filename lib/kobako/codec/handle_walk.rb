@@ -12,7 +12,7 @@ module Kobako
     # host object on every guest→host value path. #representable? is the
     # by-value codec-type predicate that decides which leaves #deep_wrap
     # must wrap: the closed 12-entry wire type set
-    # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
+    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
     # Mapping).
     #
     # All helpers are pure except #deep_wrap, whose only side effect is
@@ -23,7 +23,7 @@ module Kobako
       # Inclusive Integer range the msgpack gem encodes without raising
       # +RangeError+ at encode time — signed +int 64+ minimum through
       # unsigned +uint 64+ maximum
-      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
+      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
       # Mapping #3, the +fixint+ / +int 8..64+ / +uint 8..64+ union).
       # Anchored as a +Range+ so #primitive_type? stays a single
       # dispatch line. This is the codec's encode domain — not to
@@ -33,7 +33,7 @@ module Kobako
       MSGPACK_INT_RANGE = (-(2**63)..((2**64) - 1))
 
       # Codec-type predicate
-      # ({docs/wire-codec.md}[link:../../../docs/wire-codec.md] § Type
+      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
       # Mapping). Returns +true+ when +value+ belongs to the closed
       # 12-entry codec type set — +nil+, +TrueClass+, +FalseClass+,
       # +Integer+ (in the +i64..u64+ value domain), +Float+, +String+,

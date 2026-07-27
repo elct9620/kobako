@@ -6,7 +6,7 @@
 //! replace this module and keep the envelope, so nothing here may leak
 //! into `crate::envelope`.
 //!
-//! [payload codec]: ../../../docs/wire/payload-msgpack.md
+//! [payload codec]: ../../../../docs/wire/payload-msgpack.md
 
 use super::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 
