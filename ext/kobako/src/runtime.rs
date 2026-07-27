@@ -37,11 +37,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::envelope::{Outcome, Preamble, Run, Snippet, Snippets};
 use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
+use kobako_transport::envelope::{Outcome, Preamble, Run, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,

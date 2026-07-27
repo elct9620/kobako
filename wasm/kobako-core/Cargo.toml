@@ -23,7 +23,8 @@ keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm"]
 
 [dependencies]
-# The core envelope only. This crate routes messages and never reads a
-# payload, so it takes no payload codec — which is what keeps MessagePack
-# out of the dependency graph of a guest that speaks another schema.
-kobako-codec = { version = "0.12.0", path = "../../crates/kobako-codec", default-features = false }
+# The fixed tier, and this crate's only dependency. Routing a message
+# needs the envelope and the ABI's values; it needs no payload codec, so
+# a guest that speaks another schema reaches MessagePack through neither
+# this crate nor its graph.
+kobako-transport = { version = "0.12.0", path = "../../crates/kobako-transport" }

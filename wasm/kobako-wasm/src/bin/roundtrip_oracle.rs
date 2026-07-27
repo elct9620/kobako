@@ -30,7 +30,7 @@
 use std::io::{self, Read, Write};
 
 use kobako_codec::msgpack::codec::{self, Decoder, Encoder};
-use kobako_codec::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
+use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
 const ERROR_FLAG: u32 = 0x8000_0000;
 

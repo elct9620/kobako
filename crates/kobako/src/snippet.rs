@@ -9,7 +9,7 @@
 //! present, lives in the RITE `debug_info` the guest reads at load
 //! time.
 
-use kobako_runtime::envelope::{Snippet, Snippets as Frame};
+use kobako_transport::envelope::{Snippet, Snippets as Frame};
 
 use crate::error::Error;
 

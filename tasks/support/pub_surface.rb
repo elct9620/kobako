@@ -37,8 +37,7 @@ module KobakoPubSurface
                       "the in-repo parity runner never names it"
     },
     "wasm/kobako-core" => {
-      "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)",
-      "ABI_VERSION" => "reached via export_guest! expansion ($crate::abi::ABI_VERSION)"
+      "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)"
     },
     "wasm/kobako-mruby" => %w[
       InstallError install_bindings Kobako init resolve_raw raise_transport_error

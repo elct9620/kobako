@@ -29,6 +29,9 @@ categories = ["wasm", "virtualization"]
 # rides the linked release group; the path keeps in-tree builds (and
 # the Ruby gem, which ships both crates) resolving locally.
 kobako-runtime = { version = "0.12.0", path = "../kobako-runtime" }
+# The fixed tier: the core envelope this driver shuttles and the ABI
+# values it drives the exports against.
+kobako-transport = { version = "0.12.0", path = "../kobako-transport" }
 # wasmtime — host-side embedder for kobako.wasm. We disable default-features
 # and opt back in only what kobako needs: a Cranelift-backed runtime that can
 # compile a pre-built wasm32-wasip1 module on the host triple, plus the `wat`

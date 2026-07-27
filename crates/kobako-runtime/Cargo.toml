@@ -22,8 +22,9 @@ readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
 
-# The guest-side peer of the core envelope, for the byte oracle in
-# `tests/envelope_oracle.rs`. A dev-dependency, so it stays out of the
-# gem's shipped crate closure and out of any wasm32 dependency graph.
-[dev-dependencies]
-kobako-codec = { path = "../kobako-codec" }
+# The fixed tier: the core envelope this contract routes and attributes
+# through. The version pin rides the linked release group; the path keeps
+# in-tree builds (and the Ruby gem, which ships both crates) resolving
+# locally.
+[dependencies]
+kobako-transport = { version = "0.12.0", path = "../kobako-transport" }

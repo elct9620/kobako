@@ -12,8 +12,8 @@ use magnus::value::{Opaque, ReprValue};
 use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Symbol, Value};
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::envelope::{Call, Reply, Target, YieldReply};
 use kobako_runtime::yielder::Yielder;
+use kobako_transport::envelope::{Call, Reply, Target, YieldReply};
 
 /// The names the host `Transport::Yielder` branches on — one per Yield
 /// Reply arm. Neutral Symbols rather than the envelope's tag bytes, the

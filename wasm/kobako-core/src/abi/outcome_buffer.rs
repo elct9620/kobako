@@ -13,7 +13,7 @@
 //! emitted by `export_guest!` in the shell crate; these are the plain
 //! functions they delegate to.
 
-use kobako_codec::envelope::{Outcome, Panic};
+use kobako_transport::envelope::{Outcome, Panic};
 
 use std::sync::Mutex;
 

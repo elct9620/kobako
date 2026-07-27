@@ -41,8 +41,8 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use crate::codec::PayloadCodec;
-    use kobako_codec::envelope::{ErrorRecord, Panic, Run};
     use kobako_core::abi::write_panic;
+    use kobako_transport::envelope::{ErrorRecord, Panic, Run};
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,

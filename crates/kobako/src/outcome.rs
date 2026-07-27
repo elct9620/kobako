@@ -8,7 +8,7 @@
 //! wire-level error class name, not a Ruby leakage.
 
 use kobako_codec::msgpack::codec::{Decoder, Value};
-use kobako_runtime::envelope::{Outcome, Panic};
+use kobako_transport::envelope::{Outcome, Panic};
 
 use crate::error::{Error, Failure};
 
@@ -92,7 +92,7 @@ fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -
 #[cfg(test)]
 mod tests {
     use kobako_codec::msgpack::codec::Encoder;
-    use kobako_runtime::envelope::ErrorRecord;
+    use kobako_transport::envelope::ErrorRecord;
 
     use super::*;
 

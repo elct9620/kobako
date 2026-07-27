@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::envelope::Preamble;
+use kobako_transport::envelope::Preamble;
 
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;

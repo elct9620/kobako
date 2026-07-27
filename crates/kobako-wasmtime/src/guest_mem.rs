@@ -14,6 +14,7 @@ use wasmtime::{Caller, Extern, Memory};
 use crate::invocation::Invocation;
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
+use kobako_transport::abi::{unpack_u64, MAX_DISPATCH_PAYLOAD};
 
 /// The wasmtime-backed `Yielder` (`kobako_runtime::yielder`): a
 /// frame-scoped wrapper over the dispatch `Caller` that drives a block-yield
@@ -118,13 +119,6 @@ pub(crate) fn read(
         .ok_or("the Sandbox produced an out-of-bounds request")
 }
 
-/// Single-dispatch payload cap: 16 MiB in either direction
-/// (SPEC.md § Wire Codec; docs/wire-codec.md § ABI). A host↔guest
-/// transfer larger than this is a wire violation — the Host Gem walks
-/// the trap path rather than allocate or copy the buffer. Held as a
-/// constant for now; a future SPEC anchor may let the Host App raise it.
-pub(crate) const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
-
 /// Validate a payload length against `MAX_DISPATCH_PAYLOAD` and narrow it
 /// to `i32` — the signed wasm ABI width for the guest buffer parameters.
 /// Every host *write* boundary (`alloc_and_write`, `drive_yield`,
@@ -155,13 +149,11 @@ pub(crate) fn guest_buffer_range(
     Ok(ptr..end)
 }
 
-/// Unpack the `(ptr, len)` u64 returned by `__kobako_take_outcome`:
-/// high 32 bits = ptr, low 32 bits = len. Mirrors the guest-side
-/// `unpack_u64` in `wasm/kobako-core/src/abi.rs`.
+/// The `(ptr, len)` a buffer-returning ABI export answered with, widened
+/// to the `usize` the linear-memory ranges here are computed in.
 pub(crate) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
-    let ptr = (packed >> 32) as u32 as usize;
-    let len = packed as u32 as usize;
-    (ptr, len)
+    let (ptr, len) = unpack_u64(packed);
+    (ptr as usize, len as usize)
 }
 
 /// Allocate `args.len()` bytes in guest memory, copy the args payload in,

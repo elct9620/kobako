@@ -22,7 +22,10 @@ keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
 
 [dependencies]
-# Wire tier: value model, envelopes, and the Outcome the guest returns.
+# Fixed tier: the core envelope every message rides in.
+kobako-transport = { path = "../kobako-transport", version = "0.12.0" }
+
+# Payload codec: the default schema this SDK's `ValueReceiver` speaks.
 kobako-codec = { path = "../kobako-codec", version = "0.12.0" }
 
 # Engine-neutral contract the Sandbox drives an engine through.

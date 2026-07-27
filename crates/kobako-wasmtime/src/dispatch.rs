@@ -47,7 +47,7 @@
 
 use wasmtime::Caller;
 
-use kobako_runtime::envelope::Call;
+use kobako_transport::envelope::Call;
 
 use crate::invocation::Invocation;
 

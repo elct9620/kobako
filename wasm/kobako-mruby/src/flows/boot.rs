@@ -22,9 +22,9 @@ use crate::runtime::{InstallError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
-use kobako_codec::envelope::{ErrorRecord, Panic};
+use kobako_transport::envelope::{ErrorRecord, Panic};
 #[cfg(mruby_linked)]
-use kobako_codec::envelope::{Preamble, Snippet, Snippets};
+use kobako_transport::envelope::{Preamble, Snippet, Snippets};
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty
@@ -86,8 +86,8 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
 #[cfg(mruby_linked)]
 pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
     use crate::codec::{CodecError, PayloadCodec};
-    use kobako_codec::envelope::Outcome;
     use kobako_core::abi::{write_outcome, write_panic};
+    use kobako_transport::envelope::Outcome;
 
     match G::Codec::encode_value(kobako, result_val) {
         Ok(payload) => write_outcome(Outcome::Result(payload).encode()),

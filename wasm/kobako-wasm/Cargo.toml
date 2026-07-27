@@ -28,10 +28,14 @@ license = "Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-# `kobako-codec` — portable wire tier (cross-workspace path
-# dependency). Direct dependency of the oracle bins, which exercise the
-# codec and envelope layers against the Ruby host's independent
-# implementation.
+# `kobako-transport` — the fixed tier (cross-workspace path dependency).
+# Direct dependency of the oracle bins, which frame their stdio protocol
+# with the ABI's own length prefix.
+kobako-transport = { path = "../../crates/kobako-transport" }
+
+# `kobako-codec` — the payload codec (cross-workspace path dependency).
+# Direct dependency of the oracle bins, which exercise it against the
+# Ruby host's independent implementation.
 kobako-codec = { path = "../../crates/kobako-codec" }
 
 # `kobako-core` — Guest ABI contract crate (sibling workspace member).

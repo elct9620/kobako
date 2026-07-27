@@ -3,8 +3,8 @@
 //!
 //! The envelope routes a message; this decides what the resolved method
 //! receives. Splitting them is what lets an endpoint with its own schema
-//! replace this module and keep the envelope, so nothing here may leak
-//! into `crate::envelope`.
+//! replace this module and keep the envelope, so nothing here may reach
+//! for a routing field.
 //!
 //! [payload codec]: ../../../../docs/wire/payload-msgpack.md
 

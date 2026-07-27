@@ -117,7 +117,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// callers must not have already consumed the arglist.
 fn forward_to_dispatch(
     kobako: super::Kobako,
-    target: kobako_codec::envelope::Target,
+    target: kobako_transport::envelope::Target<'_>,
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
@@ -221,12 +221,15 @@ unsafe fn raise_codec_error(
 ///
 /// Forwards to `forward_to_dispatch`.
 pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
-    use kobako_codec::envelope::Target;
+    use kobako_transport::envelope::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
     // (the module was registered by it).
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
 
+    // A path target borrows the name for the Call it rides in, so the
+    // name outlives the target rather than the branch that read it.
+    let class_name;
     let target = if self_.is_instance_of(mrb, kobako.handle_class) {
         // An exact `Kobako::Handle` instance carrying its id ivar. Exact,
         // not `is_kind_of`: the decoder mints only `Kobako::Handle`, so a
@@ -237,7 +240,8 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
         // `as_class_ptr` is valid — a bound-Service constant reached
         // through `Kobako::Proxy` extended onto its singleton class.
         let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
-        Target::Path(class.name(kobako.mrb()))
+        class_name = class.name(kobako.mrb());
+        Target::Path(&class_name)
     } else {
         return raise_no_target(mrb, self_);
     };

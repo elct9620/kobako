@@ -15,11 +15,11 @@ use std::time::Duration;
 
 use kobako_codec::msgpack::codec::{Encode as _, Value};
 use kobako_codec::msgpack::payload::Arguments;
-use kobako_runtime::envelope::Run;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
 use kobako_runtime::snapshot::{Completion, Snapshot};
+use kobako_transport::envelope::Run;
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;

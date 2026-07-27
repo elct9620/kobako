@@ -21,7 +21,7 @@
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_u64;
-use kobako_codec::envelope::{self, Call, Reply, Target};
+use kobako_transport::envelope::{self, Call, Reply, Target};
 
 /// Why a dispatch came back without a value.
 ///
@@ -91,16 +91,16 @@ fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
 /// the guest learns whether the Service returned or failed before any
 /// schema reads a byte.
 pub fn dispatch(
-    target: Target,
+    target: Target<'_>,
     method: &str,
     block_given: bool,
     payload: &[u8],
 ) -> Result<Vec<u8>, DispatchError> {
     let call = Call {
         target,
-        method: method.to_string(),
+        method,
         block_given,
-        payload: payload.to_vec(),
+        payload,
     };
     let reply_bytes = host_call(&call.encode())?;
     match Reply::decode(&reply_bytes)? {
@@ -186,12 +186,7 @@ mod tests {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         install_canned(captured.clone(), Reply::Ok(OPAQUE.to_vec()).encode());
 
-        let out = dispatch(
-            Target::Path("MyService::Counter".into()),
-            "value",
-            false,
-            OPAQUE,
-        );
+        let out = dispatch(Target::Path("MyService::Counter"), "value", false, OPAQUE);
         clear_loopback();
 
         assert_eq!(
@@ -201,10 +196,10 @@ mod tests {
         );
 
         let expected = Call {
-            target: Target::Path("MyService::Counter".into()),
-            method: "value".into(),
+            target: Target::Path("MyService::Counter"),
+            method: "value",
             block_given: false,
-            payload: OPAQUE.to_vec(),
+            payload: OPAQUE,
         }
         .encode();
         assert_eq!(
@@ -237,7 +232,7 @@ mod tests {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         install_canned(captured, Reply::Fault(OPAQUE.to_vec()).encode());
 
-        let out = dispatch(Target::Path("MyService::KV".into()), "get", false, &[]);
+        let out = dispatch(Target::Path("MyService::KV"), "get", false, &[]);
         clear_loopback();
 
         assert_eq!(
@@ -254,7 +249,7 @@ mod tests {
         // before any payload byte is read.
         install_canned(captured, vec![0x7f]);
 
-        let out = dispatch(Target::Path("G::M".into()), "x", false, &[]);
+        let out = dispatch(Target::Path("G::M"), "x", false, &[]);
         clear_loopback();
 
         assert!(
@@ -268,7 +263,7 @@ mod tests {
         // Defensive: if a test forgets to install a loopback, the
         // function must fail rather than block or panic.
         clear_loopback();
-        let out = dispatch(Target::Path("G::M".into()), "x", false, &[]);
+        let out = dispatch(Target::Path("G::M"), "x", false, &[]);
         match out {
             Err(DispatchError::Envelope(envelope::Error(msg))) => {
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");

@@ -22,4 +22,5 @@ rb-sys = { version = "0.9", default-features = false }
 # wasmtime itself enters only through kobako-wasmtime; no engine type
 # reaches this crate.
 kobako-runtime = { path = "../../crates/kobako-runtime" }
+kobako-transport = { path = "../../crates/kobako-transport" }
 kobako-wasmtime = { path = "../../crates/kobako-wasmtime" }

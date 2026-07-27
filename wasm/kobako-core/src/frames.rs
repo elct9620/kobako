@@ -4,9 +4,9 @@
 //! (4-byte big-endian u32 length + payload — docs/wire-codec.md
 //! § Invocation channels). This module carries only the channel itself;
 //! what a frame's bytes mean is the core envelope's business
-//! (`kobako_codec::envelope`).
+//! (`kobako_transport::envelope`).
 
-use kobako_codec::MAX_FRAME_LEN;
+use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
 /// Read one length-prefixed stdin frame. Returns `None` on EOF, short
 /// read, or an over-cap length prefix; callers turn that into a Panic
@@ -18,7 +18,7 @@ pub fn read_frame() -> Option<Vec<u8>> {
 /// Channel reader over any byte source — host-buildable so the length
 /// framing and the allocation guard can be unit-tested off-target.
 fn read_frame_from<R: std::io::Read>(input: &mut R) -> Option<Vec<u8>> {
-    let mut len_buf = [0u8; kobako_codec::FRAME_LEN_SIZE];
+    let mut len_buf = [0u8; FRAME_LEN_SIZE];
     input.read_exact(&mut len_buf).ok()?;
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > MAX_FRAME_LEN {

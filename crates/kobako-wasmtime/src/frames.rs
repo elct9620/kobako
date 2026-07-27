@@ -138,7 +138,7 @@ pub(crate) fn fetch_outcome_bytes(
         .call(store.as_context_mut(), ())
         .map_err(|e| Trap::Other(format!("failed to read the Sandbox result: {e}")))?;
     let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
-    if len > guest_mem::MAX_DISPATCH_PAYLOAD {
+    if len > kobako_transport::abi::MAX_DISPATCH_PAYLOAD {
         return Err(Trap::Other(
             "result payload exceeds the 16 MiB limit".to_string(),
         ));

@@ -207,7 +207,7 @@ dependencies = [
 name = "kobako-core"
 version = "0.12.0"
 dependencies = [
- "kobako-codec",
+ "kobako-transport",
 ]
 
 [[package]]
@@ -233,6 +233,7 @@ dependencies = [
  "beni-sys",
  "kobako-codec",
  "kobako-core",
+ "kobako-transport",
 ]
 
 [[package]]
@@ -245,6 +246,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kobako-transport"
+version = "0.12.0"
+
+[[package]]
 name = "kobako-wasm"
 version = "0.0.0"
 dependencies = [
@@ -255,6 +260,7 @@ dependencies = [
  "kobako-json",
  "kobako-mruby",
  "kobako-regexp",
+ "kobako-transport",
 ]
 
 [[package]]

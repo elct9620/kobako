@@ -28,9 +28,9 @@
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
 #[cfg(mruby_linked)]
-use kobako_codec::envelope::{ErrorRecord, YieldReply};
-#[cfg(mruby_linked)]
 use kobako_core::abi::pack_u64;
+#[cfg(mruby_linked)]
+use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
 /// Invocation entry behind the `__kobako_yield_to_block` export —
 /// see module docs. Signature pinned by docs/wire-codec.md § ABI

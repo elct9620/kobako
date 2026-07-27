@@ -26,14 +26,17 @@ categories = ["wasm"]
 # the shipped Guest Binary and the Ruby frontend speak; a shell naming
 # its own `MrbGuest::Codec` turns it off and carries no MessagePack.
 default = ["msgpack"]
-msgpack = ["kobako-codec/msgpack"]
+msgpack = ["dep:kobako-codec", "kobako-codec/msgpack"]
 
 [dependencies]
-# Portable wire tier. The core envelope is unconditional — the flows
-# frame every message with it — while the payload codec rides the
-# `msgpack` feature, since which schema fills those frames is the
-# shell's choice.
-kobako-codec = { path = "../../crates/kobako-codec", version = "0.12.0", default-features = false }
+# The fixed tier. Unconditional: the flows frame every message with the
+# core envelope whatever schema fills it.
+kobako-transport = { path = "../../crates/kobako-transport", version = "0.12.0" }
+
+# The bundled payload codec, and the only optional dependency here —
+# which schema fills those frames is the shell's choice, so a shell
+# naming its own `MrbGuest::Codec` carries none of this.
+kobako-codec = { path = "../../crates/kobako-codec", version = "0.12.0", default-features = false, optional = true }
 
 # Guest ABI contract crate — the ABI primitives (outcome buffer,
 # frames, dispatch proxy) the provided flows implement the contract

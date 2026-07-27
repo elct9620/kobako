@@ -26,15 +26,7 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 
-/// The wire ABI version this host implements (docs/wire-codec.md § ABI
-/// Version). A Guest Binary is accepted only when its
-/// `__kobako_abi_version` export reports the same value; a mismatch
-/// is a deterministic artifact fault. The guest-side mirror is
-/// `kobako_core::abi::ABI_VERSION`. Version 2
-/// carries the per-invocation instance discipline: the host
-/// drives every invocation on a fresh instance, so the guest may leave
-/// its VM state dirty at exit.
-const ABI_VERSION: u32 = 3;
+use kobako_transport::abi::ABI_VERSION;
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {

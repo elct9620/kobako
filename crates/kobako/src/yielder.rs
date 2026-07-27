@@ -10,8 +10,8 @@
 use std::fmt;
 
 use kobako_codec::msgpack::codec::{Decoder, Encoder, Value};
-use kobako_runtime::envelope::YieldReply;
 use kobako_runtime::yielder::Yielder as RawYielder;
+use kobako_transport::envelope::YieldReply;
 
 use crate::receiver::{Fault, FaultKind};
 
@@ -139,8 +139,8 @@ fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
 mod tests {
     use std::collections::VecDeque;
 
-    use kobako_runtime::envelope::ErrorRecord;
     use kobako_runtime::error::Trap;
+    use kobako_transport::envelope::ErrorRecord;
 
     use super::*;
 

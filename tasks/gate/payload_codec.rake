@@ -4,19 +4,20 @@
 # Layers Relate): the tiers that only route messages must build with no
 # payload codec at all, and those builds must carry no MessagePack
 # dependency. Without this check "the codec is replaceable" is a claim
-# nothing verifies — either tier could grow a `codec::` reference and only
-# a third party assembling their own schema would find out.
+# nothing verifies — a tier could grow a `codec::` reference and only a
+# third party assembling their own schema would find out.
 #
-# `kobako-codec` is the wire tier itself; `kobako-core` is the guest ABI
-# contract every third-party guest builds on; `kobako-mruby` is the
-# harness whose `MrbGuest::Codec` the shell names — so a guest that
-# speaks another schema reaches all three without MessagePack in its graph.
+# `kobako-transport` is the fixed tier every assembly composes against;
+# `kobako-core` is the guest ABI contract every third-party guest builds
+# on; `kobako-mruby` is the harness whose `MrbGuest::Codec` the shell
+# names — so a guest that speaks another schema reaches all three without
+# MessagePack in its graph.
 
 CODEC_BARE = "--no-default-features"
 # Each tier that must stand without a payload codec, with the workspace
 # its manifest lives in.
 CODEC_FREE_TIERS = {
-  "kobako-codec" => File.expand_path("../../crates", __dir__),
+  "kobako-transport" => File.expand_path("../../crates", __dir__),
   "kobako-core" => File.expand_path("../../wasm", __dir__),
   "kobako-mruby" => File.expand_path("../../wasm", __dir__)
 }.freeze

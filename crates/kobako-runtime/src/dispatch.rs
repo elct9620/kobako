@@ -8,8 +8,8 @@
 //! this trait. The Ruby ext conforms by bridging its dispatch Proc behind
 //! it.
 
-use crate::envelope::{Call, Reply};
 use crate::yielder::Yielder;
+use kobako_transport::envelope::{Call, Reply};
 
 /// Host-side handler for a guest→host dispatch.
 ///
