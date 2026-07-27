@@ -2,15 +2,17 @@
 
 require "test_helper"
 
-# Unit-level coverage of Transport::Dispatcher containment: malformed wire
-# payloads (non-Symbol kwargs keys, over-deep nesting), a Handle id the
-# invocation never issued (B-65), and Catalog::Handles exhaustion
-# (B-21 / E-07) all come back on the Reply's fault arm — never a host
-# crash. Well-formed dispatch lives in test_dispatcher.rb.
+# Unit-level coverage of Transport::Dispatcher containment: the
+# malformed-payload channel (E-10 — non-Symbol kwargs keys, over-deep
+# nesting), a Handle id the invocation never issued (B-65), and
+# Catalog::Handles exhaustion (B-21 / E-07) all come back on the Reply's
+# fault arm — never a host crash. Well-formed dispatch lives in
+# test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
 
-  # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: kwargs map keys MUST be ext
+  # E-10, on the ext 0x00 rule (docs/wire/payload-msgpack.md § Ext
+  # Types → ext 0x00): kwargs map keys MUST be ext
   # 0x00 Symbols. A non-Symbol key (String and Integer cover the natively
   # msgpack-representable shapes) decodes to a structurally valid
   # 2-element payload, then fails the Payload::Arguments kwargs-key
@@ -65,10 +67,11 @@ class TestTransportDispatchViolations < Minitest::Test
                  "a refused Handle id must not enter the Catalog::Handles"
   end
 
-  # ---------- Over-deep wire violation (docs/wire/payload-msgpack.md § Structural Nesting Depth) ----------
+  # ---------- Over-deep wire violation (E-10, on the depth bound) ----------
 
-  # A guest Call nested beyond the codec's depth bound must come back on the
-  # fault arm with type="runtime" — the same containment as any other
+  # E-10: a Call nested beyond the codec's depth bound
+  # (docs/wire/payload-msgpack.md § Structural Nesting Depth) must come back
+  # on the fault arm with type="runtime" — the same containment as any other
   # malformed payload, never a host crash or a wasm trap. The dispatcher
   # rescues only StandardError; this holds because the codec maps the nesting
   # overflow into the Kobako::Codec::Error taxonomy before it can become a

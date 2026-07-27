@@ -69,14 +69,10 @@ surface, accepted by the gate in place of a citing test; each is pinned
 where the behavior is actually verified:
 
 ```
-E-10
 ```
 
-- **E-10** — the official guest never presents an invalid Handle frame
-  in an argument position (`kobako-mruby` only re-emits Handles it
-  received), so no `test/` scenario reaches the rejection; the frame
-  rules it violates are pinned by the host codec's ext-type unit
-  tests.
+The block is empty: every anchor the spec corpus defines has a test that
+names it.
 
 ## Frontend witness asymmetries
 

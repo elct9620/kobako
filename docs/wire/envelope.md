@@ -173,6 +173,8 @@ Frame 2 — the `#eval` user source — is raw UTF-8 bytes with no envelope of i
 
 ## Size and Depth Bounds
 
-**16 MiB per dispatch, applied to the whole envelope** in either direction, not to the payload alone. A side checks the bound before allocating, so an oversized message is a wire violation rather than an allocation the receiver has to survive.
+**16 MiB per message, applied to the whole envelope** in either direction, not to the payload alone. A side checks the bound before allocating, so an oversized message is a wire violation rather than an allocation the receiver has to survive.
+
+The bound covers the invocation-channel frames too — a preamble, a source, a snippet table — not just the dispatch round-trip. They cross the same boundary under the same length prefix, and a receiver has no way to treat one differently. In practice a `memory_limit` far below the bound is what a large frame meets first, since the guest grows linear memory to hold it.
 
 **Nesting bounds belong to the payload codec.** This layer is non-recursive (→ § Properties of this layer), so it has no depth to budget. The codec budgets depth per document, and the envelope and each payload it carries are separate documents with separate budgets (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).
