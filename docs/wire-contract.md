@@ -163,27 +163,25 @@ Consequently:
 
 ## Wire-Symmetric Peers
 
-Each of the two layers has two independent implementations, and neither layer has a single implementation whose output is its own definition of correct.
+The payload codec has two independent implementations; the core envelope has one, shared by both sides.
 
-| Layer | Host peer | Guest peer | Cross-check |
-|-------|-----------|------------|-------------|
-| Core envelope | `crates/kobako-runtime` | `crates/kobako-codec` | Cross-implementation (both Rust) |
+| Layer | Host | Guest | Cross-check |
+|-------|------|-------|-------------|
+| Core envelope | `crates/kobako-transport` | `crates/kobako-transport` | Golden vectors against [`wire/envelope.md`](wire/envelope.md) |
 | Payload codec | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
 
-Every envelope this document specifies exists as a wire-codable type on both peers of its layer under the same name, both payload peers register the same ext type codes, and byte-level round-trips are pinned by the oracle checks (→ [`docs/wire-codec.md`](wire-codec.md) § Consistency Guarantee). Each layer is held to that by the mechanism its peers admit: the core layer's two peers are both Rust, so the byte oracle compares them directly; the payload codec's are not, so `rake gate:wire:symmetry` compares its two inventories by name. A wire-codable type or ext code present on one side of that comparison only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
+The two layers differ because ambiguity does. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest.
 
-The core layer's cross-check is cross-implementation, not cross-language, and the contract accepts the weaker guarantee there. Two implementations in one language, written against one reading of the contract, catch fewer specification ambiguities than two languages whose type systems and encoding conventions disagree. The cost is bounded by where ambiguity lives: the type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — sits entirely in the payload codec, whose peers are cross-language. What the core layer asks two implementers to agree on is three routing fields and a byte string.
+Every envelope this document specifies exists as a wire-codable type in `kobako-transport`, and every payload peer registers the same ext type codes. `rake gate:wire:symmetry` compares the two payload inventories by name. A wire-codable type or ext code present on one side of that comparison only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
 
 One standing divergence lives outside the inventory comparison: success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. It is a difference in what each side's language makes idiomatic, not in what the wire carries, so the inventories stay comparable without it.
 
 ### Accepted asymmetries
 
-The ledger below compares type names and ext codes, which is the granularity
-the gate reads. Field names inside a type are not compared, and one divergence
-lives there: a Call's method name is `method` on the Rust peer and
-`method_name` on the Ruby one, because `method` is `Object#method` in Ruby and
-a `Data` member cannot shadow it. The wire position is the same; only the
-reader's name for it differs.
+The ledger below compares type names and ext codes across the two payload
+peers, which is the granularity the gate reads. Field names inside a type are
+below it: a peer may spell a field whatever its language makes idiomatic, since
+the wire position is what the contract fixes.
 
 ```
 ```

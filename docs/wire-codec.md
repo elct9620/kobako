@@ -4,7 +4,7 @@ This document is the anchor for the binary encoding of the Wire Contract (→ `S
 
 | Layer | Document | What it encodes | Who implements it |
 |-------|----------|-----------------|-------------------|
-| **Core envelope** | [`wire/envelope.md`](wire/envelope.md) | Fixed-layout frames — routing fields, ok-versus-fault, outcome attribution | `crates/kobako-runtime` (host) ↔ `crates/kobako-codec` (guest) |
+| **Core envelope** | [`wire/envelope.md`](wire/envelope.md) | Fixed-layout frames — routing fields, ok-versus-fault, outcome attribution | `crates/kobako-transport`, shared by both sides |
 | **Payload codec** | [`wire/payload-msgpack.md`](wire/payload-msgpack.md) | The opaque `payload` bytes each frame hands through — the type mapping and ext codes | `lib/kobako/` (host) ↔ `crates/kobako-codec` (guest) |
 
 The governing summary of this codec lives in `SPEC.md` § Wire Codec; the abstract shape both layers encode is in [`wire-contract.md`](wire-contract.md).
@@ -112,12 +112,14 @@ Memory ownership: all buffer pointers refer to wasm linear memory owned by the G
 
 ## Consistency Guarantee
 
-Each layer is verified against its own independent second implementation. No layer has a single implementation whose output is its own definition of correct.
+Each layer is held to a second source that was not derived from its implementation. No layer's output is its own definition of correct.
 
-| Layer | Peers | Mechanism |
-|-------|-------|-----------|
-| Core envelope | `crates/kobako-runtime` ↔ `crates/kobako-codec` | Byte oracle: each side encodes, the other decodes and re-encodes, bytes compare equal. Golden vectors pin each frame's layout on both sides. |
-| Payload codec | `lib/kobako/` (Ruby) ↔ `crates/kobako-codec` (Rust) | Bidirectional round-trip fuzz, unchanged |
+| Layer | Second source | Mechanism |
+|-------|---------------|-----------|
+| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors, hand-derived from the layout document rather than from the code, pinning every frame this document defines |
+| Payload codec | A second implementation in another language | Bidirectional round-trip fuzz between `lib/kobako/` (Ruby) and `crates/kobako-codec` (Rust) |
+
+The split follows where ambiguity lives. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' conventions disagree, so that layer earns a second implementation. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against, so the layout document is its second source and one definition is the guarantee.
 
 The payload codec's fuzz contract is bidirectional and both directions are required:
 

@@ -4,7 +4,7 @@ This document pins the byte layout of the **core envelope** — the outer frame 
 
 `docs/wire-codec.md` is the anchor that relates the two layers and holds the ABI surface; this document is the core layer's byte-level reference. The abstract shape it encodes is specified in [`../wire-contract.md`](../wire-contract.md).
 
-Both the Host Gem's native side (`crates/kobako-runtime`) and the Guest Binary (`crates/kobako-codec`) implement this layout independently. Byte values stated here are fixed for the life of an ABI version (→ `docs/wire-codec.md` § ABI Version).
+`crates/kobako-transport` implements this layout once, for both sides of the boundary; the golden vectors that pin it are derived from this document rather than from that code (→ `docs/wire-codec.md` § Consistency Guarantee). Byte values stated here are fixed for the life of an ABI version (→ `docs/wire-codec.md` § ABI Version).
 
 ---
 

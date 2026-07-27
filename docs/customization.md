@@ -26,10 +26,13 @@ listed obligation is what an implementation is held to.
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the
 same for every assembly — that is what makes the parts interchangeable at all
-(→ [`wire-codec.md`](wire-codec.md)). And the **Ruby frontend is fixed to the
-default codec**: MessagePack is Ruby's native choice and the gem speaks it
-directly, so there is no seam to substitute at. A replacement codec is
-installed on the guest and, if the host is Rust, at `Receiver`.
+(→ [`wire-codec.md`](wire-codec.md)). Both live in `kobako-transport`, which
+every tier above depends on and which depends on nothing, so an implementer
+picks up the fixed tier without picking up anyone else's choices. And the
+**Ruby frontend is fixed to the default codec**: MessagePack is Ruby's native
+choice and the gem speaks it directly, so there is no seam to substitute at. A
+replacement codec is installed on the guest and, if the host is Rust, at
+`Receiver`.
 
 ## Payload codec
 
@@ -65,10 +68,14 @@ the bytes rather than decoded values. `ValueReceiver` plus `ValueAdapter` is
 the shortcut for the default codec; a host with its own schema implements
 `Receiver` directly.
 
-**Building without one.** The routing-only tiers — `kobako-codec`,
-`kobako-core`, `kobako-mruby` — build with `--no-default-features` and pull no
-MessagePack dependency at all. `rake gate:payload:optional` holds them to it,
-so "the codec is replaceable" stays a checked claim rather than a stated one.
+**Building without one.** `kobako-transport` carries no payload codec at all,
+and `kobako-core` depends on nothing else — so a guest that only routes
+messages reaches neither MessagePack nor `kobako-codec`, by the shape of the
+dependency graph rather than by a build flag. `kobako-mruby` carries the
+bundled codec behind its `msgpack` feature; with the feature off, the harness
+has no `MsgpackCodec` to offer and the shell's `MrbGuest::Codec` is the only
+one in the build. `rake gate:payload:optional` holds the claim to a build, so
+"the codec is replaceable" stays checked rather than stated.
 
 ## Capability set
 
