@@ -11,7 +11,8 @@
 # -------
 #   * `kobako-core` — Guest ABI contract crate (publishable rlib).
 #     The mruby-free ABI machinery a Guest Binary builds on, over the
-#     `crates/kobako-codec` wire tier (a cross-workspace path dep).
+#     `crates/kobako-transport` fixed tier (a cross-workspace path dep,
+#     and its only one — no payload codec enters this crate's graph).
 #   * `kobako-mruby` — assembled mruby implementation (publishable
 #     rlib): the `MrbGuest` harness + the `KobakoBridge` built-in gem.
 #   * `kobako-io` — sandbox IO / Kernel capability gem (publishable

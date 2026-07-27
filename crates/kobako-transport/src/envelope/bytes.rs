@@ -12,23 +12,23 @@ const MALFORMED: Error = Error("core envelope ended before its declared length")
 /// Cursor over one message. Every read either advances past a complete
 /// field or fails, so a truncated message can never be mistaken for a
 /// short one.
-pub struct Reader<'a> {
+pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
+    pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Reader { bytes, pos: 0 }
     }
 
-    pub fn u8(&mut self) -> Result<u8, Error> {
+    pub(crate) fn u8(&mut self) -> Result<u8, Error> {
         let byte = *self.bytes.get(self.pos).ok_or(MALFORMED)?;
         self.pos += 1;
         Ok(byte)
     }
 
-    pub fn u32(&mut self) -> Result<u32, Error> {
+    pub(crate) fn u32(&mut self) -> Result<u32, Error> {
         let end = self.pos.checked_add(4).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
         self.pos = end;
@@ -37,7 +37,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A `u32` length followed by that many bytes.
-    pub fn bytes(&mut self) -> Result<&'a [u8], Error> {
+    pub(crate) fn bytes(&mut self) -> Result<&'a [u8], Error> {
         let len = self.u32()? as usize;
         let end = self.pos.checked_add(len).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
@@ -48,7 +48,7 @@ impl<'a> Reader<'a> {
     /// A byte string carrying UTF-8. Every text field in the envelope is
     /// validated at decode so a frontend receives `&str` without repeating
     /// the check.
-    pub fn text(&mut self) -> Result<&'a str, Error> {
+    pub(crate) fn text(&mut self) -> Result<&'a str, Error> {
         core::str::from_utf8(self.bytes()?)
             .map_err(|_| Error("core envelope text field is not valid UTF-8"))
     }
@@ -59,7 +59,7 @@ impl<'a> Reader<'a> {
     ///
     /// The elements are copied rather than borrowed: a preamble's paths and
     /// a panic's `available` names outlive the frame buffer they arrive in.
-    pub fn text_list(&mut self) -> Result<Vec<String>, Error> {
+    pub(crate) fn text_list(&mut self) -> Result<Vec<String>, Error> {
         let count = self.u32()? as usize;
         // A count larger than the bytes left cannot be satisfied; refusing
         // it here bounds the allocation below by the message size.
@@ -76,13 +76,13 @@ impl<'a> Reader<'a> {
     /// Everything not yet consumed. The trailing field of an envelope that
     /// carries one, so its extent comes from the transport rather than a
     /// repeated length.
-    pub fn remaining(&self) -> &'a [u8] {
+    pub(crate) fn remaining(&self) -> &'a [u8] {
         &self.bytes[self.pos..]
     }
 
     /// Refuse anything left over. Used by envelopes whose last field is
     /// self-delimiting, where trailing bytes signal a framing desync.
-    pub fn finish(self) -> Result<(), Error> {
+    pub(crate) fn finish(self) -> Result<(), Error> {
         if self.pos == self.bytes.len() {
             Ok(())
         } else {
@@ -93,26 +93,26 @@ impl<'a> Reader<'a> {
 
 /// Accumulator for one message.
 #[derive(Default)]
-pub struct Writer {
+pub(crate) struct Writer {
     out: Vec<u8>,
 }
 
 impl Writer {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Writer::default()
     }
 
-    pub fn u8(&mut self, byte: u8) -> &mut Self {
+    pub(crate) fn u8(&mut self, byte: u8) -> &mut Self {
         self.out.push(byte);
         self
     }
 
-    pub fn u32(&mut self, value: u32) -> &mut Self {
+    pub(crate) fn u32(&mut self, value: u32) -> &mut Self {
         self.out.extend_from_slice(&value.to_be_bytes());
         self
     }
 
-    pub fn bytes(&mut self, bytes: &[u8]) -> &mut Self {
+    pub(crate) fn bytes(&mut self, bytes: &[u8]) -> &mut Self {
         self.u32(bytes.len() as u32);
         self.out.extend_from_slice(bytes);
         self
@@ -120,12 +120,12 @@ impl Writer {
 
     /// The trailing field: written without a length, since the transport
     /// already carries the message's extent.
-    pub fn remainder(&mut self, bytes: &[u8]) -> &mut Self {
+    pub(crate) fn remainder(&mut self, bytes: &[u8]) -> &mut Self {
         self.out.extend_from_slice(bytes);
         self
     }
 
-    pub fn list<S: AsRef<[u8]>>(&mut self, items: &[S]) -> &mut Self {
+    pub(crate) fn list<S: AsRef<[u8]>>(&mut self, items: &[S]) -> &mut Self {
         self.u32(items.len() as u32);
         for item in items {
             self.bytes(item.as_ref());
@@ -133,7 +133,7 @@ impl Writer {
         self
     }
 
-    pub fn into_bytes(self) -> Vec<u8> {
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.out
     }
 }

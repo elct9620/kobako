@@ -2,8 +2,8 @@
 
 # Unit tests for the MessagePack payload codec's invocation arguments.
 #
-# The core envelope is decoded natively and pinned by the Rust peers'
-# golden vectors and byte oracle; what stays on the Ruby side is this
+# The core envelope is decoded natively and pinned by the golden vectors
+# in crates/kobako-transport; what stays on the Ruby side is this
 # layer — the `[args, kwargs]` shape a Call or a Run carries.
 #
 # Cross-references:

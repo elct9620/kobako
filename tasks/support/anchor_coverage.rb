@@ -3,7 +3,7 @@
 require_relative "anchors"
 require_relative "report"
 
-# Citation-profile reader backing +tasks/anchor_coverage.rake+
+# Citation-profile reader backing +tasks/gate/anchor_coverage.rake+
 # (docs/anchor-coverage.md): every defined anchor's citing files under
 # +test/+, the thin and most-cited ends of the profile, and the two gate
 # rules — a zero-cited anchor must hold a Pending entry, and a Pending

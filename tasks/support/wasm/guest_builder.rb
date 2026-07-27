@@ -73,7 +73,8 @@ module KobakoWasm
     # Every workspace member feeds the cdylib (kobako-wasm links
     # kobako-core as a path dependency), so the input glob spans all
     # member crates, not just the shell — plus the cross-workspace
-    # `crates/kobako-codec` wire tier the guest crates build on.
+    # `crates/kobako-transport` and `crates/kobako-codec` the guest
+    # crates build on.
     # mrblib/*.rb is precompiled by build.rs via mrbc and counts as an
     # input too. Crates.io dependency bumps surface through Cargo.toml
     # or, when the pin is a range, through the lockfiles alone — the

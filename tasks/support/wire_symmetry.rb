@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Inventory comparator backing +tasks/wire_symmetry.rake+
+# Inventory comparator backing +tasks/gate/wire_symmetry.rake+
 # (docs/wire-contract.md § Wire-Symmetric Peers): the wire-codable
 # transport types and ext type codes of +lib/+ and +crates/kobako-codec+
 # must match name-for-name; a one-sided entry needs a reasoned Accepted

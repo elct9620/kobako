@@ -9,8 +9,8 @@
 # argument shape, not just the underlying msgpack codec already covered
 # by test/fuzz/test_roundtrip_fuzz.rb.
 #
-# The core envelope has no case here: both its peers are Rust, so their
-# agreement is pinned directly by crates/kobako-runtime/tests/envelope_oracle.rs.
+# The core envelope has no case here: it has one implementation, pinned
+# by the golden vectors in crates/kobako-transport.
 #
 # This test does NOT need fuzz scale: a handful of representative
 # payloads is enough; the codec fuzz covers byte-level wire shapes

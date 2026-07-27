@@ -44,7 +44,7 @@ The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage ra
 
 The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in capability variants built by `wasm:build:<variant>` and shipped as downloadable Release assets — composition rules and the variant matrix live in `docs/variants.md`. The gem bundles only the pure default.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + crates:test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs the `gate:*` verification checks in `tasks/gate/`. `crates:test` is in it because the core envelope's byte oracle is that layer's only cross-check; `wasm:test` stays a separate CI step. `gate` enumerates them in one place so membership stays deliberate; the default and CI reference `gate`, never the list.
+CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + crates:test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs the `gate:*` verification checks in `tasks/gate/`. `crates:test` is in it because the core envelope's golden vectors are that layer's only pin, and they live there; `wasm:test` stays a separate CI step. `gate` enumerates them in one place so membership stays deliberate; the default and CI reference `gate`, never the list.
 
 ## Common Commands
 

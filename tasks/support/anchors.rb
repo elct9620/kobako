@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Append-only anchor checker backing +tasks/anchors.rake+. Enforces the
+# Append-only anchor checker backing +tasks/gate/anchors.rake+. Enforces the
 # N-8 invariant once the behavior spec is split across +docs/behavior/+:
 # every +B-xx+ / +E-xx+ / +RX-xx+ / +JS-xx+ is defined exactly once, the
 # sequence is contiguous up to the ceiling +SPEC.md+ states (gaps only where a

@@ -22,7 +22,7 @@ use crate::runtime::{InstallError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
-use kobako_transport::envelope::{ErrorRecord, Panic};
+use kobako_transport::envelope::{ErrorRecord, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
 #[cfg(mruby_linked)]
 use kobako_transport::envelope::{Preamble, Snippet, Snippets};
 
@@ -51,7 +51,7 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
 #[cfg(any(mruby_linked, test))]
 fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
-        origin: "sandbox".into(),
+        origin: ORIGIN_SANDBOX.into(),
         error: ErrorRecord {
             class: class.into(),
             message: message.into(),
@@ -106,9 +106,9 @@ pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_va
 /// inspection — host-buildable for unit tests.
 pub(super) fn origin_for_class(class_name: &str) -> &'static str {
     if class_name.contains("ServiceError") {
-        "service"
+        ORIGIN_SERVICE
     } else {
-        "sandbox"
+        ORIGIN_SANDBOX
     }
 }
 

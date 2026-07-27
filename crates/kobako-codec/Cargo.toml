@@ -1,9 +1,9 @@
-# kobako-codec — portable wire tier crate.
+# kobako-codec — the payload codecs.
 #
-# The MessagePack wire codec and the SPEC envelope value objects shared
-# by both sides of the kobako wasm boundary: the guest-ABI contract
-# crate (`kobako-core`) builds its transport machinery on it, and a
-# Rust host embedding the sandbox encodes the same envelopes with it.
+# What rides inside a core envelope's opaque payload field, one
+# namespace per schema. The replaceable half of the kobako wire: an
+# assembly that speaks another schema carries none of this crate, and
+# the fixed half (`kobako-transport`) is unchanged by that choice.
 # Free of mruby, wasmtime, and any guest-bound ABI so it compiles on
 # every target.
 #
