@@ -6,8 +6,9 @@
 # Sandbox.
 #
 # Cross-references:
-#   - SPEC.md E-09 / Error Scenarios — unknown Panic origin maps to SandboxError
-#   - SPEC.md Wire Codec — a Result payload the codec cannot read maps to SandboxError
+#   - docs/behavior/errors.md § Error Scenarios — the Step 2 arm table, where
+#     a Panic origin other than "service" maps to SandboxError
+#   - docs/behavior/errors.md E-09 — a Result payload the codec cannot read
 
 require "test_helper"
 
@@ -16,7 +17,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     Kobako::Outcome.reify(:panic, payload, [origin, klass, message, []])
   end
 
-  # --- Panic with unknown origin (SPEC E-09 / Error Scenarios) ---
+  # --- Panic with unknown origin (errors.md § Error Scenarios, Step 2) ---
   #
   # Origins other than "service" attribute to the sandbox — the third
   # branch of the origin decision tree, and the one an origin the

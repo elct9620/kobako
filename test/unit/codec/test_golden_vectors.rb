@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# Byte-level golden vectors (SPEC.md → Wire Codec). These vectors fix the
-# encoder output to specific byte sequences so the suite acts as a real
-# spec-compliance check, not a self-consistency check — any silent drift
-# toward a wider tag form breaks the Rust guest codec's decoder
+# Byte-level golden vectors (docs/wire/payload-msgpack.md). These vectors
+# fix the encoder output to specific byte sequences so the suite acts as a
+# real spec-compliance check, not a self-consistency check — any silent
+# drift toward a wider tag form breaks the Rust peer's decoder
 # expectations. Hex is shown without separators for compact equality.
 class TestCodecGoldenVectors < Minitest::Test
   include CodecHelpers
@@ -74,7 +74,7 @@ class TestCodecGoldenVectors < Minitest::Test
     assert_bytes expected, Fault.new(type: "runtime", message: "boom")
   end
 
-  # ---------- narrow zero-length tags (SPEC Wire Codec Type Mapping) ----------
+  # ---------- narrow zero-length tags (payload-msgpack Type Mapping) ----------
   #
   # Each empty container must encode to its narrowest possible tag — the
   # single-byte "fix" form.
@@ -99,7 +99,7 @@ class TestCodecGoldenVectors < Minitest::Test
     assert_bytes "80", {}
   end
 
-  # ---------- integer boundary tags (SPEC Wire Codec Type Mapping) ----------
+  # ---------- integer boundary tags (payload-msgpack Type Mapping) ----------
   #
   # These pin the exact tag byte at each encoding tier boundary so a
   # future encoder change that silently promotes to a wider format is

@@ -8,7 +8,7 @@
 #   1c — The first Sandbox.new in the process (cold: pays wasmtime
 #        Engine init and Module compile) versus the median of the
 #        next 9 (warm: hits the shared Engine and per-path Module
-#        cache documented in `ext/kobako/src/wasm/cache.rs`).
+#        cache documented in `crates/kobako-wasmtime/src/cache.rs`).
 #        README.md claims this amortisation; 1c is the regression
 #        guard for that claim. The warm rounds aggregate to a median
 #        because a single sub-millisecond round is hostage to

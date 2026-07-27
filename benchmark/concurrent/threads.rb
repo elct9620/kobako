@@ -16,7 +16,7 @@
 #        serialised.
 #   7b — N Threads each calling Sandbox.new cold. Measures mutex
 #        contention on the shared MODULE_CACHE in
-#        ext/kobako/src/wasm/cache.rs.
+#        crates/kobako-wasmtime/src/cache.rs.
 #   7c — Concurrent contention overhead: one Thread runs a long
 #        #eval, a second Thread tries to start its own #eval("nil").
 #        The worker signals readiness via a host-bound Service

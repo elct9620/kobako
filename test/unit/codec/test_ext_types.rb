@@ -2,8 +2,9 @@
 
 require "test_helper"
 
-# Wire-codec ext-type round-trips and validation (SPEC.md → Wire Codec →
-# Ext Types): Symbol (ext 0x00), Kobako::Handle (ext 0x01) with its id
+# Payload-codec ext-type round-trips and validation
+# (docs/wire/payload-msgpack.md § Ext Types):
+# Symbol (ext 0x00), Kobako::Handle (ext 0x01) with its id
 # bounds and payload-length checks, and Kobako::Fault (ext 0x02) with its
 # closed type taxonomy.
 class TestCodecExtTypes < Minitest::Test
