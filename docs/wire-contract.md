@@ -170,18 +170,20 @@ The payload codec has two independent implementations; the core envelope has one
 | Core envelope | `crates/kobako-transport` | `crates/kobako-transport` | Golden vectors against [`wire/envelope.md`](wire/envelope.md) |
 | Payload codec | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
 
-The two layers differ because ambiguity does. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest.
+The two layers differ because ambiguity does. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest. Every envelope this document specifies exists as a wire-codable type in `kobako-transport`.
 
-Every envelope this document specifies exists as a wire-codable type in `kobako-transport`, and every payload peer registers the same ext type codes. `rake gate:wire:symmetry` compares the two payload inventories by name. A wire-codable type or ext code present on one side of that comparison only must hold an entry under Accepted asymmetries, each entry carrying the reason the divergence is the contract's own shape rather than drift, and an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
+The two payload peers are held to each other over bytes by the round-trip fuzz: generated values cross both implementations and the re-encoding must come back byte-identical, so the type mapping and the three ext codes are checked one against the other over every shape the harness produces.
+
+A shape the harness never produces sits outside that reach: a payload type one peer grows and the other does not stays invisible until a generated case reaches it. `rake gate:wire:symmetry` closes that by comparing the two peers' wire-codable type names. A name present on one side only must hold an entry under Accepted asymmetries, each carrying the reason the divergence is the contract's own shape rather than drift; an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
 
 One standing divergence lives outside the inventory comparison: success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. It is a difference in what each side's language makes idiomatic, not in what the wire carries, so the inventories stay comparable without it.
 
 ### Accepted asymmetries
 
-The ledger below compares type names and ext codes across the two payload
-peers, which is the granularity the gate reads. Field names inside a type are
-below it: a peer may spell a field whatever its language makes idiomatic, since
-the wire position is what the contract fixes.
+The ledger below carries type names across the two payload peers, which is the
+granularity the gate reads. Field names inside a type are below it: a peer may
+spell a field whatever its language makes idiomatic, since the wire position is
+what the contract fixes.
 
 ```
 ```
