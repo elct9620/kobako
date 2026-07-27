@@ -61,6 +61,31 @@ class KobakoReportTest < Minitest::Test
                     "an aborting gate through the template must list the offending lines beneath the count"
   end
 
+  # A gate whose violations are symptoms of a procedure worth reading whole
+  # names where that procedure is written, below the lines it found.
+  def test_gate_trails_its_hint_beneath_the_violations
+    _out, err = capture_io do
+      assert_raises(SystemExit) do
+        Report.gate(name: "release:wiring", ok_summary: "wired", violations: ["a seat"],
+                    hint: "see docs/releasing.md")
+      end
+    end
+
+    assert_match(%r{a seat\n\nsee docs/releasing\.md\n?\z}, err,
+                 "a gate given a hint must trail it beneath the violations, separated by a blank line")
+  end
+
+  def test_gate_without_a_hint_ends_at_the_violations
+    _out, err = capture_io do
+      assert_raises(SystemExit) do
+        Report.gate(name: "anchors", ok_summary: "all unique", violations: ["B-01 dup"])
+      end
+    end
+
+    assert_match(/B-01 dup\n?\z/, err,
+                 "a gate given no hint must end at its last violation, adding no trailing blank line")
+  end
+
   def test_list_groups_headings_over_indented_items
     lines = Report.list([["thin:", ["  B-05 test_a", "  B-06 test_b"]], ["most cited:", ["  B-41 17"]]])
 

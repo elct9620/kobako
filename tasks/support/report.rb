@@ -42,11 +42,13 @@ module KobakoReport
 
   # The shared release-gate verdict: the +OK+ line when +violations+ is
   # empty, otherwise an aborting count named by +noun+ with the offending
-  # lines beneath it.
-  def gate(name:, ok_summary:, violations: [], noun: "problem")
+  # lines beneath it. +hint+ names where the rule is written, for a gate
+  # whose violations are one symptom of a procedure worth reading whole.
+  def gate(name:, ok_summary:, violations: [], noun: "problem", hint: nil)
     return "#{name}: OK — #{ok_summary}" if violations.empty?
 
-    abort "#{name}: #{violations.size} #{noun}(s)\n#{violations.join("\n")}"
+    trailer = hint ? ["", hint] : []
+    abort "#{name}: #{violations.size} #{noun}(s)\n#{[*violations, *trailer].join("\n")}"
   end
 
   def column_widths(rows)

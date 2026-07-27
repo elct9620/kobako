@@ -66,7 +66,7 @@ Use `Release-As` only when a track has no natural `feat`/`fix` to release.
 
 ## Adding a crate to the linked group
 
-A crate joins the group by taking every seat below. None fails where it was missed: two fail silently, and the loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
+A crate joins the group by taking every seat below. None fails where it was missed: two fail silently, and the loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io. `rake gate:release:wiring` holds the two silent ones.
 
 | Seat | What it takes | If it is missed |
 |------|---------------|-----------------|
