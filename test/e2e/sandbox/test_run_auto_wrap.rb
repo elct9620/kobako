@@ -46,7 +46,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   end
 
   # A cyclic argument nests without bound and cannot faithfully cross. The
-  # host refuses it while encoding the run envelope (E-54), so #run surfaces a
+  # host refuses it while encoding the Run payload (E-54), so #run surfaces a
   # clean SandboxError before entering the guest rather than a host stack
   # overflow escaping the invocation.
   def test_cyclic_argument_is_rejected_as_sandbox_error
