@@ -236,11 +236,12 @@ fn read_ext(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error
     }
 }
 
-/// The decode half of `Encode`: rebuild a wire value object from its
+/// The decode half of `Encode`: rebuild a payload document from its
 /// kobako-codec bytes. Returns `Error::Malformed` when the bytes parse
-/// as a value but do not match the expected envelope shape. Types that
-/// only travel one direction (e.g. the host→guest invocation envelope)
-/// implement only the half they need.
+/// as a value but do not match the document's expected shape. The two
+/// halves are separate traits so an implementation carries only the
+/// direction its side needs; this crate serves both sides, which is why
+/// `payload::Arguments` carries both.
 pub trait Decode: Sized {
     fn decode(bytes: &[u8]) -> Result<Self, Error>;
 }
