@@ -31,10 +31,10 @@ mod flows;
 mod msgpack;
 mod runtime;
 
-pub use codec::{Arguments, CodecError, PayloadCodec};
+pub use codec::{Arguments, CodecError, Fault, PayloadCodec};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
-pub use runtime::{Fault, InstallError, IntegerOutOfRange, Kobako};
+pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
 

@@ -27,7 +27,8 @@
 //!    tagged as a failure, read into the fields the bridge raises with.
 
 use crate::codec::CodecError;
-use crate::runtime::{Fault, IntegerOutOfRange, Kobako};
+use crate::codec::Fault;
+use crate::runtime::{IntegerOutOfRange, Kobako};
 use beni::Value;
 use kobako_codec::msgpack::codec::{self, Decoder, Value as CodecValue};
 // The encode-side walk caps at the same depth the decoder enforces; the

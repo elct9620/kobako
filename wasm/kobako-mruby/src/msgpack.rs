@@ -16,8 +16,9 @@ use beni::Value;
 use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value as CodecValue};
 use kobako_codec::msgpack::payload;
 
+use crate::codec::Fault;
 use crate::codec::{Arguments, CodecError, PayloadCodec};
-use crate::runtime::{Fault, Kobako};
+use crate::runtime::Kobako;
 
 /// kobako's default payload codec.
 pub struct MsgpackCodec;

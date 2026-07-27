@@ -12,8 +12,8 @@ use std::sync::OnceLock;
 
 use beni::Value;
 
-use crate::codec::{CodecError, PayloadCodec};
-use crate::runtime::{Fault, Kobako};
+use crate::codec::{CodecError, Fault, PayloadCodec};
+use crate::runtime::Kobako;
 
 type EncodeArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, CodecError>;
 type DecodeValueFn = fn(&Kobako, &[u8]) -> Result<Value, CodecError>;
