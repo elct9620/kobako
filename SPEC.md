@@ -581,7 +581,7 @@ The following invariants hold across every layer of the system. Each is a hard r
 | Invariant | Applies to | Enforcement |
 |-----------|-----------|-------------|
 | A bound host object is a `Service`, addressed at a constant path (not "tool" or generic names); the guest sees it as a constant that `extend`s `Kobako::Proxy`, and a path prefix is a grouping that materializes as a guest module | All layers | Documentation |
-| Wire `target` for dispatch requests uses the Ruby constant-path form (`"MyService::KV"`, or a single segment `"File"`); Handle references use ext 0x01 — both forms are distinguishable at the first wire byte | Wire Spec, both codec implementations | Test-time |
+| Wire `target` for a dispatch Call is either a bound constant's path (`"MyService::KV"`, or a single segment `"File"`) or a Capability Handle id; the two forms are discriminated by the envelope's explicit `kind` tag, never by the shape of `target` itself | Core envelope, every peer | Test-time |
 | Error attribution is determined solely by `(trap?, outcome_tag)` — stdout, stderr, and exit codes are excluded from attribution logic | Host Gem, error handling | Test-time |
 | stdout and stderr carry only user-observable guest output; no kobako protocol bytes appear on these channels | Guest Binary, Host Gem | Test-time |
 | `#stdout` and `#stderr` byte content never includes truncation sentinels; truncation status is observable only via `#stdout_truncated?` / `#stderr_truncated?` | Host Gem | Test-time |

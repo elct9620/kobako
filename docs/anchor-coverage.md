@@ -72,11 +72,11 @@ where the behavior is actually verified:
 E-10
 ```
 
-- **E-10** — the official guest never presents an invalid wire payload
-  in a dispatch position (`kobako-mruby` only re-emits Handles it
-  received), so no `test/` scenario reaches the rejection; the
-  guest-side refusal is pinned by the `kobako-codec` Call decode
-  unit tests (a Call `target` must be a path or a Handle).
+- **E-10** — the official guest never presents an invalid Handle frame
+  in an argument position (`kobako-mruby` only re-emits Handles it
+  received), so no `test/` scenario reaches the rejection; the frame
+  rules it violates are pinned by the host codec's ext-type unit
+  tests.
 
 ## Frontend witness asymmetries
 
