@@ -15,6 +15,7 @@ use crate::invocation::Invocation;
 use crate::{ambient, capture, guest_mem};
 use kobako_runtime::error::{Error, SetupError, Trap};
 use kobako_runtime::profile::Profile;
+use kobako_transport::abi::FRAME_LEN_SIZE;
 
 /// Return the resolved `memory` export handle, or a `Trap` when the loaded
 /// module exports no linear memory — the "not a Kobako-shaped runtime"
@@ -65,7 +66,7 @@ pub(crate) fn write_envelope(
 /// docs/wire-codec.md § Invocation channels) plus fresh stdout / stderr
 /// pipes, and install it on the invocation's Store. `#eval` passes three
 /// frames (preamble, source, snippets), `#run` passes two (preamble,
-/// snippets — the invocation envelope arrives via linear memory
+/// snippets — the Run envelope arrives via linear memory
 /// instead). Each output pipe is sized at `cap + 1` so
 /// `capture::clip_capture` can distinguish "wrote exactly cap bytes"
 /// from "exceeded cap"; uncapped channels fall back to `usize::MAX` and
@@ -84,7 +85,7 @@ pub(crate) fn install_wasi_frames(
         guest_mem::checked_payload_len(frame.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
     }
 
-    let total: usize = frames.iter().map(|&f| 4 + f.len()).sum();
+    let total: usize = frames.iter().map(|&f| FRAME_LEN_SIZE + f.len()).sum();
     let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
     for &frame in frames {
         stdin_content.extend_from_slice(&(frame.len() as u32).to_be_bytes());
