@@ -2,12 +2,11 @@
 
 # crates/ sub-workspace signal tasks.
 #
-#   * `rake crates:test`      — runs `cargo test` over the crates/ workspace
-#                               (`kobako-codec`, `kobako-runtime`,
-#                               `kobako-wasmtime`) — including the wire-tier
-#                               codec / envelope unit tests. All members
-#                               compile host-native, so no cross toolchain
-#                               is involved.
+#   * `rake crates:test`      — runs `cargo test` over every member of the
+#                               crates/ workspace (see its Cargo.toml),
+#                               including the core envelope's golden
+#                               vectors. All members compile host-native,
+#                               so no cross toolchain is involved.
 #   * `rake coverage:crates`  — the same suite under `cargo llvm-cov`. Lives
 #                               in the `coverage:` namespace with the other
 #                               line-coverage reports, but here beside the
@@ -25,7 +24,7 @@ CRATES_MANIFEST = File.expand_path("../crates/Cargo.toml", __dir__)
 PROJECT_ROOT = File.expand_path("..", __dir__)
 
 namespace :crates do
-  desc "cargo test the crates/ workspace (kobako-codec, kobako-runtime, kobako-wasmtime)"
+  desc "cargo test every member of the crates/ workspace"
   task :test do
     abort "cargo not on PATH; install Rust toolchain to run crates:test" unless KobakoWasm.cargo_available?
     sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "--workspace"
