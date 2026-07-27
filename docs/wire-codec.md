@@ -116,10 +116,12 @@ Each layer is held to a second source that was not derived from its implementati
 
 | Layer | Second source | Mechanism |
 |-------|---------------|-----------|
-| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors, hand-derived from the layout document rather than from the code, pinning every frame this document defines |
+| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors, hand-derived from the layout document rather than from the code, pinning every frame it defines and every discriminant — each `kind` and `tag` byte — it fixes |
 | Payload codec | A second implementation in another language | Bidirectional round-trip fuzz between `lib/kobako/` (Ruby) and `crates/kobako-codec` (Rust) |
 
 The split follows where ambiguity lives. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' conventions disagree, so that layer earns a second implementation. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against, so the layout document is its second source and one definition is the guarantee.
+
+A golden vector spells each discriminant as the literal byte [`wire/envelope.md`](wire/envelope.md) fixes, never as the constant the encoder reads it from: a vector written from that constant moves whenever the constant does, restating the implementation instead of holding it to anything.
 
 The payload codec's fuzz contract is bidirectional and both directions are required:
 
