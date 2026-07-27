@@ -5,7 +5,7 @@ Two independent release tracks run off one `release-please` config:
 | Track | Package(s) | Tag | Registry |
 |-------|-----------|-----|----------|
 | Gem | `.` (component `kobako`) | `vX.Y.Z` | RubyGems |
-| Linked crate group | `wasm/*` + `crates/*` (10 components, versions locked together) | `<component>-vX.Y.Z` | crates.io |
+| Linked crate group | `wasm/*` + `crates/*` (11 components, versions locked together) | `<component>-vX.Y.Z` | crates.io |
 
 `release-please` reads the conventional-commit history since each track's last release and opens a release PR. **Which track a commit drives is decided by the paths it touches**, and the version bump by its type. Merging the release PR is the only irreversible step (RubyGems has no repush; crates.io is yank-only).
 
@@ -16,7 +16,7 @@ The gem `.` package is greedy (any root change) but carries `exclude-paths: ["wa
 | A commit that touches… | Triggers |
 |------------------------|----------|
 | only root files (`lib/ ext/ sig/ test/ docs/ SPEC.md README.md examples/ …`) | Gem |
-| only `wasm/*` or `crates/*` | Linked crate group (any one component → linked-versions syncs all 10) |
+| only `wasm/*` or `crates/*` | Linked crate group (any one component → linked-versions syncs all 11) |
 | both root **and** `wasm/`/`crates/` | **Both** — avoid unless a coordinated dual release is intended |
 
 `exclude-paths` must stay **symmetric**: both `wasm/` and `crates/` have a workspace-root `Cargo.lock`/`Cargo.toml` that no member package claims, so both must be excluded from `.` or crate-only work leaks into the gem.
@@ -63,3 +63,21 @@ Use `Release-As` only when a track has no natural `feat`/`fix` to release.
 | Read `.release-please-manifest.json` in the PR diff | A track dragged to the wrong version — e.g. gem jumping to `1.0.0`, or one track inheriting the other's `Release-As`. |
 | Confirm each track's version matches intent | Silent bump errors before the irreversible publish. |
 | `examples/` were **not** changed as the release vehicle | `examples/` pin released versions (`gem "kobako", "~> 0.X"`); switching them to a new idiom before that version publishes breaks them against the pinned release. Update `examples/` **after** the release, then bump their pins. |
+
+## Adding a crate to the linked group
+
+A crate joins the group by taking every seat below. None fails where it was missed: two fail silently, and the loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
+
+| Seat | What it takes | If it is missed |
+|------|---------------|-----------------|
+| `release-please-config.json` → `packages` | The package entry: `component`, `release-type: "rust"`, and an `extra-files` entry for each lockfile carrying the crate's version plus its README | The crate never releases |
+| `release-please-config.json` → `linked-versions` `components` | The component name | The crate keeps its own version instead of the group's |
+| `release-please-config.json` → **each dependent's** `extra-files` | An entry pinning `$.dependencies['<name>'].version` in that dependent's `Cargo.toml`, one per crate that depends on the new one | The dependent ships a requirement on a version the group has moved past |
+| `.release-please-manifest.json` | `"<package path>": "<the group's current version>"` | **Silent.** A package absent from the manifest reads as never released, so it never joins the group's bump |
+| The crate's `README.md` | A version line ending `# x-release-please-version`, in the `## Usage` block every sibling carries one in | **Silent.** The generic updater replaces a version only on an annotated line; with none it reports success and changes nothing |
+| `.github/scripts/publish-crates.sh` | A `publish_crate` call, placed so every crate precedes its dependents | `cargo publish` fails on the missing dependency, part-way through the group |
+| `.github/workflows/release-please.yml` | The `<name>_release_created` output, the `release-crate` job's OR chain, and the `cargo update -p` list of every lockfile the crate appears in | The lockfile sync skips the crate; `extra-files` still writes its version, so the entry stays correct |
+| crates.io | A `0.0.0` placeholder, published by hand | `cargo publish` fails: the name does not exist |
+| crates.io Trusted Publishing | A config naming this repository and `release-crate.yml` | The publish step cannot authenticate |
+
+The placeholder reserves the name and is what Trusted Publishing is configured against, so it comes first and is published from outside the repository — `cargo new` inside a workspace edits that workspace's manifest. It carries version `0.0.0`, a description naming what the real crate will be, `license` and `repository`, and a `src/lib.rs` holding a doc comment and nothing else. The real version publishes through the normal release; `already_published` checks a specific version, so the placeholder never causes one to be skipped.
