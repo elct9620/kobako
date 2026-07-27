@@ -3,14 +3,14 @@
 require "test_helper"
 
 # Unit-level coverage of Transport::Dispatcher containment: malformed wire
-# payloads (non-Symbol kwargs keys, forged integer targets per B-20,
-# over-deep nesting) come back on the Reply's fault arm — never a host crash —
-# and Catalog::Handles exhaustion (B-21 / E-07) surfaces through the same
-# rescue chain. Well-formed dispatch lives in test_dispatcher.rb.
+# payloads (non-Symbol kwargs keys, over-deep nesting), a Handle id the
+# invocation never issued (B-65), and Catalog::Handles exhaustion
+# (B-21 / E-07) all come back on the Reply's fault arm — never a host
+# crash. Well-formed dispatch lives in test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
 
-  # SPEC Wire Codec → Ext Types → ext 0x00: kwargs map keys MUST be ext
+  # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: kwargs map keys MUST be ext
   # 0x00 Symbols. A non-Symbol key (String and Integer cover the natively
   # msgpack-representable shapes) decodes to a structurally valid
   # 2-element payload, then fails the Payload::Arguments kwargs-key
@@ -46,28 +46,18 @@ class TestTransportDispatchViolations < Minitest::Test
     end
   end
 
-  # ---------- Raw-int Handle rejection (SPEC B-20) ----------
+  # ---------- Un-issued Handle id (SPEC B-65 / E-13) ----------
 
-  # SPEC B-20: a guest cannot forge a Capability Handle from a bare
-  # integer. The host-side wire decoder rejects the malformed encoding
-  # before the value reaches the Catalog::Handles. Operationally, a Call
-  # whose target slot carries a raw msgpack int (no ext 0x01 framing)
-  # fails the payload decode's type validation and the dispatcher
-  # answers on the fault arm. The integer never reaches resolve_target
-  # or Catalog::Handles#fetch — see the assertion on table size below.
-  #
-  # The test seam: we cannot construct such a Call via Call.new
-  # (its constructor rejects non-String/Handle target types). We hand-roll
-  # the msgpack bytes via Kobako::Codec::Encoder so the malformed payload reaches
-  # the dispatcher exactly as a misbehaving guest would emit it.
+  # SPEC B-65: the core envelope carries a Handle target as a bare id its
+  # sender chooses, so an id the table never issued is a well-formed Call
+  # that reaches the host — the invocation's Catalog::Handles membership
+  # is what refuses it, not the wire shape. The guest sees a transport
+  # error on the fault arm rather than a wasm trap, and the refused id
+  # leaves the table untouched, which the size assertion witnesses.
   def test_an_id_the_table_never_issued_is_refused_as_undefined
     answer = reify(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
 
     assert_predicate answer, :error?
-    # The core envelope makes a Handle target an ordinary integer the
-    # guest picks, so the table's membership — not the wire shape — is
-    # what refuses it (B-65). The guest observes a normal transport
-    # error rather than a wasm trap.
     assert_equal "undefined", answer.payload.type,
                  "an integer through the Call target slot that the table never issued must be " \
                  "refused as an undefined target"
