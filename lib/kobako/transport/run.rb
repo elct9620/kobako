@@ -6,8 +6,8 @@ require_relative "../payload"
 
 module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the +Run+ envelope value object — the host→guest request shape
-  # consumed by +__kobako_run+.
+  # owns +Run+, the host-side value object for one +#run+ request — the
+  # native side frames it into the envelope +__kobako_run+ consumes.
   module Transport
     # Host-side value object for a single +Sandbox#run+ invocation
     # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).

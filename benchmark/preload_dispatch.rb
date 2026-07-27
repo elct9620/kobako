@@ -27,20 +27,19 @@
 #   9b — Run dispatch baseline. Warm Sandbox with one preloaded
 #        snippet defining `Noop`; `sandbox.run(:Noop)` cost in
 #        steady state. Isolates the #run-specific entry path: host
-#        pre-flight (Invocation envelope construction, target / args
-#        / kwargs validation) plus
-#        guest-side constant resolution.
+#        pre-flight (Transport::Run construction with its entrypoint /
+#        args / kwargs validation) plus guest-side constant resolution.
 #
 #   9c — Run dispatch with one positional Integer arg.
-#        `sandbox.run(:Echo, 42)` exercises the Invocation envelope's
-#        args Array encoding.
+#        `sandbox.run(:Echo, 42)` exercises the Run payload's args Array
+#        encoding.
 #
 #   9d — Run dispatch with Symbol-keyed kwargs. `sandbox.run(:Greet,
-#        name: :alice)` puts a Symbol key through the Invocation
-#        envelope's kwargs Map. The ext 0x00 codec path here is the
-#        host→guest direction — structurally distinct from the
-#        guest→host Transport kwargs path measured by transport_roundtrip 2c,
-#        even though both rely on the same Symbol wire ext.
+#        name: :alice)` puts a Symbol key through the Run payload's kwargs
+#        Map. The ext 0x00 codec path here is the host→guest direction —
+#        structurally distinct from the guest→host Transport kwargs path
+#        measured by transport_roundtrip 2c, even though both rely on the
+#        same Symbol wire ext.
 #
 #   9e — Per-invocation snippet replay overhead. Same #run(:Noop)
 #        dispatch, but with 0 / 8 / 64 additional helper snippets

@@ -10,8 +10,8 @@ module Kobako
   # +Source+ represents a single +#preload(code:, name:)+ entry; +Binary+
   # represents a single +#preload(binary:)+ entry. Both are plain value
   # objects with no dependency on the +Catalog::Snippets+ registry that
-  # holds them — the registry reads their attributes externally when
-  # encoding the wire envelope.
+  # holds them — the registry reads their attributes externally into the
+  # tuples the native side frames.
   module Snippet
   end
 end
