@@ -39,8 +39,8 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 /// boundary (`origin = "sandbox"`, `class = "Kobako::Transport::Error"`,
 /// empty backtrace, no correction to offer). The exclusive constructor for the
 /// `Kobako::Transport::Error` panic shape — the sibling of `boot_panic`
-/// for decode / encode faults on the invocation envelope, so the
-/// host-visible attribution stays uniform.
+/// for decode / encode faults on the invocation channel's envelopes, so
+/// the host-visible attribution stays uniform.
 pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
     sandbox_panic("Kobako::Transport::Error", message)
 }

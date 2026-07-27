@@ -21,15 +21,17 @@
 pub(crate) mod bytes;
 pub mod call;
 pub mod error_record;
-pub mod invocation;
+pub mod invocation_frames;
 pub mod outcome;
 pub mod reply;
+pub mod run;
 
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
-pub use invocation::{Preamble, Run, Snippet, Snippets};
+pub use invocation_frames::{Preamble, Snippet, Snippets};
 pub use outcome::{Outcome, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
 pub use reply::{Reply, YieldReply};
+pub use run::Run;
 
 use std::fmt;
 

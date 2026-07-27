@@ -57,7 +57,7 @@ macro_rules! export_guest {
 
         #[no_mangle]
         pub extern "C" fn __kobako_run(env_ptr: u32, env_len: u32) {
-            // SAFETY: the host wrote the invocation envelope at
+            // SAFETY: the host wrote the Run envelope at
             // `[env_ptr, env_ptr + env_len)` in guest linear memory
             // before calling this export (docs/wire-codec.md § ABI
             // Signatures); u8 has alignment 1.

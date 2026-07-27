@@ -1,42 +1,17 @@
-//! The host→guest invocation envelopes: the Run entrypoint dispatch and
-//! the two stdin frames every entry point consumes.
+//! The invocation frames — Frame 1's bound constant paths and Frame 3's
+//! preloaded snippets, the two both entry points read before running
+//! anything. The numbering skips Frame 2 because the `#eval` user source
+//! is raw UTF-8 with no envelope of its own.
 //!
-//! Run is Call's reverse-direction sibling — `entrypoint` routes it, the
-//! payload feeds it. It carries no `method` because the entrypoint is
-//! invoked through its own `#call`, and no `block_given` because `#run`
-//! supplies no block.
+//! Both are mandatory-presence even when empty, so a reader never has to
+//! tell an absent frame from an empty one, and each frame's length reaches
+//! the guest from the channel's own prefix rather than from the envelope.
 
 use super::bytes::{Reader, Writer};
 use super::Error;
 
 const SNIPPET_SOURCE: u8 = 0;
 const SNIPPET_BYTECODE: u8 = 1;
-
-/// One `#run` invocation: which top-level constant, and its arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Run {
-    pub entrypoint: String,
-    pub payload: Vec<u8>,
-}
-
-impl Run {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        let mut reader = Reader::new(bytes);
-        let entrypoint = reader.text()?.to_owned();
-        Ok(Run {
-            entrypoint,
-            payload: reader.remaining().to_vec(),
-        })
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut writer = Writer::new();
-        writer
-            .bytes(self.entrypoint.as_bytes())
-            .remainder(&self.payload);
-        writer.into_bytes()
-    }
-}
 
 /// Frame 1 — the bound constant paths the guest installs proxies from.
 /// Always present; an empty list means no Service is bound.
@@ -127,34 +102,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_run_round_trips() {
-        let run = Run {
-            entrypoint: "Entry".into(),
-            payload: vec![0x92, 0x90, 0x80],
-        };
-        let encoded = run.encode();
-        assert_eq!(
-            Run::decode(&encoded),
-            Ok(run),
-            "a Run must survive a host encode and decode unchanged"
-        );
-    }
-
-    #[test]
-    fn a_run_with_no_arguments_round_trips() {
-        let run = Run {
-            entrypoint: "Entry".into(),
-            payload: Vec::new(),
-        };
-        let encoded = run.encode();
-        assert_eq!(
-            Run::decode(&encoded),
-            Ok(run),
-            "a Run with an empty payload must decode as empty, not as a truncation"
-        );
-    }
-
-    #[test]
     fn an_empty_preamble_round_trips() {
         let encoded = Preamble::default().encode();
         assert_eq!(
@@ -205,22 +152,6 @@ mod tests {
             Snippets::decode(&encoded),
             Ok(Snippets::default()),
             "a Sandbox with no preloads must send a present, zero-count Frame 3"
-        );
-    }
-
-    #[test]
-    fn golden_layout_pins_the_run_field_order() {
-        let run = Run {
-            entrypoint: "E".into(),
-            payload: vec![0xc0],
-        };
-        assert_eq!(
-            run.encode(),
-            vec![
-                0, 0, 0, 1, b'E', // entrypoint
-                0xc0, // payload remainder
-            ],
-            "the Run byte layout must stay fixed for both peers to agree"
         );
     }
 

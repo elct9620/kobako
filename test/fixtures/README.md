@@ -12,7 +12,7 @@ Hand-written text-format modules around the B-40 construction-time ABI version c
 
 ## `minimal_alloc_zero.wat`
 
-Hand-written text-format module that passes the B-40 ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for the `docs/behavior/errors.md` E-31 branch: the host cannot reserve the `#run` invocation envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
+Hand-written text-format module that passes the B-40 ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for the `docs/behavior/errors.md` E-31 branch: the host cannot reserve guest memory for the `#run` Run envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
 
 ## `minimal_null_guest.wat`
 
