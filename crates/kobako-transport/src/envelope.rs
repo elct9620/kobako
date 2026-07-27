@@ -1,0 +1,44 @@
+//! The core envelope — the fixed-layout outer frame of every host↔guest
+//! message.
+//!
+//! Routing and outcome attribution live here; everything a resolved method
+//! consumes rides through as an opaque `payload` this layer never reads. A
+//! tier that only routes messages therefore needs no payload codec at all,
+//! and the one an assembly does use is its own choice.
+//!
+//! A decoded envelope borrows the buffer it came from, so a payload reaches
+//! its reader as a view rather than a copy. The two fields a reader keeps
+//! past that buffer's life — a preamble's paths and a snippet's body, read
+//! from a frame at boot and consumed later — are copied at decode.
+//!
+//! [core envelope]: ../../../docs/wire/envelope.md
+
+pub(crate) mod bytes;
+pub mod call;
+pub mod error_record;
+pub mod invocation;
+pub mod outcome;
+pub mod reply;
+
+pub use call::{Call, Target};
+pub use error_record::ErrorRecord;
+pub use invocation::{Preamble, Run, Snippet, Snippets};
+pub use outcome::{Outcome, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
+pub use reply::{Reply, YieldReply};
+
+use std::fmt;
+
+/// A message that does not conform to the core envelope layout. The reason
+/// is a fixed string because every case is a wire violation the receiving
+/// side rejects rather than a condition a caller recovers from by
+/// inspecting it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Error(pub &'static str);
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Error {}
