@@ -1,23 +1,23 @@
 # frozen_string_literal: true
 
 # Inventory comparator backing +tasks/gate/wire_symmetry.rake+
-# (docs/wire-contract.md § Wire-Symmetric Peers): the wire-codable
-# transport types and ext type codes of +lib/+ and +crates/kobako-codec+
-# must match name-for-name; a one-sided entry needs a reasoned Accepted
-# asymmetries entry, and the empty ledger is the target state.
+# (docs/wire-contract.md § Wire-Symmetric Peers): the payload type names
+# of +lib/+ and +crates/kobako-codec+ must match one another; a one-sided
+# name needs a reasoned Accepted asymmetries entry, and the empty ledger
+# is the target state.
 module KobakoWireSymmetry
   module_function
 
-  # A transport file's envelope participates in the wire when it defines
-  # the value-object codec surface — +#encode+ or +.decode+; helper
-  # methods such as the dispatcher's +encode_ok+ do not count.
+  # A payload class participates in the wire when it defines the
+  # value-object codec surface — +#encode+ or +.decode+; helper methods
+  # such as the dispatcher's +encode_ok+ do not count.
   RUBY_CODEC_DEF = /^\s*def (?:self\.)?(?:encode|decode)\b/
 
-  # The wire-codable class names in a +{ path => text }+ map of
-  # +lib/kobako/transport/*.rb+ sources: each encode/decode def is
-  # attributed to the nearest +class+ above it, so a preceding sibling
-  # class never takes an envelope's place and a second codec-bearing
-  # class in the same file never vanishes behind the first.
+  # The wire-codable class names in a +{ path => text }+ map of the Ruby
+  # transport and payload tiers: each encode/decode def is attributed to
+  # the nearest +class+ above it, so a preceding sibling class never takes
+  # a codec-bearing class's place and a second one in the same file never
+  # vanishes behind the first.
   def ruby_types(sources)
     sources.values.flat_map { |text| codec_classes(text) }.uniq.sort
   end
@@ -28,25 +28,12 @@ module KobakoWireSymmetry
     end
   end
 
-  # The type names carrying a +codec::Encode+ / +codec::Decode+ impl in
-  # a +{ path => text }+ map of +crates/kobako-codec/src/transport/*.rs+
-  # sources.
+  # The type names carrying a +codec::Encode+ / +codec::Decode+ impl in a
+  # +{ path => text }+ map of the Rust peer's transport and payload tiers.
   def rust_types(sources)
     sources.values.flat_map do |text|
       text.scan(/^impl (?:codec::)?(?:Encode|Decode) for (\w+)/).flatten
     end.uniq.sort
-  end
-
-  # +{ name => code }+ from the Ruby ext-type registrations
-  # (+EXT_SYMBOL = 0x00+ form).
-  def ruby_ext_codes(text)
-    text.scan(/EXT_(\w+)\s*=\s*(0x\h+)/).to_h
-  end
-
-  # +{ name => code }+ from the Rust ext-code constants
-  # (+const EXT_SYMBOL: i8 = 0x00;+ form).
-  def rust_ext_codes(text)
-    text.scan(/const EXT_(\w+):\s*\w+\s*=\s*(0x\h+)/).to_h
   end
 
   # The entries in the fenced block under "### Accepted asymmetries";
@@ -59,14 +46,12 @@ module KobakoWireSymmetry
     block.split.uniq
   end
 
-  # Violation strings for every one-sided type or ext-code divergence
-  # not carried by the Accepted asymmetries ledger, plus every ledger
-  # entry the inventories no longer diverge on.
-  def violations(ruby_types:, rust_types:, ruby_ext:, rust_ext:, accepted:)
-    one_sided = (ruby_types - rust_types) + (rust_types - ruby_types) +
-                (ruby_ext.keys - rust_ext.keys) + (rust_ext.keys - ruby_ext.keys)
+  # Violation strings for every one-sided type not carried by the Accepted
+  # asymmetries ledger, plus every ledger entry the inventories no longer
+  # diverge on.
+  def violations(ruby_types:, rust_types:, accepted:)
+    one_sided = (ruby_types - rust_types) + (rust_types - ruby_types)
     type_violations(ruby_types, rust_types, accepted) +
-      ext_violations(ruby_ext, rust_ext, accepted) +
       stale_accepted(accepted, one_sided)
   end
 
@@ -82,20 +67,5 @@ module KobakoWireSymmetry
       .map { |name| "#{name} is wire-codable only in lib/ — missing its kobako-codec peer" } +
       (rust_types - ruby_types - accepted)
       .map { |name| "#{name} is wire-codable only in kobako-codec — missing its lib/ peer" }
-  end
-
-  def ext_violations(ruby_ext, rust_ext, accepted)
-    one_sided_ext(ruby_ext, rust_ext, accepted) + mismatched_ext(ruby_ext, rust_ext)
-  end
-
-  def one_sided_ext(ruby_ext, rust_ext, accepted)
-    ((ruby_ext.keys - rust_ext.keys) + (rust_ext.keys - ruby_ext.keys) - accepted)
-      .map { |name| "ext type EXT_#{name} is registered on one side only" }
-  end
-
-  def mismatched_ext(ruby_ext, rust_ext)
-    (ruby_ext.keys & rust_ext.keys)
-      .reject { |name| ruby_ext[name] == rust_ext[name] }
-      .map { |name| "ext type EXT_#{name} differs: #{ruby_ext[name]} in lib/, #{rust_ext[name]} in kobako-codec" }
   end
 end

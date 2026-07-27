@@ -8,11 +8,11 @@ require_relative "../../tasks/support/wire_symmetry"
 # (docs/wire-contract.md § Wire-Symmetric Peers): type extraction on
 # each side counts only the value-object codec surface, the Accepted
 # asymmetries ledger parses from its fenced block alone, and every
-# one-sided or code-mismatched divergence is a violation.
+# one-sided name is a violation.
 class KobakoWireSymmetryTest < Minitest::Test
   Symmetry = KobakoWireSymmetry
 
-  def test_ruby_types_count_only_envelope_codec_classes
+  def test_ruby_types_count_only_payload_codec_classes
     sources = {
       "yield.rb" => "class Yield < Data.define(:tag)\n  def encode\n  end\nend\n",
       "run.rb" => "class Run\n  def encode(handler)\n  end\nend\n",
@@ -20,10 +20,10 @@ class KobakoWireSymmetryTest < Minitest::Test
     }
 
     assert_equal %w[Run Yield], Symmetry.ruby_types(sources),
-                 "a dispatcher helper named encode_ok must not count as a wire-codable envelope"
+                 "a dispatcher helper named encode_ok must not count as a wire-codable payload type"
   end
 
-  # The envelope is the class that carries the codec surface — a
+  # The inventoried name is the class that carries the codec surface — a
   # preceding sibling class in the same file must never take its place.
   def test_ruby_types_name_the_class_carrying_the_codec_surface
     sources = { "run.rb" => <<~RB }
@@ -41,7 +41,7 @@ class KobakoWireSymmetryTest < Minitest::Test
   end
 
   # A second codec-bearing class in the same file must not vanish
-  # behind the first: a Ruby-only envelope added there would otherwise
+  # behind the first: a Ruby-only payload type added there would otherwise
   # pass the gate without its kobako-codec peer.
   def test_ruby_types_inventory_every_codec_class_in_one_file
     sources = { "pair.rb" => <<~RB }
@@ -68,14 +68,6 @@ class KobakoWireSymmetryTest < Minitest::Test
                  "bare and codec-qualified impls through rust_types must inventory each type once, sorted"
   end
 
-  def test_ext_codes_extract_name_to_code_maps
-    ruby = "EXT_SYMBOL = 0x00\nEXT_HANDLE = 0x01\n"
-    rust = "const EXT_SYMBOL: i8 = 0x00;\nconst EXT_HANDLE: i8 = 0x01;\n"
-
-    assert_equal Symmetry.ruby_ext_codes(ruby), Symmetry.rust_ext_codes(rust),
-                 "matching EXT_ registrations through both ext-code readers must yield one name => code map"
-  end
-
   def test_accepted_asymmetries_parse_the_fenced_block_even_when_empty
     markdown = "### Accepted asymmetries\n\n```\n```\n"
 
@@ -90,8 +82,7 @@ class KobakoWireSymmetryTest < Minitest::Test
 
   def test_one_sided_type_without_ledger_entry_is_a_violation
     violations = Symmetry.violations(
-      ruby_types: %w[Arguments Yield], rust_types: %w[Arguments],
-      ruby_ext: {}, rust_ext: {}, accepted: []
+      ruby_types: %w[Arguments Yield], rust_types: %w[Arguments], accepted: []
     )
 
     assert_equal ["Yield is wire-codable only in lib/ — missing its kobako-codec peer"], violations,
@@ -100,8 +91,7 @@ class KobakoWireSymmetryTest < Minitest::Test
 
   def test_ledger_entry_silences_a_one_sided_type
     violations = Symmetry.violations(
-      ruby_types: %w[Arguments], rust_types: %w[Arguments Probe],
-      ruby_ext: {}, rust_ext: {}, accepted: %w[Probe]
+      ruby_types: %w[Arguments], rust_types: %w[Arguments Probe], accepted: %w[Probe]
     )
 
     assert_empty violations,
@@ -113,21 +103,10 @@ class KobakoWireSymmetryTest < Minitest::Test
   # the ledger must shed.
   def test_ledger_entry_with_no_current_divergence_is_a_violation
     violations = Symmetry.violations(
-      ruby_types: %w[Arguments], rust_types: %w[Arguments],
-      ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x01" }, accepted: %w[Probe]
+      ruby_types: %w[Arguments], rust_types: %w[Arguments], accepted: %w[Probe]
     )
 
     assert_equal ["accepted asymmetry Probe no longer diverges — drop it from the ledger"], violations,
                  "a ledger entry with no current divergence through violations must surface as stale"
-  end
-
-  def test_ext_code_value_mismatch_is_a_violation_even_when_both_sides_name_it
-    violations = Symmetry.violations(
-      ruby_types: [], rust_types: [],
-      ruby_ext: { "HANDLE" => "0x01" }, rust_ext: { "HANDLE" => "0x02" }, accepted: []
-    )
-
-    assert_equal ["ext type EXT_HANDLE differs: 0x01 in lib/, 0x02 in kobako-codec"], violations,
-                 "an ext code differing across sides through violations must surface even when both name it"
   end
 end
