@@ -22,7 +22,7 @@
         {
           "type": "toml",
           "path": "/wasm/kobako-core/Cargo.toml",
-          "jsonpath": "$.dependencies['kobako-codec'].version"
+          "jsonpath": "$.dependencies['kobako-transport'].version"
         },
         {
           "type": "generic",
@@ -38,6 +38,11 @@
           "type": "toml",
           "path": "/wasm/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='kobako-mruby')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/wasm/kobako-mruby/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
         },
         {
           "type": "toml",
@@ -115,6 +120,31 @@
         }
       ]
     },
+    "crates/kobako-transport": {
+      "component": "kobako-transport",
+      "release-type": "rust",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-transport')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/crates/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-transport')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-transport')].version"
+        },
+        {
+          "type": "generic",
+          "path": "/crates/kobako-transport/README.md"
+        }
+      ]
+    },
     "crates/kobako-codec": {
       "component": "kobako-codec",
       "release-type": "rust",
@@ -150,6 +180,11 @@
           "jsonpath": "$.package[?(@.name=='kobako-runtime')].version"
         },
         {
+          "type": "toml",
+          "path": "/crates/kobako-runtime/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
+        },
+        {
           "type": "generic",
           "path": "/crates/kobako-runtime/README.md"
         }
@@ -175,6 +210,11 @@
           "jsonpath": "$.dependencies['kobako-runtime'].version"
         },
         {
+          "type": "toml",
+          "path": "/crates/kobako-wasmtime/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
+        },
+        {
           "type": "generic",
           "path": "/crates/kobako-wasmtime/README.md"
         }
@@ -188,6 +228,11 @@
           "type": "toml",
           "path": "/crates/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='kobako')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/crates/kobako/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
         },
         {
           "type": "toml",
@@ -215,7 +260,7 @@
     {
       "type": "linked-versions",
       "groupName": "kobako crates",
-      "components": ["kobako-codec", "kobako-core", "kobako-mruby", "kobako-io", "kobako-json", "kobako-regexp", "kobako-baker", "kobako-runtime", "kobako-wasmtime", "kobako-sdk"]
+      "components": ["kobako-transport", "kobako-codec", "kobako-core", "kobako-mruby", "kobako-io", "kobako-json", "kobako-regexp", "kobako-baker", "kobako-runtime", "kobako-wasmtime", "kobako-sdk"]
     }
   ],
   "extra-files": [

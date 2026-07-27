@@ -16,7 +16,7 @@
 name = "kobako-codec"
 version = "0.12.0"
 edition = "2021"
-description = "Portable wire tier for kobako — the MessagePack wire codec and SPEC envelope value objects shared by host and guest."
+description = "Payload codecs for the kobako wire — the replaceable half that rides inside a core envelope, MessagePack by default."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
 readme = "README.md"

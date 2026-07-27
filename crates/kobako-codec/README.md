@@ -1,25 +1,25 @@
 # kobako-codec
 
-Portable wire tier for [kobako](https://github.com/elct9620/kobako),
-an in-process Wasm sandbox for running untrusted mruby scripts from
-Ruby.
+The payload codecs for [kobako](https://github.com/elct9620/kobako), an
+in-process Wasm sandbox for running untrusted mruby scripts from Ruby.
 
-Host and guest meet over a MessagePack-based Transport wire; this crate
-is its Rust expression, usable on either side of the wasm boundary:
+kobako's wire has two layers. The core envelope routes a message and
+attributes its outcome — that is the fixed half, and it lives in
+[kobako-transport](https://crates.io/crates/kobako-transport). What
+rides inside an envelope's opaque `payload` field is the replaceable
+half, and this crate holds it, one namespace per schema:
 
-- `codec` — the MessagePack wire codec (12-type set + 3 ext types),
-  byte-for-byte symmetric with the host gem's Ruby codec
-- `transport` — the Request / Response / Yield envelope value objects
-- `outcome` — the per-invocation Outcome / Panic envelopes
-- `FRAME_LEN_SIZE` — the length-prefix width shared by stdin frames and
-  the outcome buffer
+- `msgpack` — the default schema, on by default
+  - `msgpack::codec` — the MessagePack wire codec (a closed 12-type set
+    plus three ext types), byte-for-byte symmetric with the host gem's
+    independent Ruby codec
+  - `msgpack::payload` — the `[args, kwargs]` shape a Call or a Run
+    payload carries
 
-The guest-ABI contract crate
-([kobako-core](https://crates.io/crates/kobako-core)) builds its
-transport machinery on this tier; a Rust host embedding the sandbox
-encodes the same envelopes with it directly. The crate is free of
-mruby, wasmtime, and any guest-bound ABI, so it compiles on every
-target.
+Two endpoints that agree on another schema carry none of this crate; the
+envelope, the ABI, and the version are unchanged by that substitution.
+Free of mruby, wasmtime, and any guest-bound ABI, so it compiles on
+every target.
 
 ## Usage
 
@@ -29,26 +29,25 @@ kobako-codec = "0.12.0" # x-release-please-version
 ```
 
 ```rust
-use kobako_codec::codec::{Decode, Encode};
-use kobako_codec::transport::{Request, Response, Target};
+use kobako_codec::msgpack::codec::{Decode, Encode, Value};
+use kobako_codec::msgpack::payload::Arguments;
 
-let request = Request {
-    target: Target::Path("MyService::KV".into()),
-    method: "fetch".into(),
-    args: Vec::new(),
-    kwargs: Vec::new(),
-    block_given: false,
+let arguments = Arguments {
+    args: vec![Value::Int(42)],
+    kwargs: vec![("force".to_string(), Value::Bool(true))],
 };
-let bytes = request.encode()?;
-let response = Response::decode(&bytes_from_the_wire)?;
+let payload = arguments.encode()?;
+let decoded = Arguments::decode(&payload_from_the_wire)?;
 ```
 
 ## Contract
 
 Behavior contracts live in the repository's
 [SPEC.md](https://github.com/elct9620/kobako/blob/main/SPEC.md); the
-byte-level wire in
-[docs/wire-codec.md](https://github.com/elct9620/kobako/blob/main/docs/wire-codec.md).
+byte-level payload format in
+[docs/wire/payload-msgpack.md](https://github.com/elct9620/kobako/blob/main/docs/wire/payload-msgpack.md),
+and what a replacement codec owes in
+[docs/customization.md](https://github.com/elct9620/kobako/blob/main/docs/customization.md).
 Consistency with the host gem's independent Ruby implementation is
 established by bidirectional round-trip fuzz in the kobako repository.
 

@@ -48,7 +48,7 @@ Gem::Specification.new do |spec|
   # `cargo` at install; without them the shipped crates resolve as
   # standalone packages under the root manifest's `exclude`.
   gemspec = File.basename(__FILE__)
-  ext_crates = %w[crates/kobako-runtime/ crates/kobako-wasmtime/]
+  ext_crates = %w[crates/kobako-transport/ crates/kobako-runtime/ crates/kobako-wasmtime/]
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||

@@ -3,11 +3,12 @@
 # Wire-symmetric peer gate (docs/wire-contract.md § Wire-Symmetric
 # Peers): the wire-codable types and ext type codes of +lib/+ and
 # +crates/kobako-codec+ must match name-for-name, with one-sided entries
-# carried by the Accepted asymmetries ledger. This is the payload layer's
-# cross-language pair; the core envelope's two peers are both Rust and
-# are pinned by the byte oracle instead
-# (+crates/kobako-runtime/tests/envelope_oracle.rs+). The comparator's
-# unit coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
+# carried by the Accepted asymmetries ledger. The payload codec is the
+# one layer with two implementations, so it is the one layer a name
+# comparison applies to; the core envelope has a single implementation
+# in +crates/kobako-transport+, pinned by golden vectors derived from
+# docs/wire/envelope.md. The comparator's unit coverage rides the test
+# suite (+test/tasks/test_wire_symmetry.rb+).
 
 require_relative "../support/anchors"
 require_relative "../support/wire_symmetry"

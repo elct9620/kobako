@@ -17,10 +17,12 @@ compiler-checked contract:
 - `abi` / `frames` — outcome buffer, packed-u64 helpers, stdin frame
   reader, and `ABI_VERSION`
 
-The wire tier itself — the MessagePack codec, the Request / Response /
-Yield envelopes, and the Outcome / Panic records — lives in
-[kobako-codec](https://crates.io/crates/kobako-codec), which this crate
-builds on and which a Rust host reuses unchanged.
+The messages themselves — the Call / Reply / Yield Reply envelopes, the
+Outcome / Panic records, and the ABI's own values — live in
+[kobako-transport](https://crates.io/crates/kobako-transport), this
+crate's only dependency and the tier every kobako assembly shares. A
+payload codec is not among them: this crate routes messages without
+reading one, so a guest speaking its own schema builds on it unchanged.
 
 ## Usage
 
