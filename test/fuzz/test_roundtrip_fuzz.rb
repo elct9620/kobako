@@ -1,14 +1,14 @@
 # frozen_string_literal: true
 
-# E2E round-trip fuzz harness for the kobako wire codec (SPEC.md F-09).
+# E2E round-trip fuzz harness for the kobako payload codec (SPEC.md F-09).
 #
-# This is THE proof that the two independent codec implementations (the
-# pure-Ruby `Kobako::Codec` under lib/kobako/codec and the hand-written
-# Rust codec under wasm/kobako-wasm/src/codec) agree on the wire. SPEC.md
-# pins round-trip fuzz as the *sole* consistency mechanism between the two
-# implementations — there is no shared codec source — so a passing fuzz run
-# is the release gate per SPEC.md Testing Style Layer 1 (any failure blocks
-# release unconditionally).
+# This is THE proof that the two independent payload-codec implementations
+# (the pure-Ruby `Kobako::Codec` under lib/kobako/codec and the Rust one
+# under crates/kobako-codec/src/msgpack) agree on the wire. The payload is
+# the one layer carrying two implementations, so fuzz is its whole
+# consistency mechanism — there is no shared codec source — and a passing
+# run is the release gate per SPEC.md Testing Style Layer 1 (any failure
+# blocks release unconditionally).
 #
 # Architecture:
 #
@@ -34,9 +34,8 @@
 #   KOBAKO_FUZZ_SEED=N        (default: random; printed for reproduction)
 #   KOBAKO_FUZZ_HEAVY=1       (bumps to 100_000 — nightly tier)
 #
-# Skip semantics:
-#   * If `cargo` is not on PATH: skip with informative message (consistent
-#     with the cycle-5 pattern in test_wasm_crate.rb).
+# An absent Rust toolchain is handled by +GuestGuard#require_cargo_oracle!+,
+# which owns the local-skip versus CI-failure split.
 
 require "test_helper"
 

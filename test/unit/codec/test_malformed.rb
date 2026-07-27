@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Wire-codec rejection paths (SPEC.md → Wire Codec): truncated input,
+# Payload-codec rejection paths (docs/wire/payload-msgpack.md): truncated input,
 # reserved / unknown tags, invalid UTF-8 in str, and the closed 12-entry
 # type mapping at encode time. Every violation surfaces through the
 # Kobako::Codec error taxonomy, never a raw Ruby failure.
@@ -63,10 +63,9 @@ class TestCodecMalformed < Minitest::Test
     assert_raises(UnsupportedTypeError) { Encoder.encode(Object.new) }
   end
 
-  # Decoder-wide half of the single-msgpack-value rule (SPEC.md § Wire
-  # Codec): envelope-level rejection is pinned per envelope (e.g.
-  # test/unit/transport/test_request.rb); this case pins that the property
-  # comes from the Decoder itself, for every payload shape.
+  # The single-MessagePack-value rule (docs/wire/payload-msgpack.md
+  # § Payload Positions) is the Decoder's own property, so one case pins it
+  # for every payload shape rather than each position re-checking it.
   def test_trailing_bytes_after_a_complete_value_rejected
     bytes = Encoder.encode(42) + Encoder.encode(nil)
     assert_raises(InvalidTypeError,

@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# Wire-codec container round-trips (SPEC.md → Wire Codec → Type Mapping
-# #7-#8): array / map across their length-tag boundaries, mixed and nested
-# element fidelity, and the structural nesting depth guard.
+# Payload-codec container round-trips (docs/wire/payload-msgpack.md
+# § Type Mapping #7-#8): array / map across their length-tag boundaries,
+# mixed and nested element fidelity, and the structural nesting depth guard.
 class TestCodecContainers < Minitest::Test
   include CodecHelpers
 

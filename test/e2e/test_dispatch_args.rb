@@ -77,7 +77,7 @@ class TestE2EDispatchArgs < Minitest::Test
     end
   end
 
-  # SPEC.md → Wire Codec → Ext Types → ext 0x00: a Symbol transport argument
+  # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: a Symbol transport argument
   # travels on the wire as an ext 0x00 frame and arrives at the Service
   # as a Ruby Symbol (not as the +to_s+ string form).
   def test_rpc_arg_symbol_arrives_as_symbol

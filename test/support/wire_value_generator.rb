@@ -249,7 +249,7 @@ class WireValueGenerator
     end
   end
 
-  # SPEC.md → Wire Codec → Ext Types → ext 0x00: Symbol payload is UTF-8
+  # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: Symbol payload is UTF-8
   # bytes; empty payload is wire-legal. ~5% empty + 95% random 1..64-byte
   # UTF-8 names — the random range crosses the fixext1 / 2 / 4 / 8 / 16
   # and ext 8 boundaries automatically.

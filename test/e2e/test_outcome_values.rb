@@ -132,9 +132,9 @@ class TestE2EOutcomeValues < Minitest::Test
                  "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
-  # ── Native Array / Hash round-trips (SPEC.md Type Mapping #7-#8) ──────
+  # ── Native Array / Hash round-trips (Type Mapping #7-#8) ─────────────
   #
-  # The 12-entry Type Mapping (SPEC.md → Wire Codec → Type Mapping) maps
+  # The 12-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
   # msgpack array → mruby Array and msgpack map → mruby Hash. Both
   # directions must travel by value with element-level fidelity (SPEC.md
   # B-13: "Collections (Array, Hash) whose elements are all
