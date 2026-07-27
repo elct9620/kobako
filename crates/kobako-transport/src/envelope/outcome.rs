@@ -190,8 +190,8 @@ mod tests {
     fn golden_layout_pins_the_result_tag() {
         assert_eq!(
             Outcome::Result(vec![0x2a]).encode(),
-            vec![TAG_RESULT, 0x2a],
-            "a Result must be the tag byte followed by the value alone"
+            vec![0x01, 0x2a],
+            "a Result must encode as tag byte 0x01 followed by the value alone"
         );
     }
 
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(
             Outcome::Panic(panic).encode(),
             vec![
-                TAG_PANIC, //
+                0x02, // tag: panic
                 0, 0, 0, 7, b's', b'e', b'r', b'v', b'i', b'c', b'e', // origin
                 0, 0, 0, 1, b'E', // class
                 0, 0, 0, 1, b'm', // message

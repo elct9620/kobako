@@ -11,6 +11,11 @@
 //! past that buffer's life — a preamble's paths and a snippet's body, read
 //! from a frame at boot and consumed later — are copied at decode.
 //!
+//! This layer has one implementation, so its `golden_layout_*` tests are
+//! what hold it to the layout document. They spell each tag as the literal
+//! byte that document fixes, never as the constant beside it: a golden
+//! written from the constant compares the implementation to itself.
+//!
 //! [core envelope]: ../../../docs/wire/envelope.md
 
 pub(crate) mod bytes;

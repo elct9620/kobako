@@ -114,18 +114,6 @@ mod tests {
     }
 
     #[test]
-    fn the_fault_arm_is_distinguishable_without_reading_the_body() {
-        // Identical bodies, different arms: the tag alone must separate
-        // "the Service returned this" from "the Service failed with this".
-        let body = vec![0x01, 0x02];
-        assert_ne!(
-            Reply::Ok(body.clone()).encode(),
-            Reply::Fault(body).encode(),
-            "ok and fault must differ in the envelope, not only in the payload"
-        );
-    }
-
-    #[test]
     fn an_empty_ok_body_round_trips() {
         let encoded = Reply::Ok(Vec::new()).encode();
         assert_eq!(
@@ -175,7 +163,7 @@ mod tests {
     #[test]
     fn the_reserved_yield_tag_is_refused() {
         assert!(
-            YieldReply::decode(&[YIELD_RESERVED]).is_err(),
+            YieldReply::decode(&[0x03]).is_err(),
             "Yield Reply tag 0x03 must be rejected by both peers so it stays reserved"
         );
     }
@@ -189,11 +177,50 @@ mod tests {
     }
 
     #[test]
+    fn golden_layout_pins_the_reply_tags() {
+        // The same body on both arms: what separates "the Service returned
+        // this" from "the Service failed with this" is the tag alone, which
+        // is what lets a side read the outcome without a payload codec.
+        assert_eq!(
+            Reply::Ok(vec![0x2a]).encode(),
+            vec![0, 0x2a],
+            "a successful Reply must encode as tag byte 0 followed by the body alone"
+        );
+        assert_eq!(
+            Reply::Fault(vec![0x2a]).encode(),
+            vec![1, 0x2a],
+            "a fault Reply carrying the same body must encode as tag byte 1, so the arms \
+             differ in the envelope rather than only in the payload"
+        );
+    }
+
+    #[test]
     fn golden_layout_pins_the_yield_tags() {
+        assert_eq!(
+            YieldReply::Ok(vec![0xc0]).encode(),
+            vec![0x01, 0xc0],
+            "a Yield Reply carrying the block's value must encode as tag byte 0x01"
+        );
         assert_eq!(
             YieldReply::Break(vec![0xc0]).encode(),
             vec![0x02, 0xc0],
-            "the Yield Reply break tag and body layout must stay fixed for both peers"
+            "a Yield Reply carrying a break value must encode as tag byte 0x02"
+        );
+        assert_eq!(
+            YieldReply::Error(ErrorRecord {
+                class: "E".into(),
+                message: "m".into(),
+                backtrace: Vec::new(),
+            })
+            .encode(),
+            vec![
+                0x04, // tag: error
+                0, 0, 0, 1, b'E', // class
+                0, 0, 0, 1, b'm', // message
+                0, 0, 0, 0, // backtrace count
+            ],
+            "a Yield Reply carrying a guest failure must encode as tag byte 0x04 followed \
+             by an Error Record rather than a codec-encoded body"
         );
     }
 }

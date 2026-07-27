@@ -254,25 +254,14 @@ mod tests {
             snippets.encode(),
             vec![
                 0, 0, 0, 2, // entry count
-                SNIPPET_SOURCE,
-                0,
-                0,
-                0,
-                1,
-                b'N', // name, source only
-                0,
-                0,
-                0,
-                1,
-                b'b', // body
-                SNIPPET_BYTECODE,
-                0,
-                0,
-                0,
-                1,
-                0x52, // body, no name
+                0, // kind: source
+                0, 0, 0, 1, b'N', // name, source only
+                0, 0, 0, 1, b'b', // body
+                1,    // kind: bytecode
+                0, 0, 0, 1, 0x52, // body, no name
             ],
-            "a bytecode entry carries no name, so the two kinds must stay distinguishable by their tag alone"
+            "a source entry must encode as kind byte 0 with a name and a bytecode entry as \
+             kind byte 1 with none, so the two stay distinguishable by their tag alone"
         );
     }
 

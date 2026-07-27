@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn golden_layout_pins_field_order() {
+    fn golden_layout_pins_the_path_kind_and_field_order() {
         let call = Call {
             target: Target::Path("S"),
             method: "m",
@@ -142,13 +142,35 @@ mod tests {
         assert_eq!(
             call.encode(),
             vec![
-                KIND_PATH, //
+                0, // kind: path
                 0, 0, 0, 1, b'S', // target
                 0, 0, 0, 1, b'm', // method
                 1,    // block_given
                 0x01, // payload remainder
             ],
-            "the Call byte layout must stay fixed for both peers to agree"
+            "a constant-path Call must encode as kind byte 0 followed by target, method, \
+             block flag, and payload in that order"
+        );
+    }
+
+    #[test]
+    fn golden_layout_pins_the_handle_kind_and_its_bare_id() {
+        let call = Call {
+            target: Target::Handle(0x0102_0304),
+            method: "m",
+            block_given: false,
+            payload: b"",
+        };
+        assert_eq!(
+            call.encode(),
+            vec![
+                1, // kind: handle
+                1, 2, 3, 4, // target: the id alone, with no length prefix
+                0, 0, 0, 1, b'm', // method
+                0,    // block_given
+            ],
+            "a Handle-targeted Call must encode as kind byte 1 followed by the bare \
+             big-endian id, not a length-prefixed byte string"
         );
     }
 
