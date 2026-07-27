@@ -16,7 +16,7 @@ output capture, and a warm Sandbox pool.
 | ✅ [F-06 Capability Handle encoding and referencing](docs/behavior/dispatch.md) | [lib/kobako/catalog/handles.rb](lib/kobako/catalog/handles.rb) | — |
 | ✅ [F-07 Three-class error attribution and raising](docs/behavior/errors.md) | [lib/kobako/outcome.rb](lib/kobako/outcome.rb) | E-26 (guest-entry envelope decode failure) has no exercising test — not reachable through the public API |
 | ✅ [F-08 Guest output capture](docs/behavior/lifecycle.md) | [lib/kobako/capture.rb](lib/kobako/capture.rb) | — |
-| ✅ [F-09 Host–guest message codec](docs/wire-codec.md) | [lib/kobako/codec/](lib/kobako/codec/) | — |
+| ✅ [F-09 Host–guest message codec](docs/wire-codec.md) | [crates/kobako-transport/](crates/kobako-transport/) (core envelope + ABI, one implementation), [lib/kobako/codec/](lib/kobako/codec/) (host payload codec) | The payload layer has a second implementation in `crates/kobako-codec`; the envelope layer is pinned by golden vectors instead |
 | ✅ [F-10 Reproducible build pipeline](SPEC.md#code-organization) | [tasks/wasm/build.rake](tasks/wasm/build.rake) | Verified by build-time gates (`rake anchors`, double-bake byte-identity, gemspec whitelist), not `test/` |
 | ✅ [F-11 Multi-layer test and benchmark suite](SPEC.md#testing-style) | [test/](test/) | Benchmarks live in [benchmark/](benchmark/) with the gate in `tasks/bench/`; the anchor baseline advances only by deliberate re-bless |
 | ✅ [F-12 Guest block reception and yield re-entry](docs/behavior/yield.md) | [lib/kobako/transport/yielder.rb](lib/kobako/transport/yielder.rb) | — |
