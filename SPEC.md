@@ -571,7 +571,7 @@ The following patterns are enforced project-wide and apply at every layer:
 - **Codec depends on value objects.** The Codec layer registers `Kobako::Handle` as its ext 0x01 decode target and `Kobako::Fault` as its ext 0x02 decode target. Both are top-level value objects (not nested under `Transport`) precisely so this holds: the dependency direction is Codec → value objects; neither the value objects nor the Transport layer depends on Codec. This makes the value objects loadable without the codec available and keeps the codec a pure transformation over a known set of host-side types.
 - **Three-layer error attribution is two-step** — see `## Behavior` § attribution for the governing Step 1 / Step 2 decision. Design implication: error classification is a pure function of `(trap?, outcome_tag)`; exit codes, stdout, and stderr are never inputs to that function at either step.
 - **Source-only distribution.** The published gem does not include precompiled native extensions for any platform. End users compile `ext/kobako/` from Rust source using their local Rust toolchain and cargo. The only pre-built binary artifact shipped in the gem is `data/kobako.wasm`.
-- **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. Version numbers are pinned as constants inside `tasks/vendor.rake`. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
+- **Build-time vendor isolation.** `vendor/wasi-sdk/` and `vendor/mruby/` are fetched from official release tarballs at build time and are never committed to the repository. The versions are pinned by the `beni` gem that fetches them, so one declaration governs every consumer of that toolchain rather than each repository keeping its own. This avoids git submodule pointer maintenance and guarantees cross-environment reproducibility.
 - **Fix the bottom layer, not the top.** When a gap is found in a low-level interface (codec type coverage, setjmp/longjmp flag, Wire Spec field, `Catalog::Handles` guard, Panic envelope schema), the fix is applied to the interface layer itself. Working around a low-level gap in a higher-level capability or application layer is not permitted.
 - **Process-scope Engine and Module cache.** The wasmtime Engine and the compiled Module for `data/kobako.wasm` are cached at process scope by the `kobako-wasmtime` driver crate. The first `Kobako::Sandbox` constructed in a process pays Engine init and Module compile; every subsequent Sandbox in the same process — regardless of which Thread constructs it — amortizes against this shared state. The cache is implicit; the Host App has no API to inspect, warm, or invalidate it. This pattern is what makes the Sandbox-per-tenant, Sandbox-per-Thread, and shared-Sandbox shapes (B-22) practical.
 
@@ -669,25 +669,25 @@ The following directory layout principles govern the repository. The specific te
 **Directory roles (required, not relocatable):**
 
 - `lib/` — Host Gem Ruby surface; public API entry point and sub-modules
-- `ext/kobako/` — private native extension; Rust source (`src/`), `Cargo.toml`, `extconf.rb`, `build.rs`; compiled to `lib/kobako/kobako.<ext>` by rake-compiler
-- `crates/` — the Rust crates the ext consumes as path dependencies (`kobako-transport`, `kobako-runtime`, `kobako-wasmtime`); those three ship in the published gem, the `crates/` workspace manifest and lock do not
+- `ext/kobako/` — private native extension; Rust source (`src/`), `Cargo.toml`, `extconf.rb`; compiled to `lib/kobako/kobako.<ext>` by rake-compiler
+- `crates/` — every Rust crate that is not wasm-only, so a Rust embedder and the guest crates can each reach it. Only the ext's path-dependency closure (`kobako-transport`, `kobako-runtime`, `kobako-wasmtime`) ships in the published gem; the `crates/` workspace manifest and lock never do
 - `wasm/` — Guest Binary Rust source; compiled to `data/kobako.wasm`; excluded from the published gem
 - `data/` — pre-built Wasm artifact (`kobako.wasm`); included in the published gem; never manually edited
 - `build_config/` — mruby build configuration (`wasi.rb`); build-time only; excluded from the published gem
 - `vendor/` — build-time toolchain storage for wasi-sdk and mruby tarballs; not committed; entirely covered by `.gitignore`; excluded from the published gem
-- `tasks/` — Rakefile sub-task files (`vendor.rake`, `wasm.rake`, `ext.rake`), each owning one task group; excluded from the published gem
-- `spec/` (or `test/`) — test files; excluded from the published gem; one consistent convention across the entire repo
+- `tasks/` — Rakefile sub-task files, each owning one task group and self-contained enough to be loaded by glob; the Rakefile is the list, so a group is added by adding a file. Excluded from the published gem
+- `test/` — every test file, whatever its kind; excluded from the published gem
 - `benchmark/` — benchmark scripts and baseline result files; excluded from the published gem
 - `docs/` — design documentation; excluded from the published gem
 
-**gemspec files whitelist:** `kobako.gemspec` pins `spec.files` so the published gem contains exactly the install surface: `lib/**/*.rb`, `ext/kobako/**`, the ext's crate path-dependency closure (`crates/kobako-transport/**`, `crates/kobako-runtime/**`, `crates/kobako-wasmtime/**` — never the `crates/` workspace manifest or lock, and a new crate stays out until the ext depends on it), `data/kobako.wasm`, `sig/**` (minus the dev-only `sig/_external/`), `README.md`, `LICENSE`, `CHANGELOG.md`. All other directories (`vendor/`, `wasm/`, `tasks/`, `build_config/`, `docs/`, `benchmark/`, `spec/`, `test/`) are excluded.
+**gemspec files whitelist:** `kobako.gemspec` pins `spec.files` so the published gem contains exactly the install surface: `lib/**/*.rb`, `ext/kobako/**`, the ext's crate path-dependency closure (`crates/kobako-transport/**`, `crates/kobako-runtime/**`, `crates/kobako-wasmtime/**` — never the `crates/` workspace manifest or lock, and a new crate stays out until the ext depends on it), `data/kobako.wasm`, `sig/**` (minus the dev-only `sig/_external/`), `README.md`, `LICENSE`, `CHANGELOG.md`. All other directories (`vendor/`, `wasm/`, `tasks/`, `build_config/`, `docs/`, `benchmark/`, `test/`) are excluded.
 
 **Two build paths, two starting points:**
 
 - *End-user path*: `gem install kobako` → rake-compiler runs `compile_ext` (Rust toolchain required) → `data/kobako.wasm` is already present; wasi-sdk and mruby tarballs are not needed.
-- *Developer path*: `git clone` → `bundle install` → `bundle exec rake compile` → Rakefile runs vendor setup (downloads wasi-sdk and mruby tarballs to `vendor/`), then the wasm build (produces `data/kobako.wasm`), then `compile_ext`.
+- *Developer path*: `git clone` → `bundle install` → `bundle exec rake compile` → the `beni` gem's tasks vendor the pinned wasi-sdk and mruby into `vendor/` and build `libmruby.a`, then this repository's wasm build links `data/kobako.wasm`, then `compile_ext`.
 
-Each task in `tasks/*.rake` must be idempotent: the presence of target files (e.g., `vendor/wasi-sdk/bin/clang`, `vendor/mruby/build/wasm32-wasip1/lib/libmruby.a`) short-circuits re-execution, so incremental development only reruns the changed stage.
+Every build task must be idempotent: the presence of the target file its stage produces short-circuits re-execution, so incremental development only reruns the changed stage. This holds across the boundary — a stage the toolchain gem owns is as re-entrant as one this repository owns.
 
 **Release documentation — six required artifacts:** A release is not complete until all six of the following documents are present and synchronized with the code. Shipping code before documentation is not permitted.
 
