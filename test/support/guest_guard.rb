@@ -33,4 +33,19 @@ module GuestGuard
     require_native_ext!
     skip "#{File.basename(path)} fixture missing" unless File.exist?(path)
   end
+
+  # A built +CargoOracle+ binary, for the cross-language checks that drive
+  # one. A local checkout without a Rust toolchain skips; under CI the
+  # toolchain is a prerequisite of the default task, so an absent one would
+  # silently drop the only coverage these checks provide.
+  def require_cargo_oracle!(oracle)
+    build = oracle.ensure_built
+    case build.status
+    when :no_cargo
+      flunk "cargo not on PATH under CI" if ENV["CI"]
+      skip "cargo not on PATH — install a Rust toolchain to run the #{oracle.bin_name} oracle"
+    when :build_failed
+      flunk "cargo build --release #{oracle.bin_name} failed:\n#{build.error}"
+    end
+  end
 end

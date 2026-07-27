@@ -41,6 +41,8 @@
 require "test_helper"
 
 class TestCodecRoundtripFuzz < Minitest::Test
+  include GuestGuard
+
   CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "roundtrip_oracle")
 
@@ -48,7 +50,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
   Decoder = Kobako::Codec::Decoder
 
   def setup
-    check_oracle_status
+    require_cargo_oracle!(ORACLE)
     initialize_fuzzer_params
   end
 
@@ -62,15 +64,6 @@ class TestCodecRoundtripFuzz < Minitest::Test
   end
 
   private
-
-  def check_oracle_status
-    case (build = ORACLE.ensure_built).status
-    when :no_cargo
-      skip "cargo not on PATH — skipping codec round-trip fuzz (install rustup to enable)"
-    when :build_failed
-      flunk "cargo build --release roundtrip_oracle failed:\n#{build.error}"
-    end
-  end
 
   def initialize_fuzzer_params
     @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "1000").to_i

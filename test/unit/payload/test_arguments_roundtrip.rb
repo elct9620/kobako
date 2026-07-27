@@ -19,16 +19,13 @@
 require "test_helper"
 
 class TestArgumentsRoundtrip < Minitest::Test
+  include GuestGuard
+
   CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "payload_oracle")
 
   def setup
-    case (build = ORACLE.ensure_built).status
-    when :no_cargo
-      skip "cargo not on PATH; the payload oracle requires a Rust toolchain"
-    when :build_failed
-      flunk "cargo build --release payload_oracle failed:\n#{build.error}"
-    end
+    require_cargo_oracle!(ORACLE)
     @channel = ORACLE.spawn
   end
 
