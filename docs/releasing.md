@@ -78,6 +78,8 @@ A crate joins the group by taking every seat below. None fails where it was miss
 | `.github/scripts/publish-crates.sh` | A `publish_crate` call, placed so every crate precedes its dependents | `cargo publish` fails on the missing dependency, part-way through the group |
 | `.github/workflows/release-please.yml` | The `<name>_release_created` output, the `release-crate` job's OR chain, and the `cargo update -p` list of every lockfile the crate appears in | The lockfile sync skips the crate; `extra-files` still writes its version, so the entry stays correct |
 | crates.io | A `0.0.0` placeholder, published by hand | `cargo publish` fails: the name does not exist |
-| crates.io Trusted Publishing | A config naming this repository and `release-crate.yml` | The publish step cannot authenticate |
+| crates.io Trusted Publishing | A config naming this repository and **both** `release-please.yml` and `release-crate.yml` | The publish step cannot authenticate |
 
 The placeholder reserves the name and is what Trusted Publishing is configured against, so it comes first and is published from outside the repository — `cargo new` inside a workspace edits that workspace's manifest. It carries version `0.0.0`, a description naming what the real crate will be, `license` and `repository`, and a `src/lib.rs` holding a doc comment and nothing else. The real version publishes through the normal release; `already_published` checks a specific version, so the placeholder never causes one to be skipped.
+
+Trusted Publishing matches on the OIDC `workflow_ref` claim, which names the **workflow that was triggered**, never the one reached through `workflow_call`. `release-crate.yml` runs both ways — called by `release-please.yml` on the automated path, triggered directly by `on: release` and `workflow_dispatch` — so a config naming only one of the two authenticates on only one path.
