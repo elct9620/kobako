@@ -444,6 +444,17 @@ bundle exec rake "bench:confirm[path/to/a.wasm]" # an explicit Guest Binary
 
 `bench:confirm` alternates the baseline and current Guest Binaries through `mruby_eval` in 3 adjacent short pairs (~5 min) and confirms a regression only when every pair agrees on direction **and** the mean clears ±3 % — the design that survives the transients above. Pairs spreading wider than ±20 % void the arbitration as `UNSTABLE` (the machine was not quiet — rerun idle; even direction-unanimity happens by chance under load). Steady-state cost is zero; it runs only on a gate alarm. Each arm injects its Guest Binary through `KOBAKO_BENCH_WASM` and writes to a throwaway results directory, so `data/kobako.wasm` and `benchmark/results/` are never modified.
 
+## What the suite does not measure
+
+Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directly against its codec — so that is what these numbers characterize. Four dimensions sit outside it, recorded here so silence is not read as coverage.
+
+| Not covered | Why the suite cannot answer it | Standing |
+|---|---|---|
+| The Rust host SDK's path | no probe reaches `crates/kobako`, so neither a Rust host over the mruby guest nor one over a Rust guest has an arm | out until the SDK's performance is a release commitment; today only its behavior is, pinned by the parity harness |
+| The mruby VM's own call cost | no case is a guest-local call, so `2a`–`2f` read against each other and never against a floor | out — detection is on the delta between cases, and an absolute floor moves no gate |
+| A String in and a String out | `2b` carries an Integer and `3c` encodes a String without dispatching one, so the shape most Service calls take has no arm | the one gap inside the gated suite's own subject — a round-trip arm would sit beside `2b` and gate the same way |
+| Shipped artifact size | no probe reads a `.wasm`'s bytes, and the five variants ship as release assets unmeasured | a threshold rather than a distribution, so it belongs to `rake gate` rather than to a benchmark |
+
 ## Known caveats
 
 - **Guest String size cap at 1 MiB.** `MRB_STR_LENGTH_MAX` is mruby's default; the guest-side codec cases stop at 512 KiB. The 16 MiB wire payload limit is reachable only through composite values.
