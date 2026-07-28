@@ -27,7 +27,7 @@ use crate::dispatch::CatalogHandler;
 use crate::error::{Error, Failure};
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
-use crate::handles::{HandleTable, Handles};
+use crate::handles::HandleTable;
 use crate::outcome;
 use crate::receiver::Receiver;
 use crate::snippet;
@@ -384,15 +384,13 @@ impl Sandbox {
 
 /// Cook a raw `Snapshot` into the invocation's `Execution`: captures and
 /// usage carry over verbatim, and the completion becomes the guest-level
-/// `outcome` — a decoded value (whose Handles must all be live), or the
-/// taxonomy `Error` a trap or guest failure attributes to. The `handles`
-/// table rides along so the result's Handles resolve on the Execution.
+/// `outcome` — the Result arm's payload bytes, or the taxonomy `Error` a
+/// trap or guest failure attributes to. The `handles` table rides along
+/// so the result's Handles resolve on the Execution, which is also where
+/// the payload meets a schema.
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
     let outcome = match snapshot.completion {
-        Completion::Outcome(bytes) => outcome::decode(&bytes).and_then(|value| {
-            require_live_handles(&handles, &value)?;
-            Ok(value)
-        }),
+        Completion::Outcome(bytes) => outcome::classify(&bytes),
         Completion::Trap(trap) => Err(trap.into()),
     };
     Execution::new(
@@ -424,35 +422,6 @@ fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Erro
                     diagnostic: None,
                 }))
             }),
-    }
-}
-
-/// Every Handle a guest legitimately returns resolves to a live object
-/// (it cannot fabricate one); an unknown id in the result signals a
-/// corrupted runtime and fails like a malformed value.
-fn require_live_handles(handles: &Mutex<HandleTable>, value: &Value) -> Result<(), Error> {
-    match value {
-        Value::Handle(id) => {
-            if Handles::new(handles).resolve(value).is_some() {
-                Ok(())
-            } else {
-                Err(Error::Sandbox(Box::new(Failure {
-                    class: "Kobako::SandboxError".into(),
-                    message: format!("unknown Handle id: {id}"),
-                    backtrace: Vec::new(),
-                    available: Vec::new(),
-                    diagnostic: None,
-                })))
-            }
-        }
-        Value::Array(items) => items
-            .iter()
-            .try_for_each(|v| require_live_handles(handles, v)),
-        Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
-            require_live_handles(handles, key)?;
-            require_live_handles(handles, val)
-        }),
-        _ => Ok(()),
     }
 }
 

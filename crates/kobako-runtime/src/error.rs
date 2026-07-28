@@ -26,7 +26,7 @@ pub enum Trap {
 /// could not be constructed), and `Intact` (the runtime is live but a
 /// host-side pre-call step failed, so no discard-and-recreate recovery is
 /// owed).
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetupError {
     ModuleNotBuilt(String),
     Dead(String),

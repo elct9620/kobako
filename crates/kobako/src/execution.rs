@@ -34,7 +34,7 @@ use crate::receiver::Receiver;
 /// resolves against. Owned by the caller and independent of the
 /// `Sandbox`, so it survives concurrent invocations unchanged.
 pub struct Execution {
-    outcome: Result<Value, Error>,
+    outcome: Result<Vec<u8>, Error>,
     handles: Arc<Mutex<HandleTable>>,
     stdout: Capture,
     stderr: Capture,
@@ -46,7 +46,7 @@ impl Execution {
     /// observables. The `Sandbox` owns the raw-`Snapshot`-to-outcome
     /// cook (decode, Handle liveness); this is the plain data holder.
     pub(crate) fn new(
-        outcome: Result<Value, Error>,
+        outcome: Result<Vec<u8>, Error>,
         handles: Arc<Mutex<HandleTable>>,
         stdout: Capture,
         stderr: Capture,
@@ -61,11 +61,33 @@ impl Execution {
         }
     }
 
-    /// The guest-level outcome by reference: `Ok` is the decoded value,
-    /// `Err` the taxonomy attribution of a guest failure or trap. The
-    /// captures and `usage` stay readable on either arm.
-    pub fn value(&self) -> Result<&Value, &Error> {
-        self.outcome.as_ref()
+    /// The guest-level outcome as the wire carried it: `Ok` is the
+    /// Result arm's payload bytes, `Err` the taxonomy attribution of a
+    /// guest failure or trap. The captures and `usage` stay readable on
+    /// either arm.
+    ///
+    /// Bytes because the payload's schema is the host's own — attributing
+    /// an invocation is the envelope's job and reads no payload byte, so
+    /// a host whose Receivers speak another schema reads its own result
+    /// here and decodes it itself.
+    pub fn payload(&self) -> Result<&[u8], &Error> {
+        self.outcome.as_ref().map(Vec::as_slice)
+    }
+
+    /// The outcome decoded through the default payload codec, with every
+    /// Handle in it checked live. A guest cannot fabricate a Handle, so
+    /// an unknown id means a corrupted runtime and fails like a malformed
+    /// value.
+    ///
+    /// The decode happens here rather than at invocation because it is
+    /// the one step that needs a schema; a host with its own reads
+    /// `payload` instead. It runs per call, so a caller reading the value
+    /// more than once holds onto what it gets.
+    pub fn value(&self) -> Result<Value, Error> {
+        let bytes = self.outcome.as_ref().map_err(Clone::clone)?;
+        let value = crate::outcome::decode_value(bytes)?;
+        self.require_live_handles(&value)?;
+        Ok(value)
     }
 
     /// Consume the Execution and fold its outcome into a `Result` — the
@@ -73,7 +95,27 @@ impl Execution {
     /// failure propagate with `?`. Reach for the captures / `usage`
     /// before calling this, since it drops them.
     pub fn into_value(self) -> Result<Value, Error> {
-        self.outcome
+        self.value()
+    }
+
+    fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
+        match value {
+            Value::Handle(id) => self.resolve(value).map(|_| ()).ok_or_else(|| {
+                Error::Sandbox(Box::new(crate::error::Failure {
+                    class: "Kobako::SandboxError".into(),
+                    message: format!("unknown Handle id: {id}"),
+                    backtrace: Vec::new(),
+                    available: Vec::new(),
+                    diagnostic: None,
+                }))
+            }),
+            Value::Array(items) => items.iter().try_for_each(|v| self.require_live_handles(v)),
+            Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
+                self.require_live_handles(key)?;
+                self.require_live_handles(val)
+            }),
+            _ => Ok(()),
+        }
     }
 
     /// Resolve a `Value::Handle` from this run's result to the live host

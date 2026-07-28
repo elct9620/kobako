@@ -488,11 +488,11 @@ fn observe(
             Ok(execution) => {
                 match execution.value() {
                     Ok(value) => {
-                        let tagged = tag_value(value, &execution, opaques);
+                        let tagged = tag_value(&value, &execution, opaques);
                         observable.insert("status".into(), json!("ok"));
                         observable.insert("value".into(), tagged);
                     }
-                    Err(error) => write_failure(&mut observable, error),
+                    Err(error) => write_failure(&mut observable, &error),
                 }
                 Some(execution)
             }
