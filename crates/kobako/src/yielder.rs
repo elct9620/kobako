@@ -64,7 +64,7 @@ impl From<YieldError> for Fault {
 /// Host-side stand-in for the guest block of one dispatch frame.
 pub struct Yielder<'y> {
     channel: &'y mut dyn RawYielder,
-    broke: Option<Value>,
+    broke: Option<Vec<u8>>,
 }
 
 impl<'y> Yielder<'y> {
@@ -85,33 +85,42 @@ impl<'y> Yielder<'y> {
     /// A `break` in the block ends the receiver call: this returns
     /// `YieldError::Break` now and on every later call, without
     /// re-entering the guest.
-    pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
-        if self.broke.is_some() {
-            return Err(YieldError::Break);
-        }
-        let payload = encode_args(args)?;
-        let bytes = self
-            .channel
-            .yield_block(&payload)
-            .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
-        let reply = YieldReply::decode(&bytes)
-            .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
-        match reply {
-            YieldReply::Ok(body) => decode_body(&body),
-            YieldReply::Break(body) => {
-                self.broke = Some(decode_body(&body)?);
-                Err(YieldError::Break)
-            }
-            YieldReply::Error(record) => Err(YieldError::Failure {
-                class: record.class,
-                message: record.message,
-            }),
-        }
+pub fn call_payload(&mut self, args: &[u8]) -> Result<Vec<u8>, YieldError> {
+    if self.broke.is_some() {
+        return Err(YieldError::Break);
     }
+    let bytes = self
+        .channel
+        .yield_block(args)
+        .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
+    let reply = YieldReply::decode(&bytes)
+        .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
+    match reply {
+        YieldReply::Ok(body) => Ok(body),
+        YieldReply::Break(body) => {
+            self.broke = Some(body);
+            Err(YieldError::Break)
+        }
+        YieldReply::Error(record) => Err(YieldError::Failure {
+            class: record.class,
+            message: record.message,
+        }),
+    }
+}
 
-    /// The recorded break value, consumed by the dispatch frame once
-    /// the receiver returns.
-    pub(crate) fn into_break(self) -> Option<Value> {
+/// The bundled codec's spelling of `call_payload`: encode the
+/// positional arguments as one msgpack array and decode what the
+/// block answered.
+pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
+    let payload = encode_args(args)?;
+    let body = self.call_payload(&payload)?;
+    decode_body(&body)
+}
+
+    /// The recorded break value as the guest wrote it, consumed by the
+    /// dispatch frame once the receiver returns. Bytes, so the frame
+    /// answers with what the block produced rather than a re-encoding.
+    pub(crate) fn into_break(self) -> Option<Vec<u8>> {
         self.broke
     }
 }
@@ -190,7 +199,10 @@ mod tests {
         let mut block = Yielder::new(&mut channel);
         assert_eq!(block.call(&[]), Err(YieldError::Break));
         assert_eq!(block.call(&[]), Err(YieldError::Break));
-        assert_eq!(block.into_break(), Some(Value::Sym("stop".into())));
+        assert_eq!(
+            block.into_break().map(|body| decode_body(&body).unwrap()),
+            Some(Value::Sym("stop".into()))
+        );
         assert_eq!(
             channel.sent.len(),
             1,

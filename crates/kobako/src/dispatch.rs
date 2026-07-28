@@ -8,7 +8,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use kobako_codec::msgpack::codec::{Encoder, Value};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder as RawYielder;
 use kobako_transport::envelope::{Call, Reply, Target};
@@ -66,11 +65,9 @@ impl CatalogHandler {
         let result = object.call(call.method, call.payload, block.as_mut(), &handles);
         // A break unwinds the receiver transparently: the guest receives
         // the break value no matter what the receiver returned, and the
-        // value rides back verbatim rather than through host code. The
-        // break value comes from the yield codec, so it is encoded
-        // here rather than by the Receiver.
-        if let Some(value) = block.and_then(Yielder::into_break) {
-            return ok_reply(&value);
+        // bytes ride back exactly as the block wrote them.
+        if let Some(body) = block.and_then(Yielder::into_break) {
+            return Reply::Ok(body);
         }
         match result {
             Ok(body) => Reply::Ok(body),
@@ -119,22 +116,9 @@ fn fault_reply(fault: &Fault) -> Reply {
     Reply::Fault(fault.clone())
 }
 
-/// The ok arm's body: the return value alone, since the envelope's tag
-/// already carries the success. A value the codec cannot represent
-/// folds into a fault like every other failure.
-fn ok_reply(value: &Value) -> Reply {
-    match Encoder::encode(value) {
-        Ok(bytes) => Reply::Ok(bytes),
-        Err(err) => fault_reply(&Fault::new(
-            FaultKind::Runtime,
-            format!("response not encodable: {err}"),
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder};
+    use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value};
     use kobako_codec::msgpack::payload::Arguments;
     use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
