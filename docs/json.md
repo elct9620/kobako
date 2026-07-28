@@ -22,7 +22,7 @@ authors who receive the wire-projected mruby values that result.
 
 Parsing and generation are a guest-internal compute capability — the pure-compute
 peer of the IO / Kernel surface (B-04) and the Regexp surface (B-41). The `JSON`
-module is not among the 12 wire types and never crosses the boundary; `parse`
+module is not among the 11 wire types and never crosses the boundary; `parse`
 yields ordinary mruby values (`nil` / bool / `Integer` / `Float` / `String` /
 `Array` / `Hash`) and `generate` consumes them. A value the guest hands back to
 the host reduces to a wire type by the ordinary return-value semantics (B-06);

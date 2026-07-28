@@ -67,9 +67,22 @@ The answer to one dispatch Call.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `tag` | `u8` | `0` — success; `1` — fault. No other value is legal. |
-| `body` | remainder | `tag=0`: the return value, encoded by the payload codec. `tag=1`: the fault, encoded by the payload codec (→ [`payload-msgpack.md`](payload-msgpack.md) § ext 0x02). |
+| `body` | remainder | `tag=0`: the return value, encoded by the payload codec. `tag=1`: a Fault (below). |
 
 Success-versus-fault is decided at this layer, not inside the payload: a guest learns whether the Service returned or raised by reading one byte, whatever schema the payload carries. That is why the fault rides its own arm rather than a reserved payload value.
+
+### Fault
+
+The host refusing or failing a Call. Every byte of it is kobako's — a closed category plus a message — so it rides the envelope and a guest reads it with no payload codec at all.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `kind` | `u8` | The failure category: `0` — runtime, `1` — argument, `2` — undefined. No other value is legal. |
+| `message` | `bytes` | Human-readable description as UTF-8. |
+
+The category is a tag rather than a name because the set is closed: an unknown category is unrepresentable rather than merely unrecognised. The three values keep their meanings from the dispatch contract (→ [`../wire-contract.md`](../wire-contract.md) § Fault) — `undefined` must stay indistinguishable across its three causes, so a host that refuses a name reveals nothing about which of them applied.
+
+A Fault carries no backtrace. It crosses from host to guest, and what a host backtrace names — file paths, object graphs, the shape of code the guest cannot see — is not content the boundary can bound. That is the one structural difference from an Error Record, which travels the other way, and it is why the two stay separate types rather than one with a field that must always be empty.
 
 ---
 
@@ -92,7 +105,7 @@ A zero-length Yield Reply is a wire violation.
 
 The guest's report that something it was running raised. A block failure and an invocation failure share this layout, and the host re-raises from these fields without consulting the payload codec.
 
-It is distinct from a Fault, which travels the other way: a Fault is the host refusing or failing a Call, categorized by one of three reserved `type` values the guest maps to a proxy-side error, and it lives in the payload (→ [`payload-msgpack.md`](payload-msgpack.md) § ext 0x02). An Error Record names a guest-side exception class verbatim and carries no category.
+It is distinct from a Fault (§ Reply), which travels the other way and carries a closed category instead of a class name — and, being host-to-guest, no backtrace.
 
 | Field | Type | Meaning |
 |-------|------|---------|

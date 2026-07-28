@@ -72,12 +72,14 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ## Fault
 
-A Fault describes a Service-layer failure. Its sole legal wire position is the whole of a Reply's fault variant; a payload in any other position carrying one is a wire violation the receiving side rejects (→ [`behavior/errors.md`](behavior/errors.md) E-50). Maps to the Ruby value object `Kobako::Fault`. It carries two fields:
+A Fault describes a Service-layer failure. It is the whole of a Reply's fault variant and rides the core envelope, not the payload: every byte of one is kobako's, so a guest reads a refusal with no payload codec at all and a replacement codec owes it nothing. It carries two fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `type` | string | One of the three reserved error type names (see table below). Identifies the failure category. |
+| `type` | closed enumeration | One of the three reserved failure categories (see table below). |
 | `message` | string | Human-readable description of the failure. |
+
+The category is closed, so the envelope carries it as a tag: a value outside the three is unrepresentable rather than merely unrecognised, and no endpoint has to decide what an unknown category means.
 
 A Fault travels host→guest, and its author controls only the message. Host-side structure — a backtrace, a path, an object graph — would cross the trust boundary as content no author can bound, so a Fault carries none. The reverse direction is not symmetric: a Panic and a Yield Reply's error arm both carry a backtrace, and those flow untrusted→trusted.
 
@@ -170,9 +172,9 @@ The payload codec has two independent implementations; the core envelope has one
 | Core envelope | `crates/kobako-transport` | `crates/kobako-transport` | Golden vectors against [`wire/envelope.md`](wire/envelope.md) |
 | Payload codec | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
 
-The two layers differ because ambiguity does. The type mapping — the 12 wire types, the three ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest. Every envelope this document specifies exists as a wire-codable type in `kobako-transport`.
+The two layers differ because ambiguity does. The type mapping — the 11 wire types, the two ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest. Every envelope this document specifies exists as a wire-codable type in `kobako-transport`.
 
-The two payload peers are held to each other over bytes by the round-trip fuzz: generated values cross both implementations and the re-encoding must come back byte-identical, so the type mapping and the three ext codes are checked one against the other over every shape the harness produces.
+The two payload peers are held to each other over bytes by the round-trip fuzz: generated values cross both implementations and the re-encoding must come back byte-identical, so the type mapping and both ext codes are checked one against the other over every shape the harness produces.
 
 The guest's own value walk — mruby values to and from the payload codec's types — sits below both peers rather than beside them, naming no payload type of its own. What it can get wrong is therefore a value's fidelity, not a type's shape, and it has no peer to differ against; it is held instead to an identity law, driving the real Guest Binary so that a value the host puts on the wire comes back the value it went in as.
 

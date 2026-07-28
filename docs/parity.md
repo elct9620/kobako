@@ -166,7 +166,7 @@ E-01 E-23 B-18 E-13 B-43 E-44
   scenario.
 - **Hard-to-trigger wire corners** — comparable in principle but with
   no deterministic trigger through the real guest (B-21, E-02, E-03,
-  E-07..E-10, E-31, E-50): revisit if a legitimate trigger
+  E-07..E-10, E-31): revisit if a legitimate trigger
   appears; parallel fixture guests stay off the table.
-- **Retired** — E-14 (N-8: reserved and never reassigned) names no
-  behavior, so it neither appears in a scenario nor needs one.
+- **Retired** — E-14 and E-50 (N-8: reserved and never reassigned) name no
+  behavior, so neither appears in a scenario nor needs one.

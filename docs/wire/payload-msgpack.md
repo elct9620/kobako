@@ -18,7 +18,6 @@ A codec owns exactly these positions. Everything else in a message belongs to th
 |----------|---------|
 | Call `payload` | The invocation arguments — `args` (ordered list) and `kwargs` (Symbol-keyed map) |
 | Reply `body`, `tag=0` | The Service method's return value |
-| Reply `body`, `tag=1` | The fault (→ § ext 0x02) |
 | Yield Call | The block's yield arguments as an ordered list |
 | Yield Reply `body`, `tag` `0x01` / `0x02` | The block's value, or the `break` value |
 | Outcome `body`, `tag=0x01` | The invocation's value |
@@ -44,7 +43,7 @@ Positional-versus-keyword partition is a codec concern: a schema without Ruby's 
 
 ## Type Mapping
 
-The following 12 entries constitute the complete set of MessagePack types this codec recognizes. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode further.
+The following 11 entries constitute the complete set of MessagePack types this codec recognizes. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode further.
 
 | # | msgpack family | Wire use | Host Gem Ruby type | Guest Binary mruby / Rust type |
 |---|----------------|----------|--------------------|-------------------------------|
@@ -56,10 +55,9 @@ The following 12 entries constitute the complete set of MessagePack types this c
 | 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
 | 7 | array (fixarray / array 16 / array 32) | Ordered sequences; the `args` / `kwargs` payload framing | `Array` | `Array` (mruby) / `Vec<T>` |
 | 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs` | `Hash` | `Hash` (mruby) / struct or `HashMap` |
-| 9 | ext (general channel) | Dispatch point; this codec uses ext codes 0x00, 0x01, and 0x02; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
+| 9 | ext (general channel) | Dispatch point; this codec uses ext codes 0x00 and 0x01; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
 | 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
 | 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
-| 12 | ext 0x02 | Fault (see Ext Types below) | `Kobako::Fault` | `Errenv` struct |
 
 ---
 
@@ -99,9 +97,6 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 |---|---|---|
 | `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Reply ok body, Yield Reply ok / break body, Outcome result body | str or bin (context-determined) | both are legal |
-| Fault `type` field value | str only | bin → wire violation, reject |
-| Fault `message` field value | str only | bin → wire violation, reject |
-| Fault map keys (`type`, `message`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
 
 The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `class`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
 
@@ -128,7 +123,6 @@ Position rules for ext 0x00:
 
 - **MUST be ext 0x00** at: `kwargs` map keys (no other wire type is accepted at this position; a `str`, `bin`, or other-type key is a wire violation).
 - **MAY appear** at: `args` elements, `kwargs` values, any value payload, and as elements / keys / values of any nested array or map within those positions (other wire types are also permitted).
-- **MUST NOT appear** at: the Fault `type` / `message` fields.
 
 ### ext 0x01 — Capability Handle
 
@@ -146,15 +140,4 @@ ext 0x01 may appear in any payload position, at any nesting depth, in both direc
 
 **A Handle in the `target` position is a core-envelope field, not an ext value** (→ [`envelope.md`](envelope.md) § Call): the envelope's `kind` byte carries the discrimination and the ID rides as a bare `u32`. A codec that carries no Handle representation at all still reaches a Handle target — which is the common case for a stateful receiver — and only forgoes passing Handles as arguments.
 
-### ext 0x02 — Fault
-
-**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x02`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x02`, payload) depending on payload size. The payload is an embedded msgpack **map** with exactly two keys:
-
-| Map key | Value type | Meaning |
-|---------|-----------|---------|
-| `"type"` | str | One of the three reserved error type names: `"runtime"`, `"argument"`, `"undefined"` (→ [`../wire-contract.md`](../wire-contract.md) § Fault) |
-| `"message"` | str | Human-readable description |
-
-ext 0x02 may appear only as the whole of a Reply's `tag=1` body and must not appear in any other position. A payload in any other position carrying ext 0x02 anywhere is a wire violation the receiving side rejects (→ [`../behavior/errors.md`](../behavior/errors.md) E-50). The Host Gem never emits one elsewhere: a `Kobako::Fault` in a host→guest payload position is not wire-representable there and follows that path's non-representable handling — auto-wrap on a dispatch return value (→ [`../behavior/dispatch.md`](../behavior/dispatch.md) § B-14), refusal on a yield argument.
-
-A Fault occupies the whole of that body, so everything inside one is itself a payload position: a Fault never nests inside a Fault. A decoder that reads the inner map recursively refuses the second level on that rule rather than counting frames, which is what keeps a hostile chain from recursing until the native stack gives out.
+A Fault has no ext code here. Every byte of one is kobako's — a closed category and a message — so it rides the envelope's own fault arm (→ [`envelope.md`](envelope.md) § Fault), where a guest reads it with no codec at all and a replacement codec owes it nothing.
