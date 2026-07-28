@@ -8,6 +8,7 @@
 //! `Execution` accessor that asks for one. The wire-violation attribution string is the SPEC-pinned
 //! wire-level error class name, not a Ruby leakage.
 
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::codec::{Decoder, Value};
 use kobako_transport::envelope::{Outcome, Panic};
 
@@ -15,6 +16,7 @@ use crate::error::{Error, Failure};
 
 /// SPEC-pinned wire-level error class, carried as the attribution of
 /// host-detected wire violations on both frontends.
+#[cfg(feature = "msgpack")]
 const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 
 /// Classify one OUTCOME_BUFFER by its envelope alone: the Result arm's
@@ -42,6 +44,7 @@ pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
 /// Success branch: a decode fault means the framing was fine but the
 /// carried value violates the wire — a sandbox-origin fault, with the
 /// codec detail preserved for operator triage.
+#[cfg(feature = "msgpack")]
 pub(crate) fn decode_value(body: &[u8]) -> Result<Value, Error> {
     let mut decoder = Decoder::new(body);
     let value = decoder
@@ -72,6 +75,7 @@ fn classify_panic(panic: Panic) -> Error {
     }
 }
 
+#[cfg(feature = "msgpack")]
 fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
     Error::Sandbox(Box::new(Failure {
         class: WIRE_ERROR_CLASS.into(),

@@ -9,6 +9,7 @@
 
 use std::fmt;
 
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::codec::{Decoder, Encoder, Value};
 use kobako_runtime::yielder::Yielder as RawYielder;
 use kobako_transport::envelope::YieldReply;
@@ -111,6 +112,7 @@ impl<'y> Yielder<'y> {
     /// The bundled codec's spelling of `call_payload`: encode the
     /// positional arguments as one msgpack array and decode what the
     /// block answered.
+#[cfg(feature = "msgpack")]
     pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
         let payload = encode_args(args)?;
         let body = self.call_payload(&payload)?;
@@ -127,6 +129,7 @@ impl<'y> Yielder<'y> {
 
 /// Positional yield arguments ride as one msgpack array, the same
 /// shape the Ruby Yielder encodes.
+#[cfg(feature = "msgpack")]
 fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
     let mut encoder = Encoder::new();
     encoder
@@ -138,6 +141,7 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
 /// Decode a value-carrying arm's payload. The envelope framed it, so a
 /// fault here is the codec's — the guest answered with bytes this
 /// endpoint's schema cannot read.
+#[cfg(feature = "msgpack")]
 fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
     Decoder::new(body)
         .read_only_value()

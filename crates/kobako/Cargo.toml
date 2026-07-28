@@ -27,10 +27,21 @@ categories = ["wasm", "virtualization"]
 kobako-transport = { path = "../kobako-transport", version = "0.12.0" }
 
 # Payload codec: the default schema this SDK's `ValueReceiver` speaks.
-kobako-codec = { path = "../kobako-codec", version = "0.12.0" }
+# Optional, because every payload position has a byte-level entry: a host
+# whose Receivers speak another schema builds without a codec at all.
+kobako-codec = { path = "../kobako-codec", version = "0.12.0", optional = true }
 
 # Engine-neutral contract the Sandbox drives an engine through.
 kobako-runtime = { path = "../kobako-runtime", version = "0.12.0" }
 
 # Default engine: the wasmtime driver implementing the contract.
 kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.12.0" }
+
+[features]
+# On by default so the ergonomic path — `ValueReceiver`, `Value`, and the
+# Value-flavoured spelling of each payload position — is what a caller
+# gets without asking. Off, the SDK keeps only its byte-level surface and
+# resolves to no payload codec, which is what makes "the codec is
+# replaceable" a property of the dependency graph rather than a claim.
+default = ["msgpack"]
+msgpack = ["dep:kobako-codec"]

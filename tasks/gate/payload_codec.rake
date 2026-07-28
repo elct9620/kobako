@@ -11,7 +11,10 @@
 # `kobako-core` is the guest ABI contract every third-party guest builds
 # on; `kobako-mruby` is the harness whose `MrbGuest::Codec` the shell
 # names — so a guest that speaks another schema reaches all three without
-# MessagePack in its graph.
+# MessagePack in its graph. The Rust host SDK is the same claim from the
+# other side, but it legitimately carries a whole wasm engine — so it is
+# held to the narrower property that matters: no payload codec anywhere
+# in its codec-free graph.
 
 CODEC_BARE = "--no-default-features"
 # Each tier that must stand without a payload codec, with the workspace
@@ -51,14 +54,42 @@ def codec_free_tree_violation(crate)
     "dependency/dependencies: #{external.join(", ")}"
 end
 
+# The crates a codec-free graph must not contain at all: the payload
+# codecs themselves and the MessagePack library beneath them. Named
+# rather than derived so adding a codec crate is a deliberate edit here.
+CODEC_CRATES = %w[kobako-codec rmp rmp-serde msgpack].freeze
+# Tiers that may depend on anything except a payload codec — the Rust
+# host SDK, which drives a wasm engine and so can never resolve to
+# nothing, yet must still reach no schema when built codec-free.
+CODEC_ABSENT_TIERS = { "kobako" => File.expand_path("../../crates", __dir__) }.freeze
+
+# Report why +crate+'s codec-free build still reaches a payload codec, or
+# +nil+ when it reaches none.
+def codec_absent_violation(crate, dir)
+  Dir.chdir(dir) do
+    unless system("cargo check -p #{crate} #{CODEC_BARE} --quiet", out: File::NULL)
+      next "#{crate} does not build #{CODEC_BARE} — it reaches into the payload codec"
+    end
+
+    tree = `cargo tree -p #{crate} #{CODEC_BARE} -e normal 2>/dev/null`
+    pulled = tree.lines.drop(1).filter_map { |line| line[/[a-z0-9-]+(?= v[0-9])/] }
+    found = pulled.uniq & CODEC_CRATES
+    next if found.empty?
+
+    "#{crate}'s codec-free build still reaches a payload codec: #{found.join(", ")}"
+  end
+end
+
 namespace :gate do
   namespace :payload do
     desc "Check the routing-only tiers build with no payload codec and no msgpack dependency."
     task :optional do
       violations = CODEC_FREE_TIERS.filter_map { |crate, dir| codec_free_violation(crate, dir) }
+      violations += CODEC_ABSENT_TIERS.filter_map { |crate, dir| codec_absent_violation(crate, dir) }
+      total = CODEC_FREE_TIERS.size + CODEC_ABSENT_TIERS.size
       puts KobakoReport.gate(name: "gate:payload:optional",
-                             ok_summary: "#{CODEC_FREE_TIERS.size} routing-only tiers build " \
-                                         "#{CODEC_BARE} with no codec dependency",
+                             ok_summary: "#{total} tiers build #{CODEC_BARE} with no payload " \
+                                         "codec in their graph",
                              violations: violations, noun: "violation")
     end
   end

@@ -10,6 +10,7 @@
 
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::codec::Value;
 
 use crate::receiver::{Fault, FaultKind, Receiver};
@@ -93,6 +94,7 @@ impl<'a> Handles<'a> {
 
     /// The bundled codec's spelling: resolve a `Value::Handle`, and
     /// nothing else, through `resolve`.
+#[cfg(feature = "msgpack")]
     pub fn resolve_value(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         let Value::Handle(id) = value else {
             return None;

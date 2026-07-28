@@ -9,7 +9,9 @@
 
 use std::any::Any;
 
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::codec::{Decode, Encoder, Value};
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::payload::Arguments;
 
 use crate::handles::Handles;
@@ -80,6 +82,7 @@ pub trait Receiver: Any + Send + Sync {
     }
 }
 
+#[cfg(feature = "msgpack")]
 /// A Receiver that speaks kobako's default payload codec: positional
 /// and keyword arguments as wire `Value`s, answering with one.
 ///
@@ -104,6 +107,7 @@ pub trait ValueReceiver: Any + Send + Sync {
     }
 }
 
+#[cfg(feature = "msgpack")]
 /// Binds a `ValueReceiver` into a Catalog by decoding the payload with
 /// the MessagePack codec and encoding the answer back.
 ///
@@ -112,6 +116,7 @@ pub trait ValueReceiver: Any + Send + Sync {
 /// failures.
 pub struct ValueAdapter<V>(V);
 
+#[cfg(feature = "msgpack")]
 impl<V: ValueReceiver> ValueAdapter<V> {
     pub fn new(receiver: V) -> Self {
         ValueAdapter(receiver)
@@ -126,6 +131,7 @@ impl<V: ValueReceiver> ValueAdapter<V> {
     }
 }
 
+#[cfg(feature = "msgpack")]
 impl<V: ValueReceiver> Receiver for ValueAdapter<V> {
     fn call(
         &self,

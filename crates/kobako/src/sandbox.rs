@@ -13,7 +13,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::codec::{Encode as _, Value};
+#[cfg(feature = "msgpack")]
 use kobako_codec::msgpack::payload::Arguments;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
@@ -24,7 +26,9 @@ use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
-use crate::error::{Error, Failure};
+use crate::error::Error;
+#[cfg(feature = "msgpack")]
+use crate::error::Failure;
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::{HandleTable, Handles};
@@ -103,11 +107,13 @@ impl Registry {
 /// auto-wraps into a capability Handle the guest can call back into
 /// (the counterpart of the Ruby `#run` auto-wrap; wrapping applies to
 /// the top-level argument position).
+#[cfg(feature = "msgpack")]
 pub enum RunArg {
     Value(Value),
     Object(Arc<dyn Receiver>),
 }
 
+#[cfg(feature = "msgpack")]
 impl From<Value> for RunArg {
     fn from(value: Value) -> Self {
         RunArg::Value(value)
@@ -258,6 +264,7 @@ impl Sandbox {
     /// capability Handle before the envelope encodes. Host pre-flight refuses a
     /// non-constant `target` before the invocation seals the tables, matching
     /// the Ruby frontend's ordering.
+#[cfg(feature = "msgpack")]
     pub fn run(
         &self,
         target: &str,
@@ -275,6 +282,7 @@ impl Sandbox {
     /// Ruby frontend's `#run(target, ...) { |ctx| ctx.bind(...) }`, the `run`
     /// counterpart of `eval_with`. The closure runs before the guest drives and
     /// binds overrides under the same rules `eval_with` documents.
+#[cfg(feature = "msgpack")]
     pub fn run_with<F>(
         &self,
         target: &str,
@@ -418,6 +426,7 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Exec
 /// Wrapping needs the table, and the table exists only once the
 /// invocation has begun — which is why the payload is built here rather
 /// than by the caller before the verb starts.
+#[cfg(feature = "msgpack")]
 fn encode_run_payload(
     handles: &Mutex<HandleTable>,
     args: Vec<RunArg>,
@@ -439,6 +448,7 @@ fn encode_run_payload(
 /// Encode one `run` argument, auto-wrapping a host object into the
 /// invocation's Handle table. Exhaustion surfaces pre-call with the Ruby
 /// counterpart's attribution — an outer `Err`, since the guest never ran.
+#[cfg(feature = "msgpack")]
 fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Error> {
     match arg {
         RunArg::Value(value) => Ok(value),
