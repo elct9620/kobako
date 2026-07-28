@@ -27,7 +27,7 @@ use crate::dispatch::CatalogHandler;
 use crate::error::{Error, Failure};
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
-use crate::handles::HandleTable;
+use crate::handles::{HandleTable, Handles};
 use crate::outcome;
 use crate::receiver::Receiver;
 use crate::snippet;
@@ -264,7 +264,11 @@ impl Sandbox {
         args: Vec<RunArg>,
         kwargs: Vec<(String, RunArg)>,
     ) -> Result<Execution, Error> {
-        self.drive_run(target, args, kwargs, |_| Ok(Vec::new()))
+        self.drive_run(
+            target,
+            |handles| encode_run_payload(handles, args, kwargs),
+            |_| Ok(Vec::new()),
+        )
     }
 
     /// `run` with a per-invocation override closure — the Rust spelling of the
@@ -281,9 +285,30 @@ impl Sandbox {
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        self.drive_run(target, args, kwargs, move |catalog| {
-            collect_overrides(catalog, overrides)
-        })
+        self.drive_run(
+            target,
+            |handles| encode_run_payload(handles, args, kwargs),
+            move |catalog| collect_overrides(catalog, overrides),
+        )
+    }
+
+    /// Dispatch into a preloaded entrypoint with a payload this host
+    /// encodes itself — the byte-level `run`, for a Sandbox whose
+    /// Receivers speak a schema this crate does not know.
+    ///
+    /// `payload` is a closure rather than bytes because a host object
+    /// crossing as a capability Handle needs an id from the invocation's
+    /// table, and that table exists only once the invocation has begun.
+    /// Whatever the closure returns rides as the Run payload verbatim.
+    pub fn run_payload<P>(&self, target: &str, payload: P) -> Result<Execution, Error>
+    where
+        P: FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error>,
+    {
+        self.drive_run(
+            target,
+            |handles| payload(&Handles::new(handles)),
+            |_| Ok(Vec::new()),
+        )
     }
 
     /// Shared `run` / `run_with` core: validate the target before sealing, seal,
@@ -291,14 +316,9 @@ impl Sandbox {
     /// this run's Handle table, and drive the entrypoint envelope. `collect`
     /// yields the per-invocation overrides — empty for `run`, the closure's for
     /// `run_with`.
-    fn drive_run<C>(
-        &self,
-        target: &str,
-        args: Vec<RunArg>,
-        kwargs: Vec<(String, RunArg)>,
-        collect: C,
-    ) -> Result<Execution, Error>
+    fn drive_run<P, C>(&self, target: &str, payload: P, collect: C) -> Result<Execution, Error>
     where
+        P: FnOnce(&Mutex<HandleTable>) -> Result<Vec<u8>, Error>,
         C: FnOnce(&Catalog) -> Result<Resolved, Error>,
     {
         if !snippet::constant_name(target) {
@@ -308,17 +328,7 @@ impl Sandbox {
         }
         let (catalog, handles) = self.begin_invocation()?;
         let resolved = collect(&catalog)?;
-        let args = args
-            .into_iter()
-            .map(|arg| wrap_run_arg(&handles, arg))
-            .collect::<Result<_, _>>()?;
-        let kwargs = kwargs
-            .into_iter()
-            .map(|(key, arg)| Ok((key, wrap_run_arg(&handles, arg)?)))
-            .collect::<Result<_, Error>>()?;
-        let payload = Arguments::new(args, kwargs)
-            .encode()
-            .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))?;
+        let payload = payload(&handles)?;
         let envelope = Run {
             entrypoint: target.to_string(),
             payload,
@@ -400,6 +410,30 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Exec
         snapshot.stderr,
         snapshot.usage,
     )
+}
+
+/// The bundled codec's spelling of a `run` payload: auto-wrap each host
+/// object into this invocation's Handle table, then encode the pair.
+///
+/// Wrapping needs the table, and the table exists only once the
+/// invocation has begun — which is why the payload is built here rather
+/// than by the caller before the verb starts.
+fn encode_run_payload(
+    handles: &Mutex<HandleTable>,
+    args: Vec<RunArg>,
+    kwargs: Vec<(String, RunArg)>,
+) -> Result<Vec<u8>, Error> {
+    let args = args
+        .into_iter()
+        .map(|arg| wrap_run_arg(handles, arg))
+        .collect::<Result<_, _>>()?;
+    let kwargs = kwargs
+        .into_iter()
+        .map(|(key, arg)| Ok((key, wrap_run_arg(handles, arg)?)))
+        .collect::<Result<_, Error>>()?;
+    Arguments::new(args, kwargs)
+        .encode()
+        .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))
 }
 
 /// Encode one `run` argument, auto-wrapping a host object into the
