@@ -6,7 +6,6 @@ require_relative "error"
 require_relative "utils"
 require_relative "state"
 require_relative "../handle"
-require_relative "../fault"
 
 module Kobako
   module Codec
@@ -26,25 +25,20 @@ module Kobako
       # → ext 0x01). Module-private — mirrors +codec::EXT_HANDLE+ on the
       # Rust side.
       EXT_HANDLE = 0x01
-      # MessagePack ext type code reserved for Fault
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
-      # → ext 0x02). Module-private — mirrors +codec::EXT_FAULT+ on the
-      # Rust side.
-      EXT_FAULT = 0x02
-      private_constant :EXT_SYMBOL, :EXT_HANDLE, :EXT_FAULT
+      private_constant :EXT_SYMBOL, :EXT_HANDLE
 
       # Inert ext id the unrepresentable-value guard registers under. It is
       # never emitted (the guard's packer always raises) and never decoded
       # (no unpacker is registered, so the id stays an UnknownExtTypeError on
       # the wire), so it is not a wire ext type: deliberately not named
-      # +EXT_*+ like the three real ext codes, since it has no Rust-side mirror
+      # +EXT_*+ like the two real ext codes, since it has no Rust-side mirror
       # and must stay outside the wire-symmetry inventory.
       UNREPRESENTABLE_GUARD_ID = 0x7F
       private_constant :UNREPRESENTABLE_GUARD_ID
 
       module_function
 
-      # Assemble a +MessagePack::Factory+ with the three kobako ext types plus
+      # Assemble a +MessagePack::Factory+ with the two kobako ext types plus
       # the unrepresentable-value guard registered, frozen because
       # registration is its only mutation and happens exactly once. The
       # stateful conversions resolve their per-operation state at call time,
@@ -53,7 +47,6 @@ module Kobako
         factory = MessagePack::Factory.new
         register_symbol(factory)
         register_handle(factory)
-        register_fault(factory)
         register_unrepresentable(factory)
         factory.freeze
       end
@@ -99,48 +92,6 @@ module Kobako
         Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
       end
 
-      # Encode the inner ext-0x02 map via Encoder (not the raw factory) so
-      # the embedded payload flows through the same boundary as a top-level
-      # encode. In a payload position (+state+ inside a forbid_faults
-      # bracket) a Fault has no wire representation at all, so the refusal
-      # routes the value into the position's non-representable handling —
-      # the Dispatcher's auto-wrap rescue, or a raise at the yield site.
-      def pack_fault(fault, state)
-        if state.faults_forbidden?
-          raise UnsupportedTypeError, "Kobako::Fault has no wire representation in a payload position"
-        end
-
-        Encoder.encode("type" => fault.type, "message" => fault.message)
-      end
-
-      # Peel the embedded msgpack map and hand it to +Kobako::Fault.new+
-      # inside Decoder.decode's block form, so the value-object's
-      # +ArgumentError+ invariants surface as +InvalidTypeError+ through the
-      # decoder boundary. Inner decode goes through Decoder (not the raw
-      # factory) so the embedded +str+ payloads flow through the same
-      # UTF-8 validation as a top-level decode. In a payload position
-      # (+state+ inside a forbid_faults bracket) a Fault is a wire
-      # violation outright — its sole legal position is a Reply's fault arm.
-      #
-      # A Fault occupies the whole of that arm, so everything inside one is
-      # itself a payload position: the inner bracket refuses a nested Fault
-      # at the first level rather than letting the ext unpacker recurse
-      # through a hostile chain until the native stack gives out.
-      def unpack_fault(payload, state)
-        if state.faults_forbidden?
-          raise InvalidTypeError,
-                "a Fault (ext 0x02) is not a legal value in a payload position"
-        end
-
-        state.forbid_faults do
-          Decoder.decode(payload) do |map|
-            raise InvalidTypeError, "Fault payload must be a map" unless map.is_a?(Hash)
-
-            Kobako::Fault.new(type: map["type"], message: map["message"])
-          end
-        end
-      end
-
       def register_symbol(factory)
         factory.register_type(
           EXT_SYMBOL, Symbol,
@@ -157,17 +108,9 @@ module Kobako
         )
       end
 
-      def register_fault(factory)
-        factory.register_type(
-          EXT_FAULT, Kobako::Fault,
-          packer: ->(fault) { ExtTypes.pack_fault(fault, State.current) },
-          unpacker: ->(payload) { ExtTypes.unpack_fault(payload, State.current) }
-        )
-      end
-
       # A catch-all packer that rejects any value with no wire representation
       # as +UnsupportedTypeError+. Registered on +BasicObject+ so it also covers
-      # BasicObject-based proxies; the narrower Symbol / Handle / Fault
+      # BasicObject-based proxies; the narrower Symbol / Handle
       # registrations still win by most-specific match, and native types never
       # reach it. Packer-only: the guard never writes bytes, so its id is inert
       # and the decode surface stays fail-closed.

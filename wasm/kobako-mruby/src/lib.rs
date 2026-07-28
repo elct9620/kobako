@@ -31,7 +31,7 @@ mod flows;
 mod msgpack;
 mod runtime;
 
-pub use codec::{Arguments, CodecError, Fault, PayloadCodec};
+pub use codec::{Arguments, CodecError, PayloadCodec};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
 pub use runtime::{InstallError, IntegerOutOfRange, Kobako};

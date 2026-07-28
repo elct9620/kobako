@@ -14,13 +14,17 @@ module DispatcherHelpers
   NO_YIELD = ->(_) { raise "unexpected yield in dispatch-only test" }
 
   # A Reply read back in the vocabulary these tests are written in: the
-  # arm the native side tagged, plus the codec-decoded body. The
-  # envelope itself never reaches Ruby, so this is the whole of what the
-  # Dispatcher answers with.
+  # arm the native side tagged, plus what that arm carries. The ok arm
+  # carries a codec-decoded value; the fault arm carries the Fault's own
+  # two fields, which the envelope types rather than the codec.
   Answer = Struct.new(:ok, :payload) do
     def ok? = ok
     def error? = !ok
   end
+
+  # The fault arm's fields, named as the wire contract names them so the
+  # assertions read against the contract rather than a tuple position.
+  Fault = Struct.new(:type, :message)
 
   # Build the Call the native side would hand Ruby, for the test classes
   # that drive the Dispatcher without including this module.
@@ -33,11 +37,13 @@ module DispatcherHelpers
     )
   end
 
-  # Reify the Dispatcher's +[ok, bytes]+ answer into the arm plus its
-  # codec-decoded body.
+  # Reify the Dispatcher's +[ok, body, kind]+ answer into the arm plus
+  # what it carries: a decoded value on the ok arm, a Fault on the other.
   def self.reify(answer)
-    ok, bytes = answer
-    Answer.new(ok, Kobako::Codec::Decoder.decode(bytes))
+    ok, body, kind = answer
+    return Answer.new(true, Kobako::Codec::Decoder.decode(body)) if ok
+
+    Answer.new(false, Fault.new(kind, body))
   end
 
   def setup

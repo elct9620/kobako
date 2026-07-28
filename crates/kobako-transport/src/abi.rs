@@ -11,7 +11,7 @@
 /// The Guest ABI version. A host accepts a Guest Binary only when the
 /// version it reports equals this one, so a wire change is an increment
 /// rather than a negotiation.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Width in bytes of the length prefix that precedes each invocation-channel
 /// frame and the outcome buffer.

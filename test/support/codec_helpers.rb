@@ -8,7 +8,6 @@ module CodecHelpers
   Encoder         = Kobako::Codec::Encoder
   Decoder         = Kobako::Codec::Decoder
   Handle          = Kobako::Handle
-  Fault           = Kobako::Fault
   TruncatedInputError  = Kobako::Codec::TruncatedInputError
   InvalidTypeError     = Kobako::Codec::InvalidTypeError
   InvalidEncodingError = Kobako::Codec::InvalidEncodingError

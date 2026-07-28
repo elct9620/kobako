@@ -262,8 +262,8 @@ impl Kobako {
     /// # Safety
     ///
     /// As `Kobako::raise_transport_error`.
-    pub(crate) unsafe fn raise_service_error(&self, ex: &crate::codec::Fault) -> ! {
-        let msg = std::ffi::CString::new(ex.message.as_str()).unwrap_or_default();
+    pub(crate) unsafe fn raise_service_error(&self, fault: &kobako_transport::envelope::Fault) -> ! {
+        let msg = std::ffi::CString::new(fault.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
         unsafe { self.service_error_class.raise(self.mrb(), &msg) };
     }

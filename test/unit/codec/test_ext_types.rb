@@ -5,7 +5,6 @@ require "test_helper"
 # Payload-codec ext-type round-trips and validation
 # (docs/wire/payload-msgpack.md § Ext Types):
 # Symbol (ext 0x00), Kobako::Handle (ext 0x01) with its id
-# bounds and payload-length checks, and Kobako::Fault (ext 0x02) with its
 # closed type taxonomy.
 class TestCodecExtTypes < Minitest::Test
   include CodecHelpers
@@ -91,21 +90,5 @@ class TestCodecExtTypes < Minitest::Test
       Decoder.decode(bytes)
     end
     assert_match(/4 bytes/, err.message, "the rejection must name the required 4-byte Handle payload length")
-  end
-
-  # ---------- ext 0x02 Fault ----------
-
-  def test_fault_roundtrip_minimal
-    e = Fault.new(type: "runtime", message: "boom")
-    _, decoded = roundtrip(e)
-    assert_equal e, decoded, "a minimal Fault (ext 0x02) must round-trip unchanged"
-  end
-
-  def test_fault_all_valid_types
-    Fault::VALID_TYPES.each do |t|
-      e = Fault.new(type: t, message: "m")
-      _, decoded = roundtrip(e)
-      assert_equal e, decoded, "a Fault of type #{t.inspect} must round-trip unchanged"
-    end
   end
 end

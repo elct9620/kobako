@@ -31,21 +31,17 @@ module Kobako
       end
 
       # Decode +bytes+ into an Arguments. Raises +Codec::InvalidTypeError+ when
-      # the payload is not the expected 2-element msgpack array, when
-      # either position carries an ext 0x02 Fault (a Fault's only home is
-      # a Reply's fault arm), or when the construction invariants reject
-      # the decoded fields.
+      # the payload is not the expected 2-element msgpack array, or when the
+      # construction invariants reject the decoded fields.
       def self.decode(bytes)
-        Codec.forbid_faults do
-          Codec::Decoder.decode(bytes) do |frame|
-            unless frame.is_a?(Array) && frame.length == 2
-              raise Codec::InvalidTypeError,
-                    "an invocation payload is malformed (expected a 2-element array)"
-            end
-
-            args, kwargs = frame
-            new(args: args, kwargs: kwargs)
+        Codec::Decoder.decode(bytes) do |frame|
+          unless frame.is_a?(Array) && frame.length == 2
+            raise Codec::InvalidTypeError,
+                  "an invocation payload is malformed (expected a 2-element array)"
           end
+
+          args, kwargs = frame
+          new(args: args, kwargs: kwargs)
         end
       end
 

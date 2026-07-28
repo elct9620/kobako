@@ -56,14 +56,13 @@ class TestCodecContainers < Minitest::Test
 
   def test_deeply_nested_mixed
     h = Handle.restore(7)
-    e = Fault.new(type: "undefined", message: "missing")
     value = [
-      { "handles" => [h, h], "errors" => [e] },
+      { "handles" => [h, h], "names" => [:missing] },
       [{ "deep" => [{ "deeper" => [h] }] }]
     ]
     _, decoded = roundtrip(value)
     assert_equal value, decoded,
-                 "a mixed tree of Handles and Faults nested in Arrays and Hashes must round-trip unchanged"
+                 "a mixed tree of Handles and Symbols nested in Arrays and Hashes must round-trip unchanged"
   end
 
   # A structure nested beyond the codec's depth bound (the MessagePack

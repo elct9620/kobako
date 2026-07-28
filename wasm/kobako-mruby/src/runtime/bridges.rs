@@ -165,14 +165,11 @@ fn forward_to_dispatch(
                 raise_codec_error(&kobako, err, "return value", envelope_err_msg)
             },
         },
-        // The fault arm is the normal path for a Service raising; a fault
-        // body this codec cannot read is a wire fault like any other.
-        Err(DispatchError::Fault(body)) => match codec_slot::get().decode_fault(&body) {
-            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            Ok(ex) => unsafe { kobako.raise_service_error(&ex) },
-            // SAFETY: as above.
-            Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
-        },
+        // The fault arm is the normal path for a Service raising. The
+        // envelope typed it, so there is nothing left to decode and no
+        // codec to consult.
+        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+        Err(DispatchError::Fault(fault)) => unsafe { kobako.raise_service_error(&fault) },
         // Anything that is not the Service's own fault means the exchange
         // did not complete, which reaches the guest as a wire fault.
         // SAFETY: as above.

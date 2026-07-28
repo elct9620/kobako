@@ -33,9 +33,9 @@ use kobako_transport::envelope::{self, Call, Reply, Target};
 #[non_exhaustive]
 pub enum DispatchError {
     /// The host answered on the fault arm — the *normal* path for a
-    /// Service raising an exception. The bytes are the fault body as the
-    /// payload codec encoded it; reading them is the caller's business.
-    Fault(Vec<u8>),
+    /// Service raising an exception. Typed by the envelope, so a guest
+    /// reads its own refusals whatever payload schema it speaks.
+    Fault(envelope::Fault),
     /// The exchange failed before a Reply could be framed: malformed
     /// bytes, an answer that is not a Reply envelope, or the host
     /// signalling `len == 0`.
@@ -105,7 +105,7 @@ pub fn dispatch(
     let reply_bytes = host_call(&call.encode())?;
     match Reply::decode(&reply_bytes)? {
         Reply::Ok(body) => Ok(body),
-        Reply::Fault(body) => Err(DispatchError::Fault(body)),
+        Reply::Fault(fault) => Err(DispatchError::Fault(fault)),
     }
 }
 
@@ -230,15 +230,17 @@ mod tests {
     #[test]
     fn the_fault_arm_hands_back_its_body_for_the_caller_to_read() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(captured, Reply::Fault(OPAQUE.to_vec()).encode());
+        let fault = envelope::Fault::new(envelope::FaultKind::Undefined, "no such method");
+        install_canned(captured, Reply::Fault(fault.clone()).encode());
 
         let out = dispatch(Target::Path("MyService::KV"), "get", false, &[]);
         clear_loopback();
 
         assert_eq!(
             out,
-            Err(DispatchError::Fault(OPAQUE.to_vec())),
-            "a Reply on its fault arm must surface the body unread — its schema is the caller's"
+            Err(DispatchError::Fault(fault)),
+            "a Reply on its fault arm must surface the Fault the envelope typed, so a guest \
+             reads a refusal without reaching a payload codec"
         );
     }
 

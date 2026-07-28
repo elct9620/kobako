@@ -13,7 +13,7 @@ module Kobako
     # side already decoded off the core envelope and answering the arm and
     # body it puts on the Reply. Named here so the producer (Context) and the
     # consumer (Runtime) cannot declare it differently.
-    type dispatch_proc = ^(String | Integer, String, bool, String, _GuestYielder) -> [bool, String]
+    type dispatch_proc = ^(String | Integer, String, bool, String, _GuestYielder) -> [bool, String, String?]
 
     # The Service registry a dispatch resolves constant-path targets
     # against. The Sandbox's Kobako::Catalog::Services is the

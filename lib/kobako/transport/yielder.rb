@@ -52,12 +52,7 @@ module Kobako
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
-        # Yield arguments are a payload position: a +Kobako::Fault+ among
-        # them has no wire representation, so the encode refuses it at
-        # this call site.
-        arm, body, klass = @yield_to_guest.call(
-          Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(args) }
-        )
+        arm, body, klass = @yield_to_guest.call(Kobako::Codec::Encoder.encode(args))
         raise "#{klass}: #{body}" if arm == :error
 
         value, carried_handle = decode_body(body)
@@ -85,12 +80,9 @@ module Kobako
       # whether the decode carried a Capability Handle. The tracking
       # bracket opens only around this decode: the guest re-entry may run
       # nested dispatches whose own brackets would otherwise pollute the
-      # signal. A +Kobako::Fault+ in the payload is a wire violation — its
-      # only home is a Reply's fault arm.
+      # signal.
       def decode_body(body)
-        Kobako::Codec.track_handles do
-          Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(body) }
-        end
+        Kobako::Codec.track_handles { Kobako::Codec::Decoder.decode(body) }
       end
 
       # Restore any Capability Handle in a block's ok value to its host

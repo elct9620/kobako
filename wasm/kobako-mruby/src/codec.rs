@@ -17,19 +17,6 @@ use beni::Value;
 
 use crate::runtime::{IntegerOutOfRange, Kobako};
 
-/// A Reply's fault arm after the codec has read it — exactly the fields
-/// the bridge needs to raise the guest exception. SPEC pins every fault
-/// arm to the single guest-side `Kobako::ServiceError`, so nothing beyond
-/// these two is carried.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fault {
-    /// The fault's `type` field (`"runtime"`, `"undefined"`, …). Named
-    /// `kind` on the Rust side to avoid the raw-identifier escape.
-    pub kind: String,
-    /// Human-readable description.
-    pub message: String,
-}
-
 /// Why a codec could not carry a value across.
 ///
 /// The kinds are distinct because each call site phrases them into its
@@ -111,8 +98,4 @@ pub trait PayloadCodec {
     /// Read a Yield Call's arguments, which are a list rather than the
     /// args-and-kwargs pair a Call carries.
     fn decode_values(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError>;
-
-    /// Read a Reply's fault body into the fields the guest raises with.
-    /// Takes no `Kobako`: a fault becomes an exception, never a value.
-    fn decode_fault(bytes: &[u8]) -> Result<Fault, CodecError>;
 }

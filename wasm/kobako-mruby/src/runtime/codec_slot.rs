@@ -12,21 +12,19 @@ use std::sync::OnceLock;
 
 use beni::Value;
 
-use crate::codec::{CodecError, Fault, PayloadCodec};
+use crate::codec::{CodecError, PayloadCodec};
 use crate::runtime::Kobako;
 
 type EncodeArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, CodecError>;
 type DecodeValueFn = fn(&Kobako, &[u8]) -> Result<Value, CodecError>;
-type DecodeFaultFn = fn(&[u8]) -> Result<Fault, CodecError>;
 
-/// The three codec operations a guest→host dispatch needs, as plain
+/// The two codec operations a guest→host dispatch needs, as plain
 /// function pointers. A Guest Binary links exactly one `MrbGuest`, so the
 /// slot can never come to disagree with `G::Codec` — the write happens
 /// before any guest code runs and the value never changes.
 pub(crate) struct CodecSlot {
     encode_arguments: EncodeArgumentsFn,
     decode_value: DecodeValueFn,
-    decode_fault: DecodeFaultFn,
 }
 
 impl CodecSlot {
@@ -44,11 +42,6 @@ impl CodecSlot {
     pub(crate) fn decode_value(&self, kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
         (self.decode_value)(kobako, bytes)
     }
-
-    /// Read a Reply's fault body.
-    pub(crate) fn decode_fault(&self, bytes: &[u8]) -> Result<Fault, CodecError> {
-        (self.decode_fault)(bytes)
-    }
 }
 
 static SLOT: OnceLock<CodecSlot> = OnceLock::new();
@@ -60,7 +53,6 @@ pub(crate) fn install<C: PayloadCodec>() {
     let _ = SLOT.set(CodecSlot {
         encode_arguments: C::encode_arguments,
         decode_value: C::decode_value,
-        decode_fault: C::decode_fault,
     });
 }
 

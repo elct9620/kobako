@@ -9,8 +9,6 @@
 # Cross-references:
 #   - SPEC.md § Wire Codec — Call and Run payloads are a 2-element array
 #   - docs/wire/payload-msgpack.md § Payload Positions
-#   - docs/behavior/errors.md E-50 — a Fault's only home is a Reply's
-#     fault arm, so one inside an argument tree is a wire violation
 
 require "test_helper"
 
@@ -57,28 +55,6 @@ module Kobako
       assert_raises(Kobako::Codec::InvalidTypeError,
                     "a payload that is not a 2-element array through Arguments.decode must be " \
                     "rejected as a wire violation") do
-        Arguments.decode(bytes)
-      end
-    end
-
-    def test_a_fault_smuggled_into_an_argument_is_refused
-      fault = Kobako::Fault.new(type: "runtime", message: "boom")
-      bytes = Kobako::Codec::Encoder.encode([[fault], {}])
-
-      assert_raises(Kobako::Codec::InvalidTypeError,
-                    "a Fault inside an argument through Arguments.decode must be rejected — " \
-                    "its only home is a Reply's fault arm") do
-        Arguments.decode(bytes)
-      end
-    end
-
-    def test_a_fault_nested_in_a_kwargs_value_is_refused
-      fault = Kobako::Fault.new(type: "runtime", message: "boom")
-      bytes = Kobako::Codec::Encoder.encode([[], { cause: [fault] }])
-
-      assert_raises(Kobako::Codec::InvalidTypeError,
-                    "a Fault nested inside a kwargs value through Arguments.decode must be " \
-                    "rejected as deeply as a bare one") do
         Arguments.decode(bytes)
       end
     end

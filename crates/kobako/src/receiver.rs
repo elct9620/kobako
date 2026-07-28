@@ -15,49 +15,17 @@ use kobako_codec::msgpack::payload::Arguments;
 use crate::handles::Handles;
 use crate::yielder::Yielder;
 
-/// The refusal kinds a dispatch can come back with; each maps to the
-/// proxy-side error the guest raises.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FaultKind {
-    /// No such member / method (Ruby dispatcher's `undefined`). The
-    /// arm of `call` that answers an unrouted method with this kind is
-    /// also what stands in for the Ruby dispatcher's reflection floor:
-    /// a Rust host object has no ambient `send` / `instance_eval`
-    /// surface, so an unrouted name simply does not exist.
-    Undefined,
-    /// The call shape does not fit the method (`argument`).
-    Argument,
-    /// The host object itself failed (`runtime`).
-    Runtime,
-}
-
-impl FaultKind {
-    /// The wire spelling of the fault payload's `type` field.
-    pub(crate) fn wire_name(self) -> &'static str {
-        match self {
-            FaultKind::Undefined => "undefined",
-            FaultKind::Argument => "argument",
-            FaultKind::Runtime => "runtime",
-        }
-    }
-}
-
-/// A Service-level refusal: the guest re-raises it as a rescuable
-/// exception, never a wasm trap.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fault {
-    pub kind: FaultKind,
-    pub message: String,
-}
-
-impl Fault {
-    pub fn new(kind: FaultKind, message: impl Into<String>) -> Self {
-        Fault {
-            kind,
-            message: message.into(),
-        }
-    }
-}
+/// The refusal a dispatch can come back with, and which of the three
+/// categories it reports.
+///
+/// Both come from the fixed tier rather than being restated here: a
+/// Fault is the whole of a Reply's fault arm and every field of one is
+/// kobako's, so the envelope owns the type and this frontend hands the
+/// same value on. `FaultKind::Undefined` is also what stands in for the
+/// Ruby dispatcher's reflection floor — a Rust host object has no
+/// ambient `send` / `instance_eval` surface, so an unrouted name simply
+/// does not exist.
+pub use kobako_transport::envelope::{Fault, FaultKind};
 
 /// The host object a dispatch runs the Call's method on, reached
 /// as `MyService::KV` or through a capability Handle.

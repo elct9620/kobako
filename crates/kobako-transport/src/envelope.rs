@@ -21,6 +21,7 @@
 pub(crate) mod bytes;
 pub mod call;
 pub mod error_record;
+pub mod fault;
 pub mod invocation_frames;
 pub mod outcome;
 pub mod reply;
@@ -28,6 +29,7 @@ pub mod run;
 
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
+pub use fault::{Fault, FaultKind};
 pub use invocation_frames::{Preamble, Snippet, Snippets};
 pub use outcome::{Outcome, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
 pub use reply::{Reply, YieldReply};

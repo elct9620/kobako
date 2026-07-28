@@ -16,7 +16,6 @@ use beni::Value;
 use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value as CodecValue};
 use kobako_codec::msgpack::payload;
 
-use crate::codec::Fault;
 use crate::codec::{Arguments, CodecError, PayloadCodec};
 use crate::runtime::Kobako;
 
@@ -84,9 +83,5 @@ impl PayloadCodec for MsgpackCodec {
             .map(|value| kobako.to_mrb_value(value))
             .collect::<Result<Vec<_>, _>>()
             .map_err(CodecError::from)
-    }
-
-    fn decode_fault(bytes: &[u8]) -> Result<Fault, CodecError> {
-        convert::decode_fault(bytes).map_err(|_| CodecError::Malformed)
     }
 }

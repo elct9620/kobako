@@ -1,15 +1,14 @@
 # frozen_string_literal: true
 
 # Loaded via test_helper, which has already put lib/ on the load path and
-# loaded kobako. The aliases below resolve Kobako::Handle / Kobako::Fault at
-# class-body time, so require them explicitly to declare that dependency.
+# loaded kobako. The alias below resolves Kobako::Handle at class-body
+# time, so require it explicitly to declare that dependency.
 require "kobako/handle"
-require "kobako/fault"
 
 # Seeded random generator for kobako wire-encodable values, used by the
 # round-trip fuzz harness (SPEC.md F-09; Testing Style Layer 1).
 #
-# Produces values across all 12 wire types plus the three ext types, with
+# Produces values across all 11 wire types plus both ext types, with
 # explicit length bands so every msgpack format boundary
 # (fixstr / str8 / str16, bin8 / bin16, fixarray / array16, fixmap / map16)
 # is given non-trivial probability. The probability shape is calibrated
@@ -21,7 +20,6 @@ require "kobako/fault"
 # reader.
 class WireValueGenerator
   Handle = Kobako::Handle
-  Fault  = Kobako::Fault
 
   MAX_DEPTH = 4
 
@@ -98,8 +96,6 @@ class WireValueGenerator
   # smallest str bands too.
   MULTIBYTE_SAMPLES = ["蒼", "時", "弦", "也", "🌸", "λ", "Ω", "α"].freeze
 
-  FAULT_TYPES = %w[runtime argument undefined].freeze
-
   # Vocabulary of coverage keys the generator may bump as a side effect.
   # Tests assert that every key in this set was visited at least once
   # during a fuzz run — a regression that quietly stops generating large
@@ -109,16 +105,15 @@ class WireValueGenerator
     nil bool int_pos_fix int_neg_fix int_u8 int_u16 int_u32 int_u64
     int_i8 int_i16 int_i32 int_i64 float str_empty str_fix str_8 str_16
     bin_empty bin_8 bin_16 array_empty array_fix array_16 map_empty
-    map_fix map_16 symbol handle fault nesting
+    map_fix map_16 symbol handle nesting
   ].freeze
 
   attr_reader :coverage
 
   # +int_bands+ narrows the integer bands to those the consumer's value
-  # domain can hold; +ext_values+ turns off Handle and Fault, which are
-  # wire values no round trip through a guest compares as values — a
-  # Handle argument is restored to its host object and a Fault is legal
-  # only in a Reply's fault arm.
+  # domain can hold; +ext_values+ turns off Handle, which no round trip
+  # through a guest compares as a value — a Handle argument is restored to
+  # its host object rather than carried back.
   def initialize(rng:, int_bands: INT_BANDS, ext_values: true)
     @rng = rng
     @int_bands = int_bands
@@ -131,7 +126,7 @@ class WireValueGenerator
   # leaves the set together with the values that would bump it.
   def coverage_keys
     excluded = (INT_BANDS - @int_bands).map { |band| :"int_#{band}" }
-    excluded += %i[handle fault] unless @ext_values
+    excluded += %i[handle] unless @ext_values
     COVERAGE_KEYS - excluded
   end
 
@@ -146,8 +141,7 @@ class WireValueGenerator
     when 0..69 then generate_scalar
     when 70..82 then generate_array(depth: depth + 1)
     when 83..94 then generate_map(depth: depth + 1)
-    when 95..96 then ext_value_or_scalar { generate_handle }
-    when 97..99 then ext_value_or_scalar { generate_fault }
+    when 95..99 then ext_value_or_scalar { generate_handle }
     end
   end
 
@@ -294,13 +288,6 @@ class WireValueGenerator
   def generate_handle
     @coverage[:handle] += 1
     Handle.restore(@rng.rand(Handle::MIN_ID..Handle::MAX_ID))
-  end
-
-  def generate_fault
-    @coverage[:fault] += 1
-    type = FAULT_TYPES.sample(random: @rng)
-    message = random_utf8_string(@rng.rand(1..40))
-    Fault.new(type: type, message: message)
   end
 
   def track(key)

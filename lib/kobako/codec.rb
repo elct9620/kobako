@@ -16,18 +16,16 @@ module Kobako
   # (+Kobako::Payload::Arguments+), a dispatch or yield value, or an
   # invocation's value and a Panic's diagnostics
   # (+Kobako::Outcome+). The ext-type leaves this layer
-  # carries — +Kobako::Handle+ (0x01) and +Kobako::Fault+ (0x02) — live at
-  # the kobako root so the codec can register them without depending
-  # upward on Transport.
+  # carries — +Kobako::Handle+ (0x01) — lives at the kobako root so the
+  # codec can register it without depending upward on Transport.
   #
-  # Backed by the official +msgpack+ gem: ExtTypes registers the three
-  # kobako-specific ext types (0x00 Symbol, 0x01 Capability Handle,
-  # 0x02 Fault) on one process-wide +MessagePack::Factory+,
+  # Backed by the official +msgpack+ gem: ExtTypes registers the two
+  # kobako-specific ext types (0x00 Symbol, 0x01 Capability Handle) on
+  # one process-wide +MessagePack::Factory+,
   # and Encoder / Decoder are thin wrappers over it. The Rust side
   # mirrors this layer as the +codec+ module in the +kobako-codec+ crate;
   # the ext-code constants live as module-private values on ExtTypes
-  # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ /
-  # +codec::EXT_FAULT+ on that side.
+  # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ on that side.
   module Codec
     # The maximum structural nesting depth the wire represents (the
     # MessagePack ecosystem's bound), shared with the guest +kobako_codec+
@@ -41,15 +39,6 @@ module Kobako
     # The tracking state is codec-internal; this is its only readout.
     def self.track_handles(&block)
       State.current.track_handles(&block)
-    end
-
-    # Bracket a codec operation in a payload position: an ext 0x02 Fault
-    # envelope is only legal on a Reply's fault arm, so the envelope
-    # layers open this bracket around every other encode / decode and the
-    # ext-type conversions refuse the envelope while it is open — a wire
-    # violation on decode, no wire representation on encode.
-    def self.forbid_faults(&block)
-      State.current.forbid_faults(&block)
     end
   end
 end

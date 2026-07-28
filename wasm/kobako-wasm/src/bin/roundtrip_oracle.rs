@@ -18,7 +18,7 @@
 //!     - `length` with the high bit set (0x8000_0000): error frame. The
 //!       low 31 bits give the payload length; the first payload byte is a
 //!       single-character tag identifying the `codec::Error` variant
-//!       (`'T'`, `'I'`, `'U'`, `'H'`, `'E'`, `'P'`); remaining bytes are
+//!       (`'T'`, `'I'`, `'U'`, `'H'`, `'P'`); remaining bytes are
 //!       a UTF-8 diagnostic. The Ruby side asserts no error frame is ever
 //!       emitted during a clean fuzz run.
 //!
@@ -106,7 +106,6 @@ fn codec_to_tag(e: codec::Error) -> (u8, String) {
         codec::Error::InvalidType => b'I',
         codec::Error::Utf8 => b'U',
         codec::Error::InvalidHandle => b'H',
-        codec::Error::InvalidFault => b'E',
         codec::Error::PayloadTooLarge => b'P',
         // Structural faults are produced by the envelope layer, not by
         // the value-level round-trip this oracle drives; unreachable here.

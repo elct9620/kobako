@@ -31,7 +31,7 @@ class TestCodecMalformed < Minitest::Test
   end
 
   def test_unknown_ext_code_rejected
-    # fixext1 with type 0x99 (not 0x01 or 0x02)
+    # fixext1 with type 0x99 (not 0x00 or 0x01)
     bytes = "\xd4\x99\x00".b
     assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
   end
@@ -72,51 +72,5 @@ class TestCodecMalformed < Minitest::Test
                   "bytes past one complete msgpack value through Decoder.decode must be a wire violation") do
       Decoder.decode(bytes)
     end
-  end
-
-  # A Fault occupies the whole of a Reply's fault body, so everything
-  # inside one is a payload position where a Fault is illegal (E-50). A
-  # hostile guest that chains ext 0x02 through the inner map's values gets
-  # a decoder re-entry per level, each with a fresh msgpack unpacker whose
-  # stack guard resets — deep enough input would exhaust the Ruby stack and
-  # escape the codec's rescue, since SystemStackError is not a Codec::Error.
-  # Refusing the second level is what keeps the chain from ever forming.
-  def test_nested_fault_rejected
-    assert_raises(InvalidTypeError,
-                  "ext 0x02 nested inside a Fault through #decode must raise InvalidTypeError, not trap the stack") do
-      Decoder.decode(nested_fault_bytes(200))
-    end
-  end
-
-  # The payload-position flag is unwound by an ensure, so a rejected chain
-  # must leave no residue that trips a later decode on the same thread —
-  # otherwise one bad payload would poison every subsequent invocation
-  # sharing that thread.
-  def test_nested_fault_rejection_leaves_no_residue
-    assert_raises(InvalidTypeError) { Decoder.decode(nested_fault_bytes(200)) }
-    decoded = Decoder.decode(Encoder.encode(Kobako::Fault.new(type: "runtime", message: "x")))
-    assert_instance_of Kobako::Fault, decoded,
-                       "a lone Fault decoded after a rejected nested chain must still succeed"
-  end
-
-  private
-
-  # Frame +payload_bytes+ (a msgpack map) as an ext 0x02 Fault.
-  # ext 32 (0xc9) keeps the length field wide enough for the growing
-  # nested chain.
-  def ext_fault(payload_bytes)
-    [0xc9, payload_bytes.bytesize, 0x02].pack("CNC").b + payload_bytes
-  end
-
-  # A fixmap-2 { "type" => <nested>, "message" => "x" } smuggling the
-  # already-encoded inner bytes into the position a type string belongs in.
-  def fault_map(nested_bytes)
-    "\x82\xa4type".b + nested_bytes + "\xa7message\xa1x".b
-  end
-
-  # Wire bytes for +depth+ ext 0x02 Faults chained through each other,
-  # the innermost carrying nil where a nested Fault would sit.
-  def nested_fault_bytes(depth)
-    depth.times.reduce("\xc0".b) { |inner, _| ext_fault(fault_map(inner)) }
   end
 end

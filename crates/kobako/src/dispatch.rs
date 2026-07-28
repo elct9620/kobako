@@ -112,27 +112,11 @@ impl DispatchHandler for CatalogHandler {
     }
 }
 
-/// The fault arm's body: an ext 0x02 Fault whose payload is a msgpack
-/// map of `type` (which proxy-side error the guest raises) and
-/// `message`.
+/// The fault arm carries the Fault itself: it is an envelope shape, so
+/// this frontend hands it on rather than encoding it — which is what
+/// leaves a host free to answer every other position in its own schema.
 fn fault_reply(fault: &Fault) -> Reply {
-    let mut inner = Encoder::new();
-    inner
-        .write_value(&Value::Map(vec![
-            (
-                Value::Str("type".into()),
-                Value::Str(fault.kind.wire_name().into()),
-            ),
-            (
-                Value::Str("message".into()),
-                Value::Str(fault.message.clone()),
-            ),
-        ]))
-        .expect("a str/str fault map always encodes");
-    Reply::Fault(
-        Encoder::encode(&Value::Fault(inner.into_bytes()))
-            .expect("a flat fault envelope always encodes"),
-    )
+    Reply::Fault(fault.clone())
 }
 
 /// The ok arm's body: the return value alone, since the envelope's tag
@@ -299,16 +283,13 @@ mod tests {
     #[derive(Debug, PartialEq)]
     enum Answer {
         Ok(Value),
-        Fault(Vec<u8>),
+        Fault(Fault),
     }
 
     fn answer(reply: Reply) -> Answer {
         match reply {
             Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_only_value().unwrap()),
-            Reply::Fault(body) => match Decoder::new(&body).read_only_value().unwrap() {
-                Value::Fault(inner) => Answer::Fault(inner),
-                other => panic!("the fault arm must carry a Fault, got {other:?}"),
-            },
+            Reply::Fault(fault) => Answer::Fault(fault),
         }
     }
 
@@ -355,23 +336,14 @@ mod tests {
         assert_eq!(roundtrip(&req), Answer::Ok(Value::Int(9)));
     }
 
-    /// The fault payload's `type` field — the discriminator the guest
-    /// uses to pick the proxy-side error, so a test can tell a
-    /// rejection kind apart from a receiver that ran and failed.
-    fn fault_type(response: &Answer) -> String {
-        let Answer::Fault(bytes) = response else {
+    /// The Fault's category — the discriminator the guest uses to pick
+    /// the proxy-side error, so a test can tell a rejection kind apart
+    /// from a receiver that ran and failed.
+    fn fault_type(response: &Answer) -> &'static str {
+        let Answer::Fault(fault) = response else {
             panic!("expected a fault envelope, got a success response");
         };
-        let Ok(Value::Map(pairs)) = Decoder::new(bytes).read_only_value() else {
-            panic!("a fault payload is always a msgpack map");
-        };
-        pairs
-            .into_iter()
-            .find_map(|(key, value)| match (key, value) {
-                (Value::Str(key), Value::Str(text)) if key == "type" => Some(text),
-                _ => None,
-            })
-            .expect("a fault payload always carries a type field")
+        fault.kind.name()
     }
 
     #[test]

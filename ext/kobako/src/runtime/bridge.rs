@@ -13,7 +13,7 @@ use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Sy
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder;
-use kobako_transport::envelope::{Call, Reply, Target, YieldReply};
+use kobako_transport::envelope::{Call, Fault, FaultKind, Reply, Target, YieldReply};
 
 /// The names the host `Transport::Yielder` branches on — one per Yield
 /// Reply arm. Neutral Symbols rather than the envelope's tag bytes, the
@@ -184,20 +184,29 @@ impl DispatchHandler for RubyDispatchHandler {
             // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
             // mark — the GC has nothing to trace through it.
             let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
-            let answer: Result<(bool, RString), magnus::Error> = proc_value.funcall(
-                "call",
-                (
-                    target,
-                    ruby.str_new(call.method),
-                    call.block_given,
-                    ruby.str_from_slice(call.payload),
-                    guest_yielder,
-                ),
-            );
+            let answer: Result<(bool, RString, Option<RString>), magnus::Error> = proc_value
+                .funcall(
+                    "call",
+                    (
+                        target,
+                        ruby.str_new(call.method),
+                        call.block_given,
+                        ruby.str_from_slice(call.payload),
+                        guest_yielder,
+                    ),
+                );
             guest_yielder.invalidate();
-            answer.ok().map(|(ok, body)| match ok {
-                true => Reply::Ok(super::rstring_to_vec(body)),
-                false => Reply::Fault(super::rstring_to_vec(body)),
+            // The ok arm carries payload bytes the codec owns; the fault
+            // arm carries the Fault's own two fields, which the envelope
+            // types — so Ruby names a category rather than encoding one.
+            // A category outside the closed set cannot come from the
+            // public API, so it fails the dispatch rather than degrading.
+            answer.ok().and_then(|(ok, body, kind)| match ok {
+                true => Some(Reply::Ok(super::rstring_to_vec(body))),
+                false => {
+                    let kind = FaultKind::from_name(&kind?.to_string().ok()?)?;
+                    Some(Reply::Fault(Fault::new(kind, body.to_string().ok()?)))
+                }
             })
         })
     }

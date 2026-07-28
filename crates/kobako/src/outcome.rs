@@ -44,16 +44,6 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
     let value = decoder
         .read_only_value()
         .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))?;
-    // A Result envelope is a payload position: a Fault's only home is a
-    // Reply's fault arm, so one in the carried value is a wire violation.
-    if value.contains_fault() {
-        return Err(wire_violation(
-            "Sandbox produced an invalid result value",
-            &kobako_codec::msgpack::codec::Error::Malformed(
-                "a Fault is not a legal value in a Result envelope",
-            ),
-        ));
-    }
     Ok(value)
 }
 
@@ -118,17 +108,6 @@ mod tests {
         assert_eq!(
             decode(&result_bytes(&Value::Int(42))).unwrap(),
             Value::Int(42)
-        );
-    }
-
-    // E-50: a Result envelope smuggling a Fault surfaces through the
-    // invalid-result wire-violation channel, matching the Ruby frontend.
-    #[test]
-    fn value_branch_rejects_fault_as_wire_violation() {
-        let result = decode(&result_bytes(&Value::Fault(vec![0x80])));
-        assert!(
-            matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("invalid result value")),
-            "expected the invalid-result wire violation, got {result:?}"
         );
     }
 

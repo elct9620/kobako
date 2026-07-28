@@ -54,14 +54,14 @@ module Kobako
       # wire.
       def dispatch(call, resolver, handler, yield_to_guest)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if call.block_given
-        [true, encode_ok(run(call, resolver, handler, yielder), handler)] # : [bool, String]
+        [true, encode_ok(run(call, resolver, handler, yielder), handler), nil] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
       # host-process failure (NoMemoryError, SignalException, a bare Exception)
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        [false, encode_caught_error(e)] # : [bool, String]
+        [false, *caught_fault(e)] # : [bool, String, String?]
       ensure
         yielder&.invalidate!
       end
@@ -90,18 +90,18 @@ module Kobako
          arguments.kwargs.transform_values { |v| resolve_arg(v, handler) }]
       end
 
-      # Map an error caught at the dispatch boundary to the bytes of a
-      # Fault, which the native side puts on the Reply's fault arm. +error+
-      # is the +StandardError+ caught by #dispatch's rescue; the +type+
-      # field tells the guest which kind of failure it was so it can raise
-      # the matching proxy-side error.
-      def encode_caught_error(error)
+      # Map an error caught at the dispatch boundary to the message and the
+      # category the native side frames into the Reply's fault arm. +error+
+      # is the +StandardError+ caught by #dispatch's rescue; the category
+      # tells the guest which kind of failure it was so it can raise the
+      # matching proxy-side error.
+      def caught_fault(error)
         case error
-        when Kobako::Codec::Error then encode_error("runtime",
-                                                    "Sandbox received a malformed request: #{error.message}")
-        when UndefinedTargetError then encode_error("undefined", error.message)
-        when ArgumentError        then encode_error("argument", error.message)
-        else                           encode_error("runtime", "#{error.class}: #{error.message}")
+        when Kobako::Codec::Error then fault("runtime",
+                                             "Sandbox received a malformed request: #{error.message}")
+        when UndefinedTargetError then fault("undefined", error.message)
+        when ArgumentError        then fault("argument", error.message)
+        else                           fault("runtime", "#{error.class}: #{error.message}")
         end
       end
 
@@ -182,10 +182,8 @@ module Kobako
       # +UnsupportedTypeError+; the rescue routes it through the
       # Catalog::Handles via #wrap_as_handle and re-encodes with the
       # Capability Handle in place. The happy path encodes exactly once.
-      # The bracket keeps a Fault out of this payload position — its only
-      # home is the fault arm the native side tags.
       def encode_ok(value, handler)
-        Kobako::Codec.forbid_faults { Kobako::Codec::Encoder.encode(value) }
+        Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
       end
@@ -199,10 +197,9 @@ module Kobako
 
       # +message+ folds to UTF-8 first: Ruby core builds some exception
       # messages as ASCII-8BIT (the arity ArgumentError, for one), and
-      # the codec would ride those as bin — a shape the guest refuses.
-      def encode_error(type, message)
-        message = message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
-        Kobako::Codec::Encoder.encode(Kobako::Fault.new(type: type, message: message))
+      # the envelope requires UTF-8 of the text fields it frames.
+      def fault(type, message)
+        [message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace), type] # : [String, String]
       end
     end
   end

@@ -82,17 +82,6 @@ impl Decode for Arguments {
             }
             _ => return Err(codec::Error::Malformed("payload kwargs must be a map")),
         };
-
-        // A Fault's only legal position is a Reply's fault arm, which the
-        // envelope discriminates; one inside an argument tree is a wire
-        // violation this codec refuses (E-50).
-        if args.iter().any(Value::contains_fault)
-            || kwargs.iter().any(|(_, value)| value.contains_fault())
-        {
-            return Err(codec::Error::Malformed(
-                "a Fault (ext 0x02) is not a legal value in an invocation payload",
-            ));
-        }
         Ok(Arguments { args, kwargs })
     }
 }
@@ -166,44 +155,6 @@ mod tests {
         assert!(
             Arguments::decode(&bytes).is_err(),
             "an invocation payload that is not a 2-element array must be rejected"
-        );
-    }
-
-    /// The embedded msgpack map an ext 0x02 frame carries.
-    fn fault_body() -> Vec<u8> {
-        Encoder::encode(&Value::Map(vec![
-            (Value::Str("type".into()), Value::Str("runtime".into())),
-            (Value::Str("message".into()), Value::Str("boom".into())),
-        ]))
-        .unwrap()
-    }
-
-    #[test]
-    fn a_fault_inside_an_argument_is_refused() {
-        let bytes = Encoder::encode(&Value::Array(vec![
-            Value::Array(vec![Value::Fault(fault_body())]),
-            Value::Map(Vec::new()),
-        ]))
-        .unwrap();
-        assert!(
-            Arguments::decode(&bytes).is_err(),
-            "a Fault smuggled into an argument must be rejected — its only home is a Reply's fault arm"
-        );
-    }
-
-    #[test]
-    fn a_fault_nested_in_a_kwargs_value_is_refused() {
-        let bytes = Encoder::encode(&Value::Array(vec![
-            Value::Array(Vec::new()),
-            Value::Map(vec![(
-                Value::Sym("cause".into()),
-                Value::Array(vec![Value::Fault(fault_body())]),
-            )]),
-        ]))
-        .unwrap();
-        assert!(
-            Arguments::decode(&bytes).is_err(),
-            "a Fault nested inside a kwargs value must be rejected as deeply as a bare one"
         );
     }
 }

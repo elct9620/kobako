@@ -41,27 +41,6 @@ module Kobako
       def record_handle!
         @carried_handle = true
       end
-
-      # Bracket a codec operation in a payload position, where a Fault
-      # (ext 0x02) has no legal wire representation: a Reply's fault
-      # arm is its only home. The ext-type conversions
-      # consult #faults_forbidden? and refuse it in both
-      # directions while the bracket is open. Save/restore keeps a nested
-      # legal operation on the same thread unaffected.
-      def forbid_faults
-        previous = @faults_forbidden
-        @faults_forbidden = true
-        yield
-      ensure
-        @faults_forbidden = previous
-      end
-
-      # Whether the operation in flight sits inside a #forbid_faults
-      # bracket — i.e. in a payload position where ext 0x02 is a wire
-      # violation.
-      def faults_forbidden?
-        @faults_forbidden
-      end
     end
 
     private_constant :State

@@ -78,9 +78,7 @@ module Kobako
     # owns on this path. A decode fault means the framing was fine but the
     # carried value is unrepresentable.
     def decode_value(payload)
-      # A Result is a payload position: an ext 0x02 Fault in it is a wire
-      # violation, since a Fault's only home is a Reply's fault arm.
-      Kobako::Codec.forbid_faults { Kobako::Codec::Decoder.decode(payload) }
+      Kobako::Codec::Decoder.decode(payload)
     rescue Kobako::Codec::Error => e
       raise wire_error("Sandbox produced an invalid result value", diagnostic: e.message)
     end

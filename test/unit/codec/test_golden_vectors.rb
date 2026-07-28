@@ -57,23 +57,6 @@ class TestCodecGoldenVectors < Minitest::Test
     assert_bytes "d6017fffffff", Handle.restore(Handle::MAX_ID)
   end
 
-  def test_golden_vector_fault_minimal
-    # Fault(type: "runtime", message: "boom")
-    # Inner map (2 entries) bytes:
-    #   82                          fixmap len=2
-    #   a4 74 79 70 65              fixstr "type"
-    #   a7 72 75 6e 74 69 6d 65     fixstr "runtime"
-    #   a7 6d 65 73 73 61 67 65     fixstr "message"
-    #   a4 62 6f 6f 6d              fixstr "boom"
-    # Total inner length = 1 + 5 + 8 + 8 + 5 = 27 bytes
-    # Outer framing: 0xc7 0x1b 0x02 + inner
-    inner_hex = "82" \
-                "a474797065a772756e74696d65" \
-                "a76d657373616765a4626f6f6d"
-    expected = "c71b02#{inner_hex}"
-    assert_bytes expected, Fault.new(type: "runtime", message: "boom")
-  end
-
   # ---------- narrow zero-length tags (payload-msgpack Type Mapping) ----------
   #
   # Each empty container must encode to its narrowest possible tag — the

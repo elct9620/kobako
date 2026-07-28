@@ -5,15 +5,14 @@ module Kobako
     # A value in the closed wire type set (docs/wire/payload-msgpack.md
     # § Type Mapping): the scalar leaves, a Capability Handle, and Array / Hash
     # containers of the same. The by-value payloads that cross the wire —
-    # dispatch arguments and success values — inhabit this type; a Fault
-    # (ext 0x02) is an envelope-position value, not a wire_value.
+    # dispatch arguments and success values — inhabit this type; a Fault is
+    # an envelope shape, not a wire_value.
     type wire_value = nil | bool | Integer | Float | String | Symbol
                     | Kobako::Handle
                     | Array[wire_value]
                     | Hash[wire_value, wire_value]
 
     def self.track_handles: [T] { () -> T } -> [T, bool]
-    def self.forbid_faults: [T] { () -> T } -> T
 
     # The Handle allocator/resolver a wire walk works against: alloc
     # registers a non-wire-representable object and returns its Handle,

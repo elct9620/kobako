@@ -53,10 +53,9 @@ end
   runner.case("3b-host-decode-depth-#{depth}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
-# 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 12 entries).
-# Handle (ext 0x01) and Fault (ext 0x02) round-trip
-# through the Factory just like the primitives.
-sample_exception = Kobako::Fault.new(type: "runtime", message: "boom")
+# 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 11 entries).
+# Handle (ext 0x01) round-trips through the Factory just like the
+# primitives.
 wire_types = {
   "nil" => nil,
   "bool" => true,
@@ -67,8 +66,7 @@ wire_types = {
   "array" => [1, 2, 3],
   "map" => { "a" => 1 },
   "symbol" => :sym,
-  "handle" => Kobako::Catalog::Handles.new.alloc(:obj),
-  "exception" => sample_exception
+  "handle" => Kobako::Catalog::Handles.new.alloc(:obj)
 }
 
 wire_types.each do |name, value|

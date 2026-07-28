@@ -63,21 +63,4 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     refute_equal err.message, err.detailed_message(highlight: false),
                  "an unreadable Result through reify must carry its codec diagnostic on #detailed_message"
   end
-
-  # --- Result arm carrying an ext 0x02 Fault raises Transport::Error (E-50) ---
-  #
-  # A Fault's sole legal wire position is a Reply's fault arm;
-  # a Result smuggling one would hand host code a failure record as the
-  # invocation's ordinary return value. The bare codec stays permissive —
-  # the positional rule lives on this decode.
-  def test_result_arm_carrying_fault_raises_transport_error
-    fault = Kobako::Fault.new(type: "runtime", message: "smuggled")
-
-    err = assert_raises(Kobako::Transport::Error) do
-      Kobako::Outcome.reify(:result, Kobako::Codec::Encoder.encode(fault), nil)
-    end
-
-    assert_match(/Sandbox produced an invalid result value/, err.message,
-                 "E-50: a Result arm carrying ext 0x02 must surface as an invalid result value")
-  end
 end

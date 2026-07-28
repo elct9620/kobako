@@ -5,7 +5,7 @@
 //! the payload carries.
 
 use super::bytes::{Reader, Writer};
-use super::{Error, ErrorRecord};
+use super::{Error, ErrorRecord, Fault};
 
 const TAG_OK: u8 = 0;
 const TAG_FAULT: u8 = 1;
@@ -20,30 +20,38 @@ const YIELD_ERROR: u8 = 0x04;
 pub enum Reply {
     /// The method returned; the bytes are the value, codec-encoded.
     Ok(Vec<u8>),
-    /// The method refused or failed; the bytes are the fault,
-    /// codec-encoded.
-    Fault(Vec<u8>),
+    /// The method refused or failed. Typed rather than codec-encoded:
+    /// every field of a Fault is kobako's, so a guest reads a refusal
+    /// whatever schema it speaks.
+    Fault(Fault),
 }
 
 impl Reply {
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(bytes);
         let tag = reader.u8()?;
-        let body = reader.remaining().to_vec();
         match tag {
-            TAG_OK => Ok(Reply::Ok(body)),
-            TAG_FAULT => Ok(Reply::Fault(body)),
+            TAG_OK => Ok(Reply::Ok(reader.remaining().to_vec())),
+            TAG_FAULT => {
+                let fault = Fault::read(&mut reader)?;
+                reader.finish()?;
+                Ok(Reply::Fault(fault))
+            }
             _ => Err(Error("Reply tag must be 0 (ok) or 1 (fault)")),
         }
     }
 
     pub fn encode(&self) -> Vec<u8> {
         let mut writer = Writer::new();
-        let (tag, body) = match self {
-            Reply::Ok(body) => (TAG_OK, body),
-            Reply::Fault(body) => (TAG_FAULT, body),
-        };
-        writer.u8(tag).remainder(body);
+        match self {
+            Reply::Ok(body) => {
+                writer.u8(TAG_OK).remainder(body);
+            }
+            Reply::Fault(fault) => {
+                writer.u8(TAG_FAULT);
+                fault.write(&mut writer);
+            }
+        }
         writer.into_bytes()
     }
 }
@@ -103,7 +111,13 @@ mod tests {
 
     #[test]
     fn both_reply_arms_round_trip() {
-        for reply in [Reply::Ok(vec![0x2a]), Reply::Fault(vec![0xc7, 0x00, 0x02])] {
+        for reply in [
+            Reply::Ok(vec![0x2a]),
+            Reply::Fault(Fault::new(
+                super::super::FaultKind::Undefined,
+                "no such method",
+            )),
+        ] {
             let encoded = reply.encode();
             assert_eq!(
                 Reply::decode(&encoded),
@@ -187,10 +201,10 @@ mod tests {
             "a successful Reply must encode as tag byte 0 followed by the body alone"
         );
         assert_eq!(
-            Reply::Fault(vec![0x2a]).encode(),
-            vec![1, 0x2a],
-            "a fault Reply carrying the same body must encode as tag byte 1, so the arms \
-             differ in the envelope rather than only in the payload"
+            Reply::Fault(Fault::new(super::super::FaultKind::Runtime, "x")).encode(),
+            vec![1, 0, 0, 0, 0, 1, b'x'],
+            "a fault Reply must encode as tag byte 1 followed by the Fault's own fixed \
+             layout, so a guest reads a refusal without reaching a payload codec"
         );
     }
 

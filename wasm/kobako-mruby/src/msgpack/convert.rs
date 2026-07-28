@@ -6,7 +6,7 @@
 //! `convert::try_codec_value(&kobako, val)`) via a second `impl` block;
 //! the codec façade frames what they produce into payload positions.
 //!
-//! Three concerns:
+//! Two concerns:
 //!
 //! 1. **Value conversion** (`try_codec_value`) — the single guest→host
 //!    value converter, shared by the `#eval` / `#run` outcome, the
@@ -23,55 +23,15 @@
 //!    keyword Hash into wire args and kwargs, running each leaf through
 //!    `try_codec_value` and reporting the first unrepresentable value as an
 //!    `CodecError`.
-//! 3. **Fault reading** (`decode_fault`) — the Reply arm the envelope
-//!    tagged as a failure, read into the fields the bridge raises with.
 
 use crate::codec::CodecError;
-use crate::codec::Fault;
 use crate::runtime::{IntegerOutOfRange, Kobako};
 use beni::{FromValue, Symbol, Value};
-use kobako_codec::msgpack::codec::{self, Decoder, Value as CodecValue};
+use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
 // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
 use kobako_codec::msgpack::codec::MAX_NESTING_DEPTH;
-
-/// Read a Reply's fault body — an ext 0x02 frame wrapping the
-/// `{type, message}` map — into the two fields the bridge raises with.
-/// The envelope named the arm; this reads what it carried, which is the
-/// payload codec's half of the job.
-pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
-    let CodecValue::Fault(inner_bytes) = Decoder::new(body).read_only_value()? else {
-        return Err(codec::Error::Malformed(
-            "the fault arm of a Reply must carry a Fault (ext 0x02)",
-        ));
-    };
-    let CodecValue::Map(pairs) = Decoder::new(&inner_bytes).read_value()? else {
-        return Err(codec::Error::Malformed(
-            "malformed error response from the host",
-        ));
-    };
-
-    let mut kind = None;
-    let mut message = None;
-    for (key, value) in pairs {
-        match (key, value) {
-            (CodecValue::Str(name), CodecValue::Str(text)) if name == "type" => kind = Some(text),
-            (CodecValue::Str(name), CodecValue::Str(text)) if name == "message" => {
-                message = Some(text)
-            }
-            _ => {}
-        }
-    }
-    Ok(Fault {
-        kind: kind.ok_or(codec::Error::Malformed(
-            "error response from the host is missing the field: type",
-        ))?,
-        message: message.ok_or(codec::Error::Malformed(
-            "error response from the host is missing the field: message",
-        ))?,
-    })
-}
 
 /// Encode a guest String. mruby carries no encoding tag, so validity is
 /// the only rule available: UTF-8 bytes ride as `str`, any other bytes as
@@ -356,11 +316,6 @@ impl Kobako {
                 }
                 hash.as_value()
             }
-            // ext 0x02 envelopes are consumed by the exception path
-            // (`raise_service_error`) before reaching value
-            // conversion; the defensive nil here covers any
-            // malformed Reply that smuggles one through.
-            CodecValue::Fault(_) => Value::nil(),
         })
     }
 }
