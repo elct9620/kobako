@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value as Json};
 
 use kobako::{
     Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile, Provider,
-    Receiver, RunArg, RunPayload, Sandbox, Value, ValueAdapter, ValueReceiver, Yielder,
+    Receiver, RunArg, RunPayload, Sandbox, Value, ValueReceiver, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -187,16 +187,18 @@ impl Extension for ScenarioExtension {
 /// invocations.
 fn build_provider(backend: &Json) -> Result<Provider, String> {
     match backend["provider"].as_str() {
-        Some("fixed") => Ok(Provider::Static(Arc::new(ValueAdapter::new(
-            build_backend_stub(&backend["methods"])?,
-        )))),
+        Some("fixed") => Ok(Provider::Static(Arc::new(
+            build_backend_stub(&backend["methods"])?.into_receiver(),
+        ))),
         Some("per_invocation") => {
             let methods = backend["methods"].clone();
             build_backend_stub(&methods)?; // validate; the closure rebuilds
             Ok(Provider::PerInvocation(Arc::new(move || {
-                Arc::new(ValueAdapter::new(
-                    build_backend_stub(&methods).expect("methods validated at install"),
-                )) as Arc<dyn Receiver>
+                Arc::new(
+                    build_backend_stub(&methods)
+                        .expect("methods validated at install")
+                        .into_receiver(),
+                ) as Arc<dyn Receiver>
             })))
         }
         other => Err(format!("unknown provider kind {other:?}")),
@@ -272,7 +274,7 @@ fn bind_service(
     sandbox
         .bind(
             path,
-            Arc::new(ValueAdapter::new(StubReceiver { methods, exposed })),
+            Arc::new(StubReceiver { methods, exposed }.into_receiver()),
         )
         .map_err(|err| format!("bind failed: {err}"))
 }
@@ -340,9 +342,12 @@ fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, St
 /// Create and register a labeled opaque object so the tagger can
 /// recover its identity from a resolved Handle.
 fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn Receiver> {
-    let object: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(OpaqueStub {
-        label: label.to_string(),
-    }));
+    let object: Arc<dyn Receiver> = Arc::new(
+        (OpaqueStub {
+            label: label.to_string(),
+        })
+        .into_receiver(),
+    );
     opaques.push((label.to_string(), object.clone()));
     object
 }
@@ -445,7 +450,7 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
         .resolve_value(arg)
         .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs a live Handle"))?;
     // Reaching another Receiver means speaking its schema: every stub
-    // here is a ValueAdapter, so encode the empty argument payload and
+    // here stands at the value seam, so encode the empty argument payload and
     // decode what it answers with.
     let payload = Arguments::default()
         .encode()
@@ -638,10 +643,13 @@ fn build_override_stubs(
                     methods.insert(name.clone(), parse_behavior(behavior, opaques)?);
                 }
             }
-            let stub: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(StubReceiver {
-                methods,
-                exposed: None,
-            }));
+            let stub: Arc<dyn Receiver> = Arc::new(
+                (StubReceiver {
+                    methods,
+                    exposed: None,
+                })
+                .into_receiver(),
+            );
             Ok((path, stub))
         })
         .collect()
@@ -658,7 +666,7 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
         exposed: None,
     };
     Ok(sandbox
-        .bind(path, Arc::new(ValueAdapter::new(stub)))
+        .bind(path, Arc::new(stub.into_receiver()))
         .map(|()| Value::Nil))
 }
 

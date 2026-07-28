@@ -127,7 +127,7 @@ mod tests {
     use kobako_codec::msgpack::payload::Arguments;
     use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
-    use crate::msgpack::{ValueAdapter, ValueReceiver};
+    use crate::msgpack::ValueReceiver;
 
     use super::*;
 
@@ -214,7 +214,7 @@ mod tests {
                     Ok(Value::Sym("swallowed".into()))
                 }
                 "make" => handles
-                    .alloc(Arc::new(ValueAdapter::new(Tagged("bob"))))
+                    .alloc(Arc::new(Tagged("bob").into_receiver()))
                     .map(Value::Handle),
                 "read_label" => {
                     let object = args
@@ -222,7 +222,7 @@ mod tests {
                         .and_then(|arg| handles.resolve_value(arg))
                         .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
                     // Reaching another Receiver means speaking its schema:
-                    // this one is a ValueAdapter, so encode the empty
+                    // this one stands at the value seam, so encode the empty
                     // argument payload and decode what it answers with.
                     let payload = Arguments::default()
                         .encode()
@@ -239,7 +239,7 @@ mod tests {
 
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Echo)));
+        catalog.bind("MyService::KV", Arc::new(Echo.into_receiver()));
         CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
@@ -372,13 +372,13 @@ mod tests {
     #[test]
     fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
-        catalog.bind("File", Arc::new(ValueAdapter::new(Echo)));
+        catalog.bind("File", Arc::new(Echo.into_receiver()));
         let handler = CatalogHandler::new(
             Arc::new(catalog),
             Arc::default(),
             vec![(
                 "File".to_string(),
-                Arc::new(ValueAdapter::new(Tagged("fresh"))) as Arc<dyn Receiver>,
+                Arc::new(Tagged("fresh").into_receiver()) as Arc<dyn Receiver>,
             )],
         );
         let req = request(Target::Path("File"), "label", vec![]);
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::Narrow", Arc::new(ValueAdapter::new(Narrowed)));
+        catalog.bind("MyService::Narrow", Arc::new(Narrowed.into_receiver()));
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
             Target::Path("MyService::Narrow"),
@@ -466,7 +466,7 @@ mod tests {
         let id = handles
             .lock()
             .unwrap()
-            .alloc(Arc::new(ValueAdapter::new(Narrowed)))
+            .alloc(Arc::new(Narrowed.into_receiver()))
             .unwrap();
         let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles, Vec::new());
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);

@@ -4,8 +4,8 @@
 //! A `Receiver` answers the guest's dispatches with payload bytes or a
 //! `Fault` — the three refusal kinds the dispatch contract lets a Service
 //! surface. What those bytes mean is the Receiver's own choice of schema;
-//! `msgpack::ValueReceiver` plus `msgpack::ValueAdapter` is the path for
-//! the default MessagePack one.
+//! `msgpack::ValueReceiver` is the path for the default MessagePack one,
+//! reaching this seam through its own `into_receiver`.
 
 use std::any::Any;
 
@@ -57,8 +57,8 @@ pub use kobako_transport::envelope::{Fault, FaultKind};
 /// while another speaks MessagePack.
 ///
 /// Implement `msgpack::ValueReceiver` instead when the payload is
-/// kobako's default MessagePack shape, and bind it through
-/// `msgpack::ValueAdapter`.
+/// kobako's default MessagePack shape, and bind what its `into_receiver`
+/// hands back.
 pub trait Receiver: Any + Send + Sync {
     fn call(
         &self,

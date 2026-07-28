@@ -5,7 +5,7 @@
 //! knows the module exists. Each member is a thin wrapper over the
 //! byte-level entry it flavours — `Execution::value` over `payload`,
 //! `Yielder::call` over `call_payload`, `resolve_value` over `resolve`,
-//! `ValueAdapter` over `Receiver` — so a member that could not be
+//! `into_receiver` over `Receiver` — so a member that could not be
 //! written that way would be marking a gap in that surface rather than a
 //! convenience on top of it.
 //!
@@ -22,4 +22,4 @@ mod receiver;
 mod yielder;
 
 pub use payload::RunArg;
-pub use receiver::{ValueAdapter, ValueReceiver};
+pub use receiver::{IntoReceiver, ValueReceiver};

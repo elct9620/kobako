@@ -59,7 +59,7 @@ pub use handles::Handles;
 pub use kobako_codec::msgpack::codec::Value;
 pub use kobako_runtime::profile::Profile;
 #[cfg(feature = "msgpack")]
-pub use msgpack::{RunArg, ValueAdapter, ValueReceiver};
+pub use msgpack::{RunArg, ValueReceiver};
 pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};
 pub use sandbox::{Context, Options, Sandbox, Usage};

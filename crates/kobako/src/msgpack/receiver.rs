@@ -1,6 +1,7 @@
 //! The dispatch position: a Receiver that speaks the value tree.
 
 use std::any::Any;
+use std::sync::Arc;
 
 use kobako_codec::msgpack::codec::{Decode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
@@ -18,8 +19,8 @@ use crate::yielder::Yielder;
 /// set (JSON has no byte string and no ext) does not belong here; it
 /// implements `Receiver` directly and owns its own bytes.
 ///
-/// `ValueAdapter` bridges this onto the opaque `Receiver` the Catalog
-/// stores.
+/// `into_receiver` is how one reaches the byte-level seam every binding
+/// site takes.
 pub trait ValueReceiver: Any + Send + Sync {
     fn call(
         &self,
@@ -30,38 +31,55 @@ pub trait ValueReceiver: Any + Send + Sync {
         handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
 
-    /// Same narrowing contract as `Receiver::respond_to_guest`; the
-    /// adapter forwards it unchanged.
+    /// Same narrowing contract as `Receiver::respond_to_guest`, forwarded
+    /// unchanged across the seam.
     fn respond_to_guest(&self, method: &str) -> bool {
         let _ = method;
         true
     }
+
+    /// Present this at the byte-level seam — what `Sandbox::bind`,
+    /// `Context::bind`, and `Handles::alloc` all take.
+    ///
+    /// A type implementing two schemas' receiver traits has two of these
+    /// in scope, and the call is ambiguous until one is named
+    /// (`ValueReceiver::into_receiver(kv)`). That is the right question to
+    /// be asked: binding an object is choosing the schema the guest will
+    /// reach it through.
+    fn into_receiver(self) -> IntoReceiver<Self>
+    where
+        Self: Sized,
+    {
+        IntoReceiver(Arc::new(self))
+    }
 }
 
-/// Binds a `ValueReceiver` into a Catalog by decoding the payload into a
-/// value tree and encoding the answer back — with the codec this build
-/// resolves to, which is the bundled MessagePack one.
+/// A `ValueReceiver` standing at the byte-level seam: it decodes each
+/// payload into a value tree and encodes the answer back, with the codec
+/// this build resolves to.
 ///
 /// A malformed payload and an unencodable answer both surface as a
 /// `runtime` fault, matching how the Ruby frontend folds the same two
 /// failures.
-pub struct ValueAdapter<V>(V);
+///
+/// The wrapped receiver is held behind its own `Arc`, so `resolve_as`
+/// hands back an `Arc<V>` — the same shape the byte-level path's
+/// `downcast` produces, rather than one wrapped in this type.
+pub struct IntoReceiver<V>(Arc<V>);
 
-impl<V: ValueReceiver> ValueAdapter<V> {
-    pub fn new(receiver: V) -> Self {
-        ValueAdapter(receiver)
+impl<V> IntoReceiver<V> {
+    /// The wrapped receiver.
+    pub fn get_ref(&self) -> &V {
+        &self.0
     }
 
-    /// The wrapped receiver. A Handle resolved back to its object
-    /// downcasts to `ValueAdapter<V>` rather than to `V`, since the
-    /// adapter is what the Catalog stores; this is how a caller reaches
-    /// its own type from there.
-    pub fn receiver(&self) -> &V {
-        &self.0
+    /// The wrapped receiver, as the shared handle this holds it by.
+    pub fn into_inner(self) -> Arc<V> {
+        self.0
     }
 }
 
-impl<V: ValueReceiver> Receiver for ValueAdapter<V> {
+impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
     fn call(
         &self,
         method: &str,
@@ -89,8 +107,6 @@ impl<V: ValueReceiver> Receiver for ValueAdapter<V> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use kobako_codec::msgpack::codec::{Encode, Encoder};
     use kobako_codec::msgpack::payload::Arguments;
 
@@ -119,66 +135,61 @@ mod tests {
     }
 
     #[test]
-    fn the_adapter_decodes_the_payload_and_encodes_the_answer() {
+    fn the_seam_decodes_the_payload_and_encodes_the_answer() {
         let payload = Arguments::new(vec![Value::Int(42)], Vec::new())
             .encode()
             .unwrap();
         let table = Detached::new();
 
-        let answer = ValueAdapter::new(Echo)
+        let answer = Echo
+            .into_receiver()
             .call("echo", &payload, None, &table.view())
             .unwrap();
 
         assert_eq!(
             answer,
             Encoder::encode(&Value::Int(42)).unwrap(),
-            "an encodable payload through ValueAdapter must reach the receiver as values \
+            "an encodable payload through into_receiver must reach the receiver as values \
              and come back as this schema's bytes"
         );
     }
 
     #[test]
-    fn the_adapter_folds_a_payload_this_schema_cannot_read_into_a_runtime_fault() {
+    fn a_payload_this_schema_cannot_read_folds_into_a_runtime_fault() {
         let table = Detached::new();
 
         // A truncated msgpack str header — framed as a payload, unreadable
         // as one.
-        let refusal = ValueAdapter::new(Echo).call("echo", &[0xd9], None, &table.view());
+        let refusal = Echo
+            .into_receiver()
+            .call("echo", &[0xd9], None, &table.view());
 
         assert!(
             matches!(refusal, Err(fault) if fault.kind == FaultKind::Runtime),
-            "a payload this schema cannot read through ValueAdapter must refuse as a \
-             runtime fault rather than reach the receiver"
+            "a payload this schema cannot read must refuse as a runtime fault rather than \
+             reach the receiver"
         );
     }
 
     #[test]
-    fn the_adapter_forwards_the_wrapped_receivers_narrowing() {
-        let adapter = ValueAdapter::new(Echo);
+    fn the_seam_forwards_the_wrapped_receivers_narrowing() {
+        let bound = Echo.into_receiver();
 
         assert!(
-            adapter.respond_to_guest("echo") && !adapter.respond_to_guest("label"),
-            "a narrowed ValueReceiver bound through ValueAdapter must keep its own \
-             answer, since the adapter forwards the predicate unchanged"
+            bound.respond_to_guest("echo") && !bound.respond_to_guest("label"),
+            "a narrowed ValueReceiver at the seam must keep its own answer, since the \
+             predicate is forwarded unchanged"
         );
     }
 
     #[test]
-    fn a_resolved_adapter_downcasts_back_to_the_receiver_it_wraps() {
-        let table = Detached::new();
-        let handles = table.view();
-        let id = handles.alloc(Arc::new(ValueAdapter::new(Echo))).unwrap();
-        let resolved = handles.resolve(id).expect("the id is live");
-
-        let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
-        let adapter = any.downcast::<ValueAdapter<Echo>>().expect(
-            "a Value receiver enters the table wrapped, so the upcast recovers the adapter",
-        );
+    fn get_ref_reaches_the_receiver_the_seam_wraps() {
+        let bound = Echo.into_receiver();
 
         assert!(
-            adapter.receiver().respond_to_guest("echo"),
-            "a Handle standing for a ValueReceiver must reach the caller's own type \
-             through the adapter it was bound behind"
+            bound.get_ref().respond_to_guest("echo"),
+            "get_ref must hand back the wrapped receiver itself, so a caller reaches its \
+             own type without going through the seam"
         );
     }
 }

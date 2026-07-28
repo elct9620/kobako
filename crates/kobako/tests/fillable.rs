@@ -15,8 +15,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use kobako::{
-    Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Value, ValueAdapter,
-    ValueReceiver, Yielder,
+    Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Value, ValueReceiver,
+    Yielder,
 };
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
@@ -152,7 +152,7 @@ fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
 
     let value = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(ValueAdapter::new(Kv("filled"))))
+            ctx.bind("Store", Arc::new(Kv("filled").into_receiver()))
         })
         .expect("the guest ran")
         .into_value()
