@@ -191,23 +191,7 @@ impl Extensions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receiver::{ValueAdapter, ValueReceiver};
-    use kobako_codec::msgpack::codec::Value;
-
-    struct Probe;
-
-    impl ValueReceiver for Probe {
-        fn call(
-            &self,
-            _method: &str,
-            _args: &[Value],
-            _kwargs: &[(String, Value)],
-            _block: Option<&mut Yielder<'_>>,
-            _handles: &Handles<'_>,
-        ) -> Result<Value, Fault> {
-            Ok(Value::Nil)
-        }
-    }
+    use crate::receiver::Probe;
 
     struct TestExt {
         name: &'static str,
@@ -274,8 +258,7 @@ mod tests {
     // resolution carries every path that provider backs.
     #[test]
     fn resolve_shares_one_object_across_paths_of_a_shared_provider() {
-        let shared: ProviderFn =
-            Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
+        let shared: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
         let resolved = resolve_of(&[("File", shared.clone()), ("Dir", shared.clone())]);
         assert_eq!(resolved.len(), 2);
         assert!(
@@ -286,8 +269,8 @@ mod tests {
 
     #[test]
     fn resolve_gives_distinct_providers_distinct_objects() {
-        let a: ProviderFn = Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
-        let b: ProviderFn = Arc::new(|| Arc::new(ValueAdapter::new(Probe)) as Arc<dyn Receiver>);
+        let a: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
+        let b: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
         let resolved = resolve_of(&[("File", a), ("Dir", b)]);
         assert!(
             !Arc::ptr_eq(&resolved[0].1, &resolved[1].1),

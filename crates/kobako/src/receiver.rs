@@ -4,15 +4,10 @@
 //! A `Receiver` answers the guest's dispatches with payload bytes or a
 //! `Fault` — the three refusal kinds the dispatch contract lets a Service
 //! surface. What those bytes mean is the Receiver's own choice of schema;
-//! `ValueReceiver` plus `ValueAdapter` is the path for the default
-//! MessagePack one.
+//! `msgpack::ValueReceiver` plus `msgpack::ValueAdapter` is the path for
+//! the default MessagePack one.
 
 use std::any::Any;
-
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::codec::{Decode, Encoder, Value};
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::payload::Arguments;
 
 use crate::handles::Handles;
 use crate::yielder::Yielder;
@@ -61,8 +56,9 @@ pub use kobako_transport::envelope::{Fault, FaultKind};
 /// each implementation, which is what lets one Service speak protobuf
 /// while another speaks MessagePack.
 ///
-/// Implement `ValueReceiver` instead when the payload is kobako's default
-/// MessagePack shape, and bind it through `ValueAdapter`.
+/// Implement `msgpack::ValueReceiver` instead when the payload is
+/// kobako's default MessagePack shape, and bind it through
+/// `msgpack::ValueAdapter`.
 pub trait Receiver: Any + Send + Sync {
     fn call(
         &self,
@@ -82,84 +78,21 @@ pub trait Receiver: Any + Send + Sync {
     }
 }
 
-#[cfg(feature = "msgpack")]
-/// A Receiver that speaks a value tree: positional and keyword arguments
-/// as wire `Value`s, answering with one.
-///
-/// The shape is a class of codec's, not one codec's — any schema that can
-/// carry the whole `Value` set fills it, and the bundled MessagePack one
-/// is the instance in this build. A schema that cannot carry some of the
-/// set (JSON has no byte string and no ext) does not belong here; it
-/// implements `Receiver` directly and owns its own bytes.
-///
-/// `ValueAdapter` bridges this onto the opaque `Receiver` the Catalog
-/// stores.
-pub trait ValueReceiver: Any + Send + Sync {
+/// A receiver that answers nothing — for the tests that need an object
+/// standing at a path or in a Handle table rather than a Service with
+/// behaviour. Byte-level, so those tests stand without a payload codec.
+#[cfg(test)]
+pub(crate) struct Probe;
+
+#[cfg(test)]
+impl Receiver for Probe {
     fn call(
         &self,
-        method: &str,
-        args: &[Value],
-        kwargs: &[(String, Value)],
-        block: Option<&mut Yielder<'_>>,
-        handles: &Handles<'_>,
-    ) -> Result<Value, Fault>;
-
-    /// Same narrowing contract as `Receiver::respond_to_guest`; the
-    /// adapter forwards it unchanged.
-    fn respond_to_guest(&self, method: &str) -> bool {
-        let _ = method;
-        true
-    }
-}
-
-#[cfg(feature = "msgpack")]
-/// Binds a `ValueReceiver` into a Catalog by decoding the payload into a
-/// value tree and encoding the answer back — with the codec this build
-/// resolves to, which is the bundled MessagePack one.
-///
-/// A malformed payload and an unencodable answer both surface as a
-/// `runtime` fault, matching how the Ruby frontend folds the same two
-/// failures.
-pub struct ValueAdapter<V>(V);
-
-#[cfg(feature = "msgpack")]
-impl<V: ValueReceiver> ValueAdapter<V> {
-    pub fn new(receiver: V) -> Self {
-        ValueAdapter(receiver)
-    }
-
-    /// The wrapped receiver. A Handle resolved back to its object
-    /// downcasts to `ValueAdapter<V>` rather than to `V`, since the
-    /// adapter is what the Catalog stores; this is how a caller reaches
-    /// its own type from there.
-    pub fn receiver(&self) -> &V {
-        &self.0
-    }
-}
-
-#[cfg(feature = "msgpack")]
-impl<V: ValueReceiver> Receiver for ValueAdapter<V> {
-    fn call(
-        &self,
-        method: &str,
-        payload: &[u8],
-        block: Option<&mut Yielder<'_>>,
-        handles: &Handles<'_>,
+        _method: &str,
+        _payload: &[u8],
+        _block: Option<&mut Yielder<'_>>,
+        _handles: &Handles<'_>,
     ) -> Result<Vec<u8>, Fault> {
-        let arguments = Arguments::decode(payload).map_err(|err| {
-            Fault::new(
-                FaultKind::Runtime,
-                format!("Sandbox received a malformed request: {err}"),
-            )
-        })?;
-        let value = self
-            .0
-            .call(method, &arguments.args, &arguments.kwargs, block, handles)?;
-        Encoder::encode(&value)
-            .map_err(|err| Fault::new(FaultKind::Runtime, format!("response not encodable: {err}")))
-    }
-
-    fn respond_to_guest(&self, method: &str) -> bool {
-        self.0.respond_to_guest(method)
+        Ok(Vec::new())
     }
 }

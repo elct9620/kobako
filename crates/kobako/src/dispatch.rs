@@ -116,13 +116,18 @@ fn fault_reply(fault: &Fault) -> Reply {
     Reply::Fault(fault.clone())
 }
 
-#[cfg(test)]
+// The handler routes bytes, but a test needs a Service with behaviour to
+// route to, and writing one against a value tree is how a reader follows
+// what each case asserts. That is the overlay's spelling, so these cases
+// stand with it; the byte-level path they share is walked end-to-end
+// against the real guest in `tests/byte_surface.rs`.
+#[cfg(all(test, feature = "msgpack"))]
 mod tests {
     use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value};
     use kobako_codec::msgpack::payload::Arguments;
     use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
-    use crate::receiver::{ValueAdapter, ValueReceiver};
+    use crate::msgpack::{ValueAdapter, ValueReceiver};
 
     use super::*;
 

@@ -9,8 +9,6 @@
 
 use std::fmt;
 
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::codec::{Decoder, Encoder, Value};
 use kobako_runtime::yielder::Yielder as RawYielder;
 use kobako_transport::envelope::YieldReply;
 
@@ -109,43 +107,12 @@ impl<'y> Yielder<'y> {
         }
     }
 
-    /// The bundled codec's spelling of `call_payload`: encode the
-    /// positional arguments as one msgpack array and decode what the
-    /// block answered.
-    #[cfg(feature = "msgpack")]
-    pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
-        let payload = encode_args(args)?;
-        let body = self.call_payload(&payload)?;
-        decode_body(&body)
-    }
-
     /// The recorded break value as the guest wrote it, consumed by the
     /// dispatch frame once the receiver returns. Bytes, so the frame
     /// answers with what the block produced rather than a re-encoding.
     pub(crate) fn into_break(self) -> Option<Vec<u8>> {
         self.broke
     }
-}
-
-/// Positional yield arguments ride as one msgpack array, the same
-/// shape the Ruby Yielder encodes.
-#[cfg(feature = "msgpack")]
-fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
-    let mut encoder = Encoder::new();
-    encoder
-        .write_value(&Value::Array(args.to_vec()))
-        .map_err(|err| YieldError::Aborted(format!("yield arguments are not encodable: {err}")))?;
-    Ok(encoder.into_bytes())
-}
-
-/// Decode a value-carrying arm's payload. The envelope framed it, so a
-/// fault here is the codec's — the guest answered with bytes this
-/// endpoint's schema cannot read.
-#[cfg(feature = "msgpack")]
-fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
-    Decoder::new(body)
-        .read_only_value()
-        .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply payload: {err}")))
 }
 
 #[cfg(test)]
@@ -180,37 +147,33 @@ mod tests {
         }
     }
 
-    fn response(arm: fn(Vec<u8>) -> YieldReply, value: Value) -> Vec<u8> {
-        arm(Encoder::encode(&value).unwrap()).encode()
-    }
-
     #[test]
-    fn call_ships_args_as_one_msgpack_array_and_returns_the_ok_value() {
-        let mut channel = Scripted::new(vec![Ok(response(YieldReply::Ok, Value::Int(42)))]);
+    fn call_payload_ships_the_bytes_it_was_handed_and_returns_the_ok_body() {
+        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]).encode())]);
         let mut block = Yielder::new(&mut channel);
-        let value = block.call(&[Value::Int(21)]).unwrap();
-        assert_eq!(value, Value::Int(42));
-        // msgpack fixarray of one element: 0x91, then int 21 (0x15).
-        assert_eq!(channel.sent, vec![vec![0x91, 0x15]]);
-    }
 
-    #[test]
-    fn break_records_the_value_and_stops_re_entering_the_guest() {
-        let mut channel = Scripted::new(vec![Ok(response(
-            YieldReply::Break,
-            Value::Sym("stop".into()),
-        ))]);
-        let mut block = Yielder::new(&mut channel);
-        assert_eq!(block.call(&[]), Err(YieldError::Break));
-        assert_eq!(block.call(&[]), Err(YieldError::Break));
+        let body = block.call_payload(&[0x15]).unwrap();
+
         assert_eq!(
-            block.into_break().map(|body| decode_body(&body).unwrap()),
-            Some(Value::Sym("stop".into()))
+            (body, channel.sent),
+            (vec![0x2a], vec![vec![0x15]]),
+            "a yield through call_payload must ride the host's own bytes in both \
+             directions, since the schema is the host's"
         );
+    }
+
+    #[test]
+    fn break_records_the_body_and_stops_re_entering_the_guest() {
+        let mut channel = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]).encode())]);
+        let mut block = Yielder::new(&mut channel);
+
+        assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
+        assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
         assert_eq!(
-            channel.sent.len(),
-            1,
-            "a broken Yielder must not yield again"
+            (block.into_break(), channel.sent.len()),
+            (Some(vec![0x2a]), 1),
+            "a block that broke must hand its body back as the guest wrote it, and a \
+             broken Yielder must not re-enter the guest again"
         );
     }
 
@@ -223,8 +186,9 @@ mod tests {
         });
         let mut channel = Scripted::new(vec![Ok(record.encode())]);
         let mut block = Yielder::new(&mut channel);
+
         assert_eq!(
-            block.call(&[]),
+            block.call_payload(&[]),
             Err(YieldError::Failure {
                 class: "LocalJumpError".into(),
                 message: "boom".into(),
@@ -234,27 +198,25 @@ mod tests {
     }
 
     #[test]
-    fn an_ok_arm_the_codec_cannot_read_aborts() {
-        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0xc1]).encode())]);
-        let mut block = Yielder::new(&mut channel);
-        assert!(
-            matches!(block.call(&[]), Err(YieldError::Aborted(_))),
-            "a well-framed reply whose payload this endpoint's schema cannot read must abort"
-        );
-    }
-
-    #[test]
     fn trap_during_re_entry_aborts() {
         let mut channel = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
         let mut block = Yielder::new(&mut channel);
-        assert!(matches!(block.call(&[]), Err(YieldError::Aborted(_))));
+
+        assert!(
+            matches!(block.call_payload(&[]), Err(YieldError::Aborted(_))),
+            "a guest that trapped mid-block must abort the yield rather than answer it"
+        );
     }
 
     #[test]
     fn malformed_response_bytes_abort() {
         let mut channel = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
         let mut block = Yielder::new(&mut channel);
-        assert!(matches!(block.call(&[]), Err(YieldError::Aborted(_))));
+
+        assert!(
+            matches!(block.call_payload(&[]), Err(YieldError::Aborted(_))),
+            "bytes the envelope cannot frame as a Yield Reply must abort the yield"
+        );
     }
 
     #[test]

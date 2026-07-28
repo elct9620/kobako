@@ -10,9 +10,6 @@
 
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::codec::Value;
-
 use crate::receiver::{Fault, FaultKind, Receiver};
 
 /// Maximum legal Capability Handle ID — the wire pins ids to the
@@ -91,16 +88,6 @@ impl<'a> Handles<'a> {
             .expect("the Handle table mutex is never poisoned")
             .get(id)
     }
-
-    /// The bundled codec's spelling: resolve a `Value::Handle`, and
-    /// nothing else, through `resolve`.
-    #[cfg(feature = "msgpack")]
-    pub fn resolve_value(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
-        let Value::Handle(id) = value else {
-            return None;
-        };
-        self.resolve(*id)
-    }
 }
 
 /// A Handle table standing on its own, so a `Receiver` can be exercised
@@ -129,34 +116,19 @@ impl Detached {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receiver::{ValueAdapter, ValueReceiver};
-
-    struct Probe;
-
-    impl ValueReceiver for Probe {
-        fn call(
-            &self,
-            _method: &str,
-            _args: &[Value],
-            _kwargs: &[(String, Value)],
-            _block: Option<&mut crate::yielder::Yielder<'_>>,
-            _handles: &Handles<'_>,
-        ) -> Result<Value, Fault> {
-            Ok(Value::Nil)
-        }
-    }
+    use crate::receiver::Probe;
 
     #[test]
     fn ids_start_at_one_and_increase_monotonically() {
         let mut table = HandleTable::default();
-        assert_eq!(table.alloc(Arc::new(ValueAdapter::new(Probe))), Ok(1));
-        assert_eq!(table.alloc(Arc::new(ValueAdapter::new(Probe))), Ok(2));
+        assert_eq!(table.alloc(Arc::new(Probe)), Ok(1));
+        assert_eq!(table.alloc(Arc::new(Probe)), Ok(2));
     }
 
     #[test]
     fn get_rejects_the_zero_sentinel_and_unissued_ids() {
         let mut table = HandleTable::default();
-        table.alloc(Arc::new(ValueAdapter::new(Probe))).unwrap();
+        table.alloc(Arc::new(Probe)).unwrap();
         assert!(table.get(0).is_none());
         assert!(table.get(2).is_none());
     }
@@ -165,32 +137,27 @@ mod tests {
     fn facade_round_trips_an_object_through_alloc_and_resolve() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
-        let object: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(Probe));
+        let object: Arc<dyn Receiver> = Arc::new(Probe);
         let token = handles.alloc(object.clone()).unwrap();
         let resolved = handles.resolve(token).expect("the id is live");
         assert!(
             Arc::ptr_eq(&resolved, &object),
-            "resolve must yield the very object alloc bound"
+            "an id through Handles::resolve must yield the very object alloc bound"
         );
-        assert!(handles.resolve_value(&Value::Int(1)).is_none());
     }
 
     #[test]
-    fn resolved_receiver_downcasts_to_its_concrete_type() {
+    fn a_resolved_receiver_downcasts_to_its_concrete_type() {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
-        let token = handles.alloc(Arc::new(ValueAdapter::new(Probe))).unwrap();
+        let token = handles.alloc(Arc::new(Probe)).unwrap();
         let resolved = handles.resolve(token).expect("the id is live");
+
         let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
-        // A Value-based receiver enters the table wrapped, so the Any
-        // upcast recovers the adapter; `receiver` reaches the caller's
-        // own type from there.
-        let adapter = any.downcast::<ValueAdapter<Probe>>().expect(
-            "a resolved Handle must recover the concrete receiver type through the Any upcast",
-        );
+
         assert!(
-            adapter.receiver().respond_to_guest("label"),
-            "the adapter must hand back the wrapped receiver, whose own narrowing predicate answers"
+            any.downcast::<Probe>().is_ok(),
+            "a resolved Handle through the Any upcast must recover the concrete receiver type"
         );
     }
 }

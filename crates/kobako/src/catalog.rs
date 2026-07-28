@@ -56,32 +56,15 @@ impl Catalog {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::msgpack::codec::Value;
-
-    use crate::receiver::{Fault, ValueAdapter, ValueReceiver};
+    use crate::receiver::Probe;
 
     use super::*;
-
-    struct Probe;
-
-    impl ValueReceiver for Probe {
-        fn call(
-            &self,
-            _method: &str,
-            _args: &[Value],
-            _kwargs: &[(String, Value)],
-            _block: Option<&mut crate::yielder::Yielder<'_>>,
-            _handles: &crate::handles::Handles<'_>,
-        ) -> Result<Value, Fault> {
-            Ok(Value::Nil)
-        }
-    }
 
     #[test]
     fn bind_then_lookup_resolves_the_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
-        catalog.bind("File", Arc::new(ValueAdapter::new(Probe)));
+        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("File", Arc::new(Probe));
         assert!(catalog.lookup("MyService::KV").is_some());
         assert!(catalog.lookup("File").is_some());
         assert!(catalog.lookup("MyService::Other").is_none());
@@ -90,8 +73,8 @@ mod tests {
     #[test]
     fn rebind_replaces_the_object_at_the_same_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
-        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
+        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("MyService::KV", Arc::new(Probe));
         assert!(catalog.lookup("MyService::KV").is_some());
     }
 
@@ -101,8 +84,8 @@ mod tests {
     #[test]
     fn the_preamble_carries_every_bound_path_in_bind_order() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(ValueAdapter::new(Probe)));
-        catalog.bind("File", Arc::new(ValueAdapter::new(Probe)));
+        catalog.bind("MyService::KV", Arc::new(Probe));
+        catalog.bind("File", Arc::new(Probe));
         assert_eq!(
             Preamble::decode(&catalog.preamble()),
             Ok(Preamble {
