@@ -3,7 +3,6 @@ module Kobako
     module ExtTypes
       EXT_SYMBOL: Integer
       EXT_HANDLE: Integer
-      EXT_FAULT: Integer
       UNREPRESENTABLE_GUARD_ID: Integer
 
       def self?.build_factory: () -> MessagePack::Factory
@@ -16,12 +15,9 @@ module Kobako
 
       def self?.unpack_handle: (String payload, State state) -> Kobako::Handle
 
-
-
       def self?.register_symbol: (MessagePack::Factory factory) -> void
 
       def self?.register_handle: (MessagePack::Factory factory) -> void
-
 
       def self?.register_unrepresentable: (MessagePack::Factory factory) -> void
     end

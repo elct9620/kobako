@@ -12,9 +12,9 @@ module Kobako
     #
     # The codec backbone is the official +msgpack+ gem: integers, floats,
     # strings, arrays, and maps go through the gem's narrowest-encoding
-    # logic; the three kobako-specific ext types (0x00 Symbol, 0x01
-    # Capability Handle, 0x02 Fault) are registered by
-    # ExtTypes on the process-wide factory.
+    # logic; the two kobako-specific ext types (0x00 Symbol, 0x01
+    # Capability Handle) are registered by ExtTypes on the process-wide
+    # factory.
     #
     # Public API is a single function — +.encode+. The codec is stateless;
     # there is no buffer accumulator and no streaming write API. Callers

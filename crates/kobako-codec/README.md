@@ -10,9 +10,9 @@ rides inside an envelope's opaque `payload` field is the replaceable
 half, and this crate holds it, one namespace per schema:
 
 - `msgpack` — the default schema, on by default
-  - `msgpack::codec` — the MessagePack wire codec (a closed 12-type set
-    plus three ext types), byte-for-byte symmetric with the host gem's
-    independent Ruby codec
+  - `msgpack::codec` — the MessagePack wire codec (a closed 11-entry
+    type set, two of them ext codes), byte-for-byte symmetric with the
+    host gem's independent Ruby codec
   - `msgpack::payload` — the `[args, kwargs]` shape a Call or a Run
     payload carries
 
