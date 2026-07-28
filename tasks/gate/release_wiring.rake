@@ -30,10 +30,19 @@ namespace :gate do
       unrecorded = KobakoReleaseWiring.unrecorded_packages(config: config, manifest: manifest)
                                       .map { |package| "#{package}: no .release-please-manifest.json entry" }
 
+      pinned = manifest.keys.flat_map do |package|
+        path = File.join(package, "Cargo.toml")
+        next [] unless File.exist?(path)
+
+        KobakoReleaseWiring.pinned_dev_dependencies(path, File.read(path))
+      end
+
       puts KobakoReport.gate(
         name: "gate:release:wiring",
-        ok_summary: "#{manifest.size} packages recorded, #{files.size} annotated version files in sync",
-        violations: unrecorded + KobakoReleaseWiring.annotation_violations(files: files, manifest: manifest),
+        ok_summary: "#{manifest.size} packages recorded, #{files.size} annotated version files in sync, " \
+                    "no dev-dependency pinned outside the bump",
+        violations: unrecorded + pinned +
+                    KobakoReleaseWiring.annotation_violations(files: files, manifest: manifest),
         noun: "unfilled seat",
         hint: "Every seat a crate needs is listed in docs/releasing.md § Adding a crate to the linked group."
       )

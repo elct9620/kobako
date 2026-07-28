@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Readers behind +rake gate:release:wiring+ (docs/releasing.md § Adding a
-# crate to the linked group): the two seats a new crate can leave empty
+# crate to the linked group): the seats a new crate can leave empty
 # without anything saying so.
 #
 # +release-please+ reads the manifest as its record of what each package
@@ -9,8 +9,32 @@
 # +x-release-please-version+ annotation. A package missing from the
 # manifest reads as never released; a generic extra-file missing its
 # annotation is rewritten to nothing. Both report success.
+#
+# The third seat is a version in a table the release tooling does not
+# rewrite: +[dev-dependencies]+. A version named there survives the bump
+# untouched, and the mismatch surfaces only when the lockfile step runs
+# against a sibling that moved on.
 module KobakoReleaseWiring
   module_function
+
+  # Path dev-dependencies in +content+ that also name a version, as
+  # violation strings. Cargo strips a version-less path dev-dependency
+  # when packaging, so naming one buys nothing and costs a silent pin.
+  # A registry dev-dependency carries no path and is nobody's to rewrite.
+  def pinned_dev_dependencies(path, content)
+    dev_dependency_lines(content)
+      .filter_map { |line| line[/\A\s*([\w-]+)\s*=/, 1] if line.include?("path") && line.include?("version") }
+      .map { |name| "#{path}: dev-dependency #{name} names a version" }
+  end
+
+  # The entry lines of +content+'s +[dev-dependencies]+ table, which runs
+  # to the next table header.
+  def dev_dependency_lines(content)
+    content.each_line
+           .drop_while { |line| !line.start_with?("[dev-dependencies]") }
+           .drop(1)
+           .take_while { |line| !line.start_with?("[") }
+  end
 
   # Package paths declared in the config that the manifest does not
   # record. Such a package never joins the linked group's bump.

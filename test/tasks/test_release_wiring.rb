@@ -115,3 +115,58 @@ class KobakoReleaseWiringTest < Minitest::Test
                  "an annotated version matching what the manifest records must pass the annotation half"
   end
 end
+
+# The third seat +gate:release:wiring+ holds: release-please rewrites a
+# version in +[dependencies]+ but walks no +[dev-dependencies]+ table, so a
+# version named there stays at the last release while the crate beside it
+# moves on — and the lockfile step is where that surfaces, one release later.
+class KobakoReleaseWiringDevDependencyTest < Minitest::Test
+  Reader = KobakoReleaseWiring
+
+  def test_a_dev_dependency_naming_a_version_is_reported
+    manifest = <<~TOML
+      [dev-dependencies]
+      kobako-codec = { path = "../kobako-codec", version = "0.12.0" }
+    TOML
+
+    assert_equal ["crates/kobako/Cargo.toml: dev-dependency kobako-codec names a version"],
+                 Reader.pinned_dev_dependencies("crates/kobako/Cargo.toml", manifest),
+                 "a path dev-dependency naming a version must be reported, since the release " \
+                 "tooling rewrites no version in that table"
+  end
+
+  def test_a_path_only_dev_dependency_yields_no_violation
+    manifest = <<~TOML
+      [dev-dependencies]
+      kobako-codec = { path = "../kobako-codec" }
+    TOML
+
+    assert_empty Reader.pinned_dev_dependencies("crates/kobako/Cargo.toml", manifest),
+                 "a version-less path dev-dependency must pass: cargo strips it when packaging, " \
+                 "so nothing needs rewriting"
+  end
+
+  def test_a_registry_dev_dependency_yields_no_violation
+    manifest = <<~TOML
+      [dev-dependencies]
+      serde_json = "1.0"
+    TOML
+
+    assert_empty Reader.pinned_dev_dependencies("crates/kobako/Cargo.toml", manifest),
+                 "a dev-dependency on a published crate must pass, since no release of ours moves it"
+  end
+
+  def test_a_version_outside_the_dev_dependency_table_is_left_alone
+    manifest = <<~TOML
+      [dependencies]
+      kobako-codec = { path = "../kobako-codec", version = "0.12.0" }
+
+      [features]
+      default = []
+    TOML
+
+    assert_empty Reader.pinned_dev_dependencies("crates/kobako/Cargo.toml", manifest),
+                 "a normal dependency must be left alone: the release tooling does rewrite that " \
+                 "table, and cargo requires the version there"
+  end
+end

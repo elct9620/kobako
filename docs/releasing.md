@@ -66,7 +66,7 @@ Use `Release-As` only when a track has no natural `feat`/`fix` to release.
 
 ## Adding a crate to the linked group
 
-A crate joins the group by taking every seat below. None fails where it was missed: two fail silently, and the loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io. `rake gate:release:wiring` holds the two silent ones.
+A crate joins the group by taking every seat below. None fails where it was missed: three fail silently, and the loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io. `rake gate:release:wiring` holds the three silent ones.
 
 | Seat | What it takes | If it is missed |
 |------|---------------|-----------------|
@@ -75,6 +75,7 @@ A crate joins the group by taking every seat below. None fails where it was miss
 | `release-please-config.json` → **each dependent's** `extra-files` | An entry pinning `$.dependencies['<name>'].version` in that dependent's `Cargo.toml`, one per crate that depends on the new one | The dependent ships a requirement on a version the group has moved past |
 | `.release-please-manifest.json` | `"<package path>": "<the group's current version>"` | **Silent.** A package absent from the manifest reads as never released, so it never joins the group's bump |
 | The crate's `README.md` | A version line ending `# x-release-please-version`, in the `## Usage` block every sibling carries one in | **Silent.** The generic updater replaces a version only on an annotated line; with none it reports success and changes nothing |
+| Each `[dev-dependencies]` on a sibling | A path and **no** version — cargo strips a version-less path dev-dependency when packaging | **Silent.** No updater rewrites that table, so a version named there stays at the last release; the lockfile sync then cannot resolve it against the sibling that moved on |
 | `.github/scripts/publish-crates.sh` | A `publish_crate` call, placed so every crate precedes its dependents | `cargo publish` fails on the missing dependency, part-way through the group |
 | `.github/workflows/release-please.yml` | The `<name>_release_created` output, the `release-crate` job's OR chain, and the `cargo update -p` list of every lockfile the crate appears in | The lockfile sync skips the crate; `extra-files` still writes its version, so the entry stays correct |
 | crates.io | A `0.0.0` placeholder, published by hand | `cargo publish` fails: the name does not exist |
