@@ -44,6 +44,14 @@ class WireValueGenerator
   }.freeze
   INT_BANDS = INT_BAND_SAMPLERS.keys.freeze
 
+  # The bands a guest-domain run may draw from. The Guest Binary is built
+  # MRB_INT32, so a wire integer outside the signed 32-bit range has no
+  # guest representation and is refused at the boundary rather than
+  # carried (E-26, covered on its own in test/e2e/test_integer_range.rb).
+  # Narrowing the bands keeps a guest harness's subject the value
+  # conversion instead of the range refusal.
+  GUEST_INT_BANDS = %i[pos_fix neg_fix u8 u16 i8 i16 i32].freeze
+
   # Special-value floats indexed 0..5; bucket 6..9 falls through to
   # +random_general_float+. SPEC.md does not constrain NaN bit patterns;
   # NaN is deliberately omitted because +f64::from_bits+ round-trip can
@@ -106,9 +114,25 @@ class WireValueGenerator
 
   attr_reader :coverage
 
-  def initialize(rng:)
+  # +int_bands+ narrows the integer bands to those the consumer's value
+  # domain can hold; +ext_values+ turns off Handle and Fault, which are
+  # wire values no round trip through a guest compares as values — a
+  # Handle argument is restored to its host object and a Fault is legal
+  # only in a Reply's fault arm.
+  def initialize(rng:, int_bands: INT_BANDS, ext_values: true)
     @rng = rng
+    @int_bands = int_bands
+    @ext_values = ext_values
     @coverage = Hash.new(0)
+  end
+
+  # The coverage keys this configuration can reach, so a narrowed run
+  # asserts against what it can produce. A band the configuration excludes
+  # leaves the set together with the values that would bump it.
+  def coverage_keys
+    excluded = (INT_BANDS - @int_bands).map { |band| :"int_#{band}" }
+    excluded += %i[handle fault] unless @ext_values
+    COVERAGE_KEYS - excluded
   end
 
   # Entry point. Returns a wire-encodable Ruby value bounded by
@@ -122,12 +146,19 @@ class WireValueGenerator
     when 0..69 then generate_scalar
     when 70..82 then generate_array(depth: depth + 1)
     when 83..94 then generate_map(depth: depth + 1)
-    when 95..96 then generate_handle
-    when 97..99 then generate_fault
+    when 95..96 then ext_value_or_scalar { generate_handle }
+    when 97..99 then ext_value_or_scalar { generate_fault }
     end
   end
 
   private
+
+  # The block's ext value when this configuration carries ext values, a
+  # scalar otherwise. The bucket draws either way, so both configurations
+  # walk the same seed shape.
+  def ext_value_or_scalar
+    @ext_values ? yield : generate_scalar
+  end
 
   # Bucket 8 has no explicit arm and falls through to +nil+ on purpose;
   # narrowing the random range would change the seed-sequence and break
@@ -157,7 +188,7 @@ class WireValueGenerator
   end
 
   def generate_integer
-    band = INT_BANDS.sample(random: @rng)
+    band = @int_bands.sample(random: @rng)
     @coverage[:"int_#{band}"] += 1
     INT_BAND_SAMPLERS.fetch(band).call(@rng)
   end

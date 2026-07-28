@@ -2,13 +2,18 @@
 
 # E2E round-trip fuzz harness for the kobako payload codec (SPEC.md F-09).
 #
-# This is THE proof that the two independent payload-codec implementations
+# This is THE proof that the two host-side payload-codec implementations
 # (the pure-Ruby `Kobako::Codec` under lib/kobako/codec and the Rust one
-# under crates/kobako-codec/src/msgpack) agree on the wire. The payload is
-# the one layer carrying two implementations, so fuzz is its whole
-# consistency mechanism — there is no shared codec source — and a passing
-# run is the release gate per SPEC.md Testing Style Layer 1 (any failure
-# blocks release unconditionally).
+# under crates/kobako-codec/src/msgpack) agree on the wire. Fuzz is their
+# whole consistency mechanism — there is no shared codec source — and a
+# passing run is the release gate per SPEC.md Testing Style Layer 1 (any
+# failure blocks release unconditionally).
+#
+# A third implementation sits on the payload layer that these two never
+# meet: the guest's mruby-value walk in
+# wasm/kobako-mruby/src/msgpack/convert.rs. Having no peer to differ
+# against, it is held to an identity law in test/fuzz/test_guest_value_fuzz.rb
+# instead.
 #
 # Architecture:
 #
@@ -73,7 +78,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
 
   def assert_coverage_complete
     coverage = @generator.coverage
-    missing = WireValueGenerator::COVERAGE_KEYS.reject { |k| coverage[k].positive? }
+    missing = @generator.coverage_keys.reject { |k| coverage[k].positive? }
     msg = "fuzz coverage gap (seed=#{@seed}): #{missing.inspect}; counters=#{coverage.inspect}"
     assert missing.empty?, msg
   end
