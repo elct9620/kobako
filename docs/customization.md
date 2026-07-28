@@ -106,7 +106,10 @@ reaches no payload codec either.
 kobako builds each of those tiers on every release — the guest tiers on the
 build a third party gets, the SDK with its codec deselected — and checks that
 no codec appears in the resulting graph, so this is a claim held to a build
-rather than stated.
+rather than stated. Each build includes the tier's tests: a library that
+compiles codec-free while its own tests do not has moved the codec out of the
+shipped graph without moving it out of the code. A test may still reach a codec
+through a `[dev-dependencies]` entry, which no consumer installs.
 
 ## Capability set
 

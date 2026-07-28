@@ -5,6 +5,11 @@
 //! channel as an idiom with no backend. A `ctx.bind` override fills it for one
 //! invocation. Driven through the real guest binary; a missing binary is a hard
 //! failure under CI and a silent skip locally, mirroring the Ruby E2E helper.
+//!
+//! The Services here are written against the bundled schema's overlay,
+//! which is what makes each case readable, so the file stands with that
+//! overlay. The byte-level path they share is walked in `byte_surface.rs`.
+#![cfg(feature = "msgpack")]
 
 use std::path::Path;
 use std::sync::Arc;

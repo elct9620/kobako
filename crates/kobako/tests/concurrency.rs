@@ -10,7 +10,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
-use kobako::{Options, Sandbox, Value};
+// The schema read here is the guest's, not this crate's: the bundled
+// binary answers in MessagePack however the SDK was built, so the codec
+// comes from the crate that owns that schema rather than from a feature.
+use kobako_codec::msgpack::codec::{Decoder, Value};
+
+use kobako::{Options, Sandbox};
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -23,6 +28,14 @@ fn real_sandbox() -> Option<Sandbox> {
         return None;
     }
     Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
+}
+
+/// Read one outcome the way a host owning its own schema does — off the
+/// bytes, with the decoder for the schema the guest speaks.
+fn decode(bytes: &[u8]) -> Value {
+    Decoder::new(bytes)
+        .read_only_value()
+        .expect("the guest answers in the schema it was built with")
 }
 
 #[test]
@@ -39,12 +52,11 @@ fn arc_sandbox_drives_concurrent_evals_shared_nothing() {
         .map(|n| {
             let sandbox = Arc::clone(&sandbox);
             thread::spawn(move || {
-                let value = sandbox
-                    .eval(&format!("{n} * {n}"))
-                    .expect("the guest ran")
-                    .into_value()
+                let execution = sandbox.eval(&format!("{n} * {n}")).expect("the guest ran");
+                let bytes = execution
+                    .payload()
                     .expect("a concurrent eval returns its own value");
-                (n, value)
+                (n, decode(bytes))
             })
         })
         .collect();

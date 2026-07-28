@@ -19,6 +19,13 @@
 # The tiers are probed on their default build — that is the graph a third
 # party gets for naming one, and Cargo's default set is public surface a
 # release can add to but never take from.
+#
+# Every probe runs +--all-targets+: a tier whose library builds codec-free
+# while its tests do not has moved the codec out of the shipped graph
+# without moving it out of the code, and only a third party would find
+# out. Reaching a payload codec from a +[dev-dependencies]+ entry stays
+# fine — +cargo tree -e normal+ does not see one, and neither does anyone
+# installing the crate.
 
 # Each tier whose default build must stand without a payload codec, with
 # the workspace its manifest lives in.
@@ -36,7 +43,7 @@ CODEC_FREE_ALLOWED = (CODEC_FREE_TIERS.keys + %w[beni beni-sys]).freeze
 # routing-only tiers themselves.
 def codec_free_violation(crate, dir)
   Dir.chdir(dir) do
-    unless system("cargo check -p #{crate} --quiet", out: File::NULL)
+    unless system("cargo check -p #{crate} --all-targets --quiet", out: File::NULL)
       next "#{crate}'s default build fails — it reaches into the payload codec"
     end
 
@@ -73,17 +80,25 @@ CODEC_ABSENT_TIERS = { "kobako" => File.expand_path("../../crates", __dir__) }.f
 # +nil+ when it reaches none.
 def codec_absent_violation(crate, dir)
   Dir.chdir(dir) do
-    unless system("cargo check -p #{crate} #{CODEC_DESELECTED} --quiet", out: File::NULL)
+    unless system("cargo check -p #{crate} #{CODEC_DESELECTED} --all-targets --quiet",
+                  out: File::NULL)
       next "#{crate} does not build #{CODEC_DESELECTED} — it reaches into the payload codec"
     end
 
-    tree = `cargo tree -p #{crate} #{CODEC_DESELECTED} -e normal 2>/dev/null`
-    pulled = tree.lines.drop(1).filter_map { |line| line[/[a-z0-9-]+(?= v[0-9])/] }
-    found = pulled.uniq & CODEC_CRATES
-    next if found.empty?
-
-    "#{crate}'s codec-free build still reaches a payload codec: #{found.join(", ")}"
+    codec_reached_violation(crate)
   end
+end
+
+# Which payload codecs +crate+'s codec-free graph still reaches, as a
+# violation string, or +nil+ when it reaches none. Runs inside the crate's
+# workspace directory.
+def codec_reached_violation(crate)
+  tree = `cargo tree -p #{crate} #{CODEC_DESELECTED} -e normal 2>/dev/null`
+  pulled = tree.lines.drop(1).filter_map { |line| line[/[a-z0-9-]+(?= v[0-9])/] }
+  found = pulled.uniq & CODEC_CRATES
+  return if found.empty?
+
+  "#{crate}'s codec-free build still reaches a payload codec: #{found.join(", ")}"
 end
 
 namespace :gate do

@@ -37,6 +37,14 @@ kobako-runtime = { path = "../kobako-runtime", version = "0.12.0" }
 # Default engine: the wasmtime driver implementing the contract.
 kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.12.0" }
 
+# Unconditional here, and only here: the bundled guest speaks MessagePack
+# whatever this crate is built with, so a test that drives it needs to
+# read that schema even when the SDK carries no codec of its own. A
+# dev-dependency is absent from the shipped graph, so this leaves the
+# codec-free claim `gate:payload:optional` checks untouched.
+[dev-dependencies]
+kobako-codec = { path = "../kobako-codec", version = "0.12.0" }
+
 [features]
 # On by default so the ergonomic path — `ValueReceiver`, `Value`, and the
 # Value-flavoured spelling of each payload position — is what a caller
