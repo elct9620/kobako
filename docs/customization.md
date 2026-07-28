@@ -44,9 +44,16 @@ The two endpoints carry equal shares of that. A guest fills every position
 below; a Rust host built on the SDK fills the same set, because each one has a
 byte-level entry there — a dispatch's arguments and answer at `Receiver`, a
 `run` payload at `RunPayload::bytes` or `RunPayload::build`, a yield at
-`Yielder::call_payload`, an invocation's result at `Execution::payload`.
-Neither endpoint owes anything at a Reply's fault arm, which rides the
-envelope.
+`Yielder::call_payload`, an invocation's result at `Execution::payload`, and
+the host object a Handle stands for at `Handles::resolve` during a dispatch or
+`Execution::resolve` afterwards — both taking the id, since spelling a Handle
+is the schema's job and reaching the object is not. Neither endpoint owes
+anything at a Reply's fault arm, which rides the envelope.
+
+That completeness is what lets a schema kobako does not ship reach the same
+ergonomics without the SDK changing: each `msgpack`-gated member is a thin
+wrapper over its byte-level entry, so another schema's overlay is written
+outside this crate as extension traits over the same entries.
 
 **Obligations** (→ [`wire-codec.md`](wire-codec.md) § What a replacement codec
 must provide):

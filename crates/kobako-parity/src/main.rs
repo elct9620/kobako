@@ -718,7 +718,7 @@ fn tag_value(value: &Value, execution: &Execution, opaques: &Opaques) -> Json {
 /// closed-DSL scenario produces one). Resolves against the invocation's
 /// own `Execution`, which owns the Handle table its result stands in.
 fn handle_label(value: &Value, execution: &Execution, opaques: &Opaques) -> Option<String> {
-    let resolved = execution.resolve(value)?;
+    let resolved = execution.resolve_value(value)?;
     opaques
         .iter()
         .find(|(_, object)| Arc::ptr_eq(object, &resolved))
