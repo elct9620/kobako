@@ -103,6 +103,40 @@ schema is another namespace beside it. `kobako-transport` is the **grammar**
 both ends share whatever dialect fills a payload. Everything else is one
 endpoint or another assembling those two into a model of its own.
 
+```
+  HOST                                       │  GUEST (wasm32)
+ ═══════════════════════════════════════════ ╪ ══════════════════════════════
+                                             │
+  Ruby gem              Rust SDK             │   mruby guest
+  ┌────────────┐        ┌────────────┐       │   ┌──────────────────┐
+  │ lib/       │        │ kobako     │       │   │ kobako-mruby     │
+  │ ┌────────┐ │        │ ┌────────┐ │       │   │ ┌──────────────┐ │
+  │ │overlay │ │        │ │overlay │ │       │   │ │   overlay    │ │
+  │ │payload/│ │        │ │msgpack/│ │       │   │ │   msgpack/   │ │
+  │ └────────┘ │        │ └───┬────┘ │       │   │ └──────┬───────┘ │
+  │ ┌────────┐ │        └─────┼──────┘       │   └────────┼─────────┘
+  │ │dialect │ │ its own      │              │            │
+  │ │codec/  │ │ Ruby impl    └──────┐   ┌───┼────────────┘
+  │ └────────┘ │                     ▼   ▼   │
+  └─────┬──────┘            ┌────────────────────────────────┐
+        │                   │ kobako-codec — the dialect     │
+  ┌─────▼──────┐            │ one namespace per schema       │
+  │ ext/       │            └────────────────────────────────┘
+  │ shuttle    │  no dialect: Ruby's values on one side of it,
+  └─────┬──────┘  the driver's bytes on the other
+        │
+        │      ┌─ the SDK drives this too, or an engine you bring
+  ┌─────▼──────▼───────────┐                  ┌──────────────────┐
+  │ kobako-wasmtime        │ one engine       │ kobako-core      │
+  │ ────────────────────── │                  │ the guest ABI    │
+  │ kobako-runtime         │ the contract     │                  │
+  └───────────┬────────────┘                  └─────────┬────────┘
+              │                               │         │
+ ═════════════▼═══════════════════════════════╪═════════▼════════════════════
+         kobako-transport — the grammar: the core envelope + the ABI's
+         values. Depends on nothing; everything above depends on it.
+```
+
 | Part | Owns | Depends on |
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | nothing, ever |
