@@ -21,8 +21,6 @@ pub enum Value {
     Handle(u32),
 }
 
-impl Value {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
