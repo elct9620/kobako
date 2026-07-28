@@ -53,6 +53,14 @@ A Handle representation is optional. Without one, Handles ride only the
 envelope's `target` field — a guest still reaches a stateful receiver and only
 forgoes passing Handles as arguments.
 
+The obligations are the wire's, and the two endpoints do not carry equal
+shares of them. A guest codec fills every position above. A Rust host built on
+the SDK fills all of them but the fault body, which the SDK writes in the
+default codec on the host's behalf — so a replacement schema owns a dispatch's
+success and not its refusal. A host whose refusals must speak its own schema
+builds on `kobako-transport` + `kobako-runtime` + `kobako-wasmtime` directly
+and frames the Reply itself, forgoing the SDK's Handle table and block yields.
+
 **Where the choice is named.** A guest shell names it once, on the associated
 type:
 
