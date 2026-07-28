@@ -77,7 +77,15 @@ pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 /// `nil` (the caller passed no block). Drop pops the block when the
 /// dispatch bridge frame returns, so its several return points need no
 /// manual pop.
-pub(crate) struct BlockFrame {
+///
+/// Public because a block is not the built-in proxy's alone: a
+/// capability gem that defines a Ruby-visible method taking one reaches
+/// the host the same way. Its obligation is this guard's shape — hold it
+/// across the `kobako_core::transport::proxy::dispatch` call and pass
+/// `block_given: true` alongside — because the host's yield re-enters
+/// through a separate ABI export while that dispatch frame is still
+/// parked, and `BLOCK_STACK` is where the re-entry looks.
+pub struct BlockFrame {
     active: bool,
 }
 
@@ -85,7 +93,7 @@ impl BlockFrame {
     /// Push `block` onto `BLOCK_STACK` when it is non-nil and return
     /// a guard whose drop pops the same frame. When `block` is nil the
     /// guard is inert — `Drop` is a no-op.
-    pub(crate) fn push_if_block(block: Value) -> Self {
+    pub fn push_if_block(block: Value) -> Self {
         let active = !block.is_nil();
         if active {
             BLOCK_STACK.push(block);

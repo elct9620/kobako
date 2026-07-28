@@ -45,6 +45,7 @@ pub(crate) mod codec_slot;
 mod init;
 mod values;
 
+pub use block_stack::BlockFrame;
 pub use values::IntegerOutOfRange;
 
 use beni::sys;

@@ -27,6 +27,13 @@ module KobakoPubSurface
   CODEC_REASON = "payload-codec API — what a shell-supplied codec implements " \
                  "and calls; the bundled MessagePack one is the only in-repo user"
 
+  # The block seam. A capability gem defining a Ruby-visible method that
+  # takes a block holds this guard across its dispatch, the way the
+  # built-in proxy does — and the built-in is the only in-repo caller,
+  # which the grep reads as no downstream consumer.
+  BLOCK_REASON = "guest block seam — what a capability gem holds across its own " \
+                 "dispatch; the built-in proxy is the only in-repo user"
+
   # Pub items confirmed to stay public for a reason the in-repo grep cannot
   # see — macro-expanded third-party API, or pub reachability a
   # placeholder-rule crate relies on. gate:surface fails the day an entry
@@ -53,6 +60,8 @@ module KobakoPubSurface
                              PayloadCodec CodecError Arguments
                              IntegerOutOfRange unrepresentable message mint_handle narrow_int
                            ].to_h { |name| [name, CODEC_REASON] })
+                           .merge(%w[BlockFrame push_if_block]
+                                    .to_h { |name| [name, BLOCK_REASON] })
   }.freeze
 
   # A crate's public Rust surface; +pub(crate)+ and narrower stay out,

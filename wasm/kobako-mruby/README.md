@@ -18,6 +18,9 @@ contract over mruby:
 - `KobakoBridge` — the single built-in gem, installed by the provided
   flows themselves: the `Kobako` module, Service / Handle dispatch
   to the host, and the block machinery
+- `BlockFrame` — the block seam a capability gem holds across its own
+  dispatch, so a gem-defined method takes a block the same way the
+  built-in proxy does
 - mruby ↔ wire value conversion between `beni` values and the
   [kobako-codec](https://crates.io/crates/kobako-codec) codec
 

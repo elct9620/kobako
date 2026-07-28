@@ -34,7 +34,7 @@ mod runtime;
 pub use codec::{Arguments, CodecError, PayloadCodec};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
-pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
+pub use runtime::{BlockFrame, InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
 
