@@ -1,7 +1,7 @@
-//! The decoded-value enum the codec accepts, restricted to the 12 codec
+//! The decoded-value enum the codec accepts, restricted to the 11 codec
 //! types the kobako wire allows.
 
-/// A decoded msgpack value, restricted to the 12 codec types the kobako
+/// A decoded msgpack value, restricted to the 11 codec types the kobako
 /// codec accepts (docs/wire/payload-msgpack.md § Type Mapping). Anything outside
 /// this set is rejected at decode time with `Error::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn value_variants_cover_twelve_codec_types() {
+    fn value_variants_cover_the_closed_wire_type_set() {
         let _ = Value::Nil;
         let _ = Value::Bool(true);
         let _ = Value::Int(-1);
