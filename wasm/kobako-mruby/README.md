@@ -32,7 +32,7 @@ and emits the wasm exports:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-mruby = "0.12.0" # x-release-please-version
+kobako-mruby = { version = "0.12.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.12.0" # x-release-please-version
 beni = "0.3"
 ```
@@ -43,6 +43,11 @@ use beni::{Error, Mrb};
 struct MyGuest;
 
 impl kobako_mruby::MrbGuest for MyGuest {
+    // The bundled schema, behind the `msgpack` feature above. A shell
+    // speaking its own wire names its own PayloadCodec here instead and
+    // leaves the feature off.
+    type Codec = kobako_mruby::MsgpackCodec;
+
     // KobakoBridge is the harness built-in; the hook names only the
     // shell's additional gems — Ok(()) yields a bridge-only guest.
     fn init_gems(_mrb: &Mrb) -> Result<(), Error> {

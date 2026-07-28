@@ -44,7 +44,10 @@ kobako-core = { path = "../kobako-core" }
 
 # `kobako-mruby` — the assembled mruby implementation (sibling
 # workspace member): the `MrbGuest` harness this shell implements.
-kobako-mruby = { path = "../kobako-mruby" }
+# `msgpack` is named here rather than inherited: the schema is the
+# shell's choice, and this shell is the one the gem ships, so it picks
+# what the Ruby frontend speaks.
+kobako-mruby = { path = "../kobako-mruby", features = ["msgpack"] }
 
 # `kobako-io` — sandbox IO / Kernel capability gem (sibling workspace
 # member), wired by `KobakoGuest::init_gems`.

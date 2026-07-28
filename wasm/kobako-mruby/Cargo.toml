@@ -22,10 +22,12 @@ categories = ["wasm"]
 
 [features]
 # The bundled MessagePack payload codec — `MsgpackCodec` and the
-# mruby ↔ wire value walk beneath it. On by default because it is what
-# the shipped Guest Binary and the Ruby frontend speak; a shell naming
-# its own `MrbGuest::Codec` turns it off and carries no MessagePack.
-default = ["msgpack"]
+# mruby ↔ wire value walk beneath it. Off by default: this crate is a
+# harness someone else always composes, and the schema is the shell's
+# choice to make, so naming the harness pulls in no codec at all. The
+# shipped `kobako-wasm` shell turns it on because the Guest Binary
+# speaks what the Ruby frontend speaks.
+default = []
 msgpack = ["dep:kobako-codec", "kobako-codec/msgpack"]
 
 [dependencies]

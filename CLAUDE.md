@@ -165,13 +165,14 @@ Mirrors `lib/` tier-for-tier — `crates/kobako-codec` is the payload layer's wi
 
 ```
 kobako-wasm     unpublished leaf shell (cdylib-only) — KobakoGuest names the
-      │           payload codec and wires the capability gems via init_gems;
-      │           export_guest! emits the __kobako_* ABI exports
+      │           payload codec (asking kobako-mruby for `msgpack`) and wires
+      │           the capability gems via init_gems; export_guest! emits the
+      │           __kobako_* ABI exports
 kobako-mruby    assembled mruby implementation (publishable rlib) — MrbGuest trait
       │           (required init_gems hook + MrbGuest::Codec choice; provided
       │           eval / run / yield flows), per-invocation entry flows, Kobako
       │           runtime bridge, and the default MessagePack codec behind the
-      │           on-by-default `msgpack` feature
+      │           off-by-default `msgpack` feature the shell opts into
 kobako-io / kobako-regexp / kobako-json
       │         capability gems (publishable rlibs, kobako-mruby-free) — pure-Rust
       │           beni::Gem impls over wasi-libc write(2) / fancy-regex / serde_json
