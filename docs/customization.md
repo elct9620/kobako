@@ -22,7 +22,8 @@ listed obligation is what an implementation is held to.
 | Capability set | `MrbGuest::init_gems` | guest |
 | Invocation flow | a `Guest` method implemented rather than forwarded | guest |
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest |
-| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | host |
+| Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK |
+| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the
 same for every assembly — that is what makes the parts interchangeable at all
@@ -147,3 +148,14 @@ per-invocation types (`Snapshot`, `Completion`, `Capture`, `Usage`, `Trap`).
 `crates/kobako-wasmtime` is one implementation of it. An engine that satisfies
 the contract carries every frontend above it unchanged, because no frontend
 names an engine type.
+
+The Rust host SDK takes one at `Sandbox::with_runtime`, so a host that brings
+its own engine keeps the whole tier above it — Catalog, Handles, snippet
+replay, Extension composition. Only the isolation floor crosses that seam: the
+engine's own caps are configured where the engine is built, and the SDK checks
+the posture the engine declares against the floor the host asked for, refusing
+construction below it rather than trusting the declaration. `Sandbox::new` is
+the same path with the bundled wasmtime engine built for you.
+
+The Ruby frontend takes no such seam. `Kobako::Runtime` is pinned to the
+wasmtime driver, so engine choice there means choosing a different frontend.

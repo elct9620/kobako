@@ -22,7 +22,7 @@ use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
-use crate::error::Error;
+use crate::error::{Error, SetupError};
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::HandleTable;
@@ -103,7 +103,10 @@ impl Registry {
 /// The reused Sandbox holds only sealed config — no per-invocation
 /// state — so it is the config tier and the `Execution` is the result.
 pub struct Sandbox {
-    driver: Driver,
+    // Held behind the contract rather than as the bundled driver, so an
+    // engine the caller brought carries this whole tier unchanged —
+    // nothing above this field names a wasm engine.
+    runtime: Box<dyn Runtime + Send + Sync>,
     // Behind a `Mutex` so the first `eval` / `run` can seal it through
     // `&self`: setup verbs reach it with `get_mut` (they hold `&mut self`,
     // before the Sandbox is shared), the seal locks it. `Send + Sync`, so
@@ -113,9 +116,10 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    /// Load a Guest Binary under the given caps. Fails with
-    /// `Error::Setup` when the artifact is absent or unusable, or when
-    /// the driver's declared posture falls below the requested floor.
+    /// Load a Guest Binary under the given caps, on the bundled wasmtime
+    /// engine. Fails with `Error::Setup` when the artifact is absent or
+    /// unusable, or when the engine's declared posture falls below the
+    /// requested floor.
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         let config = Config {
             timeout: options.timeout,
@@ -125,8 +129,31 @@ impl Sandbox {
         };
         let driver =
             Driver::new(wasm_path.as_ref(), options.memory_limit, config).map_err(Error::Setup)?;
+        Sandbox::with_runtime(driver, options.profile)
+    }
+
+    /// Drive a guest through an engine of the caller's own — anything
+    /// satisfying the `kobako-runtime` contract, which is where the
+    /// engine's own caps (its artifact, timeout, and memory limit) are
+    /// configured, since only the isolation floor is this tier's business.
+    ///
+    /// `floor` is a request the engine's declaration must meet, not an
+    /// equality: a stricter posture constructs, a weaker one fails with
+    /// `Error::Setup` rather than running untrusted code under less
+    /// isolation than the host asked for.
+    pub fn with_runtime(
+        runtime: impl Runtime + Send + Sync + 'static,
+        floor: Profile,
+    ) -> Result<Self, Error> {
+        let declared = runtime.profile();
+        if declared < floor {
+            return Err(Error::Setup(SetupError::Dead(format!(
+                "runtime declares the {declared:?} isolation profile, \
+                 below the requested {floor:?} floor"
+            ))));
+        }
         Ok(Sandbox {
-            driver,
+            runtime: Box::new(runtime),
             registry: Mutex::new(Registry::Open(Catalog::default())),
             extensions: Extensions::default(),
         })
@@ -323,7 +350,7 @@ impl Sandbox {
         let preamble = catalog.preamble();
         let snippets = catalog.snippets.frame();
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self.driver.invoke(
+        let snapshot = self.runtime.invoke(
             entry,
             Frames {
                 preamble: &preamble,
