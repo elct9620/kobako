@@ -83,12 +83,17 @@ pub trait Receiver: Any + Send + Sync {
 }
 
 #[cfg(feature = "msgpack")]
-/// A Receiver that speaks kobako's default payload codec: positional
-/// and keyword arguments as wire `Value`s, answering with one.
+/// A Receiver that speaks a value tree: positional and keyword arguments
+/// as wire `Value`s, answering with one.
 ///
-/// This is the shape a Service written against the bundled mruby guest
-/// wants. `ValueAdapter` bridges it onto the opaque `Receiver` the
-/// Catalog stores.
+/// The shape is a class of codec's, not one codec's — any schema that can
+/// carry the whole `Value` set fills it, and the bundled MessagePack one
+/// is the instance in this build. A schema that cannot carry some of the
+/// set (JSON has no byte string and no ext) does not belong here; it
+/// implements `Receiver` directly and owns its own bytes.
+///
+/// `ValueAdapter` bridges this onto the opaque `Receiver` the Catalog
+/// stores.
 pub trait ValueReceiver: Any + Send + Sync {
     fn call(
         &self,
@@ -108,8 +113,9 @@ pub trait ValueReceiver: Any + Send + Sync {
 }
 
 #[cfg(feature = "msgpack")]
-/// Binds a `ValueReceiver` into a Catalog by decoding the payload with
-/// the MessagePack codec and encoding the answer back.
+/// Binds a `ValueReceiver` into a Catalog by decoding the payload into a
+/// value tree and encoding the answer back — with the codec this build
+/// resolves to, which is the bundled MessagePack one.
 ///
 /// A malformed payload and an unencodable answer both surface as a
 /// `runtime` fault, matching how the Ruby frontend folds the same two

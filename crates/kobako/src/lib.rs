@@ -43,6 +43,11 @@ pub use error::{Error, Failure};
 pub use execution::Execution;
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
+/// The value tree the `Value`-flavoured surface speaks.
+///
+/// Its variant set is one schema's type mapping, not a neutral one, so a
+/// codec that cannot carry every variant is not a candidate for that
+/// surface — it implements `Receiver` and owns its own bytes instead.
 #[cfg(feature = "msgpack")]
 pub use kobako_codec::msgpack::codec::Value;
 pub use kobako_runtime::profile::Profile;

@@ -1,5 +1,12 @@
 //! The decoded-value enum the codec accepts, restricted to the 11 codec
 //! types the kobako wire allows.
+//!
+//! The set is this namespace's, derived from one schema's type mapping:
+//! `Sym` is an ext 0x00 frame, `Handle` an ext 0x01 one, and both the
+//! signed/unsigned and text/bytes splits are MessagePack's. A second
+//! namespace that can carry the same set reuses this type as it stands;
+//! lifting it above the namespace would first mean deciding what the set
+//! means to a schema that cannot carry all of it.
 
 /// A decoded msgpack value, restricted to the 11 codec types the kobako
 /// codec accepts (docs/wire/payload-msgpack.md § Type Mapping). Anything outside
