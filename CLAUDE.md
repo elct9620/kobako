@@ -129,11 +129,11 @@ Root            dependency-free value objects and error classes at Kobako::* —
 
 The core envelope has no tier here: the native side frames and decodes it, so Ruby receives a Call with its routing fields already read and answers with the arm it chose plus that arm's bytes.
 
-**Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. `Kobako::Handle` (ext 0x01) and `Kobako::Fault` (ext 0x02) are consumed almost entirely by Transport, yet sit at the root because `Codec` — below Transport — must register them; nesting them under `Transport` would force `Codec` to depend upward. When unsure, put the type at the **lowest tier that needs it**.
+**Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. `Kobako::Handle` (ext 0x01) is consumed almost entirely by Transport, yet sits at the root because `Codec` — below Transport — must register it; nesting it under `Transport` would force `Codec` to depend upward. When unsure, put the type at the **lowest tier that needs it**.
 
 **Accepted lateral edge:** `Outcome` requires `transport/error.rb`. The `Kobako::Transport::Error` name is SPEC-pinned (SPEC.md "Wire-level error class"), so the class stays at its namespace path; the file itself depends only on root `errors.rb`, so the edge cannot close into a cycle. Do not relocate the definition to "fix" this.
 
-**Per-operation codec state:** `Codec.forbid_faults` and `Codec.track_handles` are brackets over the Codec tier's private `State` — `forbid_faults` enforces that a Fault (ext 0x02) is legal only in a Reply's fault body, so every payload-position decode is wrapped in it (E-50). Brackets wrap **only the decode call**: a bracket spanning guest re-entry would leak the flag into nested operations.
+**Per-operation codec state:** `Codec.track_handles` is a bracket over the Codec tier's private `State`, letting a Handle-free decode skip the downstream resolution walk. A bracket wraps **only the decode call**: one spanning guest re-entry would leak its flag into nested operations.
 
 ### Host native stack (`ext/` + `crates/`)
 
@@ -198,7 +198,7 @@ Entry points only — siblings are reachable from there. Notes carry only what r
 
 | Topic | Entry points | Notes |
 |-------|--------------|-------|
-| Wire format / codec | core envelope + ABI values `crates/kobako-transport/src/{envelope/,abi.rs}` (one implementation, both sides); payload host `lib/kobako/{codec,payload}/`, guest `crates/kobako-codec/src/msgpack/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md` is the anchor over two layers — `docs/wire/envelope.md` (fixed-layout core) and `docs/wire/payload-msgpack.md` (default payload codec). Ext-type leaves are root-level: `Kobako::Handle` (0x01), `Kobako::Fault` (0x02). |
+| Wire format / codec | core envelope + ABI values `crates/kobako-transport/src/{envelope/,abi.rs}` (one implementation, both sides); payload host `lib/kobako/{codec,payload}/`, guest `crates/kobako-codec/src/msgpack/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md` is the anchor over two layers — `docs/wire/envelope.md` (fixed-layout core) and `docs/wire/payload-msgpack.md` (default payload codec). The one ext-type leaf is root-level: `Kobako::Handle` (0x01). A Fault rides the envelope, not the payload. |
 | Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | E-xx anchors in `docs/behavior/errors.md`. |
 | Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako-mruby/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the Proc `Kobako::Context` passes to `Runtime#eval` / `#run` per invocation (`lib/kobako/transport/dispatcher.rb`). Every invocation settles into a frozen `Kobako::Execution` (`lib/kobako/execution.rb`), returned on success and carried on a failed run's error. B-xx in `docs/behavior/lifecycle.md` and `invocation.md`. |
 | Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. SPEC B-04. |
