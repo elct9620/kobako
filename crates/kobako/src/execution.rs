@@ -90,7 +90,7 @@ impl Execution {
     /// the one step that needs a schema; a host with its own reads
     /// `payload` instead. It runs per call, so a caller reading the value
     /// more than once holds onto what it gets.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn value(&self) -> Result<Value, Error> {
         let bytes = self.outcome.as_ref().map_err(Clone::clone)?;
         let value = crate::outcome::decode_value(bytes)?;
@@ -102,12 +102,12 @@ impl Execution {
     /// ergonomic path for a caller that wants the value and lets a guest
     /// failure propagate with `?`. Reach for the captures / `usage`
     /// before calling this, since it drops them.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn into_value(self) -> Result<Value, Error> {
         self.value()
     }
 
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
         match value {
             Value::Handle(id) => self.resolve(value).map(|_| ()).ok_or_else(|| {
@@ -134,7 +134,7 @@ impl Execution {
     /// invocation that produced it. Upcast the `Arc` to
     /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
     /// concrete receiver type.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         Handles::new(&self.handles).resolve_value(value)
     }

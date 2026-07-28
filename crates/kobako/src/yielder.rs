@@ -112,7 +112,7 @@ impl<'y> Yielder<'y> {
     /// The bundled codec's spelling of `call_payload`: encode the
     /// positional arguments as one msgpack array and decode what the
     /// block answered.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
         let payload = encode_args(args)?;
         let body = self.call_payload(&payload)?;

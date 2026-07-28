@@ -264,7 +264,7 @@ impl Sandbox {
     /// capability Handle before the envelope encodes. Host pre-flight refuses a
     /// non-constant `target` before the invocation seals the tables, matching
     /// the Ruby frontend's ordering.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn run(
         &self,
         target: &str,
@@ -282,7 +282,7 @@ impl Sandbox {
     /// Ruby frontend's `#run(target, ...) { |ctx| ctx.bind(...) }`, the `run`
     /// counterpart of `eval_with`. The closure runs before the guest drives and
     /// binds overrides under the same rules `eval_with` documents.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn run_with<F>(
         &self,
         target: &str,

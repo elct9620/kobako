@@ -46,7 +46,7 @@ pub use kobako_runtime::profile::Profile;
 pub use receiver::{Fault, FaultKind, Receiver};
 #[cfg(feature = "msgpack")]
 pub use receiver::{ValueAdapter, ValueReceiver};
-pub use sandbox::{Context, Options, Sandbox, Usage};
 #[cfg(feature = "msgpack")]
 pub use sandbox::RunArg;
+pub use sandbox::{Context, Options, Sandbox, Usage};
 pub use yielder::{YieldError, Yielder};

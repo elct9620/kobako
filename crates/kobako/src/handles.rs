@@ -94,7 +94,7 @@ impl<'a> Handles<'a> {
 
     /// The bundled codec's spelling: resolve a `Value::Handle`, and
     /// nothing else, through `resolve`.
-#[cfg(feature = "msgpack")]
+    #[cfg(feature = "msgpack")]
     pub fn resolve_value(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
         let Value::Handle(id) = value else {
             return None;
