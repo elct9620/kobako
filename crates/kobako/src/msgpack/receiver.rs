@@ -77,6 +77,12 @@ impl<V> IntoReceiver<V> {
     pub fn into_inner(self) -> Arc<V> {
         self.0
     }
+
+    /// That same handle, borrowed — what `resolve_as` clones out when it
+    /// walks a resolved receiver back to the type that bound it.
+    pub(crate) fn shared(&self) -> &Arc<V> {
+        &self.0
+    }
 }
 
 impl<V: ValueReceiver> Receiver for IntoReceiver<V> {

@@ -446,8 +446,17 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
             .first()
             .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label got an empty Array"))?;
     }
+    // A Handle is an id wherever it travels; this schema spells one as
+    // `Value::Handle`, so reading it out is a destructure and the table
+    // takes it from there.
+    let Value::Handle(id) = arg else {
+        return Err(Fault::new(
+            FaultKind::Runtime,
+            "read_label needs a live Handle",
+        ));
+    };
     let object = handles
-        .resolve_value(arg)
+        .resolve(*id)
         .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs a live Handle"))?;
     // Reaching another Receiver means speaking its schema: every stub
     // here stands at the value seam, so encode the empty argument payload and
@@ -726,7 +735,10 @@ fn tag_value(value: &Value, execution: &Execution, opaques: &Opaques) -> Json {
 /// closed-DSL scenario produces one). Resolves against the invocation's
 /// own `Execution`, which owns the Handle table its result stands in.
 fn handle_label(value: &Value, execution: &Execution, opaques: &Opaques) -> Option<String> {
-    let resolved = execution.resolve_value(value)?;
+    let Value::Handle(id) = value else {
+        return None;
+    };
+    let resolved = execution.resolve(*id)?;
     opaques
         .iter()
         .find(|(_, object)| Arc::ptr_eq(object, &resolved))

@@ -217,10 +217,14 @@ mod tests {
                     .alloc(Arc::new(Tagged("bob").into_receiver()))
                     .map(Value::Handle),
                 "read_label" => {
-                    let object = args
-                        .first()
-                        .and_then(|arg| handles.resolve_value(arg))
-                        .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
+                    // A Handle is an id wherever it travels; this schema
+                    // spells one as `Value::Handle`, so reading it out is
+                    // a destructure and the table takes it from there.
+                    let object = match args.first() {
+                        Some(Value::Handle(id)) => handles.resolve(*id),
+                        _ => None,
+                    }
+                    .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
                     // Reaching another Receiver means speaking its schema:
                     // this one stands at the value seam, so encode the empty
                     // argument payload and decode what it answers with.

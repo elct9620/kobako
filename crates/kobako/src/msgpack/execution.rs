@@ -1,12 +1,9 @@
 //! The outcome position: a run's result read back as a value tree.
 
-use std::sync::Arc;
-
 use kobako_codec::msgpack::codec::{Decoder, Value};
 
 use crate::error::{Error, Failure};
 use crate::execution::Execution;
-use crate::receiver::Receiver;
 
 /// SPEC-pinned wire-level error class, carried as the attribution of
 /// host-detected wire violations on both frontends.
@@ -34,15 +31,6 @@ impl Execution {
     /// before calling this, since it drops them.
     pub fn into_value(self) -> Result<Value, Error> {
         self.value()
-    }
-
-    /// The bundled codec's spelling: resolve a `Value::Handle`, and
-    /// nothing else, through `resolve`.
-    pub fn resolve_value(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
-        let Value::Handle(id) = value else {
-            return None;
-        };
-        self.resolve(*id)
     }
 
     fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
