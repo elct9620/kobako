@@ -43,9 +43,10 @@ the envelope, the ABI, and the version untouched.
 The two endpoints carry equal shares of that. A guest fills every position
 below; a Rust host built on the SDK fills the same set, because each one has a
 byte-level entry there — a dispatch's arguments and answer at `Receiver`, a
-`run` payload at `Sandbox::run_payload`, a yield at `Yielder::call_payload`, an
-invocation's result at `Execution::payload`. Neither endpoint owes anything at
-a Reply's fault arm, which rides the envelope.
+`run` payload at `RunPayload::bytes` or `RunPayload::build`, a yield at
+`Yielder::call_payload`, an invocation's result at `Execution::payload`.
+Neither endpoint owes anything at a Reply's fault arm, which rides the
+envelope.
 
 **Obligations** (→ [`wire-codec.md`](wire-codec.md) § What a replacement codec
 must provide):
@@ -76,9 +77,11 @@ impl MrbGuest for MyGuest {
 
 A Rust host names its choice by what it builds against. Every payload position
 is bytes by default, and the `msgpack` feature adds the bundled codec's
-spelling of each — `ValueReceiver` plus `ValueAdapter`, `Sandbox::run`,
+spelling of each — `ValueReceiver` plus `ValueAdapter`, `RunPayload::values`,
 `Yielder::call`, `Execution::value`. A host with its own schema turns the
-feature off and implements the byte-level surface.
+feature off and implements the byte-level surface. A verb belongs to no
+spelling: `run` takes whichever payload it is handed, so the feature governs
+what a host is offered, never what it can reach.
 
 **Building without one.** Replaceability is a property of the dependency
 graph, not a flag. `kobako-transport` carries no payload codec at all and
@@ -104,6 +107,13 @@ Each gem is a `beni::Gem`; `kobako-io`, `kobako-regexp`, and `kobako-json` are
 the worked examples, and each is free of any dependency on `kobako-mruby`.
 Returning `Ok(())` yields a bridge-only guest — the wire-tied `KobakoBridge`
 installs itself before the hook runs.
+
+A gem that reaches the host rather than staying in-guest names one more tier
+per thing it needs: `kobako-core` for `transport::proxy::dispatch`, and
+`kobako-mruby` for `BlockFrame` when its methods take a block — the guard held
+across that dispatch, since the host's yield re-enters through a separate
+export while the frame is still parked. Neither tier carries a payload codec,
+so a gem that reaches the wire still names its own schema.
 
 ## Invocation flows
 
