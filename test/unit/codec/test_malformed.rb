@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Payload-codec rejection paths (docs/wire/payload-msgpack.md): truncated input,
-# reserved / unknown tags, invalid UTF-8 in str, and the closed 12-entry
+# reserved / unknown tags, invalid UTF-8 in str, and the closed 11-entry
 # type mapping at encode time. Every violation surfaces through the
 # Kobako::Codec error taxonomy, never a raw Ruby failure.
 class TestCodecMalformed < Minitest::Test
@@ -58,7 +58,7 @@ class TestCodecMalformed < Minitest::Test
   end
 
   def test_unsupported_ruby_type_at_encode
-    # SPEC's 12-entry mapping is closed; types outside it (Object,
+    # SPEC's 11-entry mapping is closed; types outside it (Object,
     # Range, Time, ...) raise UnsupportedTypeError.
     assert_raises(UnsupportedTypeError) { Encoder.encode(Object.new) }
   end

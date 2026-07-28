@@ -206,7 +206,7 @@ impl Kobako {
     /// object on every guest→host value path.
     ///
     /// Returns `None` when `val` has no wire representation: any type
-    /// outside the 12-entry wire set, a collection containing such a value,
+    /// outside the 11-entry wire set, a collection containing such a value,
     /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
     /// cycle necessarily does). No path coerces through an implicit `to_s` /
     /// `inspect`, so the caller surfaces the `None` as a Panic envelope

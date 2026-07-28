@@ -10,7 +10,7 @@
 #        smoke/full split (SPEC: payload upper bound is 16 MiB).
 #   3b — fixed payload, varying nesting depth (1 / 4 / 16 / 64).
 #   3c — per-wire-type micro-bench for every entry in the SPEC.md
-#        Type Mapping table (12 wire types).
+#        Type Mapping table (11 wire types).
 #
 # Host side is measured directly against
 # Kobako::Codec::Encoder / Decoder. Guest side is measured by

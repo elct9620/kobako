@@ -3,7 +3,7 @@
 require "test_helper"
 
 # The factory's BasicObject guard (ExtTypes#register_unrepresentable): a value
-# outside the 12-entry type mapping is rejected as UnsupportedTypeError rather than
+# outside the 11-entry type mapping is rejected as UnsupportedTypeError rather than
 # routed through msgpack's to_msgpack fallback. This makes the host's non-wire
 # detection a positive allowlist, so a permissive method_missing object cannot
 # answer the probe and mis-encode as nil — the host peer of the guest's

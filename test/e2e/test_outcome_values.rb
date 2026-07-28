@@ -113,7 +113,7 @@ class TestE2EOutcomeValues < Minitest::Test
     assert_equal(-268_435_457, sandbox.eval("-268_435_457").value)
   end
 
-  # outcome path: +try_codec_value+ raises on a type outside the 12-entry
+  # outcome path: +try_codec_value+ raises on a type outside the 11-entry
   # wire type set rather than handing the host a misleading String (E-06;
   # SPEC.md pins "no implicit inspect / to_h / to_s conversion"). The
   # transport (dispatch-arg) path rejects the same way (E-55) — its pin
@@ -134,7 +134,7 @@ class TestE2EOutcomeValues < Minitest::Test
 
   # ── Native Array / Hash round-trips (Type Mapping #7-#8) ─────────────
   #
-  # The 12-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
+  # The 11-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
   # msgpack array → mruby Array and msgpack map → mruby Hash. Both
   # directions must travel by value with element-level fidelity (SPEC.md
   # B-13: "Collections (Array, Hash) whose elements are all

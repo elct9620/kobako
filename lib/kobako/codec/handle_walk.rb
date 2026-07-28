@@ -11,7 +11,7 @@ module Kobako
     # path; #deep_restore resolves each wire-decoded Handle back to its
     # host object on every guest→host value path. #representable? is the
     # by-value codec-type predicate that decides which leaves #deep_wrap
-    # must wrap: the closed 12-entry wire type set
+    # must wrap: the closed 11-entry wire type set
     # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
     # Mapping).
     #
@@ -35,7 +35,7 @@ module Kobako
       # Codec-type predicate
       # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
       # Mapping). Returns +true+ when +value+ belongs to the closed
-      # 12-entry codec type set — +nil+, +TrueClass+, +FalseClass+,
+      # 11-entry codec type set — +nil+, +TrueClass+, +FalseClass+,
       # +Integer+ (in the +i64..u64+ value domain), +Float+, +String+,
       # +Symbol+, +Kobako::Handle+, +Array+ whose every element is itself
       # representable, or +Hash+ whose every key and value are

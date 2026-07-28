@@ -17,7 +17,7 @@ module Kobako
     # Input ended before the type prefix or payload was fully consumed.
     class TruncatedInputError < Error; end
 
-    # The type byte at the current position is not in the 12-entry kobako
+    # The type byte at the current position is not in the 11-entry kobako
     # type mapping (e.g. an unknown ext code, or a reserved msgpack tag).
     class InvalidTypeError < Error; end
 
