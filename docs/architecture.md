@@ -154,9 +154,10 @@ endpoint or another assembling those two into a model of its own.
 ### Where a dialect meets objects
 
 An **overlay** is one endpoint's answer to "how does this dialect speak to my
-objects" — decoding a payload into them, wrapping one back out. There are three
-endpoints, so there are three overlays, and each lives where that endpoint's
-own objects live:
+objects" — decoding a payload into them, wrapping one back out, and reaching a
+bound object back through whatever seam that took. There are three endpoints,
+so there are three overlays, and each lives where that endpoint's own objects
+live:
 
 | Endpoint | dialect implementation | overlay |
 |---|---|---|

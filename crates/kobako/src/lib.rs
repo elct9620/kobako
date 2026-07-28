@@ -12,15 +12,19 @@
 //! # Payloads and the `msgpack` feature
 //!
 //! Every payload position — a dispatch's arguments and answer, a `run`
-//! payload, a yield, an invocation's result — has a byte-level entry,
-//! because what those bytes mean is the host's own choice of schema.
-//! `Receiver`, `RunPayload::bytes` / `build`, `Yielder::call_payload`,
-//! and `Execution::payload` are that surface.
+//! payload, a yield, an invocation's result, and the host object a
+//! Handle stands for — has a byte-level entry, because what those bytes
+//! mean is the host's own choice of schema. `Receiver`,
+//! `RunPayload::bytes` / `build`, `Yielder::call_payload`,
+//! `Execution::payload`, and `resolve` on `Handles` / `Execution` are
+//! that surface. The last takes an id, because an id is what the Handle
+//! table owns and spelling one is the schema's business.
 //!
 //! The default `msgpack` feature adds the bundled codec's spelling of
-//! each, in the `msgpack` module: `ValueReceiver`, `RunPayload::values`,
-//! `Yielder::call_values`, `Execution::value`, and the `Value` type they speak
-//! in. Every member there is a thin wrapper over the byte-level entry it
+//! each, in the `msgpack` module: `ValueReceiver` and its
+//! `into_receiver`, `RunPayload::values`, `Yielder::call_values`,
+//! `Execution::value`, `resolve_as`, and the `Value` type they speak in.
+//! Every member there is a thin wrapper over the byte-level entry it
 //! flavours, so a verb never belongs to one spelling — `run` takes
 //! whichever payload it is handed — and turning the feature off removes
 //! conveniences, not capabilities. The crate then resolves to no payload

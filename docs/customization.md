@@ -89,11 +89,19 @@ impl MrbGuest for MyGuest {
 
 A Rust host names its choice by what it builds against. Every payload position
 is bytes by default, and the `msgpack` feature adds the bundled codec's
-spelling of each — `ValueReceiver` plus `ValueAdapter`, `RunPayload::values`,
-`Yielder::call`, `Execution::value`. A host with its own schema turns the
-feature off and implements the byte-level surface. A verb belongs to no
+spelling of each in a `msgpack` module — `ValueReceiver` and its
+`into_receiver`, `RunPayload::values`, `Yielder::call_values`,
+`Execution::value`, and `resolve_as` for reaching a bound object back through
+the seam `into_receiver` puts in front of it. A host with its own schema turns
+the feature off and implements the byte-level surface. A verb belongs to no
 spelling: `run` takes whichever payload it is handed, so the feature governs
 what a host is offered, never what it can reach.
+
+A type implementing two schemas' receiver traits has two `into_receiver` in
+scope, and a call is ambiguous until one is named
+(`ValueReceiver::into_receiver(kv)`). Binding an object is choosing the schema
+the guest reaches it through, so that is the choice being asked for rather than
+a collision to work around.
 
 **Building without one.** Replaceability is a property of the dependency
 graph, not a flag. `kobako-transport` carries no payload codec at all and
