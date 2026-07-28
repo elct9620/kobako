@@ -82,7 +82,13 @@ module KobakoWasm
     def input_files
       member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
       files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))
-      files.concat(Dir.glob(File.join(ROOT, "crates", "kobako-codec", member_inputs)))
+      # The two cross-workspace path dependencies the guest compiles in.
+      # `kobako-transport` matters most: it carries the ABI version and
+      # every envelope layout, so a guest built before an edit there
+      # reports a version and speaks a wire the host no longer accepts.
+      %w[kobako-transport kobako-codec].each do |crate|
+        files.concat(Dir.glob(File.join(ROOT, "crates", crate, member_inputs)))
+      end
       files << File.join(WASM_WORKSPACE_DIR, "Cargo.toml")
       files << File.join(WASM_WORKSPACE_DIR, "Cargo.lock")
       files << File.join(WASM_WORKSPACE_DIR, "kobako-baker", "Cargo.lock")
