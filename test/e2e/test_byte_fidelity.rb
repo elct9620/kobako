@@ -6,12 +6,13 @@ require "test_helper"
 # across every guest→host value path: the outcome (#eval return), a
 # dispatch argument, and a dispatch keyword name.
 #
-# An mruby String is a byte array with no encoding tag, so the guest
-# encoder has exactly one rule available: bytes that are valid UTF-8 ride
-# as wire str, anything else as bin (docs/wire/payload-msgpack.md § Type
-# Mapping #5-#6). A Symbol has no such second family — its name rides as
-# ext 0x00, whose payload the wire requires to be UTF-8 — so a name that
-# is not UTF-8 has no representation and is refused.
+# docs/wire/payload-msgpack.md § Text and Bytes: an mruby String is a byte
+# array with no encoding tag, so the guest encoder has exactly one rule
+# available — bytes that are valid UTF-8 ride as wire str, anything else
+# as bin. A Symbol has no such second family (its name rides as ext 0x00,
+# whose payload the wire requires to be UTF-8), so a name that is not
+# UTF-8 has no representation and is refused: E-06 on the outcome path,
+# E-55 on a dispatch argument or keyword name.
 #
 # These are witnesses rather than fuzz cases because the round-trip fuzz
 # in test/fuzz/test_guest_value_fuzz.rb generates only wire-legal values:

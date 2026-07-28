@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# Bytes that are not UTF-8, on every text a Regexp operation reads
-# (SPEC.md B-41).
+# docs/regexp.md RX-09: bytes that are not UTF-8, on every text a Regexp
+# operation reads.
 #
 # The engine matches over `&str` and offsets index into one, so a subject,
 # a pattern, or a replacement whose bytes are not UTF-8 has no text to be.

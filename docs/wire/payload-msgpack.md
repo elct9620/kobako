@@ -69,6 +69,18 @@ The Host Gem represents `Integer` at arbitrary precision; the Guest Binary repre
 
 ---
 
+## Text and Bytes
+
+The Host Gem tags a `String` with an encoding; the Guest Binary's mruby `String` is a byte array carrying no encoding tag. So where the host chooses a family by what the value claims to be, the guest has only one rule available: bytes decide. A guest `String` whose bytes are valid UTF-8 rides as `str`, and any other byte sequence rides as `bin`. Both families are legal at every payload position a value reaches, so the bytes cross intact either way — the guest never renders a `String` into text it is not, which would answer with the bytes a `str` can hold and drop the rest in silence.
+
+**The bytes are preserved; the tag is not.** A host `String` that rode out as `bin` and comes back through the guest arrives as `str` whenever its bytes happen to be valid UTF-8, because the guest had no tag to carry and re-derives one from the bytes. A value whose encoding matters carries it in the value, not in the family.
+
+Choosing by tag lets the two disagree: a host `String` tagged UTF-8 whose bytes are not rides as `str`, which the family does not allow. The guest's decoder rejects it as the wire violation it is, so the invocation fails the way that path already fails on a malformed payload rather than delivering bytes under a family that promises otherwise.
+
+A `Symbol` has no second family: its name rides as ext 0x00, which requires UTF-8. A guest `Symbol` whose name is not UTF-8 therefore has no wire representation at all, and the guest refuses it on each guest→host path the way that path already refuses an unrepresentable value — a return value as E-06, a dispatch argument or keyword name as E-55, a yield-block result as E-22 (→ [`../behavior/errors.md`](../behavior/errors.md)). The reverse direction does not arise: a host `Symbol` is UTF-8 by construction.
+
+---
+
 ## Structural Nesting Depth
 
 Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit.
@@ -86,6 +98,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | Payload position | Accepted family | Violation handling |
 |---|---|---|
 | `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
+| Reply ok body, Yield Reply ok / break body, Outcome result body | str or bin (context-determined) | both are legal |
 | Fault `type` field value | str only | bin → wire violation, reject |
 | Fault `message` field value | str only | bin → wire violation, reject |
 | Fault map keys (`type`, `message`) | str or bin (UTF-8 validated) | non-UTF-8 content → wire violation, reject |
@@ -109,7 +122,7 @@ Symbols travel as ext 0x00. A Symbol encoded on one side and decoded on the othe
 | n | `0x00` — kobako ext type code |
 | n+1.. | UTF-8 bytes of the symbol name |
 
-The payload bytes MUST decode as UTF-8. A non-UTF-8 payload is a wire violation: encoders SHOULD validate UTF-8 before emitting, and decoders MUST reject the payload rather than fall back to a binary-encoded Symbol. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
+The payload bytes MUST decode as UTF-8. A non-UTF-8 payload is a wire violation: encoders MUST validate UTF-8 before emitting — a name that fails leaves the Symbol with no representation, not with a substitute one (→ § Text and Bytes) — and decoders MUST reject the payload rather than fall back to a binary-encoded Symbol. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
 
 Position rules for ext 0x00:
 

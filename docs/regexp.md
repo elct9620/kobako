@@ -221,3 +221,19 @@ pattern is shared.
 The cache is bounded to a fixed capacity (default 64, configurable at build
 time). When it is full, the least-recently-used entry is dropped and recompiles
 the next time that pattern is used.
+
+### RX-09 — Every text this surface reads must be UTF-8
+
+Matching is defined over text, and offsets are byte offsets into it, so every
+`String` this surface reads is held to being UTF-8: a match subject, a pattern
+source given to `Regexp.new` or produced by coercing a non-`Regexp` pattern
+argument, a substitution's replacement or block result, a `Regexp.escape`
+argument, and a capture name. A `String` whose bytes are not valid UTF-8 raises
+`ArgumentError` at the call that reads it.
+
+Refusing is the only answer that stays honest here, because both silent
+alternatives are wrong in opposite directions: read as empty text, a subject
+reports no match for every pattern while a pattern source matches at every
+position. Unlike a payload `String`, which has a second wire family to ride
+(→ [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Text and Bytes),
+there is no non-UTF-8 regular expression to run.
