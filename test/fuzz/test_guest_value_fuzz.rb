@@ -44,6 +44,12 @@ class TestGuestValueFuzz < Minitest::Test
   # one invocation crosses all four payload positions.
   ECHO_SOURCE = "class Echo; def self.call(value) = Probe::Echo.call(value); end"
 
+  # A generated tree reaches hundreds of kilobytes once the wide bands
+  # nest, which the default cap refuses. The subject here is fidelity and
+  # the caps carry their own coverage (E-20), so this harness lifts the
+  # one that would otherwise decide the run.
+  MEMORY_LIMIT = 64 * 1024 * 1024
+
   def setup
     super
     initialize_fuzzer_params
@@ -70,7 +76,7 @@ class TestGuestValueFuzz < Minitest::Test
   end
 
   def echo_sandbox
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).tap do |sandbox|
+    Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: MEMORY_LIMIT).tap do |sandbox|
       sandbox.preload(code: ECHO_SOURCE, name: :Echo)
       sandbox.bind("Probe::Echo", ->(value) { record(value) })
     end

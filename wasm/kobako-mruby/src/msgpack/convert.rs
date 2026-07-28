@@ -29,7 +29,7 @@
 use crate::codec::CodecError;
 use crate::codec::Fault;
 use crate::runtime::{IntegerOutOfRange, Kobako};
-use beni::Value;
+use beni::{FromValue, Symbol, Value};
 use kobako_codec::msgpack::codec::{self, Decoder, Value as CodecValue};
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
@@ -73,6 +73,34 @@ pub(crate) fn decode_fault(body: &[u8]) -> Result<Fault, codec::Error> {
     })
 }
 
+/// Encode a guest String. mruby carries no encoding tag, so validity is
+/// the only rule available: UTF-8 bytes ride as `str`, any other bytes as
+/// `bin`. Both families are legal wherever a value rides, so the choice
+/// costs nothing and no byte is dropped — where rendering the String
+/// through `Object#to_s` would drop every byte a `str` cannot hold.
+fn string_to_codec(val: Value) -> Option<CodecValue> {
+    let bytes = Vec::<u8>::from_value(val)?;
+    Some(match String::from_utf8(bytes) {
+        Ok(text) => CodecValue::Str(text),
+        Err(err) => CodecValue::Bin(err.into_bytes()),
+    })
+}
+
+/// A Symbol's name, or `None` when it has none the wire can carry. The
+/// name rides as ext 0x00, whose payload the wire requires to be UTF-8,
+/// so a name that is not UTF-8 has no representation — reading the bytes
+/// rather than rendering is what makes that detectable at all.
+fn symbol_name(kobako: &Kobako, symbol: Symbol) -> Option<String> {
+    String::from_utf8(symbol.name_bytes(kobako.mrb())?).ok()
+}
+
+/// Encode a guest Symbol. A name the wire cannot carry leaves the value
+/// unrepresentable, so the caller refuses it rather than interning
+/// something else under a name the guest never wrote.
+fn symbol_to_codec(kobako: &Kobako, val: Value) -> Option<CodecValue> {
+    symbol_name(kobako, Symbol::from_value(val)?).map(CodecValue::Sym)
+}
+
 /// The unpacked form of a dispatch Call's argument list: positional args
 /// followed by Symbol-keyed kwargs pairs.
 type UnpackedArgs = (
@@ -85,11 +113,9 @@ impl Kobako {
     /// `(String, codec::Value)` pairs. The outer `String` carries the
     /// key's name; `payload::Arguments`'s `Encode` impl re-emits
     /// each name as a `Value::Sym` (ext 0x00) per
-    /// docs/wire/payload-msgpack.md § Ext Types. Keys arriving as either
-    /// mruby `Symbol` or `String` reduce
-    /// to the same UTF-8 name via `Object#to_s`. A value with no wire
-    /// representation aborts the walk with `CodecError` so the
-    /// caller raises at the guest dispatch call site rather than coercing it.
+    /// docs/wire/payload-msgpack.md § Ext Types. A key or a value with no
+    /// wire representation aborts the walk with `CodecError` so the caller
+    /// raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
         hash: beni::Hash,
@@ -103,9 +129,27 @@ impl Kobako {
             let encoded = self
                 .try_codec_value(val)
                 .ok_or_else(|| CodecError::unrepresentable(self, val))?;
-            out.push((key_val.to_string(self.mrb()), encoded));
+            let name = self
+                .kwargs_key_name(key_val)
+                .ok_or_else(|| CodecError::unrepresentable(self, key_val))?;
+            out.push((name, encoded));
         }
         Ok(())
+    }
+
+    /// A kwargs name rides as a Symbol (ext 0x00), whose payload the wire
+    /// requires to be UTF-8, so a Symbol or String key reads its own bytes
+    /// and a non-UTF-8 name has no representation. Any other key class
+    /// renders, which loses nothing: only Symbol and String carry bytes a
+    /// render could drop.
+    fn kwargs_key_name(&self, key: Value) -> Option<String> {
+        if let Some(symbol) = Symbol::from_value(key) {
+            return symbol_name(self, symbol);
+        }
+        match Vec::<u8>::from_value(key) {
+            Some(bytes) => String::from_utf8(bytes).ok(),
+            None => Some(key.to_string(self.mrb())),
+        }
     }
 
     /// Convert a dispatch call's positional `rest` slice and its separate
@@ -220,7 +264,6 @@ impl Kobako {
         val: Value,
         depth: usize,
     ) -> Option<kobako_codec::msgpack::codec::Value> {
-        use beni::FromValue;
         // Scalar-leaf downcast through the safe `FromValue` seam.
         if let Some(n) = i32::from_value(val) {
             return Some(CodecValue::Int(n as i64));
@@ -232,8 +275,8 @@ impl Kobako {
             "NilClass" => Some(CodecValue::Nil),
             "TrueClass" => Some(CodecValue::Bool(true)),
             "FalseClass" => Some(CodecValue::Bool(false)),
-            "String" => Some(CodecValue::Str(val.to_string(self.mrb()))),
-            "Symbol" => Some(CodecValue::Sym(val.to_string(self.mrb()))),
+            "String" => string_to_codec(val),
+            "Symbol" => symbol_to_codec(self, val),
             // A Capability Handle the guest received earlier this
             // invocation is wire-representable: re-emit it as ext 0x01 so
             // the host restores the original object.
