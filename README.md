@@ -65,6 +65,8 @@ The gem bundles its Guest Binary; a Rust host loads one explicitly — see [Fron
 
 Embedding kobako is two independent choices: the **host frontend** you build against, and the **Guest Binary** it runs. They compose freely — any frontend loads any Guest Binary, so a Ruby host can run a JSON-enabled guest and a Rust host can run the pure default.
 
+How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/architecture.md`](docs/architecture.md).
+
 ### Host frontends
 
 The host embeds the sandbox and owns the SPEC wire codec. Choose by your host language and how much of the contract you want pre-assembled.

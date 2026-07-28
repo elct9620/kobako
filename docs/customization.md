@@ -9,6 +9,10 @@ artifacts **we ship** — a matrix of capability gems composed onto one base.
 Customization is the interfaces **a third party replaces**. A variant is
 something to download; a customization point is something to implement.
 
+Which of these interfaces you will meet at all depends on where you build
+from; [`architecture.md`](architecture.md) is that map, and reading it first
+saves implementing a seam your starting point already fixed.
+
 Public names declared here are graded commitments, not guidance (N-9): a name
 listed as stable does not change without an ABI version increment, and a
 listed obligation is what an implementation is held to.
