@@ -82,8 +82,8 @@ messages reaches neither MessagePack nor `kobako-codec`, by the shape of the
 dependency graph rather than by a build flag. `kobako-mruby` carries the
 bundled codec behind its `msgpack` feature; with the feature off, the harness
 has no `MsgpackCodec` to offer and the shell's `MrbGuest::Codec` is the only
-one in the build. `rake gate:payload:optional` holds the claim to a build, so
-"the codec is replaceable" stays checked rather than stated.
+one in the build. kobako compiles those tiers codec-free on every release, so
+"the codec is replaceable" is a claim held to a build rather than stated.
 
 ## Capability set
 
