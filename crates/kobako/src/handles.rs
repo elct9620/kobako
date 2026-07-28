@@ -64,29 +64,40 @@ impl<'a> Handles<'a> {
         Handles { table }
     }
 
-    /// Bind a host object into the invocation's table and return the
-    /// `Value::Handle` token that reaches the guest in its place.
-    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<Value, Fault> {
+    /// Bind a host object into the invocation's table and return the id
+    /// that stands for it on the wire.
+    ///
+    /// An id rather than a `Value::Handle` because a Handle is something
+    /// each schema spells for itself: the id is what the table owns and
+    /// what the guest mints one from, so a Receiver encodes it the way
+    /// its own payload does. `Value::Handle(id)` is that spelling in the
+    /// bundled codec.
+    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, Fault> {
         self.table
             .lock()
             .expect("the Handle table mutex is never poisoned")
             .alloc(object)
-            .map(Value::Handle)
             .map_err(|message| Fault::new(FaultKind::Runtime, message))
     }
 
-    /// Resolve a `Value::Handle` argument to the live host object it
-    /// stands for; `None` for a non-Handle value or an id with no live
-    /// binding. Upcast the `Arc` to `Arc<dyn Any + Send + Sync>` and
-    /// `downcast` to recover the concrete receiver type.
-    pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
-        let Value::Handle(id) = value else {
-            return None;
-        };
+    /// Resolve a Handle id to the live host object it stands for; `None`
+    /// for an id with no live binding. Upcast the `Arc` to
+    /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
+    /// concrete receiver type.
+    pub fn resolve(&self, id: u32) -> Option<Arc<dyn Receiver>> {
         self.table
             .lock()
             .expect("the Handle table mutex is never poisoned")
-            .get(*id)
+            .get(id)
+    }
+
+    /// The bundled codec's spelling: resolve a `Value::Handle`, and
+    /// nothing else, through `resolve`.
+    pub fn resolve_value(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
+        let Value::Handle(id) = value else {
+            return None;
+        };
+        self.resolve(*id)
     }
 }
 
@@ -131,12 +142,12 @@ mod tests {
         let handles = Handles::new(&table);
         let object: Arc<dyn Receiver> = Arc::new(ValueAdapter::new(Probe));
         let token = handles.alloc(object.clone()).unwrap();
-        let resolved = handles.resolve(&token).expect("the id is live");
+        let resolved = handles.resolve(token).expect("the id is live");
         assert!(
             Arc::ptr_eq(&resolved, &object),
             "resolve must yield the very object alloc bound"
         );
-        assert!(handles.resolve(&Value::Int(1)).is_none());
+        assert!(handles.resolve_value(&Value::Int(1)).is_none());
     }
 
     #[test]
@@ -144,7 +155,7 @@ mod tests {
         let table = Mutex::new(HandleTable::default());
         let handles = Handles::new(&table);
         let token = handles.alloc(Arc::new(ValueAdapter::new(Probe))).unwrap();
-        let resolved = handles.resolve(&token).expect("the id is live");
+        let resolved = handles.resolve(token).expect("the id is live");
         let any: Arc<dyn std::any::Any + Send + Sync> = resolved;
         // A Value-based receiver enters the table wrapped, so the Any
         // upcast recovers the adapter; `receiver` reaches the caller's

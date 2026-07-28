@@ -410,7 +410,7 @@ impl ValueReceiver for StubReceiver {
             Some(Behavior::Value(value)) => Ok(value.clone()),
             Some(Behavior::Raise(message)) => Err(Fault::new(FaultKind::Runtime, message.clone())),
             Some(Behavior::YieldEach) => yield_each(args, block),
-            Some(Behavior::Opaque(object)) => handles.alloc(object.clone()),
+            Some(Behavior::Opaque(object)) => handles.alloc(object.clone()).map(Value::Handle),
             Some(Behavior::ReadLabel) => read_label(args, handles),
             Some(Behavior::Counter(count)) => {
                 Ok(Value::Int(count.fetch_add(1, Ordering::Relaxed) as i64 + 1))
@@ -442,7 +442,7 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
             .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label got an empty Array"))?;
     }
     let object = handles
-        .resolve(arg)
+        .resolve_value(arg)
         .ok_or_else(|| Fault::new(FaultKind::Runtime, "read_label needs a live Handle"))?;
     // Reaching another Receiver means speaking its schema: every stub
     // here is a ValueAdapter, so encode the empty argument payload and

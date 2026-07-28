@@ -224,11 +224,13 @@ mod tests {
                     let _ = block.call(&[Value::Int(0)]);
                     Ok(Value::Sym("swallowed".into()))
                 }
-                "make" => handles.alloc(Arc::new(ValueAdapter::new(Tagged("bob")))),
+                "make" => handles
+                    .alloc(Arc::new(ValueAdapter::new(Tagged("bob"))))
+                    .map(Value::Handle),
                 "read_label" => {
                     let object = args
                         .first()
-                        .and_then(|arg| handles.resolve(arg))
+                        .and_then(|arg| handles.resolve_value(arg))
                         .ok_or_else(|| Fault::new(FaultKind::Runtime, "not a live Handle"))?;
                     // Reaching another Receiver means speaking its schema:
                     // this one is a ValueAdapter, so encode the empty

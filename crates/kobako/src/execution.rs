@@ -125,7 +125,7 @@ impl Execution {
     /// `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
     /// concrete receiver type.
     pub fn resolve(&self, value: &Value) -> Option<Arc<dyn Receiver>> {
-        Handles::new(&self.handles).resolve(value)
+        Handles::new(&self.handles).resolve_value(value)
     }
 
     /// Bytes the guest wrote to `$stdout` during this run.
