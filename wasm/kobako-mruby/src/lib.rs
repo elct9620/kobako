@@ -26,15 +26,17 @@
 //! at runtime instead of failing the build.
 
 mod codec;
+mod dispatch;
 mod flows;
 #[cfg(feature = "msgpack")]
 mod msgpack;
 mod runtime;
 
 pub use codec::{Arguments, CodecError, PayloadCodec};
+pub use dispatch::{dispatch, DispatchError, Target};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
-pub use runtime::{BlockFrame, InstallError, IntegerOutOfRange, Kobako};
+pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
 

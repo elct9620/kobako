@@ -34,9 +34,11 @@
 //! `Target` from the receiver's positive identity — a `Kobako::Handle`
 //! instance by its id, a class by its constant path — and refuses in-guest
 //! any receiver that is neither, so a fabricated `Kobako::Proxy` holder
-//! cannot drive a dispatch off arbitrary instance state. The BlockFrame
-//! push, method-symbol extraction, args/kwargs unpacking, host round-trip,
-//! and result conversion all live in `forward_to_dispatch`.
+//! cannot drive a dispatch off arbitrary instance state. Method-symbol
+//! extraction, args/kwargs unpacking, the host round-trip, and result
+//! conversion all live in `forward_to_dispatch`, which reaches the host
+//! through `crate::dispatch` — the same seam a capability gem uses, so the
+//! built-in proxy holds no privilege over one.
 //!
 //! ## Safety
 //!
@@ -121,18 +123,10 @@ fn forward_to_dispatch(
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
-    use super::block_stack::BlockFrame;
-    use kobako_core::transport::proxy::{dispatch, DispatchError};
+    use crate::dispatch::{dispatch, DispatchError};
 
     let (method_sym, rest, kwargs_hash, block) =
         kobako.mrb().get_args::<beni::format::NRestKwBlock>();
-
-    // Push the block onto BLOCK_STACK for the duration of this bridge
-    // frame; drops + pops automatically on return / mruby raise. The
-    // wire-level `block_given` bit is the observable shadow of
-    // the same fact.
-    let block_given = !block.is_nil();
-    let _block_frame = BlockFrame::push_if_block(block);
 
     let method_name = match kobako.mrb().sym_name(method_sym) {
         Some(name) => name,
@@ -155,7 +149,10 @@ fn forward_to_dispatch(
         Err(err) => unsafe { raise_codec_error(&kobako, err, "argument", envelope_err_msg) },
     };
 
-    match dispatch(target, &method_name, block_given, &payload) {
+    // The block parks for the call's duration inside `dispatch`, so every
+    // raise above this line — an unreadable symbol, a denied name, an
+    // argument this schema cannot carry — long-jumps past no guard.
+    match dispatch(target, &method_name, block, &payload) {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
         Ok(body) => match codec_slot::get().decode_value(&kobako, &body) {

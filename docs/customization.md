@@ -116,12 +116,17 @@ the worked examples, and each is free of any dependency on `kobako-mruby`.
 Returning `Ok(())` yields a bridge-only guest — the wire-tied `KobakoBridge`
 installs itself before the hook runs.
 
-A gem that reaches the host rather than staying in-guest names one more tier
-per thing it needs: `kobako-core` for `transport::proxy::dispatch`, and
-`kobako-mruby` for `BlockFrame` when its methods take a block — the guard held
-across that dispatch, since the host's yield re-enters through a separate
-export while the frame is still parked. Neither tier carries a payload codec,
-so a gem that reaches the wire still names its own schema.
+A gem that reaches the host rather than staying in-guest names one more tier:
+`kobako-mruby`, whose `dispatch` rounds one Call through the host. A method
+that takes a block hands it to the same call — the block parks for the call's
+duration there, because the host's yield re-enters through a separate export
+while the dispatch frame is still on the stack. Passing it is the whole
+obligation; a guest that is not mruby reaches `kobako-core`'s
+`transport::proxy::dispatch` directly and states the `block_given` bit itself.
+
+That tier carries no payload codec, so a gem that reaches the wire still names
+its own schema. It encodes the payload before calling and decodes the answer
+after — which is also what keeps a guest-side raise clear of the parked block.
 
 ## Invocation flows
 

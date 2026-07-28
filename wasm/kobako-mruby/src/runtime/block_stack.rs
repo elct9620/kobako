@@ -2,13 +2,14 @@
 //!
 //! When guest code calls `Service.method(...) { ... }`, the C-bridge
 //! captures the block as a non-orphan `mrb_value` via the `"n*&"`
-//! argspec and pushes it onto `BLOCK_STACK` before dispatching to the
-//! host. The host's eventual `__kobako_yield_to_block` re-entry
-//! reads `BLOCK_STACK.last()` to find the block bound to the active
-//! dispatch frame.
+//! argspec and `crate::dispatch` parks it here for the host round-trip.
+//! The host's eventual `__kobako_yield_to_block` re-entry reads
+//! `BLOCK_STACK.last()` to find the block bound to the active dispatch
+//! frame, which is why the park has to outlive the call.
 //!
-//! The wire-level `block_given` bit is the observable shadow of
-//! a push; the yield flow's read is the matching dereference.
+//! The wire-level `block_given` bit is read off the guard rather than
+//! computed beside it, so a parked block and the bit announcing it are
+//! one statement; the yield flow's read is the matching dereference.
 //!
 //! ## Cross-Sandbox isolation
 //!
@@ -78,14 +79,10 @@ pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 /// dispatch bridge frame returns, so its several return points need no
 /// manual pop.
 ///
-/// Public because a block is not the built-in proxy's alone: a
-/// capability gem that defines a Ruby-visible method taking one reaches
-/// the host the same way. Its obligation is this guard's shape — hold it
-/// across the `kobako_core::transport::proxy::dispatch` call and pass
-/// `block_given: true` alongside — because the host's yield re-enters
-/// through a separate ABI export while that dispatch frame is still
-/// parked, and `BLOCK_STACK` is where the re-entry looks.
-pub struct BlockFrame {
+/// Internal because holding it is only half of taking a block, and the
+/// other half is a bit on the wire: `crate::dispatch` owns both so the
+/// two cannot disagree.
+pub(crate) struct BlockFrame {
     active: bool,
 }
 
@@ -93,12 +90,18 @@ impl BlockFrame {
     /// Push `block` onto `BLOCK_STACK` when it is non-nil and return
     /// a guard whose drop pops the same frame. When `block` is nil the
     /// guard is inert — `Drop` is a no-op.
-    pub fn push_if_block(block: Value) -> Self {
+    pub(crate) fn push_if_block(block: Value) -> Self {
         let active = !block.is_nil();
         if active {
             BLOCK_STACK.push(block);
         }
         Self { active }
+    }
+
+    /// Whether this frame parked a block — the wire's `block_given` bit,
+    /// read off the guard so the two cannot be stated differently.
+    pub(crate) fn block_given(&self) -> bool {
+        self.active
     }
 }
 

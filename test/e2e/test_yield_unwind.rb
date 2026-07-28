@@ -109,4 +109,34 @@ class TestE2EYieldUnwind < Minitest::Test
                  "E-23: invoking the Yielder after its dispatch frame " \
                  "returned must raise LocalJumpError host-side")
   end
+
+  # B-28, the refused-call corner: a nested dispatch that never reaches
+  # the host still carries a block, and the guest raises out of it —
+  # through mruby's longjmp, which runs no Rust destructor. If the block
+  # were parked before the argument was encoded, that raise would strand
+  # it on the stack, and the outer Service's next yield would find the
+  # stranded block instead of its own. Encoding first is what keeps the
+  # park strictly inside the call that survives to make it.
+  B28_REFUSED_INNER_SCRIPT = <<~RUBY
+    Probe::Outer.call([1, 2]) do |a|
+      begin
+        Probe::Inner.call(Object.new) { |b| b }
+      rescue Kobako::Transport::Error
+        a * 10
+      end
+    end
+  RUBY
+
+  def test_b28_a_refused_nested_call_leaves_the_outer_block_reachable
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Outer", ->(items, &blk) { items.map(&blk) })
+    sandbox.bind("Probe::Inner", ->(items, &blk) { items.each(&blk) })
+
+    result = sandbox.eval(B28_REFUSED_INNER_SCRIPT).value
+
+    assert_equal [10, 20], result,
+                 "B-28: a nested call refused before it reached the host must leave " \
+                 "the outer Service yielding into its own block, so every outer " \
+                 "iteration still runs the block the outer call site supplied"
+  end
 end
