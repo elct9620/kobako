@@ -103,6 +103,29 @@ impl<'a> Handles<'a> {
     }
 }
 
+/// A Handle table standing on its own, so a `Receiver` can be exercised
+/// without driving a guest.
+///
+/// `Receiver::call` takes a `Handles`, and every real one belongs to an
+/// invocation — which would leave an implementation written outside this
+/// crate with no way to call its own method except through a whole run.
+/// A detached table answers `alloc` and `resolve` the same way; what it
+/// does not have is a guest on the other end, so the ids it issues name
+/// nothing beyond it.
+#[derive(Default)]
+pub struct Detached(Mutex<HandleTable>);
+
+impl Detached {
+    pub fn new() -> Self {
+        Detached::default()
+    }
+
+    /// The view to hand a `Receiver` under test.
+    pub fn view(&self) -> Handles<'_> {
+        Handles::new(&self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

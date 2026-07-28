@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use kobako::handles::Detached;
 use kobako::{Fault, FaultKind, Handles, Options, Receiver, RunPayload, Sandbox, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
@@ -101,6 +102,29 @@ fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
         Value::Str("hi".into()),
         "a run payload the host encoded itself must reach the entrypoint, and its \
          answer must reach the host as bytes the host decodes itself"
+    );
+}
+
+/// A `Receiver` is an interface implemented outside this crate, so it has
+/// to be answerable outside an invocation too — otherwise its author can
+/// only reach their own method by driving a whole guest. This is the
+/// shape that makes it reachable, exercised here on the byte seam because
+/// that is where an implementation with its own schema lives.
+#[test]
+fn a_receiver_answers_through_a_detached_handle_table() {
+    let echo = ByteEcho::new();
+    let table = Detached::new();
+
+    let answer = echo
+        .call("call", &run_args(Value::Int(7)), None, &table.view())
+        .expect("the Receiver answers");
+
+    assert_eq!(
+        decode(&answer),
+        Value::Int(7),
+        "a Receiver reached with a detached Handle table must answer the same call the \
+         dispatch handler would have made, so an implementation outside this crate is \
+         unit-testable without a guest"
     );
 }
 
