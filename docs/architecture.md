@@ -96,6 +96,46 @@ Rust SDK, and so is any host in a language that is not Rust.
 What you inherit at this level is the wire and the ABI. What you owe is
 everything above them.
 
+## The parts
+
+`kobako-codec` is a **dialect** — MessagePack is the one we ship, and another
+schema is another namespace beside it. `kobako-transport` is the **grammar**
+both ends share whatever dialect fills a payload. Everything else is one
+endpoint or another assembling those two into a model of its own.
+
+| Part | Owns | Depends on |
+|---|---|---|
+| `kobako-transport` | the core envelope and the ABI's values | nothing, ever |
+| `kobako-codec` | the payload dialects — one namespace and one feature per schema | nothing |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot` | transport |
+| `kobako-wasmtime` | one engine behind that contract | runtime, transport |
+| `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime, codec *(optional)* |
+| `lib/` | the Ruby host model, and its own implementation of the dialect | the native ext |
+| `ext/` | the magnus surface — a byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
+| `kobako-core` | the guest ABI: the `Guest` trait, `export_guest!`, the dispatch proxy | transport |
+| `kobako-mruby` | the mruby guest model: the `MrbGuest` flows and the wire-tied bridge gem | core, transport, beni, codec *(optional)* |
+| `kobako-io` · `-regexp` · `-json` | capability gems — guest-local behaviour, no wire | beni |
+| `kobako-wasm` | the shipped shell: names the schema and the gem set | all of the guest side |
+
+### Where a dialect meets objects
+
+An **overlay** is one endpoint's answer to "how does this dialect speak to my
+objects" — decoding a payload into them, wrapping one back out. There are three
+endpoints, so there are three overlays, and each lives where that endpoint's
+own objects live:
+
+| Endpoint | dialect implementation | overlay |
+|---|---|---|
+| Ruby gem | `lib/kobako/codec/` — an independent second implementation | `lib/kobako/payload/`, the Handle walk |
+| Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
+| mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
+
+`ext/` has none, and that is not an omission: a shuttle has no objects of its
+own to bind a dialect to — Ruby's values are on one side of it and the driver's
+bytes on the other. The same reasoning places a dialect kobako does not ship:
+its overlay belongs in the crate holding the objects it speaks to, which is why
+one can be written entirely outside this repository.
+
 ## The fixed pillar
 
 `kobako-transport` — the core envelope and the ABI's values — is the same at
