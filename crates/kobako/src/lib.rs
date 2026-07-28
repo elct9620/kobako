@@ -19,7 +19,7 @@
 //!
 //! The default `msgpack` feature adds the bundled codec's spelling of
 //! each, in the `msgpack` module: `ValueReceiver`, `RunPayload::values`,
-//! `Yielder::call`, `Execution::value`, and the `Value` type they speak
+//! `Yielder::call_values`, `Execution::value`, and the `Value` type they speak
 //! in. Every member there is a thin wrapper over the byte-level entry it
 //! flavours, so a verb never belongs to one spelling — `run` takes
 //! whichever payload it is handed — and turning the feature off removes

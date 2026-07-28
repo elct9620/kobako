@@ -203,14 +203,14 @@ mod tests {
                     let block = block.expect("scenario always supplies a block here");
                     let mut out = Vec::with_capacity(args.len());
                     for arg in args {
-                        out.push(block.call(std::slice::from_ref(arg))?);
+                        out.push(block.call_values(std::slice::from_ref(arg))?);
                     }
                     Ok(Value::Array(out))
                 }
                 "ignores_block" => Ok(Value::Sym("ok".into())),
                 "swallow_break" => {
                     let block = block.expect("scenario always supplies a block here");
-                    let _ = block.call(&[Value::Int(0)]);
+                    let _ = block.call_values(&[Value::Int(0)]);
                     Ok(Value::Sym("swallowed".into()))
                 }
                 "make" => handles

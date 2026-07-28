@@ -8,7 +8,7 @@ impl Yielder<'_> {
     /// The bundled codec's spelling of `call_payload`: encode the
     /// positional arguments as one msgpack array and decode what the
     /// block answered.
-    pub fn call(&mut self, args: &[Value]) -> Result<Value, YieldError> {
+    pub fn call_values(&mut self, args: &[Value]) -> Result<Value, YieldError> {
         let body = self.call_payload(&encode_args(args)?)?;
         decode_body(&body)
     }
@@ -69,7 +69,9 @@ mod tests {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
         let mut channel = scripted(vec![reply]);
 
-        let answer = Yielder::new(&mut channel).call(&[Value::Int(21)]).unwrap();
+        let answer = Yielder::new(&mut channel)
+            .call_values(&[Value::Int(21)])
+            .unwrap();
 
         assert_eq!(
             (answer, channel.sent),
@@ -84,7 +86,7 @@ mod tests {
     fn an_ok_arm_this_schema_cannot_read_aborts() {
         let mut channel = scripted(vec![YieldReply::Ok(vec![0xc1]).encode()]);
 
-        let answer = Yielder::new(&mut channel).call(&[]);
+        let answer = Yielder::new(&mut channel).call_values(&[]);
 
         assert!(
             matches!(answer, Err(YieldError::Aborted(_))),

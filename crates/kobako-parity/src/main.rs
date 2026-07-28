@@ -482,7 +482,7 @@ fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, 
     };
     let mut out = Vec::with_capacity(args.len());
     for arg in args {
-        out.push(block.call(std::slice::from_ref(arg))?);
+        out.push(block.call_values(std::slice::from_ref(arg))?);
     }
     Ok(Value::Array(out))
 }

@@ -4,7 +4,7 @@
 //! the one schema kobako ships a spelling for, and nothing beneath it
 //! knows the module exists. Each member is a thin wrapper over the
 //! byte-level entry it flavours — `Execution::value` over `payload`,
-//! `Yielder::call` over `call_payload`, `resolve_as` over `resolve`,
+//! `Yielder::call_values` over `call_payload`, `resolve_as` over `resolve`,
 //! `into_receiver` over `Receiver` — so a member that could not be
 //! written that way would be marking a gap in that surface rather than a
 //! convenience on top of it.
