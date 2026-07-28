@@ -7,10 +7,14 @@
 # encode are already held to each other by the round-trip fuzz, and a type
 # only one peer grows is the shape no generated case reaches.
 #
-# Only the payload layer has two implementations; the core envelope has a
-# single one in +crates/kobako-transport+, pinned by golden vectors
-# derived from docs/wire/envelope.md. The comparator's unit coverage rides
-# the test suite (+test/tasks/test_wire_symmetry.rb+).
+# Only the payload layer has two type-owning implementations; the core
+# envelope has a single one in +crates/kobako-transport+, pinned by golden
+# vectors derived from docs/wire/envelope.md. The guest's mruby-value walk
+# is no third peer for this gate to read: it names no payload type of its
+# own, consuming +kobako-codec+'s, so what it can get wrong is a value's
+# fidelity rather than a type's shape — held instead by the guest
+# round-trip fuzz (+test/fuzz/test_guest_value_fuzz.rb+). The comparator's
+# unit coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
 
 require_relative "../support/anchors"
 require_relative "../support/wire_symmetry"

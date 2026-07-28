@@ -37,6 +37,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   end
 
   def setup
+    super
     @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "100").to_i
     @iterations = 1000 if ENV["KOBAKO_FUZZ_HEAVY"] == "1"
     @seed = (ENV["KOBAKO_FUZZ_SEED"] || Random.new_seed.to_s).to_i

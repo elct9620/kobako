@@ -174,6 +174,8 @@ The two layers differ because ambiguity does. The type mapping — the 12 wire t
 
 The two payload peers are held to each other over bytes by the round-trip fuzz: generated values cross both implementations and the re-encoding must come back byte-identical, so the type mapping and the three ext codes are checked one against the other over every shape the harness produces.
 
+The guest's own value walk — mruby values to and from the payload codec's types — sits below both peers rather than beside them, naming no payload type of its own. What it can get wrong is therefore a value's fidelity, not a type's shape, and it has no peer to differ against; it is held instead to an identity law, driving the real Guest Binary so that a value the host puts on the wire comes back the value it went in as.
+
 A shape the harness never produces sits outside that reach: a payload type one peer grows and the other does not stays invisible until a generated case reaches it. `rake gate:wire:symmetry` closes that by comparing the two peers' wire-codable type names. A name present on one side only must hold an entry under Accepted asymmetries, each carrying the reason the divergence is the contract's own shape rather than drift; an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
 
 One standing divergence lives outside the inventory comparison: success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. It is a difference in what each side's language makes idiomatic, not in what the wire carries, so the inventories stay comparable without it.
