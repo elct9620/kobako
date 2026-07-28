@@ -150,8 +150,8 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     if let Some(s) = RString::from_value(val) {
         return Ok(JsonValue::String(utf8_string(mrb, s)?));
     }
-    if Symbol::from_value(val).is_some() {
-        return Ok(JsonValue::String(val.to_string(mrb)));
+    if let Some(symbol) = Symbol::from_value(val) {
+        return Ok(JsonValue::String(utf8_symbol_name(mrb, symbol)?));
     }
     if let Some(ary) = Array::from_value(val) {
         return encode_array(mrb, ary, depth);
@@ -225,8 +225,8 @@ fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
     if let Some(s) = RString::from_value(key) {
         return utf8_string(mrb, s);
     }
-    if Symbol::from_value(key).is_some() {
-        return Ok(key.to_string(mrb));
+    if let Some(symbol) = Symbol::from_value(key) {
+        return utf8_symbol_name(mrb, symbol);
     }
     Err(generator_error(
         mrb,
@@ -250,6 +250,16 @@ fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, 
 /// so a non-UTF-8 byte sequence is refused rather than lossily transcoded.
 fn utf8_string(mrb: &Mrb, s: RString) -> Result<String, Error> {
     String::from_utf8(s.to_bytes()).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
+}
+
+/// Read a Symbol's name as a Rust `String`, holding it to the same rule
+/// `utf8_string` holds a String to: JSON text is UTF-8, so a name whose
+/// bytes are not is refused rather than rendered into a different name.
+fn utf8_symbol_name(mrb: &Mrb, symbol: Symbol) -> Result<String, Error> {
+    symbol
+        .name_bytes(mrb)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| generator_error(mrb, "symbol name is not valid UTF-8"))
 }
 
 fn too_deep(mrb: &Mrb) -> Error {

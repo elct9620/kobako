@@ -166,8 +166,8 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
             "wrong number of arguments (given 0, expected 1..3)",
         ));
     }
-    let source = args[0].to_string(mrb);
-    let options = parse_options(mrb, args.get(1).copied());
+    let source = text_of(mrb, args[0])?;
+    let options = parse_options(mrb, args.get(1).copied())?;
     compile(mrb, source, options)
 }
 
@@ -243,13 +243,13 @@ fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Rc<fancy_regex::Re
 }
 
 /// Resolve the optional flags argument to the MRI option mask.
-fn parse_options(mrb: &Mrb, flags: Option<Value>) -> i64 {
+fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     match flags {
         Some(value) if !value.is_nil() => match i32::from_value(value) {
-            Some(mask) => i64::from(mask),
-            None => translate::parse_flag_string(&value.to_string(mrb)),
+            Some(mask) => Ok(i64::from(mask)),
+            None => Ok(translate::parse_flag_string(&text_of(mrb, value)?)),
         },
-        _ => 0,
+        _ => Ok(0),
     }
 }
 
@@ -496,7 +496,7 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
         ));
     }
     Ok(mrb
-        .str_new(render::escape_str(&args[0].to_string(mrb)).as_bytes())
+        .str_new(render::escape_str(&text_of(mrb, args[0])?).as_bytes())
         .as_value())
 }
 
@@ -542,7 +542,19 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         return Ok(arg);
     }
-    compile(mrb, render::escape_str(&arg.to_string(mrb)), 0)
+    compile(mrb, render::escape_str(&text_of(mrb, arg)?), 0)
+}
+
+/// Read `val`'s text, or refuse it. Everything here works over `&str` —
+/// fancy-regex matches one, spans index into one, and replacements splice
+/// into one — so bytes that are not UTF-8 have no text to be. Refusing is
+/// what makes that visible: rendering them answers an empty string, where
+/// an empty subject silently matches nothing and an empty pattern
+/// silently matches everywhere.
+pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
+    let rendered = val.funcall(mrb, c"to_s", &[])?;
+    String::from_value(rendered)
+        .ok_or_else(|| argument_error(mrb, "invalid byte sequence in UTF-8"))
 }
 
 /// Coerce a match subject like the C `reg_operand`: a `String` or `Symbol`
@@ -550,7 +562,7 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
 /// `nil` as a no-match before reaching this.
 fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     if arg.is_string() || arg.is_symbol() {
-        Ok(arg.to_string(mrb))
+        text_of(mrb, arg)
     } else {
         Err(type_error(
             mrb,

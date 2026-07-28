@@ -67,6 +67,10 @@ impl Kobako {
         let entries = ary.entries();
         let mut out = Vec::with_capacity(entries.len());
         for elem in entries {
+            // Rendered, not read as bytes: a backtrace line lands in the
+            // envelope, which requires UTF-8 of its text fields, so a line
+            // that is not degrades to empty rather than costing the whole
+            // diagnostic. Value paths read bytes instead — see the codec.
             out.push(elem.to_string(self.mrb()));
         }
         out

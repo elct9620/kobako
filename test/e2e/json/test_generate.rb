@@ -72,6 +72,14 @@ class TestJsonGenerate < Minitest::Test
     assert_guest_raises "JSON::GeneratorError", "JSON.generate(255.chr)"
   end
 
+  # JS-06: a Symbol reaches JSON as its name, which is JSON text too, so
+  # the same rule holds it — a name read through a render would answer the
+  # empty string and emit `""` for a symbol the guest never wrote.
+  def test_js06_non_utf8_symbol_name_raises_generator_error
+    assert_guest_raises "JSON::GeneratorError", "JSON.generate(255.chr.to_sym)"
+    assert_guest_raises "JSON::GeneratorError", "JSON.generate({ 255.chr.to_sym => 1 })"
+  end
+
   # JS-06: a value is classified by its native type, not its class identity,
   # so a subclass of a JSON-native type serializes as that native kind.
   def test_js06_native_subclass_serializes_as_native_kind

@@ -8,6 +8,7 @@
 //! `Regexp` is held as the `@regexp` ivar so the mruby GC keeps it alive.
 
 use crate::errors::index_error;
+use crate::regexp;
 use beni::{format, DataType, Error, FromValue, IntoValue, Module, Mrb, Object, Value};
 
 /// Owned snapshot of one successful match.
@@ -133,7 +134,7 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
         return Ok(Some(n));
     }
     if arg.is_symbol() || arg.is_string() {
-        let name = arg.to_string(mrb);
+        let name = regexp::text_of(mrb, arg)?;
         let Some((_, i)) = state.names.iter().find(|(n, _)| *n == name) else {
             return Err(index_error(
                 mrb,

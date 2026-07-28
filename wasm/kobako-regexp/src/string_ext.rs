@@ -79,7 +79,7 @@ fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(result.as_value());
     }
     let re = regexp::coerce_regexp(mrb, args[0])?;
-    let subject = self_.to_string(mrb);
+    let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let block = Proc::from_value(block);
     for span in &spans {
@@ -126,7 +126,7 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return enum_for(mrb, self_, c"gsub", args[0]);
     }
     let re = regexp::coerce_regexp(mrb, args[0])?;
-    let subject = self_.to_string(mrb);
+    let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let mut out = String::with_capacity(subject.len());
     let mut last = 0;
@@ -156,7 +156,7 @@ fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         ));
     }
     let re = regexp::coerce_regexp(mrb, args[0])?;
-    let subject = self_.to_string(mrb);
+    let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let Some(span) = spans.first() else {
         return Ok(mrb.str_new(subject.as_bytes()).as_value());
@@ -185,17 +185,15 @@ fn substitution(
     if let Some(rep) = replacement {
         if rep.is_hash() {
             let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
-            let value = rep
-                .funcall(mrb, c"[]", &[matched])?
-                .funcall(mrb, c"to_s", &[])?;
-            return Ok(value.to_string(mrb));
+            let value = rep.funcall(mrb, c"[]", &[matched])?;
+            return regexp::text_of(mrb, value);
         }
-        return regexp::expand_replacement(mrb, re, subject, span, &rep.to_string(mrb));
+        return regexp::expand_replacement(mrb, re, subject, span, &regexp::text_of(mrb, rep)?);
     }
     if let Some(b) = block {
         regexp::set_span_globals(mrb, re, subject, span);
         let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
-        return Ok(b.call(mrb, &[matched])?.to_string(mrb));
+        return regexp::text_of(mrb, b.call(mrb, &[matched])?);
     }
     Ok(String::new())
 }
@@ -224,7 +222,7 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_split", args);
     }
-    let subject = self_.to_string(mrb);
+    let subject = regexp::text_of(mrb, self_)?;
     let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     let spans = regexp::match_spans(mrb, args[0], &subject)?;
 
@@ -269,7 +267,7 @@ fn str_index(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_index", args);
     }
-    let subject = self_.to_string(mrb);
+    let subject = regexp::text_of(mrb, self_)?;
     let pos = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     let Some(start) = regexp::resolve_pos(&subject, i64::from(pos)) else {
         return Ok(Value::nil());
