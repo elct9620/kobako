@@ -21,8 +21,6 @@ module Kobako
 
     private
 
-    def checkout: () -> Kobako::Sandbox
-
     def acquire: () -> Kobako::Sandbox
 
     def claim_or_wait: (Float? deadline) -> [Symbol, Kobako::Sandbox?]
