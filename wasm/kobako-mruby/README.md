@@ -34,7 +34,7 @@ crate-type = ["cdylib"]
 [dependencies]
 kobako-mruby = { version = "0.12.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.12.0" # x-release-please-version
-beni = "0.3"
+beni = "0.10"
 ```
 
 ```rust
@@ -71,7 +71,7 @@ impl kobako_core::Guest for MyGuest {
 
 kobako_core::export_guest!(MyGuest);
 
-// Build-time pre-initialization entry: ABI v2 hosts expect the
+// Build-time pre-initialization entry: a kobako host expects the
 // canonical boot state baked into the artifact, so expose bake_boot
 // and run kobako-baker over the linked module.
 #[export_name = "wizer.initialize"]

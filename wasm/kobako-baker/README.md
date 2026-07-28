@@ -14,7 +14,7 @@ snapshots the booted interpreter into the artifact's data segments.
 Identical inputs produce identical baked bytes, so a double-bake
 byte-identity check gates reproducibility.
 
-A host that implements kobako ABI v2 instantiates the baked module
+A kobako host instantiates the baked module
 afresh per invocation; instantiation rides wasmtime's copy-on-write
 image mapping, so every invocation receives the booted mruby VM
 without paying boot.

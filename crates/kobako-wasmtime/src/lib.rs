@@ -4,7 +4,7 @@
 //! `Driver` implements `kobako_runtime::runtime::Runtime` over wasmtime:
 //! every invocation instantiates a fresh instance from a pre-linked
 //! template and discards the whole Store afterwards — the
-//! per-invocation instance discipline (ABI v2). Everything engine-bound
+//! per-invocation instance discipline. Everything engine-bound
 //! lives behind the contract surface, so a frontend shell (the Ruby
 //! ext's `Kobako::Runtime`) sees no wasmtime type.
 //!

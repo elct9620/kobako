@@ -80,5 +80,5 @@ fn eval_body<G: crate::MrbGuest>() {
 
     boot::write_value_outcome::<G>(&kobako, result_val);
     // The VM stays in the slot — the host discards the whole instance
-    // after draining the outcome (ABI v2 per-invocation discipline).
+    // after draining the outcome (the per-invocation discipline).
 }

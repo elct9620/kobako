@@ -18,13 +18,13 @@
 //!    acquire step, borrows via `MRB.as_ref`.
 //! 3. The slot is cleared only when a lazy boot fails mid-way; on
 //!    every other path the VM stays installed — the host discards the
-//!    whole instance after each invocation (ABI v2 per-invocation
+//!    whole instance after each invocation (the per-invocation
 //!    discipline), so `mrb_close` never needs to run.
 //!
 //! ## Cross-invocation isolation
 //!
-//! The host drives every invocation on a fresh instance of the module
-//! (ABI v2), and `MRB` is a module-level static inside that instance's
+//! The host drives every invocation on a fresh instance of the module,
+//! and `MRB` is a module-level static inside that instance's
 //! wasm linear memory — two invocations see *different* memory
 //! locations for this static, with no aliasing. The single-threaded
 //! wasm execution model inside any one instance is what licenses the
