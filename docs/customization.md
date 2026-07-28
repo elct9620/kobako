@@ -18,7 +18,7 @@ listed obligation is what an implementation is held to.
 | Point | Interface | Endpoint |
 |---|---|---|
 | Payload codec | `MrbGuest::Codec: PayloadCodec` | guest |
-| Payload codec | `Receiver::call(.., payload: &[u8], ..)` | Rust host SDK |
+| Payload codec | the byte-level payload surface, `msgpack` feature off | Rust host SDK |
 | Capability set | `MrbGuest::init_gems` | guest |
 | Invocation flow | a `Guest` method implemented rather than forwarded | guest |
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest |
@@ -31,14 +31,21 @@ every tier above depends on and which depends on nothing, so an implementer
 picks up the fixed tier without picking up anyone else's choices. And the
 **Ruby frontend is fixed to the default codec**: MessagePack is Ruby's native
 choice and the gem speaks it directly, so there is no seam to substitute at. A
-replacement codec is installed on the guest and, if the host is Rust, at
-`Receiver`.
+replacement codec is installed on the guest and, if the host is Rust, by
+building the SDK without its `msgpack` feature.
 
 ## Payload codec
 
 A codec owns the payload positions and nothing else. The core envelope routes
 and attributes without reading a payload byte, so replacing the codec leaves
 the envelope, the ABI, and the version untouched.
+
+The two endpoints carry equal shares of that. A guest fills every position
+below; a Rust host built on the SDK fills the same set, because each one has a
+byte-level entry there — a dispatch's arguments and answer at `Receiver`, a
+`run` payload at `Sandbox::run_payload`, a yield at `Yielder::call_payload`, an
+invocation's result at `Execution::payload`. Neither endpoint owes anything at
+a Reply's fault arm, which rides the envelope.
 
 **Obligations** (→ [`wire-codec.md`](wire-codec.md) § What a replacement codec
 must provide):
@@ -67,19 +74,25 @@ impl MrbGuest for MyGuest {
 }
 ```
 
-A Rust host reads the payload itself inside `Receiver::call`, which is handed
-the bytes rather than decoded values. `ValueReceiver` plus `ValueAdapter` is
-the shortcut for the default codec; a host with its own schema implements
-`Receiver` directly.
+A Rust host names its choice by what it builds against. Every payload position
+is bytes by default, and the `msgpack` feature adds the bundled codec's
+spelling of each — `ValueReceiver` plus `ValueAdapter`, `Sandbox::run`,
+`Yielder::call`, `Execution::value`. A host with its own schema turns the
+feature off and implements the byte-level surface.
 
-**Building without one.** `kobako-transport` carries no payload codec at all,
-and `kobako-core` depends on nothing else — so a guest that only routes
-messages reaches neither MessagePack nor `kobako-codec`, by the shape of the
-dependency graph rather than by a build flag. `kobako-mruby` carries the
+**Building without one.** Replaceability is a property of the dependency
+graph, not a flag. `kobako-transport` carries no payload codec at all and
+`kobako-core` depends on nothing else, so a guest that only routes messages
+reaches neither MessagePack nor `kobako-codec`. `kobako-mruby` carries the
 bundled codec behind its `msgpack` feature; with the feature off, the harness
 has no `MsgpackCodec` to offer and the shell's `MrbGuest::Codec` is the only
-one in the build. kobako compiles those tiers codec-free on every release, so
-"the codec is replaceable" is a claim held to a build rather than stated.
+one in the build. The Rust host SDK is the same on its side: `kobako`'s
+`msgpack` feature is on by default and carries the whole `Value` surface, and
+with it off the crate reaches no payload codec either.
+
+kobako compiles every one of those tiers codec-free on each release and checks
+that no codec appears in the resulting graph, so this is a claim held to a
+build rather than stated.
 
 ## Capability set
 

@@ -19,7 +19,7 @@ The core envelope carries what routing and attribution need, and nothing else: a
 
 Two properties follow, and they are the reason for the split:
 
-- **The codec is replaceable.** A host and guest that agree on another schema swap [`wire/payload-msgpack.md`](wire/payload-msgpack.md) for their own and carry no MessagePack dependency. MessagePack is kobako's default payload codec, not the wire's only one. Each side names its choice at one seam — a Rust host at `Receiver`, a guest shell at `MrbGuest::Codec` — and the tiers beneath route messages without reading a payload byte, which `rake gate:payload:optional` holds them to.
+- **The codec is replaceable.** A host and guest that agree on another schema swap [`wire/payload-msgpack.md`](wire/payload-msgpack.md) for their own and carry no MessagePack dependency. MessagePack is kobako's default payload codec, not the wire's only one. Each side names its choice where it assembles — a guest shell at `MrbGuest::Codec`, a Rust host by building the SDK without its `msgpack` feature — and the tiers beneath route messages without reading a payload byte, which `rake gate:payload:optional` holds them to by checking that no codec appears in either side's codec-free graph.
 - **The two decodes are separable.** Decoding an envelope requires nothing from the codec, and decoding a payload requires nothing from the envelope beyond its bytes and length. A frontend may split the two across its own internal boundaries, and an endpoint that only routes messages needs no codec at all.
 
 A codec substitution changes neither the ABI surface below nor the envelope layout; a change to either of those is an ABI version increment.
