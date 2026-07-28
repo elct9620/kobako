@@ -72,13 +72,13 @@ The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` c
 
 ### ABI Version
 
-The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `4`.
+The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `3`.
 
 `__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it once at Sandbox construction and compares the returned value against the version it implements by equality; an absent export or a non-equal value fails construction with `Kobako::SetupError` (B-40, E-42).
 
 Any change to the Wire Contract, either layer document, or the ABI surface (function set, names, signatures) increments the version. There is no compatibility range and no negotiation: a host implements exactly one ABI version and loads only Guest Binaries reporting that version. Swapping the payload codec is not such a change — the codec is a choice the two endpoints share, outside the versioned surface.
 
-Version `4` carries the two-layer wire: a fixed-layout core envelope with an opaque payload, and MessagePack as the default codec. It draws the line between the two by whose data a field is: a Reply's fault arm is kobako's own, so version `4` moved it out of the payload and into the envelope, where a guest reads a refusal with no codec at all. It also carries the per-invocation instance discipline ([`behavior/runtime.md`](behavior/runtime.md) B-49): the host drives every invocation entry on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
+Version `3` carries the two-layer wire: a fixed-layout core envelope with an opaque payload, and MessagePack as the default codec. It draws the line between the two by whose data a field is: a Reply's fault arm is kobako's own, so it rides the envelope, where a guest reads a refusal with no codec at all. It also carries the per-invocation instance discipline ([`behavior/runtime.md`](behavior/runtime.md) B-49): the host drives every invocation entry on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
 
 ### Invocation channels
 
