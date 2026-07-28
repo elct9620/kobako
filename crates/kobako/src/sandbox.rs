@@ -13,10 +13,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::codec::{Encode as _, Value};
-#[cfg(feature = "msgpack")]
-use kobako_codec::msgpack::payload::Arguments;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
@@ -27,12 +23,11 @@ use kobako_wasmtime::{Config, Driver};
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::Error;
-#[cfg(feature = "msgpack")]
-use crate::error::Failure;
 use crate::execution::Execution;
 use crate::extension::{install_object, unresolved, Extension, Extensions};
-use crate::handles::{HandleTable, Handles};
+use crate::handles::HandleTable;
 use crate::outcome;
+use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
 
@@ -100,23 +95,6 @@ impl Registry {
             Registry::Sealed(catalog) => catalog.clone(),
             Registry::Open(_) => unreachable!("seal above pinned the sealed state"),
         }
-    }
-}
-
-/// A `run` argument: a `Value` passes by value, a host object
-/// auto-wraps into a capability Handle the guest can call back into
-/// (the counterpart of the Ruby `#run` auto-wrap; wrapping applies to
-/// the top-level argument position).
-#[cfg(feature = "msgpack")]
-pub enum RunArg {
-    Value(Value),
-    Object(Arc<dyn Receiver>),
-}
-
-#[cfg(feature = "msgpack")]
-impl From<Value> for RunArg {
-    fn from(value: Value) -> Self {
-        RunArg::Value(value)
     }
 }
 
@@ -258,75 +236,48 @@ impl Sandbox {
         )
     }
 
-    /// Dispatch into a preloaded entrypoint with positional and keyword
-    /// arguments; the guest resolves `target` as a top-level constant and
-    /// invokes its `call`. A `RunArg::Object` argument auto-wraps into a
-    /// capability Handle before the envelope encodes. Host pre-flight refuses a
-    /// non-constant `target` before the invocation seals the tables, matching
-    /// the Ruby frontend's ordering.
-    #[cfg(feature = "msgpack")]
-    pub fn run(
-        &self,
-        target: &str,
-        args: Vec<RunArg>,
-        kwargs: Vec<(String, RunArg)>,
-    ) -> Result<Execution, Error> {
-        self.drive_run(
-            target,
-            |handles| encode_run_payload(handles, args, kwargs),
-            |_| Ok(Vec::new()),
-        )
+    /// Dispatch into a preloaded entrypoint; the guest resolves `target`
+    /// as a top-level constant and invokes its `call`.
+    ///
+    /// The payload names its own schema — `RunPayload::values` for the
+    /// bundled one, `bytes` or `build` for a host that speaks its own —
+    /// so this verb is the same whichever a Sandbox uses. Host pre-flight
+    /// refuses a non-constant `target` before the invocation seals the
+    /// tables, matching the Ruby frontend's ordering.
+    pub fn run(&self, target: &str, payload: RunPayload<'_>) -> Result<Execution, Error> {
+        self.drive_run(target, payload, |_| Ok(Vec::new()))
     }
 
     /// `run` with a per-invocation override closure — the Rust spelling of the
     /// Ruby frontend's `#run(target, ...) { |ctx| ctx.bind(...) }`, the `run`
     /// counterpart of `eval_with`. The closure runs before the guest drives and
     /// binds overrides under the same rules `eval_with` documents.
-    #[cfg(feature = "msgpack")]
     pub fn run_with<F>(
         &self,
         target: &str,
-        args: Vec<RunArg>,
-        kwargs: Vec<(String, RunArg)>,
+        payload: RunPayload<'_>,
         overrides: F,
     ) -> Result<Execution, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        self.drive_run(
-            target,
-            |handles| encode_run_payload(handles, args, kwargs),
-            move |catalog| collect_overrides(catalog, overrides),
-        )
-    }
-
-    /// Dispatch into a preloaded entrypoint with a payload this host
-    /// encodes itself — the byte-level `run`, for a Sandbox whose
-    /// Receivers speak a schema this crate does not know.
-    ///
-    /// `payload` is a closure rather than bytes because a host object
-    /// crossing as a capability Handle needs an id from the invocation's
-    /// table, and that table exists only once the invocation has begun.
-    /// Whatever the closure returns rides as the Run payload verbatim.
-    pub fn run_payload<P>(&self, target: &str, payload: P) -> Result<Execution, Error>
-    where
-        P: FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error>,
-    {
-        self.drive_run(
-            target,
-            |handles| payload(&Handles::new(handles)),
-            |_| Ok(Vec::new()),
-        )
+        self.drive_run(target, payload, move |catalog| {
+            collect_overrides(catalog, overrides)
+        })
     }
 
     /// Shared `run` / `run_with` core: validate the target before sealing, seal,
-    /// collect any overrides against the sealed catalog, auto-wrap the args into
-    /// this run's Handle table, and drive the entrypoint envelope. `collect`
-    /// yields the per-invocation overrides — empty for `run`, the closure's for
-    /// `run_with`.
-    fn drive_run<P, C>(&self, target: &str, payload: P, collect: C) -> Result<Execution, Error>
+    /// collect any overrides against the sealed catalog, finish the payload
+    /// against this run's Handle table, and drive the entrypoint envelope.
+    /// `collect` yields the per-invocation overrides — empty for `run`, the
+    /// closure's for `run_with`.
+    fn drive_run<C>(
+        &self,
+        target: &str,
+        payload: RunPayload<'_>,
+        collect: C,
+    ) -> Result<Execution, Error>
     where
-        P: FnOnce(&Mutex<HandleTable>) -> Result<Vec<u8>, Error>,
         C: FnOnce(&Catalog) -> Result<Resolved, Error>,
     {
         if !snippet::constant_name(target) {
@@ -336,7 +287,7 @@ impl Sandbox {
         }
         let (catalog, handles) = self.begin_invocation()?;
         let resolved = collect(&catalog)?;
-        let payload = payload(&handles)?;
+        let payload = payload.encode(&handles)?;
         let envelope = Run {
             entrypoint: target.to_string(),
             payload,
@@ -418,55 +369,6 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Exec
         snapshot.stderr,
         snapshot.usage,
     )
-}
-
-/// The bundled codec's spelling of a `run` payload: auto-wrap each host
-/// object into this invocation's Handle table, then encode the pair.
-///
-/// Wrapping needs the table, and the table exists only once the
-/// invocation has begun — which is why the payload is built here rather
-/// than by the caller before the verb starts.
-#[cfg(feature = "msgpack")]
-fn encode_run_payload(
-    handles: &Mutex<HandleTable>,
-    args: Vec<RunArg>,
-    kwargs: Vec<(String, RunArg)>,
-) -> Result<Vec<u8>, Error> {
-    let args = args
-        .into_iter()
-        .map(|arg| wrap_run_arg(handles, arg))
-        .collect::<Result<_, _>>()?;
-    let kwargs = kwargs
-        .into_iter()
-        .map(|(key, arg)| Ok((key, wrap_run_arg(handles, arg)?)))
-        .collect::<Result<_, Error>>()?;
-    Arguments::new(args, kwargs)
-        .encode()
-        .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))
-}
-
-/// Encode one `run` argument, auto-wrapping a host object into the
-/// invocation's Handle table. Exhaustion surfaces pre-call with the Ruby
-/// counterpart's attribution — an outer `Err`, since the guest never ran.
-#[cfg(feature = "msgpack")]
-fn wrap_run_arg(handles: &Mutex<HandleTable>, arg: RunArg) -> Result<Value, Error> {
-    match arg {
-        RunArg::Value(value) => Ok(value),
-        RunArg::Object(object) => handles
-            .lock()
-            .expect("the Handle table mutex is never poisoned")
-            .alloc(object)
-            .map(Value::Handle)
-            .map_err(|message| {
-                Error::Sandbox(Box::new(Failure {
-                    class: "Kobako::HandleExhaustedError".into(),
-                    message,
-                    backtrace: Vec::new(),
-                    available: Vec::new(),
-                    diagnostic: None,
-                }))
-            }),
-    }
 }
 
 /// Run an override closure against a fresh `Context` over `catalog` and hand

@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value as Json};
 
 use kobako::{
     Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile, Provider,
-    Receiver, RunArg, Sandbox, Value, ValueAdapter, ValueReceiver, Yielder,
+    Receiver, RunArg, RunPayload, Sandbox, Value, ValueAdapter, ValueReceiver, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -565,14 +565,14 @@ fn run_verb(
             Ok(match invocation["overrides"].as_array() {
                 Some(overrides) => {
                     let stubs = build_override_stubs(overrides, opaques)?;
-                    sandbox.run_with(target, args, kwargs, move |ctx| {
+                    sandbox.run_with(target, RunPayload::values(args, kwargs), move |ctx| {
                         for (path, object) in stubs {
                             ctx.bind(&path, object)?;
                         }
                         Ok(())
                     })
                 }
-                None => sandbox.run(target, args, kwargs),
+                None => sandbox.run(target, RunPayload::values(args, kwargs)),
             })
         }
         other => Err(format!("unknown invocation verb {other:?}")),

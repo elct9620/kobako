@@ -1,5 +1,5 @@
 //! Integration coverage for the byte-level payload surface — the entries
-//! a host uses when the payload's schema is its own: `Sandbox::run_payload`,
+//! a host uses when the payload's schema is its own: `RunPayload::bytes`,
 //! `Execution::payload`, `Receiver::call`, and `Yielder::call_payload`.
 //!
 //! The bundled guest speaks MessagePack, so these tests build that schema's
@@ -15,7 +15,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use kobako::{Fault, FaultKind, Handles, Options, Receiver, Sandbox, Yielder};
+use kobako::{Fault, FaultKind, Handles, Options, Receiver, RunPayload, Sandbox, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
@@ -81,7 +81,7 @@ impl Receiver for ByteEcho {
 }
 
 #[test]
-fn run_payload_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
+fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
     let Some(mut sandbox) = real_sandbox() else {
         return;
     };
@@ -90,7 +90,7 @@ fn run_payload_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
         .expect("preload the entrypoint");
 
     let execution = sandbox
-        .run_payload("Echo", |_handles| Ok(run_args(Value::Str("hi".into()))))
+        .run("Echo", RunPayload::bytes(run_args(Value::Str("hi".into()))))
         .expect("the invocation runs");
 
     let bytes = execution

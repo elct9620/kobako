@@ -14,13 +14,15 @@
 //! Every payload position — a dispatch's arguments and answer, a `run`
 //! payload, a yield, an invocation's result — has a byte-level entry,
 //! because what those bytes mean is the host's own choice of schema.
-//! `Receiver`, `Sandbox::run_payload`, `Yielder::call_payload`, and
-//! `Execution::payload` are that surface.
+//! `Receiver`, `RunPayload::bytes` / `build`, `Yielder::call_payload`,
+//! and `Execution::payload` are that surface.
 //!
 //! The default `msgpack` feature adds the bundled codec's spelling of
-//! each: `ValueReceiver`, `Sandbox::run`, `Yielder::call`,
-//! `Execution::value`, and the `Value` type they speak in. Turn it off
-//! and the crate resolves to no payload codec at all — which is what
+//! each: `ValueReceiver`, `RunPayload::values`, `Yielder::call`,
+//! `Execution::value`, and the `Value` type they speak in. A verb never
+//! belongs to one spelling — `run` takes whichever payload it is handed
+//! — so turning the feature off removes conveniences, not capabilities,
+//! and the crate then resolves to no payload codec at all, which is what
 //! makes "the codec is replaceable" a property of the dependency graph
 //! rather than a claim about it.
 
@@ -31,6 +33,7 @@ pub mod execution;
 pub mod extension;
 pub mod handles;
 mod outcome;
+pub mod payload;
 pub mod receiver;
 pub mod sandbox;
 mod snippet;
@@ -43,10 +46,11 @@ pub use handles::Handles;
 #[cfg(feature = "msgpack")]
 pub use kobako_codec::msgpack::codec::Value;
 pub use kobako_runtime::profile::Profile;
+#[cfg(feature = "msgpack")]
+pub use payload::RunArg;
+pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};
 #[cfg(feature = "msgpack")]
 pub use receiver::{ValueAdapter, ValueReceiver};
-#[cfg(feature = "msgpack")]
-pub use sandbox::RunArg;
 pub use sandbox::{Context, Options, Sandbox, Usage};
 pub use yielder::{YieldError, Yielder};
