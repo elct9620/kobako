@@ -96,7 +96,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | Payload position | Accepted family | Violation handling |
 |---|---|---|
 | `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
-| Reply ok body, Yield Reply ok / break body, Outcome result body | str or bin (context-determined) | both are legal |
+| Reply ok body, Yield Reply ok / break body, Outcome ok body | str or bin (context-determined) | both are legal |
 
 The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `name`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
 

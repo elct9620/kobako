@@ -63,10 +63,10 @@ A codec owns the payload positions and nothing else. The core envelope routes
 and attributes without reading a payload byte, so replacing the codec leaves
 the envelope, the ABI, and the version untouched.
 
-The two endpoints carry equal shares of that. A guest fills every position
-below; a Rust host built on the SDK fills the same set, because each one has a
-byte-level entry there — a dispatch's arguments and answer at `Receiver`, a
-`run` payload at `RunPayload::bytes` or `RunPayload::build`, a yield at
+The two endpoints reach the same set of positions. A guest fills the ones its
+codec serves; a Rust host built on the SDK reaches every one of them, because
+each has a byte-level entry there — a dispatch's arguments and answer at
+`Receiver`, a `run` payload at `RunPayload::bytes` or `RunPayload::build`, a yield at
 `Yielder::call_payload`, an invocation's result at `Execution::payload`, and
 the host object a Handle stands for at `Handles::resolve` during a dispatch or
 `Execution::resolve` afterwards — both taking the id, since spelling a Handle
@@ -81,11 +81,21 @@ outside this crate as extension traits over the same entries.
 **Obligations** (→ [`wire-codec.md`](wire-codec.md) § What a replacement codec
 must provide):
 
-| Position | What the codec must express |
+| Position | What serving it obliges |
 |---|---|
-| Yield Reply ok / break body, Outcome result body | one value |
+| Yield Reply ok / break body, Outcome ok body | one value — **the floor**, and the only position every codec owes |
 | Call payload | positional and keyword arguments, distinguishably |
 | Run payload, Yield Call | the arguments alone; neither carries keywords |
+
+A codec may serve only some of these. Every invocation ends by writing an
+Outcome, so writing a value is the one thing none of them can leave out;
+the rest are capabilities a codec chooses. A position it does not serve
+refuses there, and the refusal says the position is unserved rather than
+that a message was unreadable — a script sees `NotImplementedError` where
+it reached for a capability this guest does not have. A Call payload and
+its Reply value are two halves of one exchange, so serving either owes the
+other; nothing enforces that, and a codec that breaks the pairing leaves
+the exchange half-served at the Reply.
 
 Only the Call payload owes the distinction, and it owes it because that is
 where keywords exist: the guest hands the codec a separated rest slice and

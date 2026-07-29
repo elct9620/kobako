@@ -26,13 +26,15 @@ A codec substitution changes neither the ABI surface below nor the envelope layo
 
 ### What a replacement codec must provide
 
-The obligations are positions to fill, not an encoding to use. A codec that fills them interoperates with any kobako endpoint that speaks it.
+The obligations are positions to fill, not an encoding to use. One position is unconditional and the rest are capabilities: a codec serves the ones it chooses and refuses at the others, and the refusal says the position is unserved rather than that a message was unreadable — so a host can tell a guest that never offered a feature from one that is broken.
 
-| Obligation | Why the contract needs it |
-|------------|---------------------------|
-| A Yield Reply ok or break body and an Outcome result body each carry one value | These are single-value positions; a codec needs no framing beyond its own value encoding |
-| A Call payload expresses positional and keyword arguments distinguishably | The host dispatches through `public_send`, where the two are not interchangeable — and the guest hands the codec the two already separated, so folding them together loses the keywords silently |
-| A Run payload and a Yield Call carry their arguments alone | Neither position has keywords: a `#run` payload's ride as a trailing Hash the entrypoint reads positionally, and a Yield Call's arguments are a plain list |
+| Position | What serving it obliges | Why the contract needs it |
+|----------|-------------------------|---------------------------|
+| An Outcome ok body and a Yield Reply ok or break body | one value | **The floor.** Every invocation ends by writing an Outcome, so a codec that cannot write a value completes nothing. These are single-value positions; a codec needs no framing beyond its own value encoding |
+| A Call payload | positional and keyword arguments, distinguishably | The host dispatches through `public_send`, where the two are not interchangeable — and the guest hands the codec the two already separated, so folding them together loses the keywords silently |
+| A Run payload and a Yield Call | the arguments alone | Neither position has keywords: a `#run` payload's ride as a trailing Hash the entrypoint reads positionally, and a Yield Call's arguments are a plain list |
+
+A Call payload and the Reply value it is answered with are two halves of one exchange, so a codec that serves either owes the other. Nothing enforces the pairing; a codec that writes a Call it cannot read the answer to leaves the exchange half-served at the Reply.
 
 A Reply's fault body is not among them. Every byte of a Fault is kobako's — a closed category and a message — so it rides the envelope (→ [`wire/envelope.md`](wire/envelope.md) § Fault) and a replacement codec neither encodes nor reads one. A guest that speaks another schema still reads a refusal, and reads it without a codec at all.
 
