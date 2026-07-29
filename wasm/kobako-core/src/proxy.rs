@@ -1,4 +1,4 @@
-//! Guest transport proxy — the guest-side dispatch pipeline.
+//! Guest dispatch proxy — the guest-side half of the dispatch pipeline.
 //!
 //! This module is the glue between the interpreter-side bridge of the
 //! consuming guest crate (for the bundled guest: the `method_missing`

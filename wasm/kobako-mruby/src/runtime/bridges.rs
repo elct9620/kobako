@@ -26,7 +26,7 @@
 //!        ▼
 //!   forward_to_dispatch(Target::Path(target_str), ...)
 //!        ▼
-//!   kobako_core::transport::proxy::dispatch(...)
+//!   kobako_core::proxy::dispatch(...)
 //! ```
 //!
 //! `proxy_method_missing` is the single forwarding entry the
@@ -107,7 +107,7 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 /// error labels: `sym_err_msg` for a null method symbol, `envelope_err_msg`
 /// for a transport envelope fault. Extracts the method symbol, args/kwargs,
 /// and block; encodes the arguments and rounds the Call through the host
-/// via `kobako_core::transport::proxy::dispatch`; and reads back whichever
+/// via `kobako_core::proxy::dispatch`; and reads back whichever
 /// body the Reply's arm named — raising `Kobako::ServiceError` on a fault
 /// arm and `Kobako::Transport::Error` on an envelope fault (both raise
 /// paths diverge). The payload codec is this side's to run: the

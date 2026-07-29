@@ -14,9 +14,9 @@
 //! raise it might do outside the parked block's lifetime.
 
 use beni::Value;
-use kobako_core::transport::proxy;
+use kobako_core::proxy;
 
-pub use kobako_core::transport::proxy::DispatchError;
+pub use kobako_core::DispatchError;
 pub use kobako_transport::envelope::Target;
 
 use crate::runtime::block_stack::BlockFrame;

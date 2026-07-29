@@ -29,7 +29,7 @@ extern "C" {
     /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a
     /// packed u64 holding (response_ptr, response_len) of a buffer the
     /// host allocated via `__kobako_alloc` inside the same call frame.
-    /// Crate-internal — guests dispatch through `transport::proxy`,
+    /// Crate-internal — guests dispatch through `proxy`,
     /// never the raw import.
     pub(crate) fn __kobako_dispatch(req_ptr: u32, req_len: u32) -> u64;
 }

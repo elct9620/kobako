@@ -1,7 +1,7 @@
 //! The payload codec seam — mruby values ↔ payload bytes.
 //!
 //! The transport tier routes a message without reading its payload
-//! (`kobako_core::transport::proxy`), so everything between the wire's
+//! (`kobako_core::proxy`), so everything between the wire's
 //! bytes and the interpreter's values happens through this trait. A shell
 //! names its codec on `MrbGuest::Codec`; the flows never mention a
 //! schema.
