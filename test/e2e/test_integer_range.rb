@@ -21,10 +21,13 @@ class TestE2EIntegerRange < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Clock::Millis", -> { OVER_I32 })
 
-    assert_raises(Kobako::SandboxError,
-                  "a Service return above the guest's 32-bit range must be refused, not saturated") do
-      sandbox.eval("Clock::Millis.call")
-    end
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("Clock::Millis.call") }
+
+    assert_equal "Kobako::Transport::Error", err.klass,
+                 "a Service return above the guest's 32-bit range through Sandbox#eval must " \
+                 "attribute to the wire-level class, since the exchange is what did not complete"
+    assert_match(/2147483648.*32-bit Integer range/, err.message,
+                 "the refusal must name the value it could not hold, not just that one failed")
   end
 
   # boundary guard: the largest in-range value still round-trips, so the
@@ -44,10 +47,14 @@ class TestE2EIntegerRange < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Echo = ->(x) { x }", name: :Echo)
 
-    assert_raises(Kobako::SandboxError,
-                  "a #run argument above the guest's 32-bit range must fail the invocation") do
-      sandbox.run(:Echo, OVER_I32)
-    end
+    err = assert_raises(Kobako::SandboxError) { sandbox.run(:Echo, OVER_I32) }
+
+    assert_equal "Kobako::Transport::Error", err.klass,
+                 "a #run argument above the guest's 32-bit range must fail the invocation at " \
+                 "the wire level, before the entrypoint sees a saturated value"
+    assert_match(/2147483648.*32-bit Integer range/, err.message,
+                 "the Panic is the only account of why the invocation never started, so it " \
+                 "must say which value stopped it rather than that decoding failed")
   end
 
   # The third inbound direction, and the only one whose refusal takes
