@@ -19,7 +19,8 @@ says what kobako owes you, and it is set by what you do with the name:
 | Grade | What you do with it | What kobako promises |
 |---|---|---|
 | **stable** | write the name in your own signatures | it does not change name or shape without a version increment of the crate that owns it |
-| **append-only** | match it or implement it, and it is a set — an enum's variants, a trait's methods | the set only gains members; existing ones do not move. Enums carry `#[non_exhaustive]`, new trait methods carry a default |
+| **append-only** | match it, implement it, or read it, and it is a set — an enum's variants, a trait's methods, a struct's fields | the set only gains members; existing ones do not move. Enums and read-only structs carry `#[non_exhaustive]`, new trait methods carry a default |
+| **exhaustive** | match it, and it is a set you must cover completely | the set gains members only where every implementer has to answer for the new one, so a member breaks your match on purpose. No `#[non_exhaustive]`, no wildcard to fall into |
 | **replaceable** | write your own in place of kobako's | the obligations below are the whole of what your implementation owes; kobako swapping its own implementation is not a break |
 
 Source compatibility is the owning crate's semantic version; wire
@@ -43,9 +44,10 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch}` · `kobako_runtime::{Profile, Snapshot, Capture, Completion, Usage, Entry, Frames}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::CodecError` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako::{Error, Failure, YieldError}` |
-| **stable, and governed by the ABI version too** | `kobako_transport::abi::*` · `kobako_transport::envelope::*` · `kobako::FaultKind` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload}` |
+| **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError}` |
+| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · `kobako_transport::envelope::*` · `kobako::FaultKind` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the
 same for every assembly — that is what makes the parts interchangeable at all
